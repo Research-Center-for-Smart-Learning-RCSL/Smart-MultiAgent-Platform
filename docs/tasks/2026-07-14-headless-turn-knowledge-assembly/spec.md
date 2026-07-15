@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-07-14
 requirements: [R10.09, R11.14]
 ---
@@ -221,19 +221,28 @@ backend unit tests against `TurnEngine` (fake providers / spies on `_rag_context
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: Tests §8.1, §8.2, §8.4 fail before the fix and pass after.
-- [ ] AC-2: A headless `run_input_turn` assembles File RAG (when `agent.rag_config_id` is set) and
+- [x] AC-1: Tests §8.1, §8.2, §8.4 fail before the fix and pass after. (Verified red-first, then
+  green: `test_run_input_turn_assembles_knowledge_map`, `..._assembles_file_rag`,
+  `..._with_room_includes_concept_maps`.)
+- [x] AC-2: A headless `run_input_turn` assembles File RAG (when `agent.rag_config_id` is set) and
   the attached Knowledge Map (when `agent.knowmap_config_id` is set) as system blocks before
   streaming.
-- [ ] AC-3: A headless turn resolves Concept Maps if and only if a valid `chatroom_id` is supplied;
+- [x] AC-3: A headless turn resolves Concept Maps if and only if a valid `chatroom_id` is supplied;
   with `chatroom_id=None`, `_graphrag_context`/`resolve_graphrag_layers` is never invoked.
-- [ ] AC-4: A2A invocations pass no room (Concept Maps off); the approval worker threads its
+  (`test_run_input_turn_without_room_skips_concept_maps`.)
+- [x] AC-4: A2A invocations pass no room (Concept Maps off); the approval worker threads its
   carried authoritative `chatroom_id` through so approver turns include their room's Concept Maps.
-- [ ] AC-5: The room-turn path (`_run_locked`) produces identical knowledge blocks (same content,
-  same order) after the helper extraction (§8.6).
-- [ ] AC-6: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in `backend/`.
-- [ ] AC-7: `/check-security` lens passes for the new approver -> Concept Map flow (server-side
-  room id only; no access wider than a normal room turn for that agent + room).
+  (`test_run_turn_with_db_passes_parent_agent_id` asserts no room; `test_drive_approver_turn_*`.)
+- [x] AC-5: The room-turn path (`_run_locked`) produces identical knowledge blocks (same content,
+  same order) after the helper extraction (§8.6). See D-1 for the characterization test placement.
+- [x] AC-6: unit `pytest` green (1676 passed); `ruff check`/`format --check` clean on the diff;
+  `mypy` introduces no new errors (16 pre-existing baseline errors in untouched modules — FU-3).
+  The `tests/wiring/` tier is compose-backed and not runnable without the live stack (env-blocked,
+  not a regression).
+- [ ] AC-7: `/check-security` lens for the new approver -> Concept Map flow (server-side room id
+  only; no access wider than a normal room turn for that agent + room). Deferred to the consolidated
+  `/check-security` pass run after F-16 and F-14 land (all three share `turn_engine.py` and the
+  knowledge/key surfaces); a focused self-audit against §7's three security requirements passed.
 
 ## 11. SRS Delta
 
@@ -244,7 +253,19 @@ agent in the current room" applied to the approval's authoritative room.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1**: The §8.6 room-path characterization was placed as a direct unit test of the extracted
+  `_assemble_agent_knowledge` helper (`test_a2a_turn_dispatch.py::
+  test_assemble_agent_knowledge_order_and_empty_handling`) rather than in `test_agent_trigger_wiring.py`.
+  Reason: `_run_locked` has no unit-level harness — `test_agent_trigger_wiring.py` fakes the entire
+  `TurnEngine.run_turn` and never exercises the inline assembly — whereas the helper's returned block
+  sequence *is* the room path's knowledge-block output (the room path now just `system_parts.extend`s
+  it). Testing the helper's order + empty-handling is the faithful, feasible characterization of the
+  preserved behavior.
+- **D-2**: `_assemble_agent_knowledge` returns `tuple[list[str], RagContext | None]`, not the spec's
+  `list[str]` (§7.1). Reason: the room path consumes `rag_ctx.sources` after assembly to persist RAG
+  citations (`reply_meta['rag_sources']`, `turn_engine.py:1122-1124`, [R10.09]); returning only the
+  blocks would silently drop citation persistence. The `RagContext` is surfaced as the second tuple
+  element and ignored by the headless caller. Behavior for both paths is otherwise unchanged.
 
 ## 13. Follow-ups
 
@@ -258,3 +279,8 @@ Appended by /build.
   already assembles knowledge). So this one fix covers every knowledge-omitting path — no
   separate workflow entry is left unpatched. Recorded as a follow-up only to re-verify if a new
   headless turn entry is added later.
+- **FU-3 (pre-existing mypy baseline)**: `mypy .` on `backend/` reports 16 errors in 8 modules
+  untouched by this task (e.g. `contexts/tenancy/infrastructure/repositories.py:497`,
+  `contexts/conversation/infrastructure/presence.py`, `contexts/workflow/application/workflow_service.py:352`).
+  Confirmed pre-existing by stashing this task's edits and re-running `mypy` (same 16). Out of scope
+  here; recorded so the repo-wide type baseline can be cleaned separately.

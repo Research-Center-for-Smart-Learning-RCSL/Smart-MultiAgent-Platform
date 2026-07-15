@@ -43,8 +43,9 @@ async def drive_approver_turn(
     every job runs); retry within a small budget when the row is not yet visible
     (the create_gate transaction has not committed). The turn's commit / rollback
     and ``agent.turn_*`` audits are owned by the engine, mirroring ``wakeup_agent``.
-    ``chatroom_id`` rides along for log context only — the parked notify payload
-    carries the room the vote is threaded back to.
+    ``chatroom_id`` is the authoritative (server-side) room the vote is threaded
+    back to; it scopes the approver's room-scoped Concept Map resolution for this
+    turn (R11.09/R11.14) and rides along for log context.
     """
     from app.config.settings import get_settings
     from contexts.agents.application.runtime.turn_engine import TurnEngine
@@ -85,7 +86,11 @@ async def drive_approver_turn(
             qdrant_url=settings.qdrant.url,
             qdrant_api_key=settings.qdrant.api_key,
         )
-        result = await engine.run_input_turn(agent_id=aid, input_text=_APPROVER_TURN_INPUT)
+        result = await engine.run_input_turn(
+            agent_id=aid,
+            input_text=_APPROVER_TURN_INPUT,
+            chatroom_id=uuid.UUID(chatroom_id) if chatroom_id else None,
+        )
 
     logger.bind(
         event="approver_turn_driven",

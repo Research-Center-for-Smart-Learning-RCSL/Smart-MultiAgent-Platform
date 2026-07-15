@@ -103,8 +103,9 @@ async def test_drive_approver_turn_runs_headless_turn(monkeypatch) -> None:
     approval = _approval(ApprovalState.PENDING)
     captured = _wire_task(monkeypatch, approval)
     agent_id = uuid.uuid4()
+    room_id = uuid.uuid4()
 
-    out = await tasks_appr.drive_approver_turn({}, str(agent_id), str(approval.id), str(uuid.uuid4()))
+    out = await tasks_appr.drive_approver_turn({}, str(agent_id), str(approval.id), str(room_id))
 
     assert out == "completed"
     assert captured["looked_up"] == approval.id
@@ -113,6 +114,21 @@ async def test_drive_approver_turn_runs_headless_turn(monkeypatch) -> None:
     # The drained pending-notify supplies the cast_approval_vote tool; the
     # input just needs to point the agent at its notifications.
     assert "approval" in kw["input_text"].lower()
+    # Q-2: the approver's authoritative room threads through so its Concept Maps
+    # resolve for this turn (parsed from the carried str to a UUID).
+    assert kw["chatroom_id"] == room_id
+
+
+@pytest.mark.asyncio
+async def test_drive_approver_turn_without_room_passes_none(monkeypatch) -> None:
+    approval = _approval(ApprovalState.PENDING)
+    captured = _wire_task(monkeypatch, approval)
+
+    out = await tasks_appr.drive_approver_turn({}, str(uuid.uuid4()), str(approval.id), None)
+
+    assert out == "completed"
+    # No carried room → no Concept Map resolution (chatroom_id stays None).
+    assert captured["turn_kwargs"]["chatroom_id"] is None
 
 
 @pytest.mark.asyncio
