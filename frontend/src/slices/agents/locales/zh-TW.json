@@ -322,6 +322,7 @@
       "deleteFailed": "刪除文件失敗。",
       "deleteTitle": "刪除文件",
       "deleteConfirm": "刪除「{name}」？這會移除其已索引的片段，且無法復原。",
+      "deleteDocAria": "刪除文件",
       "emptyTitle": "尚未上傳文件",
       "emptyDescription": "上傳文件以建構知識圖。",
       "agentsSaved": "已更新文件可見範圍。",

@@ -142,12 +142,11 @@ describe('KnowledgeMapConfigDetailView build-state visibility (F-22)', () => {
     const callsAfterMount = socket.watch.mock.calls.length
     expect(callsAfterMount).toBeGreaterThan(0)
 
-    // Click the row's trash action; the mocked confirm resolves true.
-    const deleteBtn = wrapper
-      .findAll('button')
-      .find((b) => b.find('svg').exists() && b.classes().some((c) => c.includes('icon')))
-    expect(deleteBtn, 'a document-row delete button should render for an owner').toBeTruthy()
-    await deleteBtn!.trigger('click')
+    // Click the row's trash action, selected by its stable accessible name
+    // (test i18n renders the raw key); the mocked confirm resolves true.
+    const deleteBtn = wrapper.find('button[aria-label="agents.knowmap.deleteDocAria"]')
+    expect(deleteBtn.exists(), 'a document-row delete button should render for an owner').toBe(true)
+    await deleteBtn.trigger('click')
     await settle(wrapper)
 
     // The delete success handler re-opens the build channel so the auto-build's

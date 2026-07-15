@@ -140,6 +140,28 @@ describe('useRagConfigSocket', () => {
     expect(listDocumentsMock).not.toHaveBeenCalled()
   })
 
+  it('coalesces a burst of per-document frames into a single debounced refetch', async () => {
+    vi.useFakeTimers()
+    listDocumentsMock.mockResolvedValue([doc('d1', 'ingesting')])
+    mountSocket()
+    await vi.advanceTimersByTimeAsync(0)
+    // Ignore the immediate mount/seed fetch; measure only event-driven refetches.
+    listDocumentsMock.mockClear()
+
+    // A multi-file upload sprays per-document frames within one window.
+    emit({ type: 'ingestion.started' })
+    emit({ type: 'ingestion.progress', processed: 3, total: 10 })
+    emit({ type: 'ingestion.completed' })
+    emit({ type: 'ingestion.started' })
+    emit({ type: 'ingestion.completed' })
+    // Before the debounce window elapses, no refetch has fired.
+    expect(listDocumentsMock).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(750)
+    // The whole burst collapses to one authoritative document refetch.
+    expect(listDocumentsMock).toHaveBeenCalledTimes(1)
+  })
+
   it('a live ingestion.progress frame never overwrites the document-level counts (F-28 unit bug)', async () => {
     vi.useFakeTimers()
     listDocumentsMock.mockResolvedValue([doc('d1', 'ingesting'), doc('d2', 'ingesting')])
