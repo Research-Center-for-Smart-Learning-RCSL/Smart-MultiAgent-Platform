@@ -88,6 +88,11 @@ rag_documents = sa.Table(
         nullable=False,
         server_default=sa.text("'{}'::uuid[]"),
     ),
+    # Per-document ingest-attempt counter (F-23). Bumped on each genuine tus
+    # re-upload of a terminal-non-READY document and folded into the ingest/scan
+    # Arq job ids so a real retry always enqueues a fresh job while a concurrent
+    # duplicate of the same attempt still dedups. See migration 0055.
+    sa.Column("ingest_attempt", sa.Integer, nullable=False, server_default=sa.text("0")),
 )
 
 

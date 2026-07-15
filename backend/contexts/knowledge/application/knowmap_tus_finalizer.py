@@ -76,8 +76,16 @@ class KnowmapTusFinalizer:
         if existing is not None and existing.status is DocumentStatus.READY:
             return existing
         if existing is not None:
-            await self._enqueue_index(existing.id)
-            await enqueue_knowmap_scan(document_id=existing.id)
+            # F-23: only a TERMINAL non-READY row (FAILED/QUARANTINED) is a genuine
+            # retry — bump ingest_attempt so the ingest + scan job ids change and
+            # Arq enqueues a fresh run instead of deduping onto the retained prior
+            # result. An INGESTING row has a worker in flight; skip the re-enqueue
+            # so two workers never index the same doc and collide on
+            # uq_knowmap_chunk_doc_idx.
+            if existing.status in (DocumentStatus.FAILED, DocumentStatus.QUARANTINED):
+                attempt = await self._docs.bump_ingest_attempt(existing.id)
+                await self._enqueue_index(existing.id, ingest_attempt=attempt)
+                await enqueue_knowmap_scan(document_id=existing.id, ingest_attempt=attempt)
             return existing
 
         key = knowmap_source_object_key(project_id=cfg.project_id, config_id=cfg.id, sha256=sha)
@@ -116,11 +124,12 @@ class KnowmapTusFinalizer:
                 request_id=request_id,
             ),
         )
-        await self._enqueue_index(doc.id)
-        await enqueue_knowmap_scan(document_id=doc.id)
+        # First-time ingest: the new row carries ingest_attempt=0 (column default).
+        await self._enqueue_index(doc.id, ingest_attempt=0)
+        await enqueue_knowmap_scan(document_id=doc.id, ingest_attempt=0)
         return doc
 
-    async def _enqueue_index(self, document_id: uuid.UUID) -> None:
+    async def _enqueue_index(self, document_id: uuid.UUID, *, ingest_attempt: int) -> None:
         # Commit the knowmap_documents row BEFORE enqueuing: the worker runs on a
         # separate connection and must see a committed row.
         await self._db.commit()
@@ -128,7 +137,9 @@ class KnowmapTusFinalizer:
             await enqueue(
                 "knowmap_ingest_document",
                 document_id=str(document_id),
-                _job_id=f"knowmap-ingest:{document_id}",
+                # Per-attempt job id (F-23): a bumped attempt is a distinct id that
+                # always enqueues; a concurrent duplicate of the same attempt dedups.
+                _job_id=f"knowmap-ingest:{document_id}:{ingest_attempt}",
             )
         except Exception:
             # Arq/Redis unavailable: don't leave the committed row stuck

@@ -107,6 +107,10 @@ knowmap_documents = sa.Table(
         nullable=False,
         server_default=sa.text("'{}'::uuid[]"),
     ),
+    # Per-document ingest-attempt counter (F-23), parallel to rag_documents:
+    # bumped on each genuine tus re-upload of a terminal-non-READY document and
+    # folded into the ingest/scan Arq job ids. See migration 0055.
+    sa.Column("ingest_attempt", sa.Integer, nullable=False, server_default=sa.text("0")),
 )
 
 

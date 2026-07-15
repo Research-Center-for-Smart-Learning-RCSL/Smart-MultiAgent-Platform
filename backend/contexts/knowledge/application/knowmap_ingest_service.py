@@ -275,14 +275,17 @@ class KnowmapIngestService:
         await enqueue_knowmap_build(config_id=cfg.id, target_revision=fresh.corpus_revision)
 
 
-async def enqueue_knowmap_scan(*, document_id: uuid.UUID) -> None:
+async def enqueue_knowmap_scan(*, document_id: uuid.UUID, ingest_attempt: int = 0) -> None:
+    # F-23: the job id carries the per-document ingest attempt so a genuine tus
+    # retry enqueues a fresh scan instead of deduping onto a retained result.
+    # Multipart callers keep the default 0 (that reupload scan-dedup is FU-2).
     try:
         from shared_kernel.queue import enqueue
 
         await enqueue(
             "knowmap_scan_document",
             document_id=str(document_id),
-            _job_id=f"knowmap-scan:{document_id}",
+            _job_id=f"knowmap-scan:{document_id}:{ingest_attempt}",
         )
     except Exception:
         _log.warning(
