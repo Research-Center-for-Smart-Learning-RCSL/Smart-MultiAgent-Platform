@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
@@ -69,7 +70,7 @@ def test_envelope_roundtrips_call_chain() -> None:
 
 def test_legacy_envelope_without_chain_defaults() -> None:
     # A message serialised before this field existed must still parse.
-    raw = {
+    raw: dict[str, Any] = {
         "id": str(uuid.uuid4()),
         "from_agent": None,
         "to_agent": _A,

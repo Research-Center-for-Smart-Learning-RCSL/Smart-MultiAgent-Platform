@@ -616,6 +616,7 @@ async def test_turn_clients_are_built_once_and_reused_across_layers() -> None:
         assert qclient_build_count == 1
 
         await provider._close_turn_clients()
+        assert first is not None
         driver, qclient = first
         driver.close.assert_awaited_once()
         qclient.close.assert_awaited_once()
