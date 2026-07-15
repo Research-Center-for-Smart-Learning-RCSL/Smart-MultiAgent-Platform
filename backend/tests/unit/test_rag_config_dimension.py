@@ -33,6 +33,10 @@ def _svc(existing: list) -> RagConfigService:
     svc = RagConfigService(db=AsyncMock())
     svc._configs = AsyncMock()
     svc._configs.list_for_project.return_value = existing
+    # F-11 added a durable pin ensure to create(); stub it so these tests keep
+    # exercising the live-sibling dimension pre-check in isolation. The pin repo's
+    # own conflict decision is covered by test_embedding_pin.py.
+    svc._pins = AsyncMock()
     return svc
 
 
