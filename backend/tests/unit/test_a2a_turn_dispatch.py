@@ -48,7 +48,60 @@ def _agent():
         prompt_strategy=SimpleNamespace(value="full"),
         model_hint=SimpleNamespace(value="claude"),
         model_id=None,
+        rag_config_id=None,
+        knowmap_config_id=None,
     )
+
+
+class _RagCtx:
+    def __init__(self, block: str) -> None:
+        self.block = block
+
+
+def _wire_knowledge(engine, *, rag=None, graphrag=None, knowmap=None, graphrag_calls=None):
+    """Stub the three per-provider context methods on a bare engine instance.
+
+    ``rag`` is the File RAG block body (wrapped in a RagContext-like object);
+    ``graphrag`` / ``knowmap`` are the Concept Map / Knowledge Map block strings.
+    ``graphrag_calls`` records the ``chatroom_id`` each Concept Map query runs
+    against so tests can assert room-scoping.
+    """
+
+    async def _rag(agent, queries):
+        return _RagCtx(rag) if rag is not None else None
+
+    async def _graph(agent, chatroom_id, queries):
+        if graphrag_calls is not None:
+            graphrag_calls.append(chatroom_id)
+        return graphrag
+
+    async def _km(agent, queries):
+        return knowmap
+
+    engine._rag_context = _rag  # type: ignore[attr-defined]
+    engine._graphrag_context = _graph  # type: ignore[attr-defined]
+    engine._knowmap_context = _km  # type: ignore[attr-defined]
+
+
+def _headless_engine(monkeypatch, agent):
+    """Bare engine wired for a headless ``run_input_turn`` that captures the
+    kwargs handed to ``_stream_with_tools`` (notably ``system_text``)."""
+    _wire_engine(monkeypatch, agent)
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = _FakeDB()  # type: ignore[attr-defined]
+    engine._router = object()  # type: ignore[attr-defined]
+    captured: dict = {}
+
+    async def _fake_stream(**kw):
+        captured.update(kw)
+        return ("reply", 0)
+
+    async def _noop_audit(*a, **k):
+        return None
+
+    engine._stream_with_tools = _fake_stream  # type: ignore[attr-defined]
+    engine._audit = _noop_audit  # type: ignore[attr-defined]
+    return engine, captured
 
 
 # --------------------------------------------------------------------------- #
@@ -97,6 +150,7 @@ async def test_run_input_turn_headless_completed(monkeypatch) -> None:
 
     engine._stream_with_tools = _fake_stream  # type: ignore[attr-defined]
     engine._audit = _noop_audit  # type: ignore[attr-defined]
+    _wire_knowledge(engine)  # no bound sources → no knowledge blocks
 
     result = await engine.run_input_turn(agent_id=agent.id, input_text="hi")
 
@@ -106,6 +160,96 @@ async def test_run_input_turn_headless_completed(monkeypatch) -> None:
     assert captured["room"] is None
     assert captured["chatroom_id"] is None
     assert captured["messages"] == [{"role": "user", "content": "hi"}]
+
+
+# --------------------------------------------------------------------------- #
+# run_input_turn knowledge assembly (F-15)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_assembles_knowledge_map(monkeypatch) -> None:
+    # [R11.14] a headless invocation queries the attached Knowledge Map.
+    agent = _agent()
+    agent.knowmap_config_id = uuid.uuid4()
+    engine, captured = _headless_engine(monkeypatch, agent)
+    graphrag_calls: list = []
+    _wire_knowledge(engine, knowmap="KNOWMAP_BLOCK", graphrag_calls=graphrag_calls)
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    assert result.status == "completed"
+    assert "KNOWMAP_BLOCK" in captured["system_text"]
+    # No room supplied → Concept Maps are never resolved.
+    assert graphrag_calls == []
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_assembles_file_rag(monkeypatch) -> None:
+    # [R10.09] a headless invocation queries the agent's File RAG corpus.
+    agent = _agent()
+    agent.rag_config_id = uuid.uuid4()
+    engine, captured = _headless_engine(monkeypatch, agent)
+    _wire_knowledge(engine, rag="RAG_BLOCK")
+
+    await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    assert "RAG_BLOCK" in captured["system_text"]
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_without_room_skips_concept_maps(monkeypatch) -> None:
+    agent = _agent()
+    engine, captured = _headless_engine(monkeypatch, agent)
+    graphrag_calls: list = []
+    _wire_knowledge(engine, graphrag="CONCEPT_BLOCK", graphrag_calls=graphrag_calls)
+
+    await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    # Room-scoped Concept Maps must not resolve without a chatroom.
+    assert graphrag_calls == []
+    assert "CONCEPT_BLOCK" not in captured["system_text"]
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_with_room_includes_concept_maps(monkeypatch) -> None:
+    agent = _agent()
+    room = uuid.uuid4()
+    engine, captured = _headless_engine(monkeypatch, agent)
+    graphrag_calls: list = []
+    _wire_knowledge(engine, graphrag="CONCEPT_BLOCK", graphrag_calls=graphrag_calls)
+
+    await engine.run_input_turn(agent_id=agent.id, input_text="hi", chatroom_id=room)
+
+    # Concept Maps resolve against exactly the supplied room.
+    assert graphrag_calls == [room]
+    assert "CONCEPT_BLOCK" in captured["system_text"]
+
+
+@pytest.mark.asyncio
+async def test_assemble_agent_knowledge_order_and_empty_handling(monkeypatch) -> None:
+    # Characterization of the room-path block sequence now living in the shared
+    # helper: File RAG, then Concept Map (room only), then Knowledge Map; empty
+    # blocks dropped.
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    graphrag_calls: list = []
+    _wire_knowledge(engine, rag="RAG", graphrag="CONCEPT", knowmap="KNOWMAP", graphrag_calls=graphrag_calls)
+    room = uuid.uuid4()
+
+    blocks, rag_ctx = await engine._assemble_agent_knowledge(_agent(), ["q"], chatroom_id=room)
+
+    assert blocks == ["RAG", "CONCEPT", "KNOWMAP"]
+    assert graphrag_calls == [room]
+    # The RagContext is surfaced so the room path can persist RAG citations.
+    assert rag_ctx is not None
+    assert rag_ctx.block == "RAG"
+
+    # No room drops the Concept Map; a None File RAG block is omitted, not empty.
+    engine2 = te.TurnEngine.__new__(te.TurnEngine)
+    _wire_knowledge(engine2, rag=None, graphrag="CONCEPT", knowmap="KNOWMAP")
+    blocks2, rag_ctx2 = await engine2._assemble_agent_knowledge(_agent(), ["q"], chatroom_id=None)
+    assert blocks2 == ["KNOWMAP"]
+    assert rag_ctx2 is None
 
 
 @pytest.mark.asyncio
@@ -384,6 +528,8 @@ async def test_run_turn_with_db_passes_parent_agent_id(monkeypatch) -> None:
 
     # Usage attribution: the calling agent rides through as parent_agent_id.
     assert captured["parent_agent_id"] == uuid.UUID(str(env.from_agent))
+    # A2A envelopes carry no room — Concept Maps never apply, so no room is passed.
+    assert "chatroom_id" not in captured
 
 
 @pytest.mark.asyncio

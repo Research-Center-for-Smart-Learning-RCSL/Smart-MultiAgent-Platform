@@ -409,14 +409,22 @@ class TurnEngine:
         parent_agent_id: uuid.UUID | None = None,
         workflow_run_id: uuid.UUID | None = None,
         cancel_check: CancelCheck | None = None,
+        chatroom_id: uuid.UUID | None = None,
     ) -> TurnResult:
         """Headless input→reply turn for A2A ``call`` / ``instruct`` (K.3 Pass 2).
 
-        No chatroom: no room history, no reply persistence, no room binding
-        check (the A2A scope check already authorised the caller), and no WS
-        stream (there is no room subscriber). Drains any queued notifications so
-        an approver agent can ``cast_approval_vote`` here. Returns the reply text
-        in ``TurnResult.text`` for the caller to put on the A2A reply envelope.
+        No room history, no reply persistence, no room binding check (the A2A
+        scope check already authorised the caller), and no WS stream (there is no
+        room subscriber). Still assembles the agent's per-invocation knowledge —
+        File RAG and its attached Knowledge Map (R10.09/R11.14) — as system blocks
+        before streaming. Drains any queued notifications so an approver agent can
+        ``cast_approval_vote`` here. Returns the reply text in ``TurnResult.text``
+        for the caller to put on the A2A reply envelope.
+
+        ``chatroom_id`` — optional authoritative room. A2A envelopes carry none
+        (Concept Maps never apply); the approval worker threads the room the vote
+        is bound to, so the approver's room-scoped Concept Maps resolve for this
+        turn. It must be a server-side room id, never a caller-supplied value.
 
         ``cancel_check`` — when set (A2A CALL turns only), checked at each tool
         round boundary; a True return stops the turn to save the user's provider
@@ -432,6 +440,13 @@ class TurnEngine:
             await self._audit(agent, None, "agent.turn_started", {"mode": "a2a", "workflow_run_id": wf})
             base_system, lazy_prompt, section_cache = self._resolve_prompt(agent)
             system_parts = [base_system] if base_system else []
+            # Knowledge blocks precede the notify block, matching the room path's
+            # order. With no history, retrieval keys off the current input alone.
+            knowledge_queries = _knowledge_queries([], input_text=input_text)
+            knowledge_blocks, _rag_ctx = await self._assemble_agent_knowledge(
+                agent, knowledge_queries, chatroom_id=chatroom_id
+            )
+            system_parts.extend(knowledge_blocks)
             notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(agent, None)
             extra_tools = extra_tools + await self._builtin_tools(agent)
             if notify_block:
@@ -939,15 +954,10 @@ class TurnEngine:
             # Retrieval keys off the *current* input when this turn carries one
             # (run_input_turn); otherwise the latest user message in history.
             knowledge_queries = _knowledge_queries(history, input_text=input_text)
-            rag_ctx = await self._rag_context(agent, knowledge_queries)
-            if rag_ctx:
-                system_parts.append(rag_ctx.block)
-            graphrag_block = await self._graphrag_context(agent, chatroom_id, knowledge_queries)
-            if graphrag_block:
-                system_parts.append(graphrag_block)
-            knowmap_block = await self._knowmap_context(agent, knowledge_queries)
-            if knowmap_block:
-                system_parts.append(knowmap_block)
+            knowledge_blocks, rag_ctx = await self._assemble_agent_knowledge(
+                agent, knowledge_queries, chatroom_id=chatroom_id
+            )
+            system_parts.extend(knowledge_blocks)
             if is_observer:
                 # §30 (R30.15): an observer also sees the room's recent structured
                 # activity events (deterministic outcomes) beside the full chat
@@ -1753,6 +1763,35 @@ class TurnEngine:
             query_texts=queries,
             querying_agent_id=agent.id,
         )
+
+    async def _assemble_agent_knowledge(
+        self, agent: Agent, queries: Sequence[str], *, chatroom_id: uuid.UUID | None
+    ) -> tuple[list[str], RagContext | None]:
+        """Assemble the per-turn knowledge system blocks in narrow-scope order.
+
+        Shared by the room path (:meth:`_run_locked`) and the headless path
+        (:meth:`run_input_turn`) so the two cannot drift (R10.09/R11.14). File RAG
+        and the attached Knowledge Map are per-Agent bindings needing no room;
+        Concept Maps are room-scoped and included only when a real ``chatroom_id``
+        is supplied. Order (File RAG → Concept Map → Knowledge Map) and the
+        empty-block handling mirror the room path's former inline assembly.
+
+        Returns the ordered blocks plus the ``RagContext`` so the room path can
+        persist RAG citations (``reply_meta['rag_sources']``); headless callers
+        ignore the second element.
+        """
+        blocks: list[str] = []
+        rag_ctx = await self._rag_context(agent, queries)
+        if rag_ctx:
+            blocks.append(rag_ctx.block)
+        if chatroom_id is not None:
+            graphrag_block = await self._graphrag_context(agent, chatroom_id, queries)
+            if graphrag_block:
+                blocks.append(graphrag_block)
+        knowmap_block = await self._knowmap_context(agent, queries)
+        if knowmap_block:
+            blocks.append(knowmap_block)
+        return blocks, rag_ctx
 
     async def _activity_context(self, chatroom_id: uuid.UUID) -> str | None:
         """Delegate to the activities :class:`ActivityContextProvider` (R30.15).
