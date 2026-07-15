@@ -266,7 +266,7 @@ def _patch_task_env(
     )
 
     class _TurnEngine:
-        def __init__(self, db, *, qdrant_url=None, qdrant_api_key=None) -> None:
+        def __init__(self, db, *, qdrant_url=None, qdrant_api_key=None, bge_reranker_url=None) -> None:
             pass
 
         async def run_turn(self, *, agent_id, chatroom_id, trigger, trigger_message_id=None):
@@ -292,7 +292,10 @@ def _patch_task_env(
 
     monkeypatch.setattr(
         "app.config.settings.get_settings",
-        lambda: SimpleNamespace(qdrant=SimpleNamespace(url="http://q", api_key=None)),
+        lambda: SimpleNamespace(
+            qdrant=SimpleNamespace(url="http://q", api_key=None),
+            knowledge=SimpleNamespace(bge_reranker_url="http://bge:80"),
+        ),
     )
 
     return rec

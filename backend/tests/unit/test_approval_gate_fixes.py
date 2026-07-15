@@ -77,7 +77,7 @@ def _wire_task(monkeypatch, approval, *, turn_result=None):
             return approval
 
     class _Engine:
-        def __init__(self, db, *, qdrant_url, qdrant_api_key) -> None:
+        def __init__(self, db, *, qdrant_url, qdrant_api_key, bge_reranker_url=None) -> None:
             captured["engine_db"] = db
 
         async def run_input_turn(self, **kw):
@@ -92,7 +92,10 @@ def _wire_task(monkeypatch, approval, *, turn_result=None):
     monkeypatch.setattr("contexts.agents.application.runtime.turn_engine.TurnEngine", _Engine)
     monkeypatch.setattr(
         "app.config.settings.get_settings",
-        lambda: SimpleNamespace(qdrant=SimpleNamespace(url="http://q", api_key=None)),
+        lambda: SimpleNamespace(
+            qdrant=SimpleNamespace(url="http://q", api_key=None),
+            knowledge=SimpleNamespace(bge_reranker_url="http://bge:80"),
+        ),
     )
     monkeypatch.setattr(tasks_appr, "async_session", _sess)
     return captured
