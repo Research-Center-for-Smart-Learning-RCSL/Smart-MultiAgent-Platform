@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-07-16
 requirements: [R31.01, R31.02, R31.03, R31.04, R31.05, R31.06, R31.07, R31.08, R31.09, R31.10, R31.11, R31.12, R31.13, R31.14, R31.15, R31.16, R31.17, R31.18, R31.19, R31.20, R31.21, R31.22, R31.23, R31.24, R31.25, R31.26, R31.27, R31.28, R31.29, R3.04, R8.12, R9.02, R9.04, R9.05, R9.06, R9.07, R9.08, R14.09, R15.22, R22.15.03, R23.01, R24.06]
 ---
@@ -1229,6 +1229,13 @@ orphaned, not deleted — consistent with §1.2's backup stance.
 
 ## 13. SRS Delta
 
+> **APPLIED 2026-07-16.** All 27 edits are landed in `REQUIREMENTS.md` (2078 → 2160 lines) and
+> `docs/traceability.csv` (280 → 304 rows). **Do not re-apply.** This section is retained as the
+> record of what changed and why; every line number below refers to the **pre-edit** file and is now
+> historical. Verified post-apply: all 29 `[R31.xx]` present and uniquely numbered; `R9.04`-`R9.08`
+> gone from both files; the only surviving `prompt_strategy` / `load_prompt_section` mentions are
+> the deliberate back-references in §9.2's superseded stub and §31's opener.
+
 Applied verbatim to `REQUIREMENTS.md` and `docs/traceability.csv` on approval. All 26 anchors were
 independently re-verified 2026-07-16.
 
@@ -1427,10 +1434,11 @@ to re-point** (the reviewed draft's premise was false). Change the entry to
 `Q36 (prompt strategies — §31)` so it names a section that exists.
 
 **(x) §27, line 1975** — "(245 entries)" is already wrong (the file has 280). (y) changes the count
-to 303; update the number in the same pass rather than knowingly worsening it.
+to **304** (280 − 5 deleted + 29 appended); update the number in the same pass rather than knowingly
+worsening it. *(An earlier draft said 303, having been written before R31.29 was added.)*
 
 **(y) `docs/traceability.csv`** — delete rows 61-65 (R9.04-R9.08); **update row 59 (R9.02)**, whose
-summary is already stale and must match edit (c); append R31.01-R31.28 with
+summary is already stale and must match edit (c); append R31.01-R31.29 with
 `section = "31. Agent Skills"`, following the file's conventions (col 1 unquoted, cols 2-3 quoted,
 backticks stripped, ~240-char truncation with a literal `..."`). The §30 gap (zero R30.* rows) is
 **not** back-filled here — FU-3.
@@ -1505,7 +1513,7 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
 >
 > - **[R31.25]** Audited: skill create, update, delete, restore, copy, bundle import, export, bind, unbind, file create/update/delete, and turn-time resolution failure. Update events record the body hash before and after. `read_skill` invocations are not audited ([R31.17]).
 > - **[R31.28]** Bundle import is asynchronous and rate-limited per organization; a bundle is not readable until its import completes and its scan clears.
-> - **[R31.29]** `SKILL.md` frontmatter keys fall into exactly three classes. **Recognized** keys are parsed into the Skill's own fields. **Reserved** keys — those naming server-assigned state (`scope`, `source`, `version`, `created_by`, `bundle_sha256`) — are rejected at every entry point, because accepting one would let an uploaded file assign its own authority. Every other key is **unrecognized**: it is stored verbatim, never interpreted, and re-emitted unchanged on export ([R31.21]). Unrecognized keys are not an error — Anthropic's own published skills carry keys SMAP does not define, and rejecting them would make the compatibility claim in [R31.11] false.
+> - **[R31.29]** `SKILL.md` frontmatter keys fall into exactly three classes. **Recognized** keys are parsed into the Skill's own fields. **Reserved** keys — those naming server-assigned state (`scope`, `source`, `version`, `created_by`, `bundle_sha256`) — are rejected at every entry point, because accepting one would let an uploaded file assign its own authority. Every other key is **unrecognized**: it is stored verbatim, never interpreted, and re-emitted unchanged on export ([R31.21]). Unrecognized keys are not an error — Anthropic's own published skills carry keys SMAP does not define, and rejecting them would make this chapter's interchangeability claim false.
 
 ## 14. Open Questions
 
