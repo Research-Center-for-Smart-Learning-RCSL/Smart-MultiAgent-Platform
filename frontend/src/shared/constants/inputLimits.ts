@@ -11,8 +11,18 @@
 export const INPUT_LIMITS = {
   /** Chat message body (`content_md`). */
   MESSAGE: 100_000,
-  /** Agent system prompt. */
+  /** Agent system prompt (`agents.system_prompt`; backend `app/api/v1/agents.py`). */
   SYSTEM_PROMPT: 100_000,
+  /**
+   * The prompt-assistant *config's* system prompt — a different field from
+   * `SYSTEM_PROMPT` above, with a different backend bound. Mirrors
+   * `backend/contexts/prompt_studio/domain/models.py` (`SYSTEM_PROMPT_MAX`), enforced in
+   * `app/api/v1/prompt_studio.py`. Do not collapse the two: promising 100 000 here would
+   * counter up to a value the backend 422s at 20 000, which is the drift this file exists
+   * to prevent. `CONFIG_TEXT` is the same number for an unrelated concept — also not a
+   * substitute.
+   */
+  PROMPT_ASSISTANT_SYSTEM_PROMPT: 20_000,
   /** Generic resource name (agent, chatroom, workspace, org, project, workflow, RAG config, key group). */
   NAME: 200,
   /** Provider model id / embedding model name. */
