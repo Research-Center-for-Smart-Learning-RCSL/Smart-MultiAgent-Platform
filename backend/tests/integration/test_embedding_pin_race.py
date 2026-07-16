@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -102,6 +103,24 @@ async def _read_pin_dim(session: AsyncSession, project_id: uuid.UUID) -> int | N
         )
     ).first()
     return int(row.dim) if row is not None else None
+
+
+def _draft(provider: str, model: str) -> Any:
+    from contexts.knowledge.domain.models import RagConfigDraft
+
+    return RagConfigDraft(
+        name="pin-race",
+        chunk_strategy=SimpleNamespace(value="fixed"),
+        chunk_params={},
+        embed_key_id=None,
+        embed_provider=provider,
+        embed_model=model,
+        rerank_enabled=False,
+        rerank_key_id=None,
+        rerank_provider=None,
+        rerank_model=None,
+        top_k=5,
+    )
 
 
 def _service(session: AsyncSession, live: list[Any]) -> Any:
@@ -220,6 +239,138 @@ async def test_configless_teardown_releases_pin_and_frees_new_dimension(
 
     async with sessionmaker() as check:
         assert await _read_pin_dim(check, project_id) == 3072
+
+
+@pytest.mark.asyncio
+async def test_try_acquire_lock_reports_contention_across_sessions(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    project_id: uuid.UUID,
+) -> None:
+    """FU-3: the create-path retry skips when it loses the lock race, so the whole
+    mitigation rests on ``try_acquire_lock`` actually failing while another *session*
+    holds the key. A same-session test would pass on re-entrancy and prove nothing."""
+    held = asyncio.Event()
+    release = asyncio.Event()
+    contended: bool | None = None
+
+    async def holder() -> None:
+        async with sessionmaker() as session:
+            await EmbeddingPinRepository(session).acquire_lock(project_id, PinKind.FILE_RAG)
+            held.set()
+            await release.wait()
+            await session.commit()  # transaction-scoped: the lock drops here
+
+    async def contender() -> None:
+        nonlocal contended
+        await held.wait()
+        async with sessionmaker() as session:
+            contended = await EmbeddingPinRepository(session).try_acquire_lock(project_id, PinKind.FILE_RAG)
+            await session.commit()
+        release.set()
+
+    await asyncio.gather(holder(), contender())
+    assert contended is False, "try_acquire_lock must not hand out a key another session holds"
+
+    # And once the holder is gone it is available again — otherwise the retry would
+    # be skipped forever and the pin could never be reclaimed on the create path.
+    async with sessionmaker() as session:
+        assert await EmbeddingPinRepository(session).try_acquire_lock(project_id, PinKind.FILE_RAG)
+        await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_try_lock_is_reentrant_with_the_blocking_lock(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    project_id: uuid.UUID,
+) -> None:
+    """FU-3: the retry takes the key with `try`, then `teardown_orphan_collection` and
+    `ensure` take the same key with the blocking call. If those did not stack, the
+    create path would deadlock against itself."""
+    async with sessionmaker() as session:
+        repo = EmbeddingPinRepository(session)
+        assert await repo.try_acquire_lock(project_id, PinKind.FILE_RAG)
+        await repo.acquire_lock(project_id, PinKind.FILE_RAG)  # must not hang
+        assert await repo.try_acquire_lock(project_id, PinKind.FILE_RAG)  # still ours
+        await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_creates_make_one_qdrant_attempt_not_one_each(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    project_id: uuid.UUID,
+) -> None:
+    """FU-3: the amplification this fix exists to remove, measured.
+
+    A project left in the FAILED-teardown state, Qdrant hanging, and N concurrent
+    different-dimension creates. With the retry taking the lock by blocking, each
+    waiter inherited the lock and repeated the same doomed Qdrant call: N attempts,
+    and the last request waited N x timeout while holding a pooled connection. With
+    `try`, the losers skip straight to `ensure` and block only on the one holder.
+
+    Asserting the attempt count rather than wall-clock: the count is the mechanism,
+    the seconds are the symptom.
+    """
+    from contexts.knowledge.domain.errors import EmbedDimensionConflict
+
+    concurrency = 5
+    timeout_s = 0.3
+    attempts = 0
+
+    async def _hang(_pid: uuid.UUID) -> bool:
+        nonlocal attempts
+        attempts += 1
+        await asyncio.sleep(timeout_s * 20)  # never returns before the bound fires
+        return True
+
+    store = AsyncMock()
+    store.delete_collection.side_effect = _hang
+    settings = SimpleNamespace(
+        qdrant=SimpleNamespace(url="http://unused", api_key="", teardown_timeout_s=timeout_s)
+    )
+
+    async with sessionmaker() as setup:
+        await _seed_pin(setup, project_id, 1536)
+
+    async def one_create() -> BaseException | None:
+        async with sessionmaker() as session:
+            svc = _service(session, live=[])
+            try:
+                await svc.create(
+                    project_id=project_id,
+                    draft=_draft("openai", "text-embedding-3-large"),  # 3072-dim
+                    actor_user_id=uuid.uuid4(),
+                    actor_ip=None,
+                )
+            except BaseException as exc:
+                return exc
+            finally:
+                await session.rollback()
+            return None
+
+    with (
+        patch(
+            "contexts.knowledge.infrastructure.qdrant_teardown.AsyncQdrantClient",
+            return_value=AsyncMock(),
+        ),
+        patch("app.config.settings.get_settings", return_value=settings),
+        patch("contexts.knowledge.infrastructure.qdrant_store.QdrantStore", return_value=store),
+        patch("contexts.knowledge.application.config_service.audit.emit", new=AsyncMock()),
+    ):
+        started = asyncio.get_running_loop().time()
+        results = await asyncio.gather(*(one_create() for _ in range(concurrency)))
+        elapsed = asyncio.get_running_loop().time() - started
+
+    # Every create is still correctly rejected: Qdrant never confirmed the drop, so
+    # the pin stands and the incompatible dimension stays refused. Fail-closed holds.
+    assert all(isinstance(r, EmbedDimensionConflict) for r in results)
+
+    assert attempts == 1, f"{concurrency} concurrent creates made {attempts} Qdrant attempts"
+    # One timeout for everyone, not one each. Generous bound so this measures the
+    # mechanism rather than the machine.
+    assert elapsed < timeout_s * concurrency, f"took {elapsed:.2f}s; serialised retries would"
+
+    async with sessionmaker() as check:
+        assert await _read_pin_dim(check, project_id) == 1536
 
 
 @pytest.mark.asyncio

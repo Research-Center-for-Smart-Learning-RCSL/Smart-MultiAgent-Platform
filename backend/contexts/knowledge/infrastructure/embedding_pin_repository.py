@@ -53,6 +53,28 @@ class EmbeddingPinRepository:
             {"key": f"{project_id}:{kind.value}"},
         )
 
+    async def try_acquire_lock(self, project_id: uuid.UUID, kind: PinKind) -> bool:
+        """Take the ``(project_id, kind)`` lock only if it is free right now (F-3).
+
+        The non-blocking twin of :meth:`acquire_lock`, for the one caller that has
+        something better to do than wait: the create-path teardown retry. Losing this
+        race means another transaction already holds the key and is doing that work,
+        so a second retry would only repeat its Qdrant call. Returns ``True`` if the
+        lock is now held for this transaction (released at commit/rollback like
+        :meth:`acquire_lock`, and re-entrant with it), ``False`` if someone else has it.
+
+        Never use this where correctness depends on the lock: a ``False`` here is
+        "somebody else is on it", not "the invariant is satisfied".
+        """
+        return bool(
+            (
+                await self._db.execute(
+                    sa.text("SELECT pg_try_advisory_xact_lock(hashtext(:key))"),
+                    {"key": f"{project_id}:{kind.value}"},
+                )
+            ).scalar_one()
+        )
+
     async def list_all(self) -> list[sa.Row[Any]]:
         """Every pin row, for the F-3 teardown-retry sweep.
 

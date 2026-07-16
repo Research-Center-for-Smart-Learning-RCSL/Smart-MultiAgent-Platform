@@ -720,11 +720,13 @@ class GraphRagConfigService:
         """Retry a teardown a previous delete left owed (F-3, spec Q-5).
 
         See
-        :meth:`contexts.knowledge.application.config_service.RagConfigService._retry_pending_teardown`.
-        Fires only for a different-dimension create against a configless retained pin;
-        a matching-dimension create issues no Qdrant call.
+        :meth:`contexts.knowledge.application.config_service.RagConfigService._retry_pending_teardown`,
+        including why the lock is taken with *try* rather than blocking (FU-3). Fires
+        only for a different-dimension create against a configless retained pin; a
+        matching-dimension create issues no Qdrant call.
         """
-        await self._pins.acquire_lock(project_id, PinKind.GRAPHRAG)
+        if not await self._pins.try_acquire_lock(project_id, PinKind.GRAPHRAG):
+            return
         pin = await self._pins.get(project_id, PinKind.GRAPHRAG)
         if pin is None or int(pin.dim) == new_dim:
             return

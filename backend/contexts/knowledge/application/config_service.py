@@ -495,8 +495,18 @@ class RagConfigService:
         no Qdrant call, so ordinary config CRUD stays independent of Qdrant
         availability (spec §2). On failure this returns quietly and lets the caller's
         ``ensure`` raise the typed conflict, which is the pre-F-3 behavior.
+
+        The lock is taken with *try* rather than blocking (FU-3). Waiting for it would
+        mean inheriting it only to repeat a Qdrant call the previous holder just made:
+        with Qdrant hanging, N concurrent creates would each add
+        ``teardown_timeout_s`` to the queue and hold a pooled connection for the sum
+        of everyone ahead of them. Skipping instead costs nothing — ``ensure`` blocks
+        on the same lock immediately after and reads whatever the holder committed —
+        so at most one Qdrant call per project is in flight and the queue drains in
+        one timeout rather than N.
         """
-        await self._pins.acquire_lock(project_id, PinKind.FILE_RAG)
+        if not await self._pins.try_acquire_lock(project_id, PinKind.FILE_RAG):
+            return
         pin = await self._pins.get(project_id, PinKind.FILE_RAG)
         if pin is None or int(pin.dim) == new_dim:
             return
