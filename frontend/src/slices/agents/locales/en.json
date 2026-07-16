@@ -389,7 +389,7 @@
         "description": "Run Python in a gVisor sandbox. State persists across the chat (30s per call).",
         "files": {
           "title": "Files",
-          "hint": "These files are available to this ai agent's Code Interpreter and File Workspace tools at agent-files/<path>.",
+          "hint": "These files are available to this ai agent at /workspace/agent-files/<path>. Code Interpreter code needs that full path; the File Workspace tool also accepts the shorter agent-files/<path>.",
           "upload": "Upload file",
           "uploading": "Uploading...",
           "uploaded": "File uploaded.",
