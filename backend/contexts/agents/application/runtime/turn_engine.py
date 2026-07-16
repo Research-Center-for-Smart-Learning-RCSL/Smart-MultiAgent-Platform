@@ -830,8 +830,11 @@ class TurnEngine:
         total = 0
         chosen = []
         for wf in ws_files:
+            # `continue`, not `break`: a file too large for what is left must not
+            # end the selection, or one big file early in the list silently drops
+            # every smaller file behind it. Mirrors the attachment path above.
             if total + wf.size_bytes > _MAX_AGENT_FILES_BYTES:
-                break
+                continue
             total += wf.size_bytes
             chosen.append(wf)
         if not chosen:
