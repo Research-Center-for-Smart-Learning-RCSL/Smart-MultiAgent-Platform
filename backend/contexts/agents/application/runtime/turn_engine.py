@@ -854,7 +854,10 @@ class TurnEngine:
         staged: list[StagedFile] = []
         for wf in chosen:
             data = await storage.get_object(bucket=bucket, key=wf.minio_key)
-            staged.append(StagedFile(filename=wf.path.rsplit("/", 1)[-1], data=data))
+            # The whole path, not its basename: the designer's folder layout is
+            # part of what they uploaded, and flattening it collides two files
+            # of the same name in different folders. Staging validates it.
+            staged.append(StagedFile(filename=wf.path, data=data))
 
         paths = await runner.stage_agent_workspace_files(
             agent_id=agent.id,
