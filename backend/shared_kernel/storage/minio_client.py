@@ -67,6 +67,10 @@ class MinioClient:
         return self._cfg.bucket_exports
 
     @property
+    def agent_workspace_bucket(self) -> str:
+        return self._cfg.bucket_agent_workspace
+
+    @property
     def prompt_assistant_files_bucket(self) -> str:
         return self._cfg.bucket_prompt_assistant_files
 
