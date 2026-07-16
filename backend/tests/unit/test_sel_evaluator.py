@@ -7,6 +7,8 @@ coercion, budget enforcement, and template interpolation with nested paths.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from contexts.workflow.domain.errors import (
@@ -14,7 +16,8 @@ from contexts.workflow.domain.errors import (
     SELForbiddenConstruct,
     SELSyntaxError,
 )
-from contexts.workflow.sel.evaluator import evaluate, validate
+from contexts.workflow.sel import evaluator
+from contexts.workflow.sel.evaluator import EVAL_BUDGET_MS, evaluate, validate
 from contexts.workflow.sel.template import interpolate
 
 # ---------------------------------------------------------------------------
@@ -385,6 +388,34 @@ class TestBudgetAndSecurity:
     def test_validate_rejects_forbidden(self) -> None:
         with pytest.raises(SELForbiddenConstruct):
             validate("exec(1)")
+
+    def test_the_budget_is_measured_with_perf_counter_not_monotonic(self) -> None:
+        """The defect this pins is the *choice of clock*, not any logic around it.
+
+        `time.monotonic()` is `GetTickCount64()` on Windows under CPython 3.12 — 15.625 ms
+        granularity against a 5 ms budget. That is fatal in both directions: sub-tick work
+        always reads `0.0` elapsed, so a real overrun can never be detected, and a tick
+        boundary falling between arming the deadline and the first `visit()` advances the
+        clock a whole tick at once, aborting a trivial expression on its first AST node.
+        Which test in a full-suite run loses that coin toss is arbitrary, which is how this
+        surfaced. Linux resolves both names to `clock_gettime(CLOCK_MONOTONIC)` at 1 ns, so
+        production was never affected and this assertion is free there.
+
+        Asserted by identity because no behavioural test can separate the two: patching the
+        clock defeats the very thing under test, and reproducing the race means losing a
+        coin toss on purpose.
+        """
+        assert evaluator._CLOCK is time.perf_counter
+
+    def test_the_budget_clock_resolves_far_finer_than_the_budget(self) -> None:
+        """The property behind the test above, so a future clock swap is judged on merit.
+
+        A guard that measures N ms needs a clock that can resolve well inside N ms. 100x is
+        arbitrary but generous: it passes on Windows (100 ns) and Linux (1 ns) alike, and
+        fails for anything tick-based.
+        """
+        resolution = time.get_clock_info("perf_counter").resolution
+        assert resolution * 100 < EVAL_BUDGET_MS / 1000.0
 
 
 # ---------------------------------------------------------------------------

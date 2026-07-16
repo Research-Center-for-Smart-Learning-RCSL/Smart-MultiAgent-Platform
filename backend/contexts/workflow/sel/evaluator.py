@@ -3,8 +3,10 @@
 Budget enforcement:
 - Expression length ≤ 1000 chars (checked before parse).
 - AST depth ≤ 16 (checked during parse).
-- Wall-clock ≤ 5 ms per evaluation (threading timer).
-- Regex via google-re2 with 5 ms budget.
+- ≤ 5 ms per evaluation, measured with ``time.perf_counter`` and checked at the top of
+  every ``visit()`` — no timer and no thread; parsing is outside the budget.
+- Regex via google-re2, whose linear-time engine is what actually bounds `_regex_match`
+  (see the note there: an in-progress ``re.search`` cannot be interrupted by this budget).
 """
 
 from __future__ import annotations
@@ -34,6 +36,15 @@ from contexts.workflow.sel.parser import parse
 
 MAX_EXPR_LENGTH = 1000
 EVAL_BUDGET_MS = 5.0
+
+# perf_counter, never monotonic: a clock coarser than the budget it measures makes this
+# guard both unenforceable and randomly fatal. On Windows under CPython 3.12 monotonic is
+# GetTickCount64 at 15.625 ms — three times the budget — so elapsed normally reads 0.0 (a
+# real overrun can never be seen) while a tick boundary landing between arming and the
+# first check jumps the clock a whole tick at once and aborts a trivial expression on its
+# first AST node. On Linux both names are clock_gettime(CLOCK_MONOTONIC) at 1 ns, so this
+# is identical to the previous behaviour where SMAP actually runs.
+_CLOCK = time.perf_counter
 
 # ---------------------------------------------------------------------------
 # Whitelisted functions (§3.2)
@@ -324,7 +335,7 @@ class _Evaluator:
         self._deadline = deadline
 
     def visit(self, node: ASTNode) -> Any:
-        if time.monotonic() > self._deadline:
+        if _CLOCK() > self._deadline:
             raise SELBudgetExceeded("Expression evaluation exceeded 5 ms budget")
 
         if isinstance(node, NumberLit):
@@ -512,6 +523,6 @@ def evaluate(expression: str, variables: dict[str, Any] | None = None) -> Any:
 
     tokens = tokenize(expression)
     ast = parse(tokens)
-    deadline = time.monotonic() + EVAL_BUDGET_MS / 1000.0
+    deadline = _CLOCK() + EVAL_BUDGET_MS / 1000.0
     evaluator = _Evaluator(variables or {}, deadline)
     return evaluator.visit(ast)
