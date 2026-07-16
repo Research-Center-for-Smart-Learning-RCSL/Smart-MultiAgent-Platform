@@ -36,7 +36,12 @@ class _Runner:
 
     async def stage_agent_workspace_files(self, *, agent_id, files, manifest_sha):
         self.calls.append({"manifest_sha": manifest_sha, "filenames": [f.filename for f in files]})
-        return [f"agent-files/{f.filename}" for f in files]
+        # Mirrors the real method's contract (docker_runsc.stage_agent_workspace_files):
+        # absolute, tree-preserving. Until 2026-07-17 this fake returned
+        # `agent-files/{name}` — the same unresolvable path production returned —
+        # so the suite stayed green over a 100%-reproducible bug. A fake that
+        # encodes the implementation's mistake tests nothing.
+        return [f"/workspace/agent-files/{f.filename}" for f in files]
 
 
 class _Storage:
@@ -81,7 +86,7 @@ async def test_manifest_covers_the_whole_set_when_nothing_is_truncated() -> None
 
     assert runner.calls[0]["filenames"] == ["a.csv", "b.csv"]
     assert runner.calls[0]["manifest_sha"] == _expected_manifest(files)
-    assert out == ["agent-files/a.csv", "agent-files/b.csv"]
+    assert out == ["/workspace/agent-files/a.csv", "/workspace/agent-files/b.csv"]
 
 
 async def test_manifest_matches_the_staged_prefix_not_the_full_set() -> None:
@@ -92,7 +97,7 @@ async def test_manifest_matches_the_staged_prefix_not_the_full_set() -> None:
     runner, out = await _stage([staged, dropped])
 
     assert runner.calls[0]["filenames"] == ["a.bin"]
-    assert out == ["agent-files/a.bin"]
+    assert out == ["/workspace/agent-files/a.bin"]
     # The manifest describes what is on the volume...
     assert runner.calls[0]["manifest_sha"] == _expected_manifest([staged])
     # ...and specifically NOT the set that was asked for.
@@ -165,7 +170,7 @@ async def test_a_file_that_fits_after_an_overrun_is_still_staged() -> None:
     runner, out = await _stage([a, b, c])
 
     assert runner.calls[0]["filenames"] == ["a.bin", "c.csv"]
-    assert out == ["agent-files/a.bin", "agent-files/c.csv"]
+    assert out == ["/workspace/agent-files/a.bin", "/workspace/agent-files/c.csv"]
     # AC-12 still holds across the change: the manifest describes the set that
     # was actually staged, so skipping `b` cannot make the cache key lie.
     assert runner.calls[0]["manifest_sha"] == _expected_manifest([a, c])

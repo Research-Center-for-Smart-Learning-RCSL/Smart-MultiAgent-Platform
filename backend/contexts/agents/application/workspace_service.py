@@ -9,7 +9,6 @@ another path for the same agent does NOT delete the MinIO object.
 from __future__ import annotations
 
 import hashlib
-import posixpath
 import uuid
 from typing import Any
 
@@ -26,12 +25,16 @@ from contexts.agents.infrastructure.repositories import (
 )
 from shared_kernel import audit
 from shared_kernel.storage.minio_client import MinioClient, agent_workspace_key
-from shared_kernel.storage.sanitize import safe_input_name as _safe_input_name
+from shared_kernel.storage.sanitize import (
+    safe_input_name as _safe_input_name,
+)
+from shared_kernel.storage.sanitize import (
+    validate_workspace_relpath,
+)
 
 _QUOTA_BYTES = 256 * 1024 * 1024  # 256 MB per agent
 _MAX_FILE_BYTES = 32 * 1024 * 1024  # 32 MB per multipart upload
 _MAX_FILE_COUNT = 500  # per agent
-_MAX_PATH_LEN = 500
 
 _BLOCKED_MIME_PREFIXES = (
     "text/html",
@@ -55,22 +58,14 @@ def _safe_mime(raw: str) -> str:
 def _safe_workspace_path(raw: str | None, fallback_filename: str) -> str:
     """Validate and normalise a workspace-relative path.
 
-    If *raw* is None, derives a default under ``data/{filename}``.
-    Rejects traversal, absolute paths, null bytes, and excessive length.
+    If *raw* is None, derives a default under ``data/{filename}``. The rule
+    itself lives in the shared kernel because sandbox staging must apply the
+    identical one and cannot import this layer.
     """
     if raw is None or not raw.strip():
         name = _safe_input_name(fallback_filename)
         return f"data/{name}"
-    if "\x00" in raw:
-        raise ValueError("null byte in path")
-    normed = posixpath.normpath(raw.strip().replace("\\", "/").strip("/"))
-    if normed in (".", "..") or normed.startswith("../") or "/../" in f"/{normed}/":
-        raise ValueError("path must not contain '..' components")
-    if len(normed) > _MAX_PATH_LEN:
-        raise ValueError(f"path too long (max {_MAX_PATH_LEN} chars)")
-    if not normed:
-        raise ValueError("path must be non-empty")
-    return normed
+    return validate_workspace_relpath(raw)
 
 
 class WorkspaceFileService:

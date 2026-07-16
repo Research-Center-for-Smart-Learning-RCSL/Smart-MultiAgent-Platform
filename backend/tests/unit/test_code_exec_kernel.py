@@ -161,6 +161,17 @@ def test_safe_input_name_strips_paths_and_dots() -> None:
     assert _safe_input_name("C:\\tmp\\x.xlsx") == "x.xlsx"
 
 
+def tar_bytes(archive: bytes, member: str) -> bytes:
+    """Content of *member* in *archive* — what the guest would actually read."""
+    import io
+    import tarfile
+
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        f = tar.extractfile(member)
+        assert f is not None, f"{member!r} not in archive"
+        return f.read()
+
+
 def test_tar_staged_inputs_builds_dirs_and_files() -> None:
     import io
     import tarfile
@@ -170,9 +181,12 @@ def test_tar_staged_inputs_builds_dirs_and_files() -> None:
 
     files = [StagedFile(filename="a.csv", data=b"1,2,3"), StagedFile(filename="a.csv", data=b"4,5,6")]
     archive, staged = _tar_staged_inputs("sessions/room-1/inputs", files)
-    # Collision-disambiguated, returned as inputs/-relative paths.
-    assert staged[0] == "inputs/a.csv"
-    assert staged[1] != "inputs/a.csv"
+    # Volume-relative, and collision-disambiguated. This asserted `inputs/a.csv`
+    # until 2026-07-17: the helper hardcoded that prefix regardless of `rel_dir`,
+    # so it reported a path it had not written, and this test pinned it. See
+    # `test_tar_staged_inputs_returns_the_paths_it_wrote` below for the contract.
+    assert staged[0] == "sessions/room-1/inputs/a.csv"
+    assert staged[1] != "sessions/room-1/inputs/a.csv"
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
         members = {m.name.rstrip("/"): m for m in tar.getmembers()}
     # Directory chain is present and owned by the sandbox uid.
@@ -183,3 +197,90 @@ def test_tar_staged_inputs_builds_dirs_and_files() -> None:
     file_members = [m for m in members.values() if m.isfile()]
     assert len(file_members) == 2
     assert all(m.uid == _SANDBOX_UID and m.mode == 0o600 for m in file_members)
+
+
+@pytest.mark.parametrize("rel_dir", ["agent-files", "sessions/r1/inputs"])
+def test_tar_staged_inputs_returns_the_paths_it_wrote(rel_dir: str) -> None:
+    """The helper's docstring promises "staged_relative_paths". It must mean it.
+
+    The 2026-07-17 defect in one assertion: the tar member name respected
+    `rel_dir` while the returned path hardcoded `inputs/`, so for
+    `rel_dir="agent-files"` the caller was handed `inputs/x` for a file written
+    to `agent-files/x`. `stage_kernel_inputs` was unharmed only by coincidence —
+    its `rel_dir` ends in `inputs` — which is why this is parametrized over both
+    callers rather than just the broken one.
+    """
+    import io
+    import tarfile
+
+    from contexts.agents.domain.mcp import StagedFile
+    from contexts.agents.infrastructure.sandbox.docker_runsc import _tar_staged_inputs
+
+    files = [StagedFile(filename="data.csv", data=b"1,2,3"), StagedFile(filename="notes.txt", data=b"hi")]
+    archive, staged = _tar_staged_inputs(rel_dir, files)
+
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        written = [m.name for m in tar.getmembers() if m.isfile()]
+
+    assert staged == written
+
+
+def test_workspace_staging_preserves_the_designers_tree() -> None:
+    """AC-12. `reports/q1.csv` is the designer's layout, not a name to flatten."""
+    import io
+    import tarfile
+
+    from contexts.agents.domain.mcp import StagedFile
+    from contexts.agents.infrastructure.sandbox.docker_runsc import _SANDBOX_UID, _tar_staged_inputs
+
+    files = [
+        StagedFile(filename="reports/q1.csv", data=b"a"),
+        StagedFile(filename="archive/q1.csv", data=b"b"),
+    ]
+    archive, staged = _tar_staged_inputs("agent-files", files, preserve_tree=True)
+
+    assert staged == ["agent-files/reports/q1.csv", "agent-files/archive/q1.csv"]
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        members = {m.name.rstrip("/"): m for m in tar.getmembers()}
+    # Same basename in two folders: distinct files, and neither renamed. Flattening
+    # collided these into q1.csv / q1-1.csv, silently mixing up whose data is whose.
+    assert tar_bytes(archive, "agent-files/reports/q1.csv") == b"a"
+    assert tar_bytes(archive, "agent-files/archive/q1.csv") == b"b"
+    # Intermediate dirs exist and are sandbox-owned, or extraction lands them as root.
+    for d in ("agent-files", "agent-files/reports", "agent-files/archive"):
+        assert members[d].isdir()
+        assert members[d].uid == _SANDBOX_UID
+
+
+def test_attachments_still_flatten_to_a_basename() -> None:
+    """AC-13's other half. Attachment names carry no meaningful tree and are less
+    trusted, so `preserve_tree` stays off for them and a nested name collapses."""
+    from contexts.agents.domain.mcp import StagedFile
+    from contexts.agents.infrastructure.sandbox.docker_runsc import _tar_staged_inputs
+
+    files = [StagedFile(filename="../../etc/passwd", data=b"x")]
+    _, staged = _tar_staged_inputs("sessions/r1/inputs", files)
+
+    assert staged == ["sessions/r1/inputs/passwd"]
+
+
+@pytest.mark.parametrize("bad", ["../../etc/passwd", "/etc/passwd", "reports/../../../etc/passwd", "a\x00b"])
+def test_workspace_staging_rejects_traversal_rather_than_flattening_it(bad: str) -> None:
+    """AC-13. Preserving the tree means the basename shortcut no longer contains
+    traversal, so staging must reject it outright. The API boundary already does
+    (`workspace_service._safe_workspace_path`), but the sandbox does not trust a
+    DB row to have come through it."""
+    from contexts.agents.domain.mcp import StagedFile
+    from contexts.agents.infrastructure.sandbox.docker_runsc import _tar_staged_inputs
+
+    with pytest.raises(ValueError):
+        _tar_staged_inputs("agent-files", [StagedFile(filename=bad, data=b"x")], preserve_tree=True)
+
+
+def test_file_tool_reads_both_path_forms_identically() -> None:
+    """AC-9. The `file` tool is untouched by this fix and must stay that way: the
+    absolute form the note now carries has to mean what the relative form meant."""
+    from contexts.agents.application.tools.file_tool import _safe_relpath
+
+    assert _safe_relpath("agent-files/x") == _safe_relpath("/workspace/agent-files/x")
+    assert _safe_relpath("agent-files/x") == "/workspace/agent-files/x"

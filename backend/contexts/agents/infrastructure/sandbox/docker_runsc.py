@@ -59,6 +59,10 @@ _DEFAULT_CODE_IMAGE = "smap/code-exec:pinned"
 _EGRESS_NETWORK = "smap_egress_net"
 
 _SANDBOX_UID = 10001
+# Where the per-agent volume (and the tmpfs that stands in for it) is mounted in
+# every sandbox container. Matches `file_tool._ROOT` and the kernel's
+# SMAP_KERNEL_WORKSPACE; the three must agree or staged paths do not resolve.
+_VOLUME_ROOT = "/workspace"
 _MEMORY = "512m"
 _CPUS = 0.5
 _PIDS_LIMIT = 128
@@ -103,9 +107,51 @@ def _safe_input_name(filename: str) -> str:
     return safe_input_name(filename)
 
 
-def _tar_staged_inputs(rel_dir: str, files: Sequence[StagedFile]) -> tuple[bytes, list[str]]:
+def _safe_staged_name(filename: str, *, preserve_tree: bool) -> str:
+    """The staged name for *filename*: a bare basename, or a validated subtree."""
+    if not preserve_tree:
+        return _safe_input_name(filename)
+    from shared_kernel.storage.sanitize import safe_workspace_relpath
+
+    return safe_workspace_relpath(filename)
+
+
+def _disambiguate(name: str, taken: set[str]) -> str:
+    """Suffix the basename until *name* is unused, leaving its directory alone."""
+    import posixpath
+
+    if name not in taken:
+        return name
+    parent, _, base = name.rpartition("/")
+    stem, dot, ext = base.rpartition(".")
+    n = 1
+    while True:
+        candidate = f"{stem}-{n}{dot}{ext}" if dot else f"{base}-{n}"
+        full = posixpath.join(parent, candidate) if parent else candidate
+        if full not in taken:
+            return full
+        n += 1
+
+
+def _tar_staged_inputs(
+    rel_dir: str,
+    files: Sequence[StagedFile],
+    *,
+    preserve_tree: bool = False,
+) -> tuple[bytes, list[str]]:
     """Tar stream that creates *rel_dir* (owned by the sandbox uid) and drops the
-    files into it. Returns (archive, staged_relative_paths)."""
+    files into it.
+
+    Returns (archive, staged_paths), where each staged path is the tar member
+    name — i.e. relative to the extraction root, which every caller mounts at
+    ``/workspace``. Callers turn that into what their consumer needs; do not
+    assume a prefix here, because the two callers do not share one.
+
+    With *preserve_tree*, a file's name may carry directories and they are
+    recreated under *rel_dir* (workspace files, whose layout is the designer's).
+    Without it the name is flattened to a basename (chat attachments, which have
+    no meaningful tree and whose names are far less trusted).
+    """
     import io
     import posixpath
     import tarfile
@@ -113,30 +159,51 @@ def _tar_staged_inputs(rel_dir: str, files: Sequence[StagedFile]) -> tuple[bytes
     rel_dir = rel_dir.strip("/")
     buf = io.BytesIO()
     staged: list[str] = []
-    with tarfile.open(fileobj=buf, mode="w") as tar:
+    made_dirs: set[str] = set()
+
+    def _mkdirs(tar: tarfile.TarFile, path: str) -> None:
         acc = ""
-        for part in rel_dir.split("/"):
+        for part in path.split("/"):
             acc = posixpath.join(acc, part) if acc else part
+            if acc in made_dirs:
+                continue
+            made_dirs.add(acc)
             d = tarfile.TarInfo(name=acc + "/")
             d.type = tarfile.DIRTYPE
             d.mode = 0o700
             d.uid = d.gid = _SANDBOX_UID
             tar.addfile(d)
+
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        _mkdirs(tar, rel_dir)
         seen: set[str] = set()
         for f in files:
-            name = _safe_input_name(f.filename)
-            # Disambiguate collisions after sanitising.
-            if name in seen:
-                stem, _, ext = name.rpartition(".")
-                name = f"{stem or name}-{len(seen)}{('.' + ext) if stem else ''}"
+            name = _disambiguate(_safe_staged_name(f.filename, preserve_tree=preserve_tree), seen)
             seen.add(name)
-            info = tarfile.TarInfo(name=posixpath.join(rel_dir, name))
+            member = posixpath.join(rel_dir, name)
+            parent = posixpath.dirname(member)
+            if parent:
+                _mkdirs(tar, parent)
+            info = tarfile.TarInfo(name=member)
             info.size = len(f.data)
             info.mode = 0o600
             info.uid = info.gid = _SANDBOX_UID
             tar.addfile(info, io.BytesIO(f.data))
-            staged.append(posixpath.join("inputs", name))
+            staged.append(member)
     return buf.getvalue(), staged
+
+
+def _workspace_abspath(staged_path: str) -> str:
+    """Absolute form of a volume-relative staged path, for the note the model reads.
+
+    Relative is ambiguous across the tools that share this volume: the kernel runs
+    with its cwd at the session dir while the ``file`` tool roots relative paths at
+    ``/workspace``, so the same string reaches two different files. Absolute is the
+    one form both resolve identically — and the form the skills block already uses.
+    """
+    import posixpath
+
+    return posixpath.join(_VOLUME_ROOT, staged_path.lstrip("/"))
 
 
 # Wrapper for ``code_exec`` when the caller supplies stdin (K.5 FIX 7): the
@@ -976,7 +1043,11 @@ class DockerRunscSandbox:
         Writes ``/workspace/sessions/{room}/inputs/{file}`` on the per-agent
         volume via a short-lived (no-network) container's ``put_archive`` — the
         same volume the live kernel mounts, so ``code_exec`` can read them.
-        Returns the workspace-relative paths actually staged (e.g. ``inputs/x``).
+
+        Returns absolute paths (``/workspace/sessions/{room}/inputs/x``). They go
+        into a note the model reads, and the kernel runs with its cwd set to the
+        session dir (``kernel.py``) while the ``file`` tool roots relative paths
+        at ``/workspace`` — so only an absolute path means the same file to both.
         """
         if not files:
             return []
@@ -1003,7 +1074,7 @@ class DockerRunscSandbox:
                 await asyncio.to_thread(container.put_archive, "/workspace", archive)
             finally:
                 await self._remove_quietly(container)
-        return staged
+        return [_workspace_abspath(p) for p in staged]
 
     async def stage_agent_workspace_files(
         self,
@@ -1017,24 +1088,22 @@ class DockerRunscSandbox:
         Idempotent: if the in-memory manifest cache shows the volume already
         has this ``manifest_sha``, returns immediately (no container spawn).
         After a successful write the cache is updated.
+
+        Returns absolute paths (``/workspace/agent-files/x``) — see
+        ``stage_kernel_inputs`` for why relative would be ambiguous here.
         """
         if not files:
             return []
 
-        # _tar_staged_inputs returns paths with a hardcoded "inputs/" prefix.
-        # We need to replace it with "agent-files/" for our directory.
-        def _fix_paths(raw: list[str]) -> list[str]:
-            return [p.replace("inputs/", "agent-files/", 1) for p in raw]
-
         cached = _WORKSPACE_MANIFESTS.get(agent_id)
         if cached == manifest_sha:
-            _, cached_staged = _tar_staged_inputs(rel_dir="agent-files", files=files)
-            return _fix_paths(cached_staged)
+            _, cached_staged = _tar_staged_inputs(rel_dir="agent-files", files=files, preserve_tree=True)
+            return [_workspace_abspath(p) for p in cached_staged]
 
         await self._ensure_runtime_ready()
         client = self._client()
         volume = f"smap-agent-fs-{agent_id}"
-        archive, raw_staged = _tar_staged_inputs(rel_dir="agent-files", files=files)
+        archive, raw_staged = _tar_staged_inputs(rel_dir="agent-files", files=files, preserve_tree=True)
 
         host_config = self._base_host_config()
         host_config["network_mode"] = "none"
@@ -1055,7 +1124,7 @@ class DockerRunscSandbox:
                 await self._remove_quietly(container)
 
         _WORKSPACE_MANIFESTS[agent_id] = manifest_sha
-        return _fix_paths(raw_staged)
+        return [_workspace_abspath(p) for p in raw_staged]
 
     async def _remove_aged_containers(
         self, *, label: str, max_age_s: float, skip_ids: frozenset[str] = frozenset()
