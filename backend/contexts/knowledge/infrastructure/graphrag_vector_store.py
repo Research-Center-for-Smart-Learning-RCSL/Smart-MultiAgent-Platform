@@ -433,7 +433,18 @@ class GraphRagVectorStore:
             wait=True,
         )
 
-    async def delete_collection(self, project_id: uuid.UUID) -> None:
+    async def delete_collection(self, project_id: uuid.UUID) -> bool:
+        """Drop ``{prefix}_{project_id}`` entirely. No-ops if it does not exist.
+
+        Returns ``True`` iff a collection was actually dropped, ``False`` when none
+        existed -- so the F-3 teardown can tell "dropped" from "absent" rather than
+        claiming a drop that never happened. Both are confirmations that the
+        collection is gone, and both permit releasing the project's embedding pin.
+        Raises on a Qdrant error (module policy: failures fail loudly), which the
+        teardown maps to ``TeardownOutcome.FAILED`` and answers by keeping the pin.
+        """
         name = self._name(project_id)
         if await self._client.collection_exists(name):
             await self._client.delete_collection(collection_name=name)
+            return True
+        return False
