@@ -146,12 +146,18 @@ async def test_ensure_matching_dim_is_noop() -> None:
 class _FakePinRepo:
     """In-memory pin repo: the advisory lock is a no-op (§8 unit-fake note)."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, lock_free: bool = True) -> None:
         self.pins: dict[tuple[uuid.UUID, str], int] = {}
         self.cleared: list[tuple[uuid.UUID, str]] = []
+        # `lock_free=False` stands in for another transaction already holding the
+        # (project, kind) key — the only thing `try_acquire_lock` reports on.
+        self._lock_free = lock_free
 
     async def acquire_lock(self, project_id: uuid.UUID, kind: PinKind) -> None:
         return None
+
+    async def try_acquire_lock(self, project_id: uuid.UUID, kind: PinKind) -> bool:
+        return self._lock_free
 
     async def get(self, project_id: uuid.UUID, kind: PinKind) -> Any:
         dim = self.pins.get((project_id, kind.value))
@@ -418,6 +424,36 @@ async def test_create_at_pinned_dimension_never_calls_qdrant() -> None:
         )
     store.delete_collection.assert_not_awaited()
     assert pins.pins[(pid, PinKind.FILE_RAG.value)] == 1536
+
+
+@pytest.mark.asyncio
+async def test_create_retry_skips_teardown_when_another_holder_has_the_lock() -> None:
+    # FU-3: losing the lock race means someone else is already retrying this exact
+    # teardown. Waiting for the lock only to repeat their Qdrant call is what turned
+    # N concurrent creates into N x teardown_timeout_s of held connections. Skip, and
+    # let `ensure` block on the lock and read whatever they commit.
+    pid = uuid.uuid4()
+    pins = _FakePinRepo(lock_free=False)  # another transaction holds (pid, file_rag)
+    pins.pins[(pid, PinKind.FILE_RAG.value)] = 1536
+    svc = _rag_service(pins, live=[])
+    store = AsyncMock()
+    store.delete_collection.side_effect = AssertionError("a second retry must not run")
+    p1, p2, p3 = _patch_qdrant(store)
+    with (
+        p1,
+        p2,
+        p3,
+        patch("contexts.knowledge.application.config_service.audit.emit", new=AsyncMock()),
+        pytest.raises(EmbedDimensionConflict),
+    ):
+        await svc.create(
+            project_id=pid,
+            draft=_draft("openai", "text-embedding-3-large"),  # 3072-dim
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
+        )
+    store.delete_collection.assert_not_awaited()
+    assert pins.pins[(pid, PinKind.FILE_RAG.value)] == 1536  # still fails closed
 
 
 @pytest.mark.asyncio
