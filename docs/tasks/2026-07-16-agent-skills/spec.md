@@ -1208,7 +1208,8 @@ orphaned, not deleted — consistent with §1.2's backup stance.
       they will use is the one asserted here, and `text_rules` is where the importer will call it.
       Every character set is built with `chr()` from explicit codepoints, never literals, so the
       source file cannot itself carry a bidi override; verified programmatically that no raw
-      invisible remains in the module or its fixtures.)*
+      invisible remains in the module or its fixtures. The rule is by Unicode **category**, not by
+      an enumeration — see D-22, which is what the first, enumerated version let through.)*
 - [x] AC-33: `read_skill` output is budgeted against `_SKILL_BODY_TOKEN_BUDGET`; an oversized body
       returns a `truncated_at_offset` **character** offset, and a continuation call at that offset
       returns the next span with no gap and no repeat — concatenating all spans reproduces the body
@@ -1807,6 +1808,50 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   binding file owns *which* skills the tap drops, and AC-7 is about what the *engine* then does
   with the drop (audit, one aggregated warning, turn survives). Every Phase 1 AC now cites its real
   location inline; §12's rows are left as the record of the plan.
+- **D-22: AC-30's rule is by Unicode category, not by the enumeration the dossier implies.** AC-30
+  lists "a bidi override, a zero-width character" and the implementation first took that literally:
+  16 codepoints, hand-listed. The security gate found it let through the entire Unicode Tag block
+  (U+E0000-U+E007F) — the standard ASCII-smuggling channel, where TAG LATIN A..Z mirror ASCII
+  one-for-one — plus U+061C, U+00AD, U+FFF9-FFFB, U+2061-2064, U+180E and U+2028/U+2029. Verified
+  by executing the rule, not reading it. Every miss is `Cf`/`Zl`/`Zp`, the same categories as the
+  eleven it caught. U+2028 also defeated the rule's own stated reasoning: the newline arm exists
+  because the index renders one skill per line, and `str.splitlines()` splits on U+2028. The rule
+  is now the category; the codepoint lists only choose the wording of the reason. The tag block is
+  additionally rejected by membership, because U+E0000 and U+E0002-E001F are *unassigned* (`Cn`)
+  and would pass a pure category test — a hole the exhaustive test caught and a sampled one would
+  not have. This is what §8's threat 1 is about: tag smuggling makes the text invisible at the
+  exact moment "the human bind decision" — the control §8 rests the in-band residual on — is
+  supposed to be reading it.
+- **D-23: a name collision inside a bound set drops every side of it.** Q-30 makes bound-set names
+  unique and §6 leaves the enforcement at `assert_name_free_in_bound_set`. That is a check-then-act
+  with no database backstop — the rule spans `agent_skills` and `skills`, so no constraint can
+  express it — and two concurrent binds of two same-named skills both pass and both commit. §8's
+  threat 7 (a project `deploy` shadowing the admin's platform `deploy`, "`read_skill` resolves by
+  join order") therefore re-enters through the race, and both consumers were silent about it:
+  `read_skill`'s name→skill dict is last-wins and `ORDER BY name` had no tiebreak, so which body
+  the model got could flip between turns. Every side now drops, audits, and surfaces in the
+  aggregated warning. There is no principled winner — preferring the broader scope lets a platform
+  skill mask a project one, preferring the narrower is the shadowing attack verbatim — and serving
+  neither is the only answer that is not a guess. `ORDER BY name, id` makes the tie deterministic
+  regardless.
+- **D-24: the bind path's scope mismatch is a 404, not the 403 the error map first gave it.**
+  `skill_service._assert_owned` is explicit that this context never answers 403 on a scope
+  mismatch, "which would confirm the id exists to someone with no right to know" — but bind takes
+  a `skill_id` with **no scope in its URL**, so it was the one endpoint that answered differently,
+  telling any caller who may bind on their own agent that a guessed or leaked id is real, live, and
+  which scope class owns it. `SkillScopeMismatch` subclasses `SkillContainmentFailed`, so the
+  turn-time tap's `except` still catches it and still audits the precise reason, while MRO dispatch
+  gives the boundary the same slug, status, and title a nonexistent id gets. The four arms that
+  describe the caller's *own* agent or project keep their 403 and their `reason`: those leak
+  nothing the caller does not already own, and a bare 403 there would be a dead end for no gain.
+- **D-25: `agent.warning` carries a count, not the dropped skills' names.** D-17 first named them.
+  The room channel is a blind relay and `can_read` admits a chatroom guest who is not a project
+  member, while `GET /api/agents/{id}/skill-bindings` is gated on `assert_project_membership` and
+  `GET /api/orgs/{id}/skills` on `SKILL_ORG_MANAGE` — so naming them on the room channel routed
+  around both. A guest could watch a member disable `code_exec` (which drops every skill with
+  `requires: [code_exec]`) and harvest the names of the agent's org- and platform-scoped skills.
+  The count carries the whole signal the warning is for; the names stay in the audit trail, which
+  is not guest-readable. FU-23 records that the event has no consumer yet, so this cost nothing.
 - **D-20: `status` stays `in-progress` with Phase 1 complete.** The contract
   (`docs/tasks/README.md:57`) moves `in-progress → implemented` "only after the full Definition of
   Done passes", and this dossier's Definition of Done spans four phases: AC-16 through AC-32 are
@@ -1950,6 +1995,58 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   "noise at R3.02's 100 concurrent users", which holds. Recording it anyway because the *count* is
   now four, and the fix is the same one for all of them: an `asyncio.gather` over the independent
   turn-start reads. Nothing in Phase 1 depends on it.
+- **FU-24: the per-turn snapshot loads every bound skill's *body* and has no LIMIT.**
+  Confirmed by this task's security gate; **the one finding it raised that is deferred rather
+  than fixed**, because both candidate fixes are design decisions rather than repairs.
+  `SkillBindingRepository.list_live_for_agent` does `select(t.skills)` — every column, `body`
+  (≤256 KiB) included — and nothing bounds the row count: `assert_index_fits` bounds the *rendered
+  index* (names + descriptions), never the number of bindings or the bytes behind them. A `- ab: `
+  index line is ~2 tokens, so ~1 700 skills fit under the 3000 default and ~9 000 under the 16 000
+  ceiling. An insider with `RESOURCE_CREATE_EDIT` on one project can bind N 1-char-named skills
+  with 256 KiB bodies, and then **every turn** materialises ~0.4 GB (~2.4 GB at the max cap) in a
+  process shared with every other tenant. Cross-tenant availability, not confidentiality.
+  Two fixes, both needing a decision this task should not make alone: (a) a hard per-agent binding
+  cap — a new user-visible limit the dossier never specifies, and Q-13 offers the index token cap
+  as *the* bound; or (b) drop `body` from the snapshot query and have `read_skill` fetch the one
+  body it was asked for **by id, restricted to the snapshot's ids** — which preserves the tap
+  fully (the id set is fixed before the model speaks; §6 forbids re-querying *by name*, not by a
+  proven id) and is strictly better for the common case, since every turn currently loads every
+  bound body to render a list of names. (b) is the recommendation. Not urgent: the feature has no
+  frontend and no bound skills in production.
+- **FU-25: `contexts/agents` and `contexts/skills` now name each other at module scope.**
+  Raised by the quality gate as its one Critical, and recorded rather than fixed because the fix is
+  a judgement call the ADR should make, not a defect to repair. `skills.application.binding_service`
+  imports `agents.interfaces.facade` (§5's ADR argues that direction: "legality is proven through
+  `AgentsFacade`"), and Phase 1 adds the return edge — `turn_engine` imports
+  `skills.interfaces.facade`, `tool_registry` imports `skills.domain.models`. **It is not an
+  import-time cycle**: verified by importing all five entry points in isolated subprocesses, and
+  the one edge that would close the loop (`agent_service` → `SkillsFacade`) is already deferred
+  with a comment saying why it must stay that way. The `skills.domain` edge can never cycle —
+  import-linter enforces that domain imports nothing. What is unrecorded is the mutual reference
+  itself: §5's ADR argues only one direction, and the codebase's one precedent for a mutual pair
+  (agents ↔ orchestration) uses function-local imports throughout, where this one is at module top.
+  Either record the accepted cycle in the ADR with the reason, or invert the edge by injecting a
+  snapshot resolver into `TurnEngine`. Note the second costs the `monkeypatch.setattr(te,
+  "SkillsFacade", ...)` seam three test files use.
+- **FU-26: the charset rule lives only at the Pydantic boundary, and `copy` carries bytes across
+  scopes without re-validating them.** `SkillsFacade.create/update/copy` and `SkillService._insert`
+  accept any string, which contradicts `text_rules`' own docstring ("three callers: create, update,
+  and — when bundles land — import"). No live attack: every stored description was written under
+  the current rule by `SkillCreateIn`/`SkillPatchIn`, so no stale bytes exist to launder. It
+  becomes a real laundering primitive the moment the rule tightens again or the importer lands —
+  and the rule *did* just tighten (see the charset fix), which is precisely the scenario. Enforce
+  in `SkillService._insert`/`update` so the rule holds at the layer every entry point crosses.
+- **FU-27: §8 claims a homoglyph mitigation the code does not have.** §8 item 1 names homoglyphs as
+  one of three things that defeat "visible" and cites Q-31(b)'s charset rules as the control. The
+  charset rules do nothing about homoglyphs — no confusables table, no NFKC, no script-mixing
+  check. `name` is safe by construction (`SKILL_NAME_RE` is ASCII-only); `description` is not.
+  Either implement it or correct §8 — an SRS that claims a control it does not have is worse than
+  one that admits the gap.
+- **FU-28: Q-31(b) specifies `description` is NFC-normalized; nothing normalizes anything.**
+  `unicodedata` appears once in `contexts/skills/`, for `.category`. No attack path — nothing
+  transforms the string after validation, so there is no validate-then-mutate bypass, and NFC
+  cannot synthesize the ASCII delimiter. But a description is stored in whatever normalization form
+  its author sent. Implement or drop it from the spec.
 - **FU-23: the `agent.warning` event has no consumer.** D-17's room event is emitted and asserted
   backend-side, but Phase 1's frontend deliverable is removal-only, so a user whose skill is dropped
   mid-turn sees the agent quietly answer without it. The `slices/skills` work in Phase 2 owns the
