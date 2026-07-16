@@ -1906,8 +1906,9 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   (`0011_agents.py:97`), and runtime, and in compact mode becomes the ceiling verbatim
   (`turn_engine.py:1028`) — a multi-million-token knowledge grant against a 128k provider.
   `skill_index_token_cap` takes an upper bound rather than copying the defect.
-- **FU-11: `_MAX_TOOL_OUTPUT` is characters, not tokens** (`builtin_tools.py:35`), giving a 4×
-  spread between Latin and CJK, and tool results are counted in no budget across
+- **FU-11: `_MAX_TOOL_OUTPUT` is characters, not tokens** (`tool_registry.py` — it lived at
+  `builtin_tools.py:35` when this was written; D-14 moved it, and the cap itself is unchanged),
+  giving a 4× spread between Latin and CJK, and tool results are counted in no budget across
   `MAX_TOOL_ROUNDS = 8` (the code's own FU-4 at `turn_engine.py:1158`). Skills budgets `read_skill`
   in tokens (Q-31) but does not fix the other six tools.
 - **FU-12: the `exports` bucket's lifecycle is declared but not applied.** `settings.py:111` reads
@@ -1995,6 +1996,11 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   "noise at R3.02's 100 concurrent users", which holds. Recording it anyway because the *count* is
   now four, and the fix is the same one for all of them: an `asyncio.gather` over the independent
   turn-start reads. Nothing in Phase 1 depends on it.
+- **FU-23: the `agent.warning` event has no consumer.** D-17's room event is emitted and asserted
+  backend-side, but Phase 1's frontend deliverable is removal-only, so a user whose skill is dropped
+  mid-turn sees the agent quietly answer without it. The `slices/skills` work in Phase 2 owns the
+  toast. Until then the audit trail (`skill.resolution_failed`) is the only surface. Note D-25: the
+  event carries a *count*, so the Phase 2 toast needs the bindings endpoint for names.
 - **FU-24: the per-turn snapshot loads every bound skill's *body* and has no LIMIT.**
   Confirmed by this task's security gate; **the one finding it raised that is deferred rather
   than fixed**, because both candidate fixes are design decisions rather than repairs.
@@ -2047,7 +2053,3 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   transforms the string after validation, so there is no validate-then-mutate bypass, and NFC
   cannot synthesize the ASCII delimiter. But a description is stored in whatever normalization form
   its author sent. Implement or drop it from the spec.
-- **FU-23: the `agent.warning` event has no consumer.** D-17's room event is emitted and asserted
-  backend-side, but Phase 1's frontend deliverable is removal-only, so a user whose skill is dropped
-  mid-turn sees the agent quietly answer without it. The `slices/skills` work in Phase 2 owns the
-  toast. Until then the audit trail (`skill.resolution_failed`) is the only surface.
