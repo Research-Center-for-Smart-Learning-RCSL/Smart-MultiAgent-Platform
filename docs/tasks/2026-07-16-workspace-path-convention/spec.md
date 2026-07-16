@@ -253,19 +253,45 @@ Appended by `/build`.
 
 ## 13. Follow-ups
 
+> **Verification sweep, 2026-07-17.** Re-checked during the 0716 follow-up triage. All three claims
+> hold. Caveat on citations: **every `turn_engine.py` line number in this dossier is stale** (the
+> agent-skills Phase 0 diff shifted the file ~165 lines); `driver.py` and `settings.py` citations are
+> essentially exact. None of the three is ready to spec: FU-1 is gated on two unbuilt dossiers, FU-2
+> is subsumed by `2026-07-16-code-exec-agent-files-path`' FU-4, and FU-3 depends on the test tier
+> that FU-4 describes.
+
 - **FU-1: `code_exec` cannot see `file`'s writes without an absolute path, and vice versa — by
   design, now merely documented.** The deeper question this spec declines: should the platform
   offer one addressing scheme across every tool the agent has? Doing it properly means a path
   abstraction the tools share, not a third convention bolted on. Revisit if agents keep tripping
   over it once AC-3's descriptions are live; the audit trail (`file_tool.py:102-115`) and
   `skill_reads` metadata make the tripping measurable.
+  **Verified 2026-07-17: CONTINGENT on two unbuilt dossiers — not sprecable yet.** The audit trail
+  at `file_tool.py:102-115` does exist, but this entry's own trigger ("once AC-3's descriptions are
+  live") depends on *this* dossier being built, and its `skill_reads` metadata depends on
+  `2026-07-16-agent-skills` Phase 1. It is also not a defect claim — it is a deliberately deferred
+  design question (`feature`/`refactor`: a shared path abstraction across tools). Note it is the
+  residue of `2026-07-16-code-exec-agent-files-path`' FU-1, the same subject at a third altitude.
 - **FU-2: nothing in CI detects a stale `smap/mcp-runtime:pinned`.** The `file` tool's behavior
   lives in an image the backend addresses by tag (`settings.py:256-259`), and there is no test
   tier that runs it (§4). A backend expecting absolute listings against an old image degrades
   silently. A build-stamp assertion at sandbox readiness (`docker_runsc.py`'s
   `_ensure_runtime_ready` / the supervisor gate, `settings.py:264-269`) would close it.
+  **Verified 2026-07-17: confirmed; the gap is live, its severity is not.** `settings.py:256-259`
+  is exact (`mcp_image` defaults to `smap/mcp-runtime:pinned`); `supervisor_url` is `:269-272` —
+  the cited `:264-269` lands on that field's comment block. The tag-addressed-image gap exists
+  today, but the specific failure named here (a backend expecting absolute listings against an old
+  image) only arises once AC-3 ships. **Substantially the same root cause as
+  `2026-07-16-code-exec-agent-files-path`' FU-4** — nothing in CI runs a container — of which this
+  is one instance; that entry is the general form and would subsume this. The build-stamp assertion
+  is nonetheless a much cheaper partial fix and worth taking first. Type: `feature`/infra.
 - **FU-3: `list` is not recursive** (`driver.py:243`, `os.listdir`), so discovering a nested
   layout costs one tool round per directory against `MAX_TOOL_ROUNDS = 8`
   (`turn_engine.py:82`). Out of scope — it is a capability gap, not the reported defect — but it
   compounds this one, because the agent burns rounds discovering the tree it was already
   mis-addressing.
+  **Verified 2026-07-17: confirmed. `driver.py:243` is exact** (`sorted(os.listdir(path))`);
+  `MAX_TOOL_ROUNDS = 8` is now `turn_engine.py:83`, not `:82`. Not contingent — a live capability
+  gap. But the fix touches `deploy/sandbox/driver/driver.py` and the in-image protocol, so it needs
+  an image rebuild — which is exactly the drift FU-2 says CI cannot detect. Sequence it behind the
+  test tier. Type: `feature`.

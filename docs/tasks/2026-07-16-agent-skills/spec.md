@@ -1862,6 +1862,26 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
 
 ## 16. Follow-ups
 
+> **Verification sweep, 2026-07-17.** Every entry below was re-checked against the tree before
+> being considered for a dossier, because an FU list has no status field: closure is recorded only
+> in the D-n of the dossier that closes it, so this list reads as open even where the work is done.
+> The sweep found that to be the common case, not the exception — **FU-13, FU-16, and FU-17 were
+> already resolved** and are marked so in place, **FU-12's central claim is false**, and **FU-8's
+> prescribed fix would introduce the bug its own citation exists to prevent**. Entries whose text
+> would mislead a reader are corrected below with a `Verified 2026-07-17` note; entries that
+> reproduced verbatim carry no note. Numbering is append-only, so nothing is renumbered or deleted.
+>
+> Two cross-dossier facts the sweep established: **FU-6 is the same item as
+> `2026-07-16-code-exec-agent-files-path`'s FU-3** (that entry admits the lineage), and **FU-6 and
+> FU-19 are two directions of one defect** — SMAP has no reliable model of what is on the
+> agent-workspace volume. FU-6 is the false-positive direction (we believe files are staged; they
+> may not be), FU-19 the false-negative (files are there that we believe are gone). They share one
+> function, one cause, and one fix shape.
+>
+> Citation drift is the dominant failure mode in this list: Phase 0 and Phase 1 moved
+> `turn_engine.py` by ~165 lines, so most `turn_engine.py` line numbers below are stale even where
+> the claim behind them holds. Trust the claims; re-locate the lines.
+
 - **FU-1: documentation drift across five files.** `CLAUDE.md` lists a non-existent `admin` context
   and omits `knowledge`/`prompt_studio`/`orchestration`/`activities`; `backend/CLAUDE.md` claims
   migrations span 0000-0035 (head is 0055); `frontend/CLAUDE.md` lists 8 slices against
@@ -1873,11 +1893,34 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   `agents.graphrag_config_id`, **dropped by `0044_graphrag_drop_agent_id:57`**, and never mention
   `knowmap_config_id`, added by `0048`. A separate `/spec` should sweep it; mixing it in would bury
   this feature's diff.
+  **Verified 2026-07-17: confirmed on all nine sub-claims, and two counts got worse.** `CLAUDE.md:10`
+  names 6 of **14** live contexts, so it omits **8**, not four — and `skills` is now among the
+  omitted: this dossier's own context is missing from the file. `backend/CLAUDE.md:54` still claims
+  0000-0035 against head `0056_skills`, a 21-migration drift, not the 20 stated above. Citations
+  moved: §23's tree is `REQUIREMENTS.md:1670-1701`, `[R23.03]` is `:1705`, §24.2's tree is
+  `:1746-1774`, `[R24.06]` is `:1794`, and the `graphrag_config_id` sites are `:389`/`:1089`.
+  Two judgement calls the sweep surfaced: `[R23.03]` says facades live in `application/` while
+  **14/14** contexts put them in `interfaces/` and `backend/CLAUDE.md:26` documents the correct
+  location — so either the SRS is wrong or the code is, and someone must say which; and §24.2's tree
+  lists a `skills/` slice that does not exist on disk, which is aspiration rather than drift and
+  needs its own call. Also `eslint.config.js:225`'s comment is itself stale ("ONLY in
+  ChatroomView.vue") against the 5-file allowlist it introduces.
 - **FU-2: §29 added no §21.1 tables.** `prompt_assistant_configs`, `prompt_templates`, and
   `prompt_assistant_files` are absent from both the §21.1 SQL block and the §21.1.0 coverage
   matrix, though that matrix asserts it "Confirms **every** domain concept ... has a persistence
   location". This spec does the §21.1 work rather than copy the omission.
+  **Verified 2026-07-17: confirmed, and the forward-looking worry is answered — §31 did not repeat
+  the omission.** The three prompt tables still have zero occurrences anywhere in `REQUIREMENTS.md`
+  while living in `0042_prompt_studio.py`, so the §21.1.0 matrix's "every domain concept" assertion
+  is false today. `skills`/`skill_files`/`agent_skills` are all in the §21.1 SQL block with matrix
+  rows at `:973`-`:974`.
 - **FU-3: `traceability.csv` skips §30 entirely** (zero R30.* rows).
+  **Verified 2026-07-17: confirmed but badly understated — six sections have zero rows, not one.**
+  R4, R21, R25, R26, R27, and R30 are all absent. §31 is covered (29 rows). The "+24 rows" figure
+  this dossier's own delta reports is a **net**: `9c8b7c1` added 29 R31 rows and deleted 5 (R9.04-
+  R9.08, the withdrawn lazy-prompt block). Scope accordingly: §30 alone is ~15-20 rows; all six is
+  60-90, and each row is a hand-written summary, so someone must first decide whether R4/R21/R25/
+  R26/R27 are in scope or deliberately non-traceable.
 - **FU-4: editor upgrade.** `SCodeEditor` is a textarea whose `language` prop emits a class with no
   CSS rule (`SCodeEditor.vue:7,61,76-108`). Per-file Python editing in it is poor. An editor
   library would have to fit `LAZY_LIMIT=204800` gz (`scripts/check-bundle-size.sh:8`; the exempt
@@ -1888,12 +1931,62 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   security review.
 - **FU-5: `shared/ui` is an i18n dead zone.** `vue/no-bare-strings-in-template` is off for
   `src/shared/ui/**/*.vue`, so `SFileUpload.vue:121-122` and `:132` ship untranslated.
+  **Verified 2026-07-17: confirmed, but "dead zone" overstates it.** The hole is ~10 user-visible
+  strings across **6 of 44** files — `SFileUpload.vue:122,132,149`, `SSearchInput.vue:79,87`,
+  `SSkeleton.vue:35,62`, `SBadge.vue:44`, `SBreadcrumb.vue:34`, `STable.vue:292`. The other 38 files
+  already call `t()` correctly, so the override at `eslint.config.js:260` is the only thing hiding a
+  small, finite list. A fix must delete **only that line**: `vue/require-default-prop` shares the
+  same override block and has a separate, defensible justification at `:251-256`.
 - **FU-6: `_WORKSPACE_MANIFESTS` is unbounded and can lie.**
+  **Verified 2026-07-17: confirmed on every adjective, and it is the same item as
+  `2026-07-16-code-exec-agent-files-path`'s FU-3** (that entry says so itself: "Carried from the
+  Skills dossier's FU-6"). One item, listed twice — dedupe on sight. `docker_runsc.py:218` defines
+  it, `:1029-1032` reads, `:1057` writes; grep finds no eviction anywhere, so it is one entry per
+  agent that ever staged, for process lifetime. The staleness path: `:1030`'s cache hit returns at
+  `:1032` **without spawning a container**, re-tarring only to recompute path strings, and nothing
+  verifies the volume still exists or still holds those bytes. Nothing in the module ever removes
+  `smap-agent-fs-{agent_id}`, so the lie needs an out-of-band removal (`docker volume rm`, a host
+  prune, a node replacement) — after which the model is told about files that are not there.
+  Across worker processes the failure is asymmetric: a cold-cache process re-stages (wasted spawn,
+  correct result), while a warm cache over a destroyed volume is per-process and unrecoverable
+  without a restart. That also means the cache is **not** a correctness mechanism across processes —
+  only a per-process hot-path optimisation, which weakens the "idempotent" claim in its own
+  docstring at `:1017-1019`. **Same defect as FU-19** — see that entry and §16's preamble; they
+  belong in one dossier.
 - **FU-7: the headless turn path is not at parity.** `run_input_turn` has **no key-group AuthZ
   tap**, runs with `budget=None`, stages no files, and keeps block order by comment. Skills adds its
   own tap there but does not close the key-group gap; skill scripts are not staged on A2A turns.
+  **Verified 2026-07-17: confirmed in full — this is the one entry in this list carrying live
+  security risk, and it is promoted to its own dossier
+  (`docs/tasks/2026-07-16-headless-turn-key-group-authz`).** `_run_locked` still taps at
+  `turn_engine.py:1108-1128`; `run_input_turn` (`:574-660`) never constructs `KeyGroupRepository`
+  and first touches `agent.key_group_id` when handing it to `ProviderRouter.call_stream`. The router
+  does not compensate: `provider_router.py:400-418` takes `group_id` on trust, and the
+  `KeyProjectScopeError` that does exist (`:612-613`) is on the **pinned-key** path, not the group
+  path. `get_active` (`group_repository.py:63-74`) filters only `deleted_at IS NULL` — never by
+  project — so the cross-project case is caught **solely** by `:1111`'s comparison. Concrete gain: an
+  agent whose key group has been moved to another project is stopped on a room turn but proceeds
+  over A2A `call`/`instruct` (or the approval-vote worker) and **spends another project's provider
+  keys**. Soft-delete fails closed-ish (router finds no eligible member → `KeyGroupExhausted`);
+  cross-project fails **open**. Phase 1's skills tap changed nothing here — `_resolve_skills` is
+  shared by both paths and its docstring (`:943-948`) explicitly declines the key-group tap's
+  turn-skip semantics, which is correct reasoning on a different axis. The budget, staging, and
+  block-order halves of this entry are three separate, larger items and stay open here; only the
+  key-group gap is promoted.
 - **FU-8: two system-prompt caps.** `SPromptAssistantConfigForm.vue:67` hardcodes 20 000 instead of
   importing `INPUT_LIMITS.SYSTEM_PROMPT` (100 000).
+  **Verified 2026-07-17: the facts are right and the prescribed fix is a regression. Do not build
+  this entry as written.** The two numbers are not one cap duplicated — they are **two different
+  fields**. 100 000 caps the *agent's* `system_prompt` (`inputLimits.ts:15`, backed by
+  `agents.py:51`, and ratified by this dossier's Q-4). 20 000 caps the *prompt-assistant config's*
+  `system_prompt`, and it is not a stray: it mirrors `prompt_studio/domain/models.py:17`, enforced
+  at `app/api/v1/prompt_studio.py:118`. Importing `INPUT_LIMITS.SYSTEM_PROMPT` there would make the
+  counter promise 100k against a backend that 422s at 20k — precisely the drift `inputLimits.ts:5-9`
+  exists to prevent. The real residue is only that 20 000 lives in a component instead of
+  `inputLimits.ts`, which declares itself the single source of truth. Correct fix: add
+  `PROMPT_ASSISTANT_SYSTEM_PROMPT: 20_000` with a comment pointing at `prompt_studio/domain/
+  models.py:17`, and import that. Do **not** reuse `CONFIG_TEXT: 20_000` (`:45`) — same number,
+  unrelated concept.
 - **FU-9: SRS enumerations already incomplete.** `[R3.04]` (`:134`) omits `activities` despite
   §30's prose (`:2051`) claiming to have added it; §21.5's bucket list (`:1350-1353`) omits
   `knowmap-sources` and `agent-workspace` against `settings.py:101-106`; `[R22.15.03]` (`:1598`)'s
@@ -1902,10 +1995,33 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   `activities`; `docs/traceability.csv:59` (R9.02) still says "no templates", contradicting §29.
   This delta adds only its own entries and fixes only row 59, which edit (c) forces. Fold into
   FU-1's sweep.
+  **Verified 2026-07-17: four of five sub-claims confirmed; row 59 is already fixed** (edit (c)
+  landed in `9c8b7c1` as predicted, so that half is closed). `[R3.04]` is still `:134` and now
+  includes `Skills` — §31 added itself — but still omits `activities`, `orchestration`,
+  `prompt_studio`, `agent_groups`. Citations moved: §21.5's bucket list is `:1367-1371`,
+  `[R22.15.03]` is `:1616`, §24.2's tree `:1746-1774`, `[R24.06]` `:1794`. The sweep's finding that
+  matters more than the drift itself: **§31 repeated the exact pattern it is recorded here for
+  noticing.** `[R22.15.03]`'s union now reads `chat_attachment, rag_source, skill_bundle` — §31
+  added its own value and left `knowmap_source` out, though it is live in
+  `knowmap_tus_finalizer.py`. Same for §21.5, §23, §24.2, `[R3.04]`: every one gained `skills` in
+  `9c8b7c1` and none gained `activities`. **`activities` is the consistent victim** — absent from
+  `[R3.04]`, both trees, `[R24.06]`, and traceability alike. Remaining work is ~10 lines and purely
+  mechanical: each site is a list to extend from a known source of truth (`backend/contexts/`,
+  `settings.py:101-106`, `frontend/src/slices/`).
 - **FU-10: `context_token_cap` is unbounded above** at API (`agents.py:83`), DB
   (`0011_agents.py:97`), and runtime, and in compact mode becomes the ceiling verbatim
   (`turn_engine.py:1028`) — a multi-million-token knowledge grant against a 128k provider.
   `skill_index_token_cap` takes an upper bound rather than copying the defect.
+  **Verified 2026-07-17: confirmed; citations moved and the type is not what the wording implies.**
+  The API cap is `agents.py:82` (`:83` is now `skill_index_token_cap` — Phase 1 inserted a line),
+  the PATCH model repeats it at `:116`, the CHECK is still `0011_agents.py:96-99`, and the compact
+  ceiling is `turn_engine.py:1237`, not `:1028`. The contrast holds: `0056_skills.py:62`'s comment
+  cites `0011_agents.py:97` as the unbounded counterexample by name. **This is a `feature`, not a
+  bugfix** despite the word "unbounded": no spec text states an upper bound for `context_token_cap`
+  today, so a fix *introduces* a user-visible limit and a 422 that do not exist — spec the bound
+  first. The `turn_engine.py:1237` half is not a defect at all; it faithfully honours a config
+  value, and only the config's range is wrong. The migration is the real cost: existing rows above
+  any new bound must be handled.
 - **FU-11: `_MAX_TOOL_OUTPUT` is characters, not tokens** (`tool_registry.py` — it lived at
   `builtin_tools.py:35` when this was written; D-14 moved it, and the cap itself is unchanged),
   giving a 4× spread between Latin and CJK, and tool results are counted in no budget across
@@ -1916,11 +2032,31 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   while `REQUIREMENTS.md:1352` states "`exports` (lifecycle: 24-hour expiration)" as fact. Chat
   export relies on it today; skill-bundle export (§6) becomes the second. Exported bundles persist
   until an operator prunes the bucket.
+  **Verified 2026-07-17: STALE — the central claim is false. Closed; do not spec this.** The
+  lifecycle **is** applied: `smap/bootstrap/minio_init.py:146-152` passes a real
+  `LifecycleConfig`/`Rule`/`Expiration(days=1)` for `bucket_exports`, and `_ensure_bucket:74-99`
+  sets *and reconciles* it idempotently. There is also a second, independent mechanism:
+  `app/workers/tasks/retention.py:422-475` (`_purge_exports_bucket`), registered in the retention
+  sweep at `:596`. So exported bundles do not survive until an operator prunes anything — two things
+  delete them, and `REQUIREMENTS.md:1352` is fact rather than aspiration. **This entry was written
+  from the stale comment, not the code**: `settings.py:111`'s `# NOT YET IMPLEMENTED — lifecycle not
+  applied yet` is itself the only defect left, alongside `exports_expiry_hours` being dead config
+  (grepped repo-wide: definition only; `minio_init.py:150` hardcodes `days=1` and `retention.py:434`
+  hardcodes `timedelta(hours=24)`, so that field's "single source of truth" comment at `:107-109` is
+  false for it while true for its neighbour `chat_uploads_expiry_days`). Residue is a ~3-line
+  drive-by: delete the comment, then either thread the setting through both call sites or delete it.
 - **FU-13: `[R9.06]`'s Analysis prose misdescribes its own requirement.** `REQUIREMENTS.md:407`
   names frontmatter key `when_to_invoke` and tool `load_section(id)`; `[R9.06]` at `:413-422` says
   `title` and `load_prompt_section`, matching the code. §13(g) deletes the whole block, so this
   self-contradiction disappears with it — recorded because it is why the reviewed draft of this
   dossier misread the SRS, and because §29-era prose may carry the same class of drift.
+  **Verified 2026-07-17: RESOLVED by this dossier's own §13(g), exactly as predicted. Closed.**
+  `[R9.06]` no longer exists. `REQUIREMENTS.md:402` is now "### 9.2 Prompt Read Strategy —
+  superseded by §31", and `:404` records the removal of `[R9.04]-[R9.08]`. The offending prose and
+  the requirement block are both gone, and traceability followed (rows R9.04-R9.08 deleted in
+  `9c8b7c1` — the -5 that makes FU-3's "+24" a net figure). The one rule worth keeping was re-homed
+  rather than dropped: `REQUIREMENTS.md:2140`, `[R31.16]`, which says so in its own text. Nothing to
+  fix; the §29-era-drift worry that motivated recording it is now carried by FU-1/FU-9.
 - **FU-14: `user` scope, done containment-safely.** The capability Q-1 asked for and Q-26 dropped
   (§2). Additive over this design: a fifth `skills.scope` value — which costs an `ALTER TYPE … ADD
   VALUE` with no precedent in this repo, or a Text+CHECK conversion (§2) — a fifth
@@ -1930,6 +2066,20 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   (`org_service.py:247-291`), which today cleans up no ownership at all. Its cost is not the ENUM
   value; it is that `remove_member` becomes a skills-aware call site, which is the cross-context
   coupling that made this the wrong thing to ship in the same change as the mechanism itself.
+  **Verified 2026-07-17: this is not a follow-up — it is a rejected alternative, filed in the wrong
+  section. Reclassify; do not spec it from here.** Q-26 (§3) dropped `user` scope on a structural
+  argument, not a risk-weighted one: a user is not a container, so the containment predicate's
+  natural implementation for it is an always-true branch, and dropping it makes the predicate total
+  over all four scopes. Every shipped scope-touching AC (AC-1, AC-2) enumerates exactly four, and no
+  AC in Phase 2, 3, or 4 mentions `user`. Wanting this later is a new `/spec` that must first
+  overturn Q-26 — not work this list authorises. **One factual correction:** the claim that
+  `OrgService.remove_member` "today cleans up no ownership at all" is wrong. `org_service.py:258-285`
+  removes the membership (`:272`), revokes the user's key carries across every org project via
+  `KeysFacade.revoke_carries_for_user_in_projects` (`:277-281`), and removes them from all org
+  projects (`:282-285`). What it does not clean up is *content* ownership. Q-26's own phrasing
+  carries the same overstatement. The entry's real point survives the correction — `remove_member`
+  would become a skills-aware call site — though the existing `KeysFacade` import at `:275` shows
+  the precedent cuts both ways.
 - **FU-15: `agent-files` paths do not resolve *inside `code_exec`*. Live bug, found by this spec's
   review, deliberately not fixed here.** Scope precisely: the **`file` tool is fine** — its
   `_safe_relpath` roots every path at `/workspace` (`file_tool.py:30-41`), so `agent-files/x`
@@ -1954,11 +2104,29 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   re-running). Untouched by this task and deliberately not swept into its commits — the file is
   unrelated in-progress work. One `ruff format` on that file clears it, but it needs its own commit
   and its author's knowledge.
+  **Verified 2026-07-17: confirmed, understated, and now FIXED (`92e77d9`). Closed.** This entry
+  framed it as a local annoyance needing its author. It was not: CI **does** run the check
+  (`ci.yml:50-51`, the `backend-lint` job), and `backend-lint` is in the aggregate `gate` job's
+  required list (`ci.yml:766`, enforced `:809`, `exit 1` at `:825-828`) — so `main` was red and
+  **every open PR was inheriting a red required gate**. The defect was one over-long dict return at
+  `test_rag_source_teardown.py:297`; `git log` showed both surrounding commits were the same author
+  on the same day, so the "author's knowledge" caveat was moot. Note `.pre-commit-config.yaml:23`
+  has a `ruff-format` hook that would have caught it, and evidently did not run.
 - **FU-17: AC-10's CI gate is a literal `rg` command, and `rg` is not on PATH on this dev machine.**
   The gate as written (§11 AC-10) is fine in CI if the image ships ripgrep, but a developer running
   it locally on Windows gets "term 'rg' is not recognized" — a *pass-shaped* failure if wired into a
   script without `set -e`. Phase 1 owns AC-10; it should pin the gate to a runner that has ripgrep,
   or express it in Python. Not a Phase 0 blocker.
+  **Verified 2026-07-17: RESOLVED — Phase 1 took the Python option. Closed.** `ci.yml:29-32` runs
+  `python scripts/check_no_lazy_prompt.py`, and that script's docstring (`:8-11`) states this
+  entry's own reasoning as its justification. It reproduces `rg`'s gitignore-honouring scope via
+  `git ls-files` (`:52-68`) and carries the four exclusions (`:33-45`). (`rg` is indeed still absent
+  from this machine's PATH, so the premise held.)
+  **But the sweep found a different, worse gap in its place, which is not what this entry says:**
+  the `repo-gates` job that runs the script is **not** in the aggregate `gate` job's `needs`
+  (`ci.yml:765-783`) nor in its required-results loop (`:809-824`). Since `ci.yml:757-759` instructs
+  branch protection to reference only `gate`, a lazy-prompt regression goes red on its own job and
+  **still merges**. One-line fix; worth doing wherever FU-16's neighbours land.
 - **FU-18: `_stage_persisted_files` uses `break` where its sibling uses `continue`.**
   `turn_engine.py:788` stops at the **first** file that would overrun `_MAX_AGENT_FILES_BYTES`, so
   one large file early in the list silently drops every smaller file after it; the attachment path
@@ -1966,12 +2134,41 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   fixtures (`test_first_file_over_the_cap_stages_nothing` pins the current behaviour). Out of scope:
   AC-12 is about the manifest describing what was staged, not about *which* files get staged —
   changing the selection is a separate, user-visible behaviour change.
+  **Verified 2026-07-17: confirmed, but "pins the current behaviour" is an overstatement — there is
+  no test resistance.** Current lines: `break` at `turn_engine.py:833-834`, the `continue` sibling at
+  `:787-788`; the caps differ (`_MAX_AGENT_FILES_BYTES` 128 MiB at `:138`,`_MAX_STAGED_BYTES` 64 MiB
+  at `:137`). `test_first_file_over_the_cap_stages_nothing` does exist
+  (`test_workspace_staging.py:143-147`) but pins the **degenerate** case — one 200 MiB file, nothing
+  else in the list — so it **passes unchanged under `continue`**. The behaviour this entry actually
+  describes, a later small file being dropped, is pinned by **no test at all**; the fix needs a real
+  multi-file regression test, which is its only real cost. One nuance in the fix's favour:
+  `manifest_sha` (`:845-847`) is computed over `chosen`, so the cache key already describes whatever
+  prefix was selected — a `continue` fix stays cache-correct, and the two are decoupled.
+  **Not the same subject as FU-19**, despite landing in the same batch: this is a selection-policy
+  bug in the application layer, FU-19 is a materialisation bug in infrastructure. Fixing one gives
+  zero leverage on the other.
 - **FU-19: the agent-workspace volume is never cleared before re-staging.**
   `stage_agent_workspace_files` (`docker_runsc.py:1053`) `put_archive`s into the persistent
   `smap-agent-fs-{agent_id}` volume without removing what is already there, so a file deleted from
   the agent's workspace stays visible to `code_exec` until the volume is destroyed. Pre-existing and
   unchanged by AC-12 (the manifest fix is per-agent-keyed, so it neither causes nor cures this).
   Related to FU-6's stale-manifest cache.
+  **Verified 2026-07-17: confirmed, and "related to FU-6" undersells it — they are one defect.**
+  `put_archive` at `docker_runsc.py:1053` runs with `command=["true"]` (`:1046`), i.e. the container
+  never executes; there is no `rm` and no prune anywhere in the module. Trace for a user-deleted
+  file: the row leaves `agent_workspace_files` → omitted from `chosen` → `manifest_sha` changes →
+  cache miss → re-stage — but `put_archive` **overlays** the tar, and extraction never deletes
+  unlisted paths, so `/workspace/agent-files/deleted.csv` survives. It is merely unnamed in the
+  system note; `code_exec` can still `open()` it and the `file` tool's `list` **will show it**. And
+  since nothing in the codebase ever destroys the volume, "until the volume is destroyed" means
+  *indefinitely*, absent operator action — a data-retention edge, not just a staleness one.
+  **FU-6 and this are two directions of one defect** (see §16's preamble): both live in
+  `stage_agent_workspace_files`, both stem from that function being an overlay rather than a
+  reconciliation, and both need the same fix shape — make staging authoritative: clear the tree,
+  write the manifest, key the cache on verified volume state. Fix this alone and the cache still
+  lies; fix FU-6 alone and deleted files still linger. They belong in one dossier. Cost worth
+  naming: a real fix must take a container that actually runs, so it spends the `command=["true"]`
+  shortcut.
 - **FU-20: deferred quality findings on the Phase 0 diff.** Two Info-level items from this task's
   quality gate, both judgment calls left as-is: (a) `_BlockRole`/`_BlockSlot`/`_SystemBlock`/
   `_SystemBlocks` are ~127 lines of pure, IO-free code added to an already-2289-line
@@ -1983,6 +2180,27 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   helper would collapse across three sites — a refactor wider than this task. Note the
   commit-then-`_compact_forced_rooms.discard` pairing is now an invariant across five sites with
   nothing but a comment enforcing it; the natural home for that assertion is the same helper.
+  **Verified 2026-07-17: partly — every number drifted, (a)'s rationale has expired, (b) does not
+  hold, and the pairing argument is stronger than stated.** The file is **2186** lines, not 2289
+  (it shrank ~103). The block classes are `:310-448`, **~139** lines not ~127, genuinely pure and
+  IO-free, and a contiguous prefix before `TurnEngine` at `:451` — a clean mechanical lift. (a)'s
+  stated reason for deferring ("Phase 1 adds `_skills_note` to them") has **expired**: Phase 1 landed
+  that block at `:394`. The judgement call stands as a judgement call; its justification no longer
+  does.
+  **(b) is wrong: the three sites do not share a shape.** `key_group_scope` (`:1112-1128`) and
+  `rate_limited` (`:1131-1146`) are identical to each other, but `knowledge_starved` (`:1417-1447`)
+  is a **superset** — it additionally does `_compact_forced_rooms.discard` (`:1438`) and
+  `await self._requeue_notifications(...)` (`:1446`), with a 5-key audit payload against the others'
+  2. A `_skip_turn(reason, meta)` would collapse two sites cleanly and need parameters or opt-outs
+  for the third, which is most of the saving gone. Honest version: two are true duplicates, the
+  third rhymes.
+  **The pairing note undercounts and is the better target.** There are **seven** `discard` sites
+  (`:1438`, `:1460`, `:1493`, `:1528`, `:1551`, `:1959`, `:1992`), of which **six** are
+  commit-then-discard (`:1992` follows a Redis `set` and is a different path). Critically, **only
+  `:1438` carries the explaining comment** — the other five have none. So the invariant is enforced
+  by nothing whatsoever, and one comment at one site documents it. Rescope: extract a
+  `_commit_and_release_compact(chatroom_id)` helper across the six, which is a real enforceable
+  invariant, with the 2-site skip collapse as a secondary. (a) is separable and now unblocked.
 - **FU-21: `test_sel_evaluator.py` fails intermittently under random ordering.** Not this task's
   code and not this task's context. `contexts/workflow/sel/evaluator.py` sets a **5 ms wall-clock
   deadline** before the first `visit()`, and Windows' ~15.6 ms scheduler granularity can blow past
@@ -1991,16 +2209,75 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   deadline should be monotonic-clock-based with a floor above the host's timer granularity, or the
   guard should count nodes rather than milliseconds. Pre-existing; seen on two separate full-suite
   runs during Phase 1.
+  **Verified 2026-07-17: the symptom is real; both stated causes are wrong, and so is the fix. This
+  is a production defect, not a test flake — rewrite before building.**
+  *"Under random ordering" is false*: no `pytest-randomly` or `pytest-random-order` is installed
+  (`addopts` at `pyproject.toml:352` is `-ra --strict-markers --strict-config`), so order is
+  deterministic and `-p no:randomly` is a no-op. Ordering is not the variable.
+  *"5 ms wall-clock" is false and "should be monotonic" is already done*: `evaluator.py:515` is
+  already `time.monotonic() + EVAL_BUDGET_MS / 1000.0`, checked at the top of every `visit()`
+  (`:327`) and set **after** parsing. This entry was written from the module docstring, not the
+  code — and **that docstring is itself the defect**: `evaluator.py:6` claims "Wall-clock ≤ 5 ms per
+  evaluation (threading timer)", which is wrong twice (it is monotonic, and there is no timer).
+  *The real mechanism is clock quantisation, not preemption.* On Windows `time.monotonic()` is
+  backed by `GetTickCount64()` with **15.625 ms resolution** — so monotonic *is* the low-resolution
+  clock here, and switching to it bought nothing. A 5 ms budget is under a third of one tick:
+  normally both reads land in the same tick, elapsed reads as exactly `0.0`, and the budget can
+  **never** measure a real overrun; but if a tick boundary falls in the microsecond-wide window
+  between `:515` and the first check, the clock jumps a full 15.625 ms at once and
+  `SELBudgetExceeded` fires on the **first AST node, before evaluating anything**. The guard is thus
+  simultaneously unenforceable and randomly fatal to trivial expressions — in production workflow
+  condition evaluation, not just in tests. (Could not reproduce locally: 10/10 clean runs, full
+  suite 4693 passed. The odds are ~(gap between the two reads)/15.625 ms, which is why it only shows
+  across full-suite runs.)
+  *Fix*: **`time.perf_counter()`** (~100 ns, monotonic — the correct primitive) is the minimal
+  correct change; a **node-count budget** is strictly better for the purpose, since depth ≤ 16 and
+  length ≤ 1000 already bound the AST, making it deterministic and host-independent. A bigger floor
+  only lowers the odds — the race survives. Note `_regex_match` (`:292-313`) is the only genuinely
+  time-unbounded operation and its own comment (`:296-299`) admits the deadline never protected it,
+  relying on re2's linear-time engine instead. Fix `:6`'s docstring in the same change.
 - **FU-22: `_resolve_skills` is a fourth un-gathered query at turn start.** §7 already notes the
   three sequential un-gathered queries at `:881`/`:891`/`:899` and judges the bound-set snapshot
   "noise at R3.02's 100 concurrent users", which holds. Recording it anyway because the *count* is
   now four, and the fix is the same one for all of them: an `asyncio.gather` over the independent
   turn-start reads. Nothing in Phase 1 depends on it.
+  **Verified 2026-07-17: partly — the underlying fact holds, the count is wrong, every line number
+  is stale, and the proposed fix does not work as written.** The three §7 queries are now
+  `turn_engine.py:1092`/`:1102`/`:1110`, not `:881`/`:891`/`:899` (§7's own copy at `:835-836` is
+  equally stale). The actual **fourth** guard query is `_turn_rate_allowed` at `:1130`, not
+  `_resolve_skills` — which lives at `:1197`, inside the try block, separated by ~8 further
+  sequential awaits, making it roughly the **thirteenth**. So this entry's sole reason for existing
+  ("the *count* is now four") is false; the judgement it defers to ("noise at 100 concurrent users")
+  still holds.
+  **The load-bearing omission:** all four guard queries share one `AsyncSession` (`self._db`), and
+  SQLAlchemy's `AsyncSession` is not safe for concurrent use — an `asyncio.gather` over them as
+  written raises `InvalidRequestError`. A real fix needs separate sessions or connections, which is
+  materially larger than this entry implies. It would also change side-effect ordering: today a
+  missing agent short-circuits before the key-group query runs; gathering issues all four
+  unconditionally.
+  **Recommendation: fold into §7's existing note at `:835-836` rather than carry both** — this entry
+  contributes no new site and its one distinguishing claim does not survive.
 - **FU-23: the `agent.warning` event has no consumer.** D-17's room event is emitted and asserted
   backend-side, but Phase 1's frontend deliverable is removal-only, so a user whose skill is dropped
   mid-turn sees the agent quietly answer without it. The `slices/skills` work in Phase 2 owns the
   toast. Until then the audit trail (`skill.resolution_failed`) is the only surface. Note D-25: the
   event carries a *count*, so the Phase 2 toast needs the bindings endpoint for names.
+  **Verified 2026-07-17: confirmed — and the resolution is a Phase 2 AC, not a dossier.** The
+  backend half is done and tested (`turn_engine.py:962-977`, asserted at
+  `test_turn_engine_skills.py:118`) and the SRS knows the event (`REQUIREMENTS.md:671`), but
+  `agent.warning` appears **nowhere** under `frontend/src/`: `useChatroomSocket.ts:176-329` switches
+  on 15 event types and has no case for it, so it falls through silently. Net effect: **AC-7's
+  user-facing half does not happen** — the turn survives, the audit row is written, and the user is
+  told nothing, which is the exact outcome AC-7 exists to prevent.
+  This entry assumes Phase 2 owns it. Phase 2 is the right *home* (its ACs are AC-16, AC-17, AC-18,
+  AC-19, AC-34) but **none of its five ACs actually covers this**: the nearest, AC-34, is a
+  `scan_status != clean` badge on a skill *management* view — different slice, different trigger,
+  different lifecycle — and AC-19 is `message.metadata`, not WS. So the work is currently owned by
+  no one. Cleanest fix is a one-line spec edit adding a Phase 2 AC ("the room surfaces
+  `agent.warning{skills_unavailable}` as a non-blocking notice") rather than spawning a dossier for
+  a ~30-line change: one `case` in `useChatroomSocket.ts`, a `useToast()` call, two i18n keys, and a
+  test alongside the existing `agent.finished{error}` cases at `useChatroomSocket.test.ts:150-190` —
+  the `key_group_scope` handling there is the exact shape to copy.
 - **FU-24: the per-turn snapshot loads every bound skill's *body* and has no LIMIT.**
   Confirmed by this task's security gate; **the one finding it raised that is deferred rather
   than fixed**, because both candidate fixes are design decisions rather than repairs.
@@ -2019,6 +2296,17 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   proven id) and is strictly better for the common case, since every turn currently loads every
   bound body to render a list of names. (b) is the recommendation. Not urgent: the feature has no
   frontend and no bound skills in production.
+  **Verified 2026-07-17: confirmed verbatim, and the case for (b) is stronger than argued here.**
+  `repositories.py:263-273` is still `sa.select(t.skills)` with no `.limit()`, and a repo-wide grep
+  for `MAX_BINDINGS|binding_cap|max_bindings|MAX_SKILLS_PER_AGENT` returns **zero** — no DB
+  constraint, no service check. The find this entry misses: `list_live_for_agent` has **four**
+  callers in `binding_service.py` (`:208`, `:221`, `:264`, `:374`) and **only `resolve_bound_set`
+  (`:374`) ever needs `body`**. The other three load ≤256 KiB bodies they never touch — and
+  `agents_conflicting_on_name` (`:221`) is additionally an **N+1**, called once per agent inside a
+  loop. So (b) is not merely "strictly better for the common case"; it fixes three wasteful callers
+  the entry does not mention. Type note: (b) is a `refactor` at the seams but a `bugfix` in effect
+  (`read_skill`'s observable behaviour is identical); (a) is a `feature` (new cap, new 422). Those
+  are different templates — pick one, do not mix.
 - **FU-25: `contexts/agents` and `contexts/skills` now name each other at module scope.**
   Raised by the quality gate as its one Critical, and recorded rather than fixed because the fix is
   a judgement call the ADR should make, not a defect to repair. `skills.application.binding_service`
@@ -2034,6 +2322,15 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   Either record the accepted cycle in the ADR with the reason, or invert the edge by injecting a
   snapshot resolver into `TurnEngine`. Note the second costs the `monkeypatch.setattr(te,
   "SkillsFacade", ...)` seam three test files use.
+  **Verified 2026-07-17 by AST rather than grep: confirmed, with a second edge this entry does not
+  name.** Module-level: `binding_service.py:23` (`AgentsFacade`) **and `:22`
+  (`AgentToolType` from `agents.domain.models`)** — that second skills→agents edge is unrecorded
+  here; `turn_engine.py:74` and `tool_registry.py:24` are the return edges. The deferred edge is
+  confirmed function-local at `agent_service.py:213` with its reasoning at `:209-212`, and the
+  agents facade defers `AgentService` in all four of its methods that need it (`:117`, `:146`,
+  `:176`, `:193`), corroborating that comment's claim. "Not an import-time cycle" holds.
+  **Type note: this is not a bugfix and must not be filed as one** — there is no defect, only an
+  unrecorded decision. The ADR option is docs-only; the inversion option is a `refactor`.
 - **FU-26: the charset rule lives only at the Pydantic boundary, and `copy` carries bytes across
   scopes without re-validating them.** `SkillsFacade.create/update/copy` and `SkillService._insert`
   accept any string, which contradicts `text_rules`' own docstring ("three callers: create, update,
@@ -2042,14 +2339,48 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   becomes a real laundering primitive the moment the rule tightens again or the importer lands —
   and the rule *did* just tighten (see the charset fix), which is precisely the scenario. Enforce
   in `SkillService._insert`/`update` so the rule holds at the layer every entry point crosses.
+  **Verified 2026-07-17: confirmed on both halves — and this is the only clean `bugfix` in the
+  Phase 1 audit-debt set.** `text_rejection_reason` has exactly **one** non-test caller:
+  `app/api/v1/skills.py:75`, inside a Pydantic-validator helper. `SkillService._insert:118-158`
+  takes `description` (`:124`) and passes it to `self._skills.create` at `:149` unvalidated; `update`
+  (`:176-212`) assigns at `:177-178` with only an index-budget check; `copy` (`:359`) passes
+  `source_skill.description` verbatim — and also carries `body`, `requires`, `allowed_tools`, and
+  `extra_frontmatter` unvalidated. The docstring contradiction is real: `text_rules.py:107-109`
+  describes callers ("a 422 from a Pydantic validator at the API, a `BundleInvalid` naming the key at
+  import") that do not exist. It fits the bugfix template because the deviation-from-documented-
+  intent is present-tense even though exploitability is future-conditional. **Prerequisite for
+  FU-28**, and fixing it first gives FU-27/FU-28 a natural home.
 - **FU-27: §8 claims a homoglyph mitigation the code does not have.** §8 item 1 names homoglyphs as
   one of three things that defeat "visible" and cites Q-31(b)'s charset rules as the control. The
   charset rules do nothing about homoglyphs — no confusables table, no NFKC, no script-mixing
   check. `name` is safe by construction (`SKILL_NAME_RE` is ASCII-only); `description` is not.
   Either implement it or correct §8 — an SRS that claims a control it does not have is worse than
   one that admits the gap.
+  **Verified 2026-07-17: confirmed — and merge with FU-28.** §8 names homoglyphs at `:850-851` and
+  cites Q-31(b) as the mitigation at `:860-862`; `text_rules.py:104-133` has no confusables table,
+  no NFKC, no script-mixing check (grep for `confusable|homoglyph` across the context: zero).
+  §8's residual-risk paragraph (`:864-873`) is candid that only the input half is enforceable, but
+  enumerates the deterministic part **without ever conceding homoglyphs are unhandled**, so the
+  charge stands. **FU-27 and FU-28 are the same item**: same section, same question (Q-31(b)), same
+  field, same file, same disposition, and both are resolved by one edit to the same paragraph — kept
+  separate they produce two dossiers editing the same three lines. Type: correcting §8 is docs;
+  implementing is a `feature` (new rejections, new 422s), **not a bugfix** — the code does what the
+  code intends and the *spec* overclaims. Given `description` is free-form prose, implementing
+  confusables is likely a bad trade.
 - **FU-28: Q-31(b) specifies `description` is NFC-normalized; nothing normalizes anything.**
   `unicodedata` appears once in `contexts/skills/`, for `.category`. No attack path — nothing
   transforms the string after validation, so there is no validate-then-mutate bypass, and NFC
   cannot synthesize the ASCII delimiter. But a description is stored in whatever normalization form
   its author sent. Implement or drop it from the spec.
+  **Verified 2026-07-17: confirmed; merge with FU-27 (see that entry) and sequence behind FU-26.**
+  Q-31(b) (`:151`) and `[R31.01]` (`:1560`) both promise NFC. `unicodedata` appears at three lines in
+  `contexts/skills/`, all in `text_rules.py` — the import at `:18` and `.category` at `:116`/`:127`
+  (so "appears once" undercounts; the substance is exact). **No `unicodedata.normalize` call exists
+  anywhere in the context.** "No attack path" holds: `text_rejection_reason` is pure and
+  `_insert`/`update` store the string as received, so there is no validate-then-mutate window.
+  **Dependency worth naming: implementing NFC requires FU-26 to land first.** Normalising means
+  *returning a transformed string*, which breaks `text_rejection_reason`'s reason-only contract
+  (`:107-109`) — so it needs a sibling function plus a service-layer call site, which is exactly the
+  enforcement point FU-26 creates. Type: implementing is a `feature` (a stored value changes form);
+  dropping it is two words in docs. Note `:921` and `:1264` promise NFC for *bundle paths* too — a
+  separate unimplemented surface, out of scope here but the same broken promise.

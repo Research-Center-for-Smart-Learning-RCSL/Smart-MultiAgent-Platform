@@ -249,6 +249,14 @@ Appended by `/build`.
 
 ## 13. Follow-ups
 
+> **Verification sweep, 2026-07-17.** Re-checked against the tree during the 0716 follow-up triage.
+> Every claim below still holds, but **every `turn_engine.py` line number in this dossier is stale**:
+> the agent-skills Phase 0 diff shifted that file by ~165 lines, so `_stage_persisted_files` is now
+> `turn_engine.py:813-861` and §5's note is at `:808`. `docker_runsc.py` and `kernel.py` citations
+> are all still exact. Two dispositions: **FU-1 has been promoted** — it is the entire subject of
+> `2026-07-16-workspace-path-convention`, so it is closed here rather than pending; and **FU-3 is a
+> duplicate of `2026-07-16-agent-skills`' FU-6**, which is where its analysis now lives.
+
 - **FU-1: the two tools disagree about what a relative path means — on the same volume.**
   Verified: both mount `smap-agent-fs-{agent_id}` at `/workspace` (`docker_runsc.py:604` for
   `file`, `:917` for the kernel), but `file` roots relative paths at `/workspace`
@@ -260,11 +268,39 @@ Appended by `/build`.
   is untouched and is a live source of model confusion whenever an agent uses both tools.
   Deserves a decision: one root, or a per-tool convention stated in the tool descriptions the
   model actually reads.
+  **Verified 2026-07-17: confirmed (all citations exact) — and PROMOTED, so this entry is closed.**
+  The decision it asks for is the entire subject of `2026-07-16-workspace-path-convention`, which
+  says so at its own `:20-22`. This is not pending work; it is a follow-up that graduated into a spec
+  and was left behind in the list it came from. Note the subject now appears at **three** altitudes
+  across the 0716 dossiers: here (the observation), that dossier (the decision), and that dossier's
+  own FU-1 (the deeper "one scheme for all tools" question it declines). Not contingent — the
+  divergence is live code today.
 - **FU-2: path-preserving staging, if Q-3 is dropped** under §9's fallback.
+  **Verified 2026-07-17: the flattening is real, but this is the most contingent entry in the whole
+  0716 set — it may never come into being.** The flattening is `turn_engine.py:854` (cited `:683`;
+  stale), `wf.path.rsplit("/", 1)[-1]`, so `reports/q1.csv` stages as `agent-files/q1.csv`. But this
+  entry exists only if (a) this dossier is built **and** (b) Q-3 (`:50`) then falls back per §9's
+  risk clause (`:191`) because the sanitiser cannot be made airtight. If Q-3 ships as decided, there
+  is nothing here. It is a follow-up of a decision not yet made about work not yet done — do not
+  spec it.
 - **FU-3: `_WORKSPACE_MANIFESTS` (`docker_runsc.py:218`) is module-global, in-process,
   unbounded, and never invalidated.** It can lie if the volume is removed out of band, and skills
   staging will add a second cache beside it. Carried from the Skills dossier's FU-6; untouched
   here.
+  **Verified 2026-07-17: confirmed (`:218` exact) — DUPLICATE of `2026-07-16-agent-skills`' FU-6, as
+  this entry's own last sentence admits. One item, listed twice; dedupe on sight.** The verified
+  analysis lives at that FU-6, which also establishes it is one defect with that dossier's FU-19
+  (the false-positive and false-negative directions of "SMAP has no reliable model of what is on the
+  volume"). Not contingent — live code, independent of either draft. Only the "skills staging will
+  add a second cache beside it" rider depends on agent-skills Phase 1.
 - **FU-4: no Docker/gVisor test tier.** AC-2/AC-3 can only be proven by `/verify`. This bug is
   the argument for the tier: every unit test in the world would have passed against the wrong
   string, because no test could execute the kernel that defines what the string means.
+  **Verified 2026-07-17: confirmed, not contingent, and it is a standing gap rather than this
+  dossier's debt.** `pyproject.toml:353-357` defines `wiring` as "real Postgres+Redis+MailHog" — no
+  Docker, no gVisor; `docker==7.1.*` (`:42`) is a runtime dep, not a test tier; all four
+  `docker_runsc.py` test files assert mock call args only. **Supersedes
+  `2026-07-16-workspace-path-convention`' FU-2**, which is the same root cause (nothing in CI runs a
+  container, so image/runtime drift is undetectable) narrowed to one instance — though that entry's
+  build-stamp check is a much cheaper partial fix worth taking first. Type is `feature`/infra (new
+  tier + CI runner); no bugfix dossier should absorb it.
