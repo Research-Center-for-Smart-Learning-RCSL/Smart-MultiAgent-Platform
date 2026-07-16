@@ -29,7 +29,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.application.activity_context_provider import ActivityContextProvider
 from contexts.agents.application import context as ctxmod
-from contexts.agents.application.prompt_loader import LazyPrompt, SectionCache, assemble
 from contexts.agents.application.runtime import model_attachments as mattach
 from contexts.agents.application.runtime import transcript as tx
 from contexts.agents.application.runtime.summariser import RouterSummariser
@@ -601,7 +600,7 @@ class TurnEngine:
         pending_notes: list[dict[str, Any]] = []
         try:
             await self._audit(agent, None, "agent.turn_started", {"mode": "a2a", "workflow_run_id": wf})
-            base_system, lazy_prompt, section_cache = self._resolve_prompt(agent)
+            base_system = agent.system_prompt
             system_parts = [base_system] if base_system else []
             # Knowledge blocks precede the notify block, matching the room path's
             # order. With no history, retrieval keys off the current input alone.
@@ -632,8 +631,6 @@ class TurnEngine:
             registry = build_registry(
                 self._db,
                 agent_id=agent.id,
-                lazy_prompt=lazy_prompt,
-                section_cache=section_cache,
                 extra=extra_tools,
             )
             await self._db.flush()
@@ -918,19 +915,6 @@ class TurnEngine:
                 await self._db.rollback()
             return 0
 
-    def _resolve_prompt(self, agent: Agent) -> tuple[str, LazyPrompt | None, SectionCache | None]:
-        """Resolve the agent's system prompt (R9.04–R9.08). All chat providers
-        support tools, so ``lazy`` never has to fall back to ``full`` here."""
-        prompt = assemble(
-            agent.system_prompt,
-            strategy=agent.prompt_strategy.value,
-            provider_supports_tools=True,
-        )
-        lazy_prompt: LazyPrompt | None = prompt if isinstance(prompt, LazyPrompt) else None
-        section_cache = SectionCache() if lazy_prompt is not None else None
-        base_system = lazy_prompt.index if lazy_prompt is not None else prompt.text  # type: ignore[union-attr]
-        return base_system, lazy_prompt, section_cache
-
     async def _pending_context_and_tools(
         self, agent: Agent, chatroom_id: uuid.UUID | None
     ) -> tuple[str | None, list[Tool], list[dict[str, Any]]]:
@@ -1113,8 +1097,7 @@ class TurnEngine:
             else:
                 await self._emit_observation_event(chatroom_id, agent.id, "observation.started", {})
 
-            # Prompt resolution (R9.04–R9.08).
-            base_system, lazy_prompt, section_cache = self._resolve_prompt(agent)
+            base_system = agent.system_prompt
 
             # Fixed (history-independent) turn context, assembled once. These
             # blocks and the tools are estimated for the compaction decision
@@ -1144,8 +1127,6 @@ class TurnEngine:
             registry = build_registry(
                 self._db,
                 agent_id=agent.id,
-                lazy_prompt=lazy_prompt,
-                section_cache=section_cache,
                 extra=extra_tools,
             )
             tool_specs = registry.specs()

@@ -60,7 +60,7 @@ Closes gap 2. `ProviderRouter` (`backend/contexts/keys/application/provider_rout
 
 ## K.2 Agent turn engine — **CODE** — XL
 
-Closes gap 1 (core). There is no module in the backend that performs an agent turn: no prompt assembly, no provider call on behalf of an agent, no reply persistence. `SenderType.AGENT` is never constructed (`message_service.py:184` is its only mention, an immutability guard). The orphaned-but-tested components this engine must consume already exist: context compaction (`contexts/agents/application/context.py:94-223`), lazy prompt loading (`prompt_loader.py`), RAG retrieval (`knowledge/application/retrieve.py:54-156`), built-in tools (`web_search`, `file`, `code_exec`), and the A2A transport.
+Closes gap 1 (core). There is no module in the backend that performs an agent turn: no prompt assembly, no provider call on behalf of an agent, no reply persistence. `SenderType.AGENT` is never constructed (`message_service.py:184` is its only mention, an immutability guard). The orphaned-but-tested components this engine must consume already exist: context compaction (`contexts/agents/application/context.py:94-223`), RAG retrieval (`knowledge/application/retrieve.py:54-156`), built-in tools (`web_search`, `file`, `code_exec`), and the A2A transport. (Lazy prompt loading was also on this list; `prompt_loader.py` was removed on 2026-07-16 — see E.2.)
 
 **Deliverables.**
 
@@ -68,10 +68,10 @@ Closes gap 1 (core). There is no module in the backend that performs an agent tu
   - `turn_engine.py` — `TurnEngine.run_turn(agent_id, chatroom_id, trigger)` orchestrating the steps below. Runs **in the arq worker only** (never in the web process).
   - `transcript.py` — production `TranscriptStore` over the messages repository (the protocol in `context.py` has no implementation today).
   - `summariser.py` — production `Summariser` issuing the R9.10 compact call through the agent's own key group via K.1.
-  - `tool_registry.py` — per-turn tool table assembled from: `update_wakeup` (R15.06, exists in `wakeup_service.py`), `web_search` (R12.07, exists), `file` (exists), `code_exec` (R12.05, exists; needs K.5), bound MCP server tools (R12.01; needs K.5), `load_prompt_section` (R9.06, exists in `prompt_loader.py`). Every entry currently has zero callers — this registry is their first.
+  - `tool_registry.py` — per-turn tool table assembled from: `update_wakeup` (R15.06, exists in `wakeup_service.py`), `web_search` (R12.07, exists), `file` (exists), `code_exec` (R12.05, exists; needs K.5), bound MCP server tools (R12.01; needs K.5), and `read_skill` (R31.15, §31). Every entry currently has zero callers — this registry is their first.
 - Turn algorithm:
   1. Acquire per-`(agent_id, chatroom_id)` Redis lock — one concurrent turn per agent per room; a trigger landing during a turn coalesces into at most one queued follow-up.
-  2. Load agent row; resolve key group; resolve prompt per `prompt_strategy` (R9.04–R9.08; `lazy` falls back to `full` with a UI warning when the provider lacks tool use, R9.08).
+  2. Load agent row; resolve key group; take `system_prompt` verbatim (R9.05) and resolve the agent's bound skills into the index block (R31.12/R31.13).
   3. Assemble history per `context_mode` (R9.09 `general` / R9.10 `compact` via `should_compact` → `run_compact`; compaction failure keeps original context and audits, R9.11).
   4. If `rag_config_id` set: run `RetrieveService` (embed → Qdrant → optional rerank → hydrate) and inject as a context block; GraphRAG configs likewise via `GraphRagRetrieveService` (both currently caller-less).
   5. Stream the provider call through K.1; on first token emit `agent.thinking` → `agent.token` deltas on the chatroom channel (R13.19); execute tool-call rounds through the registry (each MCP/tool call audited, R12.02/R12.15).

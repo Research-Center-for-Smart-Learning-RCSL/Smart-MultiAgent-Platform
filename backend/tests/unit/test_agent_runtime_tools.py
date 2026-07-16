@@ -1,4 +1,4 @@
-"""K.2 — per-turn tool registry: update_wakeup, load_prompt_section, dispatch."""
+"""K.2 — per-turn tool registry: update_wakeup, dispatch."""
 
 from __future__ import annotations
 
@@ -7,10 +7,8 @@ import uuid
 
 import pytest
 
-from contexts.agents.application.prompt_loader import LazyPrompt, SectionCache
 from contexts.agents.application.runtime.tool_registry import (
     ToolRegistry,
-    build_load_prompt_section_tool,
     build_registry,
     build_update_wakeup_tool,
 )
@@ -54,37 +52,15 @@ async def test_update_wakeup_tool_invokes_facade(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_load_prompt_section_tool_serves_and_caches() -> None:
-    prompt = LazyPrompt(index="idx", bodies={"alpha": "body-A", "beta": "body-B"})
-    cache = SectionCache()
-    tool = build_load_prompt_section_tool(prompt, cache)
-
-    res = await tool.invoke({"id": "alpha"})
-    assert res.content == "body-A"
-    assert not res.is_error
-    assert cache.get("alpha") == "body-A"  # cached for the turn (R9.07)
-
-    miss = await tool.invoke({"id": "ghost"})
-    assert miss.is_error
-
-
-@pytest.mark.asyncio
 async def test_registry_dispatch_and_unknown() -> None:
     reg = build_registry(object(), agent_id=uuid.uuid4())
-    # update_wakeup is always present; load_prompt_section only with a lazy prompt.
+    # update_wakeup is the only unconditional built-in.
     assert len(reg) == 1
     assert reg.get("update_wakeup") is not None
     assert {s["name"] for s in reg.specs()} == {"update_wakeup"}
 
     unknown = await ToolRegistry([]).call("nope", {})
     assert unknown.is_error
-
-
-@pytest.mark.asyncio
-async def test_registry_includes_lazy_section_tool() -> None:
-    prompt = LazyPrompt(index="idx", bodies={"a": "x"})
-    reg = build_registry(object(), agent_id=uuid.uuid4(), lazy_prompt=prompt, section_cache=SectionCache())
-    assert {s["name"] for s in reg.specs()} == {"update_wakeup", "load_prompt_section"}
 
 
 @pytest.mark.asyncio

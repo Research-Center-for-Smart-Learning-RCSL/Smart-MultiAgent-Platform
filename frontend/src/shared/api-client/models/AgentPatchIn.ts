@@ -12,7 +12,6 @@ export type AgentPatchIn = {
     model_hint?: ('claude' | 'openai' | 'gemini' | null);
     model_id?: (string | null);
     name?: (string | null);
-    prompt_strategy?: ('full' | 'lazy' | null);
     rag_config_id?: (string | null);
     seed?: (number | null);
     system_prompt?: (string | null);

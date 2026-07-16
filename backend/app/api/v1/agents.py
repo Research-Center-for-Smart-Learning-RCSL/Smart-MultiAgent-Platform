@@ -27,7 +27,6 @@ from contexts.agents.domain.models import (
     AgentModelHint,
     AgentToolType,
     ContextMode,
-    PromptStrategy,
 )
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
@@ -76,7 +75,6 @@ class AgentCreateIn(BaseModel):
         return v
 
     system_prompt: str = Field(default="", max_length=_MAX_SYSTEM_PROMPT)
-    prompt_strategy: Literal["full", "lazy"] = "full"
     rag_config_id: uuid.UUID | None = None
     knowmap_config_id: uuid.UUID | None = None
     context_mode: Literal["general", "compact"] = "general"
@@ -110,7 +108,6 @@ class AgentPatchIn(BaseModel):
         return v
 
     system_prompt: str | None = Field(default=None, max_length=_MAX_SYSTEM_PROMPT)
-    prompt_strategy: Literal["full", "lazy"] | None = None
     rag_config_id: uuid.UUID | None = None
     knowmap_config_id: uuid.UUID | None = None
     context_mode: Literal["general", "compact"] | None = None
@@ -134,7 +131,6 @@ class AgentOut(BaseModel):
     effort: AgentEffort | None
     key_group_id: uuid.UUID
     system_prompt: str
-    prompt_strategy: PromptStrategy
     rag_config_id: uuid.UUID | None
     knowmap_config_id: uuid.UUID | None
     context_mode: ContextMode
@@ -160,7 +156,6 @@ def _to_agent_out(a) -> AgentOut:
         effort=a.effort,
         key_group_id=a.key_group_id,
         system_prompt=a.system_prompt,
-        prompt_strategy=a.prompt_strategy,
         rag_config_id=a.rag_config_id,
         knowmap_config_id=a.knowmap_config_id,
         context_mode=a.context_mode,
@@ -232,7 +227,6 @@ async def create_agent(
         effort=AgentEffort(body.effort) if body.effort else None,
         key_group_id=body.key_group_id,
         system_prompt=body.system_prompt,
-        prompt_strategy=PromptStrategy(body.prompt_strategy),
         rag_config_id=body.rag_config_id,
         knowmap_config_id=body.knowmap_config_id,
         context_mode=ContextMode(body.context_mode),
@@ -330,7 +324,6 @@ async def patch_agent(
         effort=AgentEffort(fields["effort"]) if fields.get("effort") else None,
         key_group_id=fields.get("key_group_id"),
         system_prompt=fields.get("system_prompt"),
-        prompt_strategy=(PromptStrategy(fields["prompt_strategy"]) if "prompt_strategy" in fields else None),
         rag_config_id=fields.get("rag_config_id"),
         knowmap_config_id=fields.get("knowmap_config_id"),
         context_mode=(ContextMode(fields["context_mode"]) if "context_mode" in fields else None),

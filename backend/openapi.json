@@ -760,15 +760,6 @@
             "title": "Name",
             "type": "string"
           },
-          "prompt_strategy": {
-            "default": "full",
-            "enum": [
-              "full",
-              "lazy"
-            ],
-            "title": "Prompt Strategy",
-            "type": "string"
-          },
           "rag_config_id": {
             "anyOf": [
               {
@@ -1129,9 +1120,6 @@
             "title": "Project Id",
             "type": "string"
           },
-          "prompt_strategy": {
-            "$ref": "#/components/schemas/PromptStrategy"
-          },
           "rag_config_id": {
             "anyOf": [
               {
@@ -1203,7 +1191,6 @@
           "effort",
           "key_group_id",
           "system_prompt",
-          "prompt_strategy",
           "rag_config_id",
           "knowmap_config_id",
           "context_mode",
@@ -1342,21 +1329,6 @@
               }
             ],
             "title": "Name"
-          },
-          "prompt_strategy": {
-            "anyOf": [
-              {
-                "enum": [
-                  "full",
-                  "lazy"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Prompt Strategy"
           },
           "rag_config_id": {
             "anyOf": [
@@ -5954,14 +5926,6 @@
         ],
         "title": "ProjectSummaryOut",
         "type": "object"
-      },
-      "PromptStrategy": {
-        "enum": [
-          "full",
-          "lazy"
-        ],
-        "title": "PromptStrategy",
-        "type": "string"
       },
       "RagConfigCreateIn": {
         "properties": {

@@ -263,15 +263,12 @@ System prompt editor with strategy selector.
 
 | Field | Component | Type | Validation | i18n |
 |-------|-----------|------|------------|------|
-| `prompt_strategy` | `SSelect` | enum | `full` or `lazy` | `agents.form.promptStrategy` |
 | `system_prompt` | `SCodeEditor` | text | optional, max 100,000 chars | `agents.form.systemPrompt` |
 
-`prompt_strategy` options:
-
-| Value | Label | Description |
-|-------|-------|-------------|
-| `full` | `$t('agents.form.strategies.full')` ("Full") | Sends complete prompt every turn |
-| `lazy` | `$t('agents.form.strategies.lazy')` ("Lazy") | Sends prompt only on first turn |
+The `system_prompt` is sent verbatim every turn. Reusable procedures belong in Skills
+(§31), whose index rides in the system prompt and whose bodies are fetched on demand.
+Skills supersedes the prompt-read-strategy selector that stood here (§9.2, withdrawn
+2026-07-16).
 
 **Character counter**: displayed below the code editor in `--color-muted` 12px text. Format: `{current} / 100,000`. Turns `--color-warning` at 90,000+ and `--color-danger` at 99,000+.
 

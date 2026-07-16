@@ -208,7 +208,6 @@ const { handleSubmit, errors, defineField, resetForm, setErrors, meta } =
       effort: null,
       key_group_id: '',
       system_prompt: '',
-      prompt_strategy: 'full',
       rag_config_id: null,
       knowmap_config_id: null,
       context_mode: 'general',
@@ -226,7 +225,6 @@ const [modelId] = defineField('model_id')
 const [effort] = defineField('effort')
 const [keyGroupId] = defineField('key_group_id')
 const [systemPrompt] = defineField('system_prompt')
-const [promptStrategy] = defineField('prompt_strategy')
 const [contextMode] = defineField('context_mode')
 const [contextTokenCap] = defineField('context_token_cap')
 const [temperature] = defineField('temperature')
@@ -375,7 +373,6 @@ watch(
         effort: (agent.effort ?? null) as AgentCreateInput['effort'],
         key_group_id: agent.key_group_id,
         system_prompt: agent.system_prompt,
-        prompt_strategy: agent.prompt_strategy as AgentCreateInput['prompt_strategy'],
         context_mode: agent.context_mode as AgentCreateInput['context_mode'],
         context_token_cap: agent.context_token_cap,
         temperature: agent.temperature,
@@ -459,15 +456,6 @@ const temperatureModel = nullableNumberFromText(temperature)
 const topPModel = nullableNumberFromText(topP)
 const seedModel = nullableNumberFromText(seed)
 
-function insertLazyTemplate(): void {
-  const existing = (systemPrompt.value ?? '').trimEnd()
-  if (!existing) {
-    systemPrompt.value = t('agents.form.promptStrategyLazyTemplate')
-  } else {
-    systemPrompt.value = existing + t('agents.form.promptStrategyLazySectionAppend')
-  }
-}
-
 // Prompt Assistant applies a whole draft (it confirms overwrite itself when the
 // editor is non-empty); the template picker inserts a template body, appending
 // with a blank-line separator so it never silently clobbers existing content.
@@ -536,7 +524,6 @@ const fieldToTab: Record<string, string> = {
   top_p: 'general',
   seed: 'general',
   system_prompt: 'prompt',
-  prompt_strategy: 'prompt',
   rag_config_id: 'knowledge',
   a2a_enabled: 'orchestration',
 }
@@ -619,11 +606,6 @@ const modelHintOptions = computed(() => [
 const keyGroupOptions = computed(() =>
   keyGroups.value.map((g) => ({ value: g.id, label: g.name })),
 )
-
-const promptStrategyOptions = computed(() => [
-  { value: 'full', label: t('agents.form.strategies.full') },
-  { value: 'lazy', label: t('agents.form.strategies.lazy') },
-])
 
 const ragConfigOptions = computed(() => [
   { value: '', label: t('agents.form.noRagConfig') },
@@ -928,38 +910,6 @@ const breadcrumbs = computed(() => [
                   @insert="onTemplateInsert"
                 />
               </div>
-              <SFormField
-                :label="t('agents.form.promptStrategy')"
-                name="prompt_strategy"
-                :error="errors.prompt_strategy ?? ''"
-                :help="promptStrategy === 'full' ? t('agents.form.promptStrategyFullHelp') : t('agents.form.promptStrategyLazyHelp')"
-              >
-                <SSelect
-                  v-model="promptStrategy"
-                  :options="promptStrategyOptions"
-                />
-              </SFormField>
-
-              <SAlert
-                v-if="promptStrategy === 'lazy'"
-                variant="info"
-                :title="t('agents.form.promptStrategyLazyCalloutTitle')"
-                class="mt-3"
-              >
-                {{ t('agents.form.promptStrategyLazyCallout') }}
-                <pre class="mt-2 text-xs font-mono rounded px-3 py-2 overflow-x-auto whitespace-pre opacity-80">{{ t('agents.form.promptStrategyLazyFormatExample') }}</pre>
-                <template #actions>
-                  <SButton
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    @click="insertLazyTemplate"
-                  >
-                    {{ t('agents.form.promptStrategyLazyInsert') }}
-                  </SButton>
-                </template>
-              </SAlert>
-
               <SFormField
                 :label="t('agents.form.systemPrompt')"
                 name="system_prompt"

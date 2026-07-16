@@ -18,7 +18,6 @@ const AGENT = {
   effort: 'high',
   key_group_id: 'kg_1',
   system_prompt: '',
-  prompt_strategy: 'full',
   rag_config_id: null,
   context_mode: 'general',
   context_token_cap: null,

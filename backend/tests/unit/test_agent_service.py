@@ -35,7 +35,6 @@ from contexts.agents.domain.models import (
     AgentTool,
     AgentToolType,
     ContextMode,
-    PromptStrategy,
 )
 from shared_kernel.db.restore import RestoreConflict
 
@@ -81,7 +80,6 @@ def _make_agent(
         effort=None,
         key_group_id=_KEY_GROUP_ID,
         system_prompt="You are helpful.",
-        prompt_strategy=PromptStrategy.FULL,
         rag_config_id=rag_config_id,
         knowmap_config_id=knowmap_config_id,
         context_mode=ContextMode.GENERAL,

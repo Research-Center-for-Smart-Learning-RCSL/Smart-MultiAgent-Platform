@@ -27,7 +27,6 @@ export const agentCreateSchema = z.object({
   ),
   key_group_id: z.string().uuid(),
   system_prompt: z.string().max(100_000).default(''),
-  prompt_strategy: z.enum(['full', 'lazy']).default('full'),
   rag_config_id: z.preprocess(emptyToNull, z.string().uuid().nullable().default(null)),
   knowmap_config_id: z.preprocess(emptyToNull, z.string().uuid().nullable().default(null)),
   context_mode: z.enum(['general', 'compact']).default('general'),

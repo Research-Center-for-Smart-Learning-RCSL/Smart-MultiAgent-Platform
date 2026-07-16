@@ -16,6 +16,22 @@ env:
 
 jobs:
   # ──────────────────────────────────────────────
+  # Repo-wide gates
+  # ──────────────────────────────────────────────
+  repo-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      # AC-10 of docs/tasks/2026-07-16-agent-skills — the §9.2 lazy prompt
+      # mechanism, superseded by Agent Skills (§31), must not reappear.
+      - name: no lazy-prompt residue
+        run: python scripts/check_no_lazy_prompt.py
+
+  # ──────────────────────────────────────────────
   # Backend
   # ──────────────────────────────────────────────
   backend-lint:

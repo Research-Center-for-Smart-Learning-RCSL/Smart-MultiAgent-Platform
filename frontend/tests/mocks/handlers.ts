@@ -93,7 +93,6 @@ export const handlers = [
       effort: null,
       key_group_id: 'kg_1',
       system_prompt: '',
-      prompt_strategy: 'full',
       rag_config_id: null,
       graphrag_config_id: null,
       context_mode: 'general',

@@ -16,7 +16,6 @@ function makeAgent(id: string, name: string): Record<string, unknown> {
     model_hint: 'claude',
     key_group_id: 'kg_1',
     system_prompt: '',
-    prompt_strategy: 'full',
     rag_config_id: null,
     context_mode: 'general',
     context_token_cap: null,

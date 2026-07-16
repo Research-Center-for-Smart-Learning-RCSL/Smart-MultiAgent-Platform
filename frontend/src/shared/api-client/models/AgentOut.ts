@@ -5,7 +5,6 @@
 import type { AgentEffort } from './AgentEffort';
 import type { AgentModelHint } from './AgentModelHint';
 import type { ContextMode } from './ContextMode';
-import type { PromptStrategy } from './PromptStrategy';
 export type AgentOut = {
     a2a_enabled: boolean;
     context_mode: ContextMode;
@@ -20,7 +19,6 @@ export type AgentOut = {
     model_id: (string | null);
     name: string;
     project_id: string;
-    prompt_strategy: PromptStrategy;
     rag_config_id: (string | null);
     seed: (number | null);
     system_prompt: string;

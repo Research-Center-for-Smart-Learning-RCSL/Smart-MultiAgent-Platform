@@ -11,7 +11,7 @@
 
 By phase close:
 
-- An Agent can be defined per §9.1 with `name`, `model_hint`, `key_group_id`, `system_prompt`, `prompt_strategy (full|lazy)`, `rag_config_id`, `graphrag_config_id`, `mcp_servers`, `a2a_enabled`, `context_mode (general|compact)`, `context_token_cap`, `wakeup_config`, `workflow_capabilities`. Agents are **not versioned** and not templated (R9.02).
+- An Agent can be defined per §9.1 with `name`, `model_hint`, `key_group_id`, `system_prompt`, `rag_config_id`, `graphrag_config_id`, `mcp_servers`, `a2a_enabled`, `context_mode (general|compact)`, `context_token_cap`, `wakeup_config`, `workflow_capabilities`. Agents are **not versioned** and not templated (R9.02).
 - A RAG config can be attached and exercised end-to-end; embeddings and reranks are paid for by user-supplied keys picked per-config.
 - Graph RAG builds commit atomically across Neo4j + Qdrant with compensation and a reconciliation worker; 1:1 bound to an Agent (R11.05).
 - MCP servers (built-in, URL, package) run inside gVisor ephemeral containers behind a FastAPI-based Egress Proxy; `file` tool uses a per-agent named Docker volume.
@@ -29,7 +29,6 @@ By phase close:
     name text, model_hint enum('claude','openai','gemini'),
     key_group_id fk key_groups,
     system_prompt text,
-    prompt_strategy enum('full','lazy'),
     rag_config_id fk rag_configs null,
     graphrag_config_id fk graphrag_configs null,
     context_mode enum('general','compact'),
@@ -57,17 +56,23 @@ By phase close:
 
 **Exit criteria.** Create → edit (If-Match) → soft-delete flow green; second create above cap returns `https://smap.local/problems/agent-cap-exceeded`.
 
-## E.2 Prompt Read Strategy — **CODE** — M
+## E.2 Prompt Read Strategy — **REMOVED** — superseded by §31 (Agent Skills)
 
-**Deliverables.**
+The per-agent prompt-read-strategy enum, its loader module, and its section-fetch tool
+were removed on 2026-07-16 with zero users. `[R9.04]`–`[R9.08]` are deleted from the SRS;
+§9.2 is a superseded stub pointing at §31. The removed symbols are named in the task
+dossier, which is the historical record for this change; naming them in live
+documentation would fail the repo gate under `scripts/` that keeps them from returning.
 
-- `smap/contexts/agents/prompt_loader.py`:
-  - **`full`** (R9.05): entire `system_prompt` markdown sent verbatim.
-  - **`lazy`** (R9.06): parse markdown into sections, each beginning with YAML front-matter `{id, title, description}`. Build an **index prompt** listing all sections' titles + descriptions. Register a built-in tool `load_prompt_section(id)` so the model can fetch a body on demand. Section bodies fetched within one turn are cached for that turn only (R9.07); next turn re-runs retrieval.
-  - **Fallback** (R9.08): if the active provider does not support tool use, silently degrade to `full` and emit a UI warning.
-- Invocation pipeline assembles `[system_prompt_or_index] + [compact_summary?] + [retrieved_rag?] + [retrieved_graphrag?] + chat_history`.
+Both of Q36's modes survive, re-based onto a carrier that offers reuse and packaging:
+inline-every-call is `system_prompt` (`[R9.01]`–`[R9.03]`), and retrieve-on-demand is the
+Skill aggregate (§31) — an index of names and descriptions in the system prompt, bodies
+fetched via `read_skill`. See `docs/tasks/2026-07-16-agent-skills/`.
 
-**Key IDs.** `[R9.04]`–`[R9.08]`.
+- **`full`** (`[R9.05]`, retained): the entire `system_prompt` is sent verbatim every turn.
+- Invocation pipeline assembles `[system_prompt] + [skills_index?] + [compact_summary?] + [retrieved_rag?] + [retrieved_graphrag?] + chat_history`.
+
+**Key IDs.** `[R9.05]`, `[R31.12]`–`[R31.17]`.
 
 **Exit criteria.** Unit tests cover full rendering, lazy index + section load, provider-no-tools fallback.
 
@@ -303,7 +308,7 @@ By phase close:
 - [ ] Agents table matches §21.1 exactly; no `agent_versions`, no templates.
 - [ ] 1 000-agent project cap enforced.
 - [ ] `general` + `compact` contexts pass tests; `/compact` failure path preserves original.
-- [ ] `prompt_strategy` lazy: section index + `load_prompt_section` tool working; fallback to `full` when tools unsupported.
+- [x] Prompt read strategy / lazy sections: **removed** — superseded by Skills (§31), see E.2.
 - [ ] A2A scope matrix matches R9.17.
 - [ ] RAG uses single `embed_key_id`/`rerank_key_id`; capability mismatch blocks attach.
 - [ ] GraphRAG 1:1 with agent; reconciliation worker at 60s; admin reset endpoint live.

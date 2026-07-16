@@ -59,7 +59,6 @@ from contexts.agents.domain.models import (
     AgentTool,
     AgentToolType,
     ContextMode,
-    PromptStrategy,
     ToolProbeResult,
 )
 from contexts.agents.infrastructure.repositories import (
@@ -424,7 +423,6 @@ class AgentService:
             effort=draft.effort,
             key_group_id=draft.key_group_id,
             system_prompt=draft.system_prompt or "",
-            prompt_strategy=draft.prompt_strategy or PromptStrategy.FULL,
             rag_config_id=draft.rag_config_id,
             knowmap_config_id=draft.knowmap_config_id,
             context_mode=draft.context_mode or ContextMode.GENERAL,
@@ -456,7 +454,6 @@ class AgentService:
                     "project_id": str(project_id),
                     "name": agent.name,
                     "model_hint": agent.model_hint.value,
-                    "prompt_strategy": agent.prompt_strategy.value,
                     "context_mode": agent.context_mode.value,
                 },
                 request_id=request_id,
@@ -563,8 +560,6 @@ class AgentService:
             values["key_group_id"] = draft.key_group_id
         if draft.system_prompt is not None:
             values["system_prompt"] = draft.system_prompt
-        if draft.prompt_strategy is not None:
-            values["prompt_strategy"] = draft.prompt_strategy.value
         if draft.clear_rag_config:
             values["rag_config_id"] = None
         elif draft.rag_config_id is not None:

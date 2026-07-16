@@ -18,7 +18,7 @@ import pytest
 
 from app.workers.tasks.graphrag import _DbDeltaLoader, _resolve_delta_scope
 from contexts.agent_groups.infrastructure.group_repository import AgentGroupRepository
-from contexts.agents.domain.models import AgentModelHint, ContextMode, PromptStrategy
+from contexts.agents.domain.models import AgentModelHint, ContextMode
 from contexts.agents.infrastructure.repositories import AgentRepository
 from contexts.conversation.domain.models import SenderType
 from contexts.conversation.infrastructure.repositories import (
@@ -76,7 +76,6 @@ async def _seed_agent(db, project_id: uuid.UUID, kg_id: uuid.UUID) -> uuid.UUID:
         effort=None,
         key_group_id=kg_id,
         system_prompt="deterministic test agent",
-        prompt_strategy=PromptStrategy.FULL,
         rag_config_id=None,
         knowmap_config_id=None,
         context_mode=ContextMode.GENERAL,

@@ -78,11 +78,6 @@ def chat_model_catalog() -> tuple[ChatModelCatalogEntry, ...]:
     )
 
 
-class PromptStrategy(str, enum.Enum):
-    FULL = "full"
-    LAZY = "lazy"
-
-
 class ContextMode(str, enum.Enum):
     GENERAL = "general"
     COMPACT = "compact"
@@ -136,7 +131,6 @@ class Agent:
     effort: AgentEffort | None
     key_group_id: uuid.UUID
     system_prompt: str
-    prompt_strategy: PromptStrategy
     rag_config_id: uuid.UUID | None
     knowmap_config_id: uuid.UUID | None
     context_mode: ContextMode
@@ -227,7 +221,6 @@ class AgentDraft:
     effort: AgentEffort | None = None
     key_group_id: uuid.UUID | None = None
     system_prompt: str | None = None
-    prompt_strategy: PromptStrategy | None = None
     rag_config_id: uuid.UUID | None = None
     knowmap_config_id: uuid.UUID | None = None
     context_mode: ContextMode | None = None
@@ -265,7 +258,6 @@ __all__ = [
     "ContextMode",
     "McpBinding",
     "McpSource",
-    "PromptStrategy",
     "SINGLETON_TOOL_TYPES",
     "WorkspaceFile",
     "chat_model_catalog",
