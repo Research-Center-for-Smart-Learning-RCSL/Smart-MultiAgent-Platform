@@ -1091,30 +1091,60 @@ orphaned, not deleted — consistent with §1.2's backup stance.
 
 **Phase 1 — core (backend + removal-only frontend)**
 
-- [ ] AC-1: A skill can be created, read, updated, soft-deleted, and **restored** at each of the
+- [x] AC-1: A skill can be created, read, updated, soft-deleted, and **restored** at each of the
       four scopes through its own router, with scope never read from a request body.
-- [ ] AC-2: `_assert_owned` returns 404 (not 403) when a skill id is quoted under a scope path it
+      *(`app/api/v1/skills.py` — four routers with literal scopes; `skill_service.py`. 35 tests in
+      `test_skill_service.py`, 34 in `test_skills_api_models.py`.)*
+- [x] AC-2: `_assert_owned` returns 404 (not 403) when a skill id is quoted under a scope path it
       does not belong to. All four scopes × foreign-owner.
-- [ ] AC-3: `resolve_bindable` enforces §5's containment matrix at bind. An org skill cannot bind
+      *(`skill_service._assert_owned`; the four-scope × foreign-owner matrix in
+      `test_skill_service.py`.)*
+- [x] AC-3: `resolve_bindable` enforces §5's containment matrix at bind. An org skill cannot bind
       into an individual-owned project (`owner_org_id IS NULL`). No **user-facing** binding is
       implicit at any scope; sub-agent inheritance (AC-28) is the sole transitive case and is
       audited as such.
-- [ ] AC-4: A bound skill's name + description appear in the index, and the **rendered block's**
+      *(`binding_service.resolve_bindable`; 30 tests in `test_skill_binding.py`. Probed: removing
+      the org→individual-project branch reddens the matrix.)*
+- [x] AC-4: A bound skill's name + description appear in the index, and the **rendered block's**
       tokens are subtracted from `knowledge_budget` (asserted numerically).
-- [ ] AC-5: `read_skill(name)` resolves against the per-turn snapshot and returns the body; an
+      *(`index_builder.render_index`; the `skills` block is MEASURED_AND_RENDERED in
+      `_SystemBlocks` (`turn_engine.py:394`), so `measure()` feeds `fixed_context`. Numeric
+      assertion in `test_turn_system_blocks.py::test_the_rendered_skills_index_is_charged_against_
+      the_knowledge_budget`, plus the empty-snapshot case; listing content in
+      `test_skill_index_budget.py`. Both turn paths asserted end-to-end —
+      `test_observer_agents.py::test_room_turn_folds_the_bound_skills_index_into_system` and
+      `test_a2a_turn_dispatch.py::test_run_input_turn_indexes_the_agents_bound_skills` — each
+      probed red by removing its wiring line.)*
+- [x] AC-5: `read_skill(name)` resolves against the per-turn snapshot and returns the body; an
       unknown name returns `is_error=True` without aborting the turn. It never queries by name.
-- [ ] AC-6: Binding past `skill_index_token_cap` (or the 3000 default) is rejected at bind with
+      *(`tool_registry.build_read_skill_tool` — the closure holds the snapshot and takes no `db`
+      argument it could query with. 13 tests in `test_agent_runtime_tools.py`, including that a
+      skill the tap dropped is unreachable and its body never appears in the result.)*
+- [x] AC-6: Binding past `skill_index_token_cap` (or the 3000 default) is rejected at bind with
       `skills/index-budget-exceeded`. **Lengthening a `description`** or **lowering the cap** past
       the limit is rejected the same way, naming the affected agents. No runtime truncation path
       exists.
-- [ ] AC-7: A skill whose containment fails between trigger and execution is **dropped from that
+      *(`binding_service.assert_index_fits` is the one predicate; bind, update, restore, and
+      cap-lowering all route through `_breaches`. 32 tests in `test_skill_index_budget.py`. The
+      cap-lowering and restore arms landed two commits after this box was first ticked — see
+      D-12.)*
+- [x] AC-7: A skill whose containment fails between trigger and execution is **dropped from that
       turn's snapshot and index**, audited, and surfaced as one aggregated room warning — **the
       turn still runs**.
-- [ ] AC-8: Soft-deleting a skill soft-deletes its `agent_skills` rows **in the same
+      *(`turn_engine._resolve_skills` — the third AuthZ tap, shared by both turn paths. 6 tests in
+      `test_turn_engine_skills.py`: per-skill audit, one aggregated `agent.warning` (D-17),
+      survivors kept, headless/observer silence, and a broken room channel never costing the turn
+      its skills.)*
+- [x] AC-8: Soft-deleting a skill soft-deletes its `agent_skills` rows **in the same
       transaction** and writes an audit event. A test asserts the bindings are gone from the next
       turn's snapshot — CASCADE is not the mechanism and does not fire.
-- [ ] AC-9: Editing a skill body takes effect on the next turn, not the current one.
-- [ ] AC-10: The §9.2 sweep is complete across all 51 files (§4.1). The CI gate is the literal
+      *(`skill_service.soft_delete` → `unbind_all_for_skill` in one transaction;
+      `test_skill_service.py`.)*
+- [x] AC-9: Editing a skill body takes effect on the next turn, not the current one.
+      *(Structural: the snapshot is resolved once per turn at `_resolve_skills` and `read_skill`'s
+      closure holds it, so a mid-turn edit cannot reach the running turn; `test_skill_service.py`
+      pins the next-turn read.)*
+- [x] AC-10: The §9.2 sweep is complete across all 51 files (§4.1). The CI gate is the literal
       command
       `rg -i 'prompt_strategy|load_prompt_section|SectionCache|lazy_prompt|insertLazyTemplate|promptStrategy' backend/ frontend/src/ frontend/tests/ docs/ --glob '!alembic/versions/**' --glob '!openapi.json' --glob '!docs/tasks/**'`
       returning no matches. **The grep alone is not sufficient** — the 2 nested i18n keys
@@ -1124,36 +1154,73 @@ orphaned, not deleted — consistent with §1.2's backup stance.
       `openapi.json` clears on regeneration; and **`docs/tasks/**` holds this dossier**, which names
       the removed symbols ~30 times by necessity — without that glob the gate fails on the very
       document that specifies it, and task dossiers are a historical record, not live documentation.
-- [ ] AC-14: A registry-level test asserts `read_skill` is in `BUILTIN_TOOL_NAMES` and is built by
+      *(Gate run and clean across all four trees under the three globs. The only match outside them
+      was the assertion test itself — see D-11 on why the fix was to drop a redundant assertion
+      rather than add a fourth exclusion. FU-17 tracks `rg` not being on PATH locally.)*
+- [x] AC-14: A registry-level test asserts `read_skill` is in `BUILTIN_TOOL_NAMES` and is built by
       `build_registry` — the `build_agent_tools` drift test does not cover it.
-- [ ] AC-15: Per-scope skill counts are exposed as an admin metric endpoint (R31.11).
-- [ ] AC-28: A sub-agent's turn resolves the **parent agent's entire bound set**, agent-scoped
+      *(`test_agent_runtime_tools.py::test_read_skill_is_a_reserved_builtin_and_build_registry_
+      builds_it`. The name in `BUILTIN_TOOL_NAMES` is load-bearing twice: `agent_service` derives
+      its reserved-name guard from that set, so a user LOCAL_FUNCTION cannot shadow the real tool.)*
+- [x] AC-15: Per-scope skill counts are exposed as an admin metric endpoint (R31.11).
+      *(`GET /api/admin/skills/metrics` → `SkillsFacade.count_by_scope`, which had no caller until
+      now. Every scope named even at zero. Route declared before `/{skill_id}` or the UUID path
+      param would claim it — pinned by test and probed red.)*
+- [x] AC-28: A sub-agent's turn resolves the **parent agent's entire bound set**, agent-scoped
       skills included, with no `agent_skills` rows written at spawn — `agent_instances.agent_id` is
       the parent's agent id (`subagent_service.py:152`), so `resolve_bound_set` returns it
       unchanged. `_build_inherited_context` carries `"skills": True` beside `"mcp_servers"` and no
       longer carries `prompt_strategy`.
-- [ ] AC-36: Re-binding a previously unbound skill is an idempotent UPSERT that clears both delete
+      *(`subagent_service._build_inherited_context` + `SUBAGENT_INHERITANCE`;
+      `test_orchestration_services.py::TestSubagentInheritance`. The dict is read by nothing at
+      runtime, so a second test pins it to the context it documents.)*
+- [x] AC-36: Re-binding a previously unbound skill is an idempotent UPSERT that clears both delete
       timestamps — not an INSERT that collides with the soft-unbound row's live PK.
-- [ ] AC-37: Restoring a soft-deleted skill restores only the bindings **it** cascaded
+      *(`SkillBindingRepository.bind` — `ON CONFLICT DO UPDATE`; `test_skill_binding.py`.)*
+- [x] AC-37: Restoring a soft-deleted skill restores only the bindings **it** cascaded
       (`cascade_deleted_at`), never a binding a user unbound explicitly (`deleted_at`) beforehand.
-- [ ] AC-38: Soft-deleting an **agent** unbinds its skills and cascades its agent-scoped skills in
+      *(`restore_cascaded_for_skill`; `test_skill_binding.py`. The `unbind` predicate's
+      `cascade_deleted_at IS NULL` arm — which stops a cascade-unbound row being promoted to the
+      irreversible state — was verified against **real PostgreSQL with a real FK chain**: the old
+      predicate matched the cascade row (UPDATE 1), the corrected one does not (UPDATE 0), and a
+      live binding still unbinds (UPDATE 1).)*
+- [x] AC-38: Soft-deleting an **agent** unbinds its skills and cascades its agent-scoped skills in
       the same transaction; the FK CASCADE is not relied on, because it never fires on an UPDATE.
-- [ ] AC-39: A skill's `name` cannot be changed after creation (`SkillPatchIn` omits it), so
+      *(`agent_service.soft_delete` → `SkillsFacade.cascade_agent_deleted`, inside the agent's own
+      transaction; project and org soft-delete cascade the same way via `cascade_owner_deleted`.
+      `test_agent_service.py`, `test_tenancy_services.py`. This box was first ticked while the
+      facade had zero production callers — see D-12.)*
+- [x] AC-39: A skill's `name` cannot be changed after creation (`SkillPatchIn` omits it), so
       bound-set uniqueness cannot be defeated by rename. Restore re-checks bound-set uniqueness and
       409s naming the conflicting agents.
-- [ ] AC-30: A newline, a C0/C1 control, a bidi override, a zero-width character, the index
+      *(`SkillPatchIn` has no `name` field and `extra="forbid"`, so a name is rejected rather than
+      ignored — asserted both ways in `test_skills_api_models.py`.)*
+- [x] AC-30: A newline, a C0/C1 control, a bidi override, a zero-width character, the index
       delimiter, or an over-cap length is rejected at create, at update, **and at import** — and the
       test is a matrix over **every** model-or-UI-facing string field, not `description` alone:
       `name`, `description`, `requires[]`, `allowed_tools[]`, `license`, and each file path.
       `allowed_tools` and `license` are display-only (Q-8), which makes them display-injection
       surfaces, not exempt ones.
-- [ ] AC-33: `read_skill` output is budgeted against `_SKILL_BODY_TOKEN_BUDGET`; an oversized body
+      *(`domain/text_rules.py` is the one rule; enforced at create and at update by the Pydantic
+      models. 42 tests in `test_skill_sanitization.py` over `name`, `description`, `requires[]`,
+      `allowed_tools[]`. **Two columns of the matrix are vacuous in Phase 1**: `license` and file
+      paths arrive with bundles (Phase 4 / Phase 2), and so does the import entry point — the rule
+      they will use is the one asserted here, and `text_rules` is where the importer will call it.
+      Every character set is built with `chr()` from explicit codepoints, never literals, so the
+      source file cannot itself carry a bidi override; verified programmatically that no raw
+      invisible remains in the module or its fixtures.)*
+- [x] AC-33: `read_skill` output is budgeted against `_SKILL_BODY_TOKEN_BUDGET`; an oversized body
       returns a `truncated_at_offset` **character** offset, and a continuation call at that offset
       returns the next span with no gap and no repeat — concatenating all spans reproduces the body
       byte-for-byte, including a body split mid-CJK-run and one split at a surrogate-pair-free
       astral character. Each span's own estimate is under budget; the test does **not** assert that
       the spans' estimates sum to the whole body's, because `estimate_tokens` is non-additive by
       construction (`max(1, cjk + latin // 4)`).
+      *(`tool_registry._fit_skill_body`; the three reassembly cases (latin / mid-CJK-run / astral)
+      walk the whole body through continuation calls and rebuild it byte-for-byte. The span is
+      bounded by the rendered result's length as well as the token estimate — see D-13, without
+      which the byte clip severs the JSON the offset is embedded in and the walk cannot reassemble.
+      Probed: neutering that bound reddens `latin` and `astral`.)*
 
 **Phase 2 — files and editor (the `slices/skills` frontend lands here)**
 
@@ -1236,6 +1303,14 @@ orphaned, not deleted — consistent with §1.2's backup stance.
 | End-to-end | manual | `/verify` — author a skill, bind it, confirm the model calls `read_skill`; **requires a live DB (§10)** |
 
 ## 13. SRS Delta
+
+> **ADDENDUM, applied during Phase 1 implementation (edit 28).** `[R13.19]`'s room-event
+> enumeration gains `agent.warning`. The *requirement* was already applied — `[R31.08]` says a
+> dropped skill is "surfaced as an aggregated warning — the turn proceeds" — but §13's original 27
+> edits never touched `[R13.19]`, so the event list would have stayed silently incomplete, which is
+> precisely FU-9's complaint about this document. The note distinguishes it from
+> `agent.finished{error}`, which is terminal; AC-7's whole point is that the turn survives. See
+> D-17 for why an existing event could not carry it.
 
 > **APPLIED 2026-07-16.** All 27 edits are landed in `REQUIREMENTS.md` (2078 → 2160 lines) and
 > `docs/traceability.csv` (280 → 304 rows). **Do not re-apply.** This section is retained as the
@@ -1661,6 +1736,84 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   documented path (`CLAUDE.md:80`, `Makefile:88`, `docs/runbook-upgrade.md:34`) is online
   `alembic upgrade head` — so the limitation is recorded in `run_migrations_offline`'s docstring
   instead of half-fixed.
+- **D-11: AC-10's gate keeps three exclusions, not four, because the fourth was unnecessary.** The
+  earlier plan was to add a glob for `promptStrategyRemoved.test.ts`: the file lives under
+  `frontend/src/`, which the gate scans, and its `promptStrategy*` key filter was the gate's only
+  match in the whole tree outside the three deliberate exclusions — the gate failed on the file
+  whose job is to check it. But that assertion was **redundant**, not merely awkwardly placed:
+  every *flat* removed key matches the grep's own pattern, so the grep already covers
+  `promptStrategyLabel` and friends anywhere under `frontend/src/`. What the grep genuinely cannot
+  see is the two nested keys (`agents.form.strategies.full` / `.lazy`, whose leaf names are the
+  bare words "full" and "lazy"), and that assertion stays. An exclusion has to be defended, and
+  "the gate does not scan the file that would prove the gate wrong" is not a defence.
+- **D-12: three ACs' checkmarks lagged their wiring by two commits.** M3/M4 checked off AC-38 and
+  AC-6 on the strength of green unit tests over the services. The tests were correct and proved
+  nothing about whether *anything called the service*: `SkillsFacade` had zero production callers,
+  so agent/project/org soft-delete never cascaded, `PATCH /api/agents/{id}` accepted any
+  `skill_index_token_cap` the DB CHECK allowed without consulting the bound set, and `restore`
+  re-attached cascaded bindings with no budget check at all. All three were caught by this task's
+  own code review, not by a gate, and closed in `8e89ec4`. Recorded because the failure mode is
+  general: **a unit test over a service is evidence about the service, never about its wiring**,
+  and the checkmark it earns is worth exactly that much. The wiring assertions added in M6 (both
+  turn paths, `build_registry`'s required `skills` argument) are the response.
+- **D-13: `read_skill`'s span is bounded by `_MAX_TOOL_OUTPUT` as well as the token budget, rather
+  than being clipped after the fact.** §6 says the byte clip "applies **after** it as the
+  byte-level backstop it already is for every other tool". Applied literally that breaks AC-33: 8000
+  tokens of Latin is ~32 000 characters, the clip cuts at 16 000 bytes, and a JSON result severed
+  mid-string strands the `truncated_at_offset` the continuation contract is built on — the spans
+  would no longer reassemble. Both bounds are monotone in the span's length, so one binary search
+  settles both and the clip stays a genuine no-op backstop. §6's intent (the clip still applies,
+  read_skill is no worse than any other tool) holds; only "after" became "so that it never fires".
+  Probed: neutering the character bound reddens the `latin` and `astral` reassembly cases.
+- **D-14: `_MAX_TOOL_OUTPUT` and `_clip` moved from `builtin_tools.py` to `tool_registry.py`,
+  and `_clip` is now `clip_tool_output`.** §6 puts `read_skill`'s builder in `tool_registry.py`,
+  which `builtin_tools` imports — so the tool cannot reach its caller's clip without closing a
+  cycle. The cap is the registry's contract with the turn loop anyway. Same function, same 16 000,
+  same seven call sites; public because it now crosses a module boundary. FU-11 (the cap is
+  characters, not tokens) is untouched and still open.
+- **D-15: `read_skill` returns `{name, body, truncated_at_offset?}` — no `files[]` in Phase 1.** §6
+  specifies `{body, truncated_at_offset?, files[]}`, but the file manifest is AC-18, which §11
+  places in **Phase 2**. Phase 1 has no file-upload surface, so every `files` key would be a
+  hardcoded `[]` — a constant dressed as data, plus a facade method with no caller. The key lands
+  with the files it describes.
+- **D-16: AC-19 is Phase 2 and was not implemented here.** An earlier reading of §6 treated
+  "`read_skill` invocations record `{skill_id, name, scope, version, body_sha256}` in
+  `message.metadata`" as a Phase 1 half-deliverable. §11 lists AC-19 under Phase 2 alongside AC-18;
+  it stays there.
+- **D-17: the turn-time drop warning is a new `agent.warning` room event.** AC-7 asks for "one
+  aggregated room warning" and names no wire shape. `emit_agent_finished_error`'s `agent.finished`
+  is the wrong one — it is the *terminal* "why no reply" notice, and AC-7's whole point is that the
+  turn still runs. `agent.warning` carries `{agent_id, kind: "skills_unavailable", skills: [names]}`,
+  is emitted best-effort (a Redis hiccup must not turn a degraded turn into a failed one), and is
+  guarded on `room is not None` so observer turns (R28.01) and headless turns stay silent by
+  construction. Its consumer lands with the frontend slice in Phase 2.
+- **D-18: `SkillsFacade.render_index` was added.** §6 has the runtime build the index from the
+  snapshot but names no facade surface for it, and `contexts/agents` may not import
+  `contexts/skills/application/index_builder` (backend/CLAUDE.md). The frame and the charset rule
+  that stops a description forging it are one control and belong inside the context; the facade
+  exposes it as a `staticmethod` because it is pure.
+- **D-19: `test_turn_system_blocks.py`'s differential baselines gained the skills block.** D-2
+  established those baselines as verbatim transcriptions of the pre-refactor closures. §31's block
+  post-dates them, so "verbatim" is no longer strictly true for that one block: both baselines now
+  carry it in the position §6 specifies (measured with the fixed context, rendered after knowledge
+  and before activity). The baseline still does its job — it is the independent statement of order
+  and role the implementation must match — and the docstring records the departure.
+- **D-21: three of §12's test-location rows are wrong, and the ACs are authoritative.** §12 is the
+  plan; where the work landed differs. AC-4's numeric budget assertion is in
+  `test_turn_system_blocks.py`, not `test_skill_index_budget.py` — the claim is about
+  `_SystemBlocks` charging the block to `fixed_context`, which is the engine's arithmetic, not the
+  index's. AC-33 is in `test_agent_runtime_tools.py` beside the tool it describes, not in the
+  budget file. AC-7 is in a new `test_turn_engine_skills.py`, not in `test_skill_binding.py`: the
+  binding file owns *which* skills the tap drops, and AC-7 is about what the *engine* then does
+  with the drop (audit, one aggregated warning, turn survives). Every Phase 1 AC now cites its real
+  location inline; §12's rows are left as the record of the plan.
+- **D-20: `status` stays `in-progress` with Phase 1 complete.** The contract
+  (`docs/tasks/README.md:57`) moves `in-progress → implemented` "only after the full Definition of
+  Done passes", and this dossier's Definition of Done spans four phases: AC-16 through AC-32 are
+  unbuilt, so `implemented` would be a false claim about files, bundles, and the `slices/skills`
+  frontend. Same call as Phase 0, which checked its three boxes and left the status alone. Phase 1
+  is coherent on its own — an agent with no bindings behaves exactly as today (§6) — and every one
+  of its 19 ACs is checked with its evidence.
 
 ## 16. Follow-ups
 
@@ -1784,3 +1937,20 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   helper would collapse across three sites — a refactor wider than this task. Note the
   commit-then-`_compact_forced_rooms.discard` pairing is now an invariant across five sites with
   nothing but a comment enforcing it; the natural home for that assertion is the same helper.
+- **FU-21: `test_sel_evaluator.py` fails intermittently under random ordering.** Not this task's
+  code and not this task's context. `contexts/workflow/sel/evaluator.py` sets a **5 ms wall-clock
+  deadline** before the first `visit()`, and Windows' ~15.6 ms scheduler granularity can blow past
+  it while evaluating a trivial expression — so which test in `TestFuncStringOps` /
+  `TestFuncTypeConversion` fails is a coin toss, and the file passes cleanly when run alone. The
+  deadline should be monotonic-clock-based with a floor above the host's timer granularity, or the
+  guard should count nodes rather than milliseconds. Pre-existing; seen on two separate full-suite
+  runs during Phase 1.
+- **FU-22: `_resolve_skills` is a fourth un-gathered query at turn start.** §7 already notes the
+  three sequential un-gathered queries at `:881`/`:891`/`:899` and judges the bound-set snapshot
+  "noise at R3.02's 100 concurrent users", which holds. Recording it anyway because the *count* is
+  now four, and the fix is the same one for all of them: an `asyncio.gather` over the independent
+  turn-start reads. Nothing in Phase 1 depends on it.
+- **FU-23: the `agent.warning` event has no consumer.** D-17's room event is emitted and asserted
+  backend-side, but Phase 1's frontend deliverable is removal-only, so a user whose skill is dropped
+  mid-turn sees the agent quietly answer without it. The `slices/skills` work in Phase 2 owns the
+  toast. Until then the audit trail (`skill.resolution_failed`) is the only surface.
