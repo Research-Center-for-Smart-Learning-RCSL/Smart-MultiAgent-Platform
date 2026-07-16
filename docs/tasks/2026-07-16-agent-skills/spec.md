@@ -1068,10 +1068,10 @@ orphaned, not deleted — consistent with §1.2's backup stance.
 - [x] AC-11: `knowledge_budget` flooring at 0 while the agent has any knowledge source bound emits
       an audit event and `emit_agent_finished_error` instead of silently dropping all knowledge.
       Driven via a low `context_token_cap`.
-      *(`_knowledge_starved` / `_has_knowledge_source` + `_KnowledgeStarved` handler,
-      `turn_engine.py:1183`/`:1438`/`:2085`; 9 tests in `test_turn_context_budget.py`. See D-1, D-3,
-      D-4. The end-to-end drive via a live low-cap agent is the §12 `/verify` row — blocked on a
-      live DB, §10.)*
+      *(`_Starvation` reported by `_assemble_request` and judged at `turn_engine.py:1353`, after the
+      recompaction retry; `_has_knowledge_source` at `:2110`. 8 tests in `test_turn_context_budget.py`.
+      See D-1, D-3, D-4, D-6, D-7. The end-to-end drive via a live low-cap agent is the §12 `/verify`
+      row — blocked on a live DB, §10.)*
 - [x] AC-12: `_stage_persisted_files` computes `manifest_sha` over exactly the file set it stages;
       a >128 MiB set produces a manifest matching the staged prefix, and a different truncated tail
       re-stages.
@@ -1575,7 +1575,7 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   and `agentErrors.test.ts`, which also closes the gap §7 names ("no gate catches a missing
   translation") for this surface. No slice, no route, no API contract: the OpenAPI drift gate is
   untouched, so Phase 1's ordering constraint is unaffected.
-- **D-4: `_KnowledgeStarved` carries `fixed_context` and `ceiling`, and the audit event records
+- **D-4: `_Starvation` carries `fixed_context` and `ceiling`, and the audit event records
   both.** AC-11 asks only for "an audit event". The adversarial review of this diff established that
   `fixed_context` also carries `input_tokens` and history — and `estimate_tokens` counts CJK at 1
   token/char (`shared_kernel/tokens.py:33`) against `_MAX_CONTENT_MD = 100_000`
@@ -1591,6 +1591,34 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   a change to a file that was never staged does **not** re-stage (`test_workspace_staging.py`
   asserts both directions explicitly). Flagged rather than silently resolved because the phrase is
   the AC's only statement about invalidation.
+- **D-7: starvation is *reported* by the assembly closure and judged by `_run_locked` after the
+  recompaction retry — it is not raised.** The first implementation raised `_KnowledgeStarved` from
+  inside `_assemble_request`, which a `/code-review` pass showed to be wrong twice over. **(a)** It
+  pre-empted the retry at `turn_engine.py:1348`: `_assemble_request` runs a second time after
+  `_assemble_history` sheds more history, and that pass has a smaller `fixed_context`, so a
+  first-pass floor can legitimately resolve — raising threw away a turn that would have succeeded
+  *with* its knowledge intact. **(b)** The handler's `await self._db.rollback()` discarded the
+  **pending compaction summary**, which `_assemble_history` may have just paid a real summarisation
+  call to produce on the agent's own key group (the commit at `:1330` is what persists it — its
+  comment names the summary row explicitly). Because starvation is deterministic, every subsequent
+  trigger re-summarised and re-discarded: an unbounded burn of the customer's own provider quota
+  that never made progress, on a BYO-key product. The skip now **commits** and, like every other
+  committing path in the file (`:1404`, `:1437`, `:1472`, `:1495`), discards the consumed
+  `/compact` flag rather than re-arming it — the compaction happened and is kept. `_KnowledgeStarved`
+  the exception is gone; `_Starvation` is a frozen dataclass returned as a fourth tuple element.
+  `_knowledge_starved` is gone with it: the budget short-circuit is now structural in the closure,
+  and `_has_knowledge_source` — the part with real logic — remains the tested unit and is memoised
+  across the two passes.
+- **D-8: `render` takes `include_conditional: Collection[str]`, not `include_participant_note:
+  bool`.** §6 specifies the latter. A single bool gates the *generic* `MEASURED_ONLY` role on one
+  specific block's reason, so a second conditional block — Phase 1 is the likely author — would be
+  silently included or dropped by `other_agents_present or user_names`, a condition about
+  participant labelling that has nothing to do with it. Naming blocks individually keeps each one's
+  inclusion tied to its own condition, and an unnamed block defaults to measured-but-not-rendered,
+  which is the conservative direction its role already means. Relatedly `_texts` now raises when a
+  pass reaches a slot it supplies no text for, instead of the previous hardcoded empty tuple: if the
+  knowledge block's role ever changed, silently contributing 0 tokens to `fixed_context` is
+  precisely F-16's under-count.
 - **D-6: `_has_knowledge_source`'s Concept Map lookup runs under `begin_nested()`.** Not specified;
   required. The lookup is a DB read inside the turn's live transaction, and this file's two other
   best-effort DB reads (`:1516`, `:1543`) both wrap in a SAVEPOINT for the reason
@@ -1716,6 +1744,8 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   `turn_engine.py`, where the codebase's own precedent (`application/context.py`,
   `prompt_loader.py`, and §9's "pure module" pattern) would put them in a sibling module — kept
   local because `_run_locked` is their only consumer and Phase 1 adds `_skills_note` to them;
-  (b) the `_KnowledgeStarved` handler repeats the rollback → audit → emit → requeue → restore shape
-  of the generic handler and the two inline skips (`:901`, `:920`), which a `_skip_turn(reason,
-  meta)` helper would collapse across four sites — a refactor wider than this task.
+  (b) the `knowledge_starved` skip repeats the audit → commit → observer-or-room emit shape of the
+  two earlier inline skips (`key_group_scope`, `rate_limited`), which a `_skip_turn(reason, meta)`
+  helper would collapse across three sites — a refactor wider than this task. Note the
+  commit-then-`_compact_forced_rooms.discard` pairing is now an invariant across five sites with
+  nothing but a comment enforcing it; the natural home for that assertion is the same helper.
