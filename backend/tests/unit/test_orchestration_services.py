@@ -605,7 +605,6 @@ class TestSubagentSpawn:
         agent.id = _AGENT_A
         agent.key_group_id = uuid.uuid4()
         agent.system_prompt = "be helpful"
-        agent.prompt_strategy.value = "default"
         agent.model_hint.value = "auto"
         agent.context_mode.value = "full"
         agent.context_token_cap = 8000
@@ -717,7 +716,6 @@ class TestSubagentInheritance:
         agent.id = _AGENT_A
         agent.key_group_id = uuid.uuid4()
         agent.system_prompt = "be concise"
-        agent.prompt_strategy.value = "default"
         agent.model_hint.value = "auto"
         agent.context_mode.value = "full"
         agent.context_token_cap = 4000

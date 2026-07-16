@@ -19,7 +19,7 @@ from contexts.agent_groups.domain.errors import (
     AgentGroupNameConflict,
     AgentGroupNotFound,
 )
-from contexts.agents.domain.models import AgentModelHint, ContextMode, PromptStrategy
+from contexts.agents.domain.models import AgentModelHint, ContextMode
 from contexts.agents.infrastructure.repositories import AgentRepository
 from contexts.conversation.infrastructure.repositories import WorkspaceRepository
 from contexts.identity.infrastructure.repositories import UserRepository
@@ -62,7 +62,6 @@ async def _seed_agent(db, project_id: uuid.UUID, kg_id: uuid.UUID) -> uuid.UUID:
         effort=None,
         key_group_id=kg_id,
         system_prompt="deterministic test agent",
-        prompt_strategy=PromptStrategy.FULL,
         rag_config_id=None,
         knowmap_config_id=None,
         context_mode=ContextMode.GENERAL,

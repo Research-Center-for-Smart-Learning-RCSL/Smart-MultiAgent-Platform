@@ -37,7 +37,7 @@ import pytest
 import sqlalchemy as sa
 
 from contexts.agents.application.runtime.turn_engine import TurnEngine
-from contexts.agents.domain.models import AgentModelHint, ContextMode, PromptStrategy
+from contexts.agents.domain.models import AgentModelHint, ContextMode
 from contexts.agents.infrastructure.repositories import AgentRepository
 from contexts.conversation.application.message_service import MessageService
 from contexts.conversation.application.triggers import evaluate_message_wakeups
@@ -178,7 +178,6 @@ async def _seed_agent_and_room(
         effort=None,
         key_group_id=group.id,
         system_prompt="You are a deterministic test agent.",
-        prompt_strategy=PromptStrategy.FULL,
         rag_config_id=None,
         knowmap_config_id=None,
         context_mode=ContextMode.GENERAL,
@@ -317,7 +316,6 @@ async def test_a2a_call_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
             effort=None,
             key_group_id=env.group.id,
             system_prompt="callee",
-            prompt_strategy=PromptStrategy.FULL,
             rag_config_id=None,
             knowmap_config_id=None,
             context_mode=ContextMode.GENERAL,

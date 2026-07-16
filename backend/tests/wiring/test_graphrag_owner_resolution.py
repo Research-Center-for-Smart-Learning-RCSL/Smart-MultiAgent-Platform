@@ -20,7 +20,7 @@ import pytest
 import sqlalchemy as sa
 
 from contexts.agent_groups.application.group_service import AgentGroupService
-from contexts.agents.domain.models import AgentModelHint, ContextMode, PromptStrategy
+from contexts.agents.domain.models import AgentModelHint, ContextMode
 from contexts.agents.infrastructure.repositories import AgentRepository
 from contexts.conversation.application.workspace_service import WorkspaceService
 from contexts.conversation.infrastructure.repositories import (
@@ -86,7 +86,6 @@ async def _seed_agent(db, project_id: uuid.UUID, key_group_id: uuid.UUID) -> uui
         effort=None,
         key_group_id=key_group_id,
         system_prompt="deterministic test agent",
-        prompt_strategy=PromptStrategy.FULL,
         rag_config_id=None,
         knowmap_config_id=None,
         context_mode=ContextMode.GENERAL,

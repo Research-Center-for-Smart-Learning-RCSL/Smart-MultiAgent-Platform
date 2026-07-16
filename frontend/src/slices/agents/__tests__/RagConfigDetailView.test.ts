@@ -63,7 +63,6 @@ function seedHandlers(): void {
           model_id: null,
           key_group_id: 'kg_1',
           system_prompt: '',
-          prompt_strategy: 'full',
           rag_config_id: 'cfg_1',
           context_mode: 'window',
           context_token_cap: null,

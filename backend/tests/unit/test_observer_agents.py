@@ -755,7 +755,6 @@ def _observer_agent():
         key_group_id=uuid.uuid4(),
         project_id=uuid.uuid4(),
         system_prompt="prompt",
-        prompt_strategy=SimpleNamespace(value="full"),
         model_hint=SimpleNamespace(value="claude"),
         model_id=None,
         context_mode=SimpleNamespace(value="general"),
@@ -816,7 +815,6 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id):
             return creator_id
 
     monkeypatch.setattr(te, "ObservationService", _ObsService)
-    monkeypatch.setattr(te, "assemble", lambda sp, **k: SimpleNamespace(text="SYS"))
     monkeypatch.setattr(te, "build_registry", lambda *a, **k: SimpleNamespace(specs=lambda: []))
 
     engine = te.TurnEngine.__new__(te.TurnEngine)

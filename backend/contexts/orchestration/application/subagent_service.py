@@ -263,7 +263,6 @@ class SubagentService:
         return {
             "key_group_id": str(parent.key_group_id),
             "system_prompt": parent.system_prompt,
-            "prompt_strategy": parent.prompt_strategy.value,
             "model_hint": parent.model_hint.value,
             "a2a_enabled": False,
             "mcp_servers": True,  # inherited, actual bindings resolved at runtime

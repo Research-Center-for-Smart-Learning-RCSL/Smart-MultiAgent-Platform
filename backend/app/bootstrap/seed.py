@@ -25,7 +25,6 @@ from sqlalchemy.exc import IntegrityError
 from contexts.agents.domain.models import (
     AgentModelHint,
     ContextMode,
-    PromptStrategy,
 )
 from contexts.agents.infrastructure.repositories import AgentRepository
 from contexts.conversation.infrastructure.repositories.chatroom_repo import (
@@ -261,7 +260,6 @@ async def _seed_fixtures(
         model_id=None,
         key_group_id=key_group.id,
         system_prompt="You are a test agent for E2E testing.",
-        prompt_strategy=PromptStrategy.FULL,
         rag_config_id=None,
         knowmap_config_id=None,
         context_mode=ContextMode.GENERAL,

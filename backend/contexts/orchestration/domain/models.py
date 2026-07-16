@@ -356,7 +356,6 @@ SUBAGENT_RETENTION_DAYS: int = 30
 SUBAGENT_INHERITANCE: dict[str, bool] = {
     "key_group_id": True,
     "system_prompt": True,
-    "prompt_strategy": True,
     "model_hint": True,
     "a2a_enabled": False,
     "mcp_servers": True,

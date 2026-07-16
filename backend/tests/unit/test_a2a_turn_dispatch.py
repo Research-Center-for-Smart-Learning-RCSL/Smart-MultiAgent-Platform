@@ -45,7 +45,6 @@ def _agent():
         id=uuid.uuid4(),
         key_group_id=uuid.uuid4(),
         system_prompt="prompt",
-        prompt_strategy=SimpleNamespace(value="full"),
         model_hint=SimpleNamespace(value="claude"),
         model_id=None,
         rag_config_id=None,
@@ -127,11 +126,6 @@ def _wire_engine(monkeypatch, agent, *, drain=None, member=True):
             return member
 
     monkeypatch.setattr(te, "ConversationFacade", _ConvFacade)
-    monkeypatch.setattr(
-        te,
-        "assemble",
-        lambda sp, *, strategy, provider_supports_tools: SimpleNamespace(text="SYS"),
-    )
     monkeypatch.setattr(
         "contexts.orchestration.infrastructure.pending_notify.drain",
         _async_return(drain if drain is not None else []),

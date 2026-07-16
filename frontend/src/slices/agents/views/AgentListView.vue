@@ -208,7 +208,6 @@ const duplicateMutation = useMutation({
       effort: (agent.effort ?? null) as AgentCreateInput['effort'],
       key_group_id: agent.key_group_id,
       system_prompt: agent.system_prompt,
-      prompt_strategy: agent.prompt_strategy as AgentCreateInput['prompt_strategy'],
       rag_config_id: agent.rag_config_id,
       knowmap_config_id: agent.knowmap_config_id,
       context_mode: agent.context_mode as AgentCreateInput['context_mode'],

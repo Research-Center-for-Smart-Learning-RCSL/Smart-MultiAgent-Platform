@@ -36,7 +36,6 @@ export interface Agent {
   effort: string | null
   key_group_id: string
   system_prompt: string
-  prompt_strategy: string
   rag_config_id: string | null
   knowmap_config_id: string | null
   context_mode: string

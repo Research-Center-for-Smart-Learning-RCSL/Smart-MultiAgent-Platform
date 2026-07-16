@@ -173,7 +173,6 @@ export type { ProjectOut } from './models/ProjectOut';
 export type { ProjectOwnerType } from './models/ProjectOwnerType';
 export type { ProjectPatchIn } from './models/ProjectPatchIn';
 export type { ProjectSummaryOut } from './models/ProjectSummaryOut';
-export type { PromptStrategy } from './models/PromptStrategy';
 export type { RagConfigCreateIn } from './models/RagConfigCreateIn';
 export type { RagConfigOut } from './models/RagConfigOut';
 export type { RagConfigPatchIn } from './models/RagConfigPatchIn';

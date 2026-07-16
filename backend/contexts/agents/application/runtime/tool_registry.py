@@ -6,10 +6,9 @@ tool-use loop needs: ``Tool{name, description, input_schema, invoke(args)}`` and
 a ``ToolRegistry`` that exposes provider-neutral specs and dispatches calls.
 
 Wired here (no external infra): ``update_wakeup`` (R15.06 — clamp + audit happen
-inside ``WakeupService``) and ``load_prompt_section`` (R9.06 — served from the
-per-turn ``SectionCache`` over the lazy prompt's body bank). ``web_search`` /
-``file`` / ``code_exec`` are injected as ``extra`` tools by their own wiring
-(web-search DI; sandbox lands in K.5) so this module stays infra-free.
+inside ``WakeupService``). ``web_search`` / ``file`` / ``code_exec`` are injected
+as ``extra`` tools by their own wiring (web-search DI; sandbox lands in K.5) so
+this module stays infra-free.
 """
 
 from __future__ import annotations
@@ -20,12 +19,6 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
-
-from contexts.agents.application.prompt_loader import (
-    LOAD_SECTION_TOOL_SPEC,
-    LazyPrompt,
-    SectionCache,
-)
 
 ToolInvoke = Callable[[dict[str, Any]], Awaitable["ToolResult"]]
 
@@ -38,7 +31,6 @@ ToolInvoke = Callable[[dict[str, Any]], Awaitable["ToolResult"]]
 BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
     {
         "update_wakeup",
-        "load_prompt_section",
         "cast_approval_vote",
         "web_search",
         "code_exec",
@@ -158,28 +150,6 @@ def build_update_wakeup_tool(db: Any, *, agent_id: uuid.UUID) -> Tool:
     )
 
 
-def build_load_prompt_section_tool(prompt: LazyPrompt, cache: SectionCache) -> Tool:
-    """R9.06 — fetch a lazy prompt section body on demand (per-turn cached, R9.07)."""
-
-    async def _invoke(args: dict[str, Any]) -> ToolResult:
-        section_id = str(args.get("id", ""))
-        cached = cache.get(section_id)
-        if cached is not None:
-            return ToolResult(content=cached)
-        body = prompt.bodies.get(section_id)
-        if body is None:
-            return ToolResult(content=f"No prompt section with id {section_id!r}.", is_error=True)
-        cache.put(section_id, body)
-        return ToolResult(content=body)
-
-    return Tool(
-        name=str(LOAD_SECTION_TOOL_SPEC["name"]),
-        description=str(LOAD_SECTION_TOOL_SPEC["description"]),
-        input_schema=dict(LOAD_SECTION_TOOL_SPEC["input_schema"]),
-        invoke=_invoke,
-    )
-
-
 _CAST_APPROVAL_VOTE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -252,14 +222,10 @@ def build_registry(
     db: Any,
     *,
     agent_id: uuid.UUID,
-    lazy_prompt: LazyPrompt | None = None,
-    section_cache: SectionCache | None = None,
     extra: list[Tool] | None = None,
 ) -> ToolRegistry:
     """Assemble the per-turn tool table for ``agent_id``."""
     tools: list[Tool] = [build_update_wakeup_tool(db, agent_id=agent_id)]
-    if lazy_prompt is not None and section_cache is not None:
-        tools.append(build_load_prompt_section_tool(lazy_prompt, section_cache))
     if extra:
         tools.extend(extra)
     return ToolRegistry(tools)
@@ -280,7 +246,6 @@ __all__ = [
     "ToolRegistry",
     "ToolResult",
     "build_cast_approval_vote_tool",
-    "build_load_prompt_section_tool",
     "build_registry",
     "build_update_wakeup_tool",
 ]

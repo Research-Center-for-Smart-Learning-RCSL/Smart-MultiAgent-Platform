@@ -189,7 +189,7 @@ By phase close:
   | Field | Inherited? |
   |---|---|
   | `key_group_id` | ✓ (usage attributes to parent's key owner) |
-  | `system_prompt` + `prompt_strategy` | ✓ (task description appended as user-role message) |
+  | `system_prompt` | ✓ (task description appended as user-role message) |
   | `model_hint` | ✓ |
   | `a2a_enabled` | ✗ (forced `false`) |
   | `mcp_servers` | ✓ |

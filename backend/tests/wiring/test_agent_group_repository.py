@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from contexts.agent_groups.infrastructure.group_repository import AgentGroupRepository
-from contexts.agents.domain.models import AgentModelHint, ContextMode, PromptStrategy
+from contexts.agents.domain.models import AgentModelHint, ContextMode
 from contexts.agents.infrastructure.repositories import AgentRepository
 from contexts.conversation.infrastructure.repositories import WorkspaceRepository
 from contexts.identity.infrastructure.repositories import UserRepository
@@ -59,7 +59,6 @@ async def _seed_agent(db, project_id: uuid.UUID, key_group_id: uuid.UUID) -> uui
         effort=None,
         key_group_id=key_group_id,
         system_prompt="deterministic test agent",
-        prompt_strategy=PromptStrategy.FULL,
         rag_config_id=None,
         knowmap_config_id=None,
         context_mode=ContextMode.GENERAL,

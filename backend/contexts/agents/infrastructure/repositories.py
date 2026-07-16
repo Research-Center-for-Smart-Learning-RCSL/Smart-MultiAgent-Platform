@@ -32,7 +32,6 @@ from contexts.agents.domain.models import (
     AgentTool,
     AgentToolType,
     ContextMode,
-    PromptStrategy,
     WorkspaceFile,
 )
 from contexts.agents.infrastructure import tables as t
@@ -49,7 +48,6 @@ def _row_to_agent(row: Any) -> Agent:
         effort=AgentEffort(row.effort) if row.effort else None,
         key_group_id=row.key_group_id,
         system_prompt=row.system_prompt,
-        prompt_strategy=PromptStrategy(row.prompt_strategy),
         rag_config_id=row.rag_config_id,
         knowmap_config_id=row.knowmap_config_id,
         context_mode=ContextMode(row.context_mode),
@@ -118,7 +116,6 @@ class AgentRepository:
         effort: AgentEffort | None,
         key_group_id: uuid.UUID,
         system_prompt: str,
-        prompt_strategy: PromptStrategy,
         rag_config_id: uuid.UUID | None,
         knowmap_config_id: uuid.UUID | None,
         context_mode: ContextMode,
@@ -143,7 +140,6 @@ class AgentRepository:
                         effort=effort.value if effort else None,
                         key_group_id=key_group_id,
                         system_prompt=system_prompt,
-                        prompt_strategy=prompt_strategy.value,
                         rag_config_id=rag_config_id,
                         knowmap_config_id=knowmap_config_id,
                         context_mode=context_mode.value,

@@ -10,7 +10,6 @@ from contexts.agents.domain.models import (
     Agent,
     AgentModelHint,
     ContextMode,
-    PromptStrategy,
 )
 
 
@@ -24,7 +23,6 @@ def _agent(project_id: uuid.UUID, *, enabled: bool, wakeup: dict | None = None) 
         effort=None,
         key_group_id=uuid.uuid4(),
         system_prompt="",
-        prompt_strategy=PromptStrategy.FULL,
         rag_config_id=None,
         knowmap_config_id=None,
         context_mode=ContextMode.GENERAL,

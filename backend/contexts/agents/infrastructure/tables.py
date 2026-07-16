@@ -40,12 +40,6 @@ agents = sa.Table(
         nullable=True,
     ),
     sa.Column("system_prompt", sa.Text, nullable=False, server_default=sa.text("''")),
-    sa.Column(
-        "prompt_strategy",
-        pg.ENUM("full", "lazy", name="agent_prompt_strategy", create_type=False),
-        nullable=False,
-        server_default=sa.text("'full'::agent_prompt_strategy"),
-    ),
     sa.Column("rag_config_id", pg.UUID(as_uuid=True), nullable=True),
     # Per-agent Knowledge Map binding (Phase 3, R11.14). Bare UUID + DB-level FK
     # in migration 0048 (cross-context; validated in the facade, not the schema),

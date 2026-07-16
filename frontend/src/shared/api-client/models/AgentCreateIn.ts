@@ -12,7 +12,6 @@ export type AgentCreateIn = {
     model_hint: 'claude' | 'openai' | 'gemini';
     model_id?: (string | null);
     name: string;
-    prompt_strategy?: 'full' | 'lazy';
     rag_config_id?: (string | null);
     seed?: (number | null);
     system_prompt?: string;
