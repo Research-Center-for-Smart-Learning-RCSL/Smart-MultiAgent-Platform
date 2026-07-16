@@ -2248,6 +2248,15 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   by nothing whatsoever, and one comment at one site documents it. Rescope: extract a
   `_commit_and_release_compact(chatroom_id)` helper across the six, which is a real enforceable
   invariant, with the 2-site skip collapse as a secondary. (a) is separable and now unblocked.
+  **Blocked 2026-07-17, and not by its old reason.** (a)'s deferral rationale expired when Phase 1
+  landed the skills block, but it is now claimed by an in-flight draft:
+  `2026-07-17-headless-knowledge-token-budget` §7.5 (`spec.md:92`) says it will "reuse/extract
+  `_SystemBlocks` and one request planner", and its Q-1 (`:41`) names the room-local budget closure
+  as the extraction source. Doing (a) here would steal that dossier's scope and force it to rebase a
+  large restructure onto a move it was going to make anyway. **Leave (a) until that dossier lands or
+  is abandoned.** (b) as rescoped — the `_commit_and_release_compact` helper across the six
+  commit-then-discard sites — does **not** collide: that dossier touches `run_input_turn`'s body and
+  the block classes, not the skip sites. It is the part of this entry that is actually actionable.
 - **FU-21: `test_sel_evaluator.py` fails intermittently under random ordering.** Not this task's
   code and not this task's context. `contexts/workflow/sel/evaluator.py` sets a **5 ms wall-clock
   deadline** before the first `visit()`, and Windows' ~15.6 ms scheduler granularity can blow past
