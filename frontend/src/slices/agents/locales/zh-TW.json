@@ -389,7 +389,7 @@
         "description": "在 gVisor 沙箱中執行 Python。狀態會在對話中保留（每次呼叫上限 30 秒）。",
         "files": {
           "title": "檔案",
-          "hint": "這些檔案可供此 AI Agent 的 Code Interpreter 及檔案工作區工具使用，路徑為 agent-files/<path>。",
+          "hint": "這些檔案可供此 AI Agent 使用，路徑為 /workspace/agent-files/<path>。Code Interpreter 的程式碼須使用完整路徑；檔案工作區工具亦接受較短的 agent-files/<path>。",
           "upload": "上傳檔案",
           "uploading": "上傳中...",
           "uploaded": "檔案已上傳。",
