@@ -628,6 +628,25 @@ Dockerfile, see FU-8):
   still created the column at 32 — so a deeper fix is needed (widen the column in a
   dedicated migration, shorten the offending slugs, or investigate why the option is
   ignored). Left for a maintainer; no code committed here.
+
+  **RESOLVED 2026-07-16** by `fix(backend): widen alembic_version so a fresh upgrade head
+  runs`, during `docs/tasks/2026-07-16-agent-skills/` Phase 1 (see that dossier's D-9).
+  The "investigate why the option is ignored" branch is the answer: **`version_table_column_type`
+  does not exist in Alembic 1.13.3.** It appears nowhere in the installed package;
+  `runtime/migration.py:196` hardcodes `Column("version_num", String(32), nullable=False)`,
+  and `configure()` documents only `version_table`, `version_table_schema`, and
+  `version_table_pk`. Because `configure()` collects unknown kwargs into `opts` without
+  validating them, the call is accepted and silently ignored — which is exactly why it
+  "did not take effect" rather than raising. **The one-line fix quoted above is not real
+  for this Alembic version**; the wording is left intact above rather than rewritten,
+  per the contract's append-only rule, but it should not be copied into a third dossier.
+  The landed fix widens the column directly in `env.py` before Alembic touches it (Alembic
+  adopts an existing version table as-is), which also makes the `varchar(255)`
+  hand-patch recorded at `:585-587` reproducible in code instead of being a property of
+  one throwaway dev DB. Two corrections to the text above: `0040_message_attachment_extracted_text`
+  is **38** characters, not 39; and the fix is in `env.py`, not a dedicated migration — a
+  migration cannot help, because the truncation happens on Alembic's own bookkeeping
+  UPDATE before any migration in the chain could run.
 - FU-8: Pre-existing dev-compose bug. `deploy/compose/docker-compose.override.yml` sets
   `backend-web`/`backend-worker` `build.context: ../../backend`, but `backend/Dockerfile`
   is written for a repo-root context (`COPY backend/pyproject.toml`, `COPY docs/...`), as
