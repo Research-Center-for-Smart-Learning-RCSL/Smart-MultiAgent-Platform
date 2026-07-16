@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 type Variant = 'text' | 'circle' | 'rect'
 
@@ -22,6 +23,8 @@ const props = withDefaults(
   },
 )
 
+const { t } = useI18n()
+
 const lineCount = computed(() =>
   props.variant === 'text' ? Math.max(1, props.lines) : 1,
 )
@@ -32,7 +35,7 @@ const lineCount = computed(() =>
     v-if="props.variant === 'text' && lineCount > 1"
     class="s-skeleton__stack"
     role="status"
-    aria-label="Loading"
+    :aria-label="t('shared.skeleton.loading')"
   >
     <span
       v-for="i in lineCount"
@@ -59,7 +62,7 @@ const lineCount = computed(() =>
           : props.height,
     }"
     role="status"
-    aria-label="Loading"
+    :aria-label="t('shared.skeleton.loading')"
   />
 </template>
 

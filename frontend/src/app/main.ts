@@ -26,6 +26,14 @@ registerLocaleLoaders({
   'zh-TW': () => import('@app/locales/zh-TW.json'),
 })
 
+// shared/ui atoms are used by every slice and by the app shell itself, so their
+// strings register here rather than in any one slice. Mount is gated on
+// ensureLocaleLoaded below, so these are merged before an atom can render.
+registerLocaleLoaders({
+  en: () => import('@shared/locales/en.json'),
+  'zh-TW': () => import('@shared/locales/zh-TW.json'),
+})
+
 installIdentitySlice()
 installTenancySlice()
 installKeysSlice()

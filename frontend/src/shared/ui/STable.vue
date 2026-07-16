@@ -1,5 +1,6 @@
 <script setup lang="ts" generic="T extends Record<string, unknown> = Record<string, unknown>">
 import { computed, useSlots } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   ChevronUpDownIcon,
   ChevronUpIcon,
@@ -69,6 +70,7 @@ const emit = defineEmits<{
 }>()
 
 const slots = useSlots()
+const { t } = useI18n()
 const { width, isMobile } = useBreakpoint()
 
 const hasActionsSlot = computed(() => !!slots['actions'])
@@ -289,7 +291,7 @@ function skeletonStyle(col: Column): Record<string, string> {
             v-if="hasActionsSlot"
             class="s-table__th s-table__th--actions"
           >
-            <span class="sr-only">Actions</span>
+            <span class="sr-only">{{ t('shared.table.actions') }}</span>
           </th>
         </tr>
       </thead>

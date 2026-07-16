@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import { ChevronRightIcon } from '@heroicons/vue/20/solid'
 
@@ -11,6 +12,8 @@ interface BreadcrumbItem {
 const props = defineProps<{
   items: BreadcrumbItem[]
 }>()
+
+const { t } = useI18n()
 
 const visibleItems = computed<(BreadcrumbItem | { ellipsis: true })[]>(() => {
   if (props.items.length <= 5) {
@@ -31,7 +34,7 @@ function isEllipsis(item: BreadcrumbItem | { ellipsis: true }): item is { ellips
 <template>
   <nav
     class="breadcrumb"
-    aria-label="Breadcrumb"
+    :aria-label="t('shared.breadcrumb.label')"
   >
     <ol class="breadcrumb__list">
       <li

@@ -1,4 +1,5 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { XMarkIcon } from '@heroicons/vue/20/solid'
 
 type Variant = 'info' | 'success' | 'warning' | 'danger' | 'neutral'
@@ -22,6 +23,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   remove: []
 }>()
+
+const { t } = useI18n()
 </script>
 
 <template>
@@ -41,7 +44,7 @@ const emit = defineEmits<{
       v-if="props.removable"
       type="button"
       class="s-badge__remove"
-      aria-label="Remove"
+      :aria-label="t('shared.badge.remove')"
       @click="emit('remove')"
     >
       <XMarkIcon
