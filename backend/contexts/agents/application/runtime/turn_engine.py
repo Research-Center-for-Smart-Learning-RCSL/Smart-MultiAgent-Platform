@@ -15,6 +15,7 @@ turn lock assume a long-lived background context. The triggers that invoke this
 from __future__ import annotations
 
 import contextlib
+import enum
 import json
 import logging
 import time
@@ -285,6 +286,119 @@ class _TurnCancelled(Exception):
     def __init__(self, rounds_completed: int) -> None:
         self.rounds_completed = rounds_completed
         super().__init__(f"turn cancelled after {rounds_completed} rounds")
+
+
+class _BlockRole(enum.Enum):
+    """How a system block participates in measurement vs rendering.
+
+    Measurement and rendering deliberately disagree, and that asymmetry is the
+    point: a block may be counted but not shown (conservative estimate) or shown
+    but not counted (it is what the knowledge budget buys). Declaring the role
+    once per block is what replaces two hand-synchronised functions -- the shape
+    that produced F-16 and F-17.
+    """
+
+    MEASURED_AND_RENDERED = "measured_and_rendered"
+    # Counted every turn, rendered only when history warrants it. Counting it
+    # unconditionally keeps the estimate an over-count, never an under-count.
+    MEASURED_ONLY = "measured_only"
+    # Rendered but never counted: the knowledge blocks are the budget's output,
+    # so counting them against it would be circular.
+    RENDERED_ONLY = "rendered_only"
+
+
+class _BlockSlot(enum.Enum):
+    """Blocks whose text is supplied per call rather than fixed for the turn."""
+
+    SUMMARIES = "summaries"
+    KNOWLEDGE = "knowledge"
+
+
+@dataclass(frozen=True, slots=True)
+class _SystemBlock:
+    name: str
+    role: _BlockRole
+    # Fixed text resolved at turn start; None means the block is absent this turn.
+    text: str | None = None
+    # Set instead of `text` when the content varies per call (summaries depend on
+    # the history being assembled, which differs between the initial pass and the
+    # recompaction pass).
+    slot: _BlockSlot | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _SystemBlocks:
+    """The turn's system blocks as one ordered list with explicit per-block roles.
+
+    Replaces the hand-maintained ``_fixed_system_text`` / ``system_parts`` pair:
+    order and role are declared once here, so measure and render cannot disagree
+    about *which* blocks exist -- only about the ones whose role says they should.
+    """
+
+    blocks: tuple[_SystemBlock, ...]
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        base_system: str,
+        is_observer: bool,
+        memory_block: str | None,
+        activity_block: str | None,
+        staged_note: str | None,
+        notify_block: str | None,
+    ) -> _SystemBlocks:
+        blocks: list[_SystemBlock] = [
+            _SystemBlock("base_system", _BlockRole.MEASURED_AND_RENDERED, text=base_system)
+        ]
+        if is_observer:
+            # R28.01 framing + R28.05 self-memory.
+            blocks.append(
+                _SystemBlock("observer_note", _BlockRole.MEASURED_AND_RENDERED, text=_OBSERVER_SYSTEM_NOTE)
+            )
+            blocks.append(_SystemBlock("memory", _BlockRole.MEASURED_AND_RENDERED, text=memory_block))
+        blocks.append(_SystemBlock("summaries", _BlockRole.MEASURED_AND_RENDERED, slot=_BlockSlot.SUMMARIES))
+        blocks.append(_SystemBlock("knowledge", _BlockRole.RENDERED_ONLY, slot=_BlockSlot.KNOWLEDGE))
+        blocks.append(_SystemBlock("activity", _BlockRole.MEASURED_AND_RENDERED, text=activity_block))
+        blocks.append(_SystemBlock("staged", _BlockRole.MEASURED_AND_RENDERED, text=staged_note))
+        blocks.append(_SystemBlock("notify", _BlockRole.MEASURED_AND_RENDERED, text=notify_block))
+        blocks.append(
+            _SystemBlock("participant_note", _BlockRole.MEASURED_ONLY, text=_PARTICIPANT_LABEL_NOTE)
+        )
+        return cls(blocks=tuple(blocks))
+
+    @staticmethod
+    def _texts(block: _SystemBlock, summaries: Sequence[str], knowledge_blocks: Sequence[str]) -> list[str]:
+        if block.slot is _BlockSlot.SUMMARIES:
+            return list(summaries)
+        if block.slot is _BlockSlot.KNOWLEDGE:
+            return list(knowledge_blocks)
+        return [block.text] if block.text else []
+
+    def measure(self, summaries: Sequence[str]) -> str:
+        """The non-knowledge system text, for the compaction decision (F-17) and
+        the knowledge budget (F-16). Knowledge blocks are excluded by role."""
+        parts: list[str] = []
+        for block in self.blocks:
+            if block.role is _BlockRole.RENDERED_ONLY:
+                continue
+            parts.extend(self._texts(block, summaries, ()))
+        return "\n\n".join(p for p in parts if p)
+
+    def render(
+        self,
+        summaries: Sequence[str],
+        knowledge_blocks: Sequence[str],
+        *,
+        include_participant_note: bool,
+    ) -> str:
+        """The system text actually sent to the provider."""
+        parts: list[str] = []
+        for block in self.blocks:
+            if block.role is _BlockRole.MEASURED_ONLY and not include_participant_note:
+                continue
+            parts.extend(self._texts(block, summaries, knowledge_blocks))
+        return "\n\n".join(p for p in parts if p)
 
 
 class TurnEngine:
@@ -998,29 +1112,24 @@ class TurnEngine:
             tool_tokens = tx.estimate_tokens(json.dumps(tool_specs, ensure_ascii=False)) if tool_specs else 0
             input_tokens = tx.estimate_tokens(input_text or "")
 
-            # The non-knowledge system blocks joined as text. The participant-label
-            # note is counted conservatively (its inclusion depends on history).
-            def _fixed_system_text(summaries: list[str]) -> str:
-                parts = [base_system] if base_system else []
-                if is_observer:
-                    # R28.01 framing + R28.05 self-memory.
-                    parts.append(_OBSERVER_SYSTEM_NOTE)
-                    if memory_block:
-                        parts.append(memory_block)
-                parts.extend(summaries)
-                if activity_block:
-                    parts.append(activity_block)
-                if staged_note:
-                    parts.append(staged_note)
-                if notify_block:
-                    parts.append(notify_block)
-                parts.append(_PARTICIPANT_LABEL_NOTE)
-                return "\n\n".join(p for p in parts if p)
+            # The turn's system blocks, ordered once with an explicit role each,
+            # so the measure and render passes below cannot drift apart.
+            system_blocks = _SystemBlocks.build(
+                base_system=base_system,
+                is_observer=is_observer,
+                memory_block=memory_block,
+                activity_block=activity_block,
+                staged_note=staged_note,
+                notify_block=notify_block,
+            )
 
             # F-17: compaction is decided against the whole non-knowledge request
             # (base + dynamic blocks + tools + input + reserve), not history alone.
             prefix_tokens = (
-                tx.estimate_tokens(_fixed_system_text([])) + tool_tokens + input_tokens + _DEFAULT_MAX_TOKENS
+                tx.estimate_tokens(system_blocks.measure([]))
+                + tool_tokens
+                + input_tokens
+                + _DEFAULT_MAX_TOKENS
             )
             history = await self._assemble_history(
                 agent, chatroom_id, context_limit, models, extra_projected_tokens=prefix_tokens
@@ -1048,7 +1157,7 @@ class TurnEngine:
                 # rows here avoids double-counting the summaries already in the
                 # system-block estimate.
                 fixed_context = (
-                    tx.estimate_tokens(_fixed_system_text(summaries))
+                    tx.estimate_tokens(system_blocks.measure(summaries))
                     + tool_tokens
                     + input_tokens
                     + sum(h.token_count for h in history if h.role in ("user", "agent"))
@@ -1068,24 +1177,6 @@ class TurnEngine:
                 knowledge_blocks, rag_ctx = await self._assemble_agent_knowledge(
                     agent, knowledge_queries, chatroom_id=chatroom_id, budget=budget
                 )
-
-                # Context blocks fold into the system prompt (providers take system
-                # as a top-level field, not an in-array role). Order: base, observer
-                # framing, compact summaries, knowledge, activity, staged, notify,
-                # participant-label note.
-                system_parts = [base_system] if base_system else []
-                if is_observer:
-                    system_parts.append(_OBSERVER_SYSTEM_NOTE)
-                    if memory_block:
-                        system_parts.append(memory_block)
-                system_parts.extend(summaries)
-                system_parts.extend(knowledge_blocks)
-                if activity_block:
-                    system_parts.append(activity_block)
-                if staged_note:
-                    system_parts.append(staged_note)
-                if notify_block:
-                    system_parts.append(notify_block)
 
                 # Label history with sender names so the agent can tell participants
                 # apart (humans by display name, other agents by their configured
@@ -1129,13 +1220,17 @@ class TurnEngine:
                     and hm.sender_id in agent_names
                     for hm in history
                 )
-                # Emit the explanatory note whenever ANY turn will carry a "Name:"
-                # prefix. _provider_message prefixes every resolved user/agent label,
-                # so gating on >1 user left a single-human room labelled but note-less
+                # The blocks fold into the system prompt (providers take system as a
+                # top-level field, not an in-array role). The participant note is
+                # emitted whenever ANY turn will carry a "Name:" prefix:
+                # _provider_message prefixes every resolved user/agent label, so
+                # gating on >1 user left a single-human room labelled but note-less
                 # — the model then treats "Alice:" as literal text.
-                if other_agents_present or bool(user_names):
-                    system_parts.append(_PARTICIPANT_LABEL_NOTE)
-                assembled_system_text = "\n\n".join(p for p in system_parts if p)
+                assembled_system_text = system_blocks.render(
+                    summaries,
+                    knowledge_blocks,
+                    include_participant_note=other_agents_present or bool(user_names),
+                )
 
                 if input_text:
                     if attach_blocks:
