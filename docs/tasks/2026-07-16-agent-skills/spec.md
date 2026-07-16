@@ -2159,9 +2159,16 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   file: the row leaves `agent_workspace_files` → omitted from `chosen` → `manifest_sha` changes →
   cache miss → re-stage — but `put_archive` **overlays** the tar, and extraction never deletes
   unlisted paths, so `/workspace/agent-files/deleted.csv` survives. It is merely unnamed in the
-  system note; `code_exec` can still `open()` it and the `file` tool's `list` **will show it**. And
-  since nothing in the codebase ever destroys the volume, "until the volume is destroyed" means
-  *indefinitely*, absent operator action — a data-retention edge, not just a staleness one.
+  system note; `code_exec` can still `open()` it and the `file` tool's `list` **will show it**.
+  *(Correction, 2026-07-17: this note first said "nothing in the codebase ever destroys the volume".
+  That is wrong and is retracted. `app/workers/agent_fs_gc.py:72-93` removes the volume nightly
+  (`main.py:320`, 05:00) for agents soft-deleted past 60 days, per `[R12.03]`
+  (`REQUIREMENTS.md:582`). The **conclusion stands on better grounds**: that path only fires 60 days
+  after the *agent itself* is soft-deleted, so for a live agent the volume is never destroyed — by
+  design — and the stale file survives for the agent's whole life. The reasoning, not the outcome,
+  was wrong. Separately, `agent_fs_gc` never actually purges anything — see the GC race dossier —
+  but that is a different defect and not what makes this one indefinite.)*
+  So this is a data-retention edge, not just a staleness one.
   **FU-6 and this are two directions of one defect** (see §16's preamble): both live in
   `stage_agent_workspace_files`, both stem from that function being an overlay rather than a
   reconciliation, and both need the same fix shape — make staging authoritative: clear the tree,
