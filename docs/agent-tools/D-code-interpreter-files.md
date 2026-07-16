@@ -109,7 +109,10 @@ async def stage_agent_workspace_files(self, *, agent_id, files: Sequence[StagedF
 - Implementation mirrors `stage_kernel_inputs`: tar files into a stable dir
   `agent-files/` (not the per-room `sessions/{room}/inputs/`), `put_archive` into
   `/workspace` via a no-network helper container. After writing, also write the
-  marker file with `manifest_sha`.
+  marker file with `manifest_sha`. The dir is where the bytes **land**; what the
+  method **returns** is the absolute `/workspace/agent-files/<path>`, which is what
+  reaches the model. Those are different things and conflating them is what broke
+  the exit criterion below.
 - **Skip-when-current (avoid a per-turn container spawn).** `manifest_sha =
   sha256(sorted "path:sha256" pairs)` for the agent, computed cheaply from the
   `agent_workspace_files` rows (no Docker). Keep a **module-level in-memory map**
@@ -135,8 +138,17 @@ async def stage_agent_workspace_files(self, *, agent_id, files: Sequence[StagedF
   designer adding a file bumps the manifest and the next turn re-hydrates.
 
 **Exit criteria.** Designer uploads `data.csv`; a chat turn runs `code_exec` doing
-`open('agent-files/data.csv')` and reads it; uploading a second file re-hydrates;
-an unchanged manifest spawns **no** copy container (assert via a runner spy).
+`open('/workspace/agent-files/data.csv')` and reads it; uploading a second file
+re-hydrates; an unchanged manifest spawns **no** copy container (assert via a runner
+spy). A designer folder (`reports/q1.csv`) survives staging as
+`/workspace/agent-files/reports/q1.csv`.
+
+> This criterion said `open('agent-files/data.csv')` until 2026-07-17 and **could never
+> have passed**: the kernel `chdir`s to `/workspace/sessions/{room}`, so a bare
+> `agent-files/…` resolves under the session dir, not the volume root. The path must be
+> absolute for `code_exec`. See `docs/tasks/2026-07-17-agent-files-path-resolution/`.
+> The relative form remains valid for the `file` tool, which roots at `/workspace` — the
+> two tools do not agree on what a relative path means, which is what hid this.
 
 ## D.5 Frontend — uploads under the Code Interpreter card — **CODE** — M
 
@@ -146,8 +158,11 @@ In `AgentToolsView` (Phase B), the **Code Interpreter** card gets an expandable
 - Visible only when `hosted_code_interpreter.enabled`.
 - Upload (drag/drop + picker) → `agentsApi.uploadWorkspaceFileMultipart(agentId,
   file)` (≤32 MB) or TUS `purpose=agent_workspace`. Show progress.
-- List with `path`, size, delete. Note text: "These files are available to this
-  agent's Code Interpreter and File workspace tools at `agent-files/<path>`."
+- List with `path`, size, delete. Note text: "These files are available to this ai
+  agent at `/workspace/agent-files/<path>`. Code Interpreter code needs that full
+  path; the File Workspace tool also accepts the shorter `agent-files/<path>`."
+  (One form per tool: naming both tools under one path form is what sent designers
+  down the broken path — see the exit criteria note above.)
 - New `api/index.ts` methods + a `WorkspaceFile` type; new
   `agentKeys.workspaceFiles(agentId)` query invalidated on mutation.
 - i18n under `agents.tools.codeInterpreter.files.*` (en + zh-TW).
