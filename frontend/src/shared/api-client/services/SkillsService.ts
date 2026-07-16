@@ -8,6 +8,7 @@ import type { SkillCreateIn } from '../models/SkillCreateIn';
 import type { SkillOut } from '../models/SkillOut';
 import type { SkillPageOut } from '../models/SkillPageOut';
 import type { SkillPatchIn } from '../models/SkillPatchIn';
+import type { SkillScopeCountsOut } from '../models/SkillScopeCountsOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -63,6 +64,26 @@ export class SkillsService {
             errors: {
                 422: `Validation Error`,
             },
+        });
+    }
+    /**
+     * Admin Skill Metrics
+     * [R31.11] / AC-15 — the ratio of agent-private to shared skills.
+     *
+     * Not decoration: §5's premise is that skills are shared at project scope and above.
+     * If most end up agent-scoped, Skills has degraded into the §9.2 prompt-strategy
+     * feature it replaced, and this endpoint is what makes that visible rather than a
+     * matter of opinion at the six-month review.
+     *
+     * Declared **before** `/{skill_id}`: FastAPI matches in declaration order, and the
+     * UUID-typed path below would otherwise claim "metrics" and 422 it.
+     * @returns SkillScopeCountsOut Successful Response
+     * @throws ApiError
+     */
+    public static adminSkillMetricsApiAdminSkillsMetricsGet(): CancelablePromise<SkillScopeCountsOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/skills/metrics',
         });
     }
     /**
