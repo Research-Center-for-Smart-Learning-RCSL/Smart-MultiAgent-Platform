@@ -382,6 +382,25 @@ class SkillBindingRepository:
         )
         return list(rows)
 
+    async def list_agent_ids_cascade_unbound_from(self, skill_id: uuid.UUID) -> list[uuid.UUID]:
+        """Agents whose binding this skill's delete cascaded — i.e. what restore would
+        re-attach. Excludes rows the user unbound explicitly, which restore leaves alone.
+        """
+        rows = (
+            (
+                await self._db.execute(
+                    sa.select(t.agent_skills.c.agent_id).where(
+                        t.agent_skills.c.skill_id == skill_id,
+                        t.agent_skills.c.cascade_deleted_at.is_not(None),
+                        t.agent_skills.c.deleted_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return list(rows)
+
     async def list_agent_ids_bound_to(self, skill_id: uuid.UUID) -> list[uuid.UUID]:
         rows = (
             (
