@@ -2,6 +2,8 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
+
 import SAlert from './SAlert.vue'
 import SButton from './SButton.vue'
 import SCharCount from './SCharCount.vue'
@@ -64,8 +66,6 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-const SYSTEM_PROMPT_MAX = 20_000
-
 function patch<K extends keyof ConfigFormValue>(key: K, value: ConfigFormValue[K]): void {
   emit('update:modelValue', { ...props.modelValue, [key]: value })
 }
@@ -97,7 +97,7 @@ function onFiles(files: File[]): void {
     </SFormField>
     <SCharCount
       :current="modelValue.system_prompt.length"
-      :max="SYSTEM_PROMPT_MAX"
+      :max="INPUT_LIMITS.PROMPT_ASSISTANT_SYSTEM_PROMPT"
     />
 
     <SAlert
