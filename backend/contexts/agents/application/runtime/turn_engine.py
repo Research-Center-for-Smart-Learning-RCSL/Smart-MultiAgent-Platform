@@ -288,6 +288,21 @@ class _TurnCancelled(Exception):
         super().__init__(f"turn cancelled after {rounds_completed} rounds")
 
 
+class _KnowledgeStarved(Exception):
+    """Raised from request assembly when the knowledge budget floors at 0 while
+    the agent actually has a knowledge source bound.
+
+    Carries the two terms that produced the floor, because the handler cannot
+    re-derive them: ``fixed_context`` is computed inside the assembly closure and
+    a reader needs it to tell a too-low cap apart from one oversized message.
+    """
+
+    def __init__(self, *, fixed_context: int, ceiling: int) -> None:
+        self.fixed_context = fixed_context
+        self.ceiling = ceiling
+        super().__init__(f"knowledge budget floored: fixed_context={fixed_context} ceiling={ceiling}")
+
+
 class _BlockRole(enum.Enum):
     """How a system block participates in measurement vs rendering.
 
@@ -1168,6 +1183,13 @@ class TurnEngine:
                     fixed_context_tokens=fixed_context,
                     safety_margin_frac=_KNOWLEDGE_SAFETY_MARGIN,
                 )
+                # A zero budget silently drops *every* knowledge block -- the
+                # agent then answers from nothing while its config says otherwise,
+                # which reads as confabulation rather than as the misconfiguration
+                # it is. Fail the turn loudly instead, but only when there was
+                # something to drop.
+                if await self._knowledge_starved(total_budget, agent, chatroom_id):
+                    raise _KnowledgeStarved(fixed_context=fixed_context, ceiling=ceiling)
                 budget = ctxmod.KnowledgeBudget(
                     total=total_budget, graph_source_cap=_GRAPH_BLOCK_TOKEN_BUDGET
                 )
@@ -1419,6 +1441,56 @@ class TurnEngine:
             # it also feeds GraphRAG message triggers.
             await self._dispatch_agent_reply_wakeups(agent, chatroom_id, msg.id)
             return TurnResult(status="completed", message_id=msg.id, text=final_text, tool_rounds=rounds)
+
+        except _KnowledgeStarved as ks:
+            # The fixed context left nothing for the knowledge blocks, so every
+            # bound source would have been dropped in silence. Skipping loudly is
+            # the point: the agent would otherwise answer as if it had consulted
+            # its sources. Actionable for any trigger, so no trigger check here.
+            #
+            # `fixed_context` is audited because the cap is not always the cause:
+            # it also carries the turn's input and history, so one very long
+            # message can floor the budget on a perfectly reasonable cap. Without
+            # both numbers the operator cannot tell those two cases apart.
+            _log.warning(
+                "knowledge budget floored agent=%s room=%s fixed_context=%d ceiling=%d cap=%s",
+                agent_id,
+                chatroom_id,
+                ks.fixed_context,
+                ks.ceiling,
+                agent.context_token_cap,
+            )
+            await self._db.rollback()
+            try:
+                await self._audit(
+                    agent,
+                    chatroom_id,
+                    "agent.turn_skipped",
+                    {
+                        "reason": "knowledge_starved",
+                        "context_mode": agent.context_mode.value,
+                        "context_token_cap": agent.context_token_cap,
+                        "fixed_context_tokens": ks.fixed_context,
+                        "ceiling_tokens": ks.ceiling,
+                    },
+                )
+                await self._db.commit()
+            except Exception:
+                _log.exception("agent turn knowledge-starved bookkeeping failed")
+            try:
+                if is_observer:
+                    await self._emit_observation_event(
+                        chatroom_id, agent.id, "observation.failed", {"kind": "knowledge_starved"}
+                    )
+                else:
+                    await emit_agent_finished_error(chatroom_id, agent.id, "knowledge_starved")
+            except Exception:
+                _log.exception("agent turn knowledge-starved WS emit failed")
+            # The agent never acted on the drained notifications — restore them.
+            await self._requeue_notifications(agent, pending_notes)
+            # Re-arm the one-shot /compact flag this turn consumed but wasted.
+            await self._restore_compact_flag(chatroom_id)
+            return TurnResult(status="skipped", reason="knowledge_starved")
 
         except Exception as exc:
             _log.exception("agent turn failed agent=%s room=%s", agent_id, chatroom_id)
@@ -2018,6 +2090,54 @@ class TurnEngine:
             querying_agent_id=agent.id,
             token_budget=token_budget,
         )
+
+    async def _knowledge_starved(
+        self, total_budget: int, agent: Agent, chatroom_id: uuid.UUID | None
+    ) -> bool:
+        """True when a floored knowledge budget would drop sources the agent has
+        actually bound (R11.19 / F-16).
+
+        ``knowledge_budget`` floors at 0 whenever the fixed context alone fills the
+        ceiling, and every downstream ``if remaining > 0`` guard then skips — so
+        File RAG, the Concept Map and the Knowledge Map vanish together. An agent
+        with no bound source loses nothing and must not be disturbed; one with a
+        bound source has silently lost all of it.
+
+        Split out of the assembly closure so the decision is reachable from a unit
+        test — the closure is not.
+        """
+        if total_budget > 0:
+            return False
+        return await self._has_knowledge_source(agent, chatroom_id)
+
+    async def _has_knowledge_source(self, agent: Agent, chatroom_id: uuid.UUID | None) -> bool:
+        """True when this turn had knowledge available to inject.
+
+        Separates "the budget dropped everything" from "there was nothing to
+        drop", so the starvation guard fires only on real loss. The two per-Agent
+        bindings are free to check and short-circuit the room-scoped Concept Map
+        lookup. Best-effort: a failed lookup reports no source rather than
+        converting a working turn into a failed one — the query runs under a
+        SAVEPOINT so a failure rolls back only this lookup, same rationale as
+        :meth:`_observer_memory_block`. Without it the aborted transaction would
+        fail every later statement in the turn, which is the outcome this guard
+        exists to avoid.
+        """
+        if agent.rag_config_id is not None or agent.knowmap_config_id is not None:
+            return True
+        if chatroom_id is None:
+            return False
+        try:
+            from contexts.knowledge.interfaces.facade import KnowledgeFacade
+
+            async with self._db.begin_nested():
+                layers = await KnowledgeFacade(self._db).resolve_graphrag_layers(
+                    agent_id=agent.id, chatroom_id=chatroom_id
+                )
+        except Exception:
+            _log.warning("concept-map layer lookup failed for agent %s", agent.id, exc_info=True)
+            return False
+        return bool(layers)
 
     async def _assemble_agent_knowledge(
         self,
