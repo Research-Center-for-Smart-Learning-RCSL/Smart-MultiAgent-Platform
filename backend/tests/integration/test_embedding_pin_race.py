@@ -1,0 +1,280 @@
+"""F-3/F-11 — the (project, kind) advisory lock under real concurrency (§8.3, AC-5).
+
+Every unit test of this area fakes ``acquire_lock`` as a no-op, so none of them can
+prove the property the design actually rests on: that two sessions racing a create
+against a teardown serialize rather than interleave. ``pg_advisory_xact_lock`` needs a
+real Postgres, so it is proven here.
+
+The dangerous interleaving F-3 opens up is a teardown dropping a collection a
+concurrent create has just started depending on. The lock is what prevents it: whoever
+takes it second sees the other's committed effect and backs off.
+
+Requires a Postgres reachable via ``settings.database.dsn`` with migrations applied --
+the ``backend-integration`` CI job's environment.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from collections.abc import AsyncIterator
+from typing import Any
+from unittest.mock import AsyncMock, patch
+
+import pytest
+import sqlalchemy as sa
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from contexts.identity.infrastructure.tables import users as users_t
+from contexts.knowledge.domain.embedding_pin import PinKind, TeardownOutcome
+from contexts.knowledge.infrastructure.embedding_pin_repository import EmbeddingPinRepository
+from contexts.knowledge.infrastructure.embedding_pin_tables import project_embedding_pins as pins_t
+from contexts.tenancy.infrastructure.tables import projects as projects_t
+
+
+@pytest.fixture
+async def sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    from app.config.settings import get_settings
+
+    engine = create_async_engine(get_settings().database.dsn)
+    try:
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture
+async def project_id(sessionmaker: async_sessionmaker[AsyncSession]) -> AsyncIterator[uuid.UUID]:
+    """A real ``projects`` row -- ``project_embedding_pins.project_id`` is a FK to it.
+
+    Owned by a throwaway user, since ``created_by_user_id`` is NOT NULL. Dropping the
+    user at the end cascades the project and, through it, the pin.
+    """
+    pid, uid = uuid.uuid4(), uuid.uuid4()
+    async with sessionmaker() as session:
+        await session.execute(
+            users_t.insert().values(
+                id=uid,
+                email=f"pin-race-{uid}@test.invalid",
+                password_hash="x",  # never authenticated against
+            )
+        )
+        await session.execute(
+            projects_t.insert().values(
+                id=pid,
+                name="pin-race",
+                owner_user_id=uid,
+                created_by_user_id=uid,
+            )
+        )
+        await session.commit()
+    try:
+        yield pid
+    finally:
+        async with sessionmaker() as cleanup:
+            await cleanup.execute(projects_t.delete().where(projects_t.c.id == pid))
+            await cleanup.execute(users_t.delete().where(users_t.c.id == uid))
+            await cleanup.commit()
+
+
+async def _seed_pin(session: AsyncSession, project_id: uuid.UUID, dim: int) -> None:
+    await session.execute(
+        pins_t.insert().values(
+            project_id=project_id,
+            kind=PinKind.FILE_RAG.value,
+            provider="openai",
+            model="text-embedding-3-small",
+            dim=dim,
+        )
+    )
+    await session.commit()
+
+
+async def _read_pin_dim(session: AsyncSession, project_id: uuid.UUID) -> int | None:
+    row = (
+        await session.execute(
+            pins_t.select().where(
+                sa.and_(
+                    pins_t.c.project_id == project_id,
+                    pins_t.c.kind == PinKind.FILE_RAG.value,
+                )
+            )
+        )
+    ).first()
+    return int(row.dim) if row is not None else None
+
+
+def _service(session: AsyncSession, live: list[Any]) -> Any:
+    """A real RagConfigService on a real session, with only the config repo faked.
+
+    The pin repository is real -- it is the advisory lock under test. ``list_for_project``
+    is faked because seeding real config rows would drag in project/org fixtures that say
+    nothing about the lock.
+    """
+    from contexts.knowledge.application.config_service import RagConfigService
+
+    svc = RagConfigService(db=session)
+    svc._configs = AsyncMock()
+    svc._configs.list_for_project.return_value = live
+    return svc
+
+
+def _patch_store(store: Any) -> Any:
+    return (
+        patch(
+            "contexts.knowledge.infrastructure.qdrant_teardown.AsyncQdrantClient",
+            return_value=AsyncMock(),
+        ),
+        patch("contexts.knowledge.infrastructure.qdrant_store.QdrantStore", return_value=store),
+    )
+
+
+@pytest.mark.asyncio
+async def test_teardown_blocks_until_concurrent_create_commits(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    project_id: uuid.UUID,
+) -> None:
+    """AC-5: a teardown racing a create must not drop the live collection.
+
+    Session A (the create) takes the lock and holds it. Session B (the teardown) must
+    block on ``acquire_lock`` rather than proceed, then observe A's committed config
+    and skip -- leaving the collection A depends on intact.
+    """
+    store = AsyncMock()
+    store.delete_collection.return_value = True
+
+    async with sessionmaker() as setup:
+        await _seed_pin(setup, project_id, 1536)
+
+    lock_taken = asyncio.Event()
+    create_committed = asyncio.Event()
+    teardown_entered = asyncio.Event()
+
+    async def creating_session() -> None:
+        # Session A: hold the lock, then commit a "live config" the teardown must see.
+        async with sessionmaker() as sa_session:
+            await EmbeddingPinRepository(sa_session).acquire_lock(project_id, PinKind.FILE_RAG)
+            lock_taken.set()
+            await asyncio.sleep(0.3)  # B is blocked on the lock for this whole window
+            assert not teardown_entered.is_set(), "B entered the teardown while A held the lock"
+            await sa_session.commit()
+            create_committed.set()
+
+    async def tearing_down_session() -> TeardownOutcome:
+        await lock_taken.wait()  # deterministic: A owns the lock before B tries
+        async with sessionmaker() as sb_session:
+            svc = _service(sb_session, live=[object()])  # A's config, now visible
+            p1, p2 = _patch_store(store)
+            with p1, p2:
+                outcome = await svc.teardown_orphan_collection(project_id=project_id)
+            teardown_entered.set()
+            await sb_session.commit()
+            return outcome
+
+    _, outcome = await asyncio.gather(creating_session(), tearing_down_session())
+
+    assert create_committed.is_set(), "the teardown returned before the create committed"
+    assert outcome is TeardownOutcome.SKIPPED_LIVE_CONFIG
+    store.delete_collection.assert_not_awaited()  # the live collection survived
+
+    async with sessionmaker() as check:
+        assert await _read_pin_dim(check, project_id) == 1536  # pin still backs the collection
+
+
+@pytest.mark.asyncio
+async def test_configless_teardown_releases_pin_and_frees_new_dimension(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    project_id: uuid.UUID,
+) -> None:
+    """AC-5: with no live config, the teardown drops and releases through a real lock,
+    so the project can then be pinned at a different dimension."""
+    store = AsyncMock()
+    store.delete_collection.return_value = True
+
+    async with sessionmaker() as setup:
+        await _seed_pin(setup, project_id, 1536)
+
+    async with sessionmaker() as session:
+        svc = _service(session, live=[])
+        p1, p2 = _patch_store(store)
+        with p1, p2:
+            outcome = await svc.teardown_orphan_collection(project_id=project_id)
+        await session.commit()
+    assert outcome is TeardownOutcome.DROPPED
+
+    async with sessionmaker() as check:
+        assert await _read_pin_dim(check, project_id) is None
+
+    # The dimension is now free: a 3072-dim ensure succeeds where it would have
+    # raised against the retained pin.
+    async with sessionmaker() as repin:
+        await EmbeddingPinRepository(repin).ensure(
+            project_id=project_id,
+            kind=PinKind.FILE_RAG,
+            provider="openai",
+            model="text-embedding-3-large",
+            dim=3072,
+            on_conflict=lambda existing, this: AssertionError(f"unexpected conflict {existing}/{this}"),
+        )
+        await repin.commit()
+
+    async with sessionmaker() as check:
+        assert await _read_pin_dim(check, project_id) == 3072
+
+
+@pytest.mark.asyncio
+async def test_list_all_returns_the_fields_the_sweep_reads(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    project_id: uuid.UUID,
+) -> None:
+    """AC-6: the sweep drives ``list_all`` and reads ``project_id``/``kind`` off each
+    row. That SQL is mocked out of every unit test, so execute it once for real."""
+    async with sessionmaker() as setup:
+        await _seed_pin(setup, project_id, 1536)
+
+    async with sessionmaker() as session:
+        rows = await EmbeddingPinRepository(session).list_all()
+
+    mine = [r for r in rows if r.project_id == project_id]
+    assert len(mine) == 1
+    assert mine[0].kind == PinKind.FILE_RAG.value  # the sweep round-trips this into PinKind
+    assert PinKind(mine[0].kind) is PinKind.FILE_RAG
+    assert int(mine[0].dim) == 1536
+
+
+@pytest.mark.asyncio
+async def test_failed_teardown_keeps_pin_rejecting_new_dimension(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    project_id: uuid.UUID,
+) -> None:
+    """AC-3/AC-5: the F-3 regression through a real lock and a real pin row -- a failed
+    drop must leave the pin committed, so the incompatible dimension stays rejected."""
+    from contexts.knowledge.domain.errors import EmbedDimensionConflict
+
+    store = AsyncMock()
+    store.delete_collection.side_effect = RuntimeError("qdrant unreachable")
+
+    async with sessionmaker() as setup:
+        await _seed_pin(setup, project_id, 1536)
+
+    async with sessionmaker() as session:
+        svc = _service(session, live=[])
+        p1, p2 = _patch_store(store)
+        with p1, p2:
+            outcome = await svc.teardown_orphan_collection(project_id=project_id)
+        await session.commit()
+    assert outcome is TeardownOutcome.FAILED
+
+    async with sessionmaker() as check:
+        assert await _read_pin_dim(check, project_id) == 1536  # survived the commit
+
+    async with sessionmaker() as repin:
+        with pytest.raises(EmbedDimensionConflict):
+            await EmbeddingPinRepository(repin).ensure(
+                project_id=project_id,
+                kind=PinKind.FILE_RAG,
+                provider="openai",
+                model="text-embedding-3-large",
+                dim=3072,
+                on_conflict=lambda existing, this: EmbedDimensionConflict(f"{existing} != {this}"),
+            )
