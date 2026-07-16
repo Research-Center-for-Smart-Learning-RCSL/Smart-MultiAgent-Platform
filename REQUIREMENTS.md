@@ -46,7 +46,7 @@ SMAP (Smart Multi-Agent Platform) is a self-hosted web application that lets use
 - Public programmatic API for third parties.
 - Automated backups and DR tooling (operator responsibility).
 - Native mobile apps (responsive web is sufficient).
-- Agent versioning and export/import. (Prompt templates are in scope as of §29.)
+- Agent versioning and export/import. (Prompt templates are in scope as of §29; skill bundles are in scope as of §31 — a skill exports independently of any agent, and exporting one never exports an agent.)
 - Cross-organization project migration or cloning.
 - SSO, OAuth, or MFA in v1 (email + password only).
 - Voice/audio input.
@@ -131,7 +131,7 @@ SMAP (Smart Multi-Agent Platform) is a self-hosted web application that lets use
 **[R3.01]** The entire stack MUST be deployable via `docker compose up` from a single repository.
 **[R3.02]** The system MUST sustain 100 concurrent heavy users (sending 1 message per 10 s on average, streaming responses, mixed RAG/Graph) on a 16-core / 32 GB host without visible UI lag (p95 server processing ≤ 500 ms excluding LLM roundtrip).
 **[R3.03]** All services MUST expose `/healthz` and `/readyz` HTTP probes for orchestration.
-**[R3.04]** The system follows **Domain-Driven Design** with bounded contexts: Identity, Tenancy, Keys, Agents, Knowledge (RAG/GraphRAG), Conversation, Workflow, Audit, Notification. Each context owns its own modules/tables; cross-context communication goes through application services and domain events.
+**[R3.04]** The system follows **Domain-Driven Design** with bounded contexts: Identity, Tenancy, Keys, Agents, Knowledge (RAG/GraphRAG), Conversation, Workflow, Audit, Notification, Skills. Each context owns its own modules/tables; cross-context communication goes through application services and domain events.
 
 ---
 
@@ -190,7 +190,7 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
 | 12 | Create Project under Individual (self-owned) | ✓ | ✓ (owned by self, not by Org) | ✓ (owned by self) | — | — | ✗ |
 | 13 | Delete Project | ✓ | ✓ | ∘ (only if created and currently Project Owner) | ✓ | ✗ | ✗ |
 | 14 | Invite/remove Project Member | ✓ | ✓ (inherited) | ✗ | ✓ | ✗ | ✗ |
-| 15 | Create/edit Agent, Key Group, RAG set | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ |
+| 15 | Create/edit Agent, Key Group, RAG set, Skill (project/agent scope) | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ |
 | 16 | Create Workspace, Chat Room, Workflow | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ |
 | 17 | Send messages in Chat Room | ✓ (any) | per room ACL | per room ACL | per room ACL | per room ACL | per room ACL |
 | 18 | Create / revoke Guest invite link | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ |
@@ -202,6 +202,7 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
 | 24 | Read *any* user's data | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | 25 | Configure org prompt assistant / org templates (§29) | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
 | 26 | Configure personal prompt assistant / personal templates (§29) | ✓ (own) | ✓ (own) | ✓ (own) | ✓ (own) | ✓ (own) | ✗ |
+| 27 | Configure org skills (§31) | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
 
 **[R5.05]** All authorization MUST be enforced server-side in a single `permissions` service. Frontend visibility is advisory only.
 
@@ -346,6 +347,7 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
   - All Key Groups in the project (Keys themselves remain on owner's Individual registry).
   - All Agents, Workspaces, Chat Rooms, Messages, Attachments, Workflows, Graph RAG data.
   - All RAG documents and vector entries.
+  - All project- and org-scoped Skills (§31), their bundled files and MinIO objects, and their agent bindings.
   - **Research-retention exception (activities):** a soft-deleted Chat Room is not purged while any of its `activity_submissions` carries a `retain_until` timestamp still in the future (per-activity-type `retention_days`, [R30.20]). The room and its structured submissions purge together once every retention horizon has lapsed.
 - **[R8.13]** Within the 60-day window, Admin may restore a soft-deleted resource via `POST /api/admin/restore/{type}/{id}`, where `{type}` is one of `user`, `org`, `project`, `agent`, `workflow`, `chatroom`. Restore clears `deleted_at`; it does not cascade to child resources and does not re-check the 60-day age. Each restore emits an `admin.restore_resource` audit event.
 - **[R8.14]** Individual account deletion triggers soft-delete of all **Individual-owned** Projects, and removes the user from all other memberships. For Orgs the user is the Original Creator of, see §8.5 — account deletion is blocked until the role is transferred or the Org is deleted. Same 60-day recovery window applies to soft-deleted resources.
@@ -382,46 +384,24 @@ An Agent is defined by:
 | `name` | string | Unique per project. |
 | `model_hint` | enum | `claude` / `openai` / `gemini` — picks routing among the selected Key Group. |
 | `key_group_id` | FK | Exactly one (Q34). |
-| `system_prompt` | text | See §9.2 for read strategy. |
-| `prompt_strategy` | enum | `full` or `lazy` (see §9.2). |
+| `system_prompt` | text | The agent's identity and standing instructions; sent verbatim every turn. Procedures belong in Skills (§31). |
 | `rag_config_id` | FK nullable | See §10. |
 | `graphrag_config_id` | FK nullable | See §11. |
 | `mcp_servers` | list | See §12. |
 | `a2a_enabled` | bool | Whether this agent can call/receive A2A. |
 | `context_mode` | enum | `general` or `compact` (Q39). |
 | `context_token_cap` | int | Trigger for `/compact` when `context_mode = compact`. |
+| `skill_index_token_cap` | int | Cap on the Skills index block (§31); default 3 000, hard max 16 000. Null means the default. |
 | `wakeup_config` | JSON | See §15. |
 | `workflow_capabilities` | JSON | `{can_instruct, can_approve, can_create_subagent, max_subagents_alive}` — booleans + max-subagents cap per §15.6. |
 
 - **[R9.01]** A Project Owner may create unlimited agents. Hard platform cap: 1 000 agents per project (prevents runaway DoS).
-- **[R9.02]** Agents are not versioned; no export/import (Q41). Editing overwrites in place. Prompt templates (§29) may be inserted at authoring time; an applied template leaves no persistent link to its source.
+- **[R9.02]** Agents are not versioned; no export/import (Q41). Editing overwrites in place. Prompt templates (§29) may be inserted at authoring time; an applied template leaves no persistent link to its source. Skills (§31) differ: an agent's bound skills **are** a persistent link (`agent_skills`), and a skill exports on its own — but a skill export contains no agent, and agent export remains out of scope.
 - **[R9.03]** Deleting an Agent soft-deletes it for 60 days (consistent with R8.11) since agents may be referenced by historical chat messages.
 
-### 9.2 Prompt Read Strategy (Q36 — Recommendation applied)
+### 9.2 Prompt Read Strategy — superseded by §31
 
-The stakeholder asked to compare "inline every call" vs. "retrieve on demand" and offer both as choices.
-
-**Analysis.** Two production patterns exist:
-
-1. **Full / Inline (default).** The entire system prompt is concatenated into every model call. Pros: deterministic, no extra round trips, no retrieval errors. Cons: every call pays the tokens; long system prompts (e.g., skill libraries) dominate the context.
-2. **Lazy / Sectioned (on-demand retrieval).** The system prompt is authored as *sections* with YAML front-matter (`id`, `when_to_invoke`, `description`). Only a small **index** (all sections' titles + descriptions) is included in every call. Individual section bodies are fetched via a tool call (`load_section(id)`) when the model decides it needs them. This mirrors the pattern used by Anthropic's skills feature and by Claude Code's skill-loader tool (referenced by the stakeholder, Q66).
-
-**Design.**
-
-- **[R9.04]** `prompt_strategy` is per-agent and selectable by the Agent Designer.
-- **[R9.05]** When `full`: `system_prompt` is stored as a single markdown blob and sent verbatim.
-- **[R9.06]** When `lazy`: `system_prompt` is parsed as a multi-section markdown document. Each section must begin with a fenced YAML block:
-  ```markdown
-  ---
-  id: refund-policy
-  title: Refund Policy
-  description: Rules for issuing customer refunds. Invoke when the user asks about returns, refunds, or cancellations.
-  ---
-  <section body …>
-  ```
-  The system auto-generates an **index prompt** ("You have N sections available: …") plus a built-in tool `load_prompt_section(id)`. The model invokes the tool when it needs a section's body.
-- **[R9.07]** Section bodies loaded within a turn are cached for that turn only; the next turn re-runs retrieval (agents are dynamic; authors can edit).
-- **[R9.08]** The lazy strategy is incompatible with providers that don't support tool use. For such a case, the system falls back to `full` silently and raises a UI warning.
+Q36 asked for both "inline every call" and "retrieve on demand" to be offered. Both remain offered: inline-every-call is `system_prompt` ([R9.01]-[R9.03]); retrieve-on-demand is the Skill aggregate (§31), which carries an index in the system prompt and fetches bodies via `read_skill`. The former `prompt_strategy` enum and its `load_prompt_section` tool ([R9.04]-[R9.08], removed 2026-07-16) implemented on-demand retrieval inside `agents.system_prompt` itself; that carrier is withdrawn in favour of §31, which adds the reuse, packaging, and portability it lacked. The Anthropic skills / Claude Code skill-loader analogy recorded here for Q66 is carried forward to §31.
 
 ### 9.3 Context Management (Q39)
 
@@ -576,6 +556,7 @@ Because Neo4j and Qdrant are independent systems, a naïve "write both" sequence
    - `file`: read/write within the agent's sandboxed workspace directory.
    - `web_search`: a platform-written adapter that calls an external search provider (Brave / Serper / Tavily / Google CSE). The **provider's API key is supplied by the Project Owner** (see §12.4); SMAP does not pay search bills, consistent with the BYO-key business model. If no key is configured on the Project, the tool is unavailable and any agent that lists it as allowed receives a clear error rather than a silent no-op.
    - `code_exec`: executes Python or JavaScript snippets in a sandboxed container (see §12.3).
+   - `read_skill`: loads a bound skill's body and file manifest on demand (see §31).
 2. **User-provided MCP servers**:
    - **URL**: user supplies a remote MCP endpoint (HTTPS only). SMAP connects over the MCP protocol.
    - **Package**: user supplies an installable MCP server (npm package name, pip package name, or OCI image reference). SMAP builds an ephemeral container on demand.
@@ -723,7 +704,7 @@ Four composable flags per chat room:
 
 - **[R14.07]** A workflow run is started by a trigger (`manual`, `cron`, `message_received`, `a2a_event`, or `wakeup_signal` — the full list matches `trigger_config.trigger_type` in `docs/workflow.schema.json`).
 - **[R14.08]** The engine maintains a `workflow_run` record with `state: running | waiting | succeeded | failed | cancelled` and a `step_trace` list of activity records.
-- **[R14.09]** Agent invocations inside a workflow respect all agent settings (wake-up, key group, prompt strategy). Workflow-issued invocations are logged with `origin = 'workflow'`.
+- **[R14.09]** Agent invocations inside a workflow respect all agent settings (wake-up, key group, context mode, bound skills §31). Workflow-issued invocations are logged with `origin = 'workflow'`.
 - **[R14.10]** The trace (Q55) is stored in the DB and visible to Admin + Project Owners in a dedicated **backstage** panel. It is **not** surfaced in the chat room UI.
 
 ---
@@ -799,7 +780,8 @@ Per-agent JSON:
   | Field | Inherited? | Notes |
   |---|---|---|
   | `key_group_id`            | ✓ (enforced) | Usage accrues to the parent's key owner. |
-  | `system_prompt` + `prompt_strategy` | ✓ | Parent's prompt forms the sub-agent's base. The spawn task description is appended as a user-role message. |
+  | `system_prompt`           | ✓ | Parent's prompt forms the sub-agent's base. The spawn task description is appended as a user-role message. |
+  | bound skills (§31)        | ✓ | Inherited whole; actual bindings resolve at runtime under the parent's agent id, as `mcp_servers` already do. Agent-scoped skills included — a sub-agent runs as its parent's agent, so no carve-out is expressible. |
   | `model_hint`              | ✓ | Same provider chain. |
   | `a2a_enabled`             | ✗ (forced `false`) | Sub-agents cannot initiate A2A to prevent fan-out loops. |
   | `mcp_servers`             | ✓ | Same toolset, same egress allowlist. |
@@ -841,6 +823,7 @@ The system records a structured event for every action in the following categori
 | Keys | `key.uploaded`, `key.test_success`, `key.test_failed`, `key.deleted`, `key.carried_into_project`, `key.withdrawn_from_project`, `key.usage_threshold_hit`, `key.rotation_triggered`, `key.retry_exhausted` |
 | Search keys | `search_key.uploaded`, `search_key.test_success`, `search_key.test_failed`, `search_key.activated`, `search_key.deactivated`, `search_key.deleted` |
 | Agents / RAG / GraphRAG / MCP | `agent.created`, `agent.edited`, `agent.deleted`, `rag.document_uploaded`, `rag.indexed`, `graphrag.build_started`, `graphrag.build_finished`, `mcp.tool_invoked` (with tool name + truncated args), `mcp.egress_blocked` |
+| Skills (§31) | `skill.created`, `skill.updated` (body hash before/after), `skill.deleted`, `skill.restored`, `skill.copied`, `skill.bundle_imported`, `skill.exported`, `skill.bound`, `skill.unbound`, `skill.file_created`, `skill.file_updated`, `skill.file_deleted`, `skill.resolution_failed` (turn-time containment or requirement failure) |
 | Chat | `chatroom.created`, `chatroom.deleted`, `message.sent`, `message.deleted`, `message.exported`, `attachment.uploaded`, `attachment.expired`, `guest.joined` |
 | Workflow | `workflow.created`, `workflow.edited`, `workflow.run_started`, `workflow.run_finished`, `workflow.step_started`, `workflow.step_finished`, `workflow.step_failed`, `approval.requested`, `approval.resolved`, `instruct.issued`, `instruct.rejected_loop`, `subagent.spawned`, `subagent.destroyed` |
 | Admin | `admin.ban_user`, `admin.unban_user`, `admin.delete_user`, `admin.restore_resource`, `admin.view_as_started`, `admin.view_as_ended` |
@@ -984,6 +967,9 @@ Confirms every domain concept defined elsewhere in this document has a persisten
 | MCP project egress allowlist | `mcp_egress_allowlist` | §12.3 |
 | Built-in `file` tool persistent volume | Docker volume `smap-agent-fs-{agent_id}` | §12.3 (R12.03) |
 | A2A inbox | Redis Stream `a2a:agent:{agent_id}` | §9.4 |
+| Skill definition | `skills` | §31 |
+| Skill bundled file | `skill_files` (bytes in MinIO `skill-bundles`) | §31 |
+| Agent↔skill binding | `agent_skills` | §31 |
 | RAG config | `rag_configs` | §10.1 |
 | RAG source document | `rag_documents` (source bytes in MinIO) | §10.1 |
 | RAG chunk (text + vector ptr) | `rag_chunks` + Qdrant `rag_{project_id}` | §10.1 |
@@ -1097,10 +1083,11 @@ key_usage_events        (id bigserial, key_id FK, agent_id FK null,
 
 -- Agents
 agents                  (id, project_id FK, name, model_hint, key_group_id FK,
-                         system_prompt text, prompt_strategy enum('full','lazy'),
+                         system_prompt text,
                          rag_config_id FK null, graphrag_config_id FK null,
                          context_mode enum('general','compact'),
                          context_token_cap int null,
+                         skill_index_token_cap int null,
                          a2a_enabled bool,
                          wakeup_config jsonb, workflow_capabilities jsonb,
                          version int not null default 1,  -- optimistic lock, §E9
@@ -1108,6 +1095,34 @@ agents                  (id, project_id FK, name, model_hint, key_group_id FK,
                          UNIQUE (project_id, name) WHERE deleted_at IS NULL)
 agent_mcp_servers       (id, agent_id FK, source enum('builtin','url','package'),
                          reference text, allowed_tools text[], config jsonb)
+
+-- Skills (§31)
+skills                  (id, scope enum('agent','project','org','platform'),
+                         agent_id FK null, project_id FK null, org_id FK null,
+                         name text, description text, body text,
+                         requires text[], allowed_tools text[], license text null,
+                         extra_frontmatter jsonb not null default '{}',
+                         source enum('authored','imported'),
+                         bundle_sha256 char(64) null, body_sha256 char(64),
+                         created_by FK, version int not null default 1,  -- optimistic lock, §E9
+                         created_at, updated_at, deleted_at,
+                         CHECK (exactly one owner FK matches scope; platform has none),
+                         UNIQUE (agent_id, name)   WHERE deleted_at IS NULL,
+                         UNIQUE (project_id, name) WHERE deleted_at IS NULL,
+                         UNIQUE (org_id, name)     WHERE deleted_at IS NULL,
+                         UNIQUE (name) WHERE scope = 'platform' AND deleted_at IS NULL)
+skill_files             (id, skill_id FK, kind text,  -- CHECK kind IN ('reference','script','asset')
+                         path text, sha256 char(64), size_bytes bigint,
+                         minio_key text, scan_status rag_scan_status,
+                         created_at, updated_at,
+                         UNIQUE (skill_id, path))
+                         -- (skill_id, sha256) is a NON-unique index: content dedup is an
+                         -- application-layer lookup, never a DB constraint (cf. §10.1)
+agent_skills            (agent_id FK, skill_id FK,
+                         bound_by FK, bound_at,
+                         deleted_at null,            -- explicit unbind
+                         cascade_deleted_at null,    -- unbound by the skill's own soft-delete
+                         PRIMARY KEY (agent_id, skill_id))
 
 -- Web search (per-project; BYO search key — §12.4)
 search_keys              (id, project_id FK, provider enum('brave','serper','tavily','google_cse'),
@@ -1171,7 +1186,7 @@ chatroom_guests         (chatroom_id FK, user_id FK, joined_via_token text,
 messages                (id, chatroom_id FK, sender_type enum('user','agent','system'),
                          sender_id uuid, content_md text, content_tsv tsvector,
                          metadata jsonb,   -- {rag_chunks, graphrag_refs, mcp_calls,
-                                            --  compact_summary, tool_calls}
+                                           --  compact_summary, tool_calls, skill_reads}
                          version int not null default 1,  -- optimistic lock for PATCH /api/messages/{id}
                          created_at, edited_at, deleted_at)
 
@@ -1351,6 +1366,7 @@ Both with payload filters: `doc_id`, `chunk_idx`, `agent_ids`, `kind`, `project_
 - `rag-sources` (kept as long as the RAG document row exists).
 - `exports` (lifecycle: 24-hour expiration).
 - `prompt-assistant-files` (no TTL; kept as long as the assistant reference-file row exists, §29).
+- `skill-bundles` (no TTL; kept as long as the skill file row exists, §31). Generated `.zip` exports are transient and use the existing `exports` bucket.
 
 ---
 
@@ -1595,7 +1611,7 @@ All file uploads larger than the 32 MB single-shot cap (R22.10 attachments, R10.
 - **[R22.15.01]** Endpoint: `/api/tus` (POST for creation; HEAD/PATCH for resume).
 - **[R22.15.02]** Required headers per tus spec: `Tus-Resumable: 1.0.0`, `Upload-Length`, `Upload-Offset`, `Upload-Metadata`.
 - **[R22.15.03]** `Upload-Metadata` MUST include:
-  - `purpose` one of `chat_attachment`, `rag_source`.
+  - `purpose` one of `chat_attachment`, `rag_source`, `skill_bundle`.
   - `project_id` (UUID of target project).
   - `chatroom_id` (UUID) when `purpose = chat_attachment`.
   - `rag_config_id` (UUID) when `purpose = rag_source`.
@@ -1627,6 +1643,22 @@ All file uploads larger than the 32 MB single-shot cap (R22.10 attachments, R10.
 | `POST /api/projects/{project_id}/prompt-assistant/sessions` | Create ephemeral session → `session_id` |
 | `POST /api/prompt-assistant/sessions/{session_id}/messages` | Send message → 202; reply streams over WS |
 
+### 22.17 Skills (§31)
+
+| Method & Path | Purpose |
+|---|---|
+| `GET/POST/PATCH/DELETE /api/agents/{agent_id}/skills[/{id}]` | Agent-private skills |
+| `GET/POST/PATCH/DELETE /api/projects/{project_id}/skills[/{id}]` | Project skills |
+| `GET/POST/PATCH/DELETE /api/orgs/{org_id}/skills[/{id}]` | Org skills (Org Owner) |
+| `GET/POST/PATCH/DELETE /api/admin/skills[/{id}]` | Platform skills (Admin) |
+| `GET/POST/PATCH/DELETE /api/skills/{skill_id}/files[/{file_id}]` | Bundled files; upload or author, both editable |
+| `GET/POST/DELETE /api/agents/{agent_id}/skill-bindings[/{skill_id}]` | Bind / unbind; containment proven per [R31.08] |
+| `POST /api/skills/{skill_id}/copy` | Fork into another scope, fully detached ([R31.06]) |
+| `POST /api/skills/{skill_id}/restore` | Restore within the 60-day window ([R31.05]) |
+| `POST /api/skills/imports` | Import a `.zip` bundle → 202 + task id |
+| `GET /api/skills/imports/{task_id}` | Import status ([R31.28]) |
+| `POST /api/skills/{skill_id}/export` | Deterministic bundle → 202; `.zip` via presigned URL ([R31.21]) |
+
 ---
 
 ## 23. Bounded Contexts (DDD layout)
@@ -1653,6 +1685,7 @@ backend/
     workflow/
     audit/
     notification/
+    skills/          # SKILL.md bodies, bundled files, agent bindings
   shared_kernel/
     auth/           # JWT, password hashing, decorators
     db/             # base classes, unit-of-work
@@ -1723,7 +1756,8 @@ frontend/src/
 │   ├── agents/              # agents, RAG, GraphRAG, MCP bindings
 │   ├── conversation/        # workspaces, chatrooms, messages, attachments
 │   ├── workflow/            # workflow editor + runs viewer
-│   └── admin/               # admin console
+│   ├── admin/               # admin console
+│   └── skills/              # skill authoring, bundles, agent bindings
 │
 └── shared/
     ├── types/               # cross-slice domain types
@@ -1755,7 +1789,7 @@ slices/<name>/
 ```
 
 - **[R24.05]** **Barrel rule.** A slice's `index.ts` exports only what other slices may consume: route table, public composables, public types. Everything else (components, stores, queries, internal types) is internal. ESLint's `no-restricted-imports` enforces this.
-- **[R24.06]** **Cross-slice dependency direction.** Allowed: `conversation → agent-groups → agents → keys → tenancy → identity → shared` (plus the orthogonal `workflow`, `admin`, `notifications`, and `prompt-studio` slices, each importing only rightward). Disallowed: any reverse direction. The `agent-groups` slice is a first-class, project-scoped slice owning agent-group CRUD, membership, and the group-owned Concept Map panel; it may import `agents`/`keys`/`tenancy`/`identity`/`shared` and is imported by `conversation`. Codified in `eslint.config.js` with the `boundaries` plugin; violations fail CI.
+- **[R24.06]** **Cross-slice dependency direction.** Allowed: `conversation → agent-groups → agents → keys → tenancy → identity → shared` (plus the orthogonal `workflow`, `admin`, `notifications`, and `prompt-studio` slices, each importing only rightward). Disallowed: any reverse direction. The `skills` slice (§31) imports only `keys` and `shared`; it is imported by `agents` and `admin`. The `agent-groups` slice is a first-class, project-scoped slice owning agent-group CRUD, membership, and the group-owned Concept Map panel; it may import `agents`/`keys`/`tenancy`/`identity`/`shared` and is imported by `conversation`. Codified in `eslint.config.js` with the `boundaries` plugin; violations fail CI.
 - **[R24.07]** `shared/` has **no** imports from any slice. One-way dependency by construction.
 
 ### 24.3 State management
@@ -1972,10 +2006,10 @@ These are points the current spec intentionally leaves to the implementation tea
 
 ## 27. Traceability
 
-Every requirement `[Rxx.yy]` corresponds to a Q&A decision or a design recommendation. The mapping is maintained in `docs/traceability.csv`, generated from this document by an author pass on 2026-04-25 (245 entries; columns: `requirement_id, section, summary`). Re-run the extraction whenever new `[Rxx.yy]` IDs are added. In particular:
+Every requirement `[Rxx.yy]` corresponds to a Q&A decision or a design recommendation. The mapping is maintained in `docs/traceability.csv`, generated from this document by an author pass on 2026-04-25 (304 entries; columns: `requirement_id, section, summary`). Re-run the extraction whenever new `[Rxx.yy]` IDs are added. In particular:
 
 - Stakeholder Q&A items Q1–Q66 are each addressed; decisions marked "SKIP" (Q33) are deliberately absent.
-- Items marked **Recommendation applied** in this document are: Q9 (Qdrant), Q22 (Vault + envelope), Q23 (permission matrix), Q36 (prompt strategies), Q47 (WS+SSE), Q38 (sandbox), Q53 (loop detection), Q56 (audit scope).
+- Items marked **Recommendation applied** in this document are: Q9 (Qdrant), Q22 (Vault + envelope), Q23 (permission matrix), Q36 (prompt strategies — §31), Q47 (WS+SSE), Q38 (sandbox), Q53 (loop detection), Q56 (audit scope).
 
 ---
 
@@ -2072,6 +2106,54 @@ Added by the 2026-07-13 design session (task dossier: `docs/tasks/2026-07-13-act
 - **[R30.20]** An `ActivityType` may declare a `retention_days` horizon. When set, each submission of that type records a server-computed `retain_until = created_at + retention_days`; this pins the authoritative research record beyond its room's normal 60-day post-soft-delete purge by deferring that purge until the horizon lapses ([R8.12]). When `retention_days` is unset, submissions follow the room's normal cascade. `retain_until` is server-computed and never client-supplied.
 - **[R30.21]** A room facilitator (the room creator; admins bypass) may activate exactly one `ActivityType` for a room at a time, and end it. Activation is persisted (at most one active per room) and broadcast on the room channel (`activity.activation.started` / `activity.activation.ended`); a room-scoped read endpoint exposes the current active activity so late-joining or reconnecting participants hydrate the same state. Starting is gated by room-creator capability — strictly stronger than the send-message floor; starting a different type while one is active is rejected until the current one is ended.
 - **[R30.22]** A submission is accepted only while an active activation for that exact activity type exists in the room; otherwise the platform rejects it. This is enforced server-side and holds regardless of the client, so a facilitator ending an activity stops further submissions and out-of-window data cannot enter the authoritative record. Participants join an active activity, open their own per-subject session (explicit start), submit, and finish (close); ending the room activation does not force-close open participant sessions but blocks their further submissions.
+
+## 31. Agent Skills
+
+Added by the 2026-07-16 design session (task dossier: `docs/tasks/2026-07-16-agent-skills/`). A Skill is a named, described, reusable instruction bundle — a `SKILL.md` body plus optional bundled files — that an agent loads on demand: only an index of names and descriptions rides in the system prompt, and bodies are fetched via a `read_skill` tool call. Bundles are interchangeable with Anthropic's Agent Skills format, the analogy the stakeholder drew at Q66 (formerly recorded at §9.2). This chapter supersedes §9.2 ([R9.04]-[R9.08], removed) — Q36's two modes both survive, with retrieve-on-demand re-based from a `prompt_strategy` enum onto the Skill aggregate. It also extends the bounded-context enumeration in [R3.04] with the `skills` context, narrows §1.2 and [R9.02] for skill-bundle export/import, and amends [R14.09] and [R15.22].
+
+### 31.1 Concept and ownership
+
+- **[R31.01]** A Skill is `(name, description, body, files[])`. `name` matches `^[a-z0-9][a-z0-9-]{0,63}$`. `description` is what the model sees in the index and determines whether a skill is ever selected; it is single-line, length-capped, NFC-normalized, and rejects control, bidi-override, and zero-width characters — it is third-party text entering the system prompt.
+- **[R31.02]** Skill scope is one of `agent`, `project`, `org`, `platform`, fixed at creation and immutable. Changing scope means copying ([R31.06]).
+- **[R31.03]** A skill name is unique per scope holder among non-deleted skills, **and unique across the set of skills bound to any one agent** ([R31.07]).
+- **[R31.04]** `platform` scope is Admin-only for writes and ships empty; SMAP maintains no first-party skill catalogue. Reference examples live under `docs/skills-examples/`.
+- **[R31.05]** Deleting a skill soft-deletes it for 60 days, consistent with [R8.12] / [R9.03]. Its bindings soft-delete with it and are restored with it ([R31.10]).
+- **[R31.06]** A skill may be copied into any scope the actor may write. The copy is fully detached: no provenance link, no upstream sync.
+
+### 31.2 Binding
+
+- **[R31.07]** A skill takes effect on an agent only through an explicit binding, at every scope including `platform`: there is no ambient, inherited, or default-on skill. (Contrast [R29.12]'s org-level opt-out for prompt templates, which is inert text; a skill body is executed.) Binding is refused when the agent's bound set already holds that name.
+- **[R31.08]** A binding is valid only while the skill's scope **contains** the agent, where containment is: `agent` — the skill's agent is this agent; `project` — same project; `org` — the agent's project is owned by that org (an org skill never binds into an individual-owned project); `platform` — always. Containment is proven at bind time and **re-proven at the start of every turn, on both the room and the headless paths**. A skill whose containment or tool requirements fail is dropped from that turn's index and snapshot, audited, and surfaced as an aggregated warning — the turn proceeds. Turn failure is reserved for authorization the agent cannot run without.
+- **[R31.09]** A skill's tool requirements are **derived from its content** (any `scripts/` entry requires the code interpreter) unioned with any `requires:` declaration; a declaration alone is advisory and never the sole source. Binding to an agent lacking a required tool is rejected with 422 naming the tool, and the requirement is re-checked every turn ([R31.08]).
+- **[R31.10]** Deleting a skill unbinds it from every agent **within the same transaction** and writes an audit event; a live binding never blocks deletion. Restoring within the retention window restores the bindings. The DB cascade is not the mechanism — it does not fire on a soft delete.
+- **[R31.11]** Skill counts per scope are exposed to Admin, so the ratio of agent-private to shared skills can be audited against this chapter's premise.
+- **[R31.26]** A sub-agent (§15.6) resolves skills under its parent's agent identity, so it sees exactly the parent's bound set — `agent`-scoped skills included. No binding rows are created at spawn; bindings are resolved at runtime, as MCP server bindings already are. Selective inheritance is not offered.
+
+### 31.3 Index and retrieval
+
+- **[R31.12]** Each bound skill contributes one index line (name + description) to the agent's system prompt, inside a delimited block framed as untrusted third-party content.
+- **[R31.13]** The **rendered** index block is counted as fixed context, reducing the knowledge budget exactly as it reduces the space available to File RAG, and is capped by `agents.skill_index_token_cap` (default 3 000, hard maximum 16 000).
+- **[R31.14]** Exceeding the index cap is rejected at bind time, at description update, and at cap lowering. The index is never truncated at turn time: a partial index misleads the model.
+- **[R31.15]** `read_skill(name)` resolves against the turn's validated snapshot — never by re-querying — and returns the body plus the skill's file manifest. Output is budgeted in **tokens** against a fixed per-call allowance; an oversized body returns a character offset for continuation rather than a severed string. An unknown name is a tool error, not a turn failure.
+- **[R31.16]** Bodies fetched within a turn are cached for that turn only; edits take effect on the next turn (the rule formerly stated as [R9.07]).
+- **[R31.17]** Each `read_skill` invocation is recorded on the resulting message's metadata (§21.1) with the skill's id, name, scope, version, and body hash, so the bytes that executed remain identifiable although bodies are mutable in place. `read_skill` calls are not audited ([R31.25]).
+
+### 31.4 Files, bundles, and the sandbox
+
+- **[R31.18]** A bundled file has a kind: `reference` (text-extracted, readable via `read_skill`), `script` (staged for the code interpreter), or `asset` (opaque bytes, never staged).
+- **[R31.19]** Bundle limits: ≤ 64 MB compressed, ≤ 128 MB uncompressed, compression ratio ≤ 100:1, ≤ 500 entries, ≤ 32 MB per file — **measured during decompression, never read from archive headers**. Entries escaping the bundle root — traversal, absolute paths, links, devices — are rejected, never sanitised, as are paths that are not NFC, collide case-insensitively, contain control characters or newlines, or are reserved on any supported filesystem. Only `SKILL.md`, `references/`, `scripts/`, and `assets/` are accepted. Frontmatter keys reserved for server-assigned state are rejected; unrecognized keys are preserved unmodified and never interpreted ([R31.29]).
+- **[R31.20]** Every bundled file passes the malware scan before the skill becomes readable. A single quarantined file rejects the entire bundle: a skill is one semantic unit, and a `SKILL.md` referencing an absent file induces confabulation.
+- **[R31.21]** Export produces a complete, deterministic bundle — stable ordering, no timestamps — over the authored byte set (`SKILL.md` body, file bytes, name, description, requirements, declared tools, and preserved unrecognized frontmatter per [R31.29]), so export → import → export is byte-identical. Server-assigned state is excluded from the export and never emitted into frontmatter.
+- **[R31.22]** `scripts/` are staged into the agent's sandbox workspace under `/workspace/skills/{name}/` when the agent has the code-interpreter tool enabled, and are reported to the model as absolute paths.
+- **[R31.23]** Skill scripts have **no network access**. The sandbox's egress isolation (§12.3) is not relaxed for Skills; a skill needing network I/O must use MCP (§12) or a local function. Import warns when a bundle's scripts appear to perform network I/O.
+- **[R31.24]** Anthropic's `allowed-tools` frontmatter is parsed and displayed with an explicit not-enforced label, and never enforced. Tool authorization is the agent's own tool configuration (§12) alone; an uploaded file must never expand an agent's privileges.
+- **[R31.27]** Skill content — `name`, `description`, `body`, `requires`, `allowed_tools`, `license`, file paths, and file manifests — is third-party text that reaches the model or the UI. Every field is validated at every entry point (API and bundle import) against the same rules, and no parsed field may reach a scope, owner, or identity column. `allowed_tools` and `license` are displayed, never enforced ([R31.24]), which makes them display-injection surfaces and subject to the same charset rules as `description`.
+
+### 31.5 Audit
+
+- **[R31.25]** Audited: skill create, update, delete, restore, copy, bundle import, export, bind, unbind, file create/update/delete, and turn-time resolution failure. Update events record the body hash before and after. `read_skill` invocations are not audited ([R31.17]).
+- **[R31.28]** Bundle import is asynchronous and rate-limited per organization; a bundle is not readable until its import completes and its scan clears.
+- **[R31.29]** `SKILL.md` frontmatter keys fall into exactly three classes. **Recognized** keys are parsed into the Skill's own fields. **Reserved** keys — those naming server-assigned state (`scope`, `source`, `version`, `created_by`, `bundle_sha256`) — are rejected at every entry point, because accepting one would let an uploaded file assign its own authority. Every other key is **unrecognized**: it is stored verbatim, never interpreted, and re-emitted unchanged on export ([R31.21]). Unrecognized keys are not an error — Anthropic's own published skills carry keys SMAP does not define, and rejecting them would make this chapter's interchangeability claim false.
 
 ---
 
