@@ -18,7 +18,8 @@ current-code verification, not a review of task-dossier status.
 The remediation is substantial, but not complete. The original failure scenarios are
 fully repaired for F-1, F-2, F-5, F-7, F-8, F-9, F-13--F-15, F-17--F-23, F-25,
 F-27, and F-28. F-3, F-4, F-6, F-10--F-12, F-16, F-24, and F-26 remain only
-partially repaired through the confirmed error paths below.
+partially repaired through the confirmed error paths below. A second independent
+refutation pass found no guard that defeats any of F-1 through F-7.
 
 | Original finding | Current result | Verification basis |
 | --- | --- | --- |
@@ -55,6 +56,7 @@ partially repaired through the confirmed error paths below.
 - **Original findings**: F-3, F-4
 - **Evidence**: `backend/app/api/v1/messages.py:301-306`; `backend/contexts/knowledge/application/graphrag_triggers.py:111-121`; `backend/contexts/knowledge/infrastructure/graphrag_repositories.py:305-375`; `backend/tests/unit/test_graphrag_triggers.py:105-163`.
 - **Failure scenario**: Create a chatroom- or enabled-workspace-owned Concept Map with `every_n_messages=1` or `silence_minutes`, but bind no Agent to the room. A user message persists, then `_dispatch_graphrag_builds` returns before evaluation because `bound_agent_ids` is empty. Even if called directly, the evaluator returns before the room selector. The selector itself supports an empty agent list for the chatroom/workspace layers, so neither its counter nor its silence clock is touched and no build can fire.
+- **Refutation check**: Config creation permits these typed owners without an Agent (`backend/app/api/v1/graphrag.py:255`; `backend/contexts/knowledge/application/graphrag_config_service.py:243`), and the existing typed-owner trigger regression test supplies a non-empty `agent_ids` list (`backend/tests/unit/test_graphrag_triggers.py:105-119`).
 - **Blast radius**: all agentless rooms using either typed owner layer; automatic Concept Map building remains inert for the configuration F-3/F-4 was intended to repair.
 - **Intent source**: [R11.02], [R11.08].
 
@@ -65,6 +67,7 @@ partially repaired through the confirmed error paths below.
 - **Original findings**: F-6, F-10
 - **Evidence**: `backend/contexts/knowledge/application/graphrag_builder.py:323-342,529-562`; `backend/contexts/knowledge/infrastructure/neo4j_driver.py:203-210`; `backend/contexts/knowledge/domain/graphrag.py:91-96`; `backend/contexts/knowledge/application/graphrag_retrieve.py:105-112`.
 - **Failure scenario**: A full-corpus Knowledge Map rebuild successfully applies current triples, then `remove_stale_for_build` fails. Those calls use separate Neo4j sessions, so the first mutation has already committed. The catch marks the config `FAILED` and deletes the snapshot/current-build pointer. Retrieval gates only `RUNNING`, `NEO4J_COMMITTED`, and `FAILED_COMPENSATING`, so it then serves the `FAILED` graph: new triples plus stale triples, with no compensating recovery path.
+- **Refutation check**: The replacement regression covers the successful case, not a prune failure (`backend/tests/unit/test_graphrag_builder.py:473`); there is no transaction or recovery transition spanning the two Neo4j calls.
 - **Blast radius**: deleted/quarantined knowledge can remain visible, and reads can observe a graph that did not reach an atomic replacement state.
 - **Intent source**: [R11.04], [R11.12].
 
@@ -73,8 +76,9 @@ partially repaired through the confirmed error paths below.
 - **Severity**: major
 - **Verdict**: confirmed
 - **Original finding**: F-11
-- **Evidence**: `backend/app/api/v1/rag.py:367-388`; `backend/app/api/v1/knowmap.py:345-364`; `backend/contexts/knowledge/application/config_service.py:469-477`; `backend/contexts/knowledge/application/knowmap_config_service.py:400-418`; `backend/contexts/knowledge/infrastructure/qdrant_store.py:73-92`; `backend/tests/unit/test_embedding_pin.py:213-346`.
+- **Evidence**: `backend/app/api/v1/rag.py:367-388`; `backend/app/api/v1/knowmap.py:345-364`; `backend/contexts/knowledge/application/config_service.py:469-477,633-711`; `backend/contexts/knowledge/application/knowmap_config_service.py:400-418`; `backend/contexts/knowledge/infrastructure/qdrant_store.py:73-92`; `backend/tests/unit/test_embedding_pin.py:213-346`.
 - **Failure scenario**: Delete the final config while Qdrant is unavailable. The durable pin is cleared before external teardown, and the teardown logs/swallows its Qdrant error. Creating a config at another dimension now succeeds, but the retained collection still has the old dimension and rejects the later ingestion/build.
+- **Refutation check**: The collection/orphan sweep excludes collections owned by a still-live project, so it is not a retry path for this failed final-config teardown (`backend/contexts/knowledge/application/config_service.py:639-645,695-709`).
 - **Blast radius**: File RAG and Knowledge Map projects can again accept a configuration that cannot index data after an external-store deletion failure.
 - **Intent source**: [R10.05], [R11.19].
 
@@ -83,8 +87,9 @@ partially repaired through the confirmed error paths below.
 - **Severity**: major
 - **Verdict**: confirmed
 - **Original finding**: F-12
-- **Evidence**: `backend/contexts/knowledge/application/knowmap_triggers.py:18-63`; `backend/contexts/knowledge/infrastructure/knowmap_repositories.py:234-250`; `backend/app/workers/tasks/knowmap.py:420-468`; `backend/tests/unit/test_knowmap_build_dedup.py:140-167`.
+- **Evidence**: `backend/contexts/knowledge/application/knowmap_triggers.py:18-63`; `backend/contexts/knowledge/infrastructure/knowmap_repositories.py:234-250`; `backend/app/workers/main.py:293-296`; `backend/app/workers/tasks/knowmap.py:402-468`; `backend/tests/unit/test_knowmap_build_dedup.py:140-167`.
 - **Failure scenario**: Build A snapshots revision N. While it runs, a mutation commits revision N+1. A completes, but its post-build `_finalize_build_revision` call fails transiently. The worker only logs the exception; it has no durable retry/outbox. Revision N+1 remains unbuilt until another mutation or a manual rebuild.
+- **Refutation check**: A concurrently queued N+1 job can fail busy while A owns the build lock, and the only later divergence reader is the swallowed finalizer itself; no periodic divergence sweep exists.
 - **Blast radius**: a committed corpus change can be absent indefinitely from the Knowledge Map, preserving the original lost-change outcome on the repair's failure path.
 - **Intent source**: [R11.12].
 
@@ -93,35 +98,36 @@ partially repaired through the confirmed error paths below.
 - **Severity**: major
 - **Verdict**: confirmed
 - **Original finding**: F-16
-- **Evidence**: `backend/contexts/agents/application/runtime/turn_engine.py:602-643,1254-1290,2231-2248`; `docs/tasks/2026-07-14-knowledge-context-token-budget/spec.md:296-302,333-336`; `backend/tests/unit/test_turn_context_budget.py:72-152`.
+- **Evidence**: `backend/contexts/agents/application/runtime/turn_engine.py:602-661,1254-1290,1364-1401,2209-2248`; `backend/app/api/v1/a2a_handler.py:166-199`; `backend/contexts/orchestration/domain/models.py:75-88`; `docs/tasks/2026-07-14-knowledge-context-token-budget/spec.md:296-302,333-336`; `backend/tests/unit/test_turn_context_budget.py:72-152`.
 - **Failure scenario**: Invoke an Agent headlessly (A2A or approval path) with File RAG and Knowledge Map attached, large fixed prompt/tool definitions, and a broad retrieved corpus. The shared helper is called with `budget=None`, which deliberately leaves all knowledge blocks uncapped. The room-turn allocator and its final payload safety check do not run, so the provider request can exceed its context limit.
+- **Refutation check**: A2A accepts the envelope input without a compensating context-cap calculation; only the approval caller has a small fixed input, so it does not constrain the unbounded A2A path.
 - **Blast radius**: headless knowledge-enabled turns can fail from oversized context despite the F-16 repair for normal room turns.
 - **Intent source**: [R9.10], [R11.19].
 
-## F-6: `admin_reset` treats an expired recovery snapshot as a successful discard
+## F-6: `admin_reset` turns an expired in-flight recovery record into readable `IDLE`
 
 - **Severity**: major
 - **Verdict**: confirmed
 - **Original finding**: F-26
-- **Evidence**: `backend/contexts/knowledge/application/graphrag_config_service.py:535-605`; `backend/contexts/knowledge/application/graphrag_reconciler.py:422-438`; `backend/contexts/knowledge/infrastructure/redis_lock.py:6-9,123-171`; `backend/tests/unit/test_graphrag_reset.py:185-205`.
-- **Failure scenario**: A stuck build retains a current-build pointer after its 24-hour snapshot expires. `admin_reset` deletes the build's Neo4j rows, skips `restore_from_snapshot` because the snapshot is `None`, clears recovery state, and publishes `IDLE` with `outcome=discarded`. The reconciler treats precisely that state as `compensation_unavailable` and terminal `FAILED`.
+- **Evidence**: `backend/contexts/knowledge/application/graphrag_config_service.py:535-605`; `backend/contexts/knowledge/application/graphrag_reconciler.py:422-438`; `backend/contexts/knowledge/application/graphrag_builder.py:61,255`; `backend/contexts/knowledge/infrastructure/redis_lock.py:131,171`; `backend/tests/unit/test_graphrag_reset.py:185-212`.
+- **Failure scenario**: A config remains `NEO4J_COMMITTED` or `FAILED_COMPENSATING` longer than the 24-hour Redis TTL during an incident. If the pointer remains but its snapshot expires, reset deletes build rows and skips restore; if both expiry keys vanish, reset simply clears the absent pointer. In both cases ordinary `force=false` reset records no compensation error and publishes `IDLE`, which the read gate permits. The reconciler instead treats a resolved pointer with a missing snapshot as `compensation_unavailable` and terminal `FAILED`.
 - **Blast radius**: an administrator can make a partially changed graph appear healthy while permanently losing the pre-build graph state.
 - **Intent source**: [R11.04].
 
-## F-7: Tenancy teardown can erase live source infrastructure before the hard deletion commits
+## F-7: Retention can erase the sources of a concurrently restored project
 
-- **Severity**: minor
-- **Verdict**: plausible
+- **Severity**: major
+- **Verdict**: confirmed
 - **Original finding**: F-24
-- **Evidence**: `backend/app/workers/tasks/retention.py:219-245,610-623`.
-- **Failure scenario**: The retention policy purges MinIO blobs and the Qdrant collection, then a later database operation in its surrounding transaction fails. The transaction rolls back the hard deletion but external destruction cannot roll back, leaving the retained project row without its File RAG/Knowledge Map source data.
-- **Blast radius**: a recoverable retention transaction can cause data loss rather than only delaying cleanup.
+- **Evidence**: `backend/app/workers/tasks/retention.py:195-243,248-265`; `backend/contexts/tenancy/infrastructure/repositories.py:387-394`; `backend/shared_kernel/db/session.py:38-54`; `backend/contexts/knowledge/application/config_service.py:570-631`; `backend/tests/unit/test_retention_deep.py:259-293`.
+- **Failure scenario**: Retention selects a qualified soft-deleted project without locking it, then destroys its MinIO/Qdrant source infrastructure. Before retention executes its later `deleted_at IS NOT NULL` hard-delete predicate, an administrator restores the project and clears `deleted_at`. The SQL delete affects zero rows, so the project becomes active while its sources are permanently gone. The orphan sweep deliberately sees every present project as live and the teardown has no restore operation.
+- **Blast radius**: a restored tenant can suffer irreversible File RAG and Knowledge Map source/data loss.
 - **Intent source**: [R10.06], F-24's tenant-lifecycle intent.
 
 ## Verification limits
 
-Focused backend tests could not run because `backend/.venv` lacks `pytest-asyncio`: pytest rejects the configured `asyncio_mode` and all async-marked test modules at collection. Focused frontend tests could not run because `pnpm` tried to remove `node_modules` and aborted without a TTY. Existing targeted test code was inspected, but this audit does not claim a live suite pass. Real PostgreSQL, Redis, Qdrant, Neo4j, MinIO, ClamAV, provider, browser E2E, and retention integration paths were not available in this host session.
+Focused backend tests could not run because `backend/.venv` lacks `pytest-asyncio`: pytest rejects the configured `asyncio_mode` and all async-marked test modules at collection. Focused frontend tests could not run because `pnpm` tried to remove `node_modules` and aborted without a TTY. Existing targeted test code was inspected, but this audit does not claim a live suite pass. A separate non-network mocked retention seam did verify that the external purge is called before a forced SQL delete failure. Real PostgreSQL, Redis, Qdrant, Neo4j, MinIO, ClamAV, provider, browser E2E, and retention integration paths were not available in this host session.
 
 ## Hand-off
 
-Do not close the 2026-07-14 audit as fully remediated. Create bugfix dossiers for F-1 through F-6 before declaring the associated original findings fixed. Triage F-7 as a retention-transaction design decision; if durable external work is required, use an outbox/teardown state rather than irreversible work inside the database transaction.
+Do not close the 2026-07-14 audit as fully remediated. Create bugfix dossiers for F-1 through F-7 before declaring the associated original findings fixed. F-7 needs a durable teardown state or outbox; irreversible external work cannot run ahead of an unlockable hard-delete decision.
