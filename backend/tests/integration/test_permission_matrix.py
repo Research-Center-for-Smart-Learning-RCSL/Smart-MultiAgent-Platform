@@ -116,6 +116,7 @@ _EXPECTED_ALLOW: dict[Capability, set[Role]] = {
     Capability.USER_DELETE_ANY: set(),
     Capability.USER_READ_ANY: set(),
     Capability.PROMPT_STUDIO_ORG_MANAGE: {Role.ORG_OWNER},
+    Capability.SKILL_ORG_MANAGE: {Role.ORG_OWNER},
 }
 
 

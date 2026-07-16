@@ -128,6 +128,9 @@ def _build_registry() -> list[RouterEntry]:
         search_keys as search_key_routes,
     )
     from app.api.v1 import (
+        skills as skills_routes,
+    )
+    from app.api.v1 import (
         tus as tus_routes,
     )
     from app.api.v1 import (
@@ -237,6 +240,12 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(prompt_studio_routes.admin_router),
         RouterEntry(prompt_studio_routes.project_router),
         RouterEntry(prompt_studio_routes.session_router),
+        # Skills (§31) — four scope routers plus the separate binding path
+        RouterEntry(skills_routes.agent_router),
+        RouterEntry(skills_routes.project_router),
+        RouterEntry(skills_routes.org_router),
+        RouterEntry(skills_routes.admin_router),
+        RouterEntry(skills_routes.binding_router),
         # Notifications
         RouterEntry(notification_routes.router),
         # Orchestration

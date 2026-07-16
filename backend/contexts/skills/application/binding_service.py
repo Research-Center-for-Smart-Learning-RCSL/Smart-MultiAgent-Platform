@@ -262,8 +262,16 @@ class BindingService:
         await self._bindings.bind(agent_id=agent_id, skill_id=skill_id)
         return skill
 
-    async def unbind(self, *, skill_id: uuid.UUID, agent_id: uuid.UUID) -> bool:
-        return await self._bindings.unbind(agent_id=agent_id, skill_id=skill_id)
+    async def unbind(self, *, skill_id: uuid.UUID, agent_id: uuid.UUID) -> Skill | None:
+        """Unbind, returning what was unbound — or None when nothing was bound.
+
+        Returns the Skill rather than a bool so the caller can audit *which bytes* the
+        agent lost without a second scope-free lookup by id. The read is not a new
+        authority: the binding it just cleared is itself the proof of association.
+        """
+        if not await self._bindings.unbind(agent_id=agent_id, skill_id=skill_id):
+            return None
+        return await self._skills.get(skill_id)
 
     # -- the per-turn snapshot ([R31.08]) ------------------------------------
 
