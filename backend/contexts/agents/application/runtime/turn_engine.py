@@ -71,6 +71,7 @@ from contexts.knowledge.application.knowmap_context_provider import (
     KnowledgeMapContextProvider,
 )
 from contexts.knowledge.application.rag_context_provider import RagContext, RagContextProvider
+from contexts.skills.interfaces.facade import BoundSet, SkillsFacade
 from shared_kernel import audit
 from shared_kernel.observability.metrics import REGISTRY
 from shared_kernel.realtime.pubsub import Publisher
@@ -369,6 +370,7 @@ class _SystemBlocks:
         base_system: str,
         is_observer: bool,
         memory_block: str | None,
+        skills_note: str | None,
         activity_block: str | None,
         staged_note: str | None,
         notify_block: str | None,
@@ -384,6 +386,12 @@ class _SystemBlocks:
             blocks.append(_SystemBlock("memory", _BlockRole.MEASURED_AND_RENDERED, text=memory_block))
         blocks.append(_SystemBlock("summaries", _BlockRole.MEASURED_AND_RENDERED, slot=_BlockSlot.SUMMARIES))
         blocks.append(_SystemBlock("knowledge", _BlockRole.RENDERED_ONLY, slot=_BlockSlot.KNOWLEDGE))
+        # §31 [R31.12] — the skills index. Fixed context, so it is measured: it is what
+        # the knowledge budget is sized *against*, never part of what the budget buys.
+        # Its render position (after knowledge) has no counterpart in the measure pass,
+        # which contains no knowledge block at all — that is the asymmetry _BlockRole
+        # exists to declare rather than to hand-maintain in two places.
+        blocks.append(_SystemBlock("skills", _BlockRole.MEASURED_AND_RENDERED, text=skills_note))
         blocks.append(_SystemBlock("activity", _BlockRole.MEASURED_AND_RENDERED, text=activity_block))
         blocks.append(_SystemBlock("staged", _BlockRole.MEASURED_AND_RENDERED, text=staged_note))
         blocks.append(_SystemBlock("notify", _BlockRole.MEASURED_AND_RENDERED, text=notify_block))
@@ -622,6 +630,12 @@ class TurnEngine:
                 agent, knowledge_queries, chatroom_id=knowledge_chatroom_id
             )
             system_parts.extend(knowledge_blocks)
+            # §31: the same tap the room path runs, on the same shared helper. There is
+            # no room here, so a dropped skill is audited and nothing is emitted.
+            bound_skills = await self._resolve_skills(agent, None, None)
+            skills_note = SkillsFacade.render_index(bound_skills.skills)
+            if skills_note:
+                system_parts.append(skills_note)
             notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(agent, None)
             extra_tools = extra_tools + await self._builtin_tools(agent)
             if notify_block:
@@ -631,6 +645,7 @@ class TurnEngine:
             registry = build_registry(
                 self._db,
                 agent_id=agent.id,
+                skills=bound_skills.skills,
                 extra=extra_tools,
             )
             await self._db.flush()
@@ -915,6 +930,47 @@ class TurnEngine:
                 await self._db.rollback()
             return 0
 
+    async def _resolve_skills(
+        self, agent: Agent, chatroom_id: uuid.UUID | None, room: str | None
+    ) -> BoundSet:
+        """Re-prove every skill binding for this turn — the third AuthZ tap (§31).
+
+        Bind-time authorisation is not enough: a skill's project can move, its owner can
+        be soft-deleted, and a `requires:` tool can be unbound, all between the trigger
+        and this turn. Both turn paths go through here — the headless one especially,
+        since an A2A turn is triggered by *another agent* and is the cross-agent path.
+
+        **Failure is per skill, not per turn.** A stale binding drops that one skill from
+        the snapshot (and so from the index and from `read_skill`), is audited, and
+        surfaces as a single aggregated room warning; the turn runs. Copying the key
+        group tap's turn-skip would make revocation an availability attack — an agent
+        cannot run without a key, but it runs perfectly well without one of twenty
+        skills.
+        """
+        bound = await SkillsFacade(self._db).resolve_bound_set(
+            agent_id=agent.id, agent_project_id=agent.project_id
+        )
+        for dropped in bound.dropped:
+            await self._audit(
+                agent,
+                chatroom_id,
+                "skill.resolution_failed",
+                {"skill_id": str(dropped.skill_id), "name": dropped.name, "reason": dropped.reason},
+            )
+        # One warning naming all of them, not one per skill: a project move drops every
+        # skill it owned at once, and twenty toasts describe one event.
+        if bound.dropped and room is not None:
+            with contextlib.suppress(Exception):
+                await Publisher(room).emit(
+                    "agent.warning",
+                    {
+                        "agent_id": str(agent.id),
+                        "kind": "skills_unavailable",
+                        "skills": [d.name for d in bound.dropped],
+                    },
+                )
+        return bound
+
     async def _pending_context_and_tools(
         self, agent: Agent, chatroom_id: uuid.UUID | None
     ) -> tuple[str | None, list[Tool], list[dict[str, Any]]]:
@@ -1124,9 +1180,14 @@ class TurnEngine:
             # §30 (R30.15): an observer also sees the room's recent structured
             # activity events. Coverage-gated: None when the room has no activities.
             activity_block = await self._activity_context(chatroom_id) if is_observer else None
+            # §31: one snapshot, resolved once, feeding both the index block below and
+            # read_skill's closure — so the tool can never serve a body the tap dropped.
+            bound_skills = await self._resolve_skills(agent, chatroom_id, room)
+            skills_note = SkillsFacade.render_index(bound_skills.skills)
             registry = build_registry(
                 self._db,
                 agent_id=agent.id,
+                skills=bound_skills.skills,
                 extra=extra_tools,
             )
             tool_specs = registry.specs()
@@ -1139,6 +1200,7 @@ class TurnEngine:
                 base_system=base_system,
                 is_observer=is_observer,
                 memory_block=memory_block,
+                skills_note=skills_note,
                 activity_block=activity_block,
                 staged_note=staged_note,
                 notify_block=notify_block,

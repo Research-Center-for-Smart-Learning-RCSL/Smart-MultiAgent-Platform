@@ -25,14 +25,11 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.agents.application.runtime.tool_registry import Tool, ToolResult
+from contexts.agents.application.runtime.tool_registry import Tool, ToolResult, clip_tool_output
 from contexts.agents.domain.mcp import SearchResult
 from contexts.agents.domain.models import Agent, AgentTool, AgentToolType
 
 logger = logging.getLogger(__name__)
-
-# Per-tool output caps so a chatty tool can't blow the context window.
-_MAX_TOOL_OUTPUT = 16_000
 
 
 class RagProviderProto(Protocol):
@@ -77,10 +74,6 @@ def default_builtin_deps() -> BuiltinToolDeps:
         cache=RedisSearchCache(),
         rate_limiter=RedisSearchRateLimiter(),
     )
-
-
-def _clip(text: str) -> str:
-    return text if len(text) <= _MAX_TOOL_OUTPUT else text[:_MAX_TOOL_OUTPUT] + "\n…[truncated]"
 
 
 # --------------------------------------------------------------------------- #
@@ -146,7 +139,7 @@ def _build_web_search_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolD
             )
         except Exception as exc:
             return ToolResult(content=f"web_search failed: {exc}", is_error=True)
-        return ToolResult(content=_clip(_dump_results(results)))
+        return ToolResult(content=clip_tool_output(_dump_results(results)))
 
     return Tool(
         name="web_search",
@@ -190,7 +183,7 @@ def _build_code_exec_tool(
             if isinstance(produced, list):
                 artifact_sink.extend(a for a in produced if isinstance(a, dict))
         body = res.stdout if res.ok else f"{res.stdout}\n[stderr]\n{res.stderr}".strip()
-        body = _clip(body or "(no output)")
+        body = clip_tool_output(body or "(no output)")
         # Surface a kernel restart (state loss) to the model from the structured
         # metadata flag rather than relying on a magic string in stdout.
         if meta.get("restarted"):
@@ -226,7 +219,7 @@ def _build_file_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps) -
                 return ToolResult(content=f"unknown file op {op!r}", is_error=True)
         except Exception as exc:
             return ToolResult(content=f"file {op} failed: {exc}", is_error=True)
-        return ToolResult(content=_clip(res.stdout or "(ok)"), is_error=not res.ok)
+        return ToolResult(content=clip_tool_output(res.stdout or "(ok)"), is_error=not res.ok)
 
     return Tool(
         name="file",
@@ -271,7 +264,7 @@ def _build_file_search_tool(
             return ToolResult(content=f"file_search failed: {exc}", is_error=True)
         if ctx is None or not ctx.sources or not getattr(ctx, "block", None):
             return ToolResult(content="No matching passages found in the agent's files.")
-        return ToolResult(content=_clip(_format_passages(ctx)))
+        return ToolResult(content=clip_tool_output(_format_passages(ctx)))
 
     return Tool(
         name="file_search",
@@ -423,7 +416,7 @@ def _build_mcp_tool_from_agent_tool(
             return ToolResult(content=f"mcp tool {mcp_tool} failed: {exc}", is_error=True)
         await _audit_tool_invoke(db, agent, tool, mcp_tool, ok=res.ok)
         body = res.stdout if res.ok else f"{res.stdout}\n[stderr]\n{res.stderr}".strip()
-        return ToolResult(content=_clip(body or "(no output)"), is_error=not res.ok)
+        return ToolResult(content=clip_tool_output(body or "(no output)"), is_error=not res.ok)
 
     return Tool(
         name=_mcp_tool_name_from_agent_tool(tool, mcp_tool),
@@ -506,7 +499,7 @@ def _build_function_tool(
         ok = outcome.ok
         await _audit_tool_invoke(db, agent, tool, fn_name, ok=ok)
         text = outcome.body.decode("utf-8", "replace")
-        return ToolResult(content=_clip(f"HTTP {outcome.status}\n{text}"), is_error=not ok)
+        return ToolResult(content=clip_tool_output(f"HTTP {outcome.status}\n{text}"), is_error=not ok)
 
     return Tool(name=fn_name, description=fn_desc, input_schema=fn_params, invoke=_invoke)
 

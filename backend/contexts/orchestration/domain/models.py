@@ -359,6 +359,7 @@ SUBAGENT_INHERITANCE: dict[str, bool] = {
     "model_hint": True,
     "a2a_enabled": False,
     "mcp_servers": True,
+    "skills": True,
     "rag_config_id": False,
     "context_mode": True,
     "context_token_cap": True,

@@ -20,6 +20,8 @@ import contexts.agents.application.runtime.turn_engine as te
 import contexts.orchestration.application.a2a_handler as h
 import contexts.orchestration.infrastructure.pending_notify as pn
 from contexts.orchestration.domain.models import A2AEnvelope, A2AMessageType
+from contexts.skills.application.binding_service import BoundSet
+from tests.unit.skill_fakes import make_skill
 
 
 def _async_return(value):
@@ -43,6 +45,7 @@ class _FakeDB:
 def _agent():
     return SimpleNamespace(
         id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
         key_group_id=uuid.uuid4(),
         system_prompt="prompt",
         model_hint=SimpleNamespace(value="claude"),
@@ -130,7 +133,30 @@ def _wire_engine(monkeypatch, agent, *, drain=None, member=True):
         "contexts.orchestration.infrastructure.pending_notify.drain",
         _async_return(drain if drain is not None else []),
     )
+    _stub_skills(monkeypatch)
     monkeypatch.setattr(te, "build_registry", lambda *a, **k: SimpleNamespace())
+
+
+def _stub_skills(monkeypatch, *, bound=None):
+    """The headless path runs the §31 turn-time tap like the room path does.
+
+    Nothing is bound by default, which is what every test here means: `render_index`
+    is a staticmethod on the real facade, so the double has to carry one too.
+    """
+    resolved = bound if bound is not None else BoundSet(skills=())
+
+    class _SkillsFacade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def resolve_bound_set(self, *, agent_id, agent_project_id):
+            return resolved
+
+        @staticmethod
+        def render_index(skills):
+            return "\n".join(f"- {s.name}: {s.description}" for s in skills)
+
+    monkeypatch.setattr(te, "SkillsFacade", _SkillsFacade)
 
 
 @pytest.mark.asyncio
@@ -163,6 +189,39 @@ async def test_run_input_turn_headless_completed(monkeypatch) -> None:
     assert captured["room"] is None
     assert captured["chatroom_id"] is None
     assert captured["messages"] == [{"role": "user", "content": "hi"}]
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_indexes_the_agents_bound_skills(monkeypatch) -> None:
+    # §31: the headless path is the cross-agent one — an A2A turn is triggered by
+    # another agent — so it gets the same tap and the same index the room path does.
+    agent = _agent()
+    skill = make_skill(name="pdf-fill", description="Fills PDF forms.")
+    engine, captured = _headless_engine(monkeypatch, agent)
+    _stub_skills(monkeypatch, bound=BoundSet(skills=(skill,)))
+    _wire_knowledge(engine)
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    assert result.status == "completed"
+    assert "- pdf-fill: Fills PDF forms." in captured["system_text"]
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_passes_the_snapshot_to_the_registry(monkeypatch) -> None:
+    # The tool must be built from the snapshot the tap just validated. Re-querying by
+    # name at call time would make the tap decorative.
+    agent = _agent()
+    skill = make_skill(name="pdf-fill")
+    engine, _captured = _headless_engine(monkeypatch, agent)
+    _stub_skills(monkeypatch, bound=BoundSet(skills=(skill,)))
+    _wire_knowledge(engine)
+    built: dict = {}
+    monkeypatch.setattr(te, "build_registry", lambda *a, **k: built.update(k) or SimpleNamespace())
+
+    await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    assert built["skills"] == (skill,)
 
 
 # --------------------------------------------------------------------------- #
