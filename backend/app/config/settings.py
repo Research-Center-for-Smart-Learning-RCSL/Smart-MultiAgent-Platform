@@ -107,8 +107,14 @@ class MinioSection(BaseSettings):
     # TTLs encoded here so both the bootstrap CLI and tests reference a single
     # source of truth; changing them is a config + Alembic change, never a
     # one-off mutation of the bucket lifecycle via the console.
+    #
+    # `exports` is deliberately absent: its 24-hour TTL (§21.5) is enforced twice, and
+    # neither enforcer can take an hours-valued setting. The bucket lifecycle is
+    # day-granular, so `minio_init` states `days=1`; the retention worker
+    # (`_purge_exports_bucket`) states `timedelta(hours=24)` alongside every other TTL in
+    # that module, which are all literals. A setting read by nobody is worse than no
+    # setting — it reads as configurable and is not.
     chat_uploads_expiry_days: int = 3  # R13.10
-    exports_expiry_hours: int = 24  # §21.5 — NOT YET IMPLEMENTED — lifecycle not applied yet
     service_account_name: str = "smap-backend"
 
 
