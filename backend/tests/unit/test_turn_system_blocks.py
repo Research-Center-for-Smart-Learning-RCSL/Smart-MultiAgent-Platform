@@ -11,6 +11,13 @@ stood before the refactor (turn_engine.py:998-1013 and :1071-1133 at 44c66e4).
 Every test asserts the new implementation is byte-identical to them across the
 matrix of block combinations. Pinning the old behaviour this way is what the
 closures themselves made impossible.
+
+The one departure from "verbatim" is §31's `skills_note`, which post-dates the
+refactor: both baselines carry it in the position §31 specifies (measured with
+the fixed context, rendered after knowledge and before activity). The baseline is
+still doing its job — it is the independent statement of order and role that the
+implementation must match, and the block's own semantics are pinned separately in
+`test_skill_index_budget.py`.
 """
 
 from __future__ import annotations
@@ -19,6 +26,7 @@ import itertools
 
 import pytest
 
+from contexts.agents.application import context as ctxmod
 from contexts.agents.application.runtime.turn_engine import (
     _OBSERVER_SYSTEM_NOTE,
     _PARTICIPANT_LABEL_NOTE,
@@ -28,6 +36,9 @@ from contexts.agents.application.runtime.turn_engine import (
     _SystemBlock,
     _SystemBlocks,
 )
+from contexts.skills.interfaces.facade import SkillsFacade
+from shared_kernel.tokens import estimate_tokens
+from tests.unit.skill_fakes import make_skill
 
 # --------------------------------------------------------------------------- #
 # Verbatim transcriptions of the pre-refactor closures (the baseline)
@@ -40,6 +51,7 @@ def _legacy_fixed_system_text(
     base_system: str,
     is_observer: bool,
     memory_block: str | None,
+    skills_note: str | None,
     activity_block: str | None,
     staged_note: str | None,
     notify_block: str | None,
@@ -50,6 +62,8 @@ def _legacy_fixed_system_text(
         if memory_block:
             parts.append(memory_block)
     parts.extend(summaries)
+    if skills_note:
+        parts.append(skills_note)
     if activity_block:
         parts.append(activity_block)
     if staged_note:
@@ -67,6 +81,7 @@ def _legacy_render(
     base_system: str,
     is_observer: bool,
     memory_block: str | None,
+    skills_note: str | None,
     activity_block: str | None,
     staged_note: str | None,
     notify_block: str | None,
@@ -79,6 +94,8 @@ def _legacy_render(
             system_parts.append(memory_block)
     system_parts.extend(summaries)
     system_parts.extend(knowledge_blocks)
+    if skills_note:
+        system_parts.append(skills_note)
     if activity_block:
         system_parts.append(activity_block)
     if staged_note:
@@ -97,15 +114,25 @@ _CASES = [
         "base_system": base_system,
         "is_observer": is_observer,
         "memory_block": memory_block,
+        "skills_note": skills_note,
         "activity_block": activity_block,
         "staged_note": staged_note,
         "notify_block": notify_block,
     }
-    for base_system, is_observer, memory_block, activity_block, staged_note, notify_block in (
+    for (
+        base_system,
+        is_observer,
+        memory_block,
+        skills_note,
+        activity_block,
+        staged_note,
+        notify_block,
+    ) in (
         itertools.product(
             ["You are a helpful agent.", ""],
             [True, False],
             ["[Your recent observations]\n- a", None],
+            ["<<<SMAP_SKILLS_UNTRUSTED>>>\n- pdf-fill: Fills PDFs.\n<<<END_SMAP_SKILLS_UNTRUSTED>>>", None],
             ["[Recent room activity]\n- x", None],
             ["[Files available in the code_exec workspace: inputs/a.csv]", None],
             ["[Pending notifications]\n- n", None],
@@ -198,6 +225,62 @@ def test_each_conditional_block_is_gated_by_its_own_name() -> None:
     measured = blocks.measure([])
     assert "[OTHER]" in measured
     assert _PARTICIPANT_LABEL_NOTE in measured
+
+
+# --------------------------------------------------------------------------- #
+# §31 AC-4 — the skills index is fixed context, so the knowledge budget pays for
+# it. Numerically: "it appears in the prompt somewhere" is not the claim.
+# --------------------------------------------------------------------------- #
+
+_BUDGET_CASE = {
+    "base_system": "You are a helpful agent.",
+    "is_observer": False,
+    "memory_block": None,
+    "activity_block": None,
+    "staged_note": None,
+    "notify_block": None,
+}
+
+
+def _budget(blocks: _SystemBlocks) -> int:
+    return ctxmod.knowledge_budget(
+        ceiling=100_000,
+        response_reserve=4_096,
+        fixed_context_tokens=estimate_tokens(blocks.measure([])),
+        safety_margin_frac=0.1,
+    )
+
+
+def test_the_rendered_skills_index_is_charged_against_the_knowledge_budget() -> None:
+    index = SkillsFacade.render_index(
+        [make_skill(name="pdf-fill", description="Fills PDF forms from a data mapping.")]
+    )
+    without = _SystemBlocks.build(skills_note=None, **_BUDGET_CASE)
+    with_skills = _SystemBlocks.build(skills_note=index, **_BUDGET_CASE)
+
+    fixed_without = estimate_tokens(without.measure([]))
+    fixed_with = estimate_tokens(with_skills.measure([]))
+
+    # The charge is exactly what appending the rendered block costs — not
+    # estimate_tokens(index) on its own, which is a different number: the heuristic
+    # is max(1, cjk + latin // 4) and so non-additive over a concatenation.
+    expected = estimate_tokens(without.measure([]) + "\n\n" + index) - fixed_without
+    assert expected > 0
+    assert fixed_with - fixed_without == expected
+
+    # And it lands on the knowledge budget, shrunk by the safety margin the budget
+    # applies to everything else.
+    assert _budget(without) - _budget(with_skills) == pytest.approx(expected * 0.9, abs=1)
+
+
+def test_an_agent_with_nothing_bound_pays_no_index_tokens() -> None:
+    # render_index returns "" for an empty snapshot, and a falsy block is dropped
+    # rather than rendered as a blank part — so the budget is byte-identical.
+    empty = _SystemBlocks.build(skills_note=SkillsFacade.render_index([]), **_BUDGET_CASE)
+    absent = _SystemBlocks.build(skills_note=None, **_BUDGET_CASE)
+
+    assert empty.measure([]) == absent.measure([])
+    assert _budget(empty) == _budget(absent)
 
 
 def test_rendered_only_block_is_never_measured() -> None:

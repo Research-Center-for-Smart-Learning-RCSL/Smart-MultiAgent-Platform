@@ -25,6 +25,7 @@ from contexts.orchestration.domain.errors import (
     SubagentDepthExceeded,
 )
 from contexts.orchestration.domain.models import (
+    SUBAGENT_INHERITANCE,
     SUBAGENT_MAX_CONCURRENT_HARD,
     AgentInstance,
     Approval,
@@ -731,6 +732,26 @@ class TestSubagentInheritance:
         assert ctx["wakeup_config"] is None
         assert ctx["task_description"] == "do task X"
         assert ctx["parent_agent_id"] == str(_AGENT_A)
+        # §31 AC-28 — skills are inherited like mcp_servers: the flag says so and
+        # nothing else has to. The sub-agent instance carries the parent's agent id,
+        # so resolve_bound_set already returns the parent's whole bound set, agent-
+        # scoped skills included, with no agent_skills row written at spawn.
+        assert ctx["skills"] is True
+
+    def test_the_inheritance_table_and_the_context_it_builds_agree(self) -> None:
+        # SUBAGENT_INHERITANCE is read by nothing at runtime — it documents R15.22 —
+        # so only a test can stop it from drifting away from the dict that is real.
+        agent = MagicMock()
+        agent.id = _AGENT_A
+        agent.model_hint.value = "auto"
+        agent.context_mode.value = "full"
+
+        ctx = SubagentService._build_inherited_context(agent, "do task X")
+
+        for field, inherited in SUBAGENT_INHERITANCE.items():
+            assert field in ctx, f"{field} is declared inheritable but never built"
+            if not inherited:
+                assert ctx[field] in (None, False), f"{field} is declared not-inherited but is set"
 
 
 class TestSubagentEnsureRoot:

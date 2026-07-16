@@ -266,6 +266,11 @@ class SubagentService:
             "model_hint": parent.model_hint.value,
             "a2a_enabled": False,
             "mcp_servers": True,  # inherited, actual bindings resolved at runtime
+            # §31 AC-28 — the parent's whole bound set, agent-scoped skills included, and
+            # no agent_skills rows are written for the child: a sub-agent instance carries
+            # the *parent's* agent id (`_spawn`), so resolve_bound_set already returns the
+            # parent's set unchanged. There is no child agent id to key a binding on.
+            "skills": True,
             "rag_config_id": None,
             "context_mode": parent.context_mode.value,
             "context_token_cap": parent.context_token_cap,

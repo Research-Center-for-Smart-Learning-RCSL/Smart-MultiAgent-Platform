@@ -37,7 +37,9 @@ from contexts.conversation.domain.models import (
     SenderType,
 )
 from contexts.conversation.infrastructure.repositories.observation_repo import ObservationRepository
+from contexts.skills.application.binding_service import BoundSet
 from shared_kernel.auth.permissions import Principal, Role
+from tests.unit.skill_fakes import make_skill
 
 # --------------------------------------------------------------------------- #
 # is_room_creator / ensure_room_creator (R28.02)
@@ -762,7 +764,7 @@ def _observer_agent():
     )
 
 
-def _wire_observer_engine(monkeypatch, agent, *, creator_id):
+def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
     """Wire a full `_run_locked` pass for an observer-role binding, with fakes
     at every external boundary and a global Publisher spy."""
     _PublisherSpy.emitted = []
@@ -815,6 +817,21 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id):
             return creator_id
 
     monkeypatch.setattr(te, "ObservationService", _ObsService)
+
+    # The §31 turn-time tap runs on every room turn, an observer's included. Nothing
+    # is bound by default, and an empty index renders to "" — no block, no tokens.
+    class _SkillsFacade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def resolve_bound_set(self, *, agent_id, agent_project_id):
+            return BoundSet(skills=tuple(bound_skills))
+
+        @staticmethod
+        def render_index(skills):
+            return "\n".join(f"- {s.name}: {s.description}" for s in skills)
+
+    monkeypatch.setattr(te, "SkillsFacade", _SkillsFacade)
     monkeypatch.setattr(te, "build_registry", lambda *a, **k: SimpleNamespace(specs=lambda: []))
 
     engine = te.TurnEngine.__new__(te.TurnEngine)
@@ -941,6 +958,34 @@ async def test_observer_turn_folds_memory_and_framing_into_system(monkeypatch) -
     system_text = stream_seen["system_text"]
     assert "[Observer role]" in system_text
     assert "[Your previous observations]" in system_text
+
+
+@pytest.mark.asyncio
+async def test_room_turn_folds_the_bound_skills_index_into_system(monkeypatch) -> None:
+    # §31 AC-4 on the room path: the index reaches the request, and the tool that
+    # reads a body is built from the same snapshot the tap validated.
+    agent = _observer_agent()
+    skill = make_skill(name="pdf-fill", description="Fills PDF forms.")
+    engine, _recorded, stream_seen = _wire_observer_engine(
+        monkeypatch, agent, creator_id=uuid.uuid4(), bound_skills=(skill,)
+    )
+    built: dict = {}
+    monkeypatch.setattr(
+        te, "build_registry", lambda *a, **k: built.update(k) or SimpleNamespace(specs=lambda: [])
+    )
+
+    await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="silence_minutes",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert "- pdf-fill: Fills PDF forms." in stream_seen["system_text"]
+    assert built["skills"] == (skill,)
 
 
 @pytest.mark.asyncio

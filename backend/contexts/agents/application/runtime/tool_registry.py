@@ -6,9 +6,10 @@ tool-use loop needs: ``Tool{name, description, input_schema, invoke(args)}`` and
 a ``ToolRegistry`` that exposes provider-neutral specs and dispatches calls.
 
 Wired here (no external infra): ``update_wakeup`` (R15.06 — clamp + audit happen
-inside ``WakeupService``). ``web_search`` / ``file`` / ``code_exec`` are injected
-as ``extra`` tools by their own wiring (web-search DI; sandbox lands in K.5) so
-this module stays infra-free.
+inside ``WakeupService``) and ``read_skill`` (§31 — served entirely from the
+turn's already-resolved snapshot, so it needs no DB either). ``web_search`` /
+``file`` / ``code_exec`` are injected as ``extra`` tools by their own wiring
+(web-search DI; sandbox lands in K.5) so this module stays infra-free.
 """
 
 from __future__ import annotations
@@ -16,11 +17,26 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from contexts.skills.domain.models import Skill
+from shared_kernel.tokens import estimate_tokens
+
 ToolInvoke = Callable[[dict[str, Any]], Awaitable["ToolResult"]]
+
+# Per-tool output cap so a chatty tool can't blow the context window. It lives here
+# rather than beside its callers in ``builtin_tools`` because it is the registry's
+# contract with the turn loop, and ``read_skill`` — built in this module — has to size
+# its own span against it (see :func:`_fit_skill_body`).
+_MAX_TOOL_OUTPUT = 16_000
+
+
+def clip_tool_output(text: str) -> str:
+    """The byte-level backstop every tool's output passes through."""
+    return text if len(text) <= _MAX_TOOL_OUTPUT else text[:_MAX_TOOL_OUTPUT] + "\n…[truncated]"
+
 
 # Canonical set of built-in / runtime tool names a user LOCAL_FUNCTION must not
 # shadow. Single source of truth: agent_service derives its reserved-name guard
@@ -32,6 +48,7 @@ BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
     {
         "update_wakeup",
         "cast_approval_vote",
+        "read_skill",
         "web_search",
         "code_exec",
         "file",
@@ -218,14 +235,142 @@ def build_cast_approval_vote_tool(
     )
 
 
+_READ_SKILL_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "name": {
+            "type": "string",
+            "description": "The skill's name, exactly as it appears in the skills index.",
+        },
+        "offset": {
+            "type": "integer",
+            "description": (
+                "Resume reading at this character offset. Pass the truncated_at_offset "
+                "returned by a previous call to read the next span of a long skill."
+            ),
+        },
+    },
+    "required": ["name"],
+    "additionalProperties": False,
+}
+
+# R31.15 / AC-33. A fixed per-call allowance, not "whatever is left of the window":
+# `build_registry` runs before the request is assembled at all — and the request is
+# rebuilt on the recompaction path — so any window measured here would be stale by
+# construction. This does not fix the unbudgeted mid-tool-loop growth of FU-4 and does
+# not claim to; it only keeps one skill body from being the thing that blows the window.
+_SKILL_BODY_TOKEN_BUDGET = 8000
+
+
+def _fit_skill_body(name: str, body: str, offset: int) -> tuple[str, int | None]:
+    """The longest span of ``body[offset:]`` that fits, and where to resume after it.
+
+    Two bounds, both non-decreasing in the span's length, so one binary search settles
+    both: ``_SKILL_BODY_TOKEN_BUDGET`` against the estimate, and ``_MAX_TOOL_OUTPUT``
+    against the *rendered* result. The second bound is not redundant with
+    :func:`clip_tool_output` — it is what keeps the clip a no-op here. The clip cuts
+    bytes, and a result severed mid-JSON would strand ``truncated_at_offset`` inside
+    the string it was meant to index, which is exactly the contract AC-33 rests on.
+
+    The offset is a **character** offset because it cannot be a token one:
+    ``estimate_tokens`` is ``max(1, cjk + latin // 4)`` — non-additive, and with no
+    inverse to seek by. Returns ``(span, next_offset)``; ``next_offset`` is None when
+    the span reaches the end of the body.
+    """
+    rest = body[offset:]
+    # Probed against the longest offset the payload could ever carry, so the real
+    # result is never longer than what the search measured.
+    envelope = len(_read_skill_payload(name, "", len(body)))
+
+    def fits(span: str) -> bool:
+        return (
+            estimate_tokens(span) <= _SKILL_BODY_TOKEN_BUDGET
+            and envelope + len(json.dumps(span, ensure_ascii=False)) <= _MAX_TOOL_OUTPUT
+        )
+
+    if fits(rest):
+        return rest, None
+    lo, hi = 0, len(rest)  # invariant: lo fits, hi does not
+    while lo + 1 < hi:
+        mid = (lo + hi) // 2
+        if fits(rest[:mid]):
+            lo = mid
+        else:
+            hi = mid
+    # Unreachable at these constants (one character always fits), but a zero-length
+    # span would hand the model a continuation offset it has already read from, and it
+    # would call forever.
+    lo = max(lo, 1)
+    return rest[:lo], offset + lo
+
+
+def _read_skill_payload(name: str, span: str, next_offset: int | None) -> str:
+    payload: dict[str, Any] = {"name": name, "body": span}
+    if next_offset is not None:
+        payload["truncated_at_offset"] = next_offset
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def build_read_skill_tool(skills: Sequence[Skill]) -> Tool:
+    """R31.15 — load a bound skill's body on demand from the turn's snapshot.
+
+    ``skills`` is the snapshot ``resolve_bound_set`` already validated this turn, and
+    the lookup is a dict over it. It must never re-query by name: the turn-time
+    containment tap would then be decorative, and a name lookup against the `skills`
+    table is an unscoped read primitive over every tenant's skills.
+    """
+    by_name = {s.name: s for s in skills}
+
+    async def _invoke(args: dict[str, Any]) -> ToolResult:
+        name = str(args.get("name", ""))
+        skill = by_name.get(name)
+        if skill is None:
+            # An unknown name is a tool error, never a turn failure (R31.15): the model
+            # can misread the index, and one bad call must not cost the user the turn.
+            available = ", ".join(sorted(by_name)) or "(none)"
+            return ToolResult(
+                content=f"Unknown skill {name!r}. Bound skills: {available}.",
+                is_error=True,
+            )
+        offset = _opt_int(args.get("offset")) or 0
+        if offset < 0 or offset > len(skill.body):
+            return ToolResult(
+                content=f"offset {offset} is outside skill {name!r} (0..{len(skill.body)}).",
+                is_error=True,
+            )
+        span, next_offset = _fit_skill_body(skill.name, skill.body, offset)
+        return ToolResult(content=clip_tool_output(_read_skill_payload(skill.name, span, next_offset)))
+
+    return Tool(
+        name="read_skill",
+        description=(
+            "Load the full instructions of one skill listed in the skills index, by name. "
+            "Call it when a skill's description matches the task you are working on. Long "
+            "bodies come back truncated with a truncated_at_offset; call again with that "
+            "offset to read the next span."
+        ),
+        input_schema=_READ_SKILL_SCHEMA,
+        invoke=_invoke,
+    )
+
+
 def build_registry(
     db: Any,
     *,
     agent_id: uuid.UUID,
+    skills: Sequence[Skill],
     extra: list[Tool] | None = None,
 ) -> ToolRegistry:
-    """Assemble the per-turn tool table for ``agent_id``."""
+    """Assemble the per-turn tool table for ``agent_id``.
+
+    ``skills`` is the turn's validated bound-set snapshot and is **required**, not
+    defaulted: a caller that forgets it is then a type error rather than an agent that
+    silently loses ``read_skill``. Empty is the ordinary case and costs nothing — the
+    tool is only offered when something is bound.
+    """
     tools: list[Tool] = [build_update_wakeup_tool(db, agent_id=agent_id)]
+    if skills:
+        tools.append(build_read_skill_tool(skills))
     if extra:
         tools.extend(extra)
     return ToolRegistry(tools)
@@ -246,6 +391,8 @@ __all__ = [
     "ToolRegistry",
     "ToolResult",
     "build_cast_approval_vote_tool",
+    "build_read_skill_tool",
     "build_registry",
     "build_update_wakeup_tool",
+    "clip_tool_output",
 ]

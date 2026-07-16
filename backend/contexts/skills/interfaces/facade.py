@@ -23,11 +23,13 @@ reachable around.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.skills.application.binding_service import BindingService, BoundSet
+from contexts.skills.application.index_builder import render_index
 from contexts.skills.application.skill_service import SkillService
 from contexts.skills.domain.models import Skill, SkillDraft, SkillScope, SkillScopeCounts, SkillSource
 from contexts.skills.infrastructure.repositories import SkillRepository
@@ -203,6 +205,18 @@ class SkillsFacade:
             agent_id=agent_id, agent_project_id=agent_project_id
         )
 
+    @staticmethod
+    def render_index(skills: Sequence[Skill]) -> str:
+        """The skills index block for a turn's system prompt ([R31.12]-[R31.14]).
+
+        Exposed here rather than letting the runtime import `index_builder` directly: the
+        frame the block is wrapped in and the charset rule that keeps a description from
+        forging it are one control, and it lives inside this context. Static because it is
+        pure — no session, no query — and the runtime calls it on the snapshot it already
+        holds.
+        """
+        return render_index(skills)
+
     async def ensure_index_cap_fits(self, agent_id: uuid.UUID, cap: int | None) -> None:
         """Refuse a `skill_index_token_cap` the agent's current index already exceeds.
 
@@ -234,4 +248,7 @@ class SkillsFacade:
         return await SkillRepository(self._db).count_by_scope()
 
 
-__all__ = ["SkillsFacade"]
+# `BoundSet` is re-exported deliberately: it is `resolve_bound_set`'s return type, so the
+# agents runtime has to name it, and it must not have to reach past this module into
+# `application/` to do so.
+__all__ = ["BoundSet", "SkillsFacade"]
