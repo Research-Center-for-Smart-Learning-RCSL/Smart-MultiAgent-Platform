@@ -227,6 +227,15 @@ FU-2, not addressed here.
   ceiling covers the delete, not `close` — see the `qdrant_teardown` module docstring.
 - [x] AC-10: The DOM-4/W5 docstrings on all three drop helpers describe the ordering the code
   actually has, and record the Q-4 trade.
+- [x] AC-12: Concurrent different-dimension creates against a FAILED-teardown project make at
+  most one Qdrant attempt between them, so the create-path retry cannot be multiplied into a
+  connection-pool stall (FU-3/D-7). `test_concurrent_creates_make_one_qdrant_attempt_not_one_each`
+  against real Postgres — verified to have teeth by restoring the blocking lock, which fails it
+  with "5 concurrent creates made 5 Qdrant attempts". `try_acquire_lock`'s cross-session
+  behavior and its re-entrancy with the blocking lock are proven against real Postgres in
+  `test_try_acquire_lock_reports_contention_across_sessions` and
+  `test_try_lock_is_reentrant_with_the_blocking_lock`; the skip path is unit-covered by
+  `test_create_retry_skips_teardown_when_another_holder_has_the_lock`.
 - [x] AC-11: Existing runtime dimension guards, unit/integration tests, backend lint, format,
   and type checks pass. `ruff check`/`ruff format --check`/`mypy` all clean;
   `pytest -m "not integration"` has only pre-existing environment failures (wiring tests
@@ -271,6 +280,20 @@ None. This restores [R10.06] and [R11.19].
   the teardown *orchestration*, but client construction + the timeout bound would have been
   triplicated verbatim across three services. Client lifecycle is an infrastructure concern, so
   it moved there; the orchestration stayed triplicated as Q-6 requires.
+- **D-7: FU-3 fixed with a non-blocking lock, not the cooldown FU-3 proposed.** The create-path
+  retry now takes the key with `pg_try_advisory_xact_lock` (`EmbeddingPinRepository.try_acquire_lock`)
+  and skips when it loses the race, because the holder is already doing that exact work.
+  Rejected the cooldown FU-3 named: a `last_attempt_at` stamp would be written by the very
+  transaction that then raises the typed conflict and **rolls back**, so the stamp would be lost
+  and the next request would retry anyway. Committing it independently needs a second connection
+  — the resource under protection. It would also have needed the schema column Q-1 ruled out.
+  The insight that made the cheaper fix work: the amplification was never the *queue* (`ensure`
+  has always taken this lock on every create, so serialization is pre-existing) but that every
+  waiter *repeated the Qdrant call*. Letting one attempt it collapses N timeouts into one while
+  the losers block on `ensure` exactly as they always did. Correctness is unchanged — a loser
+  still blocks on `ensure` and reads whatever the holder committed, so a successful teardown lets
+  it through and a failed one rejects it. Sequential waves still pay one timeout each, which is
+  a slow endpoint rather than an amplifier, and needs no cooldown to be safe.
 
 ## 13. Follow-ups
 
@@ -282,15 +305,14 @@ None. This restores [R10.06] and [R11.19].
   silently skipping `_assert_dimension`
   (`backend/contexts/knowledge/infrastructure/qdrant_store.py:95-105`). Pre-existing; decide
   whether the physical guard should fail closed instead.
-- **FU-3:** The Q-5 create-path retry lets a client multiply the teardown's lock hold.
-  Concurrent different-dimension creates against a project in the FAILED-teardown state
-  serialize on the `(project, kind)` advisory lock, each burning up to `teardown_timeout_s`
-  while holding a pooled connection; ~30 (`pool_size` 20 + `max_overflow` 10) could exhaust the
-  pool. Requires `RESOURCE_CREATE_EDIT` plus a *hanging* (not refusing) Qdrant. Note the
-  serialization itself is pre-existing — `ensure` already took the lock on every create — so
-  this task adds the 10s, not the queue. Fixing it properly wants a per-pin retry cooldown,
-  which needs a schema column this task's Q-1 ruled out; a cheaper mitigation is a tighter
-  create-path bound. Raised by the security audit; deferred with the user's knowledge.
+- **FU-3: RESOLVED in this task — see D-7.** The Q-5 create-path retry let a client multiply
+  the teardown's lock hold: concurrent different-dimension creates against a project in the
+  FAILED-teardown state each inherited the `(project, kind)` lock and repeated the same doomed
+  Qdrant call, so the Nth request waited N x `teardown_timeout_s` holding a pooled connection;
+  ~30 (`pool_size` 20 + `max_overflow` 10) could exhaust the pool. Raised by the security audit,
+  deferred at close-out, then fixed on request. Measured before and after in
+  `test_concurrent_creates_make_one_qdrant_attempt_not_one_each`: 5 concurrent creates made 5
+  Qdrant attempts before, 1 after.
 - **FU-4:** The three teardown handlers catch bare `Exception` and log only
   `type(exc).__name__` with no `exc_info`. Correct for qdrant-client errors (they carry response
   content and headers) but it also swallows programming defects — an `AttributeError` in the
