@@ -1953,6 +1953,28 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   sizing is an open question, not a finding. A markdown preview instead requires adding a file to
   the `vue/no-v-html` allowlist (`eslint.config.js:229-247`), whose config comment demands a
   security review.
+  **Measured and split out 2026-07-17 → `2026-07-16-code-editor-syntax-highlighting`.** Both costs
+  are now numbers, from real builds pinned to the repo's `vite@6`: minimal CodeMirror 6 +
+  `lang-json` + `lint` = **150 911 B gz** (26.3% under the limit), `pnpm audit --prod` **clean** over
+  12 packages. So it fits, and this entry's "open question" is closed — but three of its claims did
+  not survive the measurement:
+  (a) **The exempt-list obstacle is imaginary.** `^(mermaid|hljs)-` matches **zero of the 206 chunks
+  this build emits** — mermaid emits `mermaid.core-*` (the regex needs a literal `-` after
+  `mermaid`) and highlight.js lands in `common-*` because `vite.config.ts:38-43` deliberately leaves
+  it unnamed. Nothing needs adding to a list that has never fired, so no policy change was ever
+  required. Filed as that dossier's FU-1 — deleting it is *not* obviously safe.
+  (b) **"a class with no CSS rule" undersells it.** `code-editor--` appears exactly **once** in the
+  whole codebase: `SCodeEditor.vue:61`, the line that emits it. The prop is dead, and six call sites
+  pass it believing otherwise.
+  (c) **Python is not the use case.** The union at `:7` has no `'python'` member and there are zero
+  Python call sites; the per-file Python editing this entry worries about cannot be expressed today.
+  The real defect is JSON: `AgentToolsView.vue:1101`/`:1209` already carry error state that is a
+  *generic* string with no position, raised only on submit (`:335`, `:563`). That is what the split
+  dossier fixes first.
+  Two traps the measurement caught that no amount of reading would have: `basicSetup` passes the
+  gate by **2.3%** (200 003 B — a tripwire, not a margin), and all four grammars in one chunk
+  **fails by 26%** (258 515 B), which would only redden CI once the *fourth* one landed. The
+  markdown-preview half is untouched and carried forward as that dossier's FU-4.
 - **FU-5: `shared/ui` is an i18n dead zone.** `vue/no-bare-strings-in-template` is off for
   `src/shared/ui/**/*.vue`, so `SFileUpload.vue:121-122` and `:132` ship untranslated.
   **Verified 2026-07-17: confirmed, but "dead zone" overstates it.** The hole is ~10 user-visible
