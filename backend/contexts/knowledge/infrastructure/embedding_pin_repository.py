@@ -14,7 +14,11 @@ concurrent first-creates and a drop-empty teardown serialize on the same key.
 
 Postgres-only (advisory lock + a single table read/insert, no Qdrant call), so
 config CRUD never depends on Qdrant availability — preserving the property the
-graph subsystems' pin lookups already had.
+graph subsystems' pin lookups already had. One caller qualifies this: a create at a
+*different* dimension than a configless retained pin runs the F-3 teardown retry under
+this lock, and that does call Qdrant (see ``_retry_pending_teardown`` on each config
+service). Nothing else does — a create matching the pin, or against no pin, stays
+Postgres-only.
 """
 
 from __future__ import annotations
@@ -48,6 +52,16 @@ class EmbeddingPinRepository:
             sa.text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
             {"key": f"{project_id}:{kind.value}"},
         )
+
+    async def list_all(self) -> list[sa.Row[Any]]:
+        """Every pin row, for the F-3 teardown-retry sweep.
+
+        Unfiltered because "is a teardown owed" is not answerable here: it depends on
+        each kind's live configs, which live in three different tables the sweep's
+        caller already holds repositories for. Pin rows are one per ``(project,
+        kind)``, so this is bounded by projects x 3, not by data volume.
+        """
+        return list((await self._db.execute(t.select())).all())
 
     async def get(self, project_id: uuid.UUID, kind: PinKind) -> sa.Row[Any] | None:
         return (

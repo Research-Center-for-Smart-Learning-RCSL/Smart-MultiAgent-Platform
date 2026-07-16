@@ -253,6 +253,54 @@ async def _purge_soft_deleted_tenancy(session: AsyncSession) -> int:
     return total
 
 
+_TEARDOWN_RETRY_BATCH = 50
+
+
+async def _retry_pending_collection_teardowns(session: AsyncSession) -> int:
+    """Retry configless collection teardowns left owed by a failed drop (F-3).
+
+    Unlike ``_purge_rag_source_orphans``, this is *not* keyed on a missing project
+    row: the projects here are alive and well, and only their last knowledge config
+    was deleted while Qdrant was unreachable, so the collection survived and its pin
+    was retained to keep the dimension invariant failing closed. That state is
+    invisible to the row-absence backstop, which is why it needs its own policy.
+
+    The create path retries the same teardown on demand, so this exists to reclaim
+    collections for projects nobody happens to reconfigure. Idempotent — a pin whose
+    collection is already gone is released on the first pass that reaches Qdrant.
+
+    Each pin gets its OWN transaction rather than riding this policy's session. The
+    teardown's ``(project, kind)`` advisory lock is transaction-scoped, so batching
+    them into the policy transaction would hold every lock until the whole pass ended
+    — and in the very outage this sweep exists for, each pin burns up to
+    ``qdrant.teardown_timeout_s`` before releasing. That is a sweep that blocks config
+    creation across every affected project for minutes. Bounded by
+    ``_TEARDOWN_RETRY_BATCH`` per pass; a larger backlog drains over subsequent nights.
+    """
+    from contexts.knowledge.interfaces.facade import KnowledgeFacade
+
+    owed = await KnowledgeFacade(session).list_pending_collection_teardowns(limit=_TEARDOWN_RETRY_BATCH)
+    sm = get_sessionmaker()
+    released = 0
+    for project_id, kind in owed:
+        try:
+            async with sm() as pin_session, pin_session.begin():
+                outcome = await KnowledgeFacade(pin_session).retry_collection_teardown(project_id, kind)
+        except Exception:
+            logger.bind(event="retention_collection_teardown_failed").opt(exception=True).warning(
+                "collection teardown retry failed for project %s kind %s", project_id, kind.value
+            )
+            continue
+        if outcome.pin_released:
+            released += 1
+    if len(owed) == _TEARDOWN_RETRY_BATCH:
+        logger.bind(event="retention_collection_teardown_capped").info(
+            "teardown retry hit its per-pass cap; the remainder drains next pass"
+        )
+    await _emit_summary(session, "retention.collection_teardowns.released", released)
+    return released
+
+
 async def _purge_rag_source_orphans(session: AsyncSession) -> int:
     """Backstop sweep for File RAG + Knowledge Map source infra (F-24, mirrors F-8).
 
@@ -591,6 +639,11 @@ _POLICIES = [
     # Backstop for source infra whose project row is already gone — placed after
     # the proactive teardown so a same-run teardown miss is reclaimed immediately.
     ("rag_source_orphans", _purge_rag_source_orphans),
+    # Backstop for collections whose project row is still live but whose teardown
+    # could not reach Qdrant (F-3). Placed after rag_source_orphans: that sweep
+    # erases collections for dead projects, so anything still pinned here belongs
+    # to a live one and is genuinely a retry.
+    ("collection_teardowns", _retry_pending_collection_teardowns),
     ("invites", _expire_invites),
     ("oc_transfers", _expire_oc_transfers),
     ("approvals", _expire_approvals),

@@ -10,10 +10,11 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Iterable, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.domain.embedding_pin import PinKind, TeardownOutcome
 from contexts.knowledge.domain.graphrag import (
     AgentConceptMapCoverage,
     ConceptMapOwnerOption,
@@ -370,6 +371,62 @@ class KnowledgeFacade:
             )
         finally:
             await qclient.close()
+
+    def _teardown_handlers(self) -> dict[PinKind, tuple[Any, Any]]:
+        from contexts.knowledge.application.config_service import RagConfigService
+        from contexts.knowledge.application.graphrag_config_service import GraphRagConfigService
+        from contexts.knowledge.application.knowmap_config_service import KnowmapConfigService
+
+        return {
+            PinKind.FILE_RAG: (self._configs, RagConfigService(self._db)),
+            PinKind.KNOWMAP: (self._knowmap, KnowmapConfigService(self._db)),
+            PinKind.GRAPHRAG: (self._graphrag, GraphRagConfigService(self._db)),
+        }
+
+    async def list_pending_collection_teardowns(self, *, limit: int) -> list[tuple[uuid.UUID, PinKind]]:
+        """Pins whose project has no live config of that kind — teardowns still owed (F-3).
+
+        Read-only and lock-free: the authoritative live-config re-check happens under
+        the advisory lock inside the teardown itself, so this is only a candidate
+        filter. Keeping it lock-free is the point — almost every pin is healthy, and
+        locking them all to discover that would block config creation across every
+        project for the length of a sweep.
+
+        ``limit`` caps the candidates returned, so a large backlog drains over several
+        passes rather than one unbounded one.
+        """
+        from contexts.knowledge.infrastructure.embedding_pin_repository import (
+            EmbeddingPinRepository,
+        )
+
+        handlers = self._teardown_handlers()
+        owed: list[tuple[uuid.UUID, PinKind]] = []
+        for pin in await EmbeddingPinRepository(self._db).list_all():
+            if len(owed) >= limit:
+                break
+            try:
+                kind = PinKind(pin.kind)
+            except ValueError:
+                # A pin kind this build does not know — leave it for the build that does.
+                continue
+            repo, _service = handlers[kind]
+            if list(await repo.list_for_project(pin.project_id)):
+                continue
+            owed.append((pin.project_id, kind))
+        return owed
+
+    async def retry_collection_teardown(self, project_id: uuid.UUID, kind: PinKind) -> TeardownOutcome:
+        """Retry one owed teardown (F-3). The caller owns the transaction.
+
+        Deliberately single-pin. The advisory lock this takes is transaction-scoped,
+        so the caller must give each pin its own transaction; drive a whole sweep in
+        one and the locks accumulate, blocking config creation for every project
+        touched until the pass ends. Idempotent — an already-absent collection
+        confirms absence and releases the pin just as a fresh drop does.
+        """
+        _repo, service = self._teardown_handlers()[kind]
+        outcome: TeardownOutcome = await service.teardown_orphan_collection(project_id=project_id)
+        return outcome
 
     async def _purge_source_infra_with_store(
         self,
