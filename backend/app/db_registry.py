@@ -40,6 +40,7 @@ from contexts.knowledge.infrastructure import tables as _knowledge_tables  # noq
 from contexts.notification.infrastructure import tables as _notification_tables  # noqa: F401
 from contexts.orchestration.infrastructure import tables as _orchestration_tables  # noqa: F401
 from contexts.prompt_studio.infrastructure import tables as _prompt_studio_tables  # noqa: F401
+from contexts.skills.infrastructure import tables as _skills_tables  # noqa: F401
 from contexts.tenancy.infrastructure import tables as _tenancy_tables  # noqa: F401
 from contexts.workflow.infrastructure import tables as _workflow_tables  # noqa: F401
 
