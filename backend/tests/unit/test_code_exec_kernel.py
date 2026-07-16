@@ -293,17 +293,103 @@ def test_attachments_still_flatten_to_a_basename() -> None:
     assert staged == ["sessions/r1/inputs/passwd"]
 
 
-@pytest.mark.parametrize("bad", ["../../etc/passwd", "/etc/passwd", "reports/../../../etc/passwd", "a\x00b"])
-def test_workspace_staging_rejects_traversal_rather_than_flattening_it(bad: str) -> None:
-    """AC-13. Preserving the tree means the basename shortcut no longer contains
-    traversal, so staging must reject it outright. The API boundary already does
-    (`workspace_service._safe_workspace_path`), but the sandbox does not trust a
-    DB row to have come through it."""
+@pytest.mark.parametrize(
+    "bad",
+    ["../../etc/passwd", "/etc/passwd", "reports/../../../etc/passwd", "a\x00b", "a\nb.csv"],
+)
+def test_the_shared_rule_rejects_unstageable_paths(bad: str) -> None:
+    """AC-13. Preserving the tree means the basename shortcut no longer strips
+    traversal, so the rule must reject it outright rather than rewrite it into
+    something plausible. `a\\nb.csv` is here because these paths are interpolated
+    into the one-line note the model reads: a newline would let an upload forge a
+    prompt section."""
+    from shared_kernel.storage.sanitize import safe_workspace_relpath
+
+    with pytest.raises(ValueError):
+        safe_workspace_relpath(bad)
+
+
+def test_one_unstageable_path_costs_one_file_not_all_of_them() -> None:
+    """The rule raises; staging must not. Callers swallow staging faults to keep
+    the turn alive (`turn_engine.py:778`), so a raised batch would turn one odd
+    row into every workspace file silently vanishing for that agent, every turn,
+    forever. One bad row costs one file.
+    """
     from contexts.agents.domain.mcp import StagedFile
     from contexts.agents.infrastructure.sandbox.docker_runsc import _tar_staged_inputs
 
-    with pytest.raises(ValueError):
-        _tar_staged_inputs("agent-files", [StagedFile(filename=bad, data=b"x")], preserve_tree=True)
+    files = [
+        StagedFile(filename="good.csv", data=b"a"),
+        StagedFile(filename="../../etc/passwd", data=b"b"),
+        StagedFile(filename="reports/also-good.csv", data=b"c"),
+    ]
+    _, staged = _tar_staged_inputs("agent-files", files, preserve_tree=True)
+
+    assert staged == ["agent-files/good.csv", "agent-files/reports/also-good.csv"]
+
+
+def test_no_accepted_path_can_escape_the_staging_dir() -> None:
+    """The containment property itself, not a list of blocked strings.
+
+    Staging builds `posixpath.join(rel_dir, name)`, which silently discards
+    `rel_dir` if `name` is absolute, and resolves upward on any `..`. So for every
+    path the rule accepts, the member must stay under `rel_dir` — and no component
+    may be '', '.', or '..'. Enumerated over an adversarial alphabet rather than
+    spot-checked, because the exact strings that break it are the ones nobody
+    thought to list.
+    """
+    import itertools
+    import posixpath
+
+    from shared_kernel.storage.sanitize import safe_workspace_relpath
+
+    # The zero-width space earns its place: it makes a component look ordinary to
+    # normpath while reading as ".." to anything that strips it. The rule rejects
+    # it outright now, which is why nothing downstream has to launder it.
+    alphabet = ["..", ".", "/", "a", " ", "\\", "...", "..a", "%2e", "\u200b"]
+    accepted = 0
+    for n in range(1, 4):
+        for combo in itertools.product(alphabet, repeat=n):
+            try:
+                out = safe_workspace_relpath("".join(combo))
+            except ValueError:
+                continue
+            accepted += 1
+            resolved = posixpath.normpath(posixpath.join("/workspace", "agent-files", out))
+            assert resolved.startswith("/workspace/agent-files/"), f"{combo} escaped to {resolved}"
+            assert not any(c in ("", ".", "..") for c in out.split("/")), out
+    # Guard the guard: an alphabet that rejected everything would prove nothing.
+    assert accepted > 100
+
+
+def test_the_stored_path_is_the_staged_path() -> None:
+    """A designer's stored path is shown in the UI and reported to the model, so
+    staging must not quietly rewrite it — that is this dossier's own defect in a
+    new place. Per-component `safe_input_name` did: it strips leading dots, so
+    `.config/app.json` staged as `config/app.json`, a path the designer never saw.
+    """
+    from shared_kernel.storage.sanitize import safe_workspace_relpath, validate_workspace_relpath
+
+    for path in (".config/app.json", ".env", "reports/2024/q1.csv", "a-b_c.d.csv"):
+        assert safe_workspace_relpath(path) == path
+        # And what upload stores is exactly what staging re-validates.
+        assert validate_workspace_relpath(path) == path
+
+
+@pytest.mark.parametrize("raw", ["/ /x.csv", "  reports//q1.csv ", "a/./b.csv", "x.csv"])
+def test_upload_normalisation_is_idempotent(raw: str) -> None:
+    """The stored path is re-validated at staging, so a path upload accepts must
+    survive a second pass unchanged. It did not: whitespace was stripped before
+    slashes, so `/ /x.csv` stored as ` /x.csv`, which re-validates to `/x.csv` and
+    is then rejected as absolute — one ordinary upload permanently and silently
+    breaking every agent-files staging for that agent.
+    """
+    from shared_kernel.storage.sanitize import safe_workspace_relpath, validate_workspace_relpath
+
+    once = validate_workspace_relpath(raw)
+    assert validate_workspace_relpath(once) == once
+    # The stored form must also survive the stricter staging rule.
+    assert safe_workspace_relpath(once) == once
 
 
 def test_file_tool_reads_both_path_forms_identically() -> None:
