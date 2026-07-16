@@ -46,6 +46,7 @@ from contexts.keys.interfaces import error_mapping as keys_errors
 from contexts.knowledge.interfaces import error_mapping as knowledge_errors
 from contexts.orchestration.interfaces import error_mapping as orchestration_errors
 from contexts.prompt_studio.interfaces import error_mapping as prompt_studio_errors
+from contexts.skills.interfaces import error_mapping as skills_errors
 from contexts.tenancy.interfaces import error_mapping as tenancy_errors
 from contexts.workflow.interfaces import error_mapping as workflow_errors
 from shared_kernel.auth.clients import close_redis
@@ -156,6 +157,7 @@ def create_app() -> FastAPI:
     orchestration_errors.register(app)
     workflow_errors.register(app)
     prompt_studio_errors.register(app)
+    skills_errors.register(app)
     mount_metrics_middleware(app, settings.observability)
     install_otel(app, settings.observability)
 

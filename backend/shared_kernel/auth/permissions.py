@@ -72,6 +72,10 @@ class Capability(str, enum.Enum):
     USER_READ_ANY = "user.read_any"  # 24
     # Prompt studio (§29) — configure the org's prompt assistant + org templates.
     PROMPT_STUDIO_ORG_MANAGE = "prompt_studio.org.manage"  # 25
+    # Skills (§31) — author/manage the org's skills. Agent- and project-scoped skills
+    # reuse RESOURCE_CREATE_EDIT (#15); platform scope is Admin-only via require_admin.
+    # This enum is offset by one from the SRS §5.2 matrix, where the row is #27.
+    SKILL_ORG_MANAGE = "skill.org.manage"  # 26
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +254,12 @@ _MATRIX: dict[Capability, dict[Role, Outcome]] = {
     # (Admin bypasses the table). Personal scope is self-service (own /api/me
     # resources, verified user) and platform scope is Admin-only via require_admin.
     Capability.PROMPT_STUDIO_ORG_MANAGE: {
+        Role.ORG_OWNER: Outcome.ALLOW,
+    },
+    # Row 26 — org-scoped skills: Org Owner only (Admin bypasses the table). An org
+    # skill can bind into every agent in every project the org owns, so this is a
+    # tenant-wide instruction surface, not a per-project resource.
+    Capability.SKILL_ORG_MANAGE: {
         Role.ORG_OWNER: Outcome.ALLOW,
     },
 }
