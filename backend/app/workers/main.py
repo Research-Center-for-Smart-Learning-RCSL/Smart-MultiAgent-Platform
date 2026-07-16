@@ -8,7 +8,8 @@ Task registry:
   - `retention_sweep`             — I.4 nightly consolidated retention sweep (cron)
   - `key_usage_threshold_sample`  — D.8 80% hourly-limit sampler (every 30 s)
   - `rag_ingest_document`         — E.6 off-request RAG indexing for tus uploads
-  - `agent_fs_gc`                 — E.10 nightly Docker volume GC (60-day retention)
+  - `agent_fs_gc`                 — E.10 nightly agent volume + workspace GC (60-day
+                                    retention; dry-run until SMAP_AGENT_FS_GC_ARMED)
 
 Background tasks (started in `on_startup`, stopped in `on_shutdown`):
   - key-revocation listener  — ASYNC-2 / D.7 DEK cache invalidation
@@ -29,7 +30,9 @@ from arq.connections import RedisSettings
 
 import app.db_registry as _db_registry  # noqa: F401 — table imports
 from app.config.settings import get_settings
-from app.workers.agent_fs_gc import run_once as _agent_fs_gc_run_once
+from app.workers.agent_fs_gc import AGENT_FS_GC_TIMEOUT_S
+from app.workers.agent_fs_gc import sweep_once as _agent_fs_gc_sweep_once
+from app.workers.agent_fs_gc import sweep_report_dict as _agent_fs_gc_report_dict
 from app.workers.tasks.activities import activities_watchdog, validate_activity_submission
 from app.workers.tasks.advisory import daily_org_advisory_snapshot
 from app.workers.tasks.approvals import drive_approver_turn
@@ -94,10 +97,14 @@ async def noop(ctx: dict[str, Any]) -> str:
 
 
 async def agent_fs_gc(ctx: dict[str, Any]) -> dict[str, int]:
-    """E.10 — nightly GC of per-agent Docker volumes (60-day retention)."""
+    """E.10 — nightly GC of per-agent volumes + workspace objects (60-day retention).
+
+    Returns the full sweep report, not just a count: the worker is dry-run by
+    default, so `would_purge` above zero with `removed` at zero is the normal
+    unarmed state and an operator needs to see it in the job result.
+    """
     _ = ctx
-    removed = await _agent_fs_gc_run_once()
-    return {"removed": removed}
+    return _agent_fs_gc_report_dict(await _agent_fs_gc_sweep_once())
 
 
 async def sandbox_orphan_cleanup(ctx: dict[str, Any]) -> dict[str, int]:
@@ -284,7 +291,10 @@ class WorkerSettings:
         # knowmap_build mirrors graphrag_build's scoped timeout: the build lock is
         # the single-writer authority, so the job timeout has TTL headroom.
         func(knowmap_build, name="knowmap_build", timeout=KNOWMAP_BUILD_TIMEOUT_S),
-        agent_fs_gc,
+        # Scoped timeout, mirroring graphrag_build: the first armed sweep can
+        # reclaim years of leaked artifacts and must not be killed part-way
+        # through by the default job_timeout.
+        func(agent_fs_gc, name="agent_fs_gc", timeout=AGENT_FS_GC_TIMEOUT_S),
         sandbox_orphan_cleanup,
         prompt_assistant_turn,
     ]
@@ -316,8 +326,10 @@ class WorkerSettings:
         cron(activities_watchdog, minute=set(range(60)), run_at_startup=False),
         # Every 30 seconds — D.8 80% hourly-limit sampler (R7.11).
         cron(key_usage_threshold_sample, second={0, 30}, run_at_startup=False),
-        # 05:00 UTC daily — per-agent Docker volume GC (E.10 / R12.03, 60-day retention).
-        cron(agent_fs_gc, hour=5, minute=0, run_at_startup=False),
+        # 05:00 UTC daily — per-agent volume + workspace GC (E.10 / R12.03, 60-day
+        # retention). Ordering-independent by design: it reclaims by enumerating
+        # what exists, so it does not care that retention_sweep ran at 03:30.
+        cron(agent_fs_gc, hour=5, minute=0, run_at_startup=False, timeout=AGENT_FS_GC_TIMEOUT_S),
         # Every minute — heal GraphRAG 2PC drift (M.5.4 / R11.04): configs stuck
         # in FAILED_COMPENSATING. arq's cron lock keeps it singleton across replicas.
         cron(graphrag_reconcile, minute=set(range(60)), run_at_startup=False),
