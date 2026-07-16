@@ -1,0 +1,195 @@
+"""AC-13 — `_SystemBlocks` owns system-block order and per-block role.
+
+`_fixed_system_text` and the inline `system_parts` list were nested closures in
+`_run_locked`, unreachable from a unit test — which is why they could drift apart
+unnoticed (the F-16/F-17 bug class). They are replaced by one ordered list whose
+blocks each declare a role.
+
+The characterization here is **differential**: `_legacy_fixed_system_text` and
+`_legacy_render` below are verbatim transcriptions of the two closures as they
+stood before the refactor (turn_engine.py:998-1013 and :1071-1133 at 44c66e4).
+Every test asserts the new implementation is byte-identical to them across the
+matrix of block combinations. Pinning the old behaviour this way is what the
+closures themselves made impossible.
+"""
+
+from __future__ import annotations
+
+import itertools
+
+import pytest
+
+from contexts.agents.application.runtime.turn_engine import (
+    _OBSERVER_SYSTEM_NOTE,
+    _PARTICIPANT_LABEL_NOTE,
+    _BlockRole,
+    _SystemBlocks,
+)
+
+# --------------------------------------------------------------------------- #
+# Verbatim transcriptions of the pre-refactor closures (the baseline)
+# --------------------------------------------------------------------------- #
+
+
+def _legacy_fixed_system_text(
+    summaries: list[str],
+    *,
+    base_system: str,
+    is_observer: bool,
+    memory_block: str | None,
+    activity_block: str | None,
+    staged_note: str | None,
+    notify_block: str | None,
+) -> str:
+    parts = [base_system] if base_system else []
+    if is_observer:
+        parts.append(_OBSERVER_SYSTEM_NOTE)
+        if memory_block:
+            parts.append(memory_block)
+    parts.extend(summaries)
+    if activity_block:
+        parts.append(activity_block)
+    if staged_note:
+        parts.append(staged_note)
+    if notify_block:
+        parts.append(notify_block)
+    parts.append(_PARTICIPANT_LABEL_NOTE)
+    return "\n\n".join(p for p in parts if p)
+
+
+def _legacy_render(
+    summaries: list[str],
+    knowledge_blocks: list[str],
+    *,
+    base_system: str,
+    is_observer: bool,
+    memory_block: str | None,
+    activity_block: str | None,
+    staged_note: str | None,
+    notify_block: str | None,
+    include_participant_note: bool,
+) -> str:
+    system_parts = [base_system] if base_system else []
+    if is_observer:
+        system_parts.append(_OBSERVER_SYSTEM_NOTE)
+        if memory_block:
+            system_parts.append(memory_block)
+    system_parts.extend(summaries)
+    system_parts.extend(knowledge_blocks)
+    if activity_block:
+        system_parts.append(activity_block)
+    if staged_note:
+        system_parts.append(staged_note)
+    if notify_block:
+        system_parts.append(notify_block)
+    if include_participant_note:
+        system_parts.append(_PARTICIPANT_LABEL_NOTE)
+    return "\n\n".join(p for p in system_parts if p)
+
+
+# Each optional block is exercised present and absent; base_system is exercised
+# empty too (a falsy prompt is dropped, not rendered as a blank part).
+_CASES = [
+    {
+        "base_system": base_system,
+        "is_observer": is_observer,
+        "memory_block": memory_block,
+        "activity_block": activity_block,
+        "staged_note": staged_note,
+        "notify_block": notify_block,
+    }
+    for base_system, is_observer, memory_block, activity_block, staged_note, notify_block in (
+        itertools.product(
+            ["You are a helpful agent.", ""],
+            [True, False],
+            ["[Your recent observations]\n- a", None],
+            ["[Recent room activity]\n- x", None],
+            ["[Files available in the code_exec workspace: inputs/a.csv]", None],
+            ["[Pending notifications]\n- n", None],
+        )
+    )
+]
+
+_SUMMARY_SETS = [[], ["[Earlier conversation summary]\nfoo"], ["[s1]", "[s2]"]]
+_KNOWLEDGE_SETS = [[], ["[RAG]\nchunk"], ["[RAG]", "[CONCEPT]", "[KNOWMAP]"]]
+
+
+def _build(case: dict) -> _SystemBlocks:
+    return _SystemBlocks.build(**case)
+
+
+# --------------------------------------------------------------------------- #
+# Differential characterization: new == old, byte for byte
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("case", _CASES)
+@pytest.mark.parametrize("summaries", _SUMMARY_SETS)
+def test_measure_matches_legacy_fixed_system_text(case: dict, summaries: list[str]) -> None:
+    assert _build(case).measure(summaries) == _legacy_fixed_system_text(summaries, **case)
+
+
+@pytest.mark.parametrize("case", _CASES)
+@pytest.mark.parametrize("summaries", _SUMMARY_SETS)
+@pytest.mark.parametrize("knowledge", _KNOWLEDGE_SETS)
+@pytest.mark.parametrize("include_note", [True, False])
+def test_render_matches_legacy_system_parts(
+    case: dict, summaries: list[str], knowledge: list[str], include_note: bool
+) -> None:
+    assert _build(case).render(summaries, knowledge, include_participant_note=include_note) == _legacy_render(
+        summaries, knowledge, include_participant_note=include_note, **case
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The honest invariant: every block declares exactly one role, and the two
+# passes honour it. "Every rendered block is measured" is NOT the invariant —
+# it fails on correct code in both directions.
+# --------------------------------------------------------------------------- #
+
+
+def test_every_block_has_exactly_one_role_and_roles_partition_the_list() -> None:
+    blocks = _build(_CASES[0]).blocks
+
+    by_role: dict[_BlockRole, list[str]] = {role: [] for role in _BlockRole}
+    for block in blocks:
+        by_role[block.role].append(block.name)
+
+    # Partition: every block counted once, nothing lost, nothing double-counted.
+    assert sum(len(names) for names in by_role.values()) == len(blocks)
+    assert {b.name for b in blocks} == {n for names in by_role.values() for n in names}
+
+    # The two asymmetric roles are the whole reason this class exists; pin the
+    # membership so a new block cannot quietly join the wrong side.
+    assert by_role[_BlockRole.MEASURED_ONLY] == ["participant_note"]
+    assert by_role[_BlockRole.RENDERED_ONLY] == ["knowledge"]
+
+
+def test_measured_only_block_is_counted_but_omitted_when_not_included() -> None:
+    # The participant note is measured every turn (conservative — its inclusion
+    # depends on history that is not known yet) but rendered only on demand.
+    blocks = _build(_CASES[0])
+
+    assert _PARTICIPANT_LABEL_NOTE in blocks.measure([])
+    assert _PARTICIPANT_LABEL_NOTE not in blocks.render([], [], include_participant_note=False)
+    assert _PARTICIPANT_LABEL_NOTE in blocks.render([], [], include_participant_note=True)
+
+
+def test_rendered_only_block_is_never_measured() -> None:
+    # Knowledge blocks are what the budget buys, so measuring them against it
+    # would be circular.
+    blocks = _build(_CASES[0])
+    knowledge = ["[RAG]\nchunk text"]
+
+    assert "[RAG]" not in blocks.measure([])
+    assert "[RAG]" in blocks.render([], knowledge, include_participant_note=False)
+
+
+def test_summaries_are_both_measured_and_rendered_in_place() -> None:
+    blocks = _build(_CASES[0])
+    summaries = ["[Earlier conversation summary]\nfoo"]
+
+    assert summaries[0] in blocks.measure(summaries)
+    rendered = blocks.render(summaries, ["[RAG]"], include_participant_note=False)
+    # Order is declared once: summaries precede knowledge in both passes.
+    assert rendered.index(summaries[0]) < rendered.index("[RAG]")
