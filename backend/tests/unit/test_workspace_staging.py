@@ -147,6 +147,30 @@ async def test_first_file_over_the_cap_stages_nothing() -> None:
     assert out == []
 
 
+async def test_a_file_that_fits_after_an_overrun_is_still_staged() -> None:
+    # FU-18. Selection keeps packing past a file it cannot fit, rather than
+    # stopping at it: `b` overruns the 128 MiB cap, but `c` fits in what is left
+    # and the designer uploaded it, so it must reach the volume.
+    #
+    # The attachment path 45 lines up does exactly this (`continue`, not `break`)
+    # for the same reason against the same shape of cap, which is what makes the
+    # asymmetry a defect rather than two deliberate policies.
+    #
+    # None of the truncation cases above can see this: every one of them puts the
+    # overrunning file last, so `break` and `continue` agree on all of them.
+    a = _wf("a.bin", "sha-a", 100 * _MIB)
+    b = _wf("b.bin", "sha-b", 100 * _MIB)
+    c = _wf("c.csv", "sha-c", 10)
+
+    runner, out = await _stage([a, b, c])
+
+    assert runner.calls[0]["filenames"] == ["a.bin", "c.csv"]
+    assert out == ["agent-files/a.bin", "agent-files/c.csv"]
+    # AC-12 still holds across the change: the manifest describes the set that
+    # was actually staged, so skipping `b` cannot make the cache key lie.
+    assert runner.calls[0]["manifest_sha"] == _expected_manifest([a, c])
+
+
 def test_cap_is_the_documented_128_mib() -> None:
     # The manifest fix is only meaningful against a real cut; pin the constant
     # the truncation cases above are sized against.
