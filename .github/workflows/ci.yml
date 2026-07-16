@@ -763,6 +763,7 @@ jobs:
     timeout-minutes: 5
     if: always()
     needs:
+      - repo-gates
       - backend-lint
       - backend-typecheck
       - backend-test
@@ -785,6 +786,7 @@ jobs:
       - name: Check all required jobs
         run: |
           echo "Results:"
+          echo "  repo-gates:                 ${{ needs.repo-gates.result }}"
           echo "  backend-lint:               ${{ needs.backend-lint.result }}"
           echo "  backend-typecheck:          ${{ needs.backend-typecheck.result }}"
           echo "  backend-test:               ${{ needs.backend-test.result }}"
@@ -806,6 +808,7 @@ jobs:
 
           # Required jobs — must all succeed.
           for result in \
+            "${{ needs.repo-gates.result }}" \
             "${{ needs.backend-lint.result }}" \
             "${{ needs.backend-typecheck.result }}" \
             "${{ needs.backend-test.result }}" \
