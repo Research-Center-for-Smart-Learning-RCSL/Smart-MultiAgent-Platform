@@ -19,4 +19,25 @@ class PinKind(str, enum.Enum):
     GRAPHRAG = "graphrag"
 
 
-__all__ = ["PinKind"]
+class TeardownOutcome(str, enum.Enum):
+    """Result of a configless collection teardown (F-3).
+
+    The pin may be released only on ``DROPPED`` or ``ABSENT`` — the two outcomes
+    where Qdrant has confirmed the project's collection no longer exists. ``FAILED``
+    retains the pin so the invariant fails closed: a later different-dimension config
+    stays rejected until a retry confirms absence. ``SKIPPED_LIVE_CONFIG`` means a
+    config was created (or survived) under the lock, so there is no orphan to drop
+    and the pin legitimately stays.
+    """
+
+    DROPPED = "dropped"
+    ABSENT = "absent"
+    SKIPPED_LIVE_CONFIG = "skipped_live_config"
+    FAILED = "failed"
+
+    @property
+    def pin_released(self) -> bool:
+        return self in (TeardownOutcome.DROPPED, TeardownOutcome.ABSENT)
+
+
+__all__ = ["PinKind", "TeardownOutcome"]

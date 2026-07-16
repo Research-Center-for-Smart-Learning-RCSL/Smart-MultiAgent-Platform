@@ -62,6 +62,14 @@ class QdrantSection(BaseSettings):
 
     url: str = "http://qdrant:6333"
     api_key: str | None = None
+    # F-3: the configless-collection teardown runs inside an open Postgres
+    # transaction holding the (project, kind) advisory lock, so an unbounded call
+    # would pin a pooled connection and block config creation for that project for
+    # as long as Qdrant hangs. On timeout the teardown reports FAILED, retains the
+    # pin, and the retry paths reclaim the collection later. Bounded above 0 because
+    # a 0/negative value would expire every teardown instantly, stranding pins that
+    # no retry could ever release.
+    teardown_timeout_s: float = Field(default=10.0, gt=0, le=60)
 
 
 class Neo4jSection(BaseSettings):
