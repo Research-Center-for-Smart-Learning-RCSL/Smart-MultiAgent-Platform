@@ -134,7 +134,7 @@ _CASES = [
             ["[Your recent observations]\n- a", None],
             ["<<<SMAP_SKILLS_UNTRUSTED>>>\n- pdf-fill: Fills PDFs.\n<<<END_SMAP_SKILLS_UNTRUSTED>>>", None],
             ["[Recent room activity]\n- x", None],
-            ["[Files available in the code_exec workspace: inputs/a.csv]", None],
+            ["[Files available in the code_exec workspace: /workspace/sessions/r1/inputs/a.csv]", None],
             ["[Pending notifications]\n- n", None],
         )
     )
