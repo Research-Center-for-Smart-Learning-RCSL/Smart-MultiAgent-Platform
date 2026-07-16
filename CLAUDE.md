@@ -7,7 +7,9 @@ Self-hosted platform for composing, orchestrating, and chatting with multi-LLM a
 ```
 backend/          Python 3.12 — FastAPI + Arq workers + Alembic migrations
   app/            API routes (app/api/v1/), middleware, config, bootstrap
-  contexts/       DDD bounded contexts (identity, tenancy, keys, agents, conversation, workflow, admin)
+  contexts/       DDD bounded contexts (activities, agents, agent_groups, audit, conversation,
+                  identity, keys, knowledge, notification, orchestration, prompt_studio, skills,
+                  tenancy, workflow)
   shared_kernel/  Cross-cutting: auth, db, errors, events, crypto
   services/       Standalone microservices (egress_proxy, mcp_supervisor)
   smap/           CLI tools (bootstrap, rotation)

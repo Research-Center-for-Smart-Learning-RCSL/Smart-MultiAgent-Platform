@@ -386,7 +386,7 @@ An Agent is defined by:
 | `key_group_id` | FK | Exactly one (Q34). |
 | `system_prompt` | text | The agent's identity and standing instructions; sent verbatim every turn. Procedures belong in Skills (§31). |
 | `rag_config_id` | FK nullable | See §10. |
-| `graphrag_config_id` | FK nullable | See §11. |
+| `knowmap_config_id` | FK nullable | Per-agent Knowledge Map binding ([R11.14]). See §11. |
 | `mcp_servers` | list | See §12. |
 | `a2a_enabled` | bool | Whether this agent can call/receive A2A. |
 | `context_mode` | enum | `general` or `compact` (Q39). |
@@ -1086,7 +1086,7 @@ key_usage_events        (id bigserial, key_id FK, agent_id FK null,
 -- Agents
 agents                  (id, project_id FK, name, model_hint, key_group_id FK,
                          system_prompt text,
-                         rag_config_id FK null, graphrag_config_id FK null,
+                         rag_config_id FK null, knowmap_config_id FK null,
                          context_mode enum('general','compact'),
                          context_token_cap int null,
                          skill_index_token_cap int null,
@@ -1682,8 +1682,12 @@ backend/
     tenancy/         …same layout…
     keys/
     agents/
+    agent_groups/    # agent groups + membership
     knowledge/       # RAG + GraphRAG
     conversation/    # workspaces, chat rooms, messages
+    activities/      # structured activities (§30)
+    orchestration/   # A2A envelope, wake-up config, instruct/sub-agent
+    prompt_studio/   # prompt assistant configs + prompt templates (§29)
     workflow/
     audit/
     notification/
@@ -1755,10 +1759,14 @@ frontend/src/
 │   ├── identity/            # auth, profile, sessions
 │   ├── tenancy/             # orgs, projects, members, invites, OC transfers
 │   ├── keys/                # api_keys, key_groups, search_keys
+│   ├── prompt-studio/       # prompt assistant configs, prompt templates
 │   ├── agents/              # agents, RAG, GraphRAG, MCP bindings
+│   ├── agent-groups/        # agent-group CRUD, membership, group-owned Concept Map panel
+│   ├── activities/          # chatroom-hosted activity plugins (one-way: never imports conversation)
 │   ├── conversation/        # workspaces, chatrooms, messages, attachments
 │   ├── workflow/            # workflow editor + runs viewer
 │   ├── admin/               # admin console
+│   ├── notifications/       # notification bell + list
 │   └── skills/              # skill authoring, bundles, agent bindings
 │
 └── shared/
