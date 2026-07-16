@@ -78,6 +78,12 @@ def chat_model_catalog() -> tuple[ChatModelCatalogEntry, ...]:
     )
 
 
+# Upper bound on `agents.skill_index_token_cap`, mirrored by the
+# `agents_skill_index_cap_bounded` CHECK in migration 0056. The API validates against
+# this so an over-cap value is a 422 rather than an IntegrityError 500.
+MAX_SKILL_INDEX_TOKEN_CAP = 16_000
+
+
 class ContextMode(str, enum.Enum):
     GENERAL = "general"
     COMPACT = "compact"
@@ -135,6 +141,10 @@ class Agent:
     knowmap_config_id: uuid.UUID | None
     context_mode: ContextMode
     context_token_cap: int | None
+    # Cap on the §31 skills index block; None means the 3000 default. Upper-bounded at
+    # the DB (<= 16000), unlike context_token_cap above, which is unbounded everywhere
+    # and is a self-DoS once the index counts against the knowledge budget (FU-10).
+    skill_index_token_cap: int | None
     temperature: float | None
     top_p: float | None
     seed: int | None
@@ -225,6 +235,7 @@ class AgentDraft:
     knowmap_config_id: uuid.UUID | None = None
     context_mode: ContextMode | None = None
     context_token_cap: int | None = None
+    skill_index_token_cap: int | None = None
     temperature: float | None = None
     top_p: float | None = None
     seed: int | None = None
@@ -239,6 +250,7 @@ class AgentDraft:
     clear_rag_config: bool = False
     clear_knowmap_config: bool = False
     clear_context_token_cap: bool = False
+    clear_skill_index_token_cap: bool = False
     clear_temperature: bool = False
     clear_top_p: bool = False
     clear_seed: bool = False
@@ -248,6 +260,7 @@ __all__ = [
     "CHAT_MODEL_CATALOG",
     "CONTEXT_LIMITS",
     "DEFAULT_CHAT_MODELS",
+    "MAX_SKILL_INDEX_TOKEN_CAP",
     "Agent",
     "AgentDraft",
     "AgentEffort",

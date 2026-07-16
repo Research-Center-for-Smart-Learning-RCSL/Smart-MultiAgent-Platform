@@ -52,6 +52,8 @@ agents = sa.Table(
         server_default=sa.text("'general'::agent_context_mode"),
     ),
     sa.Column("context_token_cap", sa.Integer, nullable=True),
+    # §31 skills index cap; NULL means the 3000 default. CHECK (<= 16000) in 0056.
+    sa.Column("skill_index_token_cap", sa.Integer, nullable=True),
     sa.Column("temperature", sa.Float, nullable=True),
     sa.Column("top_p", sa.Float, nullable=True),
     sa.Column("seed", sa.Integer, nullable=True),
