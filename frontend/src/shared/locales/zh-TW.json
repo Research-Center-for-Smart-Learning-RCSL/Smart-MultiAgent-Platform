@@ -1,0 +1,25 @@
+{
+  "shared": {
+    "fileUpload": {
+      "dropzone": "將檔案拖曳至此，或點擊瀏覽",
+      "inputLabel": "檔案上傳",
+      "removeFile": "移除檔案"
+    },
+    "searchInput": {
+      "label": "搜尋",
+      "clear": "清除搜尋"
+    },
+    "skeleton": {
+      "loading": "載入中"
+    },
+    "badge": {
+      "remove": "移除"
+    },
+    "breadcrumb": {
+      "label": "階層導覽"
+    },
+    "table": {
+      "actions": "操作"
+    }
+  }
+}

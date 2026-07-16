@@ -247,7 +247,6 @@ export default [
   },
 
   // shared/ui atom overrides:
-  // - bare strings: design-system labels are allowed (gate #12 exemption).
   // - require-default-prop: these atoms are TS-typed via withDefaults and already
   //   supply a real default for every prop that needs one (booleans -> false,
   //   variant/size -> a concrete value). The props this rule flags are all
@@ -257,7 +256,6 @@ export default [
   {
     files: ['src/shared/ui/**/*.vue'],
     rules: {
-      'vue/no-bare-strings-in-template': 'off',
       'vue/require-default-prop': 'off',
     },
   },

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ArrowUpTrayIcon } from '@heroicons/vue/24/outline'
 import { XMarkIcon } from '@heroicons/vue/20/solid'
 
@@ -17,6 +18,8 @@ const emit = defineEmits<{
   files: [files: File[]]
   error: [message: string]
 }>()
+
+const { t } = useI18n()
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const selectedFiles = ref<File[]>([])
@@ -118,8 +121,7 @@ defineExpose({ clear })
           class="file-upload__icon"
           aria-hidden="true"
         />
-        <!-- TODO: replace with $t('shared.fileUpload.dropzone') when i18n key is added -->
-        <span class="file-upload__text">Drop files here or click to browse</span>
+        <span class="file-upload__text">{{ t('shared.fileUpload.dropzone') }}</span>
       </slot>
     </div>
     <input
@@ -129,7 +131,7 @@ defineExpose({ clear })
       class="file-upload__input"
       :multiple="props.multiple"
       :disabled="props.disabled"
-      aria-label="File upload"
+      :aria-label="t('shared.fileUpload.inputLabel')"
       @change="onFileChange"
     >
     <ul
@@ -146,7 +148,7 @@ defineExpose({ clear })
         <button
           type="button"
           class="file-upload__remove"
-          aria-label="Remove file"
+          :aria-label="t('shared.fileUpload.removeFile')"
           @click.stop="removeFile(index)"
         >
           <XMarkIcon

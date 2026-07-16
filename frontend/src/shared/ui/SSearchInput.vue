@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/vue/20/solid'
 
 const props = withDefaults(defineProps<{
@@ -15,6 +16,8 @@ const emit = defineEmits<{
   search: []
   clear: []
 }>()
+
+const { t } = useI18n()
 
 const hasValue = computed(() => props.modelValue.length > 0)
 
@@ -76,7 +79,7 @@ function onClear() {
       class="search-input__field"
       type="text"
       :value="props.modelValue"
-      aria-label="Search"
+      :aria-label="t('shared.searchInput.label')"
       @input="onInput"
       @keydown="onKeydown"
     >
@@ -84,7 +87,7 @@ function onClear() {
       v-if="hasValue"
       class="search-input__clear"
       type="button"
-      aria-label="Clear search"
+      :aria-label="t('shared.searchInput.clear')"
       @click="onClear"
     >
       <XMarkIcon

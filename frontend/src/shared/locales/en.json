@@ -1,0 +1,25 @@
+{
+  "shared": {
+    "fileUpload": {
+      "dropzone": "Drop files here or click to browse",
+      "inputLabel": "File upload",
+      "removeFile": "Remove file"
+    },
+    "searchInput": {
+      "label": "Search",
+      "clear": "Clear search"
+    },
+    "skeleton": {
+      "loading": "Loading"
+    },
+    "badge": {
+      "remove": "Remove"
+    },
+    "breadcrumb": {
+      "label": "Breadcrumb"
+    },
+    "table": {
+      "actions": "Actions"
+    }
+  }
+}
