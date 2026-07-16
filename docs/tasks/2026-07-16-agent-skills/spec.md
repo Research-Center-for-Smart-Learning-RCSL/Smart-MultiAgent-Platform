@@ -2231,6 +2231,26 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   **Not the same subject as FU-19**, despite landing in the same batch: this is a selection-policy
   bug in the application layer, FU-19 is a materialisation bug in infrastructure. Fixing one gives
   zero leverage on the other.
+  **Closed 2026-07-17.** Fixed directly rather than via a dossier: the `/build` triage is one word in
+  one file, and the sibling 45 lines up settles the design question that would otherwise have needed
+  one. The verification note's central claim was re-confirmed by writing the test first — **no
+  existing case could tell `break` from `continue`**, because every truncation fixture in
+  `test_workspace_staging.py` puts the overrunning file *last* (`:87-99` and `:125-133` are
+  100 MiB + 100 MiB; `:143-147` is a lone 200 MiB), so all three agree under either keyword. The new
+  `test_a_file_that_fits_after_an_overrun_is_still_staged` uses `[100 MiB, 100 MiB, 10 B]` and was
+  seen red for the documented reason (`assert ['a.bin'] == ['a.bin', 'c.csv']`) before the fix. The
+  cache-correctness claim also held: the test asserts `manifest_sha == _expected_manifest([a, c])`,
+  so AC-12 survives the change rather than being taken on trust.
+  **Sibling sweep: clean.** Every `break` in the codebase guarded by a budget-overrun test was
+  checked; the only other hit (`audit_query_service.py:78-80`) is a different defect shape —
+  `total_rows >= max_rows` over homogeneous paginated rows, where stopping *is* correct because
+  there is no "this one does not fit but the next might". This bug was unique to a **packing** loop:
+  variable-size items against a byte budget, where skipping one says nothing about the rest.
+  One thing this entry did not name, found while fixing and deliberately left alone: the persisted
+  path has **no count cap at all** — `list_workspace_files` is unbounded and `for wf in ws_files:`
+  iterates all of it, where the attachment sibling caps at `_MAX_STAGED_FILES = 10` (`:136`). That is
+  a resource question in FU-24's family, not a selection-policy one, and changing it would be a
+  second user-visible behaviour change riding in on this fix.
 - **FU-19: the agent-workspace volume is never cleared before re-staging.**
   `stage_agent_workspace_files` (`docker_runsc.py:1053`) `put_archive`s into the persistent
   `smap-agent-fs-{agent_id}` volume without removing what is already there, so a file deleted from
