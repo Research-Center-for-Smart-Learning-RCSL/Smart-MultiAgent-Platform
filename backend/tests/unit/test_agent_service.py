@@ -84,6 +84,7 @@ def _make_agent(
         knowmap_config_id=knowmap_config_id,
         context_mode=ContextMode.GENERAL,
         context_token_cap=None,
+        skill_index_token_cap=None,
         temperature=None,
         top_p=None,
         seed=None,

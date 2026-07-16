@@ -14,6 +14,7 @@ export type AgentPatchIn = {
     name?: (string | null);
     rag_config_id?: (string | null);
     seed?: (number | null);
+    skill_index_token_cap?: (number | null);
     system_prompt?: (string | null);
     temperature?: (number | null);
     top_p?: (number | null);

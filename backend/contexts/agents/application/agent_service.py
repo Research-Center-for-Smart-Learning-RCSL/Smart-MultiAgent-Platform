@@ -427,6 +427,7 @@ class AgentService:
             knowmap_config_id=draft.knowmap_config_id,
             context_mode=draft.context_mode or ContextMode.GENERAL,
             context_token_cap=draft.context_token_cap,
+            skill_index_token_cap=draft.skill_index_token_cap,
             temperature=draft.temperature,
             top_p=draft.top_p,
             seed=draft.seed,
@@ -574,6 +575,10 @@ class AgentService:
             values["context_token_cap"] = None
         elif draft.context_token_cap is not None:
             values["context_token_cap"] = draft.context_token_cap
+        if draft.clear_skill_index_token_cap:
+            values["skill_index_token_cap"] = None
+        elif draft.skill_index_token_cap is not None:
+            values["skill_index_token_cap"] = draft.skill_index_token_cap
         if draft.clear_temperature:
             values["temperature"] = None
         elif draft.temperature is not None:

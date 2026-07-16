@@ -785,6 +785,19 @@
             ],
             "title": "Seed"
           },
+          "skill_index_token_cap": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 16000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skill Index Token Cap"
+          },
           "system_prompt": {
             "default": "",
             "maxLength": 100000,
@@ -1143,6 +1156,17 @@
             ],
             "title": "Seed"
           },
+          "skill_index_token_cap": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skill Index Token Cap"
+          },
           "system_prompt": {
             "title": "System Prompt",
             "type": "string"
@@ -1195,6 +1219,7 @@
           "knowmap_config_id",
           "context_mode",
           "context_token_cap",
+          "skill_index_token_cap",
           "temperature",
           "top_p",
           "seed",
@@ -1354,6 +1379,19 @@
               }
             ],
             "title": "Seed"
+          },
+          "skill_index_token_cap": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 16000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skill Index Token Cap"
           },
           "system_prompt": {
             "anyOf": [

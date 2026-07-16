@@ -63,6 +63,7 @@ async def _seed_agent(db, project_id: uuid.UUID, key_group_id: uuid.UUID) -> uui
         knowmap_config_id=None,
         context_mode=ContextMode.GENERAL,
         context_token_cap=None,
+        skill_index_token_cap=None,
         temperature=None,
         top_p=None,
         seed=None,

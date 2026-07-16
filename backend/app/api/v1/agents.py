@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.deps import PaginationParams
 from contexts.agents.application.agent_service import AgentService
 from contexts.agents.domain.models import (
+    MAX_SKILL_INDEX_TOKEN_CAP,
     AgentDraft,
     AgentEffort,
     AgentModelHint,
@@ -79,6 +80,7 @@ class AgentCreateIn(BaseModel):
     knowmap_config_id: uuid.UUID | None = None
     context_mode: Literal["general", "compact"] = "general"
     context_token_cap: int | None = Field(default=None, gt=0)
+    skill_index_token_cap: int | None = Field(default=None, gt=0, le=MAX_SKILL_INDEX_TOKEN_CAP)
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, ge=0, le=1)
     seed: int | None = Field(default=None, ge=_SEED_MIN, le=_SEED_MAX)
@@ -112,6 +114,7 @@ class AgentPatchIn(BaseModel):
     knowmap_config_id: uuid.UUID | None = None
     context_mode: Literal["general", "compact"] | None = None
     context_token_cap: int | None = Field(default=None, gt=0)
+    skill_index_token_cap: int | None = Field(default=None, gt=0, le=MAX_SKILL_INDEX_TOKEN_CAP)
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, ge=0, le=1)
     seed: int | None = Field(default=None, ge=_SEED_MIN, le=_SEED_MAX)
@@ -135,6 +138,7 @@ class AgentOut(BaseModel):
     knowmap_config_id: uuid.UUID | None
     context_mode: ContextMode
     context_token_cap: int | None
+    skill_index_token_cap: int | None
     temperature: float | None
     top_p: float | None
     seed: int | None
@@ -160,6 +164,7 @@ def _to_agent_out(a) -> AgentOut:
         knowmap_config_id=a.knowmap_config_id,
         context_mode=a.context_mode,
         context_token_cap=a.context_token_cap,
+        skill_index_token_cap=a.skill_index_token_cap,
         temperature=a.temperature,
         top_p=a.top_p,
         seed=a.seed,
@@ -231,6 +236,7 @@ async def create_agent(
         knowmap_config_id=body.knowmap_config_id,
         context_mode=ContextMode(body.context_mode),
         context_token_cap=body.context_token_cap,
+        skill_index_token_cap=body.skill_index_token_cap,
         temperature=body.temperature,
         top_p=body.top_p,
         seed=body.seed,
@@ -328,6 +334,7 @@ async def patch_agent(
         knowmap_config_id=fields.get("knowmap_config_id"),
         context_mode=(ContextMode(fields["context_mode"]) if "context_mode" in fields else None),
         context_token_cap=fields.get("context_token_cap"),
+        skill_index_token_cap=fields.get("skill_index_token_cap"),
         temperature=fields.get("temperature"),
         top_p=fields.get("top_p"),
         seed=fields.get("seed"),
@@ -340,6 +347,9 @@ async def patch_agent(
         clear_rag_config="rag_config_id" in fields and fields["rag_config_id"] is None,
         clear_knowmap_config="knowmap_config_id" in fields and fields["knowmap_config_id"] is None,
         clear_context_token_cap=("context_token_cap" in fields and fields["context_token_cap"] is None),
+        clear_skill_index_token_cap=(
+            "skill_index_token_cap" in fields and fields["skill_index_token_cap"] is None
+        ),
         clear_temperature=("temperature" in fields and fields["temperature"] is None),
         clear_top_p=("top_p" in fields and fields["top_p"] is None),
         clear_seed=("seed" in fields and fields["seed"] is None),
