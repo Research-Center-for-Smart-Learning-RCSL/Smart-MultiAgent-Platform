@@ -2209,8 +2209,15 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   deadline should be monotonic-clock-based with a floor above the host's timer granularity, or the
   guard should count nodes rather than milliseconds. Pre-existing; seen on two separate full-suite
   runs during Phase 1.
-  **Verified 2026-07-17: the symptom is real; both stated causes are wrong, and so is the fix. This
-  is a production defect, not a test flake — rewrite before building.**
+  **Verified 2026-07-17: the symptom is real; both stated causes are wrong, and so is the fix.
+  Windows dev machines only — NOT a production defect.**
+  *(Correction, same day: the first version of this note claimed "a production defect in workflow
+  condition evaluation, not just a test flake". That was wrong and is retracted. It assumed the
+  15.625 ms quantisation below is universal; it is not, it is a Windows property. Measured in the
+  production base image `python:3.12-slim-bookworm` — `time.monotonic()` is
+  `clock_gettime(CLOCK_MONOTONIC)` at **1e-09** resolution, so the budget behaves exactly as
+  intended on Linux and the race cannot occur there. Every SMAP service image is Debian-based
+  (`backend/Dockerfile`), so production is unaffected. The severity is a dev-machine test flake.)*
   *"Under random ordering" is false*: no `pytest-randomly` or `pytest-random-order` is installed
   (`addopts` at `pyproject.toml:352` is `-ra --strict-markers --strict-config`), so order is
   deterministic and `-p no:randomly` is a no-op. Ordering is not the variable.
@@ -2219,23 +2226,32 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   (`:327`) and set **after** parsing. This entry was written from the module docstring, not the
   code — and **that docstring is itself the defect**: `evaluator.py:6` claims "Wall-clock ≤ 5 ms per
   evaluation (threading timer)", which is wrong twice (it is monotonic, and there is no timer).
-  *The real mechanism is clock quantisation, not preemption.* On Windows `time.monotonic()` is
-  backed by `GetTickCount64()` with **15.625 ms resolution** — so monotonic *is* the low-resolution
-  clock here, and switching to it bought nothing. A 5 ms budget is under a third of one tick:
-  normally both reads land in the same tick, elapsed reads as exactly `0.0`, and the budget can
-  **never** measure a real overrun; but if a tick boundary falls in the microsecond-wide window
-  between `:515` and the first check, the clock jumps a full 15.625 ms at once and
-  `SELBudgetExceeded` fires on the **first AST node, before evaluating anything**. The guard is thus
-  simultaneously unenforceable and randomly fatal to trivial expressions — in production workflow
-  condition evaluation, not just in tests. (Could not reproduce locally: 10/10 clean runs, full
-  suite 4693 passed. The odds are ~(gap between the two reads)/15.625 ms, which is why it only shows
-  across full-suite runs.)
-  *Fix*: **`time.perf_counter()`** (~100 ns, monotonic — the correct primitive) is the minimal
-  correct change; a **node-count budget** is strictly better for the purpose, since depth ≤ 16 and
-  length ≤ 1000 already bound the AST, making it deterministic and host-independent. A bigger floor
-  only lowers the odds — the race survives. Note `_regex_match` (`:292-313`) is the only genuinely
+  *The real mechanism is clock quantisation, not preemption — and it is host-specific.* On **Windows
+  under Python 3.12** `time.monotonic()` is backed by `GetTickCount64()` with **15.625 ms
+  resolution** (measured: `resolution=0.015625`), so monotonic *is* the low-resolution clock there
+  and switching to it bought nothing. A 5 ms budget is under a third of one tick: normally both
+  reads land in the same tick, elapsed reads as exactly `0.0`, and the budget can **never** measure a
+  real overrun; but if a tick boundary falls in the microsecond-wide window between `:515` and the
+  first check, the clock jumps a full 15.625 ms at once and `SELBudgetExceeded` fires on the **first
+  AST node, before evaluating anything**. So on Windows the guard is simultaneously unenforceable
+  and randomly fatal to trivial expressions. The odds are ~(gap between the two reads)/15.625 ms,
+  which is why it only surfaces across full-suite runs. (Could not reproduce on demand: 10/10 clean
+  runs of the file, full suite 4693 passed.)
+  **On Linux it does not happen at all.** Measured inside the production base image
+  (`python:3.12-slim-bookworm`, per `backend/Dockerfile`): `time.monotonic()` is
+  `clock_gettime(CLOCK_MONOTONIC)` at **1e-09** resolution, and `perf_counter` is *the same clock*.
+  Every SMAP service image is Debian-based, so the deployed budget works as designed and this is a
+  **dev-machine test flake**, not a production defect.
+  *Fix*: **`time.perf_counter()`** — 100 ns on Windows (`QueryPerformanceCounter`), byte-identical to
+  today's behaviour on Linux, so it is a zero-risk one-liner that fixes the flake and changes nothing
+  in production. A **node-count budget** would be defensible on the merits (depth ≤ 16 and length
+  ≤ 1000 already bound the AST, so it is deterministic and host-independent) but it is a behaviour
+  change to a security guard for a problem production does not have — not worth it. A bigger floor
+  only lowers the odds; the race survives. Note `_regex_match` (`:292-313`) is the only genuinely
   time-unbounded operation and its own comment (`:296-299`) admits the deadline never protected it,
-  relying on re2's linear-time engine instead. Fix `:6`'s docstring in the same change.
+  relying on re2's linear-time engine instead. Fix `:6`'s docstring in the same change — it claims
+  "Wall-clock ≤ 5 ms per evaluation (threading timer)" and is wrong twice.
+  **Disposition: a drive-by (one line + docstring), not a dossier.**
 - **FU-22: `_resolve_skills` is a fourth un-gathered query at turn start.** §7 already notes the
   three sequential un-gathered queries at `:881`/`:891`/`:899` and judges the bound-set snapshot
   "noise at R3.02's 100 concurrent users", which holds. Recording it anyway because the *count* is
