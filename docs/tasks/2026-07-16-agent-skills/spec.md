@@ -2155,6 +2155,28 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   deserves its own dossier rather than riding in on a skills change. Note this bug is the reason
   the reviewed draft's "`:138` is a bug" claim felt plausible: **one of the two callers really is
   broken** — just not the one the draft proposed to change.
+  **Verified and split out 2026-07-17 → `2026-07-17-agent-files-path-resolution`.** Every claim above
+  holds. The deferral was right: Q-1 there confirms the fix is a real decision with a compatibility
+  question attached, and it took two clarifications to settle. But this entry **understates the root
+  cause and misses the reason it survived**:
+  (a) **The root cause is one function, not two roots.** `_tar_staged_inputs`
+  (`docker_runsc.py:106-138`) names tar members with `posixpath.join(rel_dir, name)` (`:133`) but
+  builds its *return* with `posixpath.join("inputs", name)` (`:138`) — hardcoding `inputs`, ignoring
+  `rel_dir`, and so **not returning the paths it staged**, against its own docstring. `_fix_paths`
+  (`:1023`) exists only to string-rewrite that for one caller, producing a path correct relative to
+  `/workspace` and wrong relative to the kernel's cwd. Both roots are downstream of that one split.
+  (b) **`stage_kernel_inputs` is correct only by coincidence.** Its hardcoded `"inputs"` happens to
+  equal the session-relative form of what it staged. Change the `chdir` target or its `rel_dir` and it
+  breaks silently. Nothing states the coupling; nothing tests it.
+  (c) **The suite has been green over a 100%-reproducible bug since the feature shipped.**
+  `tests/unit/test_workspace_staging.py:37-39` is a fake returning `[f"agent-files/{f.filename}"]` and
+  `:84`/`:95` assert exactly that — **the fake hardcodes the same wrong answer as production, and the
+  assertion enshrines it.** The fix inverts those assertions rather than adding to them.
+  (d) **Two more user-facing surfaces carry the bug.** The designer-facing hint at
+  `slices/agents/locales/{en,zh-TW}.json:392` tells designers their files are at `agent-files/<path>`
+  for "Code Interpreter and File Workspace tools" — true for `file`, false for `code_exec`. And
+  `D-code-interpreter-files.md:138` is not merely documentation of the broken form: it is that
+  feature's **exit criterion**, so it could never have passed, and the feature was signed off anyway.
 
 *Added during Phase 0 implementation (2026-07-16):*
 
