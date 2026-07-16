@@ -174,11 +174,24 @@ def _tar_staged_inputs(
             d.uid = d.gid = _SANDBOX_UID
             tar.addfile(d)
 
+    names = [_safe_staged_name(f.filename, preserve_tree=preserve_tree) for f in files]
+    # A name some other file needs as a directory is not available as a file name:
+    # `reports` and `reports/q1.csv` are both legal uploads, and emitting a file
+    # member and a dir member for the same path makes extraction fail — which,
+    # because staging faults are swallowed to protect the turn, would silently
+    # drop every workspace file for the agent rather than the one odd upload.
+    reserved: set[str] = set()
+    for n in names:
+        acc = ""
+        for part in n.split("/")[:-1]:
+            acc = posixpath.join(acc, part) if acc else part
+            reserved.add(acc)
+
     with tarfile.open(fileobj=buf, mode="w") as tar:
         _mkdirs(tar, rel_dir)
         seen: set[str] = set()
-        for f in files:
-            name = _disambiguate(_safe_staged_name(f.filename, preserve_tree=preserve_tree), seen)
+        for f, raw_name in zip(files, names, strict=True):
+            name = _disambiguate(raw_name, seen | reserved)
             seen.add(name)
             member = posixpath.join(rel_dir, name)
             parent = posixpath.dirname(member)

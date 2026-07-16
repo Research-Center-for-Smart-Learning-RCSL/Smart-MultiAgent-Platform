@@ -252,6 +252,35 @@ def test_workspace_staging_preserves_the_designers_tree() -> None:
         assert members[d].uid == _SANDBOX_UID
 
 
+def test_a_file_does_not_take_a_name_another_file_needs_as_a_folder() -> None:
+    """Both `reports` and `reports/q1.csv` are legal, distinct uploads. Emitting a
+    file member and a directory member for the same path makes extraction fail, and
+    staging faults are swallowed to protect the turn — so this would have dropped
+    every workspace file for the agent, silently, over one odd upload.
+    """
+    import io
+    import tarfile
+
+    from contexts.agents.domain.mcp import StagedFile
+    from contexts.agents.infrastructure.sandbox.docker_runsc import _tar_staged_inputs
+
+    files = [
+        StagedFile(filename="reports", data=b"file-not-folder"),
+        StagedFile(filename="reports/q1.csv", data=b"in-folder"),
+    ]
+    archive, staged = _tar_staged_inputs("agent-files", files, preserve_tree=True)
+
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        kinds = {m.name.rstrip("/"): ("dir" if m.isdir() else "file") for m in tar.getmembers()}
+    # No path is claimed as both, and every reported path exists as a file.
+    assert kinds["agent-files/reports"] == "dir"
+    assert staged[1] == "agent-files/reports/q1.csv"
+    assert staged[0] != "agent-files/reports"
+    assert kinds[staged[0]] == "file"
+    assert tar_bytes(archive, staged[0]) == b"file-not-folder"
+    assert tar_bytes(archive, staged[1]) == b"in-folder"
+
+
 def test_attachments_still_flatten_to_a_basename() -> None:
     """AC-13's other half. Attachment names carry no meaningful tree and are less
     trusted, so `preserve_tree` stays off for them and a nested name collapses."""
