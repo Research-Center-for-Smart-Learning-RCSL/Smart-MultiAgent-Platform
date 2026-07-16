@@ -1929,6 +1929,39 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   lists a `skills/` slice that does not exist on disk, which is aspiration rather than drift and
   needs its own call. Also `eslint.config.js:225`'s comment is itself stale ("ONLY in
   ChatroomView.vue") against the 5-file allowlist it introduces.
+  **Mechanical half done 2026-07-17; the two judgement calls are held open, by request.**
+  Fixed against ground truth measured from the tree rather than from this entry's numbers:
+  `CLAUDE.md:10` now names all **14** contexts (it named 6, plus a non-existent `admin`);
+  `backend/CLAUDE.md:54` now says 0000–0056; `frontend/CLAUDE.md` now lists all **11** slices (it
+  listed 8) and its gate #4 line now describes the real 5-file allowlist; `eslint.config.js:225`'s
+  own comment no longer contradicts the list directly beneath it; `REQUIREMENTS.md`'s §23 tree gains
+  the four missing contexts (`activities`, `agent_groups`, `orchestration`, `prompt_studio`) and
+  §24.2's tree the four missing slices (`activities`, `agent-groups`, `notifications`,
+  `prompt-studio`).
+  **Two extra drifts in the same class, found while measuring and fixed:** `backend/CLAUDE.md:33`
+  claimed 38 route files against **47**, and `:72` claimed ~890 unit tests against **4699**. Its
+  neighbours survived the check and were left alone — the `app/api/ws/` count of 8 is exact, and
+  `~65%` coverage measured **66%**, so both are accurate rather than lucky.
+  **A trap worth naming: one "mechanical" fix was a judgement call in disguise, and was not made.**
+  `REQUIREMENTS.md:791`'s sub-agent inheritance table has a `graphrag_config_id | ✗ (forced null)`
+  row. Substituting `knowmap_config_id` there would *assert that sub-agents force a Knowledge Map
+  binding to null* — a design decision nobody has made, not drift. **Left untouched.** For the same
+  reason `:492` and `:1352` were left: those are Neo4j labels/node properties, which are live, so a
+  blanket rename would have broken correct text.
+  **On the two that were fixed (`:389`, `:1089`): `graphrag_config_id` was not renamed to
+  `knowmap_config_id`, and it would be wrong to read the edit that way.** `0044`'s docstring says the
+  reverse pointer was dropped because "retrieval resolves configs through the membership join" —
+  GraphRAG ownership moved to the discriminated owner model. `knowmap_config_id` is a separate,
+  later column (`0048`, `tables.py:44-47`, `[R11.14]`) pointing at a separate `knowmap_configs` table
+  (`0048_knowmap.py:38`). The agents table simply lost one field and gained another; both sites now
+  say so.
+  **Still open, and yours:** (a) `[R23.03]` says facades live in `application/` while **14/14**
+  contexts put them in `interfaces/` and `backend/CLAUDE.md:26` documents the correct location — SRS
+  wrong or code wrong? Note `REQUIREMENTS.md:1681`'s tree describes `interfaces/` as "REST routers,
+  WS handlers", which is the same question wearing a different hat, so it was left alone too.
+  (b) §24.2's tree lists a `skills/` slice that does not exist on disk — aspiration or drift? Left
+  in place. **Neither was touched, and the mechanical fixes were shaped so that answering either one
+  later needs no rework.**
 - **FU-2: §29 added no §21.1 tables.** `prompt_assistant_configs`, `prompt_templates`, and
   `prompt_assistant_files` are absent from both the §21.1 SQL block and the §21.1.0 coverage
   matrix, though that matrix asserts it "Confirms **every** domain concept ... has a persistence
