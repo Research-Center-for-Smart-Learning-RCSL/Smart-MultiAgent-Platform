@@ -374,9 +374,12 @@ orphaned before that fix existed.
 ### 4.6 Storage and upload
 
 Six MinIO buckets (`app/config/settings.py:101-106`): `chat-uploads`, `rag-sources`,
-`knowmap-sources`, `exports`, `agent-workspace`, `prompt-assistant-files`. **The `exports`
-bucket's TTL is declared but not enforced** — `settings.py:111` reads
-`exports_expiry_hours: int = 24  # §21.5 — NOT YET IMPLEMENTED — lifecycle not applied yet`.
+`knowmap-sources`, `exports`, `agent-workspace`, `prompt-assistant-files`. ~~**The `exports`
+bucket's TTL is declared but not enforced**~~ — **wrong; retracted 2026-07-17.** The TTL *is*
+enforced, twice: `minio_init.py:146-152` sets and idempotently reconciles a real `LifecycleConfig`,
+and `retention.py:422-475` purges the bucket independently. This claim was read off
+`settings.py:111`'s stale `NOT YET IMPLEMENTED` comment rather than the code; both the comment and
+the dead setting it annotated are gone (`9552aa9`). See FU-12.
 Uploads branch on 32 MB: multipart below, tus above; `frontend/src/shared/transport/tus.ts:21`
 declares a closed `purpose` union (`chat_attachment | rag_source | knowmap_source`) mirrored by a
 fail-closed 403 else-branch in `app/api/v1/tus.py:201-206`.
@@ -1987,6 +1990,7 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   `PROMPT_ASSISTANT_SYSTEM_PROMPT: 20_000` with a comment pointing at `prompt_studio/domain/
   models.py:17`, and import that. Do **not** reuse `CONFIG_TEXT: 20_000` (`:45`) — same number,
   unrelated concept.
+  **Closed 2026-07-17 (`77a44bc`)** — fixed as corrected above, not as originally written.
 - **FU-9: SRS enumerations already incomplete.** `[R3.04]` (`:134`) omits `activities` despite
   §30's prose (`:2051`) claiming to have added it; §21.5's bucket list (`:1350-1353`) omits
   `knowmap-sources` and `agent-workspace` against `settings.py:101-106`; `[R22.15.03]` (`:1598`)'s
@@ -2045,6 +2049,9 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   hardcodes `timedelta(hours=24)`, so that field's "single source of truth" comment at `:107-109` is
   false for it while true for its neighbour `chat_uploads_expiry_days`). Residue is a ~3-line
   drive-by: delete the comment, then either thread the setting through both call sites or delete it.
+  **Closed 2026-07-17 (`9552aa9`)** — deleted rather than threaded: the setting fits neither
+  enforcer (the bucket lifecycle is day-granular, and every TTL in `retention.py` is a literal), so
+  threading it would have silently rounded in one and broken the module's convention in the other.
 - **FU-13: `[R9.06]`'s Analysis prose misdescribes its own requirement.** `REQUIREMENTS.md:407`
   names frontmatter key `when_to_invoke` and tool `load_section(id)`; `[R9.06]` at `:413-422` says
   `title` and `load_prompt_section`, matching the code. §13(g) deletes the whole block, so this
@@ -2127,6 +2134,9 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   (`ci.yml:765-783`) nor in its required-results loop (`:809-824`). Since `ci.yml:757-759` instructs
   branch protection to reference only `gate`, a lazy-prompt regression goes red on its own job and
   **still merges**. One-line fix; worth doing wherever FU-16's neighbours land.
+  **That residual is closed too, 2026-07-17 (`6bad283`)** — `repo-gates` is now in `gate.needs` and
+  in the required-results loop (it has no `if:` and cannot skip, so it belongs there rather than
+  with the allowed-to-skip jobs). AC-10 now actually blocks a merge.
 - **FU-18: `_stage_persisted_files` uses `break` where its sibling uses `continue`.**
   `turn_engine.py:788` stops at the **first** file that would overrun `_MAX_AGENT_FILES_BYTES`, so
   one large file early in the list silently drops every smaller file after it; the attachment path
