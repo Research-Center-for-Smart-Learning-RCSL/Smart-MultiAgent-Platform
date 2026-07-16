@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-07-16
 requirements: [R31.01, R31.02, R31.03, R31.04, R31.05, R31.06, R31.07, R31.08, R31.09, R31.10, R31.11, R31.12, R31.13, R31.14, R31.15, R31.16, R31.17, R31.18, R31.19, R31.20, R31.21, R31.22, R31.23, R31.24, R31.25, R31.26, R31.27, R31.28, R31.29, R3.04, R8.12, R9.02, R9.04, R9.05, R9.06, R9.07, R9.08, R14.09, R15.22, R22.15.03, R23.01, R24.06]
 ---
@@ -1065,13 +1065,19 @@ orphaned, not deleted — consistent with §1.2's backup stance.
 
 **Phase 0 — prerequisites**
 
-- [ ] AC-11: `knowledge_budget` flooring at 0 while the agent has any knowledge source bound emits
+- [x] AC-11: `knowledge_budget` flooring at 0 while the agent has any knowledge source bound emits
       an audit event and `emit_agent_finished_error` instead of silently dropping all knowledge.
       Driven via a low `context_token_cap`.
-- [ ] AC-12: `_stage_persisted_files` computes `manifest_sha` over exactly the file set it stages;
+      *(`_knowledge_starved` / `_has_knowledge_source` + `_KnowledgeStarved` handler,
+      `turn_engine.py:1183`/`:1438`/`:2085`; 9 tests in `test_turn_context_budget.py`. See D-1, D-3,
+      D-4. The end-to-end drive via a live low-cap agent is the §12 `/verify` row — blocked on a
+      live DB, §10.)*
+- [x] AC-12: `_stage_persisted_files` computes `manifest_sha` over exactly the file set it stages;
       a >128 MiB set produces a manifest matching the staged prefix, and a different truncated tail
       re-stages.
-- [ ] AC-13: `_SystemBlocks` drives `measure(summaries)` and
+      *(`turn_engine.py:793-802`; 8 tests in `test_workspace_staging.py`, 3 of which were confirmed
+      red against the pre-fix code for the documented reason. See D-5 on the second clause.)*
+- [x] AC-13: `_SystemBlocks` drives `measure(summaries)` and
       `render(summaries, knowledge_blocks, include_participant_note)` from one ordered list, each
       block carrying an explicit classification. The test asserts **the honest invariant**: every
       block is in exactly one of `measured_and_rendered`, `measured_only` (conservative — the
@@ -1080,6 +1086,8 @@ orphaned, not deleted — consistent with §1.2's backup stance.
       "Every rendered block is measured" would **fail on correct code in both directions** and is
       not the invariant. A characterization test of current assembly output exists **before** the
       refactor.
+      *(`turn_engine.py:291-417`; `test_turn_system_blocks.py` — 1348 differential cases + the
+      partition invariant. See D-2 on the form the characterization took.)*
 
 **Phase 1 — core (backend + removal-only frontend)**
 
@@ -1539,7 +1547,57 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
 
 ## 15. Deviation Log
 
-Empty — not yet implemented.
+**Phase 0 (2026-07-16).** Phases 1-4 are not implemented; their ACs remain unchecked.
+
+- **D-1: AC-11's tests extend `test_turn_context_budget.py` rather than create
+  `test_turn_engine_budget.py`.** §12's plan names the latter as new. The former **already exists**
+  and is precisely this glue's test file — its docstring reads "F-16 / F-17 — whole-request token
+  budgeting for turn assembly … here we pin the turn-engine glue". Two files whose names differ by
+  one word, covering the same function, is a trap for the next reader. §4 did not record the file's
+  existence, which is why the plan proposed a homonym.
+- **D-2: AC-13's characterization test is *differential*, not a golden output capture.** The AC asks
+  for "a characterization test of current assembly output … **before** the refactor". That is not
+  literally constructible: `_fixed_system_text` and `system_parts` were nested closures inside
+  `_run_locked`, reachable only by driving a full turn, and "building a full TurnEngine needs
+  settings/router/qdrant wiring" (`test_turn_engine_observer_activity.py:3-4`) — their
+  unreachability *is* the defect AC-13 removes. Instead `test_turn_system_blocks.py` transcribes
+  both pre-refactor closures verbatim (cited to `44c66e4`) and asserts the new implementation is
+  byte-identical across **1348** cases: every combination of six block-presence states × 3 summary
+  sets × 3 knowledge sets × the participant flag. This pins old behaviour more tightly than a golden
+  file would, but it is a transcription, so it inherits any misreading of the original — mitigated
+  by the transcription being a mechanical copy of a 16-line function.
+- **D-3: AC-11 required a frontend change, which §6 scoped as "Phase 1's frontend deliverable is
+  removal only".** `emit_agent_finished_error`'s reason string is not free text on the client: it is
+  a key into `AGENT_ERROR_MESSAGE_KEYS` (`slices/conversation/constants/agentErrors.ts:6-12`), and an
+  unmapped reason silently falls back to `agentFailed` ("The agent run failed. Please try again.").
+  That copy is actively wrong here — retrying reproduces the skip — so AC-11's "visibly error" would
+  have shipped as a misleading generic toast. Added one map entry, one i18n key in **both** locales,
+  and `agentErrors.test.ts`, which also closes the gap §7 names ("no gate catches a missing
+  translation") for this surface. No slice, no route, no API contract: the OpenAPI drift gate is
+  untouched, so Phase 1's ordering constraint is unaffected.
+- **D-4: `_KnowledgeStarved` carries `fixed_context` and `ceiling`, and the audit event records
+  both.** AC-11 asks only for "an audit event". The adversarial review of this diff established that
+  `fixed_context` also carries `input_tokens` and history — and `estimate_tokens` counts CJK at 1
+  token/char (`shared_kernel/tokens.py:33`) against `_MAX_CONTENT_MD = 100_000`
+  (`app/api/v1/messages.py:64`) — so **one long message can floor the budget on a perfectly
+  reasonable cap**. An event naming only the cap would misattribute the cause, and the handler cannot
+  re-derive `fixed_context` because it is computed inside the assembly closure. The user-facing copy
+  names both causes for the same reason.
+- **D-5: AC-12's clause "a different truncated tail re-stages" is implemented as "a different
+  *staged set* re-stages".** Read literally against the AC's own first clause — "computes
+  `manifest_sha` over exactly the file set it stages" — the two contradict: a manifest covering only
+  the staged prefix *cannot* observe a change beyond the cut, by construction. The implemented
+  behaviour is the self-consistent one: the manifest is the cache key for what is on the volume, so
+  a change to a file that was never staged does **not** re-stage (`test_workspace_staging.py`
+  asserts both directions explicitly). Flagged rather than silently resolved because the phrase is
+  the AC's only statement about invalidation.
+- **D-6: `_has_knowledge_source`'s Concept Map lookup runs under `begin_nested()`.** Not specified;
+  required. The lookup is a DB read inside the turn's live transaction, and this file's two other
+  best-effort DB reads (`:1516`, `:1543`) both wrap in a SAVEPOINT for the reason
+  `_observer_memory_block`'s docstring states: an un-isolated failure aborts the whole transaction
+  "including the turn's already-pending `agent.turn_started` audit insert". Without it the method's
+  own "best-effort" promise was false — a transient fault would have failed the very turn the guard
+  exists to protect. Caught by this task's quality gate, not by review.
 
 ## 16. Follow-ups
 
@@ -1626,3 +1684,38 @@ Empty — not yet implemented.
   deserves its own dossier rather than riding in on a skills change. Note this bug is the reason
   the reviewed draft's "`:138` is a bug" claim felt plausible: **one of the two callers really is
   broken** — just not the one the draft proposed to change.
+
+*Added during Phase 0 implementation (2026-07-16):*
+
+- **FU-16: `ruff format --check .` is red on `main`.** `backend/tests/unit/test_rag_source_teardown.py`
+  fails the repo-wide format gate on a pristine checkout (verified by stashing this task's diff and
+  re-running). Untouched by this task and deliberately not swept into its commits — the file is
+  unrelated in-progress work. One `ruff format` on that file clears it, but it needs its own commit
+  and its author's knowledge.
+- **FU-17: AC-10's CI gate is a literal `rg` command, and `rg` is not on PATH on this dev machine.**
+  The gate as written (§11 AC-10) is fine in CI if the image ships ripgrep, but a developer running
+  it locally on Windows gets "term 'rg' is not recognized" — a *pass-shaped* failure if wired into a
+  script without `set -e`. Phase 1 owns AC-10; it should pin the gate to a runner that has ripgrep,
+  or express it in Python. Not a Phase 0 blocker.
+- **FU-18: `_stage_persisted_files` uses `break` where its sibling uses `continue`.**
+  `turn_engine.py:788` stops at the **first** file that would overrun `_MAX_AGENT_FILES_BYTES`, so
+  one large file early in the list silently drops every smaller file after it; the attachment path
+  15 lines up (`:745`) uses `continue` and keeps packing. Found while writing AC-12's truncation
+  fixtures (`test_first_file_over_the_cap_stages_nothing` pins the current behaviour). Out of scope:
+  AC-12 is about the manifest describing what was staged, not about *which* files get staged —
+  changing the selection is a separate, user-visible behaviour change.
+- **FU-19: the agent-workspace volume is never cleared before re-staging.**
+  `stage_agent_workspace_files` (`docker_runsc.py:1053`) `put_archive`s into the persistent
+  `smap-agent-fs-{agent_id}` volume without removing what is already there, so a file deleted from
+  the agent's workspace stays visible to `code_exec` until the volume is destroyed. Pre-existing and
+  unchanged by AC-12 (the manifest fix is per-agent-keyed, so it neither causes nor cures this).
+  Related to FU-6's stale-manifest cache.
+- **FU-20: deferred quality findings on the Phase 0 diff.** Two Info-level items from this task's
+  quality gate, both judgment calls left as-is: (a) `_BlockRole`/`_BlockSlot`/`_SystemBlock`/
+  `_SystemBlocks` are ~127 lines of pure, IO-free code added to an already-2289-line
+  `turn_engine.py`, where the codebase's own precedent (`application/context.py`,
+  `prompt_loader.py`, and §9's "pure module" pattern) would put them in a sibling module — kept
+  local because `_run_locked` is their only consumer and Phase 1 adds `_skills_note` to them;
+  (b) the `_KnowledgeStarved` handler repeats the rollback → audit → emit → requeue → restore shape
+  of the generic handler and the two inline skips (`:901`, `:920`), which a `_skip_turn(reason,
+  meta)` helper would collapse across four sites — a refactor wider than this task.
