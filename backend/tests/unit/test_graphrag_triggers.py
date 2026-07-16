@@ -35,18 +35,16 @@ def _cfg(
 
 class _Repo:
     configs: ClassVar[list[GraphRagConfig]] = []
-    seen_agent_ids: ClassVar[list[uuid.UUID]] = []
     seen_chatroom_id: ClassVar[uuid.UUID | None] = None
 
     def __init__(self, db) -> None:
         pass
 
-    async def list_message_trigger_configs_for_room(self, *, chatroom_id, agent_ids):
+    async def list_message_trigger_configs_for_room(self, *, chatroom_id):
         # F-3: the message-trigger path resolves room coverage, not the
         # agent-delete cascade. The fake records the scope it was called with so
-        # the evaluator's threading of chatroom_id + agent_ids is asserted.
+        # the evaluator's threading of chatroom_id is asserted.
         self.__class__.seen_chatroom_id = chatroom_id
-        self.__class__.seen_agent_ids = list(agent_ids)
         return list(self.__class__.configs)
 
 
@@ -81,10 +79,10 @@ async def test_every_n_messages_fires_on_counter_boundary(monkeypatch) -> None:
     counter = _Counter([1, 2])
 
     first = await trigger_mod.evaluate_graphrag_message_triggers(
-        object(), chatroom_id=chatroom_id, agent_ids=[agent_id, agent_id], counter=counter, activity=_Clock()
+        object(), chatroom_id=chatroom_id, counter=counter, activity=_Clock()
     )
     second = await trigger_mod.evaluate_graphrag_message_triggers(
-        object(), chatroom_id=chatroom_id, agent_ids=[agent_id], counter=counter, activity=_Clock()
+        object(), chatroom_id=chatroom_id, counter=counter, activity=_Clock()
     )
 
     assert first == []
@@ -96,7 +94,6 @@ async def test_every_n_messages_fires_on_counter_boundary(monkeypatch) -> None:
         )
     ]
     assert counter.seen == [cfg.id, cfg.id]
-    assert _Repo.seen_agent_ids == [agent_id]
     # F-3: the evaluator resolves coverage by room, threading chatroom_id.
     assert _Repo.seen_chatroom_id == chatroom_id
 
@@ -107,7 +104,6 @@ async def test_chatroom_and_workspace_owned_configs_fire(monkeypatch) -> None:
     # maps the room selector returns — the deletion-cascade list_for_agents used
     # to omit both, leaving them inert. Here the room selector returns them, so
     # the evaluator increments and fires exactly like an agent_group map.
-    agent_id = uuid.uuid4()
     chatroom_id = uuid.uuid4()
     room_cfg = _cfg(trigger_config={"every_n_messages": 1}, owner_kind="chatroom")
     ws_cfg = _cfg(trigger_config={"every_n_messages": 1}, owner_kind="workspace")
@@ -116,11 +112,37 @@ async def test_chatroom_and_workspace_owned_configs_fire(monkeypatch) -> None:
     counter = _Counter([1, 1])
 
     fired = await trigger_mod.evaluate_graphrag_message_triggers(
-        object(), chatroom_id=chatroom_id, agent_ids=[agent_id], counter=counter, activity=_Clock()
+        object(), chatroom_id=chatroom_id, counter=counter, activity=_Clock()
     )
 
     assert {t.config_id for t in fired} == {room_cfg.id, ws_cfg.id}
     assert counter.seen == [room_cfg.id, ws_cfg.id]
+
+
+@pytest.mark.asyncio
+async def test_agentless_room_evaluates_chatroom_and_workspace_maps(monkeypatch) -> None:
+    # R11.02/R11.08: room identity — not a non-empty Agent list — is the
+    # trigger-coverage authority. A room with no bound Agent still counts
+    # messages and advances silence clocks for its chatroom-owned and enabled
+    # workspace-owned maps; both are creatable without any Agent.
+    chatroom_id = uuid.uuid4()
+    room_cfg = _cfg(trigger_config={"every_n_messages": 1, "silence_minutes": 10}, owner_kind="chatroom")
+    ws_cfg = _cfg(trigger_config={"every_n_messages": 1}, owner_kind="workspace")
+    _Repo.configs = [room_cfg, ws_cfg]
+    monkeypatch.setattr(trigger_mod, "GraphRagConfigRepository", _Repo)
+    counter = _Counter([1, 1])
+    clock = _Clock()
+
+    fired = await trigger_mod.evaluate_graphrag_message_triggers(
+        object(), chatroom_id=chatroom_id, counter=counter, activity=clock
+    )
+
+    assert {t.config_id for t in fired} == {room_cfg.id, ws_cfg.id}
+    assert counter.seen == [room_cfg.id, ws_cfg.id]
+    # The silence-declaring map's clock starts, so the sweep can later fire it;
+    # a never-touched clock deliberately never fires.
+    assert clock.touched == [room_cfg.id]
+    assert _Repo.seen_chatroom_id == chatroom_id
 
 
 @pytest.mark.asyncio
@@ -131,7 +153,7 @@ async def test_manual_only_trigger_does_not_increment_counter(monkeypatch) -> No
     counter = _Counter([1])
 
     fired = await trigger_mod.evaluate_graphrag_message_triggers(
-        object(), chatroom_id=uuid.uuid4(), agent_ids=[cfg.agent_id], counter=counter, activity=_Clock()
+        object(), chatroom_id=uuid.uuid4(), counter=counter, activity=_Clock()
     )
 
     assert fired == []
@@ -154,7 +176,6 @@ async def test_message_eval_touches_silence_clock_for_covering_configs(monkeypat
     await trigger_mod.evaluate_graphrag_message_triggers(
         object(),
         chatroom_id=uuid.uuid4(),
-        agent_ids=[uuid.uuid4()],
         counter=_Counter([1, 1]),
         activity=clock,
     )
@@ -205,7 +226,7 @@ async def test_non_buildable_state_does_not_increment_counter(monkeypatch) -> No
     counter = _Counter([1])
 
     fired = await trigger_mod.evaluate_graphrag_message_triggers(
-        object(), chatroom_id=uuid.uuid4(), agent_ids=[cfg.agent_id], counter=counter, activity=_Clock()
+        object(), chatroom_id=uuid.uuid4(), counter=counter, activity=_Clock()
     )
 
     assert fired == []

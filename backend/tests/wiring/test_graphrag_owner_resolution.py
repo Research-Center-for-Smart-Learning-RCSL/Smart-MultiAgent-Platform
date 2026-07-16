@@ -24,6 +24,7 @@ from contexts.agents.domain.models import AgentModelHint, ContextMode
 from contexts.agents.infrastructure.repositories import AgentRepository
 from contexts.conversation.application.workspace_service import WorkspaceService
 from contexts.conversation.infrastructure.repositories import (
+    ChatroomAgentRepository,
     ChatroomRepository,
     WorkspaceRepository,
 )
@@ -380,6 +381,9 @@ async def test_message_trigger_configs_for_room_cover_all_typed_owners() -> None
         await AgentGroupService(db).add_member(
             group_id=gid, agent_id=agent_b, actor_user_id=env.user.id, actor_ip=None
         )
+        # The group arm resolves membership through the room's bindings, so the
+        # binding must exist for the group layer to cover this room.
+        await ChatroomAgentRepository(db).add(chatroom_id=room.id, agent_id=agent_a)
         await db.commit()
 
         svc = GraphRagConfigService(db)
@@ -413,7 +417,7 @@ async def test_message_trigger_configs_for_room_cover_all_typed_owners() -> None
 
         # Wide layers disabled by default -> only the chatroom map covers the room,
         # but (unlike list_for_agents) it IS returned for a chatroom owner.
-        covered = await repo.list_message_trigger_configs_for_room(chatroom_id=room.id, agent_ids=[agent_a])
+        covered = await repo.list_message_trigger_configs_for_room(chatroom_id=room.id)
         assert [c.id for c in covered] == [room_cfg.id]
         # list_for_agents would return nothing for this shared, disabled setup.
         assert await repo.list_for_agents([agent_a]) == []
@@ -428,7 +432,7 @@ async def test_message_trigger_configs_for_room_cover_all_typed_owners() -> None
         )
         await db.commit()
 
-        covered = await repo.list_message_trigger_configs_for_room(chatroom_id=room.id, agent_ids=[agent_a])
+        covered = await repo.list_message_trigger_configs_for_room(chatroom_id=room.id)
         assert [c.id for c in covered] == [room_cfg.id, group_cfg.id, ws_cfg.id]
 
         # AC-6: the trigger set equals the union of list_layers_for_turn over the
@@ -471,7 +475,7 @@ async def test_message_trigger_configs_gate_wide_owners_on_enable() -> None:
         await db.commit()
 
         covered = await GraphRagConfigRepository(db).list_message_trigger_configs_for_room(
-            chatroom_id=room.id, agent_ids=[agent_id]
+            chatroom_id=room.id
         )
         # Disabled group map excluded; chatroom map present regardless of enable.
         assert [c.id for c in covered] == [room_cfg.id]
@@ -489,6 +493,7 @@ async def test_message_trigger_single_member_group_still_fires_when_enabled() ->
         agent_id = await _seed_agent(db, env.project.id, consumer_kg.id)
         room = await ChatroomRepository(db).create(workspace_id=env.workspace.id, name="r")
         gid = await _group_with_member(db, project_id=env.project.id, user_id=env.user.id, agent_id=agent_id)
+        await ChatroomAgentRepository(db).add(chatroom_id=room.id, agent_id=agent_id)
         await db.commit()
 
         group_cfg = await GraphRagConfigService(db).create(
@@ -505,9 +510,73 @@ async def test_message_trigger_single_member_group_still_fires_when_enabled() ->
         await db.commit()
 
         covered = await GraphRagConfigRepository(db).list_message_trigger_configs_for_room(
-            chatroom_id=room.id, agent_ids=[agent_id]
+            chatroom_id=room.id
         )
         assert [c.id for c in covered] == [group_cfg.id]
+
+
+async def test_message_trigger_configs_cover_agentless_room() -> None:
+    # R11.02/R11.08 (AC-2/AC-5): a room with NO bound Agent still resolves its
+    # chatroom-owned map and its enabled workspace-owned map — exactly once each
+    # — while an agent_group map (whose member is bound to no room) and a
+    # disabled workspace map stay excluded. Both typed owners are creatable
+    # without any Agent, so an agentless room is a supported configuration, not
+    # an absence of coverage.
+    async with async_session() as db:
+        env = await _seed_project(db)
+        consumer_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="consumer")
+        builder_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="builder")
+        # The agent exists and owns a group map, but is bound to no chatroom.
+        agent_id = await _seed_agent(db, env.project.id, consumer_kg.id)
+        gid = await _group_with_member(db, project_id=env.project.id, user_id=env.user.id, agent_id=agent_id)
+        room = await ChatroomRepository(db).create(workspace_id=env.workspace.id, name="agentless")
+        await db.commit()
+
+        svc = GraphRagConfigService(db)
+        room_cfg = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="chatroom", owner_id=room.id, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="agent_group", owner_id=gid, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        ws_cfg = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="workspace", owner_id=env.workspace.id, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        await db.commit()
+
+        repo = GraphRagConfigRepository(db)
+
+        # Workspace still disabled -> only the chatroom map covers the room.
+        covered = await repo.list_message_trigger_configs_for_room(chatroom_id=room.id)
+        assert [c.id for c in covered] == [room_cfg.id]
+
+        await WorkspaceService(db).set_concept_map_enabled(
+            workspace_id=env.workspace.id, enabled=True, actor_user_id=env.user.id, actor_ip=None
+        )
+        await AgentGroupService(db).set_concept_map_enabled(
+            group_id=gid, enabled=True, actor_user_id=env.user.id, actor_ip=None
+        )
+        await db.commit()
+
+        # Enabled workspace map joins; the enabled group map does NOT, because no
+        # member of that group is bound to this room.
+        covered = await repo.list_message_trigger_configs_for_room(chatroom_id=room.id)
+        assert [c.id for c in covered] == [room_cfg.id, ws_cfg.id]
 
 
 async def test_list_silence_trigger_configs_scopes_by_owner() -> None:

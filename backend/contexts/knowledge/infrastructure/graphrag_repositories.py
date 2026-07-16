@@ -300,10 +300,15 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         self,
         *,
         chatroom_id: uuid.UUID,
-        agent_ids: Sequence[uuid.UUID],
     ) -> Sequence[GraphRagConfig]:
-        """Every Concept Map whose typed owner covers ``chatroom_id`` for the
-        room's bound ``agent_ids`` (F-3, R11.02/R11.08).
+        """Every Concept Map whose typed owner covers ``chatroom_id``
+        (F-3, R11.02/R11.08).
+
+        The room — not a bound Agent — is the coverage authority. Callers pass
+        the room only: the group arm derives the room's Agent bindings itself,
+        so an agentless room still resolves its chatroom/workspace layers rather
+        than being skipped by a caller that found no bindings (and a caller's
+        failed binding fetch can no longer masquerade as "no coverage").
 
         The message-count trigger path's owner coverage — deliberately the same
         set the retrieval resolver :meth:`list_layers_for_turn` produces, but
@@ -312,11 +317,14 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
 
         - the chatroom-owned config for the room — always (retrieval never
           enable-gates the chatroom layer, `list_layers_for_turn` :325-331);
-        - each ``agent_group``-owned config whose group has a **live** member in
-          ``agent_ids`` and whose group has ``concept_map_enabled``. Shared
-          groups with *other* surviving members are included — the opposite of
+        - each ``agent_group``-owned config whose group has a member bound to
+          this room and whose group has ``concept_map_enabled``. Shared groups
+          with *other* surviving members are included — the opposite of
           :meth:`list_for_agents`, whose ``NOT EXISTS(other_live_member)``
-          deletion predicate silently made every multi-member map inert here;
+          deletion predicate silently made every multi-member map inert here.
+          Membership is joined through ``chatroom_agents``, matching the binding
+          rows the caller used to pass verbatim (``ChatroomAgentRepository.list``
+          does not filter soft-deleted agents, and neither does this);
         - the workspace-owned config for the room's workspace when the workspace
           has ``concept_map_enabled``.
 
@@ -327,7 +335,6 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         Deduped like :meth:`list_layers_for_turn`; ranking is cosmetic here but
         kept for a stable order.
         """
-        ids = list(dict.fromkeys(agent_ids))
         gc = t.graphrag_configs
         room_workspace = (
             sa.select(conv.chatrooms.c.workspace_id)
@@ -341,9 +348,16 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
                 gc.c.deleted_at.is_(None),
             )
         )
-        group_join = gc.join(ag.agent_groups, ag.agent_groups.c.id == gc.c.owner_agent_group_id).join(
-            ag.agent_group_members,
-            ag.agent_group_members.c.agent_group_id == ag.agent_groups.c.id,
+        group_join = (
+            gc.join(ag.agent_groups, ag.agent_groups.c.id == gc.c.owner_agent_group_id)
+            .join(
+                ag.agent_group_members,
+                ag.agent_group_members.c.agent_group_id == ag.agent_groups.c.id,
+            )
+            .join(
+                conv.chatroom_agents,
+                conv.chatroom_agents.c.agent_id == ag.agent_group_members.c.agent_id,
+            )
         )
         group_layer = (
             sa.select(gc, _member_agent_id())
@@ -351,7 +365,7 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
             .where(
                 sa.and_(
                     gc.c.owner_kind == "agent_group",
-                    ag.agent_group_members.c.agent_id.in_(ids),
+                    conv.chatroom_agents.c.chatroom_id == chatroom_id,
                     ag.agent_groups.c.concept_map_enabled.is_(True),
                     ag.agent_groups.c.deleted_at.is_(None),
                     gc.c.deleted_at.is_(None),
