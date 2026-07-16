@@ -1627,6 +1627,41 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   own "best-effort" promise was false — a transient fault would have failed the very turn the guard
   exists to protect. Caught by this task's quality gate, not by review.
 
+**Phase 1 (2026-07-16).**
+
+- **D-9: the §10 "environment precondition" was fixed by this task, at the user's direction.**
+  §10 scopes the broken `alembic upgrade head` as "not this task's job" and states that Skills
+  "cannot be verified end-to-end until a live DB exists". The user directed that it be fixed first
+  so the migration contract gate for `0056_skills` is genuinely verifiable rather than waived.
+  Landed as its own commit ahead of the Skills work, and it closes the prompt-assistant dossier's
+  FU-7 (`docs/tasks/2026-07-05-prompt-assistant-templates/spec.md:619`).
+  **The fix is not the one every prior dossier assumed.** `version_table_column_type` — cited as
+  "the documented one-line fix" at that dossier's `:626`, and named as the missing piece by §10 of
+  this one ("`env.py` carries no `version_table_column_type`") — **does not exist in Alembic
+  1.13.3**. It appears nowhere in the installed package; `runtime/migration.py:196` hardcodes
+  `Column("version_num", String(32), nullable=False)`, and `configure()` accepts only
+  `version_table`, `version_table_schema`, `version_table_pk`. Unknown kwargs are collected into
+  `opts` unvalidated, so the call is *silently ignored* — which is why the earlier session observed
+  it "did not take effect" and could not explain it, and why §10's diagnosis pointed at an absent
+  line rather than an absent feature. `env.py` now widens the column itself before Alembic touches
+  it (Alembic adopts an existing version table as-is). This also explains §10's puzzle at one
+  remove: the dev DB worked only because someone had hand-widened it — the "undocumented means" the
+  graphrag dossier flagged at its `:533` — so the defect was invisible on every machine that had
+  already been patched.
+  Consequences for this dossier's own claims: §10's "Migrations `0050`+ are static-validated but
+  never applied to a live database" **is no longer true** — the dev DB is at `0055` and a pristine
+  DB reaches `0055` with 63 tables. §12's End-to-end row and AC-11's `/verify` note both cite
+  "requires a live DB (§10)" as the blocker; that blocker is gone, though `/verify` still needs a
+  fully bootstrapped stack (Vault, MinIO, a provider key), which is a separate precondition.
+- **D-10: `--sql` (offline) mode is documented as unsupported for a fresh database rather than
+  fixed.** The widen needs a connection to inspect, and offline mode has none. Emitting the DDL
+  into the generated script does not work either: Alembic emits its own version-table `CREATE`
+  lazily, *after* anything `env.py` writes, so a pre-emitted `ALTER` is a no-op on a fresh DB and a
+  pre-emitted `CREATE` collides with Alembic's. Nothing in the repo drives `--sql` — every
+  documented path (`CLAUDE.md:80`, `Makefile:88`, `docs/runbook-upgrade.md:34`) is online
+  `alembic upgrade head` — so the limitation is recorded in `run_migrations_offline`'s docstring
+  instead of half-fixed.
+
 ## 16. Follow-ups
 
 - **FU-1: documentation drift across five files.** `CLAUDE.md` lists a non-existent `admin` context
