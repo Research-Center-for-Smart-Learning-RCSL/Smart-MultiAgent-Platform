@@ -62,11 +62,37 @@ class SkillIndexBudgetExceeded(SkillError):
 
 
 class SkillContainmentFailed(SkillError):
-    """The skill's scope does not contain the agent (§5's matrix, [R31.08])."""
+    """The skill's scope does not contain the agent (§5's matrix, [R31.08]).
+
+    The arms that raise *this* class describe the **caller's own** agent or project — it
+    is gone, deleted, or individually owned — so `reason` reaches the client and leaks
+    nothing it does not already own. The arms that describe the **skill's** scope raise
+    `SkillScopeMismatch` instead; see there.
+
+    `detail` splits the wire message from `reason` because the two have different
+    audiences: `reason` is for the audit trail, `detail` is for a stranger.
+    """
+
+    def __init__(self, reason: str, *, detail: str | None = None) -> None:
+        super().__init__(detail or reason)
+        self.reason = reason
+
+
+class SkillScopeMismatch(SkillContainmentFailed):
+    """The skill is real and live, but its scope does not contain this agent. 404.
+
+    A **subclass**, so the turn-time tap's `except SkillContainmentFailed` still catches it
+    and still audits the precise `reason`, while the API boundary maps it to the same slug,
+    status, and message a nonexistent id gets. Answering "403 project_scope_mismatch" tells
+    a caller who may bind on their own agent that a skill id they guessed or were leaked
+    exists, is live, and which scope class owns it — and `skill_service._assert_owned` is
+    explicit that this context does not do that: "Every mismatch raises SkillNotFound —
+    never 403, which would confirm the id exists to someone with no right to know". The
+    bind path has no scope in its URL, so it was the one place that answered differently.
+    """
 
     def __init__(self, reason: str) -> None:
-        super().__init__(reason)
-        self.reason = reason
+        super().__init__(reason, detail="Skill not found")
 
 
 class SkillRestoreConflict(SkillError):

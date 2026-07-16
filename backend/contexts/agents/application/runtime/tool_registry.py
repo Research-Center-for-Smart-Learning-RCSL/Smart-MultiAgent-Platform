@@ -332,7 +332,14 @@ def build_read_skill_tool(skills: Sequence[Skill]) -> Tool:
                 content=f"Unknown skill {name!r}. Bound skills: {available}.",
                 is_error=True,
             )
-        offset = _opt_int(args.get("offset")) or 0
+        raw_offset = args.get("offset")
+        offset = 0 if raw_offset is None else _opt_int(raw_offset)
+        if offset is None:
+            # Absent means "start at 0"; unparseable means the model sent something it
+            # thinks is an offset and is wrong about. Coercing the second to 0 silently
+            # restarts its continuation walk, and the two sibling error paths below and
+            # above both say so out loud rather than guess.
+            return ToolResult(content=f"offset must be an integer, got {raw_offset!r}.", is_error=True)
         if offset < 0 or offset > len(skill.body):
             return ToolResult(
                 content=f"offset {offset} is outside skill {name!r} (0..{len(skill.body)}).",

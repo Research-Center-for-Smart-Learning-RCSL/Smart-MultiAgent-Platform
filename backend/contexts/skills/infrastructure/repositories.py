@@ -253,6 +253,12 @@ class SkillBindingRepository:
         Deterministic ordering matters — the index block is rendered from this, and an
         unordered join would make the system prompt (and its token estimate) vary
         between turns for an unchanged agent.
+
+        `id` is the tiebreak, and it is not decoration: `name` alone is only a total order
+        while bound-set names are unique, which is a check-then-act rule no constraint
+        enforces (it spans two tables). Ties therefore exist, and without the tiebreak the
+        rows would come back in PostgreSQL's arbitrary order — so the system prompt could
+        vary turn to turn after all, in exactly the case where the variation matters.
         """
         q = (
             sa.select(t.skills)
@@ -263,7 +269,7 @@ class SkillBindingRepository:
                 t.agent_skills.c.cascade_deleted_at.is_(None),
                 t.skills.c.deleted_at.is_(None),
             )
-            .order_by(t.skills.c.name)
+            .order_by(t.skills.c.name, t.skills.c.id)
         )
         rows = (await self._db.execute(q)).mappings().all()
         return [_row_to_skill(r) for r in rows]

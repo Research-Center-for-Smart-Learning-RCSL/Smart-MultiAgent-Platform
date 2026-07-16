@@ -32,6 +32,14 @@ _MAP: ErrorMap = {
         403,
         "This skill's scope does not contain the agent",
     ),
+    # MRO dispatch picks the nearest mapped ancestor, so this wins over the line above for
+    # the three arms that describe the *skill's* scope. Same slug, status, and title a
+    # nonexistent id gets: the bind path takes a skill_id with no scope in its URL, so
+    # answering "403 project_scope_mismatch" would confirm to anyone who may bind on their
+    # own agent that a guessed or leaked id is real, live, and whose. `_assert_owned` has
+    # refused to make that distinction from the start; this is the same rule reaching the
+    # one endpoint whose shape hid it.
+    errors.SkillScopeMismatch: ("skills/not-found", 404, "Skill not found"),
     errors.BundleInvalid: ("skills/bundle-invalid", 422, "Skill bundle is invalid"),
     errors.BundleQuarantined: ("skills/bundle-quarantined", 422, "Skill bundle failed the malware scan"),
     errors.SkillUnreadable: ("skills/unreadable", 422, "Skill has a file that is not scan-clean"),
@@ -60,6 +68,10 @@ def _extras(exc: Exception) -> dict[str, Any]:
         return {"name": exc.name, "agent_ids": [str(a) for a in exc.agent_ids]}
     if isinstance(exc, errors.SkillRequiresToolMissing):
         return {"tool": exc.tool, "skill_name": exc.skill_name}
+    if isinstance(exc, errors.SkillScopeMismatch):
+        # Before the base class, and empty: a 404 whose body names the scope that owns the
+        # skill is the same oracle the status code just closed, one field down.
+        return {}
     if isinstance(exc, errors.SkillContainmentFailed):
         return {"reason": exc.reason}
     return {}

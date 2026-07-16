@@ -13,6 +13,8 @@ bindings the tap should drop is `test_skill_binding.py`'s matrix.
 
 from __future__ import annotations
 
+import json
+import logging
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -117,8 +119,52 @@ async def test_every_dropped_skill_is_audited_but_the_room_hears_one_warning(
     assert data == {
         "agent_id": str(agent.id),
         "kind": "skills_unavailable",
-        "skills": ["a", "b", "c"],
+        "dropped": 3,
     }
+
+
+async def test_the_room_warning_never_names_the_dropped_skills(
+    engine: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, emitted: list
+) -> None:
+    # The room channel is a blind relay and `can_read` admits a chatroom guest who is not
+    # a project member, while GET /skill-bindings is gated on membership. Naming them here
+    # would route around that: a guest could watch code_exec get disabled and harvest the
+    # names of the agent's org- and platform-scoped skills.
+    secret = "acme-merger-due-diligence"
+    _facade(
+        monkeypatch,
+        BoundSet(skills=(), dropped=(DroppedSkill(skill_id=uuid.uuid4(), name=secret, reason="scope"),)),
+    )
+
+    await TurnEngine._resolve_skills(engine, _agent(), uuid.uuid4(), "ws:room:x")
+
+    assert secret not in json.dumps(emitted)
+    # The audit trail is the surface that may name it — it is not guest-readable.
+    assert engine._audit.await_args.args[3]["name"] == secret
+
+
+async def test_a_failed_warning_is_logged_rather_than_swallowed(
+    engine: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # AC-7 makes the drop invisible in the reply by design, so this emit is the only live
+    # signal that skills left the turn. A signal that can vanish without trace is not one.
+    class _Broken:
+        def __init__(self, _channel: str) -> None:
+            pass
+
+        async def emit(self, *_args, **_kwargs) -> int:
+            raise RuntimeError("redis down")
+
+    monkeypatch.setattr(te, "Publisher", _Broken)
+    _facade(
+        monkeypatch,
+        BoundSet(skills=(), dropped=(DroppedSkill(skill_id=uuid.uuid4(), name="a", reason="scope"),)),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await TurnEngine._resolve_skills(engine, _agent(), uuid.uuid4(), "ws:room:x")
+
+    assert any("skills warning emit failed" in r.message for r in caplog.records)
 
 
 async def test_a_headless_turn_audits_the_drop_and_emits_nothing(
