@@ -48,6 +48,14 @@ from shared_kernel.observability.metrics import (
 )
 from shared_kernel.storage import get_minio_client
 
+# The tenancy recovery window (R8.11/R8.12). Exported because `agent_fs_gc`'s
+# reclamation sweep is only correct while it matches: that worker infers "this
+# artifact's window has closed" from the *absence* of an agents row, which only
+# follows if this sweep is the sole remover of such rows and never removes one
+# early. Changing this here without changing it there reintroduces the bug the
+# 2026-07-17-agent-fs-gc-retention-race dossier fixed.
+SOFT_DELETE_RETENTION_DAYS = 60
+
 _SOFT_DELETE_TABLES: tuple[sa.Table, ...] = (
     orgs_tbl,
     projects_tbl,
@@ -144,7 +152,7 @@ async def _purge_soft_deleted_tenancy(session: AsyncSession) -> int:
     )
     from contexts.conversation.infrastructure.tables import workspaces as workspaces_tbl
 
-    cutoff = now() - timedelta(days=60)
+    cutoff = now() - timedelta(days=SOFT_DELETE_RETENTION_DAYS)
     sub = activity_submissions_tbl
     # D-1 research retention: never purge a soft-deleted row while an
     # activity_submission reachable through the ON DELETE CASCADE chain is still
