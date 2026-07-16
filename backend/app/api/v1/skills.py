@@ -201,6 +201,18 @@ class SkillBindingOut(BaseModel):
     name: str
 
 
+class SkillScopeCountsOut(BaseModel):
+    """[R31.11] — live skills per scope, keyed by the scope's wire value.
+
+    A map rather than four named fields: the scope set is the domain enum's, and four
+    hand-written columns would drift from it silently the day a fifth scope lands
+    (FU-14 already tracks one).
+    """
+
+    counts: dict[str, int]
+    total: int
+
+
 def _summary_fields(s: Skill) -> dict[str, Any]:
     return {
         "id": s.id,
@@ -755,6 +767,27 @@ async def admin_create_skill(
     db: AsyncSession = Depends(db_session),
 ) -> SkillOut:
     return await _create(db, ctx, principal, SkillScope.PLATFORM, None, body)
+
+
+@admin_router.get("/metrics", dependencies=[Depends(require_admin)])
+async def admin_skill_metrics(db: AsyncSession = Depends(db_session)) -> SkillScopeCountsOut:
+    """[R31.11] / AC-15 — the ratio of agent-private to shared skills.
+
+    Not decoration: §5's premise is that skills are shared at project scope and above.
+    If most end up agent-scoped, Skills has degraded into the §9.2 prompt-strategy
+    feature it replaced, and this endpoint is what makes that visible rather than a
+    matter of opinion at the six-month review.
+
+    Declared **before** `/{skill_id}`: FastAPI matches in declaration order, and the
+    UUID-typed path below would otherwise claim "metrics" and 422 it.
+    """
+    counts = await SkillsFacade(db).count_by_scope()
+    return SkillScopeCountsOut(
+        # Every scope is named even at zero. An absent key reads as "unknown", and a
+        # ratio with a missing denominator is the thing this endpoint exists to give.
+        counts={scope.value: counts.counts.get(scope, 0) for scope in SkillScope},
+        total=counts.total,
+    )
 
 
 @admin_router.get("/{skill_id}", dependencies=[Depends(require_admin)])

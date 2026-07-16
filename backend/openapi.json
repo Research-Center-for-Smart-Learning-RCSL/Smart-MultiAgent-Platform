@@ -7325,6 +7325,28 @@
         "title": "SkillScope",
         "type": "string"
       },
+      "SkillScopeCountsOut": {
+        "description": "[R31.11] \u2014 live skills per scope, keyed by the scope's wire value.\n\nA map rather than four named fields: the scope set is the domain enum's, and four\nhand-written columns would drift from it silently the day a fifth scope lands\n(FU-14 already tracks one).",
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "counts",
+          "total"
+        ],
+        "title": "SkillScopeCountsOut",
+        "type": "object"
+      },
       "SkillSummaryOut": {
         "description": "A skill without its body \u2014 what a listing needs.\n\nThe body is bounded only by `_MAX_BODY` (256 KiB) and `limit` reaches 500, so\nincluding it here would let one request return ~128 MB to render a menu of names. It\nis served by the detail endpoint, one skill at a time, to the caller who asked for it.",
         "properties": {
@@ -10282,6 +10304,28 @@
           }
         },
         "summary": "Admin Create Skill",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/admin/skills/metrics": {
+      "get": {
+        "description": "[R31.11] / AC-15 \u2014 the ratio of agent-private to shared skills.\n\nNot decoration: \u00a75's premise is that skills are shared at project scope and above.\nIf most end up agent-scoped, Skills has degraded into the \u00a79.2 prompt-strategy\nfeature it replaced, and this endpoint is what makes that visible rather than a\nmatter of opinion at the six-month review.\n\nDeclared **before** `/{skill_id}`: FastAPI matches in declaration order, and the\nUUID-typed path below would otherwise claim \"metrics\" and 422 it.",
+        "operationId": "admin_skill_metrics_api_admin_skills_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillScopeCountsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Admin Skill Metrics",
         "tags": [
           "skills"
         ]

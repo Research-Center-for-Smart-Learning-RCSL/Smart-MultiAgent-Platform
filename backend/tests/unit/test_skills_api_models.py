@@ -10,6 +10,8 @@ bound-set uniqueness after the fact.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from pydantic import ValidationError
 
@@ -153,3 +155,41 @@ def test_copy_rejects_an_unknown_scope() -> None:
 def test_copy_rejects_a_bad_target_name() -> None:
     with pytest.raises(ValidationError):
         SkillCopyIn(target_scope=SkillScope.PROJECT, name="Not A Name")
+
+
+# -- AC-15: the per-scope metric -------------------------------------------
+
+
+async def test_the_scope_metric_names_every_scope_even_at_zero(monkeypatch) -> None:
+    # §5's premise is that skills are shared at project scope and above; R31.11 is what
+    # makes the opposite outcome measurable. A scope missing from the map reads as
+    # "unknown", and a ratio with a missing denominator answers nothing.
+    from unittest.mock import AsyncMock
+
+    import app.api.v1.skills as skills_api
+    from contexts.skills.domain.models import SkillScopeCounts
+
+    facade = SimpleNamespace(
+        count_by_scope=AsyncMock(
+            return_value=SkillScopeCounts(counts={SkillScope.AGENT: 7, SkillScope.PROJECT: 2})
+        )
+    )
+    monkeypatch.setattr(skills_api, "SkillsFacade", lambda _db: facade)
+
+    out = await skills_api.admin_skill_metrics(db=object())
+
+    assert out.counts == {"agent": 7, "project": 2, "org": 0, "platform": 0}
+    assert out.total == 9
+
+
+def test_the_scope_metric_route_is_not_shadowed_by_the_skill_id_route() -> None:
+    # FastAPI matches in declaration order, and `/{skill_id}` is a UUID: declared first
+    # it would claim "metrics" and 422 the endpoint into permanent uselessness.
+    paths = [r.path for r in skills_api_admin_routes()]
+    assert paths.index("/api/admin/skills/metrics") < paths.index("/api/admin/skills/{skill_id}")
+
+
+def skills_api_admin_routes() -> list:
+    from app.api.v1.skills import admin_router
+
+    return [r for r in admin_router.routes if getattr(r, "path", None)]
