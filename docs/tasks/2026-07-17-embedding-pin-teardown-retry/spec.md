@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-17
 requirements: [R10.06, R11.19]
 ---
@@ -187,29 +187,50 @@ FU-2, not addressed here.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: Qdrant-failure regressions for all three products fail before the fix and pass
-  after.
-- [ ] AC-2: No final-config delete path clears its pin before collection deletion/absence is
-  confirmed.
-- [ ] AC-3: A teardown failure leaves the prior pin intact and blocks every incompatible
+- [x] AC-1: Qdrant-failure regressions for all three products fail before the fix and pass
+  after. `test_failed_teardown_retains_pin_and_blocks_incompatible_create` was run against the
+  unfixed code first and failed for the documented reason (pin dict empty; the swallowed
+  `RuntimeError` logged at the old `config_service.py:476` while the helper returned success).
+  All three products covered by `test_qdrant_failure_retains_pin_in_every_product`.
+- [x] AC-2: No final-config delete path clears its pin before collection deletion/absence is
+  confirmed. `clear_pin_if_last_config` is gone from all three services (D-2); the pin clear
+  now sits after the `delete_collection` return in `teardown_orphan_collection`.
+- [x] AC-3: A teardown failure leaves the prior pin intact and blocks every incompatible
   create with the existing typed dimension conflict.
-- [ ] AC-4: Deleted and already-absent collections permit pin clearing; failures never report
-  `collection_dropped=true`.
-- [ ] AC-5: Concurrent create/teardown integration proves a live collection cannot be
+  `test_failed_teardown_retains_pin_and_blocks_incompatible_create`, and against real Postgres
+  in `test_failed_teardown_keeps_pin_rejecting_new_dimension`.
+- [x] AC-4: Deleted and already-absent collections permit pin clearing; failures never report
+  `collection_dropped=true`. `test_confirmed_absence_releases_pin_in_every_product`
+  (parameterized dropped/absent x 3 products); the audit key is now
+  `teardown is TeardownOutcome.DROPPED`.
+- [x] AC-5: Concurrent create/teardown integration proves a live collection cannot be
   dropped and a different dimension cannot be accepted early.
-- [ ] AC-6: Configless retained pins are retried durably and per-item failures do not abort
-  the sweep.
-- [ ] AC-7: A different-dimension create against a configless pin retries teardown first and
+  `tests/integration/test_embedding_pin_race.py`, run against a real Postgres. Verified to
+  have teeth: with `acquire_lock` stubbed out, `test_teardown_blocks_until_concurrent_create_commits`
+  fails on `assert not teardown_entered.is_set()`.
+- [x] AC-6: Configless retained pins are retried durably and per-item failures do not abort
+  the sweep. `tests/unit/test_teardown_retry_sweep.py`, including
+  `test_policy_isolates_per_item_failure_and_uses_a_session_per_pin` (D-3) and
+  `test_candidates_respect_the_limit`. `list_all`'s SQL is executed for real in
+  `test_list_all_returns_the_fields_the_sweep_reads`.
+- [x] AC-7: A different-dimension create against a configless pin retries teardown first and
   succeeds when Qdrant is healthy; it is rejected with the existing typed conflict when
-  teardown fails.
-- [ ] AC-8: A same-dimension create against a configless pin, and any create with no pin or
+  teardown fails. `test_create_retries_pending_teardown_then_repins` and the second half of
+  `test_failed_teardown_retains_pin_and_blocks_incompatible_create`.
+- [x] AC-8: A same-dimension create against a configless pin, and any create with no pin or
   with live configs, issues no Qdrant call — ordinary config CRUD stays Qdrant-independent.
-- [ ] AC-9: The teardown's Qdrant client carries an explicit timeout, so a hung Qdrant cannot
+  `test_create_at_pinned_dimension_never_calls_qdrant` (the store raises `AssertionError` if
+  touched) and `test_create_retry_skips_teardown_when_live_config_races_in`.
+- [x] AC-9: The teardown's Qdrant client carries an explicit timeout, so a hung Qdrant cannot
   hold the advisory lock and its Postgres connection open indefinitely.
-- [ ] AC-10: The DOM-4/W5 docstrings on all three drop helpers describe the ordering the code
+  `qdrant.teardown_timeout_s` (D-4), `test_teardown_timeout_retains_pin`. Scoped honestly: the
+  ceiling covers the delete, not `close` — see the `qdrant_teardown` module docstring.
+- [x] AC-10: The DOM-4/W5 docstrings on all three drop helpers describe the ordering the code
   actually has, and record the Q-4 trade.
-- [ ] AC-11: Existing runtime dimension guards, unit/integration tests, backend lint, format,
-  and type checks pass.
+- [x] AC-11: Existing runtime dimension guards, unit/integration tests, backend lint, format,
+  and type checks pass. `ruff check`/`ruff format --check`/`mypy` all clean;
+  `pytest -m "not integration"` has only pre-existing environment failures (wiring tests
+  needing redis/minio/neo4j/smtp), confirmed against a stashed baseline.
 
 ## 11. SRS Delta
 
@@ -217,7 +238,39 @@ None. This restores [R10.06] and [R11.19].
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+- **D-1: `GraphRagVectorStore.delete_collection` had to change after all.** §5 asserts "the
+  adapter is not at fault and needs no change". True for File RAG — `QdrantStore.delete_collection`
+  already returned `bool` — but the store Knowledge Map and Concept Map use returned `None`
+  (`graphrag_vector_store.py:436` pre-fix) and could not distinguish dropped from absent, despite
+  `qdrant_store.py:110` claiming to "mirror" it. Made it return `bool` to match. Additive: no
+  existing caller read the return. Verified against a real Qdrant (`False` absent / `True`
+  dropped / raises when unreachable) for both stores and both graph prefixes.
+- **D-2: `clear_pin_if_last_config` was removed, not repurposed.** §7.1 has it survive as a
+  live-config check reporting whether teardown is owed. Once the pin clear moved after the drop,
+  that pre-commit call had no job: `teardown_orphan_collection` re-acquires the lock and
+  re-checks live configs itself, so the check was redundant and the name would have lied. Also
+  shortens the lock hold — the old call took the `(project, kind)` lock pre-commit and held it
+  through the delete's commit. The endpoints now make one call instead of two.
+- **D-3: the sweep was restructured after the quality/security audits found it unbounded.**
+  §7.6's "bounded periodic worker" was not bounded as first written: `retention_sweep` runs each
+  policy in one transaction, and `pg_advisory_xact_lock` releases only at transaction end, so
+  every owed pin's lock accumulated for the whole pass — with Qdrant down, ~10s per pin, blocking
+  config creation for every project touched until the pass finished. The facade now exposes
+  `list_pending_collection_teardowns(limit=)` + `retry_collection_teardown(project_id, kind)`,
+  and the policy drives one transaction per pin with a `_TEARDOWN_RETRY_BATCH` cap of 50, logging
+  when it caps rather than truncating silently.
+- **D-4: the Q-7 timeout is a new setting, `qdrant.teardown_timeout_s` (default 10.0, `gt=0,
+  le=60`).** Implemented with `asyncio.timeout` around the delete rather than the client's own
+  timeout kwarg, which is typed `int` and would not have taken a float. The bound is scoped
+  honestly in the docstring: it covers the delete, not `close`.
+- **D-5: `collection_dropped` was kept, not replaced.** §7.7 says the accurate outcomes replace
+  the unconditional `collection_dropped: true`. Kept the key (now true only for a confirmed
+  drop) and added `collection_teardown` with the full outcome, so existing audit consumers keep
+  a field they already read while gaining the detail.
+- **D-6: added `contexts/knowledge/infrastructure/qdrant_teardown.py`.** Q-6 defers consolidating
+  the teardown *orchestration*, but client construction + the timeout bound would have been
+  triplicated verbatim across three services. Client lifecycle is an infrastructure concern, so
+  it moved there; the orchestration stayed triplicated as Q-6 requires.
 
 ## 13. Follow-ups
 
@@ -229,3 +282,32 @@ Appended by `/build`.
   silently skipping `_assert_dimension`
   (`backend/contexts/knowledge/infrastructure/qdrant_store.py:95-105`). Pre-existing; decide
   whether the physical guard should fail closed instead.
+- **FU-3:** The Q-5 create-path retry lets a client multiply the teardown's lock hold.
+  Concurrent different-dimension creates against a project in the FAILED-teardown state
+  serialize on the `(project, kind)` advisory lock, each burning up to `teardown_timeout_s`
+  while holding a pooled connection; ~30 (`pool_size` 20 + `max_overflow` 10) could exhaust the
+  pool. Requires `RESOURCE_CREATE_EDIT` plus a *hanging* (not refusing) Qdrant. Note the
+  serialization itself is pre-existing — `ensure` already took the lock on every create — so
+  this task adds the 10s, not the queue. Fixing it properly wants a per-pin retry cooldown,
+  which needs a schema column this task's Q-1 ruled out; a cheaper mitigation is a tighter
+  create-path bound. Raised by the security audit; deferred with the user's knowledge.
+- **FU-4:** The three teardown handlers catch bare `Exception` and log only
+  `type(exc).__name__` with no `exc_info`. Correct for qdrant-client errors (they carry response
+  content and headers) but it also swallows programming defects — an `AttributeError` in the
+  teardown becomes an indefinitely retained pin with no traceback anywhere. Narrow the catch to
+  transport/Qdrant error classes and let the rest propagate.
+- **FU-5:** The three route handlers instantiate application services directly
+  (`RagConfigService(db)` at `backend/app/api/v1/rag.py:212`, and the same in `knowmap.py` /
+  `graphrag.py`) instead of going through `KnowledgeFacade`. Pre-existing; this task extended it
+  only by importing `TeardownOutcome` — the return type of a call the routes already made. Natural
+  to fix alongside FU-1, since the facade is where a consolidated teardown would live.
+- **FU-6:** `alembic upgrade head` cannot run on a Windows host with a non-UTF-8 ANSI code page
+  (cp950 here). `alembic/util/compat.py` reads `alembic.ini` with `encoding="locale"`, which
+  ignores `PYTHONUTF8`, and `alembic.ini` contains a UTF-8 em-dash. Pre-existing and environment
+  -specific — CI and Docker run a UTF-8 locale — but it blocks local migration work, and the
+  fix is as small as making that one character ASCII.
+- **FU-7:** `EmbeddingPinRepository.list_all` is an unfiltered `SELECT` with no `LIMIT`; the
+  sweep's cap is applied in Python after the full read (`facade.py`,
+  `list_pending_collection_teardowns`). Bounded by projects x 3, so not urgent, but the
+  "no live config" predicate belongs in SQL (a `NOT EXISTS` per kind) so only genuinely-owed
+  pins are ever materialized.
