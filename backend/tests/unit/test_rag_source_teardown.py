@@ -294,7 +294,12 @@ async def test_batch_shares_one_client_isolates_and_audits() -> None:
         assert qdrant_store is not None
         if project_id == bad:
             raise RuntimeError("qdrant down")
-        return {"project_id": str(project_id), "blobs_removed": 1, "buckets_failed": 0, "collection_dropped": True}
+        return {
+            "project_id": str(project_id),
+            "blobs_removed": 1,
+            "buckets_failed": 0,
+            "collection_dropped": True,
+        }
 
     with (
         patch("app.config.settings.get_settings", return_value=_fake_settings()),
