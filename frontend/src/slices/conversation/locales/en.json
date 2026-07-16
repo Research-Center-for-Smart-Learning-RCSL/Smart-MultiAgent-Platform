@@ -67,6 +67,7 @@
       "agentTimeout": "The agent did not respond.",
       "agentRateLimited": "The agent is replying too often right now. Try again in a moment.",
       "agentUnavailable": "That agent is no longer available to respond.",
+      "agentKnowledgeStarved": "This turn left no room for the agent's knowledge sources, so it did not reply rather than answer without them. Raise the agent's token cap, or send a shorter message.",
       "composerPlaceholder": "Type a message…",
       "mentionListLabel": "Agents you can mention",
       "send": "Send",

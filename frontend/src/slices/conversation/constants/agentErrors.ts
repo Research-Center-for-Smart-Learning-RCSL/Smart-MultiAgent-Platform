@@ -9,6 +9,9 @@ export const AGENT_ERROR_MESSAGE_KEYS: Record<string, string> = {
   agent_gone: 'conversation.chatroom.agentUnavailable',
   not_bound: 'conversation.chatroom.agentUnavailable',
   key_group_scope: 'conversation.chatroom.agentUnavailable',
+  // Not 'agentUnavailable': the agent is fine and the cause is a setting the
+  // reader can change, so the copy has to name it.
+  knowledge_starved: 'conversation.chatroom.agentKnowledgeStarved',
 }
 
 export const AGENT_ERROR_FALLBACK_KEY = 'conversation.chatroom.agentFailed'

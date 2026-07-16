@@ -5,6 +5,9 @@ Covers the pieces the room path wires together:
   zero-budget source (F-16 allocator wiring).
 - ``_assemble_history`` decides compaction against the *assembled* request
   (history + non-knowledge prefix), not history alone (F-17).
+- ``_knowledge_starved`` / ``_has_knowledge_source`` — a floored budget drops
+  every knowledge block, so it fails the turn loudly instead of silently
+  answering from nothing (AC-11).
 
 The pure budget helper and allocator, and each provider's block truncation, are
 unit-tested in ``test_context_compaction.py`` / ``test_graphrag_retrieve.py`` /
@@ -179,3 +182,162 @@ async def test_assemble_history_budgets_the_next_request_not_history_alone(monke
     # compaction even when stored history is well under the cap.
     assert seen["projected"] == 1300
     assert out is history
+
+
+# --------------------------------------------------------------------------- #
+# AC-11 — a floored knowledge budget is loud, not silent
+# --------------------------------------------------------------------------- #
+
+
+class _Savepoint:
+    def __init__(self, session) -> None:
+        self._session = session
+
+    async def __aenter__(self):
+        self._session.savepoints += 1
+        return self
+
+    async def __aexit__(self, *_exc) -> bool:
+        return False
+
+
+class _Session:
+    """Stands in for the AsyncSession, recording SAVEPOINT use.
+
+    The Concept Map lookup must run under ``begin_nested()``: a DB fault there
+    otherwise aborts the turn's whole transaction, including the pending
+    ``agent.turn_started`` audit insert.
+    """
+
+    def __init__(self) -> None:
+        self.savepoints = 0
+
+    def begin_nested(self) -> _Savepoint:
+        return _Savepoint(self)
+
+
+def _engine_with_layers(layers):
+    """Engine stub whose Concept Map layer lookup returns *layers* (or raises it)."""
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = _Session()  # type: ignore[attr-defined]
+
+    class _Facade:
+        def __init__(self, _db) -> None:
+            pass
+
+        async def resolve_graphrag_layers(self, *, agent_id, chatroom_id):
+            if isinstance(layers, Exception):
+                raise layers
+            return layers
+
+    return engine, _Facade
+
+
+def _patch_facade(monkeypatch, facade_cls) -> None:
+    import contexts.knowledge.interfaces.facade as kfacade
+
+    monkeypatch.setattr(kfacade, "KnowledgeFacade", facade_cls)
+
+
+def _bare_agent(**overrides):
+    base = {"id": uuid.uuid4(), "rag_config_id": None, "knowmap_config_id": None}
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("budget", [1, 700, 5000])
+async def test_not_starved_when_budget_is_positive(budget: int, monkeypatch) -> None:
+    # A positive budget is the ordinary path: it must short-circuit before the
+    # lookup, so an agent whose only source is a Concept Map pays nothing for
+    # this guard on every normal turn.
+    engine, facade_cls = _engine_with_layers(AssertionError("must not be consulted"))
+    _patch_facade(monkeypatch, facade_cls)
+
+    assert await engine._knowledge_starved(budget, _bare_agent(), uuid.uuid4()) is False
+    assert engine._db.savepoints == 0
+
+
+@pytest.mark.asyncio
+async def test_starved_when_budget_floors_and_file_rag_is_bound() -> None:
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    agent = _bare_agent(rag_config_id=uuid.uuid4())
+
+    assert await engine._knowledge_starved(0, agent, uuid.uuid4()) is True
+
+
+@pytest.mark.asyncio
+async def test_starved_when_budget_floors_and_knowledge_map_is_bound() -> None:
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    agent = _bare_agent(knowmap_config_id=uuid.uuid4())
+
+    assert await engine._knowledge_starved(0, agent, uuid.uuid4()) is True
+
+
+@pytest.mark.asyncio
+async def test_starved_when_budget_floors_and_only_a_concept_map_covers_the_room(monkeypatch) -> None:
+    # The Concept Map is room-scoped: it is not visible on the Agent row, so a
+    # binding-only check would miss an agent whose sole source is a layer.
+    engine, facade_cls = _engine_with_layers(["layer-1"])
+    _patch_facade(monkeypatch, facade_cls)
+
+    assert await engine._knowledge_starved(0, _bare_agent(), uuid.uuid4()) is True
+    # The lookup runs inside the turn's live transaction, so it must be isolated
+    # by a SAVEPOINT — otherwise a DB fault aborts the whole turn (:1516's rule).
+    assert engine._db.savepoints == 1
+
+
+@pytest.mark.asyncio
+async def test_not_starved_when_budget_floors_but_nothing_is_bound(monkeypatch) -> None:
+    # Nothing was dropped, so there is nothing to complain about — an agent with
+    # no knowledge source must keep working under any cap.
+    engine, facade_cls = _engine_with_layers([])
+    _patch_facade(monkeypatch, facade_cls)
+
+    assert await engine._knowledge_starved(0, _bare_agent(), uuid.uuid4()) is False
+
+
+@pytest.mark.asyncio
+async def test_not_starved_on_headless_turn_with_no_room(monkeypatch) -> None:
+    # No room means no Concept Map to resolve; the lookup needs a chatroom_id.
+    engine, facade_cls = _engine_with_layers(AssertionError("must not be consulted"))
+    _patch_facade(monkeypatch, facade_cls)
+
+    assert await engine._knowledge_starved(0, _bare_agent(), None) is False
+
+
+@pytest.mark.asyncio
+async def test_layer_lookup_failure_reports_no_source(monkeypatch) -> None:
+    # Best-effort: a broken lookup must not convert a working turn into a
+    # skipped one. Failing closed here means "don't complain", not "don't run".
+    engine, facade_cls = _engine_with_layers(RuntimeError("db down"))
+    _patch_facade(monkeypatch, facade_cls)
+
+    assert await engine._knowledge_starved(0, _bare_agent(), uuid.uuid4()) is False
+
+
+def test_starved_exception_carries_both_terms_that_produced_the_floor() -> None:
+    # The cap alone does not explain the floor: fixed_context also carries the
+    # turn's input and history, so one very long message can starve a reasonable
+    # cap. The handler audits both numbers because it cannot re-derive
+    # fixed_context — it is computed inside the assembly closure.
+    exc = te._KnowledgeStarved(fixed_context=9_000, ceiling=8_000)
+
+    assert exc.fixed_context == 9_000
+    assert exc.ceiling == 8_000
+    assert "9000" in str(exc)
+    assert "8000" in str(exc)
+
+
+def test_knowledge_budget_floors_at_zero_under_a_low_cap() -> None:
+    # The upstream trigger AC-11 is written against: the ceiling is the agent's
+    # own context_token_cap, and a low one leaves the knowledge blocks nothing.
+    # 5000 - 4096 reserve - 2000 fixed is already negative, so the floor engages.
+    budget = te.ctxmod.knowledge_budget(
+        ceiling=5_000,
+        response_reserve=te._DEFAULT_MAX_TOKENS,
+        fixed_context_tokens=2_000,
+        safety_margin_frac=te._KNOWLEDGE_SAFETY_MARGIN,
+    )
+
+    assert budget == 0
