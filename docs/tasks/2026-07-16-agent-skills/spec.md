@@ -1961,6 +1961,15 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   already call `t()` correctly, so the override at `eslint.config.js:260` is the only thing hiding a
   small, finite list. A fix must delete **only that line**: `vue/require-default-prop` shares the
   same override block and has a separate, defensible justification at `:251-256`.
+  **Closed 2026-07-17 (`831a6ac`).** The finding that mattered was not in this entry: **9 of the 10
+  are `aria-label` or `sr-only`** — accessibility text, not "design-system labels" as the
+  exemption's own comment claimed. So a zh-TW product was reading "Search", "Loading", "Remove
+  file", "Breadcrumb" to screen-reader users in English, and no sighted reviewer could ever see it,
+  which is why it survived. Gate #11 is accessibility and gate #12 is i18n; this lived in the gap
+  between them. `shared/ui` had no locale namespace, so one was added and registered in `main.ts`
+  beside the app-shell bundle (mount is already gated on `ensureLocaleLoaded`, so no raw-key flash).
+  Only the `no-bare-strings` line was removed. Probed: reintroducing one bare `aria-label` reddens
+  lint, so the rule is live in that layer rather than silently inapplicable.
 - **FU-6: `_WORKSPACE_MANIFESTS` is unbounded and can lie.**
   **Verified 2026-07-17: confirmed on every adjective, and it is the same item as
   `2026-07-16-code-exec-agent-files-path`'s FU-3** (that entry says so itself: "Carried from the
