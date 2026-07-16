@@ -1,11 +1,20 @@
 ---
 type: bugfix
-status: draft
+status: superseded
 created: 2026-07-16
 requirements: [R12.03]
+superseded_by: 2026-07-17-agent-files-path-resolution
 ---
 
 # `agent-files/` paths reported to `code_exec` do not resolve
+
+> **Superseded 2026-07-17 by `docs/tasks/2026-07-17-agent-files-path-resolution/`.** Both dossiers are
+> independent splits of `2026-07-16-agent-skills`' FU-15 and diagnose the same defect; neither cited the
+> other. The successor's Q-6 records why it won the one decision they contradict (this dossier's Q-2 —
+> whether `_tar_staged_inputs:138`'s hardcoded `"inputs"` is a bug), and it absorbs the two things this
+> dossier had and it lacked: **Q-3** (the flattening defect, as its AC-12/AC-13) and **§11's
+> `REQUIREMENTS.md:582` correction** (as its AC-14, applied at merge). This file is kept for its
+> analysis and its follow-up triage; do not build from it.
 
 ## 1. Summary
 

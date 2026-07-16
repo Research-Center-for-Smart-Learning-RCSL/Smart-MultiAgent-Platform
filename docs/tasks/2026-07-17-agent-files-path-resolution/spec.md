@@ -1,8 +1,9 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-07-17
 requirements: [R12.05, R12.03]
+supersedes: 2026-07-16-code-exec-agent-files-path
 ---
 
 # `agent-files/` paths do not resolve inside `code_exec` — the note and the staging use different roots
@@ -52,6 +53,9 @@ The defect is not confined to code. It is written into three places as though it
 | Q-3 | Why not stage `agent-files` under the session dir? | **Rejected.** | It breaks the persistence model. `agent-files` is per-**agent** and persists across rooms and turns, keyed by `manifest_sha` on one volume (`docker_runsc.py:1015-1017`, `_WORKSPACE_MANIFESTS`). Sessions are per-room. Staging per-room would duplicate every file per room and make the manifest cache describe a location it does not own. |
 | Q-4 | Fix `_tar_staged_inputs`' coordinate-system split too, or only the symptom? | **Fix it. Return what was actually staged; delete `_fix_paths`.** | §5 shows the split *is* the root cause — the symptom is downstream of it. Patching only the note leaves a helper whose docstring says "Returns (archive, staged_relative_paths)" while returning paths it did not stage, plus a `_fix_paths` string-rewrite that patches the symptom for one caller. The next caller walks into the same hole. Q-1 without Q-4 is a bandaid on the wrong layer. |
 | Q-5 | Does the designer-facing UI hint change? | **Yes — it is part of the defect.** | `locales/{en,zh-TW}.json:392` tells the designer their files are at `agent-files/<path>` "to this agent's Code Interpreter and File Workspace tools". The designer reads that, writes `open('agent-files/…')`, and hits the bug. A fix that corrects the model's note and leaves the human's note lying has fixed half of it. AC-7. |
+| Q-6 | `2026-07-16-code-exec-agent-files-path` (draft) specs this same bug and **rejects Q-4** — its Q-2 calls the hardcoded `"inputs"` "not a bug", its AC-4 requires `test_code_exec_kernel.py:164-185` pass *unmodified*. Which wins? | **This dossier, merged.** 0716 is superseded; its Q-3 and its SRS Delta are absorbed here (Q-7, §11). | Both dossiers are splits of agent-skills FU-15 that were written without knowledge of each other — the duplication is the finding, not a tie to break. On the mechanism: 0716's `report_prefix` param keeps a default whose correctness is *coincidental* (§5.1) and adds a second way to say what `rel_dir` already says. Its stated reason for rejecting Q-4 — that `inputs/x` "is documented as the return contract (`:979`)" — cites a docstring §7 shows is **wrong twice**. A contract that misdescribes its own function does not bind. 0716's AC-4 is therefore preserving a test that pins a defect, which is the same error as `test_workspace_staging.py`'s fake (§8, FU-4). Its Q-2 was right about one thing: *`stage_kernel_inputs`' resolved file location must not move* — kept verbatim as AC-4's second clause. |
+| Q-7 | 0716's Q-3: workspace files are flattened — `reports/q1.csv` stages as `q1.csv`, and two `q1.csv` in different folders collide via the disambiguator (`docker_runsc.py:129-131`). Absorb it? | **Yes.** New AC-12/AC-13. | It is the same note, the same turn, the same staged tree: fixing the prefix while the basename stays wrong still fails the exit criterion for any nested file, so AC-3 would pass over a still-broken feature. **0716 mislocates it and understates it**: it blames `turn_engine.py:857` (`wf.path.rsplit("/", 1)[-1]`), but `_tar_staged_inputs` calls `_safe_input_name` (`:127`) which reduces to a basename by construction (`sanitize.py:8`) — so passing `wf.path` through changes nothing on its own. **Two** sites flatten; both must move. |
+| Q-8 | 0716 §9 makes Q-3 contingent: "if the sanitiser cannot be made airtight, ship steps 1-2 and 4 alone" and fall back to FU-2. Does that fallback apply? | **No — the airtight sanitiser already exists and already ran.** | `_safe_workspace_path` (`workspace_service.py:55-73`) rejects `..`, absolute paths, null bytes, and over-length, and every upload passes through it (`:106`); `path` is the row's identity (`:111` `get_by_path`). So `wf.path` is *already* normalised and traversal-free before staging reads it. 0716 §7.3 proposed inventing a path-aware rule ("reuse `_safe_relpath`'s reasoning") without noticing the rule it wanted was already enforced one layer up. Staging still re-validates rather than trusting the row — defense in depth across a sandbox boundary, and the DB is not an input the sandbox should trust — but it **reuses `_safe_workspace_path`**, it does not author a third rule. AC-13. |
 
 ## 4. Reproduction
 
@@ -234,13 +238,50 @@ is the clearest proof the bug is real.
 - [ ] AC-11: gates green — `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`;
       `pnpm test`, `pnpm lint`, `pnpm typecheck` (the locale change touches the frontend).
 
+Absorbed from superseded `2026-07-16-code-exec-agent-files-path` (Q-6):
+
+- [ ] AC-12: a workspace file at `reports/q1.csv` is staged to `agent-files/reports/q1.csv` and
+      reported as `/workspace/agent-files/reports/q1.csv` — its directory survives. Both flattening
+      sites are fixed (`turn_engine.py:857`, `_safe_input_name` at `docker_runsc.py:127` — Q-7), and
+      two files named `q1.csv` in different folders no longer collide into `q1.csv`/`q1-1.csv`.
+- [ ] AC-13: staging re-validates the tree-preserving path via **`_safe_workspace_path`**
+      (`workspace_service.py:55`), not a third hand-rolled rule (Q-8); traversal, absolute, and
+      null-byte paths are rejected at staging even though the API boundary already rejects them.
+      Attachments (`stage_kernel_inputs`) keep flattening to a basename — for them it is correct.
+- [ ] AC-14: `REQUIREMENTS.md:582` no longer claims only the `file` tool container mounts the volume
+      (§11), and its "MCP containers do NOT receive this mount" clause is preserved.
+
 ## 11. SRS Delta
 
-**None.** `[R12.05]` (`REQUIREMENTS.md:588`) defines `code_exec` on the curated image and `[R12.03]`
-(`:575`) the sandbox constraints; neither states a path convention, and neither is violated by the
-current code — which is precisely how this shipped. The fix restores the *documented* behaviour
-(`D-code-interpreter-files.md:138`) rather than changing an intended one, so it is a bugfix against a
-design doc, not a requirement change.
+**No requirement governs the path shape, and none is added here.** `[R12.05]` (`REQUIREMENTS.md:588`)
+defines `code_exec` on the curated image and `[R12.03]` (`:575`) the sandbox constraints; neither
+states a path convention, and neither is violated by the current code — which is precisely how this
+shipped. The fix restores the *documented* behaviour (`D-code-interpreter-files.md:138`) rather than
+changing an intended one, so it is a bugfix against a design doc. `2026-07-16-workspace-path-convention`
+owns the convention itself (§13 FU-1).
+
+**But `[R12.03]` contains a false statement, inherited from superseded 0716 §11 and re-verified here.**
+`REQUIREMENTS.md:582` (the Lifetime bullet) reads, in part:
+
+> User-provided MCP containers do NOT receive this mount; only the built-in `file` tool container does.
+
+The second clause is false. **Four** containers mount `smap-agent-fs-{agent_id}` at `/workspace`: the
+`file` tool (`docker_runsc.py:604`), the persistent `code_exec` kernel (`:917`), the attachment-staging
+container (`:990`), and the workspace-file-staging container (`:1041`). The kernel's mount is not an
+accident — it is the whole of the feature this dossier repairs; without it there would be no
+`agent-files` to report. The SRS predates that feature and was never updated.
+
+This is in scope because `:582` is a **security** statement: an auditor reading it would conclude the
+code violates the sandbox boundary, and this dossier's own §6 sweep had to establish the true mount set
+to bound the blast radius. The load-bearing half — *MCP containers do not receive this mount* — is true
+and is preserved verbatim.
+
+**Edit — `REQUIREMENTS.md:582`**, replace the clause above with:
+
+> User-provided MCP containers do NOT receive this mount. The containers that do are the platform's own: the built-in `file` tool, the `code_exec` kernel, and the two staging helpers that populate `inputs/` and `agent-files/` — each of which runs with `network_mode="none"`.
+
+No `docs/traceability.csv` change: `R12.03`'s summary is the requirement's opening line, not this
+sub-bullet. AC-14.
 
 Worth naming: **the absence of a stated path convention is what let two roots coexist.** A requirement
 fixing the workspace path contract belongs with `2026-07-16-workspace-path-convention`, which owns
