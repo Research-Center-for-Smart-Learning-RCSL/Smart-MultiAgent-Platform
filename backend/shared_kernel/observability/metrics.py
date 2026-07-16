@@ -172,6 +172,17 @@ RETENTION_FAILURES = Counter(
     registry=REGISTRY,
 )
 
+AGENT_FS_GC_ARTIFACTS = Gauge(
+    "agent_fs_gc_artifacts",
+    "Per-agent filesystem artifacts observed by the most recent GC sweep, counted in artifacts "
+    "(one Docker volume, or one agent's workspace prefix). kind = volume | workspace_prefix; "
+    "disposition = seen | live | retained (inside its recovery window) | purged | would_purge | "
+    "declined (could not be judged — the alertable one). would_purge above zero with purged at "
+    "zero means the sweep is unarmed and the leak is ongoing.",
+    labelnames=("kind", "disposition"),
+    registry=REGISTRY,
+)
+
 # ---- Phase E.7/E.8: GraphRAG build state -----------------------------------
 
 GRAPHRAG_BUILD_STATE = Gauge(
@@ -243,6 +254,7 @@ def mount_metrics_middleware(app: FastAPI, cfg: ObservabilitySection) -> None:
 
 __all__ = [
     "ADMIN_IMPERSONATION_SESSIONS_ACTIVE",
+    "AGENT_FS_GC_ARTIFACTS",
     "DB_POOL_AVAILABLE",
     "DB_POOL_IN_USE",
     "DB_POOL_SIZE",
