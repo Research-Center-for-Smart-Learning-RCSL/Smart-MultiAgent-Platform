@@ -864,6 +864,27 @@ compose topology change.
    Q-31(b)'s charset rules at both entry points, a delimited untrusted-content frame around the
    index with delimiter occurrences rejected in `name`/`description`, and AC-30.
 
+   **Correction, 2026-07-17 (closes FU-27): homoglyphs are named in the threat above and are not
+   mitigated by anything cited here.** The charset rules reject non-printing characters by Unicode
+   category — controls, bidi, zero-width, the Tag block. They contain no confusables table, no NFKC
+   folding, and no script-mixing check, so `rеad-pdf` with a Cyrillic *е* passes every rule on this
+   list and renders in the index beside the real `read-pdf`. `name` is safe by construction
+   (`SKILL_NAME_RE` is ASCII-only, [R31.01]); `description` is not, and `description` is what the
+   model reads to decide. This is a **live gap in the enumeration above**, not a residual the
+   paragraph below covers — that one is candid about the frame's limits and about in-band injection,
+   and says nothing about homoglyphs. Implementing confusables detection over free-form prose is
+   likely a bad trade (false positives on legitimate mixed-script descriptions, in a product whose
+   own UI is zh-TW), so the honest position is that this is **accepted, not mitigated**: the control
+   is the same one the paragraph below names — Q-7 and the human bind decision. An SRS that claims a
+   control it does not have is worse than one that admits the gap.
+
+   **Also unimplemented (FU-28, open):** Q-31(b) and [R31.01] both specify `description` is
+   NFC-normalized. Nothing normalizes anything — `unicodedata` appears in this context only for
+   `.category`. No attack path (the rule is pure and nothing mutates the string after validation),
+   but a description is stored in whatever form its author sent. Sequenced behind
+   `2026-07-16-skill-text-rules-at-the-service-layer`, which creates the service-layer call site
+   normalization needs.
+
    **Residual risk, accepted explicitly.** Only the *input* half of that mitigation is enforceable.
    The charset rules, the length cap, and the delimiter rejection are deterministic and AC-30 tests
    them. The **frame is defense-in-depth, and its efficacy is a model behavior no AC asserts** —
@@ -2400,6 +2421,12 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   implementing is a `feature` (new rejections, new 422s), **not a bugfix** — the code does what the
   code intends and the *spec* overclaims. Given `description` is free-form prose, implementing
   confusables is likely a bad trade.
+  **Closed 2026-07-17 (`docs`)** — took the correct-the-spec option, not the implement option. §8 now
+  states that homoglyphs are accepted rather than mitigated, and why: confusables detection over
+  free-form prose in a zh-TW product would false-positive on legitimate mixed-script descriptions,
+  and the real control is the one §8 already names — Q-7 and the human bind decision. **FU-28 stays
+  open** and is no longer merged with this: it is a small implementable thing, unlike this one, and
+  it is sequenced behind `2026-07-16-skill-text-rules-at-the-service-layer`. §8 records both.
 - **FU-28: Q-31(b) specifies `description` is NFC-normalized; nothing normalizes anything.**
   `unicodedata` appears once in `contexts/skills/`, for `.category`. No attack path — nothing
   transforms the string after validation, so there is no validate-then-mutate bypass, and NFC
