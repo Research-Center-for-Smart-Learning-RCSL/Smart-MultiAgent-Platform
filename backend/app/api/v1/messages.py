@@ -220,7 +220,7 @@ async def send_message(
     bound_rows = await _list_bound_agents_for_dispatch(db, chatroom_id)
     bound_ids = None if bound_rows is None else [a.agent_id for a in bound_rows]
     woken = await _dispatch_message_wakeups(db, chatroom_id, bound_rows, trigger_message_id=msg.id)
-    await _dispatch_graphrag_builds(db, chatroom_id, bound_ids)
+    await _dispatch_graphrag_builds(db, chatroom_id)
     await _dispatch_mention_wakeups(
         db,
         chatroom_id,
@@ -291,19 +291,19 @@ async def _dispatch_message_wakeups(
 async def _dispatch_graphrag_builds(
     db: AsyncSession,
     chatroom_id: uuid.UUID,
-    bound_agent_ids: list[uuid.UUID] | None = None,
 ) -> None:
     """Evaluate GraphRAG message triggers and enqueue builds post-commit.
+
+    Scoped by room alone (R11.02/R11.08): chatroom- and workspace-owned maps
+    cover a room whether or not an Agent is bound to it, so a committed message
+    always reaches evaluation. Passing bindings in would also have made a failed
+    binding fetch indistinguishable from a genuinely agentless room.
 
     GraphRAG builds are background maintenance; a Redis / queue / DB hiccup must
     never turn a successfully persisted chat message into a client-visible error.
     """
-    if not bound_agent_ids:
-        return
     try:
-        fired = await KnowledgeFacade(db).evaluate_graphrag_message_triggers(
-            chatroom_id=chatroom_id, agent_ids=bound_agent_ids
-        )
+        fired = await KnowledgeFacade(db).evaluate_graphrag_message_triggers(chatroom_id=chatroom_id)
         for trigger in fired:
             # D5: dedup concurrent triggers for the same config+watermark onto
             # one queued build via a stable job id.

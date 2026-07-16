@@ -197,21 +197,19 @@ class KnowledgeFacade:
         self,
         *,
         chatroom_id: uuid.UUID,
-        agent_ids: Sequence[uuid.UUID],
     ) -> Sequence[GraphRagBuildTrigger]:
-        """Return GraphRAG configs whose message triggers fired after a user send.
+        """Return GraphRAG configs whose message triggers fired after a send.
 
         F-3: coverage is resolved by the sending room (chatroom / enabled
-        agent_group / enabled workspace owners), so the caller passes the
-        ``chatroom_id`` alongside the room's bound agents.
+        agent_group / enabled workspace owners), so the room is the only scope
+        the caller supplies — R11.02/R11.08 cover agentless rooms too, and the
+        group arm derives the room's Agent bindings itself.
         """
         from contexts.knowledge.application.graphrag_triggers import (
             evaluate_graphrag_message_triggers,
         )
 
-        return await evaluate_graphrag_message_triggers(
-            self._db, chatroom_id=chatroom_id, agent_ids=agent_ids
-        )
+        return await evaluate_graphrag_message_triggers(self._db, chatroom_id=chatroom_id)
 
     async def get_knowmap_config(
         self, config_id: uuid.UUID, *, include_deleted: bool = False

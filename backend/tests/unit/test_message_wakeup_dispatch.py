@@ -84,7 +84,6 @@ async def test_evaluate_message_wakeups_uses_provided_binding(monkeypatch) -> No
 
 @pytest.mark.asyncio
 async def test_dispatch_graphrag_builds_enqueues_fired_configs(monkeypatch) -> None:
-    agent_id = uuid.uuid4()
     chatroom_id = uuid.uuid4()
     config_id = uuid.uuid4()
     enqueued: list[tuple[tuple[object, ...], dict[str, object]]] = []
@@ -99,11 +98,10 @@ async def test_dispatch_graphrag_builds_enqueues_fired_configs(monkeypatch) -> N
         def __init__(self, db) -> None:
             pass
 
-        async def evaluate_graphrag_message_triggers(self, *, chatroom_id, agent_ids):
+        async def evaluate_graphrag_message_triggers(self, *, chatroom_id):
             # F-3: the dispatcher threads the sending room through so coverage is
             # resolved by room, not the agent-delete cascade.
             assert chatroom_id == expected_room
-            assert agent_ids == [agent_id]
             return [_Trigger()]
 
     async def _enqueue(*args, **kwargs) -> None:
@@ -113,10 +111,55 @@ async def test_dispatch_graphrag_builds_enqueues_fired_configs(monkeypatch) -> N
     monkeypatch.setattr(messages_mod, "enqueue", _enqueue)
 
     expected_room = chatroom_id
-    await messages_mod._dispatch_graphrag_builds(object(), chatroom_id, [agent_id])
+    await messages_mod._dispatch_graphrag_builds(object(), chatroom_id)
 
     # D5: the enqueue carries the dedup job id so concurrent triggers for the
     # same config+watermark collapse to a single queued build.
+    assert enqueued == [
+        (
+            ("graphrag_build",),
+            {
+                "config_id": str(config_id),
+                "triggered_by": "every_n_messages",
+                "_job_id": f"graphrag:build:{config_id}:idle:0",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_graphrag_builds_evaluates_agentless_room(monkeypatch) -> None:
+    # R11.02/R11.08: a committed message in a room with no bound Agent still
+    # reaches room-scoped trigger evaluation. Coverage is resolved from the room,
+    # so an empty binding set is not a reason to skip the facade.
+    chatroom_id = uuid.uuid4()
+    config_id = uuid.uuid4()
+    enqueued: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    calls: list[uuid.UUID] = []
+
+    class _Trigger:
+        def __init__(self) -> None:
+            self.config_id = config_id
+            self.triggered_by = "every_n_messages"
+            self.job_id = f"graphrag:build:{config_id}:idle:0"
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def evaluate_graphrag_message_triggers(self, *, chatroom_id):
+            calls.append(chatroom_id)
+            return [_Trigger()]
+
+    async def _enqueue(*args, **kwargs) -> None:
+        enqueued.append((args, kwargs))
+
+    monkeypatch.setattr(messages_mod, "KnowledgeFacade", _Facade)
+    monkeypatch.setattr(messages_mod, "enqueue", _enqueue)
+
+    await messages_mod._dispatch_graphrag_builds(object(), chatroom_id)
+
+    assert calls == [chatroom_id]
     assert enqueued == [
         (
             ("graphrag_build",),

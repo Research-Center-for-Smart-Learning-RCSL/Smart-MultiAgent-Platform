@@ -1710,19 +1710,21 @@ class TurnEngine:
                     "every_n_messages",
                     str(message_id),
                 )
-            if bound:
-                triggers = await KnowledgeFacade(self._db).evaluate_graphrag_message_triggers(
-                    chatroom_id=chatroom_id, agent_ids=[a.agent_id for a in bound]
+            # R11.02/R11.08: room-scoped, so an empty binding set — whether the
+            # room is agentless or a member unbound mid-turn — never suppresses
+            # Concept Map evaluation for the reply just persisted.
+            triggers = await KnowledgeFacade(self._db).evaluate_graphrag_message_triggers(
+                chatroom_id=chatroom_id
+            )
+            for trig in triggers:
+                # D5: dedup concurrent triggers for the same config+watermark
+                # onto one queued build via a stable job id.
+                await enqueue(
+                    "graphrag_build",
+                    config_id=str(trig.config_id),
+                    triggered_by=trig.triggered_by,
+                    _job_id=trig.job_id,
                 )
-                for trig in triggers:
-                    # D5: dedup concurrent triggers for the same config+watermark
-                    # onto one queued build via a stable job id.
-                    await enqueue(
-                        "graphrag_build",
-                        config_id=str(trig.config_id),
-                        triggered_by=trig.triggered_by,
-                        _job_id=trig.job_id,
-                    )
         except Exception:
             _log.warning(
                 "agent-reply wakeup dispatch failed room=%s",
