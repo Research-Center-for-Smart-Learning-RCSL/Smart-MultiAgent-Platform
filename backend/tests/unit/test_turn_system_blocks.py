@@ -22,7 +22,10 @@ import pytest
 from contexts.agents.application.runtime.turn_engine import (
     _OBSERVER_SYSTEM_NOTE,
     _PARTICIPANT_LABEL_NOTE,
+    _PARTICIPANT_NOTE_BLOCK,
     _BlockRole,
+    _BlockSlot,
+    _SystemBlock,
     _SystemBlocks,
 )
 
@@ -136,7 +139,8 @@ def test_measure_matches_legacy_fixed_system_text(case: dict, summaries: list[st
 def test_render_matches_legacy_system_parts(
     case: dict, summaries: list[str], knowledge: list[str], include_note: bool
 ) -> None:
-    assert _build(case).render(summaries, knowledge, include_participant_note=include_note) == _legacy_render(
+    conditional = [_PARTICIPANT_NOTE_BLOCK] if include_note else []
+    assert _build(case).render(summaries, knowledge, include_conditional=conditional) == _legacy_render(
         summaries, knowledge, include_participant_note=include_note, **case
     )
 
@@ -161,7 +165,7 @@ def test_every_block_has_exactly_one_role_and_roles_partition_the_list() -> None
 
     # The two asymmetric roles are the whole reason this class exists; pin the
     # membership so a new block cannot quietly join the wrong side.
-    assert by_role[_BlockRole.MEASURED_ONLY] == ["participant_note"]
+    assert by_role[_BlockRole.MEASURED_ONLY] == [_PARTICIPANT_NOTE_BLOCK]
     assert by_role[_BlockRole.RENDERED_ONLY] == ["knowledge"]
 
 
@@ -171,8 +175,29 @@ def test_measured_only_block_is_counted_but_omitted_when_not_included() -> None:
     blocks = _build(_CASES[0])
 
     assert _PARTICIPANT_LABEL_NOTE in blocks.measure([])
-    assert _PARTICIPANT_LABEL_NOTE not in blocks.render([], [], include_participant_note=False)
-    assert _PARTICIPANT_LABEL_NOTE in blocks.render([], [], include_participant_note=True)
+    assert _PARTICIPANT_LABEL_NOTE not in blocks.render([], [], include_conditional=[])
+    assert _PARTICIPANT_LABEL_NOTE in blocks.render([], [], include_conditional=[_PARTICIPANT_NOTE_BLOCK])
+
+
+def test_each_conditional_block_is_gated_by_its_own_name() -> None:
+    # A single shared flag would gate every MEASURED_ONLY block on the first
+    # one's reason: naming a second block must not drag the participant note in,
+    # and an unnamed block stays out (measured, not rendered — its role's meaning).
+    extra = _SystemBlock("some_other_note", _BlockRole.MEASURED_ONLY, text="[OTHER]")
+    blocks = _SystemBlocks(blocks=(*_build(_CASES[0]).blocks, extra))
+
+    only_other = blocks.render([], [], include_conditional=["some_other_note"])
+    assert "[OTHER]" in only_other
+    assert _PARTICIPANT_LABEL_NOTE not in only_other
+
+    only_note = blocks.render([], [], include_conditional=[_PARTICIPANT_NOTE_BLOCK])
+    assert "[OTHER]" not in only_note
+    assert _PARTICIPANT_LABEL_NOTE in only_note
+
+    # Both are still measured either way — that is what MEASURED_ONLY means.
+    measured = blocks.measure([])
+    assert "[OTHER]" in measured
+    assert _PARTICIPANT_LABEL_NOTE in measured
 
 
 def test_rendered_only_block_is_never_measured() -> None:
@@ -182,7 +207,19 @@ def test_rendered_only_block_is_never_measured() -> None:
     knowledge = ["[RAG]\nchunk text"]
 
     assert "[RAG]" not in blocks.measure([])
-    assert "[RAG]" in blocks.render([], knowledge, include_participant_note=False)
+    assert "[RAG]" in blocks.render([], knowledge, include_conditional=[])
+
+
+def test_measure_raises_when_a_block_needs_a_slot_it_does_not_supply() -> None:
+    # measure supplies no knowledge text because the role guard skips that block.
+    # If the role ever changed, contributing nothing to the estimate would be a
+    # silent under-count (F-16's failure mode) — so it must be loud instead.
+    blocks = _SystemBlocks(
+        blocks=(_SystemBlock("knowledge", _BlockRole.MEASURED_AND_RENDERED, slot=_BlockSlot.KNOWLEDGE),)
+    )
+
+    with pytest.raises(RuntimeError, match="knowledge"):
+        blocks.measure([])
 
 
 def test_summaries_are_both_measured_and_rendered_in_place() -> None:
@@ -190,6 +227,6 @@ def test_summaries_are_both_measured_and_rendered_in_place() -> None:
     summaries = ["[Earlier conversation summary]\nfoo"]
 
     assert summaries[0] in blocks.measure(summaries)
-    rendered = blocks.render(summaries, ["[RAG]"], include_participant_note=False)
+    rendered = blocks.render(summaries, ["[RAG]"], include_conditional=[])
     # Order is declared once: summaries precede knowledge in both passes.
     assert rendered.index(summaries[0]) < rendered.index("[RAG]")
