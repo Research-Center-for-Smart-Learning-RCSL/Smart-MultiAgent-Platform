@@ -240,9 +240,12 @@ async def test_the_note_the_model_reads_carries_only_absolute_paths(monkeypatch)
     assert note is not None
     assert "/workspace/agent-files/reports/q1.csv" in note
     assert "/workspace/sessions/" in note
-    # No bare relative form survives: every path must start at the volume root.
-    inner = note.removeprefix("[Files available in the code_exec workspace: ").rstrip("]")
-    assert all(p.strip().startswith("/workspace/") for p in inner.split(","))
+    # No bare relative form survives. Asserted by scanning for the old prefix
+    # rather than by splitting the note on "," — a filename may contain a comma,
+    # so comma-splitting is not a real invariant of this format (FU-7).
+    assert "agent-files/" in note
+    assert " agent-files/" not in note
+    assert ": agent-files/" not in note
 
 
 def test_cap_is_the_documented_128_mib() -> None:

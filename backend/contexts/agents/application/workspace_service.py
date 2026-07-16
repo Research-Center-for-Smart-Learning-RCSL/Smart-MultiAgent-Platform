@@ -25,12 +25,8 @@ from contexts.agents.infrastructure.repositories import (
 )
 from shared_kernel import audit
 from shared_kernel.storage.minio_client import MinioClient, agent_workspace_key
-from shared_kernel.storage.sanitize import (
-    safe_input_name as _safe_input_name,
-)
-from shared_kernel.storage.sanitize import (
-    validate_workspace_relpath,
-)
+from shared_kernel.storage.sanitize import safe_input_name as _safe_input_name
+from shared_kernel.storage.sanitize import validate_workspace_relpath
 
 _QUOTA_BYTES = 256 * 1024 * 1024  # 256 MB per agent
 _MAX_FILE_BYTES = 32 * 1024 * 1024  # 32 MB per multipart upload

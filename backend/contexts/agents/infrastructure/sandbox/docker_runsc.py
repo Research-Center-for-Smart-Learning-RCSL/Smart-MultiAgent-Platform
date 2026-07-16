@@ -59,9 +59,11 @@ _DEFAULT_CODE_IMAGE = "smap/code-exec:pinned"
 _EGRESS_NETWORK = "smap_egress_net"
 
 _SANDBOX_UID = 10001
-# Where the per-agent volume (and the tmpfs that stands in for it) is mounted in
-# every sandbox container. Matches `file_tool._ROOT` and the kernel's
-# SMAP_KERNEL_WORKSPACE; the three must agree or staged paths do not resolve.
+# Where the per-agent volume is mounted in every sandbox container. This must
+# equal `file_tool._ROOT` and the kernel's SMAP_KERNEL_WORKSPACE default, or a
+# staged path resolves to nothing; nothing yet enforces that agreement across the
+# three (see 2026-07-17-sandbox-guest-container-tests). Other `/workspace`
+# literals in this module predate the constant and are not in this fix's scope.
 _VOLUME_ROOT = "/workspace"
 _MEMORY = "512m"
 _CPUS = 0.5
@@ -133,6 +135,55 @@ def _disambiguate(name: str, taken: set[str]) -> str:
         n += 1
 
 
+def _staged_members(
+    rel_dir: str,
+    files: Sequence[StagedFile],
+    *,
+    preserve_tree: bool = False,
+) -> list[tuple[StagedFile, str]]:
+    """Pair each stageable file with the tar member name it will be written to.
+
+    Split out from the tar build so the manifest-cache hit can report paths
+    without materialising (and discarding) an archive of every file's bytes.
+
+    A file whose name cannot be validated is **skipped and logged**, not raised:
+    callers swallow staging faults to keep the turn alive, so raising would turn
+    one unstageable row into a silent, permanent loss of every workspace file the
+    agent has. One bad row should cost one file.
+    """
+    import posixpath
+
+    rel_dir = rel_dir.strip("/")
+    named: list[tuple[StagedFile, str]] = []
+    for f in files:
+        try:
+            named.append((f, _safe_staged_name(f.filename, preserve_tree=preserve_tree)))
+        except ValueError:
+            _log.warning(
+                "skipping unstageable path %r for %s: fails workspace path validation",
+                f.filename,
+                rel_dir,
+            )
+
+    # A name some other file needs as a directory is not available as a file name:
+    # `reports` and `reports/q1.csv` are both legal uploads, and emitting a file
+    # member and a dir member for the same path makes extraction fail.
+    reserved: set[str] = set()
+    for _f, name in named:
+        acc = ""
+        for part in name.split("/")[:-1]:
+            acc = posixpath.join(acc, part) if acc else part
+            reserved.add(acc)
+
+    out: list[tuple[StagedFile, str]] = []
+    seen: set[str] = set()
+    for f, raw_name in named:
+        name = _disambiguate(raw_name, seen | reserved)
+        seen.add(name)
+        out.append((f, posixpath.join(rel_dir, name)))
+    return out
+
+
 def _tar_staged_inputs(
     rel_dir: str,
     files: Sequence[StagedFile],
@@ -151,17 +202,26 @@ def _tar_staged_inputs(
     recreated under *rel_dir* (workspace files, whose layout is the designer's).
     Without it the name is flattened to a basename (chat attachments, which have
     no meaningful tree and whose names are far less trusted).
+
+    *rel_dir* must be a non-empty relative path; an empty one would emit a member
+    that chowns the extraction root itself.
     """
     import io
     import posixpath
     import tarfile
 
     rel_dir = rel_dir.strip("/")
+    if not rel_dir:
+        raise ValueError("rel_dir must be a non-empty relative path")
     buf = io.BytesIO()
     staged: list[str] = []
     made_dirs: set[str] = set()
 
     def _mkdirs(tar: tarfile.TarFile, path: str) -> None:
+        # Every intermediate component gets its own member, not just the leaf's
+        # parent. On the persistent volume the agent's own code_exec could have
+        # left a symlink where a directory belongs; a DIRTYPE member at each level
+        # makes the extractor replace it. Do not "optimise" this to leaf-only.
         acc = ""
         for part in path.split("/"):
             acc = posixpath.join(acc, part) if acc else part
@@ -174,26 +234,9 @@ def _tar_staged_inputs(
             d.uid = d.gid = _SANDBOX_UID
             tar.addfile(d)
 
-    names = [_safe_staged_name(f.filename, preserve_tree=preserve_tree) for f in files]
-    # A name some other file needs as a directory is not available as a file name:
-    # `reports` and `reports/q1.csv` are both legal uploads, and emitting a file
-    # member and a dir member for the same path makes extraction fail — which,
-    # because staging faults are swallowed to protect the turn, would silently
-    # drop every workspace file for the agent rather than the one odd upload.
-    reserved: set[str] = set()
-    for n in names:
-        acc = ""
-        for part in n.split("/")[:-1]:
-            acc = posixpath.join(acc, part) if acc else part
-            reserved.add(acc)
-
     with tarfile.open(fileobj=buf, mode="w") as tar:
         _mkdirs(tar, rel_dir)
-        seen: set[str] = set()
-        for f, raw_name in zip(files, names, strict=True):
-            name = _disambiguate(raw_name, seen | reserved)
-            seen.add(name)
-            member = posixpath.join(rel_dir, name)
+        for f, member in _staged_members(rel_dir, files, preserve_tree=preserve_tree):
             parent = posixpath.dirname(member)
             if parent:
                 _mkdirs(tar, parent)
@@ -206,8 +249,8 @@ def _tar_staged_inputs(
     return buf.getvalue(), staged
 
 
-def _workspace_abspath(staged_path: str) -> str:
-    """Absolute form of a volume-relative staged path, for the note the model reads.
+def _workspace_abspath(member: str) -> str:
+    """Absolute form of a tar member name, for the note the model reads.
 
     Relative is ambiguous across the tools that share this volume: the kernel runs
     with its cwd at the session dir while the ``file`` tool roots relative paths at
@@ -216,7 +259,7 @@ def _workspace_abspath(staged_path: str) -> str:
     """
     import posixpath
 
-    return posixpath.join(_VOLUME_ROOT, staged_path.lstrip("/"))
+    return posixpath.join(_VOLUME_ROOT, member)
 
 
 # Wrapper for ``code_exec`` when the caller supplies stdin (K.5 FIX 7): the
@@ -1071,7 +1114,7 @@ class DockerRunscSandbox:
         archive, staged = _tar_staged_inputs(rel_dir, files)
         host_config = self._base_host_config()
         host_config["network_mode"] = "none"
-        host_config["volumes"] = {volume: {"bind": "/workspace", "mode": "rw"}}
+        host_config["volumes"] = {volume: {"bind": _VOLUME_ROOT, "mode": "rw"}}
         async with _get_semaphore():
             container = await asyncio.to_thread(
                 client.containers.create,
@@ -1084,7 +1127,7 @@ class DockerRunscSandbox:
             try:
                 await self._assert_runsc(container)
                 # put_archive extracts into the mounted volume; no need to run.
-                await asyncio.to_thread(container.put_archive, "/workspace", archive)
+                await asyncio.to_thread(container.put_archive, _VOLUME_ROOT, archive)
             finally:
                 await self._remove_quietly(container)
         return [_workspace_abspath(p) for p in staged]
@@ -1110,8 +1153,10 @@ class DockerRunscSandbox:
 
         cached = _WORKSPACE_MANIFESTS.get(agent_id)
         if cached == manifest_sha:
-            _, cached_staged = _tar_staged_inputs(rel_dir="agent-files", files=files, preserve_tree=True)
-            return [_workspace_abspath(p) for p in cached_staged]
+            # Names only: this is the path the cache exists to make cheap, so it
+            # must not tar up to _MAX_AGENT_FILES_BYTES of bytes just to discard them.
+            members = _staged_members("agent-files", files, preserve_tree=True)
+            return [_workspace_abspath(m) for _f, m in members]
 
         await self._ensure_runtime_ready()
         client = self._client()
@@ -1120,7 +1165,7 @@ class DockerRunscSandbox:
 
         host_config = self._base_host_config()
         host_config["network_mode"] = "none"
-        host_config["volumes"] = {volume: {"bind": "/workspace", "mode": "rw"}}
+        host_config["volumes"] = {volume: {"bind": _VOLUME_ROOT, "mode": "rw"}}
         async with _get_semaphore():
             container = await asyncio.to_thread(
                 client.containers.create,
@@ -1132,7 +1177,7 @@ class DockerRunscSandbox:
             )
             try:
                 await self._assert_runsc(container)
-                await asyncio.to_thread(container.put_archive, "/workspace", archive)
+                await asyncio.to_thread(container.put_archive, _VOLUME_ROOT, archive)
             finally:
                 await self._remove_quietly(container)
 
