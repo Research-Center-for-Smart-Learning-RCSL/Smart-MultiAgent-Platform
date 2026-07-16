@@ -14,6 +14,7 @@ attached Project B's config and exfiltrated its chunks — except that here it l
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,6 +51,24 @@ REQUIRES_VOCABULARY: dict[str, AgentToolType] = {
 
 # Q-13. `agents.skill_index_token_cap` overrides it per agent; NULL means this.
 DEFAULT_SKILL_INDEX_TOKEN_CAP = 3000
+
+
+@dataclass(frozen=True, slots=True)
+class IndexBreach:
+    """One agent's index overflow: what it would need against what it allows.
+
+    Both numbers travel together because they are only meaningful as a pair. Each bound
+    agent has its own cap and its own bound set, so "required" from one agent beside
+    "cap" from another describes a state no agent is in.
+    """
+
+    agent_id: uuid.UUID
+    required: int
+    cap: int
+
+    @property
+    def overflow(self) -> int:
+        return self.required - self.cap
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +230,22 @@ class BindingService:
         cap = agent.skill_index_token_cap if agent else None
         return cap if cap is not None else DEFAULT_SKILL_INDEX_TOKEN_CAP
 
+    async def assert_cap_fits_current_index(self, agent_id: uuid.UUID, cap: int | None) -> None:
+        """AC-6's third path: the skills did not change, the budget did.
+
+        Called by the agents context before it writes `agents.skill_index_token_cap`,
+        because the DB CHECK only bounds the value at 16000 — it cannot know what the
+        agent has bound. Without this the cap is accepted and then silently violated on
+        every turn, since [R31.14] leaves no runtime truncation to absorb it.
+
+        `None` means "clear the override", which is not a way out: the default is a cap
+        like any other and is resolved here rather than deferred, since the old row value
+        is still in the DB at this point and would be the wrong thing to check against.
+        """
+        await self.assert_index_fits(
+            agent_id, cap_override=cap if cap is not None else DEFAULT_SKILL_INDEX_TOKEN_CAP
+        )
+
     async def assert_index_fits(
         self,
         agent_id: uuid.UUID,
@@ -238,20 +273,64 @@ class BindingService:
 
     async def agents_over_index_cap(
         self, skill: Skill, *, cap_override: int | None = None
-    ) -> tuple[uuid.UUID, ...]:
+    ) -> tuple[IndexBreach, ...]:
         """Agents whose index would overflow if `skill` took its new description.
 
         Drives the update path's rejection: lengthening a description is a write to the
-        *skill*, but the budget it can break belongs to every *agent* bound to it, so
-        the check fans out and the error names them.
+        *skill*, but the budget it can break belongs to every *agent* bound to it, so the
+        check fans out and the error names them.
+
+        Returns each breach's own arithmetic rather than a bare id list. The caller has to
+        put a `required`/`cap` pair in the 422, and it cannot reconstruct either one from
+        an id: `required` is that agent's whole rendered index (not this skill's line), and
+        `cap` is that agent's own override. Recomputing them caller-side is what produced
+        a rejection reading "needs 131 tokens, cap is 2266".
         """
-        over: list[uuid.UUID] = []
-        for agent_id in await self._bindings.list_agent_ids_bound_to(skill.id):
+        return await self._breaches(
+            await self._bindings.list_agent_ids_bound_to(skill.id),
+            replacing=skill,
+            cap_override=cap_override,
+        )
+
+    async def agents_over_index_cap_on_restore(self, skill: Skill) -> tuple[IndexBreach, ...]:
+        """Agents whose index would overflow if `skill`'s cascaded bindings came back.
+
+        Fans out over the bindings restore will actually re-attach — the cascaded ones —
+        not every binding the skill ever had: one the user unbound explicitly stays
+        unbound (AC-37), so charging its agent for a skill it will not receive would
+        block a restore that fits.
+
+        `adding=` rather than `replacing=`, because a soft-deleted skill is absent from
+        every live bound set: it is joining them, not changing within them.
+        """
+        return await self._breaches(
+            await self._bindings.list_agent_ids_cascade_unbound_from(skill.id),
+            adding=skill,
+        )
+
+    async def _breaches(
+        self,
+        agent_ids: Sequence[uuid.UUID],
+        *,
+        adding: Skill | None = None,
+        replacing: Skill | None = None,
+        cap_override: int | None = None,
+    ) -> tuple[IndexBreach, ...]:
+        """Run `assert_index_fits` over a set of agents and collect what it refused.
+
+        Every path that can breach the budget (bind, update, restore, cap-lowering) goes
+        through the one predicate; this only chooses which agents to ask and keeps each
+        refusal's own numbers instead of discarding them to a bare id.
+        """
+        breaches: list[IndexBreach] = []
+        for agent_id in agent_ids:
             try:
-                await self.assert_index_fits(agent_id, replacing=skill, cap_override=cap_override)
-            except SkillIndexBudgetExceeded:
-                over.append(agent_id)
-        return tuple(over)
+                await self.assert_index_fits(
+                    agent_id, adding=adding, replacing=replacing, cap_override=cap_override
+                )
+            except SkillIndexBudgetExceeded as exc:
+                breaches.append(IndexBreach(agent_id=agent_id, required=exc.required, cap=exc.cap))
+        return tuple(breaches)
 
     async def bind(self, *, skill_id: uuid.UUID, agent_id: uuid.UUID) -> Skill:
         """Bind after proving containment, requirements, name freedom, and budget."""
@@ -263,15 +342,20 @@ class BindingService:
         return skill
 
     async def unbind(self, *, skill_id: uuid.UUID, agent_id: uuid.UUID) -> Skill | None:
-        """Unbind, returning what was unbound — or None when nothing was bound.
+        """Unbind, returning what was unbound. `None` means **nothing was bound**.
 
         Returns the Skill rather than a bool so the caller can audit *which bytes* the
         agent lost without a second scope-free lookup by id. The read is not a new
         authority: the binding it just cleared is itself the proof of association.
+
+        `include_deleted=True` keeps that `None` unambiguous. The row is guaranteed to
+        exist once the unbind matched, but a filtered read would hand back `None` for a
+        soft-deleted skill and make the caller report "not bound" about a binding it had
+        just removed — one return value denoting two opposite outcomes.
         """
         if not await self._bindings.unbind(agent_id=agent_id, skill_id=skill_id):
             return None
-        return await self._skills.get(skill_id)
+        return await self._skills.get(skill_id, include_deleted=True)
 
     # -- the per-turn snapshot ([R31.08]) ------------------------------------
 
@@ -303,4 +387,11 @@ class BindingService:
         return BoundSet(skills=tuple(kept), dropped=tuple(dropped))
 
 
-__all__ = ["REQUIRES_VOCABULARY", "BindingService", "BoundSet", "DroppedSkill"]
+__all__ = [
+    "DEFAULT_SKILL_INDEX_TOKEN_CAP",
+    "REQUIRES_VOCABULARY",
+    "BindingService",
+    "BoundSet",
+    "DroppedSkill",
+    "IndexBreach",
+]

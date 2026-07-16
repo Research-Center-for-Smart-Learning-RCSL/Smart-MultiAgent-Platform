@@ -105,6 +105,7 @@ def _make_org_service(
     member_repo: AsyncMock | None = None,
     project_repo: AsyncMock | None = None,
     project_member_repo: AsyncMock | None = None,
+    skills_facade: AsyncMock | None = None,
 ) -> OrgService:
     db = AsyncMock()
     svc = OrgService(db)
@@ -116,7 +117,16 @@ def _make_org_service(
         svc._projects = project_repo
     if project_member_repo is not None:
         svc._project_members = project_member_repo
+    svc._skills = skills_facade if skills_facade is not None else _stub_skills()
     return svc
+
+
+def _stub_skills() -> AsyncMock:
+    """A SkillsFacade double. The real one over an AsyncMock db issues live queries, and
+    its cascade results are iterated for audit metadata, so they must be real lists."""
+    skills = AsyncMock()
+    skills.cascade_owner_deleted.return_value = []
+    return skills
 
 
 def _make_project_service(
@@ -124,6 +134,7 @@ def _make_project_service(
     project_repo: AsyncMock | None = None,
     member_repo: AsyncMock | None = None,
     org_member_repo: AsyncMock | None = None,
+    skills_facade: AsyncMock | None = None,
 ) -> ProjectService:
     db = AsyncMock()
     svc = ProjectService(db)
@@ -133,6 +144,7 @@ def _make_project_service(
         svc._members = member_repo
     if org_member_repo is not None:
         svc._org_members = org_member_repo
+    svc._skills = skills_facade if skills_facade is not None else _stub_skills()
     return svc
 
 
@@ -230,6 +242,25 @@ class TestOrgSoftDeleteRestore:
         await svc.soft_delete(org_id=_ORG_ID, actor_user_id=_USER_ID, actor_ip=None)
 
         orgs.soft_delete.assert_awaited_once_with(_ORG_ID)
+
+    @patch("contexts.tenancy.application.org_service.OCTransferRepository")
+    @patch("contexts.tenancy.application.org_service.InviteRepository")
+    @patch("contexts.tenancy.application.org_service.audit.emit", new_callable=AsyncMock)
+    async def test_soft_delete_cascades_into_org_skills(self, _audit, mock_invite_cls, mock_oct_cls) -> None:
+        """AC-38's org arm. Org-scoped skills belong to no project, so the project loop
+        does not reach them and nothing else would."""
+        from contexts.skills.domain.models import SkillScope
+
+        projects = AsyncMock()
+        projects.list_by_org.return_value = []
+        mock_invite_cls.return_value = AsyncMock()
+        mock_oct_cls.return_value = AsyncMock()
+        skills = _stub_skills()
+        svc = _make_org_service(org_repo=AsyncMock(), project_repo=projects, skills_facade=skills)
+
+        await svc.soft_delete(org_id=_ORG_ID, actor_user_id=_USER_ID, actor_ip=None)
+
+        skills.cascade_owner_deleted.assert_awaited_once_with(scope=SkillScope.ORG, owner_id=_ORG_ID)
 
     @patch("contexts.tenancy.application.org_service.audit.emit", new_callable=AsyncMock)
     async def test_restore(self, _audit) -> None:
@@ -564,6 +595,19 @@ class TestProjectSoftDeleteRestore:
         await svc.soft_delete(project_id=_PROJECT_ID, actor_user_id=_USER_ID, actor_ip=None)
 
         projects.soft_delete.assert_awaited_once_with(_PROJECT_ID)
+
+    @patch("contexts.tenancy.application.project_service.audit.emit", new_callable=AsyncMock)
+    async def test_soft_delete_cascades_into_project_skills(self, _audit) -> None:
+        """AC-38's project arm. 0056's FK CASCADE fires only on a physical DELETE, so
+        without this call the project's skills stay live after it is soft-deleted."""
+        from contexts.skills.domain.models import SkillScope
+
+        skills = _stub_skills()
+        svc = _make_project_service(project_repo=AsyncMock(), skills_facade=skills)
+
+        await svc.soft_delete(project_id=_PROJECT_ID, actor_user_id=_USER_ID, actor_ip=None)
+
+        skills.cascade_owner_deleted.assert_awaited_once_with(scope=SkillScope.PROJECT, owner_id=_PROJECT_ID)
 
     @patch("contexts.tenancy.application.project_service.audit.emit", new_callable=AsyncMock)
     async def test_restore(self, _audit) -> None:

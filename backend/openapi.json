@@ -7219,7 +7219,6 @@
           "owner_id",
           "name",
           "description",
-          "body",
           "body_sha256",
           "source",
           "bundle_sha256",
@@ -7229,7 +7228,8 @@
           "created_by",
           "version",
           "created_at",
-          "deleted_at"
+          "deleted_at",
+          "body"
         ],
         "title": "SkillOut",
         "type": "object"
@@ -7238,7 +7238,7 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/SkillOut"
+              "$ref": "#/components/schemas/SkillSummaryOut"
             },
             "title": "Items",
             "type": "array"
@@ -7324,6 +7324,126 @@
         ],
         "title": "SkillScope",
         "type": "string"
+      },
+      "SkillSummaryOut": {
+        "description": "A skill without its body \u2014 what a listing needs.\n\nThe body is bounded only by `_MAX_BODY` (256 KiB) and `limit` reaches 500, so\nincluding it here would let one request return ~128 MB to render a menu of names. It\nis served by the detail endpoint, one skill at a time, to the caller who asked for it.",
+        "properties": {
+          "allowed_tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Tools",
+            "type": "array"
+          },
+          "body_sha256": {
+            "title": "Body Sha256",
+            "type": "string"
+          },
+          "bundle_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bundle Sha256"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "diverged": {
+            "title": "Diverged",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "requires": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Requires",
+            "type": "array"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/SkillScope"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "owner_id",
+          "name",
+          "description",
+          "body_sha256",
+          "source",
+          "bundle_sha256",
+          "diverged",
+          "requires",
+          "allowed_tools",
+          "created_by",
+          "version",
+          "created_at",
+          "deleted_at"
+        ],
+        "title": "SkillSummaryOut",
+        "type": "object"
       },
       "StepOut": {
         "properties": {

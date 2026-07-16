@@ -308,8 +308,39 @@ async def test_binding_twice_leaves_exactly_one_row(h: _Harness) -> None:
     assert len(h.bindings.rows) == 1
 
 
-async def test_unbinding_something_not_bound_is_false_not_an_error(h: _Harness) -> None:
-    assert not await h.svc.unbind(skill_id=uuid.uuid4(), agent_id=uuid.uuid4())
+async def test_unbinding_something_not_bound_is_none_not_an_error(h: _Harness) -> None:
+    assert await h.svc.unbind(skill_id=uuid.uuid4(), agent_id=uuid.uuid4()) is None
+
+
+async def test_unbind_returns_the_skill_it_removed(h: _Harness) -> None:
+    """The caller audits which bytes the agent lost; a bool cannot carry that."""
+    project = h.add_project()
+    agent = h.add_agent(project_id=project.id)
+    skill = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name="s"))
+    await h.svc.bind(skill_id=skill.id, agent_id=agent.id)
+
+    removed = await h.svc.unbind(skill_id=skill.id, agent_id=agent.id)
+
+    assert removed is not None
+    assert removed.id == skill.id
+    assert removed.body_sha256 == skill.body_sha256
+
+
+async def test_unbinding_a_cascade_unbound_binding_is_a_no_op(h: _Harness) -> None:
+    """It is not bound, so there is nothing to unbind — and stamping `deleted_at` on it
+    would silently promote a reversible cascade into the one state restore refuses to
+    undo, so the binding would never return (AC-37)."""
+    project = h.add_project()
+    agent = h.add_agent(project_id=project.id)
+    skill = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name="s"))
+    h.bindings.seed(agent_id=agent.id, skill_id=skill.id, cascade_deleted_at=NOW)
+
+    assert await h.svc.unbind(skill_id=skill.id, agent_id=agent.id) is None
+
+    binding = await h.bindings.get(agent_id=agent.id, skill_id=skill.id)
+    assert binding is not None
+    assert binding.deleted_at is None  # still restorable
+    assert binding.cascade_deleted_at is not None
 
 
 # -- Q-30: bound-set name uniqueness -----------------------------------------

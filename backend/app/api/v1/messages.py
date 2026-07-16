@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.attachments import AttachmentOut, to_attachment_out
+from app.api.v1.deps import require_if_match
 from contexts.conversation.application.access import (
     RoomAccess,
     ensure_can_read,
@@ -122,16 +123,6 @@ def _to_out(m: Message, attachments: Sequence[object] = ()) -> MessageOut:
         deleted_at=m.deleted_at.isoformat() if m.deleted_at else None,
         attachments=[to_attachment_out(a) for a in attachments],
     )
-
-
-def _parse_if_match(header: str) -> int:
-    try:
-        return int(header.strip().strip('"'))
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=412,
-            detail=f"invalid If-Match: {header!r}",
-        ) from exc
 
 
 def _authority_from(
@@ -432,7 +423,7 @@ async def edit_message(
 ) -> MessageOut:
     msg, access = await _load_message_with_access(db, principal, message_id)
     ensure_can_read(access, is_admin=principal.is_admin)
-    expected = _parse_if_match(if_match)
+    expected = require_if_match(if_match)
     authority = _authority_from(access, principal)
     service = MessageService(db)
     updated = await service.edit(

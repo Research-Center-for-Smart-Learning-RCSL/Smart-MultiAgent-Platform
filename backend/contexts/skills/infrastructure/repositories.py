@@ -302,13 +302,21 @@ class SkillBindingRepository:
         return _row_to_binding(row)
 
     async def unbind(self, *, agent_id: uuid.UUID, skill_id: uuid.UUID) -> bool:
-        """Explicit user unbind — sets `deleted_at`, which restore never clears."""
+        """Explicit user unbind — sets `deleted_at`, which restore never clears.
+
+        Matches only a **live** binding, so `cascade_deleted_at IS NULL` belongs here
+        beside `deleted_at IS NULL`: a row a skill-delete already cascaded is not bound to
+        anything, and stamping `deleted_at` on it would silently promote a reversible
+        cascade into the one state restore refuses to undo (AC-37) — the binding would
+        never come back.
+        """
         res = await self._db.execute(
             t.agent_skills.update()
             .where(
                 t.agent_skills.c.agent_id == agent_id,
                 t.agent_skills.c.skill_id == skill_id,
                 t.agent_skills.c.deleted_at.is_(None),
+                t.agent_skills.c.cascade_deleted_at.is_(None),
             )
             .values(deleted_at=now())
         )

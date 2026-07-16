@@ -206,11 +206,18 @@ _DEFAULT_WAKEUP_CONFIG: dict[str, Any] = {"triggers": {"every_n_messages": {"ena
 
 class AgentService:
     def __init__(self, db: AsyncSession) -> None:
+        # Deferred, unlike the KeysFacade/KnowledgeFacade imports above: skills reaches
+        # back into this context (`binding_service` -> `AgentsFacade` -> here), so a
+        # module-level import would close a real cycle at interpreter start. The agents
+        # facade defers its own `AgentService` import for the same reason.
+        from contexts.skills.interfaces.facade import SkillsFacade
+
         self._db = db
         self._agents = AgentRepository(db)
         self._tools = AgentToolRepository(db)
         self._keys = KeysFacade(db)
         self._knowledge = KnowledgeFacade(db)
+        self._skills = SkillsFacade(db)
 
     async def _assert_key_group_in_project(self, *, key_group_id: uuid.UUID, project_id: uuid.UUID) -> None:
         group = await self._keys.get_key_group(key_group_id)
@@ -579,6 +586,12 @@ class AgentService:
             values["skill_index_token_cap"] = None
         elif draft.skill_index_token_cap is not None:
             values["skill_index_token_cap"] = draft.skill_index_token_cap
+        if "skill_index_token_cap" in values:
+            # AC-6: the cap must still fit what is already bound. The DB CHECK only bounds
+            # the value at 16000 and cannot see the agent's bound set, so without this the
+            # write is accepted and then silently violated on every turn — [R31.14] leaves
+            # no runtime truncation to absorb the overflow.
+            await self._skills.ensure_index_cap_fits(agent_id, values["skill_index_token_cap"])
         if draft.clear_temperature:
             values["temperature"] = None
         elif draft.temperature is not None:
@@ -641,6 +654,12 @@ class AgentService:
             agent_id=agent_id,
             expected_version=expected_version,
         )
+        # AC-38: unbind this agent's skills and soft-delete its agent-scoped ones, in this
+        # transaction. 0056's FK CASCADE cannot stand in for it — a FK fires only on a
+        # physical DELETE, never on the soft-delete UPDATE above, so relying on it would
+        # leave every binding live and pointing at a dead agent (F-18, the trap 0054
+        # exists to repair). Same shape as `clear_config_bindings`.
+        unbound = await self._skills.cascade_agent_deleted(agent_id)
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -649,6 +668,7 @@ class AgentService:
                 actor_ip=actor_ip,
                 resource_type="agent",
                 resource_id=agent_id,
+                metadata={"unbound_skill_ids": [str(s) for s in unbound]},
                 request_id=request_id,
             ),
         )

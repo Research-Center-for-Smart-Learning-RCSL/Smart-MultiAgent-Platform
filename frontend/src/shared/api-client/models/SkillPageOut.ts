@@ -2,9 +2,9 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { SkillOut } from './SkillOut';
+import type { SkillSummaryOut } from './SkillSummaryOut';
 export type SkillPageOut = {
-    items: Array<SkillOut>;
+    items: Array<SkillSummaryOut>;
     total: number;
 };
 

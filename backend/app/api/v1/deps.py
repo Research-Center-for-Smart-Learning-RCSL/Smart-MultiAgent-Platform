@@ -19,6 +19,39 @@ class PaginationParams:
     offset: int = Query(0, ge=0, description="Number of items to skip")  # noqa: RUF009
 
 
+def parse_if_match(raw: str | None) -> int | None:
+    """Parse an ``If-Match`` header into an expected version; ``None`` means unset.
+
+    Callers that require the header type it as ``str`` and get an ``int`` back; callers
+    for whom optimistic locking is opt-in pass ``None`` through. A malformed value is a
+    412 rather than a 400 — the client sent a precondition we cannot evaluate.
+
+    The same six lines were living in agents.py, chatrooms.py, messages.py,
+    prompt_studio.py, and skills.py; collapsed here alongside
+    :func:`assert_project_membership` for the reason recorded there.
+    """
+    if raw is None:
+        return None
+    try:
+        return int(raw.strip().strip('"'))
+    except (ValueError, AttributeError) as exc:
+        raise HTTPException(status_code=412, detail=f"invalid If-Match: {raw!r}") from exc
+
+
+def require_if_match(raw: str) -> int:
+    """:func:`parse_if_match` for routes where FastAPI declares the header required.
+
+    Exists so those callers get an ``int`` instead of an ``int | None`` they would have to
+    narrow at every call site. FastAPI rejects the missing header before the handler runs,
+    so the guard below is unreachable in practice — it is here because a return type
+    should be proven, not asserted.
+    """
+    parsed = parse_if_match(raw)
+    if parsed is None:
+        raise HTTPException(status_code=412, detail="If-Match is required")
+    return parsed
+
+
 async def assert_project_owner(
     *,
     db: AsyncSession,

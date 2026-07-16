@@ -35,10 +35,17 @@ from shared_kernel.db.restore import raise_restore_conflict
 
 class ProjectService:
     def __init__(self, db: AsyncSession) -> None:
+        # Deferred import: skills reads tenancy (`binding_service` -> `TenancyFacade`), so
+        # a module-level import here would close a cycle. Held as an attribute rather than
+        # constructed at the call site so it can be substituted in tests, like the
+        # KeysFacade/KnowledgeFacade collaborators on AgentService.
+        from contexts.skills.interfaces.facade import SkillsFacade
+
         self._db = db
         self._projects = ProjectRepository(db)
         self._members = ProjectMemberRepository(db)
         self._org_members = OrgMemberRepository(db)
+        self._skills = SkillsFacade(db)
 
     async def create(
         self,
@@ -149,7 +156,13 @@ class ProjectService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
+        from contexts.skills.domain.models import SkillScope
+
         await self._projects.soft_delete(project_id)
+        # AC-38's project arm, in this transaction. The FK CASCADE in 0056 never fires on
+        # the soft-delete UPDATE above, so without this the project's skills stay live and
+        # keep resolving into any agent still pointing at the project (F-18).
+        deleted = await self._skills.cascade_owner_deleted(scope=SkillScope.PROJECT, owner_id=project_id)
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -158,6 +171,7 @@ class ProjectService:
                 actor_ip=actor_ip,
                 resource_type="project",
                 resource_id=project_id,
+                metadata={"deleted_skill_ids": [str(s) for s in deleted]},
                 request_id=request_id,
             ),
         )

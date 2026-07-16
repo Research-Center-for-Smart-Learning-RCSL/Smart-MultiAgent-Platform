@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, st
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import PaginationParams
+from app.api.v1.deps import PaginationParams, require_if_match
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.access import (
     ensure_room_creator,
@@ -132,16 +132,6 @@ def _to_out(r, *, has_observers: bool = False, viewer_is_pure_guest: bool = Fals
         disclose_observers=False if viewer_is_pure_guest else r.disclose_observers,
         observers_present=bool(not viewer_is_pure_guest and r.disclose_observers and has_observers),
     )
-
-
-def _parse_if_match(header: str) -> int:
-    try:
-        return int(header.strip().strip('"'))
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=412,
-            detail=f"invalid If-Match: {header!r}",
-        ) from exc
 
 
 async def _project_id_for_workspace(
@@ -312,7 +302,7 @@ async def patch_chatroom(
             # capability check above.
             access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
             ensure_room_creator(access, principal=principal)
-    expected = _parse_if_match(if_match)
+    expected = require_if_match(if_match)
     service = ChatroomService(db)
     room = await service.patch(
         chatroom_id=chatroom_id,

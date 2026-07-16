@@ -29,8 +29,10 @@ from contexts.skills.application.index_builder import (
     estimate_index_tokens,
     render_index,
 )
+from contexts.skills.application.skill_service import SkillService
 from contexts.skills.domain.errors import SkillIndexBudgetExceeded
-from contexts.skills.domain.models import SkillScope
+from contexts.skills.domain.models import SkillDraft, SkillScope
+from shared_kernel import audit
 from shared_kernel.tokens import estimate_tokens
 from tests.unit.skill_fakes import (
     FakeAgent,
@@ -41,6 +43,10 @@ from tests.unit.skill_fakes import (
     FakeTenancyFacade,
     make_skill,
 )
+
+
+async def _no_audit(_db: object, _event: object) -> None:
+    """The update path emits on success; these tests only assert its refusals."""
 
 
 class _Harness:
@@ -63,6 +69,15 @@ class _Harness:
         svc._agents = self.agents  # type: ignore[attr-defined]
         svc._tenancy = self.tenancy  # type: ignore[attr-defined]
         self.svc = svc
+
+        # The update path raises the budget error, so AC-6's assertions about what that
+        # error *says* need the service that raises it.
+        skill_svc = SkillService.__new__(SkillService)
+        skill_svc._db = None  # type: ignore[attr-defined]
+        skill_svc._skills = self.skills  # type: ignore[attr-defined]
+        skill_svc._bindings = self.bindings  # type: ignore[attr-defined]
+        skill_svc._binding_rules = svc  # type: ignore[attr-defined]
+        self.skill_svc = skill_svc
 
     def bind_skill(self, *, name: str, description: str = "d"):
         skill = self.skills.put(
@@ -243,7 +258,74 @@ async def test_lengthening_a_description_past_the_cap_names_the_affected_agents(
     lengthened = replace(skill, description="Much longer. " * 100)
     over = await h.svc.agents_over_index_cap(lengthened)
 
-    assert over == (h.agent.id,)
+    assert [b.agent_id for b in over] == [h.agent.id]
+    # Each breach carries its own arithmetic, and it is the arithmetic of the whole index.
+    assert over[0].required == estimate_index_tokens([lengthened])
+    assert over[0].cap == h.agent.skill_index_token_cap
+    assert over[0].overflow > 0
+
+
+async def test_the_budget_error_reports_the_whole_index_not_just_the_edited_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The rejection must be arithmetically coherent: `required` > `cap`.
+
+    Reporting the candidate row's own size instead of the index it joins produces a 422
+    that reads "needs 131 tokens, cap is 2266" — a client cannot act on a rejection whose
+    stated numbers say it should have succeeded.
+    """
+    monkeypatch.setattr(audit, "emit", _no_audit)
+    h = _Harness(cap=None)
+    for i in range(60):
+        h.bind_skill(name=f"bound-{i:02d}", description="A reasonably wordy description. " * 3)
+    bound = await h.bindings.list_live_for_agent(h.agent.id)
+    h.agent.skill_index_token_cap = estimate_index_tokens(bound)
+    target = bound[0]
+
+    longer = target.description + " and one more clause."
+    with pytest.raises(SkillIndexBudgetExceeded) as exc:
+        await h.skill_svc.update(
+            target.id,
+            SkillScope.PROJECT,
+            owner_id=h.project.id,
+            draft=SkillDraft(description=longer),
+            expected_version=None,
+            actor_user_id=uuid.uuid4(),
+        )
+
+    assert exc.value.required > exc.value.cap
+    expected = estimate_index_tokens(
+        [replace(s, description=longer) if s.id == target.id else s for s in bound]
+    )
+    assert exc.value.required == expected
+    assert exc.value.cap == h.agent.skill_index_token_cap
+
+
+async def test_the_budget_error_reports_a_cap_that_belongs_to_a_named_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With two bound agents on different caps, the reported pair must describe one of
+    them — not agent A's required beside agent B's cap."""
+    monkeypatch.setattr(audit, "emit", _no_audit)
+    h = _Harness(cap=1)
+    skill = h.bind_skill(name="s", description="Short.")
+    tight = FakeAgent(id=uuid.uuid4(), project_id=h.project.id, skill_index_token_cap=2)
+    h.agents.agents[tight.id] = tight
+    h.bindings.seed(agent_id=tight.id, skill_id=skill.id)
+
+    with pytest.raises(SkillIndexBudgetExceeded) as exc:
+        await h.skill_svc.update(
+            skill.id,
+            SkillScope.PROJECT,
+            owner_id=h.project.id,
+            draft=SkillDraft(description="A much longer description than before."),
+            expected_version=None,
+            actor_user_id=uuid.uuid4(),
+        )
+
+    assert sorted(map(str, exc.value.agent_ids)) == sorted([str(h.agent.id), str(tight.id)])
+    assert exc.value.cap in {1, 2}
+    assert exc.value.required > exc.value.cap
 
 
 async def test_a_description_that_still_fits_affects_nobody() -> None:
@@ -251,6 +333,50 @@ async def test_a_description_that_still_fits_affects_nobody() -> None:
     skill = h.bind_skill(name="s", description="Short.")
 
     assert await h.svc.agents_over_index_cap(replace(skill, description="Slightly longer.")) == ()
+
+
+async def test_restoring_a_skill_past_an_agents_cap_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Restore is a fourth write into the same breach, not an exception to it.
+
+    Deleting a skill shrinks every bound agent's index; restore re-attaches the bindings
+    it cascaded, so it grows them back — and meanwhile the cap may have been lowered or
+    other skills bound into the gap. With no runtime truncation by design, an unchecked
+    restore leaves the agent permanently over cap with nothing to detect it.
+    """
+    monkeypatch.setattr(audit, "emit", _no_audit)
+    h = _Harness(cap=None)
+    victim = h.bind_skill(name="victim", description="A reasonably wordy description. " * 4)
+    keeper = h.bind_skill(name="keeper", description="A reasonably wordy description. " * 4)
+    actor = uuid.uuid4()
+
+    await h.skill_svc.soft_delete(
+        victim.id, SkillScope.PROJECT, owner_id=h.project.id, expected_version=None, actor_user_id=actor
+    )
+    # The cap now fits only what is left bound.
+    h.agent.skill_index_token_cap = estimate_index_tokens([keeper])
+
+    with pytest.raises(SkillIndexBudgetExceeded) as exc:
+        await h.skill_svc.restore(victim.id, SkillScope.PROJECT, owner_id=h.project.id, actor_user_id=actor)
+
+    assert exc.value.required > exc.value.cap
+    assert [str(a) for a in exc.value.agent_ids] == [str(h.agent.id)]
+    # A rejected restore leaves no trace: the skill stays deleted and stays unbound.
+    assert h.skills.rows[victim.id].deleted_at is not None
+    assert [s.name for s in await h.bindings.list_live_for_agent(h.agent.id)] == ["keeper"]
+
+
+async def test_restoring_within_the_cap_is_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(audit, "emit", _no_audit)
+    h = _Harness(cap=DEFAULT_SKILL_INDEX_TOKEN_CAP)
+    skill = h.bind_skill(name="victim", description="Short.")
+    actor = uuid.uuid4()
+
+    await h.skill_svc.soft_delete(
+        skill.id, SkillScope.PROJECT, owner_id=h.project.id, expected_version=None, actor_user_id=actor
+    )
+    await h.skill_svc.restore(skill.id, SkillScope.PROJECT, owner_id=h.project.id, actor_user_id=actor)
+
+    assert [s.name for s in await h.bindings.list_live_for_agent(h.agent.id)] == ["victim"]
 
 
 async def test_lowering_the_cap_past_the_current_index_is_rejected() -> None:
@@ -274,7 +400,9 @@ async def test_lowering_the_cap_names_every_agent_it_would_break() -> None:
 
     over = await h.svc.agents_over_index_cap(skill, cap_override=1)
 
-    assert sorted(map(str, over)) == sorted([str(h.agent.id), str(other_agent.id)])
+    assert sorted(str(b.agent_id) for b in over) == sorted([str(h.agent.id), str(other_agent.id)])
+    assert all(b.cap == 1 for b in over)
+    assert all(b.required > b.cap for b in over)
 
 
 async def test_an_agent_the_skill_is_not_bound_to_is_never_named() -> None:
@@ -283,7 +411,7 @@ async def test_an_agent_the_skill_is_not_bound_to_is_never_named() -> None:
     h.agents.agents[unrelated.id] = unrelated
     skill = h.bind_skill(name="s", description="x" * 500)
 
-    assert await h.svc.agents_over_index_cap(skill) == (h.agent.id,)
+    assert [b.agent_id for b in await h.svc.agents_over_index_cap(skill)] == [h.agent.id]
 
 
 def test_no_truncation_path_exists_in_the_renderer() -> None:

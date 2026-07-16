@@ -1,4 +1,4 @@
-"""Unit tests for AgentService — create, get, patch, soft_delete, MCP bindings.
+"""Unit tests for AgentService ??create, get, patch, soft_delete, MCP bindings.
 
 All infrastructure (repos, facades, advisory locks) is mocked. Tests exercise
 the service-layer guardrails: cap enforcement, project isolation checks,
@@ -114,6 +114,7 @@ def _make_service(
     tool_repo: AsyncMock | None = None,
     keys_facade: AsyncMock | None = None,
     knowledge_facade: AsyncMock | None = None,
+    skills_facade: AsyncMock | None = None,
 ) -> AgentService:
     db = AsyncMock()
     db.execute = AsyncMock()
@@ -126,6 +127,16 @@ def _make_service(
         svc._keys = keys_facade
     if knowledge_facade is not None:
         svc._knowledge = knowledge_facade
+    # Always stubbed, unlike the facades above: this file mocks all infrastructure, and
+    # the real SkillsFacade over an AsyncMock db would run live queries.
+    if skills_facade is not None:
+        svc._skills = skills_facade
+    else:
+        # `cascade_agent_deleted` is iterated for the audit metadata, so the default needs
+        # a real list rather than a Mock. Only defaulted when we own the mock — writing it
+        # unconditionally would silently overwrite what a caller configured.
+        svc._skills = AsyncMock()
+        svc._skills.cascade_agent_deleted.return_value = []
     return svc
 
 
@@ -331,7 +342,7 @@ class TestCreate:
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_knowmap_builder_key_group_conflict_raises(self, _audit) -> None:
-        # R11.01 — the config's own builder Key Group is the agent's Key
+        # R11.01 ??the config's own builder Key Group is the agent's Key
         # Group: build jobs and real-time chat inference would silently
         # share one Key Group's rate limit/budget.
         agents = AsyncMock()
@@ -414,6 +425,93 @@ class TestPatch:
         agents.patch.assert_awaited_once()
         call_values = agents.patch.call_args.kwargs["values"]
         assert call_values["name"] == "Renamed"
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_checks_a_lowered_skill_index_cap_against_the_bound_set(self, _audit) -> None:
+        """AC-6's third path. The DB CHECK only bounds the value at 16000; it cannot see
+        what the agent has bound, and there is no runtime truncation to absorb a cap the
+        index already exceeds."""
+        current = _make_agent(version=1)
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = _make_agent(version=2)
+        skills = AsyncMock()
+        svc = _make_service(agent_repo=agents, skills_facade=skills)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(skill_index_token_cap=100),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        skills.ensure_index_cap_fits.assert_awaited_once_with(current.id, 100)
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_checks_the_default_when_the_cap_is_cleared(self, _audit) -> None:
+        """Clearing the override is not a way out: the 3000 default is a cap like any
+        other, and the agent's index may already exceed it."""
+        current = _make_agent(version=1)
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = _make_agent(version=2)
+        skills = AsyncMock()
+        svc = _make_service(agent_repo=agents, skills_facade=skills)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(clear_skill_index_token_cap=True),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        skills.ensure_index_cap_fits.assert_awaited_once_with(current.id, None)
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_does_not_check_the_cap_when_it_is_untouched(self, _audit) -> None:
+        current = _make_agent(version=1)
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = _make_agent(version=2)
+        skills = AsyncMock()
+        svc = _make_service(agent_repo=agents, skills_facade=skills)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(name="Renamed"),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        skills.ensure_index_cap_fits.assert_not_awaited()
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_aborts_the_write_when_the_cap_does_not_fit(self, _audit) -> None:
+        from contexts.skills.domain.errors import SkillIndexBudgetExceeded
+
+        current = _make_agent(version=1)
+        agents = AsyncMock()
+        agents.get.return_value = current
+        skills = AsyncMock()
+        skills.ensure_index_cap_fits.side_effect = SkillIndexBudgetExceeded(
+            required=2900, cap=100, agent_ids=(current.id,)
+        )
+        svc = _make_service(agent_repo=agents, skills_facade=skills)
+
+        with pytest.raises(SkillIndexBudgetExceeded):
+            await svc.patch(
+                agent_id=current.id,
+                draft=AgentDraft(skill_index_token_cap=100),
+                expected_version=1,
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        # The check runs before the write, so a rejected cap leaves no trace.
+        agents.patch.assert_not_awaited()
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_patch_sets_sampling(self, _audit) -> None:
@@ -544,7 +642,7 @@ class TestPatch:
     async def test_patch_key_group_change_rechecks_knowmap_conflict(self, _audit) -> None:
         # The agent already has a Knowledge Map attached; the patch doesn't
         # touch it, but moves key_group_id onto the config's own builder
-        # group — this must be caught by the implicit recheck, not just an
+        # group ??this must be caught by the implicit recheck, not just an
         # explicit (re)attach.
         knowmap_id = uuid.uuid4()
         current = _make_agent(knowmap_config_id=knowmap_id)
@@ -639,6 +737,36 @@ class TestSoftDelete:
             agent_id=agent_id,
             expected_version=1,
         )
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_soft_delete_cascades_into_skills(self, _audit) -> None:
+        """AC-38. The FK CASCADE in 0056 cannot do this: it fires only on a physical
+        DELETE, never on the soft-delete UPDATE, so without an explicit call every
+        binding stays live and points at a dead agent (F-18)."""
+        agents = AsyncMock()
+        skills = AsyncMock()
+        skills.cascade_agent_deleted.return_value = [uuid.uuid4()]
+        svc = _make_service(agent_repo=agents, skills_facade=skills)
+        agent_id = uuid.uuid4()
+
+        await svc.soft_delete(agent_id=agent_id, expected_version=1, actor_user_id=_USER_ID, actor_ip=None)
+
+        skills.cascade_agent_deleted.assert_awaited_once_with(agent_id)
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_soft_delete_records_which_skills_it_unbound(self, _audit) -> None:
+        agents = AsyncMock()
+        skills = AsyncMock()
+        skill_id = uuid.uuid4()
+        skills.cascade_agent_deleted.return_value = [skill_id]
+        svc = _make_service(agent_repo=agents, skills_facade=skills)
+
+        await svc.soft_delete(
+            agent_id=uuid.uuid4(), expected_version=1, actor_user_id=_USER_ID, actor_ip=None
+        )
+
+        event = _audit.await_args.args[1]
+        assert event.metadata["unbound_skill_ids"] == [str(skill_id)]
 
 
 class TestAdminRestore:

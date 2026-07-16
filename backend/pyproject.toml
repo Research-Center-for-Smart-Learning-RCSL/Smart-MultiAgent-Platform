@@ -402,6 +402,7 @@ source_modules = [
   "contexts.orchestration.domain",
   "contexts.audit.domain",
   "contexts.notification.domain",
+  "contexts.skills.domain",
 ]
 forbidden_modules = [
   "contexts.identity.application", "contexts.identity.infrastructure", "contexts.identity.interfaces",
@@ -414,6 +415,7 @@ forbidden_modules = [
   "contexts.orchestration.application", "contexts.orchestration.infrastructure", "contexts.orchestration.interfaces",
   "contexts.audit.application", "contexts.audit.infrastructure", "contexts.audit.interfaces",
   "contexts.notification.application", "contexts.notification.infrastructure", "contexts.notification.interfaces",
+  "contexts.skills.application", "contexts.skills.infrastructure", "contexts.skills.interfaces",
 ]
 
 [[tool.importlinter.contracts]]
@@ -430,6 +432,7 @@ source_modules = [
   "contexts.orchestration.domain",
   "contexts.audit.domain",
   "contexts.notification.domain",
+  "contexts.skills.domain",
 ]
 forbidden_modules = [
   "fastapi",
