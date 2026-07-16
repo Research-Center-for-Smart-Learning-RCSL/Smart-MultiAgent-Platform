@@ -19,12 +19,15 @@ src/
   app/          Router, App.vue, layouts, global providers
   shared/       UI components, composables, styles, api-client, types
   slices/       Feature modules — each is self-contained:
+    activities/   Chatroom-hosted activity plugins (one-way: never imports conversation)
     admin/        Admin dashboard, user/org/project management, impersonation
+    agent-groups/ Agent-group CRUD, membership, group-owned Concept Map panel
     agents/       Agent CRUD, RAG config, GraphRAG, MCP bindings
     conversation/ Chatrooms, messages, composer, WebSocket presence
     identity/     Login, register, verify email, password reset, sessions
     keys/         API key upload, key groups, search keys, usage
     notifications/ Notification bell + list
+    prompt-studio/ Prompt assistant configs, prompt templates
     tenancy/      Orgs, projects, members, invites, OC transfer
     workflow/     Visual editor (Vue Flow), runs, backstage, orchestration
 ```
@@ -35,7 +38,7 @@ src/
 1. **Layer direction**: app → slices/shared; shared → shared only
 2. **Slice isolation**: cross-slice imports only via `index.ts` re-exports
 3. **Transport isolation**: no bare `fetch`/`WebSocket`/`EventSource` — use api-client
-4. **v-html guard**: allowed only in `ChatroomView.vue` via `renderMarkdown.ts`
+4. **v-html guard**: allowed only in the 5-file allowlist in `eslint.config.js` (`ChatroomView.vue` plus the message/search/observation components it was split into), each binding only `renderMarkdown()`/`sanitizeSnippet()` output — do not extend without a security review
 5. **No `alert`/`confirm`/`prompt`**: use `SConfirmDialog` component
 6. **No global CSS** outside `shared/styles/`
 7. **Store isolation**: no cross-slice API imports
