@@ -419,6 +419,52 @@ async def test_a_skill_whose_containment_went_stale_drops_and_the_turn_runs_on(h
     assert [(d.name, d.reason) for d in bound.dropped] == [("stale", "project_scope_mismatch")]
 
 
+async def test_two_skills_sharing_a_name_in_a_bound_set_both_drop(h: _Harness) -> None:
+    """§8 item 7's shadowing, re-entering through the race the check-then-act leaves open.
+
+    `assert_name_free_in_bound_set` has no database backstop — the rule spans two tables,
+    so no constraint can express it, and two concurrent binds of two same-named skills
+    both pass the SELECT and both commit. `read_skill`'s name->skill dict is last-wins, so
+    keeping either one serves an arbitrary body under a name the operator believes means
+    something specific. Neither is the only answer that is not a guess.
+    """
+    project = h.add_project()
+    agent = h.add_agent(project_id=project.id)
+    platform = h.skills.put(make_skill(scope=SkillScope.PLATFORM, name="deploy"))
+    shadow = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name="deploy"))
+    other = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name="unrelated"))
+    for s in (platform, shadow, other):
+        h.bindings.seed(agent_id=agent.id, skill_id=s.id)
+
+    bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
+
+    # The vetted platform skill goes too. That is the point: there is no principled
+    # winner, and serving the admin's `deploy` while the operator's UI shows two is the
+    # confusion the invariant exists to prevent.
+    assert [s.name for s in bound.skills] == ["unrelated"]
+    assert sorted((d.skill_id, d.reason) for d in bound.dropped) == sorted(
+        [(platform.id, "name_collision"), (shadow.id, "name_collision")]
+    )
+
+
+async def test_a_collision_costs_only_the_colliding_names(h: _Harness) -> None:
+    # Per-skill, like every other drop: an agent with twenty skills and one collision
+    # keeps eighteen and runs.
+    project = h.add_project()
+    agent = h.add_agent(project_id=project.id)
+    for name in ("a", "b", "c"):
+        skill = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name=name))
+        h.bindings.seed(agent_id=agent.id, skill_id=skill.id)
+    for _ in range(2):
+        dup = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name="dup"))
+        h.bindings.seed(agent_id=agent.id, skill_id=dup.id)
+
+    bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
+
+    assert [s.name for s in bound.skills] == ["a", "b", "c"]
+    assert {d.name for d in bound.dropped} == {"dup"}
+
+
 async def test_a_skill_whose_required_tool_was_disabled_drops_with_a_naming_reason(h: _Harness) -> None:
     """AC-35 at the turn tap. `requires:` is re-checked every turn, not only at bind —
     the reviewed design condemned bind-time-only authorization and then made `requires:`

@@ -23,10 +23,32 @@ import unicodedata
 INDEX_DELIMITER_MARKER = "<<<SMAP_SKILLS"
 _INDEX_DELIMITER_MARKERS: tuple[str, ...] = (INDEX_DELIMITER_MARKER, "<<<END_SMAP_SKILLS")
 
-# Every set below is built with `chr()` from explicit codepoints rather than written as
-# string literals, and that is not a style choice: a literal here would mean this file
-# itself contains invisible reordering characters, which is the same attack aimed at the
-# reviewer instead of the model (Trojan Source). The codepoints stay readable in review.
+# **The rule is by Unicode category, not by a list of codepoints.** An enumeration was
+# tried first and was strictly worse: it named 16 characters and missed every one that
+# mattered — the whole Tag block (U+E0000-U+E007F, the standard ASCII-smuggling channel:
+# an entire hidden instruction, invisible in every renderer, sitting in the prompt bytes),
+# U+061C ARABIC LETTER MARK, U+00AD SOFT HYPHEN, U+FFF9-FFFB, U+2061-2064, U+180E. Every
+# one of those is `Cf`, exactly like the eleven it did catch. An enumeration of a Unicode
+# class is a list of the attacks someone thought of; the class is the rule.
+#
+# The categories:
+#   Cc  control characters, newline (U+000A) among them.
+#   Cf  format characters — bidi overrides, zero-width, tags, invisible operators. The
+#       one class with a legitimate-use cost: Arabic number signs (U+0600-0605) and ZWJ
+#       (U+200D, emoji and Indic sequences) are `Cf` too. Rejected anyway. A description
+#       is a short line a human reads before choosing to trust its author, and the whole
+#       point of Q-31(b) is that "what the approver read" equals "what the model gets".
+#       An author who needs one gets a precise reason and rewrites.
+#   Zl/Zp  U+2028/U+2029. Not pedantry: `str.splitlines()` splits on U+2028, and the
+#       index renders one skill per line — so this is the newline arm's own hole.
+_REJECTED_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})
+
+# The sets below no longer decide anything — they only make the *reason* precise, so an
+# author reading a 422 learns which class their character fell in. Each is built with
+# `chr()` from explicit codepoints rather than written as a string literal, and that is
+# not a style choice: a literal here would mean this file itself contains invisible
+# reordering characters, which is the same attack aimed at the reviewer instead of the
+# model (Trojan Source). The codepoints stay readable in review.
 
 # Bidi overrides, embeddings, isolates, and marks. A right-to-left override makes text
 # render in an order the bytes do not have, so a description can display as something
@@ -45,6 +67,7 @@ _BIDI = frozenset(
         0x2069,  # POP DIRECTIONAL ISOLATE
         0x200E,  # LEFT-TO-RIGHT MARK
         0x200F,  # RIGHT-TO-LEFT MARK
+        0x061C,  # ARABIC LETTER MARK
     )
 )
 
@@ -60,6 +83,17 @@ _ZERO_WIDTH = frozenset(
         0xFEFF,  # ZERO WIDTH NO-BREAK SPACE / BOM
     )
 )
+
+# U+E0000-U+E007F. TAG LATIN A..Z mirror ASCII one-for-one, so a whole instruction rides
+# along in characters no renderer draws — the reason this class is called out by name.
+_TAG_BLOCK = frozenset(chr(cp) for cp in range(0xE0000, 0xE0080))
+
+# Rejected by membership as well as by category, because category alone has a hole here:
+# the assigned tag characters are `Cf`, but U+E0000 and U+E0002-U+E001F are unassigned
+# (`Cn`) and would sail through a pure category test. The whole block is reserved for tag
+# characters, and a codepoint that is unassigned in this Python's Unicode tables may be
+# assigned in the reader's — so the block is rejected whole rather than as of a version.
+_ALWAYS_REJECTED = _BIDI | _ZERO_WIDTH | _TAG_BLOCK
 
 
 def contains_delimiter(text: str) -> bool:
@@ -79,15 +113,23 @@ def text_rejection_reason(value: str, *, max_chars: int) -> str | None:
     if contains_delimiter(value):
         return "contains the skills index delimiter"
     for ch in value:
-        # Newline is a C0 control (U+000A), so it needs no separate arm. It matters for
-        # the same reason as the delimiter: the index renders one skill per line, so a
-        # description holding a newline could forge an entry for a skill nobody bound.
-        if unicodedata.category(ch) == "Cc":
-            return f"contains a control character (U+{ord(ch):04X})"
+        if unicodedata.category(ch) not in _REJECTED_CATEGORIES and ch not in _ALWAYS_REJECTED:
+            continue
+        # Rejected either way — the arms below only pick the wording. The catch-all is
+        # last and is not a fallback nobody reaches: it is what makes this rule cover the
+        # format characters nobody has thought of yet.
         if ch in _BIDI:
             return f"contains a bidirectional override (U+{ord(ch):04X})"
         if ch in _ZERO_WIDTH:
             return f"contains a zero-width character (U+{ord(ch):04X})"
+        if ch in _TAG_BLOCK:
+            return f"contains a Unicode tag character (U+{ord(ch):04X})"
+        if unicodedata.category(ch) == "Cc":
+            # Newline is a C0 control (U+000A) and needs no arm of its own. It matters
+            # for the same reason as the delimiter: the index renders one skill per
+            # line, so a description holding one could forge an entry nobody bound.
+            return f"contains a control character (U+{ord(ch):04X})"
+        return f"contains a non-printing character (U+{ord(ch):04X})"
     return None
 
 

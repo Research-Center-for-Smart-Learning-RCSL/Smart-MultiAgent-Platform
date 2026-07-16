@@ -960,15 +960,27 @@ class TurnEngine:
         # One warning naming all of them, not one per skill: a project move drops every
         # skill it owned at once, and twenty toasts describe one event.
         if bound.dropped and room is not None:
-            with contextlib.suppress(Exception):
+            try:
                 await Publisher(room).emit(
                     "agent.warning",
                     {
                         "agent_id": str(agent.id),
                         "kind": "skills_unavailable",
-                        "skills": [d.name for d in bound.dropped],
+                        # Deliberately a count, not the names. The room channel is a blind
+                        # relay and `can_read` admits a chatroom guest who is not a project
+                        # member, while the REST surface that lists an agent's bindings is
+                        # gated on membership — so naming them here would hand a guest the
+                        # names of the agent's org- and platform-scoped skills. The count
+                        # carries the whole signal the warning is for.
+                        "dropped": len(bound.dropped),
                     },
                 )
+            except Exception:
+                # Best-effort, like every other emit here — but logged, not swallowed
+                # silently: AC-7 makes the drop invisible in the reply by design, so this
+                # is the only live signal that skills left the turn, and a warning that
+                # can vanish without trace is not a signal.
+                _log.warning("skills warning emit failed for agent %s", agent.id, exc_info=True)
         return bound
 
     async def _pending_context_and_tools(

@@ -29,6 +29,7 @@ from contexts.skills.domain.errors import (
     SkillNameTaken,
     SkillNotFound,
     SkillRequiresToolMissing,
+    SkillScopeMismatch,
 )
 from contexts.skills.domain.models import Skill, SkillScope
 from contexts.skills.infrastructure.repositories import (
@@ -136,12 +137,12 @@ class BindingService:
 
         if skill.scope is SkillScope.AGENT:
             if skill.agent_id != agent_id:
-                raise SkillContainmentFailed("agent_scope_mismatch")
+                raise SkillScopeMismatch("agent_scope_mismatch")
             return
 
         if skill.scope is SkillScope.PROJECT:
             if skill.project_id != agent_project_id:
-                raise SkillContainmentFailed("project_scope_mismatch")
+                raise SkillScopeMismatch("project_scope_mismatch")
             return
 
         # org: the agent's project must be owned by *that* org, and both sides must be
@@ -156,7 +157,7 @@ class BindingService:
         if project.ownership is ProjectOwnership.INDIVIDUAL:
             raise SkillContainmentFailed("project_individually_owned")
         if skill.org_id is None or project.owner_org_id != skill.org_id:
-            raise SkillContainmentFailed("org_scope_mismatch")
+            raise SkillScopeMismatch("org_scope_mismatch")
 
     # -- requirements (Q-9 / [R31.09]) ---------------------------------------
 
@@ -384,7 +385,43 @@ class BindingService:
                 continue
             kept.append(skill)
 
+        kept, collided = _split_name_collisions(kept)
+        dropped.extend(collided)
         return BoundSet(skills=tuple(kept), dropped=tuple(dropped))
+
+
+def _split_name_collisions(skills: list[Skill]) -> tuple[list[Skill], list[DroppedSkill]]:
+    """Separate the uniquely-named skills from every side of a name collision.
+
+    `assert_name_free_in_bound_set` is a check-then-act with no database backstop — the
+    rule spans `agent_skills` and `skills`, so no constraint can express it, and two
+    concurrent binds of two same-named skills both pass the SELECT and both commit. Q-30's
+    uniqueness is therefore an invariant that can be violated, and §8's cross-scope
+    shadowing (a project `deploy` over the admin's platform `deploy`) re-enters through
+    that window.
+
+    **Every side is dropped, not all-but-one.** The alternatives are worse: `read_skill`'s
+    name→skill dict is last-wins, so keeping one silently serves an arbitrary body under a
+    name the operator believes means something specific — the exact confusion the
+    invariant exists to prevent, now with a deterministic tiebreak making it repeatable
+    rather than correct. There is no principled winner: preferring the broader scope lets
+    a platform skill mask a project one, preferring the narrower is the shadowing attack
+    verbatim. Serving neither is the only answer that is not a guess, it is per-skill
+    (the agent's other bindings are untouched), it is audited, and the operator can fix it
+    by unbinding one.
+    """
+    by_name: dict[str, list[Skill]] = {}
+    for skill in skills:
+        by_name.setdefault(skill.name, []).append(skill)
+
+    kept: list[Skill] = []
+    collided: list[DroppedSkill] = []
+    for name, group in by_name.items():
+        if len(group) == 1:
+            kept.append(group[0])
+            continue
+        collided.extend(DroppedSkill(skill_id=s.id, name=name, reason="name_collision") for s in group)
+    return kept, collided
 
 
 __all__ = [
