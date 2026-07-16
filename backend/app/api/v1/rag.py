@@ -39,6 +39,7 @@ from contexts.knowledge.application.ingest_service import (
     MAX_MULTIPART_BYTES,
     IngestInput,
 )
+from contexts.knowledge.domain.embedding_pin import TeardownOutcome
 from contexts.knowledge.domain.errors import DocumentTooLarge
 from contexts.knowledge.domain.models import (
     ChunkStrategy,
@@ -370,11 +371,6 @@ async def delete_rag_config(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    # F-11 (W1): if that was the project's last File RAG config, clear the durable
-    # pin in this same transaction so it commits atomically with the soft-delete —
-    # a concurrent create at a different dimension can never observe a
-    # config-deleted-but-pin-present state and be spuriously rejected.
-    pin_cleared = await service.clear_pin_if_last_config(project_id=cfg.project_id)
     # DOM-4: commit the config + document removals and their audit row before
     # touching any external store.
     await db.commit()
@@ -384,9 +380,12 @@ async def delete_rag_config(
         project_id=cfg.project_id,
         docs=docs,
     )
-    # F-11 (W5): drop the now-orphan collection after the commit (DOM-4), re-checked
-    # under the lock so a concurrent re-pin keeps its collection.
-    collection_dropped = pin_cleared and await service.drop_orphan_collection(project_id=cfg.project_id)
+    # F-3: if that was the project's last File RAG config, drop the now-orphan
+    # collection and release the durable pin — in that order, and only if Qdrant
+    # confirms the collection is gone. The teardown takes the (project, file_rag)
+    # lock and re-checks for live configs itself, so a concurrent create either
+    # blocks or is seen here and keeps its collection.
+    teardown = await service.teardown_orphan_collection(project_id=cfg.project_id)
     from shared_kernel import audit as _audit
 
     await _audit.emit(
@@ -399,7 +398,11 @@ async def delete_rag_config(
             resource_id=config_id,
             metadata={
                 "project_id": str(cfg.project_id),
-                "collection_dropped": collection_dropped,
+                # F-3: `collection_dropped` is now true only for a Qdrant-confirmed
+                # drop, never for a failed one. `collection_teardown` carries the
+                # full outcome (dropped / absent / skipped_live_config / failed).
+                "collection_dropped": teardown is TeardownOutcome.DROPPED,
+                "collection_teardown": teardown.value,
                 **outcome,
             },
             request_id=ctx.request_id,

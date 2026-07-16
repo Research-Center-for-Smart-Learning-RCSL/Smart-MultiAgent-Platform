@@ -1,11 +1,14 @@
-"""F-11 — durable, race-free project embedding-dimension pins.
+"""F-11/F-3 — durable, race-free project embedding-dimension pins.
 
 Covers the pin repository's conflict decision per subsystem, the File RAG
-delete-then-recreate lifecycle (drop-empty clears the pin + drops the collection,
-recreate re-pins), a non-last delete retaining the pin, and the File RAG runtime
-dimension guard. The concurrent first-create race is an integration test
-(``tests/integration/test_embedding_pin_race.py``) since the advisory lock needs
-a real Postgres.
+delete-then-recreate lifecycle, a non-last delete retaining the pin, the F-3
+teardown contract (the pin is released only on a Qdrant-confirmed drop/absence, in
+all three products), the create-path teardown retry, and the File RAG runtime
+dimension guard.
+
+``acquire_lock`` is a no-op in these fakes, so nothing here proves the advisory lock
+actually serializes anything -- that needs a real Postgres and lives in
+``tests/integration/test_embedding_pin_race.py``.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from contexts.knowledge.application.config_service import RagConfigService
-from contexts.knowledge.domain.embedding_pin import PinKind
+from contexts.knowledge.domain.embedding_pin import PinKind, TeardownOutcome
 from contexts.knowledge.domain.errors import (
     EmbedDimensionConflict,
     GraphRagEmbedDimensionConflict,
@@ -201,60 +204,71 @@ def _rag_service(pins: _FakePinRepo, live: list[Any]) -> RagConfigService:
 
 
 def _patch_qdrant(store: Any) -> Any:
-    settings = SimpleNamespace(qdrant=SimpleNamespace(url="http://q", api_key=""))
+    """Patch the teardown's client construction + the File RAG store.
+
+    ``delete_collection_bounded`` owns client lifecycle and the timeout; the store is
+    patched where the service imports it, so the fake's return/raise drives the
+    outcome under test.
+    """
+    settings = SimpleNamespace(qdrant=SimpleNamespace(url="http://q", api_key="", teardown_timeout_s=10.0))
     return (
-        patch("qdrant_client.AsyncQdrantClient", return_value=AsyncMock()),
+        patch(
+            "contexts.knowledge.infrastructure.qdrant_teardown.AsyncQdrantClient", return_value=AsyncMock()
+        ),
         patch("app.config.settings.get_settings", return_value=settings),
         patch("contexts.knowledge.infrastructure.qdrant_store.QdrantStore", return_value=store),
     )
 
 
 @pytest.mark.asyncio
-async def test_last_config_clears_pin_then_drops_collection() -> None:
+async def test_last_config_drops_collection_then_releases_pin() -> None:
+    # AC-2/AC-4: the pin is released only after Qdrant confirms the drop.
     pid = uuid.uuid4()
     pins = _FakePinRepo()
     pins.pins[(pid, PinKind.FILE_RAG.value)] = 1536
     svc = _rag_service(pins, live=[])  # last config already soft-deleted
-    # W1: the pin clear is atomic with the soft-delete (runs pre-commit).
-    cleared = await svc.clear_pin_if_last_config(project_id=pid)
-    assert cleared is True
-    assert (pid, PinKind.FILE_RAG.value) not in pins.pins
-    # W5: the collection drop runs post-commit, re-checked under the lock.
     store = AsyncMock()
+    store.delete_collection.return_value = True
     p1, p2, p3 = _patch_qdrant(store)
     with p1, p2, p3:
-        dropped = await svc.drop_orphan_collection(project_id=pid)
-    assert dropped is True
+        outcome = await svc.teardown_orphan_collection(project_id=pid)
+    assert outcome is TeardownOutcome.DROPPED
     store.delete_collection.assert_awaited_once_with(pid)
+    assert (pid, PinKind.FILE_RAG.value) not in pins.pins
 
 
 @pytest.mark.asyncio
-async def test_clear_pin_keeps_pin_when_sibling_remains() -> None:
+async def test_absent_collection_releases_pin() -> None:
+    # AC-4: an already-absent collection is as good a confirmation as a fresh drop.
     pid = uuid.uuid4()
     pins = _FakePinRepo()
     pins.pins[(pid, PinKind.FILE_RAG.value)] = 1536
-    sibling = SimpleNamespace(embed_provider="openai", embed_model="text-embedding-3-small")
-    svc = _rag_service(pins, live=[sibling])
-    cleared = await svc.clear_pin_if_last_config(project_id=pid)
-    assert cleared is False
-    assert pins.pins[(pid, PinKind.FILE_RAG.value)] == 1536
+    svc = _rag_service(pins, live=[])
+    store = AsyncMock()
+    store.delete_collection.return_value = False  # nothing there to drop
+    p1, p2, p3 = _patch_qdrant(store)
+    with p1, p2, p3:
+        outcome = await svc.teardown_orphan_collection(project_id=pid)
+    assert outcome is TeardownOutcome.ABSENT
+    assert (pid, PinKind.FILE_RAG.value) not in pins.pins
 
 
 @pytest.mark.asyncio
-async def test_drop_orphan_skips_when_config_reappeared() -> None:
-    # W5: a concurrent create re-pinned the project between the pre-commit clear
-    # and this post-commit drop — the re-check under the lock sees the live config
-    # and leaves its collection intact rather than dropping it.
+async def test_teardown_skips_and_keeps_pin_when_config_reappeared() -> None:
+    # AC-5: a concurrent create won the lock — its collection must survive, and the
+    # pin it depends on must not be released.
     pid = uuid.uuid4()
     pins = _FakePinRepo()
+    pins.pins[(pid, PinKind.FILE_RAG.value)] = 1536
     reappeared = SimpleNamespace(embed_provider="openai", embed_model="text-embedding-3-small")
     svc = _rag_service(pins, live=[reappeared])
     store = AsyncMock()
     p1, p2, p3 = _patch_qdrant(store)
     with p1, p2, p3:
-        dropped = await svc.drop_orphan_collection(project_id=pid)
-    assert dropped is False
+        outcome = await svc.teardown_orphan_collection(project_id=pid)
+    assert outcome is TeardownOutcome.SKIPPED_LIVE_CONFIG
     store.delete_collection.assert_not_awaited()
+    assert pins.pins[(pid, PinKind.FILE_RAG.value)] == 1536
 
 
 @pytest.mark.asyncio
@@ -301,6 +315,256 @@ async def test_recreate_rejected_when_pin_survives_sibling_delete() -> None:
             actor_user_id=uuid.uuid4(),
             actor_ip=None,
         )
+
+
+@pytest.mark.asyncio
+async def test_failed_teardown_retains_pin_and_blocks_incompatible_create() -> None:
+    # F-3, AC-1/AC-3: this is the regression. A Qdrant-failing teardown must leave
+    # the pin intact — otherwise the 1536-dim collection survives while the project
+    # accepts a 3072-dim config that can never index against it.
+    pid = uuid.uuid4()
+    pins = _FakePinRepo()
+    pins.pins[(pid, PinKind.FILE_RAG.value)] = 1536
+    svc = _rag_service(pins, live=[])
+    store = AsyncMock()
+    store.delete_collection.side_effect = RuntimeError("qdrant unreachable")
+
+    p1, p2, p3 = _patch_qdrant(store)
+    with p1, p2, p3:
+        outcome = await svc.teardown_orphan_collection(project_id=pid)
+    assert outcome is TeardownOutcome.FAILED
+    assert outcome.pin_released is False  # AC-4: never audited as a drop
+    assert pins.pins.get((pid, PinKind.FILE_RAG.value)) == 1536, "pin must survive a failed teardown"
+
+    # The retained pin must still block the incompatible create. The create-path
+    # retry (Q-5) fires, re-attempts the teardown, fails again, and falls through
+    # to the typed conflict — the pre-F-3 rejection.
+    with (
+        p1,
+        p2,
+        p3,
+        patch("contexts.knowledge.application.config_service.audit.emit", new=AsyncMock()),
+        pytest.raises(EmbedDimensionConflict),
+    ):
+        await svc.create(
+            project_id=pid,
+            draft=_draft("openai", "text-embedding-3-large"),  # 3072-dim
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
+        )
+    assert pins.pins[(pid, PinKind.FILE_RAG.value)] == 1536  # still pinned, still closed
+
+
+# ---------------------------------------------------------------------------
+# Create-path teardown retry (§8.5, AC-7/AC-8)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_retries_pending_teardown_then_repins() -> None:
+    # AC-7: a previous delete left the pin at 1536 because Qdrant was down. Qdrant
+    # is healthy now, so this 3072-dim create reclaims the orphan and re-pins.
+    pid = uuid.uuid4()
+    pins = _FakePinRepo()
+    pins.pins[(pid, PinKind.FILE_RAG.value)] = 1536
+    svc = _rag_service(pins, live=[])
+    svc._configs.create.return_value = SimpleNamespace(
+        id=uuid.uuid4(),
+        name="cfg",
+        chunk_strategy=SimpleNamespace(value="fixed"),
+        embed_provider="openai",
+        embed_model="text-embedding-3-large",
+        rerank_enabled=False,
+    )
+    store = AsyncMock()
+    store.delete_collection.return_value = True
+    p1, p2, p3 = _patch_qdrant(store)
+    with p1, p2, p3, patch("contexts.knowledge.application.config_service.audit.emit", new=AsyncMock()):
+        await svc.create(
+            project_id=pid,
+            draft=_draft("openai", "text-embedding-3-large"),
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
+        )
+    store.delete_collection.assert_awaited_once_with(pid)
+    assert pins.pins[(pid, PinKind.FILE_RAG.value)] == 3072
+
+
+@pytest.mark.asyncio
+async def test_create_at_pinned_dimension_never_calls_qdrant() -> None:
+    # AC-8: the guard on the §2 non-goal. A create matching the pin needs no
+    # teardown, so ordinary config CRUD must not depend on Qdrant being reachable.
+    pid = uuid.uuid4()
+    pins = _FakePinRepo()
+    pins.pins[(pid, PinKind.FILE_RAG.value)] = 1536
+    svc = _rag_service(pins, live=[])
+    svc._configs.create.return_value = SimpleNamespace(
+        id=uuid.uuid4(),
+        name="cfg",
+        chunk_strategy=SimpleNamespace(value="fixed"),
+        embed_provider="openai",
+        embed_model="text-embedding-3-small",
+        rerank_enabled=False,
+    )
+    store = AsyncMock()
+    store.delete_collection.side_effect = AssertionError("teardown must not run for a matching pin")
+    p1, p2, p3 = _patch_qdrant(store)
+    with p1, p2, p3, patch("contexts.knowledge.application.config_service.audit.emit", new=AsyncMock()):
+        await svc.create(
+            project_id=pid,
+            draft=_draft("openai", "text-embedding-3-small"),  # 1536-dim, matches
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
+        )
+    store.delete_collection.assert_not_awaited()
+    assert pins.pins[(pid, PinKind.FILE_RAG.value)] == 1536
+
+
+@pytest.mark.asyncio
+async def test_create_retry_skips_teardown_when_live_config_races_in() -> None:
+    # AC-5: a live sibling means the collection is in use. The create-path retry must
+    # not drop it; the sibling scan rejects the mismatch instead.
+    pid = uuid.uuid4()
+    pins = _FakePinRepo()
+    pins.pins[(pid, PinKind.FILE_RAG.value)] = 1536
+    sibling = SimpleNamespace(embed_provider="openai", embed_model="text-embedding-3-small")
+    svc = _rag_service(pins, live=[sibling])
+    store = AsyncMock()
+    p1, p2, p3 = _patch_qdrant(store)
+    with (
+        p1,
+        p2,
+        p3,
+        patch("contexts.knowledge.application.config_service.audit.emit", new=AsyncMock()),
+        pytest.raises(EmbedDimensionConflict),
+    ):
+        await svc.create(
+            project_id=pid,
+            draft=_draft("openai", "text-embedding-3-large"),  # 3072-dim
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
+        )
+    store.delete_collection.assert_not_awaited()
+    assert pins.pins[(pid, PinKind.FILE_RAG.value)] == 1536
+
+
+# ---------------------------------------------------------------------------
+# Teardown failure is fail-closed in all three products (§8.1, AC-1/AC-3/AC-4)
+# ---------------------------------------------------------------------------
+
+
+def _knowmap_service(pins: _FakePinRepo, live: list[Any]) -> Any:
+    from contexts.knowledge.application.knowmap_config_service import KnowmapConfigService
+
+    svc = KnowmapConfigService(db=AsyncMock())
+    svc._configs = AsyncMock()
+    svc._configs.list_for_project.return_value = live
+    svc._pins = pins
+    return svc
+
+
+def _graphrag_service(pins: _FakePinRepo, live: list[Any]) -> Any:
+    from contexts.knowledge.application.graphrag_config_service import GraphRagConfigService
+
+    svc = GraphRagConfigService(db=AsyncMock())
+    svc._configs = AsyncMock()
+    svc._configs.list_for_project.return_value = live
+    svc._pins = pins
+    return svc
+
+
+_GRAPH_STORE = "contexts.knowledge.infrastructure.graphrag_vector_store.GraphRagVectorStore"
+_RAG_STORE = "contexts.knowledge.infrastructure.qdrant_store.QdrantStore"
+
+_PRODUCTS = [
+    pytest.param(_rag_service, PinKind.FILE_RAG, _RAG_STORE, id="file_rag"),
+    pytest.param(_knowmap_service, PinKind.KNOWMAP, _GRAPH_STORE, id="knowmap"),
+    pytest.param(_graphrag_service, PinKind.GRAPHRAG, _GRAPH_STORE, id="graphrag"),
+]
+
+
+def _patch_teardown(store_target: str, store: Any) -> Any:
+    settings = SimpleNamespace(qdrant=SimpleNamespace(url="http://q", api_key="", teardown_timeout_s=10.0))
+    return (
+        patch(
+            "contexts.knowledge.infrastructure.qdrant_teardown.AsyncQdrantClient", return_value=AsyncMock()
+        ),
+        patch("app.config.settings.get_settings", return_value=settings),
+        patch(store_target, return_value=store),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("factory", "kind", "store_target"), _PRODUCTS)
+async def test_qdrant_failure_retains_pin_in_every_product(
+    factory: Any, kind: PinKind, store_target: str
+) -> None:
+    # AC-1/AC-3: all three products copied the clear-before-drop lifecycle, so all
+    # three must now fail closed — the pin survives a Qdrant error.
+    pid = uuid.uuid4()
+    pins = _FakePinRepo()
+    pins.pins[(pid, kind.value)] = 1536
+    svc = factory(pins, [])
+    store = AsyncMock()
+    store.delete_collection.side_effect = RuntimeError("qdrant unreachable")
+    p1, p2, p3 = _patch_teardown(store_target, store)
+    with p1, p2, p3:
+        outcome = await svc.teardown_orphan_collection(project_id=pid)
+    assert outcome is TeardownOutcome.FAILED
+    assert pins.pins[(pid, kind.value)] == 1536
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("factory", "kind", "store_target"), _PRODUCTS)
+@pytest.mark.parametrize(
+    ("dropped", "expected"), [(True, TeardownOutcome.DROPPED), (False, TeardownOutcome.ABSENT)]
+)
+async def test_confirmed_absence_releases_pin_in_every_product(
+    factory: Any, kind: PinKind, store_target: str, dropped: bool, expected: TeardownOutcome
+) -> None:
+    # AC-4: dropped and already-absent both confirm the collection is gone.
+    pid = uuid.uuid4()
+    pins = _FakePinRepo()
+    pins.pins[(pid, kind.value)] = 1536
+    svc = factory(pins, [])
+    store = AsyncMock()
+    store.delete_collection.return_value = dropped
+    p1, p2, p3 = _patch_teardown(store_target, store)
+    with p1, p2, p3:
+        outcome = await svc.teardown_orphan_collection(project_id=pid)
+    assert outcome is expected
+    assert outcome.pin_released is True
+    assert (pid, kind.value) not in pins.pins
+
+
+@pytest.mark.asyncio
+async def test_teardown_timeout_retains_pin() -> None:
+    # AC-9: a hung Qdrant must not hold the advisory lock open. The bound fires,
+    # the pin is retained, and the retry paths reclaim the collection later.
+    import asyncio
+
+    pid = uuid.uuid4()
+    pins = _FakePinRepo()
+    pins.pins[(pid, PinKind.FILE_RAG.value)] = 1536
+    svc = _rag_service(pins, live=[])
+
+    async def _hang(_pid: uuid.UUID) -> bool:
+        await asyncio.sleep(10)
+        return True
+
+    store = AsyncMock()
+    store.delete_collection.side_effect = _hang
+    client = AsyncMock()
+    settings = SimpleNamespace(qdrant=SimpleNamespace(url="http://q", api_key="", teardown_timeout_s=0.01))
+    with (
+        patch("contexts.knowledge.infrastructure.qdrant_teardown.AsyncQdrantClient", return_value=client),
+        patch("app.config.settings.get_settings", return_value=settings),
+        patch(_RAG_STORE, return_value=store),
+    ):
+        outcome = await svc.teardown_orphan_collection(project_id=pid)
+    assert outcome is TeardownOutcome.FAILED
+    assert pins.pins[(pid, PinKind.FILE_RAG.value)] == 1536
+    client.close.assert_awaited_once()  # the timeout path still closes the client
 
 
 # ---------------------------------------------------------------------------

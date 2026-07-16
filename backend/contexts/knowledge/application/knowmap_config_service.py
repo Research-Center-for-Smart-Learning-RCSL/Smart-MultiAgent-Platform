@@ -26,7 +26,7 @@ from contexts.knowledge.application.embed_resolution import (
     resolve_embed_key,
     resolve_pinned_embed_key,
 )
-from contexts.knowledge.domain.embedding_pin import PinKind
+from contexts.knowledge.domain.embedding_pin import PinKind, TeardownOutcome
 from contexts.knowledge.domain.errors import (
     ChunkParamsImmutable,
     KnowmapBuilderKeyGroupProjectMismatch,
@@ -79,6 +79,11 @@ class KnowmapConfigService:
                 f"project {project_id} is pinned to {existing_dim}-dim knowmap embeddings; "
                 f"builder key group {draft.builder_key_group_id} resolves to {embed_dim}-dim"
             )
+
+        # F-3: retry a teardown a previous delete left owed, so this create is not
+        # rejected by a pin whose collection nobody is using. No Qdrant call unless
+        # the pin is a different dimension and the project is configless.
+        await self._retry_pending_teardown(project_id, embed_dim)
 
         # Durable, race-free project dimension pin (F-11). The scan above is a
         # cheap pre-check; this is authoritative and serializes the read-then-
@@ -371,51 +376,54 @@ class KnowmapConfigService:
             bucket=settings.minio.bucket_knowmap_sources,
         )
 
-    async def clear_pin_if_last_config(self, *, project_id: uuid.UUID) -> bool:
-        """Clear the durable Knowledge Map pin iff no live config remains (F-11).
+    async def teardown_orphan_collection(self, *, project_id: uuid.UUID) -> TeardownOutcome:
+        """Drop ``knowmap_{project_id}`` and release the pin, iff configless (F-3/F-11).
 
-        Called in the delete's OWN transaction, before its commit, so the pin clear
-        commits atomically with the soft-delete. Under the ``(project, knowmap)``
-        advisory lock — held from here through that commit — a concurrent create
-        blocks and never observes a config-deleted-but-pin-present state, closing
-        the window where it would read the stale pin and be spuriously rejected at a
-        different dimension (F-11 W1). Returns ``True`` when the pin was cleared, so
-        ``knowmap_{project_id}`` is an orphan to drop after the commit.
+        The Knowledge Map counterpart of
+        :meth:`contexts.knowledge.application.config_service.RagConfigService.teardown_orphan_collection`
+        — see that docstring for why the pin now trails the drop (F-3) and for the
+        deliberate W5 trade (spec Q-4). The pin is released only on a confirmed
+        ``DROPPED``/``ABSENT``; a Qdrant error keeps it so an incompatible config
+        stays rejected while the old-dimension collection is still standing.
         """
         await self._pins.acquire_lock(project_id, PinKind.KNOWMAP)
         if list(await self._configs.list_for_project(project_id)):
-            return False
-        await self._pins.clear(project_id=project_id, kind=PinKind.KNOWMAP)
-        return True
+            return TeardownOutcome.SKIPPED_LIVE_CONFIG
 
-    async def drop_orphan_collection(self, *, project_id: uuid.UUID) -> bool:
-        """Drop ``knowmap_{project_id}`` after the delete commit, iff still configless (F-11).
-
-        Runs post-commit (DOM-4: irreversible external deletes trail the durable DB
-        commit — W5). Re-acquires the ``(project, knowmap)`` lock and re-checks: if a
-        concurrent create re-pinned the project between the two commits, its
-        collection is left intact. Best-effort on the Qdrant side. Returns ``True``
-        when it dropped.
-        """
-        await self._pins.acquire_lock(project_id, PinKind.KNOWMAP)
-        if list(await self._configs.list_for_project(project_id)):
-            return False
-
-        from qdrant_client import AsyncQdrantClient
-
-        from app.config.settings import get_settings
         from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
+        from contexts.knowledge.infrastructure.qdrant_teardown import delete_collection_bounded
 
-        settings = get_settings()
         try:
-            qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
-            try:
-                await GraphRagVectorStore(qclient, prefix="knowmap").delete_collection(project_id)
-            finally:
-                await qclient.close()
-        except Exception:
-            _log.exception("knowmap drop-empty: qdrant collection drop failed for project %s", project_id)
-        return True
+            dropped = await delete_collection_bounded(
+                lambda client: GraphRagVectorStore(client, prefix="knowmap").delete_collection(project_id)
+            )
+        except Exception as exc:
+            # The exception class only — qdrant-client errors carry response content
+            # and headers. See RagConfigService.teardown_orphan_collection.
+            _log.error(
+                "knowmap teardown: qdrant collection drop failed for project %s (%s); "
+                "pin retained, collection will be retried",
+                project_id,
+                type(exc).__name__,
+            )
+            return TeardownOutcome.FAILED
+
+        await self._pins.clear(project_id=project_id, kind=PinKind.KNOWMAP)
+        return TeardownOutcome.DROPPED if dropped else TeardownOutcome.ABSENT
+
+    async def _retry_pending_teardown(self, project_id: uuid.UUID, new_dim: int) -> None:
+        """Retry a teardown a previous delete left owed (F-3, spec Q-5).
+
+        See
+        :meth:`contexts.knowledge.application.config_service.RagConfigService._retry_pending_teardown`.
+        Fires only for a different-dimension create against a configless retained pin;
+        a matching-dimension create issues no Qdrant call.
+        """
+        await self._pins.acquire_lock(project_id, PinKind.KNOWMAP)
+        pin = await self._pins.get(project_id, PinKind.KNOWMAP)
+        if pin is None or int(pin.dim) == new_dim:
+            return
+        await self.teardown_orphan_collection(project_id=project_id)
 
     # ---- infrastructure cascade (WS4, R11.20) -----------------------------
 

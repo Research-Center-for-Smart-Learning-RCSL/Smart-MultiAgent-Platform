@@ -45,6 +45,7 @@ from contexts.knowledge.application.knowmap_ingest_service import (
     KnowmapIngestInput,
 )
 from contexts.knowledge.application.knowmap_triggers import enqueue_knowmap_build
+from contexts.knowledge.domain.embedding_pin import TeardownOutcome
 from contexts.knowledge.domain.errors import DocumentTooLarge, KnowmapConfigNotFound
 from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.domain.knowmap import KnowmapConfigDraft
@@ -348,20 +349,17 @@ async def delete_knowmap_config(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    # F-11 (W1): if that was the project's last Knowledge Map config, clear the
-    # durable pin in this same transaction so it commits atomically with the
-    # soft-delete — a concurrent create at a different dimension can never observe a
-    # config-deleted-but-pin-present state and be spuriously rejected.
-    pin_cleared = await service.clear_pin_if_last_config(project_id=cfg.project_id)
     await db.commit()
 
     graph_outcome = await KnowmapConfigService.cascade_external_stores(
         config_id=config_id, project_id=cfg.project_id
     )
     blob_outcome = await KnowmapConfigService.purge_document_blobs(docs=docs)
-    # F-11 (W5): drop the now-orphan collection after the commit (DOM-4), re-checked
-    # under the lock so a concurrent re-pin keeps its collection.
-    collection_dropped = pin_cleared and await service.drop_orphan_collection(project_id=cfg.project_id)
+    # F-3: if that was the project's last Knowledge Map config, drop the now-orphan
+    # collection and release the durable pin — in that order, and only if Qdrant
+    # confirms the collection is gone. The teardown takes the (project, knowmap) lock
+    # and re-checks for live configs itself.
+    teardown = await service.teardown_orphan_collection(project_id=cfg.project_id)
     from shared_kernel import audit as _audit
 
     await _audit.emit(
@@ -374,7 +372,10 @@ async def delete_knowmap_config(
             resource_id=config_id,
             metadata={
                 "project_id": str(cfg.project_id),
-                "collection_dropped": collection_dropped,
+                # F-3: true only for a Qdrant-confirmed drop; `collection_teardown`
+                # carries the full outcome.
+                "collection_dropped": teardown is TeardownOutcome.DROPPED,
+                "collection_teardown": teardown.value,
                 **graph_outcome,
                 **blob_outcome,
             },
