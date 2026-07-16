@@ -661,10 +661,6 @@ class TurnEngine:
         if not ws_files:
             return
 
-        manifest_sha = hashlib.sha256(
-            "\n".join(sorted(f"{wf.path}:{wf.sha256}" for wf in ws_files)).encode()
-        ).hexdigest()
-
         total = 0
         chosen = []
         for wf in ws_files:
@@ -674,6 +670,15 @@ class TurnEngine:
             chosen.append(wf)
         if not chosen:
             return
+
+        # The manifest is the cache key for what is on the volume, so it must
+        # cover exactly the staged prefix. Hashing the whole set instead made the
+        # key describe bytes that were never written: an edit past the size cut
+        # invalidated the cache and re-staged an identical prefix, while the
+        # manifest still claimed a file set the sandbox had never seen.
+        manifest_sha = hashlib.sha256(
+            "\n".join(sorted(f"{wf.path}:{wf.sha256}" for wf in chosen)).encode()
+        ).hexdigest()
 
         storage = get_minio_client()
         bucket = storage._cfg.bucket_agent_workspace
