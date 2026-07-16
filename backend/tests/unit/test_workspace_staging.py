@@ -176,6 +176,75 @@ async def test_a_file_that_fits_after_an_overrun_is_still_staged() -> None:
     assert runner.calls[0]["manifest_sha"] == _expected_manifest([a, c])
 
 
+class _NoteRunner:
+    """Both staging methods, returning what the real ones now return (absolute)."""
+
+    async def stage_agent_workspace_files(self, *, agent_id, files, manifest_sha):
+        return [f"/workspace/agent-files/{f.filename}" for f in files]
+
+    async def stage_kernel_inputs(self, *, agent_id, chatroom_id, files):
+        return [f"/workspace/sessions/{chatroom_id}/inputs/{f.filename}" for f in files]
+
+
+def _async_return(value):
+    async def _f(*_a, **_kw):
+        return value
+
+    return _f
+
+
+async def _note(monkeypatch, ws_files, attachments) -> str | None:
+    """Drive `_stage_workspace_inputs` unbound, stubbing its lazy imports."""
+    import contexts.agents.application.runtime.turn_engine as mod
+    from contexts.agents.domain.models import AgentToolType
+
+    engine = TurnEngine.__new__(TurnEngine)
+    engine._db = None
+    tools = [SimpleNamespace(enabled=True, tool_type=AgentToolType.HOSTED_CODE_INTERPRETER)]
+
+    monkeypatch.setattr(
+        mod,
+        "AgentsFacade",
+        lambda _db: SimpleNamespace(
+            list_agent_tools=_async_return(tools),
+            list_workspace_files=_async_return(ws_files),
+        ),
+    )
+    monkeypatch.setattr(
+        mod,
+        "ConversationFacade",
+        lambda _db: SimpleNamespace(read_attachments_bytes=_async_return([b"x" for _ in attachments])),
+    )
+    monkeypatch.setattr(
+        "contexts.agents.infrastructure.sandbox.docker_runsc.docker_runsc_sandbox_from_settings",
+        lambda: _NoteRunner(),
+    )
+    return await TurnEngine._stage_workspace_inputs(
+        engine, SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), attachments
+    )
+
+
+async def test_the_note_the_model_reads_carries_only_absolute_paths(monkeypatch) -> None:
+    """AC-5. The note is the whole user-visible surface of this bug: the model is
+    told where its files are, and until 2026-07-17 it was told `agent-files/x`,
+    which resolves under the kernel's cwd (`/workspace/sessions/{room}`) where
+    nothing is. Two staging trees at different depths feed one sentence, so the
+    only form that can be true for both is absolute.
+    """
+    note = await _note(
+        monkeypatch,
+        ws_files=[_wf("reports/q1.csv", "sha-a", 10)],
+        attachments=[SimpleNamespace(filename="upload.csv", size_bytes=10)],
+    )
+
+    assert note is not None
+    assert "/workspace/agent-files/reports/q1.csv" in note
+    assert "/workspace/sessions/" in note
+    # No bare relative form survives: every path must start at the volume root.
+    inner = note.removeprefix("[Files available in the code_exec workspace: ").rstrip("]")
+    assert all(p.strip().startswith("/workspace/") for p in inner.split(","))
+
+
 def test_cap_is_the_documented_128_mib() -> None:
     # The manifest fix is only meaningful against a real cut; pin the constant
     # the truncation cases above are sized against.
