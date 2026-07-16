@@ -25,15 +25,14 @@ endpoint, which has no scope in its path at all.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
-from app.api.v1.deps import PaginationParams, assert_project_membership
-from contexts.skills.application.binding_service import BindingService
-from contexts.skills.application.skill_service import SkillService
+from app.api.v1.deps import PaginationParams, assert_project_membership, parse_if_match
 from contexts.skills.domain.models import (
     MAX_DESCRIPTION_CHARS,
     SKILL_NAME_RE,
@@ -42,6 +41,7 @@ from contexts.skills.domain.models import (
     SkillScope,
 )
 from contexts.skills.domain.text_rules import text_rejection_reason
+from contexts.skills.interfaces.facade import SkillsFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
@@ -161,13 +161,19 @@ class SkillCopyIn(BaseModel):
         return v
 
 
-class SkillOut(BaseModel):
+class SkillSummaryOut(BaseModel):
+    """A skill without its body — what a listing needs.
+
+    The body is bounded only by `_MAX_BODY` (256 KiB) and `limit` reaches 500, so
+    including it here would let one request return ~128 MB to render a menu of names. It
+    is served by the detail endpoint, one skill at a time, to the caller who asked for it.
+    """
+
     id: uuid.UUID
     scope: SkillScope
     owner_id: uuid.UUID | None
     name: str
     description: str
-    body: str
     body_sha256: str
     source: str
     bundle_sha256: str | None
@@ -180,8 +186,12 @@ class SkillOut(BaseModel):
     deleted_at: str | None
 
 
+class SkillOut(SkillSummaryOut):
+    body: str
+
+
 class SkillPageOut(BaseModel):
-    items: list[SkillOut]
+    items: list[SkillSummaryOut]
     total: int
 
 
@@ -191,40 +201,37 @@ class SkillBindingOut(BaseModel):
     name: str
 
 
-def _skill_out(s: Skill) -> SkillOut:
-    return SkillOut(
-        id=s.id,
-        scope=s.scope,
-        owner_id=s.owner_id,
-        name=s.name,
-        description=s.description,
-        body=s.body,
-        body_sha256=s.body_sha256,
-        source=s.source.value,
-        bundle_sha256=s.bundle_sha256,
+def _summary_fields(s: Skill) -> dict[str, Any]:
+    return {
+        "id": s.id,
+        "scope": s.scope,
+        "owner_id": s.owner_id,
+        "name": s.name,
+        "description": s.description,
+        "body_sha256": s.body_sha256,
+        "source": s.source.value,
+        "bundle_sha256": s.bundle_sha256,
         # Q-20's badge is derived here rather than on the model, and it is honestly False
         # for now: divergence is `hash(current authored byte set) != bundle_sha256`, and
         # the authored byte set is defined by the exporter, which lands with bundles. No
         # row carries a bundle_sha256 until an importer exists, so anything else this
         # could compute would badge every imported skill as diverged forever.
-        diverged=False,
-        requires=list(s.requires),
-        allowed_tools=list(s.allowed_tools),
-        created_by=s.created_by,
-        version=s.version,
-        created_at=s.created_at.isoformat(),
-        deleted_at=s.deleted_at.isoformat() if s.deleted_at else None,
-    )
+        "diverged": False,
+        "requires": list(s.requires),
+        "allowed_tools": list(s.allowed_tools),
+        "created_by": s.created_by,
+        "version": s.version,
+        "created_at": s.created_at.isoformat(),
+        "deleted_at": s.deleted_at.isoformat() if s.deleted_at else None,
+    }
 
 
-def _parse_if_match(raw: str | None) -> int | None:
-    """`None` means the client did not ask for optimistic locking."""
-    if raw is None:
-        return None
-    try:
-        return int(raw.strip().strip('"'))
-    except (ValueError, AttributeError) as exc:
-        raise HTTPException(status_code=412, detail=f"invalid If-Match: {raw!r}") from exc
+def _skill_out(s: Skill) -> SkillOut:
+    return SkillOut(**_summary_fields(s), body=s.body)
+
+
+def _skill_summary_out(s: Skill) -> SkillSummaryOut:
+    return SkillSummaryOut(**_summary_fields(s))
 
 
 # ---------------------------------------------------------------------------
@@ -240,14 +247,14 @@ async def _list(
     *,
     include_deleted: bool,
 ) -> SkillPageOut:
-    rows, total = await SkillService(db).list_for_scope(
+    rows, total = await SkillsFacade(db).list_for_scope(
         scope=scope,
         owner_id=owner_id,
         limit=pagination.limit,
         offset=pagination.offset,
         include_deleted=include_deleted,
     )
-    return SkillPageOut(items=[_skill_out(s) for s in rows], total=total)
+    return SkillPageOut(items=[_skill_summary_out(s) for s in rows], total=total)
 
 
 async def _create(
@@ -258,7 +265,7 @@ async def _create(
     owner_id: uuid.UUID | None,
     body: SkillCreateIn,
 ) -> SkillOut:
-    skill = await SkillService(db).create(
+    skill = await SkillsFacade(db).create(
         scope=scope,
         owner_id=owner_id,
         name=body.name,
@@ -276,7 +283,7 @@ async def _create(
 async def _get(
     db: AsyncSession, scope: SkillScope, owner_id: uuid.UUID | None, skill_id: uuid.UUID
 ) -> SkillOut:
-    return _skill_out(await SkillService(db).get_owned(skill_id, scope, owner_id=owner_id))
+    return _skill_out(await SkillsFacade(db).get_owned(skill_id, scope, owner_id=owner_id))
 
 
 async def _patch(
@@ -296,12 +303,12 @@ async def _patch(
         requires=tuple(fields["requires"]) if fields.get("requires") is not None else None,
         allowed_tools=tuple(fields["allowed_tools"]) if fields.get("allowed_tools") is not None else None,
     )
-    skill = await SkillService(db).update(
+    skill = await SkillsFacade(db).update(
         skill_id,
         scope,
         owner_id=owner_id,
         draft=draft,
-        expected_version=_parse_if_match(if_match),
+        expected_version=parse_if_match(if_match),
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
@@ -318,11 +325,11 @@ async def _delete(
     skill_id: uuid.UUID,
     if_match: str | None,
 ) -> None:
-    await SkillService(db).soft_delete(
+    await SkillsFacade(db).soft_delete(
         skill_id,
         scope,
         owner_id=owner_id,
-        expected_version=_parse_if_match(if_match),
+        expected_version=parse_if_match(if_match),
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
@@ -337,7 +344,7 @@ async def _restore(
     owner_id: uuid.UUID | None,
     skill_id: uuid.UUID,
 ) -> SkillOut:
-    skill = await SkillService(db).restore(
+    skill = await SkillsFacade(db).restore(
         skill_id,
         scope,
         owner_id=owner_id,
@@ -358,7 +365,7 @@ async def _copy(
     body: SkillCopyIn,
 ) -> SkillOut:
     await _assert_may_write_scope(db, principal, body.target_scope, body.target_owner_id)
-    skill = await SkillService(db).copy(
+    skill = await SkillsFacade(db).copy(
         skill_id,
         scope,
         owner_id=owner_id,
@@ -820,12 +827,9 @@ async def list_bindings(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[SkillBindingOut]:
-    await assert_project_membership(
-        db=db, principal=principal, project_id=await _agent_project_id(db, agent_id)
-    )
-    bound = await BindingService(db).resolve_bound_set(
-        agent_id=agent_id, agent_project_id=await _agent_project_id(db, agent_id)
-    )
+    project_id = await _agent_project_id(db, agent_id)
+    await assert_project_membership(db=db, principal=principal, project_id=project_id)
+    bound = await SkillsFacade(db).resolve_bound_set(agent_id=agent_id, agent_project_id=project_id)
     return [SkillBindingOut(agent_id=agent_id, skill_id=s.id, name=s.name) for s in bound.skills]
 
 
@@ -844,7 +848,7 @@ async def bind_skill(
     `skill_id` on trust here is the SEC-H1 IDOR with instructions in place of chunks.
     """
     await _assert_agent_write(db, principal, agent_id)
-    skill = await BindingService(db).bind(skill_id=skill_id, agent_id=agent_id)
+    skill = await SkillsFacade(db).bind(skill_id=skill_id, agent_id=agent_id)
     await _emit_binding_audit(db, ctx, principal, "skill.bound", agent_id, skill)
 
 
@@ -857,7 +861,7 @@ async def unbind_skill(
     db: AsyncSession = Depends(db_session),
 ) -> None:
     await _assert_agent_write(db, principal, agent_id)
-    skill = await BindingService(db).unbind(skill_id=skill_id, agent_id=agent_id)
+    skill = await SkillsFacade(db).unbind(skill_id=skill_id, agent_id=agent_id)
     if skill is None:
         raise HTTPException(status_code=404, detail="skill is not bound to this agent")
     await _emit_binding_audit(db, ctx, principal, "skill.unbound", agent_id, skill)

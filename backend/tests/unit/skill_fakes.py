@@ -303,7 +303,9 @@ class FakeBindingRepo:
 
     async def unbind(self, *, agent_id: uuid.UUID, skill_id: uuid.UUID) -> bool:
         binding = self.rows.get((agent_id, skill_id))
-        if binding is None or binding.deleted_at is not None:
+        # Only a live binding, matching the repo: a cascade-unbound row is not bound, and
+        # stamping deleted_at on it would make the cascade irreversible (AC-37).
+        if binding is None or not binding.is_live:
             return False
         self.rows[(agent_id, skill_id)] = replace(binding, deleted_at=NOW)
         return True

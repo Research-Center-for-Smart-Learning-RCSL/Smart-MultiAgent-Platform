@@ -17,7 +17,6 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.skills.application.binding_service import BindingService
-from contexts.skills.application.index_builder import estimate_index_tokens
 from contexts.skills.domain.errors import (
     SkillIndexBudgetExceeded,
     SkillNameTaken,
@@ -195,13 +194,19 @@ class SkillService:
             # can break belongs to every agent bound to it. Checked against the *would-be*
             # row before the write, so a rejected update leaves no trace.
             candidate = replace(current, description=draft.description)
-            over = await self._binding_rules.agents_over_index_cap(candidate)
-            if over:
-                cap = await self._binding_rules.index_cap_for(over[0])
+            breaches = await self._binding_rules.agents_over_index_cap(candidate)
+            if breaches:
+                # The error carries one required/cap pair but may name many agents, so it
+                # reports the *worst* breach: that is the agent whose numbers describe how
+                # much the description has to shrink for the write to succeed everywhere.
+                # Both figures come from the same agent — mixing them across agents, or
+                # recomputing `required` from the candidate alone, yields a 422 whose own
+                # arithmetic says it should have been a 200.
+                worst = max(breaches, key=lambda b: b.overflow)
                 raise SkillIndexBudgetExceeded(
-                    required=estimate_index_tokens([candidate]),
-                    cap=cap,
-                    agent_ids=over,
+                    required=worst.required,
+                    cap=worst.cap,
+                    agent_ids=tuple(b.agent_id for b in breaches),
                 )
 
         updated = await self._skills.update(skill_id, values)
@@ -296,6 +301,21 @@ class SkillService:
         conflicting = await self._binding_rules.agents_conflicting_on_name(skill)
         if conflicting:
             raise SkillRestoreConflict(skill.name, agent_ids=conflicting)
+
+        # 3. The index budget (AC-6). Restore is a *write that grows a bound set*, exactly
+        #    like bind, so it belongs to the same rule: the delete shrank every bound
+        #    agent's index, and the cap may have been lowered — or other skills bound —
+        #    into the space this one is about to take back. Checked before the write,
+        #    because there is deliberately no runtime truncation to fall back on: an
+        #    unchecked restore would leave the agent over cap with nothing to detect it.
+        breaches = await self._binding_rules.agents_over_index_cap_on_restore(skill)
+        if breaches:
+            worst = max(breaches, key=lambda b: b.overflow)
+            raise SkillIndexBudgetExceeded(
+                required=worst.required,
+                cap=worst.cap,
+                agent_ids=tuple(b.agent_id for b in breaches),
+            )
 
         restored = await self._skills.restore(skill_id)
         if restored is None:

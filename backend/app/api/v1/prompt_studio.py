@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
+from app.api.v1.deps import parse_if_match
 from contexts.keys.interfaces.facade import KeysFacade
 from contexts.prompt_studio.application.config_service import ConfigService
 from contexts.prompt_studio.application.file_service import FileService
@@ -231,15 +232,6 @@ async def _config_out(db: AsyncSession, config: AssistantConfig) -> AssistantCon
     )
 
 
-def _parse_if_match(raw: str | None) -> int | None:
-    if raw is None:
-        return None
-    try:
-        return int(raw.strip().strip('"'))
-    except (ValueError, AttributeError) as exc:
-        raise HTTPException(status_code=412, detail=f"invalid If-Match: {raw!r}") from exc
-
-
 def _require_verified(principal: Principal) -> None:
     if not principal.email_verified:
         raise HTTPException(status_code=403, detail="email verification required")
@@ -281,7 +273,7 @@ async def _put_config(
         daily_request_limit_per_user=body.daily_request_limit_per_user,
         enabled=body.enabled,
         hide_platform_templates=body.hide_platform_templates,
-        expected_version=_parse_if_match(if_match),
+        expected_version=parse_if_match(if_match),
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
@@ -381,7 +373,7 @@ async def _patch_template(
     org_id=None,
     user_id=None,
 ) -> TemplateOut:
-    expected = _parse_if_match(if_match)
+    expected = parse_if_match(if_match)
     assert expected is not None  # If-Match header is required on PATCH
     template = await TemplateService(db).update_template(
         template_id=template_id,

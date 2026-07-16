@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import PaginationParams
+from app.api.v1.deps import PaginationParams, require_if_match
 from contexts.agents.application.agent_service import AgentService
 from contexts.agents.domain.models import (
     MAX_SKILL_INDEX_TOKEN_CAP,
@@ -177,16 +177,6 @@ def _to_agent_out(a) -> AgentOut:
     )
 
 
-def _parse_if_match(raw: str) -> int:
-    try:
-        return int(raw.strip().strip('"'))
-    except (ValueError, AttributeError) as exc:
-        raise HTTPException(
-            status_code=412,
-            detail=f"invalid If-Match: {raw!r}",
-        ) from exc
-
-
 # ---------------------------------------------------------------------------
 # Project-scoped collection routes
 # ---------------------------------------------------------------------------
@@ -304,7 +294,7 @@ async def patch_agent(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> AgentOut:
-    expected = _parse_if_match(if_match)
+    expected = require_if_match(if_match)
     service = AgentService(db)
     agent = await service.get(agent_id)
 
@@ -373,7 +363,7 @@ async def delete_agent(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    expected = _parse_if_match(if_match)
+    expected = require_if_match(if_match)
     service = AgentService(db)
     agent = await service.get(agent_id)
 

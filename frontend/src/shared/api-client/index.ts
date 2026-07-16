@@ -207,6 +207,7 @@ export type { SkillOut } from './models/SkillOut';
 export type { SkillPageOut } from './models/SkillPageOut';
 export type { SkillPatchIn } from './models/SkillPatchIn';
 export type { SkillScope } from './models/SkillScope';
+export type { SkillSummaryOut } from './models/SkillSummaryOut';
 export type { StepOut } from './models/StepOut';
 export type { StepState } from './models/StepState';
 export type { TemplateCreateIn } from './models/TemplateCreateIn';

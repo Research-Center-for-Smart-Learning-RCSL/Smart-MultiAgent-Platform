@@ -55,11 +55,16 @@ class CreatedOrg:
 
 class OrgService:
     def __init__(self, db: AsyncSession) -> None:
+        # Deferred import: skills reads tenancy, so importing it at module level here
+        # would close a cycle. Held as an attribute so tests can substitute it.
+        from contexts.skills.interfaces.facade import SkillsFacade
+
         self._db = db
         self._orgs = OrgRepository(db)
         self._members = OrgMemberRepository(db)
         self._projects = ProjectRepository(db)
         self._project_members = ProjectMemberRepository(db)
+        self._skills = SkillsFacade(db)
 
     async def create(
         self,
@@ -147,6 +152,7 @@ class OrgService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
+        from contexts.skills.domain.models import SkillScope
         from contexts.tenancy.application.project_service import ProjectService
 
         proj_svc = ProjectService(self._db)
@@ -168,6 +174,10 @@ class OrgService:
             scope_id=org_id,
         )
         transfers_cancelled = await OCTransferRepository(self._db).cancel_pending_for_org(org_id)
+        # AC-38's org arm. The project loop above already took each project's own skills;
+        # org-scoped skills belong to no project, so nothing else reaches them, and a FK
+        # CASCADE never fires on the soft-delete UPDATE below.
+        skills_deleted = await self._skills.cascade_owner_deleted(scope=SkillScope.ORG, owner_id=org_id)
         await self._orgs.soft_delete(org_id)
         await audit.emit(
             self._db,
@@ -181,6 +191,7 @@ class OrgService:
                     "projects_deleted": len(org_projects),
                     "invites_revoked": invites_revoked,
                     "transfers_cancelled": transfers_cancelled,
+                    "org_skills_deleted": len(skills_deleted),
                 },
                 request_id=request_id,
             ),
