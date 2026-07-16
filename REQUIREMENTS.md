@@ -668,6 +668,8 @@ Four composable flags per chat room:
 - **[R13.19]** Clients connect to `WSS /ws/chatroom/{id}` after authenticating. Events pushed:
   - `message.created`, `message.updated`, `message.deleted`
   - `agent.thinking`, `agent.token` (streaming), `agent.finished`
+  - `agent.warning` — a non-terminal notice about a turn that is still running (the aggregated
+    dropped-skill warning of [R31.08]); distinct from `agent.finished{error}`, which is terminal
   - `presence.joined`, `presence.left`
   - `approval.requested`, `approval.resolved`
   - `workflow.state_changed`
