@@ -10,9 +10,8 @@ and are exercised at the wiring level (registration) plus the pieces they compos
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -67,7 +66,9 @@ class TestImportJobState:
         assert got.status is bundle_jobs.BundleJobStatus.QUEUED
         assert got.owner_id == owner
         assert got.actor_user_id == actor
-        assert got.skill_id is None and got.warnings == () and got.error is None
+        assert got.skill_id is None
+        assert got.warnings == ()
+        assert got.error is None
 
     async def test_ready_carries_skill_and_warnings(self, redis: _FakeRedis) -> None:
         job = await bundle_jobs.create_import(scope="platform", owner_id=None, actor_user_id=uuid.uuid4())
@@ -105,7 +106,9 @@ class TestExportJobState:
             skill_id=uuid.uuid4(), scope="agent", owner_id=uuid.uuid4(), actor_user_id=uuid.uuid4()
         )
         await bundle_jobs.mark_export_running(job.job_id)
-        await bundle_jobs.mark_export_ready(job_id=job.job_id, bucket="exports", object_key="skills/x/skill.zip")
+        await bundle_jobs.mark_export_ready(
+            job_id=job.job_id, bucket="exports", object_key="skills/x/skill.zip"
+        )
         got = await bundle_jobs.get_export(job.job_id)
         assert got is not None
         assert got.status is bundle_jobs.BundleJobStatus.READY
@@ -228,10 +231,10 @@ def wired(monkeypatch: pytest.MonkeyPatch, redis: _FakeRedis) -> dict[str, Any]:
 class _FakeFacade:
     """Stands in for `SkillsFacade` in the worker. Records the bytes it was handed."""
 
-    result: Any = None
-    export_bytes: bytes = b""
-    export_error: Exception | None = None
-    seen_data: list[bytes] = []
+    result: ClassVar[Any] = None
+    export_bytes: ClassVar[bytes] = b""
+    export_error: ClassVar[Exception | None] = None
+    seen_data: ClassVar[list[bytes]] = []
 
     def __init__(self, _db: object) -> None:
         pass
@@ -296,6 +299,39 @@ class TestImportWorker:
         assert int(wired["redis"].values[bundle_jobs._slot_key(org_key)]) == 0
         assert wired["minio"].removed == [("skill-bundles", "imports/x.zip")]
 
+    async def test_an_audit_write_failure_does_not_fail_a_committed_import(
+        self, wired: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The skill is created and committed before the audit runs; a fault in the audit
+        # write must leave the job READY, not FAILED. A false 'failed' would send the user to
+        # re-import a skill that already exists — where the name collision fails the retry
+        # too, stranding a live skill the UI calls failed.
+        monkeypatch.setattr("contexts.skills.interfaces.facade.SkillsFacade", _FakeFacade)
+        _FakeFacade.result = SimpleNamespace(skill=_fake_skill(), files=(), warnings=())
+
+        from shared_kernel import audit
+
+        async def _boom(_db: object, _event: Any) -> None:
+            raise RuntimeError("audit table unavailable")
+
+        monkeypatch.setattr(audit, "emit", _boom)
+
+        job = await bundle_jobs.create_import(scope="org", owner_id=uuid.uuid4(), actor_user_id=uuid.uuid4())
+        out = await worker.skill_import_bundle(
+            {},
+            job_id=str(job.job_id),
+            object_key="imports/x.zip",
+            scope="org",
+            owner_id=None,
+            actor_user_id=str(uuid.uuid4()),
+            org_key="org:xyz",
+        )
+        assert out == "imported"
+        state = await bundle_jobs.get_import(job.job_id)
+        assert state is not None
+        assert state.status is bundle_jobs.BundleJobStatus.READY
+        assert state.skill_id is not None
+
     async def test_a_rejected_bundle_marks_failed_with_its_reason(
         self, wired: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -344,7 +380,8 @@ class TestImportWorker:
         )
         assert out == "rejected"
         state = await bundle_jobs.get_import(job.job_id)
-        assert state is not None and state.status is bundle_jobs.BundleJobStatus.FAILED
+        assert state is not None
+        assert state.status is bundle_jobs.BundleJobStatus.FAILED
 
     async def test_an_unexpected_error_fails_with_a_generic_reason(
         self, wired: dict[str, Any], monkeypatch: pytest.MonkeyPatch
@@ -419,7 +456,8 @@ class TestExportWorker:
         state = await bundle_jobs.get_export(job.job_id)
         assert state is not None
         assert state.status is bundle_jobs.BundleJobStatus.READY
-        assert state.bucket == "exports" and state.object_key == key
+        assert state.bucket == "exports"
+        assert state.object_key == key
 
     async def test_an_unreadable_skill_fails_the_export(
         self, wired: dict[str, Any], monkeypatch: pytest.MonkeyPatch
@@ -454,7 +492,8 @@ class TestWiring:
 
     def test_the_bundle_router_is_mounted(self) -> None:
         # The status endpoints are useless unmounted; the 202 flow would have no poll target.
-        from app.api.v1 import get_router_registry, skills as skills_routes
+        from app.api.v1 import get_router_registry
+        from app.api.v1 import skills as skills_routes
 
         routers = [e.router for e in get_router_registry()]
         assert skills_routes.bundle_router in routers
