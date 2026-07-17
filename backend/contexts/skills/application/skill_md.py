@@ -38,6 +38,7 @@ the corpus, and the parser is measured against it, not against the spec of YAML.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -140,7 +141,16 @@ def _fold(text: str) -> str:
     renders one skill per line — so folding is what makes those importable at all. It runs
     *before* the charset rule, so a folded value that still holds a newline is a real
     violation rather than an artifact of the source layout.
+
+    **A single-line value is returned untouched, padding included**, because a quoted value
+    means exactly what sits inside its quotes. Stripping unconditionally broke AC-26 in a
+    way only the round trip could show: a description stored as `"  padded  "` exported
+    quoted, re-imported stripped, and the *second* export then differed from the first —
+    byte-identity lost on a value nothing rejected at input. Callers that want a plain
+    scalar's YAML strip do it themselves; this function only folds.
     """
+    if "\n" not in text:
+        return text
     return re.sub(r"[ \t]*\n[ \t]*", " ", text).strip()
 
 
@@ -235,7 +245,9 @@ def _gather_indented_block(lines: list[str], start: int, *, key: str) -> tuple[s
         collected.append(current)
         j += 1
 
-    text = _fold("\n".join(collected))
+    # Stripped explicitly: `_fold` leaves a single-line value alone, and a block's
+    # indentation is layout rather than content — it is what held these lines together.
+    text = _fold("\n".join(collected)).strip()
     if text and text[0] in "\"'":
         quote = text[0]
         end = _quoted_end(text, quote, 1)
@@ -479,6 +491,97 @@ def parse_skill_md(text: str) -> SkillManifest:
     )
 
 
+# --------------------------------------------------------------------------- #
+# Rendering (AC-26 / AC-31)                                                     #
+# --------------------------------------------------------------------------- #
+
+# Characters that change how a *bare* value parses, by position. Note what is **not**
+# here: `:`. A bare `description: Does a thing: carefully` round-trips untouched, because
+# the reader splits on the first colon and takes the rest verbatim — so quoting for a
+# colon would be cargo-culted YAML, adding quotes the author never wrote to 100% of the
+# corpus's prose descriptions. The same reasoning keeps `Bash(git:*)` bare inside a flow
+# sequence: only `,` and `]` end an item there.
+_BARE_UNSAFE_PREFIXES = ("[", '"', "'", "#", "-", "&", "*", "!", "|", ">", "%", "@", "`", "?", "{")
+
+
+def _needs_quoting(value: str, *, in_list: bool) -> bool:
+    if value == "" or value != value.strip():
+        return True
+    if value.startswith(_BARE_UNSAFE_PREFIXES):
+        return True
+    # A flow sequence ends an item at a comma and the sequence at a bracket.
+    return bool(in_list and ("," in value or "]" in value))
+
+
+def _emit_scalar(value: str, *, key: str, in_list: bool = False) -> str:
+    """Render one value so that reading it back yields exactly this string.
+
+    **This is AC-31's second line of defense.** A `description` holding a newline would
+    export as a new `scope:` line and re-import as a platform skill — self-escalation with
+    no zip crafting (§8 threat 2). The charset rule already rejects that newline at every
+    entry point, so reaching the raise below means a row got past AC-30; refusing is the
+    only safe move, since emitting it would forge a key in a file SMAP itself signs.
+    """
+    if any(unicodedata.category(ch) in ("Cc", "Zl", "Zp") for ch in value):
+        raise BundleInvalid(
+            f"frontmatter key {key!r} holds a control character and cannot be exported",
+            key=key,
+        )
+    if not _needs_quoting(value, in_list=in_list):
+        return value
+    if '"' not in value:
+        return f'"{value}"'
+    if "'" not in value:
+        return f"'{value}'"
+    # Neither style closes cleanly, and the reader does not unescape (`_unquote` is
+    # deliberately shallow, so that a literal `\d` in a description stays `\d` rather than
+    # becoming `d`). Emitting an escape the reader will not undo would break the round
+    # trip silently; refusing breaks it loudly. FU-46 owns the escaping rule this needs.
+    raise BundleInvalid(
+        f"frontmatter key {key!r} needs quoting but holds both quote characters",
+        key=key,
+    )
+
+
+def render_skill_md(manifest: SkillManifest) -> str:
+    """Render a `SKILL.md`. The inverse of :func:`parse_skill_md` over Q-30's byte set.
+
+    **Key order is fixed, not the dict's**, because Q-19's determinism has to survive a
+    round trip through a JSONB column whose key order nobody controls. Recognized keys come
+    first in a declared order; tolerated keys follow, sorted.
+
+    Server-assigned state is not emitted and cannot be: `SkillManifest` cannot express it
+    (§8 threat 2). That is also what makes AC-26's exclusion list — `source`, `version`,
+    `scope`, `created_by`, `bundle_sha256` — hold here by construction rather than by an
+    omission someone has to remember.
+    """
+    lines = [_FENCE, f"{KEY_NAME}: {_emit_scalar(manifest.name, key=KEY_NAME)}"]
+    lines.append(f"{KEY_DESCRIPTION}: {_emit_scalar(manifest.description, key=KEY_DESCRIPTION)}")
+
+    def emit_list(key: str, values: tuple[str, ...]) -> None:
+        if not values:
+            # Absent rather than `key: []`: an empty list is what absence already means to
+            # the reader, and emitting it would add a key the author never wrote.
+            return
+        items = ", ".join(_emit_scalar(v, key=key, in_list=True) for v in values)
+        lines.append(f"{key}: [{items}]")
+
+    emit_list(KEY_ALLOWED_TOOLS, manifest.allowed_tools)
+    emit_list(KEY_REQUIRES, manifest.requires)
+    if manifest.license is not None:
+        lines.append(f"{KEY_LICENSE}: {_emit_scalar(manifest.license, key=KEY_LICENSE)}")
+
+    for key in sorted(manifest.extra_frontmatter):
+        value = manifest.extra_frontmatter[key]
+        if isinstance(value, list | tuple):
+            emit_list(key, tuple(str(v) for v in value))
+        else:
+            lines.append(f"{key}: {_emit_scalar(str(value), key=key)}")
+
+    lines.append(_FENCE)
+    return "\n".join(lines) + "\n" + manifest.body
+
+
 __all__ = [
     "KEY_ALLOWED_TOOLS",
     "KEY_DESCRIPTION",
@@ -487,5 +590,6 @@ __all__ = [
     "KEY_REQUIRES",
     "SkillManifest",
     "parse_skill_md",
+    "render_skill_md",
     "split_frontmatter",
 ]

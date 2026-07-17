@@ -32,7 +32,9 @@ import re
 import stat
 import uuid
 import zipfile
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,10 +43,15 @@ from contexts.skills.application.file_service import (
     MAX_SKILL_FILE_BYTES,
     SkillFileService,
 )
-from contexts.skills.application.skill_md import SkillManifest, parse_skill_md
+from contexts.skills.application.skill_md import (
+    KEY_LICENSE,
+    SkillManifest,
+    parse_skill_md,
+    render_skill_md,
+)
 from contexts.skills.application.skill_service import SkillService
 from contexts.skills.domain.errors import BundleInvalid, BundleQuarantined
-from contexts.skills.domain.models import Skill, SkillScope, SkillSource
+from contexts.skills.domain.models import Skill, SkillFile, SkillScope, SkillSource
 from contexts.skills.domain.text_rules import (
     SKILL_BODY_PATH,
     path_collision_key,
@@ -298,6 +305,80 @@ def read_bundle(data: bytes) -> ParsedBundle:
     )
 
 
+# Every timestamp in an exported bundle. A zip records mtime per entry, so exporting the
+# same skill twice would otherwise produce different bytes and Q-19's determinism would be
+# false for a reason that has nothing to do with the skill. 1980-01-01 is the zip epoch —
+# the earliest a DOS timestamp can express, so no reader sees it as a corrupt field.
+_ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
+
+# `0o100644 << 16`: a regular file, rw-r--r--. Fixed for the same reason as the timestamp,
+# and never `0o755` even for `scripts/` — the sandbox invokes the interpreter on the path
+# (§4.4), so an execute bit would be decoration on a volume that never honors it.
+_ZIP_FILE_ATTR = 0o100644 << 16
+
+
+def write_bundle(*, skill_md: str, files: Sequence[tuple[str, bytes]]) -> bytes:
+    """Pack a bundle deterministically. The same inputs always produce the same bytes.
+
+    Determinism is Q-19's requirement and it is entirely about what is *excluded*:
+    timestamps, file modes, and entry order are all things a zip records and a skill does
+    not have. `SKILL.md` leads (a reader unzipping by hand meets the body first) and the
+    rest sort by path.
+    """
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        entries: list[tuple[str, bytes]] = [
+            (SKILL_BODY_PATH, skill_md.encode("utf-8")),
+            *sorted(files, key=lambda pair: pair[0]),
+        ]
+        for path, data in entries:
+            info = zipfile.ZipInfo(path, date_time=_ZIP_EPOCH)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = _ZIP_FILE_ATTR
+            # `create_system = 3` (Unix) so `external_attr` reads back as the mode we set
+            # rather than as DOS attribute bits — the same field `_assert_not_a_link`
+            # interprets on the way in.
+            info.create_system = 3
+            zf.writestr(info, data)
+    return buf.getvalue()
+
+
+def manifest_of(skill: Skill) -> SkillManifest:
+    """The exportable view of a stored skill.
+
+    **`license` has no column** (D-57). §6 enumerates every `skills` column and `license`
+    is not among them, yet §6's recognized-key list and AC-30's matrix both name it, and
+    Phase 1 deferred it as "arrives with bundles (Phase 4)" — this is Phase 4, and the
+    column still does not exist. It rides in `extra_frontmatter` instead: no migration, it
+    round-trips, and the charset rule already covers it there. Popped out here so `render`
+    emits it in its declared slot exactly once rather than twice — once as a field and
+    again as a tolerated key.
+
+    It stays out of `authored_digest` because Q-30's byte set does not name it, so editing
+    a license does not mark a skill diverged. That is Q-30's call, recorded rather than
+    quietly widened.
+    """
+    extra = dict(skill.extra_frontmatter or {})
+    license_value = extra.pop(KEY_LICENSE, None)
+    return SkillManifest(
+        name=skill.name,
+        description=skill.description,
+        body=skill.body,
+        allowed_tools=skill.allowed_tools,
+        requires=skill.requires,
+        license=None if license_value is None else str(license_value),
+        extra_frontmatter=extra,
+    )
+
+
+def _storable_frontmatter(manifest: SkillManifest) -> dict[str, Any]:
+    """The inverse of `manifest_of`'s pop: fold `license` back in for storage."""
+    extra = dict(manifest.extra_frontmatter)
+    if manifest.license is not None:
+        extra[KEY_LICENSE] = manifest.license
+    return extra
+
+
 def authored_digest(
     *,
     name: str,
@@ -339,6 +420,28 @@ def authored_digest(
     return h.hexdigest()
 
 
+def is_diverged(skill: Skill, files: Sequence[SkillFile]) -> bool:
+    """Has this skill been edited since it was imported? (Q-20 / AC-16's badge.)
+
+    An `authored` skill was never a bundle, so it has nothing to diverge *from* and the
+    answer is False rather than True — the distinction `bundle_sha256 is None` carries and
+    that "imported and has a hash" would have destroyed by badging every import forever.
+    Phase 1 hardcoded False here because the byte set was undefined until an exporter
+    existed to define it; it exists now.
+    """
+    if skill.bundle_sha256 is None:
+        return False
+    current = authored_digest(
+        name=skill.name,
+        description=skill.description,
+        requires=skill.requires,
+        allowed_tools=skill.allowed_tools,
+        body=skill.body,
+        file_digests={f.path: f.sha256 for f in files},
+    )
+    return current != skill.bundle_sha256
+
+
 class BundleService:
     """Import orchestration. Owns no transaction — the caller does (the house pattern)."""
 
@@ -376,7 +479,7 @@ class BundleService:
             body=parsed.manifest.body,
             requires=parsed.manifest.requires,
             allowed_tools=parsed.manifest.allowed_tools,
-            extra_frontmatter=parsed.manifest.extra_frontmatter,
+            extra_frontmatter=_storable_frontmatter(parsed.manifest),
             # Named one by one, never splatted from the manifest (§8 threat 2). `scope`
             # and `owner_id` come from the router's path; `source` is decided here.
             source=SkillSource.IMPORTED,
@@ -406,6 +509,18 @@ class BundleService:
             )
 
         return skill, parsed.warnings
+
+    async def export_bundle(self, skill: Skill) -> bytes:
+        """Pack a skill's current state (Q-21). Deterministic over Q-30's byte set.
+
+        Reads bytes back from MinIO rather than trusting `skill_files.sha256`: the row
+        records what was stored, and the export has to carry what *is* stored.
+        """
+        files = await self._files.list_for_skill(skill.id)
+        payloads: list[tuple[str, bytes]] = []
+        for f in sorted(files, key=lambda f: f.path):
+            payloads.append((f.path, await self._files.read_bytes(f)))
+        return write_bundle(skill_md=render_skill_md(manifest_of(skill)), files=payloads)
 
     async def _assert_clean(self, parsed: ParsedBundle) -> None:
         """Scan every byte the bundle carries. One quarantine rejects the whole (Q-18).
@@ -445,5 +560,8 @@ __all__ = [
     "BundleService",
     "ParsedBundle",
     "authored_digest",
+    "is_diverged",
+    "manifest_of",
     "read_bundle",
+    "write_bundle",
 ]
