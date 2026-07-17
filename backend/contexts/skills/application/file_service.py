@@ -18,6 +18,7 @@ the model is told exists and cannot read.
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from typing import Any
 
@@ -35,6 +36,8 @@ from contexts.skills.infrastructure.repositories import SkillFileRepository
 from shared_kernel import audit
 from shared_kernel.storage.minio_client import get_minio_client, skill_file_key
 from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, ParserError, normalise_mime
+
+_log = logging.getLogger(__name__)
 
 # Q-17's per-file ceiling, and the same number as the multipart cap the RAG path uses
 # (`ingest_service.MAX_MULTIPART_BYTES`). That coincidence is load-bearing rather than
@@ -289,6 +292,35 @@ class SkillFileService:
         )
 
 
+async def enqueue_skill_scan(*, file_id: uuid.UUID, sha256: str) -> None:
+    """Queue `skill_scan_file`. Swallows Redis failures, and that has a cost here.
+
+    The RAG sibling swallows because an unscanned RAG document is still retrievable — the
+    scan is advisory there. Under AC-34 it is not: a file stuck `pending` makes its skill
+    **unreadable**, so a lost enqueue degrades availability rather than safety. That is
+    the correct direction to fail, and it is still a silent failure, so it is logged at
+    warning with the consequence spelled out. The user-visible recovery is to delete and
+    re-add the file, which frees the path and enqueues afresh; FU-30 tracks a re-scan
+    endpoint so an operator need not.
+
+    The job id carries the sha, so editing a file to new bytes enqueues a fresh scan
+    rather than being deduped onto the retained result of the bytes it replaced — the
+    trap F-23 records on the RAG path, where the id carries the ingest attempt for the
+    same reason.
+    """
+    try:
+        from shared_kernel.queue import enqueue
+
+        await enqueue("skill_scan_file", file_id=str(file_id), _job_id=f"skill-scan:{file_id}:{sha256}")
+    except Exception:
+        _log.warning(
+            "scan enqueue failed for skill file %s; it stays unscanned and its skill "
+            "stays unreadable until the file is re-added (AC-34)",
+            file_id,
+            exc_info=True,
+        )
+
+
 def _extract_text(data: bytes, mime: str) -> str:
     """Text of a reference file, via the shared extraction table.
 
@@ -321,6 +353,7 @@ __all__ = [
     "MAX_SKILL_FILE_BYTES",
     "SkillFileService",
     "assert_readable",
+    "enqueue_skill_scan",
     "file_sha256",
     "kind_for_path",
 ]
