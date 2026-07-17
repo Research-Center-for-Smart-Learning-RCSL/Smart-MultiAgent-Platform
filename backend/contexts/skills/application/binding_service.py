@@ -51,6 +51,12 @@ REQUIRES_VOCABULARY: dict[str, AgentToolType] = {
     "file_search": AgentToolType.HOSTED_FILE_SEARCH,
 }
 
+# The requirement a `scripts/` file implies on its own (AC-20). It is `code_exec` and not
+# some new name because [R31.22] stages scripts for exactly that tool, and
+# `_stage_workspace_inputs` gates staging on exactly that tool — the derived requirement
+# has to name the gate it is protecting against, or it protects against nothing.
+DERIVED_SCRIPT_REQUIREMENT = "code_exec"
+
 # Q-13. `agents.skill_index_token_cap` overrides it per agent; NULL means this.
 DEFAULT_SKILL_INDEX_TOKEN_CAP = 3000
 
@@ -171,15 +177,20 @@ class BindingService:
 
     # -- requirements (Q-9 / [R31.09]) ---------------------------------------
 
-    async def assert_requirements(self, skill: Skill, agent_id: uuid.UUID) -> None:
+    async def assert_requirements(self, skill: Skill, agent_id: uuid.UUID, *, has_scripts: bool) -> None:
         """Re-check `requires:` against the agent's enabled tools.
 
         Checked at bind *and* every turn. The reviewed design condemned bind-time-only
         authorization and then made `requires:` exactly that: disabling code_exec after
         a bind would leave the model reading a SKILL.md whose script cannot run, and
         confabulating (AC-35).
+
+        `has_scripts` is a required argument rather than a lookup, because the two callers
+        learn it differently: `bind` asks about one skill, the turn-time tap asks about a
+        whole bound set in one query. A `None`-means-go-look default would make the N+1 the
+        easy path and the batch the exception.
         """
-        needed = self._required_tool_types(skill)
+        needed = self._required_tool_types(skill, has_scripts=has_scripts)
         if not needed:
             return
         enabled = {t.tool_type for t in await self._agents.list_agent_tools(agent_id) if t.enabled}
@@ -188,14 +199,30 @@ class BindingService:
                 raise SkillRequiresToolMissing(name, skill_name=skill.name)
 
     @staticmethod
-    def _required_tool_types(skill: Skill) -> dict[str, AgentToolType]:
+    def _required_tool_types(skill: Skill, *, has_scripts: bool) -> dict[str, AgentToolType]:
         """Map the declaration to tool types, ignoring names outside the vocabulary.
 
         Unknown names are a compatibility warning at import, not a hard failure here
         (§8 threat 6) — but they are also never silently *satisfiable*: an unknown name
         maps to no tool, so it cannot be used to claim a requirement is met.
+
+        **Derived, then unioned with the declaration** (AC-20 / [R31.09]). A `scripts/`
+        file means the skill needs the interpreter whether or not `SKILL.md` says so, and
+        the declaration alone would make the gate *cooperative*: omitting `requires:` — or
+        importing a foreign bundle that never had it, since `requires` is SMAP-invented and
+        appears in 0 of 42 real skills (Q-29) — would bypass it entirely. Staging is gated
+        on the same tool, so without derivation the model reads a SKILL.md whose script was
+        never staged and confabulates around the absence, which is Q-9's whole objection.
+        The union direction matters: derivation can only ever *add* a requirement, so a
+        declaration can tighten the gate but never loosen it.
         """
-        return {n: REQUIRES_VOCABULARY[n] for n in skill.requires if n in REQUIRES_VOCABULARY}
+        names = set(skill.requires)
+        if has_scripts:
+            names.add(DERIVED_SCRIPT_REQUIREMENT)
+        return {n: REQUIRES_VOCABULARY[n] for n in sorted(names) if n in REQUIRES_VOCABULARY}
+
+    async def _has_scripts(self, skill_id: uuid.UUID) -> bool:
+        return bool(await self._files.skill_ids_with_scripts([skill_id]))
 
     # -- bind / unbind -------------------------------------------------------
 
@@ -346,7 +373,7 @@ class BindingService:
     async def bind(self, *, skill_id: uuid.UUID, agent_id: uuid.UUID) -> Skill:
         """Bind after proving containment, requirements, name freedom, and budget."""
         skill = await self.resolve_bindable(skill_id, agent_id)
-        await self.assert_requirements(skill, agent_id)
+        await self.assert_requirements(skill, agent_id, has_scripts=await self._has_scripts(skill_id))
         await self.assert_name_free_in_bound_set(agent_id, skill.name, excluding_skill_id=skill.id)
         await self.assert_index_fits(agent_id, adding=skill)
         await self._bindings.bind(agent_id=agent_id, skill_id=skill_id)
@@ -381,10 +408,15 @@ class BindingService:
         kept: list[Skill] = []
         dropped: list[DroppedSkill] = []
 
-        for skill in await self._bindings.list_live_for_agent(agent_id):
+        candidates = await self._bindings.list_live_for_agent(agent_id)
+        # One query for the whole set, before the loop: `requires:` is derived per skill
+        # (AC-20) and asking per skill would be an N+1 on every turn.
+        with_scripts = await self._files.skill_ids_with_scripts([s.id for s in candidates])
+
+        for skill in candidates:
             try:
                 await self._assert_contains(skill, agent_id=agent_id, agent_project_id=agent_project_id)
-                await self.assert_requirements(skill, agent_id)
+                await self.assert_requirements(skill, agent_id, has_scripts=skill.id in with_scripts)
             except SkillContainmentFailed as exc:
                 dropped.append(DroppedSkill(skill_id=skill.id, name=skill.name, reason=exc.reason))
                 continue

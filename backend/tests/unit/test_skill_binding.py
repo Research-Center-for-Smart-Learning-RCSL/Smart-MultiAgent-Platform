@@ -2,8 +2,10 @@
 
 AC-3  — §5's matrix at bind; an org skill cannot reach an individually-owned project.
 AC-7  — a binding that goes stale mid-flight drops from the snapshot; the turn runs on.
-AC-20 — `requires:` maps to the agent's enabled tools; unknown names are unsatisfiable.
-AC-35 — disabling a required tool after a bind is caught by the turn-time tap.
+AC-20 — `requires:` is derived from `scripts/` and unioned with the declaration; it maps
+        to the agent's enabled tools; unknown names are unsatisfiable.
+AC-35 — disabling a required tool after a bind — or adding a script to a bound skill — is
+        caught by the turn-time tap.
 AC-36 — re-binding is an idempotent UPSERT, not an INSERT onto a live PK.
 
 Modeled on `test_agent_config_project_guard.py`, the SEC-H1 guard: accepting a
@@ -14,11 +16,14 @@ another tenant's agent* rather than document chunks.
 from __future__ import annotations
 
 import uuid
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from contexts.agents.domain.models import AgentToolType
 from contexts.skills.application.binding_service import (
+    DERIVED_SCRIPT_REQUIREMENT,
     REQUIRES_VOCABULARY,
     BindingService,
 )
@@ -28,7 +33,8 @@ from contexts.skills.domain.errors import (
     SkillNotFound,
     SkillRequiresToolMissing,
 )
-from contexts.skills.domain.models import SkillScope
+from contexts.skills.domain.models import SkillFileKind, SkillScope
+from contexts.skills.infrastructure.repositories import SkillFileRepository
 from tests.unit.skill_fakes import (
     NOW,
     FakeAgent,
@@ -40,6 +46,7 @@ from tests.unit.skill_fakes import (
     FakeTenancyFacade,
     FakeTool,
     make_skill,
+    make_skill_file,
 )
 
 
@@ -218,7 +225,7 @@ async def test_requires_is_satisfied_by_an_enabled_tool(h: _Harness) -> None:
     agent = h.add_agent(project_id=project.id, tools=[FakeTool(AgentToolType.HOSTED_CODE_INTERPRETER)])
     skill = make_skill(name="s", requires=("code_exec",))
 
-    await h.svc.assert_requirements(skill, agent.id)
+    await h.svc.assert_requirements(skill, agent.id, has_scripts=False)
 
 
 async def test_requires_names_the_missing_tool(h: _Harness) -> None:
@@ -227,7 +234,7 @@ async def test_requires_names_the_missing_tool(h: _Harness) -> None:
     skill = make_skill(name="pdf-fill", requires=("code_exec",))
 
     with pytest.raises(SkillRequiresToolMissing) as exc:
-        await h.svc.assert_requirements(skill, agent.id)
+        await h.svc.assert_requirements(skill, agent.id, has_scripts=False)
     assert exc.value.tool == "code_exec"
     assert exc.value.skill_name == "pdf-fill"
 
@@ -243,7 +250,7 @@ async def test_a_disabled_tool_does_not_satisfy_a_requirement(h: _Harness) -> No
     skill = make_skill(name="s", requires=("code_exec",))
 
     with pytest.raises(SkillRequiresToolMissing):
-        await h.svc.assert_requirements(skill, agent.id)
+        await h.svc.assert_requirements(skill, agent.id, has_scripts=False)
 
 
 async def test_an_unknown_requires_name_is_ignored_not_satisfiable(h: _Harness) -> None:
@@ -254,8 +261,8 @@ async def test_an_unknown_requires_name_is_ignored_not_satisfiable(h: _Harness) 
     agent = h.add_agent(project_id=project.id)
     skill = make_skill(name="s", requires=("no-such-tool",))
 
-    await h.svc.assert_requirements(skill, agent.id)
-    assert h.svc._required_tool_types(skill) == {}
+    await h.svc.assert_requirements(skill, agent.id, has_scripts=False)
+    assert h.svc._required_tool_types(skill, has_scripts=False) == {}
 
 
 def test_update_wakeup_is_deliberately_outside_the_requires_vocabulary() -> None:
@@ -263,6 +270,155 @@ def test_update_wakeup_is_deliberately_outside_the_requires_vocabulary() -> None
     trivially satisfiable and would masquerade as a real constraint."""
     assert "update_wakeup" not in REQUIRES_VOCABULARY
     assert set(REQUIRES_VOCABULARY) == {"code_exec", "web_search", "file", "file_search"}
+
+
+# -- AC-20: requires: is *derived* from scripts, not merely declared ----------
+
+
+def test_the_derived_requirement_names_the_tool_that_gates_staging() -> None:
+    """If these two ever diverge the derivation stops protecting anything: it exists to
+    stop a skill binding to an agent whose missing tool is the one that would have staged
+    its scripts."""
+    assert DERIVED_SCRIPT_REQUIREMENT == "code_exec"
+    assert REQUIRES_VOCABULARY[DERIVED_SCRIPT_REQUIREMENT] == AgentToolType.HOSTED_CODE_INTERPRETER
+
+
+async def test_a_script_bearing_skill_requires_code_exec_with_no_declaration(h: _Harness) -> None:
+    """AC-20's core claim. `requires` is empty — as it is in every real Anthropic bundle,
+    where the key does not exist (Q-29) — and the skill must still be refused."""
+    project = h.add_project()
+    agent = h.add_agent(project_id=project.id)
+    skill = make_skill(name="pdf-fill", requires=())
+
+    with pytest.raises(SkillRequiresToolMissing) as exc:
+        await h.svc.assert_requirements(skill, agent.id, has_scripts=True)
+    assert exc.value.tool == "code_exec"
+    assert exc.value.skill_name == "pdf-fill"
+
+
+async def test_a_script_bearing_skill_binds_when_code_exec_is_enabled(h: _Harness) -> None:
+    project = h.add_project()
+    agent = h.add_agent(project_id=project.id, tools=[FakeTool(AgentToolType.HOSTED_CODE_INTERPRETER)])
+    skill = make_skill(name="s", requires=())
+
+    await h.svc.assert_requirements(skill, agent.id, has_scripts=True)
+
+
+async def test_derivation_unions_with_the_declaration_rather_than_replacing_it(h: _Harness) -> None:
+    """The union direction is the rule: derivation only ever *adds*. A script-bearing
+    skill that also declares `web_search` needs both, so an agent with only the
+    interpreter is still refused — and refused by name."""
+    project = h.add_project()
+    agent = h.add_agent(project_id=project.id, tools=[FakeTool(AgentToolType.HOSTED_CODE_INTERPRETER)])
+    skill = make_skill(name="s", requires=("web_search",))
+
+    assert set(h.svc._required_tool_types(skill, has_scripts=True)) == {"code_exec", "web_search"}
+    with pytest.raises(SkillRequiresToolMissing) as exc:
+        await h.svc.assert_requirements(skill, agent.id, has_scripts=True)
+    assert exc.value.tool == "web_search"
+
+
+def test_a_redundant_declaration_does_not_double_count(h: _Harness) -> None:
+    """`requires: [code_exec]` on a skill that also has scripts is the ordinary case for a
+    skill SMAP itself exported; it must be the same requirement, not two."""
+    skill = make_skill(name="s", requires=("code_exec",))
+    assert h.svc._required_tool_types(skill, has_scripts=True) == {
+        "code_exec": AgentToolType.HOSTED_CODE_INTERPRETER
+    }
+
+
+async def test_bind_derives_requires_from_the_skills_own_files(h: _Harness) -> None:
+    """The wiring, not the predicate: D-12 records that a green test over a service proves
+    nothing about whether anything calls it. `bind` must do the lookup itself."""
+    project = h.add_project()
+    agent = h.add_agent(project_id=project.id)
+    skill = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name="s"))
+    h.files.put(make_skill_file(skill.id, path="scripts/fill.py"))
+
+    with pytest.raises(SkillRequiresToolMissing) as exc:
+        await h.svc.bind(skill_id=skill.id, agent_id=agent.id)
+    assert exc.value.tool == "code_exec"
+    assert await h.bindings.list_live_for_agent(agent.id) == []
+
+
+async def test_a_reference_only_skill_binds_without_code_exec(h: _Harness) -> None:
+    """The negative half: derivation keys on `scripts/`, not on having any file at all.
+    Without this the gate would refuse every skill that ships a reference document."""
+    project = h.add_project()
+    agent = h.add_agent(project_id=project.id)
+    skill = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name="s"))
+    h.files.put(make_skill_file(skill.id, path="references/guide.md"))
+    h.files.put(make_skill_file(skill.id, path="assets/logo.png"))
+
+    await h.svc.bind(skill_id=skill.id, agent_id=agent.id)
+    assert [s.id for s in await h.bindings.list_live_for_agent(agent.id)] == [skill.id]
+
+
+async def test_the_turn_time_tap_drops_a_skill_that_grew_a_script_after_binding(h: _Harness) -> None:
+    """AC-35's script half, and the reason derivation belongs in the tap as well as at
+    bind: adding a `scripts/` file to an already-bound skill invalidates a binding that was
+    legal when it was made, and nothing re-runs `bind` to notice."""
+    project = h.add_project()
+    agent = h.add_agent(project_id=project.id)
+    skill = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name="pdf-fill"))
+    await h.svc.bind(skill_id=skill.id, agent_id=agent.id)
+
+    h.files.put(make_skill_file(skill.id, path="scripts/fill.py"))
+
+    bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
+    assert bound.skills == ()
+    assert [(d.name, d.reason) for d in bound.dropped] == [("pdf-fill", "requires:code_exec")]
+
+
+class TestTheScriptProbePredicate:
+    """The `WHERE` clause itself, compiled — the D-35 lesson applied before it bites.
+
+    Every test above drives `FakeSkillFileRepo`, which carries its own `kind` filter, so
+    dropping the real `kind == 'script'` clause leaves them **green** while the derivation
+    silently widens to "has any file at all" — and every reference-only skill stops binding
+    to an agent without code_exec. Probed: they do stay green.
+
+    White-box and narrow on purpose. The real proof is a query against live Postgres, which
+    needs the `wiring` tier; the value here is exact — a regression that drops either the
+    kind clause or the id filter fails.
+    """
+
+    def test_the_probe_filters_on_the_script_kind_and_the_requested_ids(self) -> None:
+        import asyncio
+
+        captured: list[Any] = []
+
+        class _Db:
+            async def execute(self, stmt: Any) -> Any:
+                captured.append(stmt)
+                res = MagicMock()
+                res.scalars.return_value.all.return_value = []
+                return res
+
+        ids = [uuid.uuid4(), uuid.uuid4()]
+        asyncio.run(SkillFileRepository(_Db()).skill_ids_with_scripts(ids))  # type: ignore[arg-type]
+
+        where = str(captured[0].compile()).split("WHERE", 1)[1]
+        assert "kind" in where
+        assert "skill_id IN" in where
+        assert captured[0].compile().params["kind_1"] == SkillFileKind.SCRIPT.value
+        # DISTINCT, not a bare select: a skill with three scripts must contribute one id,
+        # and the caller builds a set anyway — but the row count is the DB's to bound.
+        assert captured[0]._distinct is True
+        # Selects the id column alone. `list_for_skills` is the method that fetches rows;
+        # this one answers an existence question for skills that may never reach the
+        # snapshot, and widening it to `select(skill_files)` would undo that.
+        assert [c.name for c in captured[0].selected_columns] == ["skill_id"]
+
+    async def test_no_ids_short_circuits_without_a_query(self) -> None:
+        """An agent with no bindings is the common case, and `IN ()` is both a wasted round
+        trip and a SQLAlchemy warning."""
+
+        class _Db:
+            async def execute(self, stmt: Any) -> Any:
+                raise AssertionError("queried on an empty id list")
+
+        assert await SkillFileRepository(_Db()).skill_ids_with_scripts([]) == set()  # type: ignore[arg-type]
 
 
 # -- bind / unbind -----------------------------------------------------------
