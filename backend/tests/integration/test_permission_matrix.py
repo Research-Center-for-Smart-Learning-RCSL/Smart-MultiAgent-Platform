@@ -39,9 +39,11 @@ class FakeResolver:
         return self.room_participant
 
 
-# Static-assert the matrix has exactly 25 capabilities and 6 roles.
-def test_matrix_shape_is_25x6() -> None:
-    assert len(list(Capability)) == 25
+# Static-assert the matrix has exactly 26 capabilities and 6 roles.
+def test_matrix_shape_is_26x6() -> None:
+    # 26 since SKILL_ORG_MANAGE (§31). Note the SRS §5.2 matrix row for it is #27: the
+    # code enum and the SRS table have been offset by one since before Skills.
+    assert len(list(Capability)) == 26
     assert len(list(Role)) == 6
 
 
