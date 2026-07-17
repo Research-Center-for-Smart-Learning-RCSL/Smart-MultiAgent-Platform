@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-07-16
 requirements: [R31.01, R31.02, R31.03, R31.04, R31.05, R31.06, R31.07, R31.08, R31.09, R31.10, R31.11, R31.12, R31.13, R31.14, R31.15, R31.16, R31.17, R31.18, R31.19, R31.20, R31.21, R31.22, R31.23, R31.24, R31.25, R31.26, R31.27, R31.28, R31.29, R3.04, R8.12, R9.02, R9.04, R9.05, R9.06, R9.07, R9.08, R14.09, R15.22, R22.15.03, R23.01, R24.06]
 ---
@@ -1269,21 +1269,27 @@ orphaned, not deleted — consistent with §1.2's backup stance.
 > the Phase 4 exporter to define the authored byte set (Q-30), and is hardcoded `False` until
 > then, which `_summary_fields` already says.
 
-- [ ] AC-16: A file can be added by upload or authored in the UI; an uploaded file is editable, and
+- [x] AC-16: A file can be added by upload or authored in the UI; an uploaded file is editable, and
       editing changes `sha256` and marks the skill diverged from `bundle_sha256`.
-      *(**Backend done, two clauses outstanding.** `SkillFileService.add` takes bytes from either
-      route; `update_content` re-points the row and changes `sha256`; 40 tests in
+      *(**Backend done, UI delivered (D-72), one clause carried to FU.** `SkillFileService.add` takes
+      bytes from either route; `update_content` re-points the row and changes `sha256`; 40 tests in
       `test_skill_files.py`, and `test_an_uploaded_file_is_editable_afterwards` pins Q-20's real
-      claim. **Owed:** the UI (D-26), and the `diverged` badge, which is not merely unbuilt but
-      **undefined until Phase 4** — divergence is `hash(authored byte set) != bundle_sha256` and
-      the exporter defines that set. No row carries a `bundle_sha256` until an importer exists, so
-      `False` is the honest answer rather than a placeholder.)*
-- [ ] AC-17: `assets/` binaries are not editable; `kind` gates the editor.
-      *(**Backend done.** `update_content` raises `SkillFileNotEditable` (422) for `ASSET`, and
-      `kind` is derived from the path's directory rather than accepted from the client — a
-      client-chosen kind would let an uploader stage a script from `assets/` or have a binary's
-      bytes rendered into the prompt. `SkillFileCreateIn` omits it with `extra="forbid"`, asserted
-      both ways. **Owed:** the editor the gate is for (D-26).)*
+      claim. Frontend `SkillFiles.vue` offers both author (path + content) and upload (`SFileUpload`)
+      paths, and an edit PATCHes new content that changes `sha256`; `SkillFiles.test.ts` asserts both
+      add paths render. **The editor replaces content rather than load-then-edit** — the backend
+      exposes no HTTP endpoint returning a file's stored bytes (only the model tool `read_skill` and
+      the sandbox stager) — so the round-trip retains session-authored content client-side and opens
+      foreign/uploaded files blank with a notice; see D-73, FU-53. The `diverged` badge renders when
+      `skill.diverged` is true but the field is still server-`False` (FU-47), so it never shows yet —
+      honest, not a placeholder.)*
+- [x] AC-17: `assets/` binaries are not editable; `kind` gates the editor.
+      *(**Backend done; editor delivered (D-72).** `update_content` raises `SkillFileNotEditable`
+      (422) for `ASSET`, and `kind` is derived from the path's directory rather than accepted from
+      the client — a client-chosen kind would let an uploader stage a script from `assets/` or have a
+      binary's bytes rendered into the prompt. `SkillFileCreateIn` omits it with `extra="forbid"`,
+      asserted both ways. Frontend `SkillFiles.vue` gates the editor on `file.kind === 'asset'`,
+      showing a not-editable notice instead of the code editor;
+      `SkillFiles.test.ts::gates the editor by kind` selects an asset and asserts the notice.)*
 - [x] AC-18: `read_skill`'s response lists file paths; reference-file text is readable. File paths
       are sanitized identically to the index (AC-30).
       *(`read_skill(name)` returns the manifest; `read_skill(name, path=...)` returns that
@@ -1299,16 +1305,18 @@ orphaned, not deleted — consistent with §1.2's backup stance.
       `reply_meta["skill_reads"]` at `turn_engine.py`. Failed reads record nothing; file reads are
       excluded (D-32). The `skill.updated` half **was already implemented in Phase 1** despite
       D-16 recording AC-19 as untouched — see D-33. 13 tests in `test_agent_runtime_tools.py`.)*
-- [ ] AC-34: A file whose `scan_status` is not `clean` makes the whole skill unreadable —
+- [x] AC-34: A file whose `scan_status` is not `clean` makes the whole skill unreadable —
       `read_skill` returns a defined error and the skill is flagged in the UI.
-      *(**Backend done, and it is the load-bearing half.** `domain/readability.assert_readable` is
-      fail-closed — only `clean` serves — which is knowingly stricter than the RAG precedent and
+      *(**Backend done (load-bearing half); UI flag delivered (D-72).** `domain/readability.assert_readable`
+      is fail-closed — only `clean` serves — which is knowingly stricter than the RAG precedent and
       was the user's explicit call (D-27). `read_skill` refuses the **body** too, not just the
       offending file (Q-18), and tells the model not to guess. `skill_scan_file` is the pipeline
       §4.5 recorded as missing. Two ways the gate could be bypassed were found by this task's own
-      gates and fixed — see D-34/D-35. **Owed:** the UI flag (D-26); `SkillFileOut.scan_status` is
-      the field it reads, and there is deliberately no per-file `readable` flag because the gate is
-      whole-skill.)*
+      gates and fixed — see D-34/D-35. Frontend `SkillFiles.vue` derives whole-skill readability from
+      the collection's `scan_status` values (fail-closed, matching the backend) and shows a danger
+      banner when any file is `infected`/`error` and a warning while any is `pending`; it reads
+      `SkillFileOut.scan_status` and has deliberately no per-file `readable` flag because the gate is
+      whole-skill. `SkillFiles.test.ts::flags the whole skill unreadable` asserts the banner.)*
 
 **Phase 3 — scripts and staging**
 
@@ -1345,9 +1353,13 @@ orphaned, not deleted — consistent with §1.2's backup stance.
       stagers write `sessions/{room}/inputs`, `agent-files`, and `skills` respectively, and
       disagree **by design**. `test_code_exec_kernel.py` passes untouched by *this* task.
       *(`test_the_three_stagers_disagree_on_prefix_by_design` in `test_workspace_staging.py`.)*
-- [ ] AC-22: `allowed-tools` is displayed with an explicit "declared by the author; not enforced by
+- [x] AC-22: `allowed-tools` is displayed with an explicit "declared by the author; not enforced by
       SMAP" label and never grants a tool.
-      *(**Backend N/A, and it always was.** "Never grants a tool" holds by construction: every
+      *(**Backend N/A; the label is delivered (D-72).** `SkillDetail.vue` renders `allowed_tools` as an
+      editable declared field with a translated "Allowed tools are declared by the author and are not
+      enforced by SMAP." line beneath it (`skills.editor.allowedToolsNotEnforced`, both locales);
+      `SkillDetail.test.ts` asserts the "not enforced by SMAP" text renders. "Never grants a tool"
+      holds by construction: every
       reader of `skills.allowed_tools` is storage, CRUD, or charset validation
       (`skill_service`, `repositories`, `tables`, `facade`, `app/api/v1/skills.py`,
       `text_rules`) — none reaches the registry, and the turn's tool set comes from
@@ -2555,6 +2567,48 @@ bundle actually uploadable and downloadable.
   reaches Redis job state through the facade and imports no `application/` module. The two remaining
   findings were the side-effecting `GET` export (spec-mandated, D-68) and are unchanged.
 
+**Phase 2/3/4 frontend — the `slices/skills` slice (2026-07-18).** The user scoped this session to
+D-26's deferred frontend half (tus excluded). It closes AC-16, AC-17, AC-22, and AC-34 — the four
+boxes every prior phase left unchecked because they name a UI surface — so with it the dossier's ACs
+are all checked.
+
+- **D-72: the deferred `slices/skills` frontend is built (closes D-26's owed half).** A new slice
+  mirroring `prompt-studio`'s topology: `types/` (a 4-arm `SkillScopeRef`), `api/` (a `dispatchScope`
+  over the generated `SkillsService`, agent/project/org/platform), `queries/` (key factory +
+  read/mutation hooks + bundle-job polling), three composables (`useSkillEditor` with 412-recovery,
+  `useSkillFiles`, `useBundleTransport`), the workbench/detail/files/create/bindings components, and
+  project/org/admin views. Wired into `eslint.config.js` (SLICES + SLICE_DEPS: `skills:['keys']`,
+  `agents`/`admin` gain `skills`), `app/router.ts`, `app/main.ts`, `admin/routes.ts` + `AdminNav`, and
+  the agent-detail Skills tab. i18n `en` + `zh-TW`. 17 slice tests (api wire-contract, three view
+  tests, and AC-16/17/22/34 component tests). Full suite 710 green; typecheck/lint/build clean.
+- **D-73: the file editor replaces content rather than load-then-edit, because no HTTP endpoint
+  returns a file's stored bytes.** The backend serves file *bytes* only to the model (`read_skill`) and
+  the sandbox stager (`read_skill_file_bytes`); there is no route the browser can call to read a
+  reference/script file's text. So `useSkillFiles` keeps content the user authors or replaces *this
+  session* in a client map (re-opening shows it) and opens an uploaded or prior-session file blank with
+  a "saving replaces the file" notice. This satisfies AC-16 ("editable; editing changes `sha256`") —
+  the file is editable and a PATCH changes its hash — without pretending to show bytes it cannot fetch.
+  A read-file-text endpoint that would let the editor pre-load existing content is FU-53.
+- **D-74: skill copy in the UI is duplicate-in-place only; cross-scope promote is deferred.**
+  `SkillDetail`'s Duplicate copies within the source scope under a new name (target scope + owner taken
+  from the source), which needs no owner picker. Promoting across scopes — the more common motivation
+  since scope is immutable (Q-5) — needs a target-scope + target-owner selector and is FU-54. The
+  `copy` endpoint and its target-scope AuthZ (`_assert_may_write_scope`) already support the full move;
+  only the picker UI is deferred.
+- **D-75: entry-point links were added to the tenancy and admin surfaces, which §6 did not enumerate.**
+  §6 named the routes but not how a user reaches them. Without links the project/org skills views are
+  URL-only, so `OrgDetailView` (gated `v-if="isOwner"`, mirroring its `prompt-studio.org` link) and
+  `ProjectDetailView` gained a Skills button, and `AdminNav` gained a Skills item. Recorded as
+  additions rather than silent scope creep; each is a route-name `router-link` needing no cross-slice
+  import, so no SLICE_DEPS change beyond D-72's.
+- **D-76: bindable candidates in the agent panel are drawn from agent + project scope only.**
+  `SkillBindingsPanel` offers to bind this agent's own skills and its project's, because those are the
+  only scopes a project member has a listing endpoint for; org and platform skills bind by the same
+  endpoint but have no member-reachable list, so they are bound by their managers, not browsed here.
+  The bind call still validates containment server-side (`resolve_bindable`), so the narrower candidate
+  set is a UI-reachability limit, not an AuthZ one. Widening it (an org/platform skill picker for
+  members who may see them) is FU-55.
+
 ## 16. Follow-ups
 
 > **Verification sweep, 2026-07-17.** Every entry below was re-checked against the tree before
@@ -3492,3 +3546,23 @@ bundle actually uploadable and downloadable.
   atomics, which pins the module's logic but not that the real client's `INCR`/`EXPIRE`/`DECR`
   behave as assumed under contention. The `wiring` tier (live Redis) is where the concurrency slot's
   atomicity claim would be proven; the same gap the RAG/knowmap wiring tests fill for their flows.
+
+- **FU-53: no HTTP endpoint returns a skill file's text, so the UI editor cannot pre-load existing
+  content (D-73).** The bytes are reachable only by the model (`read_skill`) and the sandbox stager
+  (`read_skill_file_bytes`), never by the browser; the editor therefore replaces content and retains
+  only session-authored text client-side. A scoped `GET .../skills/{id}/files/{fid}/content` (whole-skill
+  scan gate applied, `assets/` still opaque) would let the editor load-then-edit a reference or script
+  file. Adds a fourth unsanitized channel of file text into a client, so it must reuse the same charset
+  and path rules the manifest does.
+
+- **FU-54: cross-scope copy (promote) has no UI; only duplicate-in-place ships (D-74).** The `copy`
+  endpoint and its target-scope AuthZ already support moving a skill to another scope; the deferred part
+  is a target-scope + target-owner picker in `SkillDetail`, plus resolving which projects/orgs/agents the
+  caller may write. The natural home is the same Duplicate affordance, extended with a scope selector.
+
+- **FU-55: the agent binding panel browses only agent + project candidates (D-76).** A member who can
+  see an org or platform skill has no in-panel way to bind it, because those scopes have no
+  member-reachable listing endpoint. Either a read-only "skills available to this agent from higher
+  scopes" endpoint (server-computed over the containment predicate) or per-scope pickers gated on the
+  caller's visibility would close it; the bind call already enforces containment, so this is purely
+  additive reach.
