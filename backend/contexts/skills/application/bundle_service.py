@@ -18,9 +18,18 @@ computed against it rather than against a per-entry `compress_size`.
 quarantined, and "whole" is only meaningful before rows exist. The async `skill_scan_file`
 worker cannot deliver that — it runs after `skill_files` rows are written, which is a
 partial import by definition — so the import path scans inline and creates nothing until
-every entry is clean. The worker still re-scans afterwards and remains the standing
-authority on `scan_status`; this gate does not write that column (FU-45 owns the
-double-scan cost).
+every entry is clean.
+
+**That inline scan is the AC-25 gate and is *not* what fills in `scan_status`.** Rows are
+written `pending` exactly as every other path writes them, and `skill_scan_file` remains
+the single authority on that column — which means an import is only complete once its scans
+are **enqueued**, and that cannot happen here: the enqueue must follow a durable commit (the
+worker reads the row on its own connection and its not-found arm returns rather than
+retries), and this service owns no transaction. So `SkillsFacade.import_bundle` is the
+entry point, and it is not a formality — calling `BundleService.import_bundle` directly
+leaves every file `pending` forever, and under AC-34's fail-closed gate that is a skill
+which never becomes readable. That is why this returns the files it created rather than
+just the skill.
 """
 
 from __future__ import annotations
@@ -32,6 +41,7 @@ import re
 import stat
 import uuid
 import zipfile
+import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -41,6 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import get_settings
 from contexts.skills.application.file_service import (
     MAX_SKILL_FILE_BYTES,
+    MAX_SKILL_FILES,
     SkillFileService,
 )
 from contexts.skills.application.skill_md import (
@@ -69,10 +80,14 @@ _log = logging.getLogger(__name__)
 MAX_BUNDLE_COMPRESSED_BYTES = 64 * 1024 * 1024
 MAX_BUNDLE_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
 
-# Total entries, `SKILL.md` included, so a bundle can carry at most 499 files — strictly
-# under `MAX_SKILL_FILES`. The inequality is deliberate and one-directional: the exporter
-# must never emit a skill its own importer would reject.
-MAX_BUNDLE_ENTRIES = 500
+# Total entries, **`SKILL.md` included** — which is why it is `MAX_SKILL_FILES + 1` and not
+# `MAX_SKILL_FILES`. `_assert_path_free` refuses an add once a skill already holds
+# `MAX_SKILL_FILES`, so a skill tops out at exactly 500 files, and its export is 500 files
+# plus a body. A flat 500 here rejected that bundle at 501 > 500: the exporter emitting
+# precisely what its own importer refuses, which is the one thing this constant exists to
+# prevent. It was a comment asserting the invariant it broke — the off-by-one is between
+# "files" and "entries", and only the arithmetic notices.
+MAX_BUNDLE_ENTRIES = MAX_SKILL_FILES + 1
 
 MAX_COMPRESSION_RATIO = 100
 
@@ -115,6 +130,20 @@ class BundleEntry:
 
     path: str
     data: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class ImportResult:
+    """What an import produced, and what its caller still owes.
+
+    `files` is here for one reason: the caller must enqueue a scan per file after it
+    commits, and it cannot do that without their ids. Returning only the skill made that
+    step invisible and it was silently skipped — every imported skill unreadable forever.
+    """
+
+    skill: Skill
+    files: tuple[SkillFile, ...]
+    warnings: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,16 +221,32 @@ def _read_entry(zf: zipfile.ZipFile, info: zipfile.ZipInfo, budget: _InflationBu
                         f"byte per-file limit",
                         path=info.filename,
                     )
-    except (zipfile.BadZipFile, EOFError, ValueError) as exc:
+    except (zipfile.BadZipFile, EOFError, zlib.error, NotImplementedError, RuntimeError) as exc:
         # **This is the arm a forged size header actually lands in**, and it is not
         # decoration. CPython's `zipfile` bounds a read at the entry's *declared*
         # uncompressed size, so a header claiming 1 MB over a 200 MB payload never
         # inflates 200 MB: the read stops at 1 MB and the CRC check fails here. AC-32
         # describes that zip as "rejected mid-inflate by the streaming counter" — on this
         # runtime the counter never sees it, and without this arm the rejection was a
-        # `BadZipFile` escaping as a 500 instead of a 422 (D-56). The counter still earns
-        # its keep against the honest bomb and the ratio rule, and it is the backstop if a
-        # future decompressor stops bounding the read.
+        # `BadZipFile` escaping as a 500 instead of a 422 (D-56).
+        #
+        # **Every member of this tuple was measured, and the tuple is the whole point.**
+        # An earlier draft listed `ValueError` here on suspicion — and `ValueError` catches
+        # nothing `zipfile` emits on hostile input, so the 500 this arm exists to prevent
+        # stayed open behind a clause that looked like it covered it. What it actually
+        # raises, made to happen rather than reasoned about:
+        #   `zlib.error`          — a corrupt deflate payload, straight out of the
+        #                           decompressor; `zipfile` does not wrap it.
+        #   `NotImplementedError` — `_check_compression` on an unknown `compress_type`.
+        #                           A two-byte header edit.
+        #   `RuntimeError`        — the same check when bz2/lzma are missing from the
+        #                           image, and the encrypted-without-password path.
+        # An `except` tuple is an assertion about a dependency's behaviour; this one is now
+        # run rather than believed, with a test per arm.
+        #
+        # None of these can shadow a `BundleInvalid` the `try` body raises for the per-file
+        # cap or the budget: `SkillError` descends from `Exception`, and none of these is an
+        # ancestor of it.
         raise BundleInvalid(
             f"bundle entry {info.filename!r} is corrupt or its declared size is wrong: {exc}",
             path=info.filename,
@@ -241,7 +286,13 @@ def read_bundle(data: bytes) -> ParsedBundle:
 
     try:
         zf = zipfile.ZipFile(io.BytesIO(data))
-    except zipfile.BadZipFile as exc:
+    except (zipfile.BadZipFile, UnicodeDecodeError) as exc:
+        # `UnicodeDecodeError` is not hypothetical and is not a `BadZipFile`:
+        # `_RealGetContents` does a bare `filename.decode('utf-8')` when an entry sets the
+        # UTF-8 name flag, with no error handling. So a two-byte header edit — set flag
+        # 0x800, put invalid UTF-8 in the name — crashes the constructor, and every rule
+        # below is unreachable. `_entry_path`'s non-UTF-8 arm was written for this exact
+        # attack and never sees it: the failure is upstream, before we hold a ZipInfo.
         raise BundleInvalid(f"not a readable zip archive: {exc}") from exc
 
     with zf:
@@ -459,11 +510,14 @@ class BundleService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
-    ) -> tuple[Skill, tuple[str, ...]]:
-        """Import one bundle. Returns the skill and every compatibility warning.
+    ) -> ImportResult:
+        """Import one bundle. **Call this through `SkillsFacade.import_bundle`, not directly.**
 
         Ordering is the contract: validate, then scan **every** entry, then write. Nothing
         reaches the database until the last byte has been cleared (AC-25).
+
+        The files come back `pending` and their scans are the caller's to enqueue after it
+        commits — see the module docstring for why that cannot happen here.
         """
         parsed = read_bundle(data)
         await self._assert_clean(parsed)
@@ -496,7 +550,7 @@ class BundleService:
             request_id=request_id,
         )
 
-        for entry in parsed.files:
+        created = [
             await self._files.add(
                 skill=skill,
                 path=entry.path,
@@ -507,8 +561,9 @@ class BundleService:
                 actor_ip=actor_ip,
                 request_id=request_id,
             )
-
-        return skill, parsed.warnings
+            for entry in parsed.files
+        ]
+        return ImportResult(skill=skill, files=tuple(created), warnings=parsed.warnings)
 
     async def export_bundle(self, skill: Skill) -> bytes:
         """Pack a skill's current state (Q-21). Deterministic over Q-30's byte set.
