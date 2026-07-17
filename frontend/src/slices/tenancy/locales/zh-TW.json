@@ -17,9 +17,11 @@
       "restoreConfirm": "還原組織",
       "restored": "組織已還原",
       "promptAssistant": "提示詞助手",
+      "skills": "技能",
       "deletedBanner": "此組織已於 {date} 刪除，將於 {permanentDate} 永久移除。"
     },
     "project": {
+      "skills": "技能",
       "createTitle": "建立專案",
       "ownerPersonal": "個人",
       "ownerOrg": "組織",

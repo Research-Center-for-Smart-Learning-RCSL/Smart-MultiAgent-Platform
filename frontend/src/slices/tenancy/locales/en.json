@@ -17,9 +17,11 @@
       "restoreConfirm": "Restore organization",
       "restored": "Organization restored",
       "promptAssistant": "Prompt Assistant",
+      "skills": "Skills",
       "deletedBanner": "This organization was deleted on {date}. It will be permanently removed on {permanentDate}."
     },
     "project": {
+      "skills": "Skills",
       "createTitle": "Create Project",
       "ownerPersonal": "Personal",
       "ownerOrg": "Organization",

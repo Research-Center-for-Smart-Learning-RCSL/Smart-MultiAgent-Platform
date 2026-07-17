@@ -11,7 +11,7 @@ import tsParser from '@typescript-eslint/parser'
 import vueParser from 'vue-eslint-parser'
 import vuejsAccessibility from 'eslint-plugin-vuejs-accessibility'
 
-const SLICES = ['identity', 'tenancy', 'keys', 'agents', 'agent-groups', 'activities', 'conversation', 'workflow', 'admin', 'notifications', 'prompt-studio']
+const SLICES = ['identity', 'tenancy', 'keys', 'agents', 'agent-groups', 'activities', 'conversation', 'workflow', 'admin', 'notifications', 'prompt-studio', 'skills']
 
 // [R24.06] Cross-slice dependency direction. `agent-groups` is a first-class,
 // project-scoped slice (agent-group CRUD, membership, and the group-owned Concept
@@ -21,16 +21,20 @@ const SLICE_DEPS = {
   identity:      [],
   tenancy:       ['identity'],
   keys:          ['tenancy', 'identity'],
-  agents:        ['prompt-studio', 'keys', 'tenancy', 'identity'],
+  agents:        ['skills', 'prompt-studio', 'keys', 'tenancy', 'identity'],
   'agent-groups': ['agents', 'keys', 'tenancy', 'identity'],
   // activities renders inside the chatroom via a plugin host but must never
   // import conversation back (Q-3: the dependency is one-way). shared only.
   activities:    [],
   conversation:  ['activities', 'agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
   workflow:      ['conversation', 'agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
-  admin:         ['prompt-studio'],
+  admin:         ['prompt-studio', 'skills'],
   notifications: ['identity'],
   'prompt-studio': ['keys'],
+  // The skills slice mounts a per-agent binding panel inside `agents` and a platform
+  // view inside `admin`; it consumes only shared. `keys` is declared for the future
+  // description-assistant reuse (Q-14) and is otherwise inert.
+  skills:        ['keys'],
 }
 
 function buildSliceBoundaryRules() {

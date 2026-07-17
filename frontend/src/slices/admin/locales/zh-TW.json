@@ -24,7 +24,8 @@
       "ops": "營運操作",
       "rateLimits": "速率限制",
       "metrics": "指標",
-      "promptStudio": "提示詞助手"
+      "promptStudio": "提示詞助手",
+      "skills": "技能"
     },
     "users": {
       "title": "使用者",

@@ -24,7 +24,8 @@
       "ops": "Operations",
       "rateLimits": "Rate Limits",
       "metrics": "Metrics",
-      "promptStudio": "Prompt Assistant"
+      "promptStudio": "Prompt Assistant",
+      "skills": "Skills"
     },
     "users": {
       "title": "Users",

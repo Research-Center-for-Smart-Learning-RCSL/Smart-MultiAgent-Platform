@@ -68,6 +68,11 @@ export const adminRoutes: RouteRecordRaw[] = [
         name: 'admin.promptStudio',
         component: () => import('@slices/prompt-studio').then((m) => m.AdminPromptStudioView),
       },
+      {
+        path: 'skills',
+        name: 'admin.skills',
+        component: () => import('@slices/skills').then((m) => m.AdminSkillsView),
+      },
     ],
   },
   {

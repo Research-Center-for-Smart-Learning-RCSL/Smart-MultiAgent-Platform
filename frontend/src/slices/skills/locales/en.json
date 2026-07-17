@@ -1,0 +1,160 @@
+{
+  "skills": {
+    "actions": {
+      "save": "Save",
+      "cancel": "Cancel",
+      "restore": "Restore",
+      "export": "Export bundle",
+      "duplicate": "Duplicate",
+      "delete": "Delete",
+      "remove": "Remove",
+      "collapse": "Collapse",
+      "expand": "Expand"
+    },
+    "scope": {
+      "agent": "Agent",
+      "project": "Project",
+      "org": "Organization",
+      "platform": "Platform"
+    },
+    "editor": {
+      "saved": "Skill saved.",
+      "conflict": "This skill changed since you loaded it. Your edits are kept; the version was refreshed, so saving again will apply them.",
+      "indexBudget": "This change would push the skill index past an agent's token cap. Shorten the description or raise the cap.",
+      "requiresMissing": "An agent bound to this skill lacks a tool it requires.",
+      "saveFailed": "Could not save the skill.",
+      "deleteTitle": "Delete this skill?",
+      "deleteBody": "The skill is soft-deleted and unbound from every agent. You can restore it within 60 days.",
+      "deleted": "Skill deleted.",
+      "deleteFailed": "Could not delete the skill.",
+      "restored": "Skill restored.",
+      "restoreConflict": "A live skill already uses this name. Rename or remove it before restoring.",
+      "restoreFailed": "Could not restore the skill.",
+      "loading": "Loading skill...",
+      "loadFailed": "Could not load this skill.",
+      "diverged": "Diverged from bundle",
+      "deletedBadge": "Deleted",
+      "deletedNotice": "This skill is soft-deleted. Restore it to edit it.",
+      "description": "Description",
+      "descriptionHelp": "One or two sentences. The model reads this to decide whether the skill applies.",
+      "body": "SKILL.md body",
+      "requires": "Required tools",
+      "requiresHelp": "One tool per line. Any bundled script also implies code_exec.",
+      "allowedTools": "Allowed tools (declared)",
+      "allowedToolsNotEnforced": "Allowed tools are declared by the author and are not enforced by SMAP.",
+      "duplicated": "Skill duplicated.",
+      "duplicateFailed": "Could not duplicate the skill.",
+      "duplicateName": "New name"
+    },
+    "files": {
+      "sectionHeading": "Bundled files",
+      "listHeading": "Files",
+      "empty": "No files yet.",
+      "loading": "Loading files...",
+      "loadFailed": "Could not load this skill's files.",
+      "addHeading": "Add a file",
+      "modeAuthor": "Author",
+      "modeUpload": "Upload",
+      "pathLabel": "Path",
+      "pathHelp": "Under references/, scripts/, or assets/. The top-level folder sets the file kind.",
+      "contentPlaceholder": "File contents",
+      "addButton": "Add file",
+      "uploadButton": "Upload file",
+      "editHeading": "Replace {path}",
+      "assetNotEditable": "Asset files are opaque binaries and cannot be edited as text.",
+      "replaceNotice": "The stored content is not shown here. Saving replaces the file's content.",
+      "replaceButton": "Replace content",
+      "added": "File added.",
+      "uploaded": "File uploaded.",
+      "replaced": "File content replaced.",
+      "deleted": "File deleted.",
+      "deleteTitle": "Delete this file?",
+      "deleteBody": "Remove {path} from this skill?",
+      "deleteFailed": "Could not delete the file.",
+      "addFailed": "Could not add the file.",
+      "replaceFailed": "Could not replace the file's content.",
+      "notEditable": "This file is an asset binary and cannot be edited as text.",
+      "pathTaken": "A file already occupies that path.",
+      "pathInvalid": "That path is not allowed. Use references/, scripts/, or assets/.",
+      "limit": "A skill may hold at most 500 files.",
+      "unreadableTitle": "This skill is unreadable by agents",
+      "quarantinedBody": "{count} file(s) failed the malware scan. Agents cannot read this skill until every file is clean.",
+      "scanningTitle": "Files are still being scanned",
+      "scanningBody": "{count} file(s) are being scanned. The skill is unreadable by agents until scanning finishes.",
+      "kind": {
+        "reference": "reference",
+        "script": "script",
+        "asset": "asset"
+      },
+      "scan": {
+        "pending": "scanning",
+        "clean": "clean",
+        "infected": "infected",
+        "error": "scan error"
+      }
+    },
+    "create": {
+      "heading": "New skill",
+      "name": "Name",
+      "nameHelp": "Lowercase letters, digits, and hyphens. 1-64 characters. Cannot be changed later.",
+      "nameInvalid": "Use lowercase letters, digits, and hyphens (1-64 characters).",
+      "bodyPlaceholder": "The SKILL.md instructions the agent loads on demand.",
+      "submit": "Create skill",
+      "created": "Skill created.",
+      "nameTaken": "A skill with this name already exists in this scope.",
+      "failed": "Could not create the skill."
+    },
+    "workbench": {
+      "new": "New skill",
+      "import": "Import bundle",
+      "importHelp": "A .zip in the Agent Skills layout, up to 32 MB.",
+      "showDeleted": "Show deleted",
+      "loadFailed": "Could not load skills.",
+      "empty": "No skills in this scope yet.",
+      "pickTitle": "No skill selected",
+      "pickBody": "Pick a skill from the list, or create one."
+    },
+    "bundle": {
+      "importReady": "Bundle imported.",
+      "importFailed": "The bundle import failed.",
+      "exportReady": "Export ready. Your download should begin shortly.",
+      "exportFailed": "The export failed.",
+      "invalid": "That bundle is not a valid Agent Skills .zip.",
+      "quarantined": "The bundle was rejected because a file failed the malware scan."
+    },
+    "bindings": {
+      "heading": "Skills",
+      "subtitle": "Skills bound to this agent load their index into every turn; the agent reads a body on demand.",
+      "boundHeading": "Bound",
+      "noneBound": "No skills are bound to this agent.",
+      "unbind": "Unbind",
+      "availableHeading": "Available to bind",
+      "noneAvailable": "No agent- or project-scoped skills are available to bind.",
+      "bind": "Bind",
+      "bound": "Skill bound.",
+      "unbound": "Skill unbound.",
+      "requiresMissing": "This skill requires a tool the agent does not have enabled.",
+      "indexBudget": "Binding this skill would push the agent's skill index past its token cap.",
+      "nameTaken": "Another bound skill already uses this name.",
+      "notBindable": "This skill cannot be bound to this agent.",
+      "bindFailed": "Could not bind the skill.",
+      "unbindFailed": "Could not unbind the skill.",
+      "authoringHeading": "Agent-private skills",
+      "authoringSubtitle": "Create skills owned by this agent alone. They are bound automatically and not shared."
+    },
+    "project": {
+      "title": "Project skills",
+      "subtitle": "Skills owned by this project, bindable to its agents."
+    },
+    "org": {
+      "title": "Organization skills",
+      "subtitle": "Skills owned by this organization, bindable to any agent in it."
+    },
+    "admin": {
+      "title": "Platform skills",
+      "subtitle": "Skills available to every tenant when a manager binds them explicitly.",
+      "total": "{total} live skills across all scopes.",
+      "metricsFailed": "Could not load skill metrics."
+    }
+  }
+}
