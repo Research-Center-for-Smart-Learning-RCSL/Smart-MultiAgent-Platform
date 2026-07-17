@@ -2609,6 +2609,22 @@ are all checked.
   set is a UI-reachability limit, not an AuthZ one. Widening it (an org/platform skill picker for
   members who may see them) is FU-55.
 
+- **D-77: `/code-review` (high effort) of the frontend diff found five issues; all five are fixed.**
+  (1) **`useBundleTransport.triggerDownload` created a detached anchor and called `.click()`** — which
+  Firefox ignores, so the export .zip never downloaded; now the anchor is appended to `document.body`
+  before the click and removed after. (2) **Bundle import/export status-poll errors surfaced no
+  feedback** — the watchers reacted only to `data`, so a 500/403/network failure left the spinner
+  dropping silently; addressed together with (5). (3) **`SkillFiles`'s Replace button could wipe a
+  file to empty** — selecting a not-session-authored file opened a blank editor beside an enabled
+  Replace, one click from PATCHing `content=''`; Replace is now disabled while the editor is empty,
+  with a regression test. (4) **`SkillBindingsPanel`'s candidate queries captured a setup-time scope
+  snapshot while its bindings query was reactive** — desyncing if the panel were reused across agents
+  without remount; `useSkillsQuery` now takes a `MaybeRefOrGetter<SkillScopeRef>` and the panel passes
+  getters, so all three queries track props (the altitude fix — the mechanism generalized rather than
+  a special case). (5) **The job poll had no bound** — a crashed worker would poll every 1.5s forever
+  with the spinner stuck on; a 90s wall-clock timeout now stops the poll and toasts a give-up, which
+  also gives (2) its eventual feedback.
+
 ## 16. Follow-ups
 
 > **Verification sweep, 2026-07-17.** Every entry below was re-checked against the tree before
