@@ -28,7 +28,6 @@ from contexts.skills.domain.errors import (
     SkillFileNotEditable,
     SkillFileNotFound,
     SkillFilePathTaken,
-    SkillUnreadable,
 )
 from contexts.skills.domain.models import Skill, SkillFile, SkillFileKind, SkillScanStatus
 from contexts.skills.domain.text_rules import path_collision_key
@@ -81,22 +80,6 @@ def _initial_scan_status(settings_scan_enabled: bool) -> SkillScanStatus:
     permanently unreadable — the fail-closed rule turning into a fail-shut one.
     """
     return SkillScanStatus.PENDING if settings_scan_enabled else SkillScanStatus.CLEAN
-
-
-def assert_readable(skill: Skill, files: list[SkillFile]) -> None:
-    """AC-34 / [R31.20] — one not-clean file makes the whole skill unreadable.
-
-    Fail-closed, and knowingly stricter than the RAG precedent, which treats `skipped`
-    as usable. The asymmetry is the premise of §8: a RAG chunk is data the model reads,
-    a skill is instructions it executes, and [R31.20] says "every bundled file passes the
-    malware scan **before the skill becomes readable**" — `skipped` did not pass.
-
-    Whole-skill rather than per-file, per Q-18's reasoning: a `SKILL.md` that references a
-    file the model cannot fetch induces confabulation, which is worse than a clean refusal.
-    """
-    for f in files:
-        if f.scan_status is not SkillScanStatus.CLEAN:
-            raise SkillUnreadable(skill.name, path=f.path)
 
 
 class SkillFileService:
@@ -352,7 +335,6 @@ def _extracted_chars(data: bytes, mime: str, kind: SkillFileKind) -> int:
 __all__ = [
     "MAX_SKILL_FILE_BYTES",
     "SkillFileService",
-    "assert_readable",
     "enqueue_skill_scan",
     "file_sha256",
     "kind_for_path",

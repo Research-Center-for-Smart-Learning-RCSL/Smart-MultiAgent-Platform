@@ -29,9 +29,17 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.skills.application.binding_service import BindingService, BoundSet
+from contexts.skills.application.file_service import SkillFileService
 from contexts.skills.application.index_builder import render_index
 from contexts.skills.application.skill_service import SkillService
-from contexts.skills.domain.models import Skill, SkillDraft, SkillScope, SkillScopeCounts, SkillSource
+from contexts.skills.domain.models import (
+    Skill,
+    SkillDraft,
+    SkillFile,
+    SkillScope,
+    SkillScopeCounts,
+    SkillSource,
+)
 from contexts.skills.infrastructure.repositories import SkillRepository
 
 
@@ -204,6 +212,20 @@ class SkillsFacade:
         return await BindingService(self._db).resolve_bound_set(
             agent_id=agent_id, agent_project_id=agent_project_id
         )
+
+    async def read_skill_file_text(self, file: SkillFile) -> str:
+        """The extracted text of one reference file from a turn's snapshot (AC-18).
+
+        Takes the `SkillFile` rather than an id, and that is the access control: the only
+        way to obtain one is from `resolve_bound_set`, so the tap has already proven this
+        agent may see it. An id-taking method would be a read primitive over every
+        tenant's files — the same reason `read_skill` never resolves a *name* against the
+        table (§6).
+
+        Exposed here rather than letting the runtime import `file_service`, per
+        backend/CLAUDE.md: `contexts/agents` reaches this context through its facade only.
+        """
+        return await SkillFileService(self._db).read_text(file)
 
     @staticmethod
     def render_index(skills: Sequence[Skill]) -> str:

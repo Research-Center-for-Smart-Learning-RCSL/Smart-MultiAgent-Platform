@@ -71,6 +71,7 @@ from contexts.knowledge.application.knowmap_context_provider import (
     KnowledgeMapContextProvider,
 )
 from contexts.knowledge.application.rag_context_provider import RagContext, RagContextProvider
+from contexts.skills.domain.models import SkillRead
 from contexts.skills.interfaces.facade import BoundSet, SkillsFacade
 from shared_kernel import audit
 from shared_kernel.observability.metrics import REGISTRY
@@ -645,7 +646,10 @@ class TurnEngine:
             registry = build_registry(
                 self._db,
                 agent_id=agent.id,
-                skills=bound_skills.skills,
+                skills=bound_skills,
+                # No `reads` sink: the headless path persists no message, so there is no
+                # `message.metadata` for AC-19's records to land on. Passing a list nobody
+                # reads would look like the room path while recording nothing.
                 extra=extra_tools,
             )
             await self._db.flush()
@@ -1202,10 +1206,15 @@ class TurnEngine:
             # read_skill's closure — so the tool can never serve a body the tap dropped.
             bound_skills = await self._resolve_skills(agent, chatroom_id, room)
             skills_note = SkillsFacade.render_index(bound_skills.skills)
+            # AC-19 / [R31.17]: the tool appends one entry per served body read, and the
+            # reply's metadata carries them. Collected here rather than inside the tool so
+            # the list outlives the closure and is still readable when the reply is built.
+            skill_reads: list[SkillRead] = []
             registry = build_registry(
                 self._db,
                 agent_id=agent.id,
-                skills=bound_skills.skills,
+                skills=bound_skills,
+                reads=skill_reads,
                 extra=extra_tools,
             )
             tool_specs = registry.specs()
@@ -1512,6 +1521,12 @@ class TurnEngine:
             if rag_ctx and rag_ctx.sources:
                 # Persist what RAG retrieved so the UI can cite it (R10.09).
                 reply_meta["rag_sources"] = rag_ctx.sources
+            if skill_reads:
+                # AC-19 / [R31.17]: which skill bytes actually executed. `body_sha256` is
+                # the load-bearing field — bodies are mutable in place with no version
+                # tree (Q-21), so `version` answers which row was read and only the hash
+                # answers which bytes ran.
+                reply_meta["skill_reads"] = [r.to_dict() for r in skill_reads]
 
             if is_observer:
                 # R28.03: observer output is an observation, never a message —

@@ -39,6 +39,7 @@ from tests.unit.skill_fakes import (
     FakeAgentsFacade,
     FakeBindingRepo,
     FakeProject,
+    FakeSkillFileRepo,
     FakeSkillRepo,
     FakeTenancyFacade,
     make_skill,
@@ -55,6 +56,7 @@ class _Harness:
         self.bindings = FakeBindingRepo(self.skills)
         self.agents = FakeAgentsFacade()
         self.tenancy = FakeTenancyFacade()
+        self.files = FakeSkillFileRepo()
 
         self.project = FakeProject(id=uuid.uuid4(), owner_org_id=None)
         self.tenancy.projects[self.project.id] = self.project
@@ -68,6 +70,7 @@ class _Harness:
         svc._bindings = self.bindings  # type: ignore[attr-defined]
         svc._agents = self.agents  # type: ignore[attr-defined]
         svc._tenancy = self.tenancy  # type: ignore[attr-defined]
+        svc._files = self.files  # type: ignore[attr-defined]
         self.svc = svc
 
         # The update path raises the budget error, so AC-6's assertions about what that

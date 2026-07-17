@@ -17,7 +17,6 @@ from contexts.skills.application import file_service as fs
 from contexts.skills.application.file_service import (
     MAX_SKILL_FILE_BYTES,
     SkillFileService,
-    assert_readable,
     file_sha256,
     kind_for_path,
 )
@@ -35,6 +34,7 @@ from contexts.skills.domain.models import (
     SkillScope,
     SkillSource,
 )
+from contexts.skills.domain.readability import assert_readable
 from contexts.skills.domain.text_rules import ALLOWED_TOP_LEVEL_DIRS
 from shared_kernel import audit
 from tests.unit.skill_fakes import FakeSkillFileRepo

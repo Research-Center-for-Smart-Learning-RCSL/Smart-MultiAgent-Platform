@@ -221,7 +221,9 @@ async def test_run_input_turn_passes_the_snapshot_to_the_registry(monkeypatch) -
 
     await engine.run_input_turn(agent_id=agent.id, input_text="hi")
 
-    assert built["skills"] == (skill,)
+    # The whole snapshot, not just its skills — see the sibling assertion in
+    # test_observer_agents.py for why the three views must travel together.
+    assert built["skills"].skills == (skill,)
 
 
 # --------------------------------------------------------------------------- #

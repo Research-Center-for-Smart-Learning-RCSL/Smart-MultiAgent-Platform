@@ -19,10 +19,15 @@ import logging
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from contexts.skills.domain.models import Skill
+from contexts.skills.domain.errors import SkillUnreadable
+from contexts.skills.domain.models import Skill, SkillFile, SkillFileKind, SkillRead
+from contexts.skills.domain.readability import assert_readable
 from shared_kernel.tokens import estimate_tokens
+
+if TYPE_CHECKING:
+    from contexts.skills.application.binding_service import BoundSet
 
 ToolInvoke = Callable[[dict[str, Any]], Awaitable["ToolResult"]]
 
@@ -242,6 +247,13 @@ _READ_SKILL_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": "The skill's name, exactly as it appears in the skills index.",
         },
+        "path": {
+            "type": "string",
+            "description": (
+                "Optional. Omit to read the skill's instructions and its file list. Pass "
+                "one of the reference paths from that list to read that file instead."
+            ),
+        },
         "offset": {
             "type": "integer",
             "description": (
@@ -262,7 +274,14 @@ _READ_SKILL_SCHEMA: dict[str, Any] = {
 _SKILL_BODY_TOKEN_BUDGET = 8000
 
 
-def _fit_skill_body(name: str, body: str, offset: int) -> tuple[str, int | None]:
+def _fit_skill_body(
+    name: str,
+    body: str,
+    offset: int,
+    *,
+    files: Sequence[SkillFile] = (),
+    path: str | None = None,
+) -> tuple[str, int | None]:
     """The longest span of ``body[offset:]`` that fits, and where to resume after it.
 
     Two bounds, both non-decreasing in the span's length, so one binary search settles
@@ -279,8 +298,12 @@ def _fit_skill_body(name: str, body: str, offset: int) -> tuple[str, int | None]
     """
     rest = body[offset:]
     # Probed against the longest offset the payload could ever carry, so the real
-    # result is never longer than what the search measured.
-    envelope = len(_read_skill_payload(name, "", len(body)))
+    # result is never longer than what the search measured. `files` and `path` are
+    # included because they are part of that payload: measuring an envelope without the
+    # manifest would let the rendered result overrun `_MAX_TOOL_OUTPUT` by the manifest's
+    # own length, and the byte clip would then sever the JSON that carries the offset —
+    # the exact failure D-13 records.
+    envelope = len(_read_skill_payload(name, "", len(body), files=files, path=path))
 
     def fits(span: str) -> bool:
         return (
@@ -304,22 +327,49 @@ def _fit_skill_body(name: str, body: str, offset: int) -> tuple[str, int | None]
     return rest[:lo], offset + lo
 
 
-def _read_skill_payload(name: str, span: str, next_offset: int | None) -> str:
-    payload: dict[str, Any] = {"name": name, "body": span}
+def _read_skill_payload(
+    name: str,
+    span: str,
+    next_offset: int | None,
+    *,
+    files: Sequence[SkillFile] = (),
+    path: str | None = None,
+) -> str:
+    payload: dict[str, Any] = {"name": name}
+    if path is not None:
+        payload["path"] = path
+    payload["body" if path is None else "text"] = span
     if next_offset is not None:
         payload["truncated_at_offset"] = next_offset
+    if files:
+        # AC-18's manifest. Paths are safe to render because `skill_file_path_reason`
+        # rejected newlines and the index delimiter at every entry point — this is the
+        # second channel into model context the path rule exists for (§8 threat 8).
+        payload["files"] = [{"path": f.path, "kind": f.kind.value, "size_bytes": f.size_bytes} for f in files]
     return json.dumps(payload, ensure_ascii=False)
 
 
-def build_read_skill_tool(skills: Sequence[Skill]) -> Tool:
-    """R31.15 — load a bound skill's body on demand from the turn's snapshot.
+def build_read_skill_tool(
+    snapshot: BoundSet,
+    *,
+    db: Any = None,
+    reads: list[SkillRead] | None = None,
+) -> Tool:
+    """R31.15 — load a bound skill's body or one of its files from the turn's snapshot.
 
-    ``skills`` is the snapshot ``resolve_bound_set`` already validated this turn, and
-    the lookup is a dict over it. It must never re-query by name: the turn-time
-    containment tap would then be decorative, and a name lookup against the `skills`
-    table is an unscoped read primitive over every tenant's skills.
+    ``snapshot`` is what ``resolve_bound_set`` already validated this turn, and every
+    lookup is against it. It must never re-query by name: the turn-time containment tap
+    would then be decorative, and a name lookup against the `skills` table is an unscoped
+    read primitive over every tenant's skills. The same rule is why the `path` arm
+    resolves against the snapshot's own manifest and hands the resulting `SkillFile` to
+    the facade, rather than passing an id the facade would have to look up.
+
+    ``reads`` is AC-19's sink: each served read appends a `SkillRead`, and the turn engine
+    folds them into `message.metadata`. Reads of a *file* are not recorded — R31.17 names
+    the body hash, and a file read is already pinned by the body read that had to precede
+    it to learn the path.
     """
-    by_name = {s.name: s for s in skills}
+    by_name = {s.name: s for s in snapshot.skills}
 
     async def _invoke(args: dict[str, Any]) -> ToolResult:
         name = str(args.get("name", ""))
@@ -332,6 +382,24 @@ def build_read_skill_tool(skills: Sequence[Skill]) -> Tool:
                 content=f"Unknown skill {name!r}. Bound skills: {available}.",
                 is_error=True,
             )
+
+        files = snapshot.files_for(skill.id)
+        # AC-34 / R31.20 — fail closed before serving any bytes of this skill, body
+        # included. The gate is checked here rather than at the index because a pending
+        # scan is transient (seconds) and dropping the skill from every turn's index
+        # while it settles would be noisier than an honest error at call time. A
+        # quarantined file is not transient, and this is what the model is told about it.
+        try:
+            assert_readable(skill, list(files))
+        except SkillUnreadable as exc:
+            return ToolResult(
+                content=(
+                    f"Skill {name!r} is unavailable: its file {exc.path!r} has not passed "
+                    f"the malware scan. Do not guess its contents."
+                ),
+                is_error=True,
+            )
+
         raw_offset = args.get("offset")
         offset = 0 if raw_offset is None else _opt_int(raw_offset)
         if offset is None:
@@ -340,32 +408,98 @@ def build_read_skill_tool(skills: Sequence[Skill]) -> Tool:
             # restarts its continuation walk, and the two sibling error paths below and
             # above both say so out loud rather than guess.
             return ToolResult(content=f"offset must be an integer, got {raw_offset!r}.", is_error=True)
-        if offset < 0 or offset > len(skill.body):
-            return ToolResult(
-                content=f"offset {offset} is outside skill {name!r} (0..{len(skill.body)}).",
-                is_error=True,
-            )
-        span, next_offset = _fit_skill_body(skill.name, skill.body, offset)
-        return ToolResult(content=clip_tool_output(_read_skill_payload(skill.name, span, next_offset)))
+
+        raw_path = args.get("path")
+        if raw_path is None:
+            return _serve_body(skill, files, offset, reads)
+        return await _serve_file(skill, files, str(raw_path), offset, db)
 
     return Tool(
         name="read_skill",
         description=(
             "Load the full instructions of one skill listed in the skills index, by name. "
-            "Call it when a skill's description matches the task you are working on. Long "
-            "bodies come back truncated with a truncated_at_offset; call again with that "
-            "offset to read the next span."
+            "Call it when a skill's description matches the task you are working on. The "
+            "result lists the skill's files; pass one of their paths back as `path` to read "
+            "that file. Long results come back truncated with a truncated_at_offset; call "
+            "again with that offset to read the next span."
         ),
         input_schema=_READ_SKILL_SCHEMA,
         invoke=_invoke,
     )
 
 
+def _serve_body(
+    skill: Skill,
+    files: Sequence[SkillFile],
+    offset: int,
+    reads: list[SkillRead] | None,
+) -> ToolResult:
+    if offset < 0 or offset > len(skill.body):
+        return ToolResult(
+            content=f"offset {offset} is outside skill {skill.name!r} (0..{len(skill.body)}).",
+            is_error=True,
+        )
+    span, next_offset = _fit_skill_body(skill.name, skill.body, offset, files=files)
+    if reads is not None:
+        reads.append(
+            SkillRead(
+                skill_id=skill.id,
+                name=skill.name,
+                scope=skill.scope,
+                version=skill.version,
+                body_sha256=skill.body_sha256,
+            )
+        )
+    return ToolResult(
+        content=clip_tool_output(_read_skill_payload(skill.name, span, next_offset, files=files))
+    )
+
+
+async def _serve_file(
+    skill: Skill,
+    files: Sequence[SkillFile],
+    path: str,
+    offset: int,
+    db: Any,
+) -> ToolResult:
+    match = next((f for f in files if f.path == path), None)
+    if match is None:
+        available = ", ".join(f.path for f in files) or "(none)"
+        return ToolResult(
+            content=f"Skill {skill.name!r} has no file {path!r}. Its files: {available}.",
+            is_error=True,
+        )
+    if match.kind is not SkillFileKind.REFERENCE:
+        # R31.18: a script is staged for the interpreter and an asset is opaque bytes.
+        # Rendering either into the prompt would be a decode of something that is not
+        # text for the model to read, and for a script it would also be the wrong channel.
+        return ToolResult(
+            content=(
+                f"File {path!r} is a {match.kind.value}, not a reference document, and "
+                f"cannot be read as text."
+            ),
+            is_error=True,
+        )
+    # Imported lazily and called with the snapshot's own `SkillFile`: the facade takes the
+    # row, never an id, so this cannot become a read primitive over other tenants' files.
+    from contexts.skills.interfaces.facade import SkillsFacade
+
+    text = await SkillsFacade(db).read_skill_file_text(match)
+    if offset < 0 or offset > len(text):
+        return ToolResult(
+            content=f"offset {offset} is outside file {path!r} (0..{len(text)}).",
+            is_error=True,
+        )
+    span, next_offset = _fit_skill_body(skill.name, text, offset, path=path)
+    return ToolResult(content=clip_tool_output(_read_skill_payload(skill.name, span, next_offset, path=path)))
+
+
 def build_registry(
     db: Any,
     *,
     agent_id: uuid.UUID,
-    skills: Sequence[Skill],
+    skills: BoundSet,
+    reads: list[SkillRead] | None = None,
     extra: list[Tool] | None = None,
 ) -> ToolRegistry:
     """Assemble the per-turn tool table for ``agent_id``.
@@ -374,10 +508,14 @@ def build_registry(
     defaulted: a caller that forgets it is then a type error rather than an agent that
     silently loses ``read_skill``. Empty is the ordinary case and costs nothing — the
     tool is only offered when something is bound.
+
+    It is the whole ``BoundSet`` rather than its ``.skills``, because the bodies, the file
+    manifest, and the scan statuses that gate them are three views of one snapshot and
+    must not be able to drift apart between the tap and the tool.
     """
     tools: list[Tool] = [build_update_wakeup_tool(db, agent_id=agent_id)]
-    if skills:
-        tools.append(build_read_skill_tool(skills))
+    if skills.skills:
+        tools.append(build_read_skill_tool(skills, db=db, reads=reads))
     if extra:
         tools.extend(extra)
     return ToolRegistry(tools)
