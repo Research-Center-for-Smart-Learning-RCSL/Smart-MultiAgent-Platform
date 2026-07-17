@@ -386,7 +386,9 @@ async def test_body_edit_does_not_mutate_a_running_turns_snapshot(h: _Harness) -
     )
     h.bindings.seed(agent_id=agent_id, skill_id=skill.id)
 
-    running = await h.rules.resolve_bound_set(agent_id=agent_id, agent_project_id=owner)
+    # No `requires:` and no scripts, so the agent's tools are irrelevant here and an empty
+    # set is the honest input rather than a stub.
+    running = await h.rules.resolve_bound_set(agent_id=agent_id, agent_project_id=owner, enabled_tools=set())
     assert running.skills[0].body == "v1"
 
     await h.svc.update(
@@ -400,7 +402,9 @@ async def test_body_edit_does_not_mutate_a_running_turns_snapshot(h: _Harness) -
 
     # The snapshot is a value captured at turn start; the edit cannot reach back into it.
     assert running.skills[0].body == "v1"
-    next_turn = await h.rules.resolve_bound_set(agent_id=agent_id, agent_project_id=owner)
+    next_turn = await h.rules.resolve_bound_set(
+        agent_id=agent_id, agent_project_id=owner, enabled_tools=set()
+    )
     assert next_turn.skills[0].body == "v2"
 
 

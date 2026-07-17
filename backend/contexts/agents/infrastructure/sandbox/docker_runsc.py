@@ -1211,7 +1211,12 @@ class DockerRunscSandbox:
     ) -> list[str]:
         """Materialise the agent's persisted files under ``/workspace/agent-files/``.
 
-        Returns absolute paths (``/workspace/agent-files/x``).
+        Idempotent through its own manifest cache: an unchanged ``manifest_sha`` returns
+        the paths with no container spawn and **no write**, so a caller that passes a stale
+        sha silently skips staging. The cache updates only after a successful write.
+
+        Returns absolute paths (``/workspace/agent-files/x``) — see ``stage_kernel_inputs``
+        for why relative would be ambiguous here.
         """
         return await self._stage_tree(
             agent_id=agent_id,

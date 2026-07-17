@@ -29,7 +29,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
-from contexts.skills.application.binding_service import BindingService, BoundSet
+from contexts.agents.domain.models import AgentToolType
+from contexts.skills.application.binding_service import BindingService, BoundSet, DroppedSkill
 from contexts.skills.application.file_service import (
     MAX_SKILL_FILE_BYTES,
     SkillFileService,
@@ -317,10 +318,21 @@ class SkillsFacade:
 
     # -- cross-context ------------------------------------------------------
 
-    async def resolve_bound_set(self, *, agent_id: uuid.UUID, agent_project_id: uuid.UUID) -> BoundSet:
-        """One turn's validated snapshot. The single entry point for both turn paths."""
+    async def resolve_bound_set(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        agent_project_id: uuid.UUID,
+        enabled_tools: set[AgentToolType],
+    ) -> BoundSet:
+        """One turn's validated snapshot. The single entry point for both turn paths.
+
+        `enabled_tools` is the caller's, like `agent_project_id`: the turn reads the agent's
+        tools once and every consumer shares that one snapshot, so a tool toggled mid-turn
+        cannot make the runtime and this tap disagree about the same agent.
+        """
         return await BindingService(self._db).resolve_bound_set(
-            agent_id=agent_id, agent_project_id=agent_project_id
+            agent_id=agent_id, agent_project_id=agent_project_id, enabled_tools=enabled_tools
         )
 
     async def read_skill_file_text(self, file: SkillFile) -> str:
@@ -390,10 +402,12 @@ class SkillsFacade:
         return await SkillRepository(self._db).count_by_scope()
 
 
-# `BoundSet` is re-exported deliberately: it is `resolve_bound_set`'s return type, so the
-# agents runtime has to name it, and it must not have to reach past this module into
-# `application/` to do so.
-# Re-exported so the routers can take the upload cap from this context's public surface
-# rather than reaching into `application/` for it — which this module's own docstring
-# says they never do. It is the same constant, named where the rule says to name it.
-__all__ = ["MAX_SKILL_FILE_BYTES", "BoundSet", "SkillsFacade"]
+# `BoundSet` and `DroppedSkill` are re-exported deliberately: the first is
+# `resolve_bound_set`'s return type and the second is what the runtime must construct to
+# hand a staging failure back to `BoundSet.without`, so the agents runtime has to name
+# both — and it must not have to reach past this module into `application/` to do so.
+# MAX_SKILL_FILE_BYTES is re-exported so the routers can take the upload cap from this
+# context's public surface rather than reaching into `application/` for it — which this
+# module's own docstring says they never do. It is the same constant, named where the
+# rule says to name it.
+__all__ = ["MAX_SKILL_FILE_BYTES", "BoundSet", "DroppedSkill", "SkillsFacade"]

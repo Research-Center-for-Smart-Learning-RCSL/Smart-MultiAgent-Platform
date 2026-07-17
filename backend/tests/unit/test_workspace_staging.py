@@ -190,8 +190,9 @@ async def test_a_file_that_fits_after_an_overrun_is_still_staged() -> None:
 class _NoteRunner:
     """All three staging methods, returning what the real ones now return (absolute)."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, skills_raise: bool = False) -> None:
         self.skill_calls: list[dict] = []
+        self._skills_raise = skills_raise
 
     async def stage_agent_workspace_files(self, *, agent_id, files, manifest_sha):
         return [f"/workspace/agent-files/{f.filename}" for f in files]
@@ -200,6 +201,10 @@ class _NoteRunner:
         return [f"/workspace/sessions/{chatroom_id}/inputs/{f.filename}" for f in files]
 
     async def stage_skill_files(self, *, agent_id, files, manifest_sha):
+        if self._skills_raise:
+            # The wholesale failure: no daemon, or gVisor refused the container. The fetch
+            # succeeded, so only the write can still fail this way.
+            raise RuntimeError("docker daemon unreachable")
         self.skill_calls.append({"manifest_sha": manifest_sha, "filenames": [f.filename for f in files]})
         return [f"/workspace/skills/{f.filename}" for f in files]
 
@@ -211,14 +216,20 @@ def _async_return(value):
     return _f
 
 
-async def _note(monkeypatch, ws_files, attachments, bound=None, read_bytes=None) -> str | None:
-    """Drive `_stage_workspace_inputs` unbound, stubbing its lazy imports."""
+async def _stage_inputs(
+    monkeypatch, ws_files, attachments, bound=None, read_bytes=None, tools=None, skills_raise=False
+):
+    """Drive `_stage_workspace_inputs` unbound, stubbing its lazy imports.
+
+    Returns the `(note, unstaged)` pair the real method returns.
+    """
     import contexts.agents.application.runtime.turn_engine as mod
     from contexts.agents.domain.models import AgentToolType
 
     engine = TurnEngine.__new__(TurnEngine)
     engine._db = None
-    tools = [SimpleNamespace(enabled=True, tool_type=AgentToolType.HOSTED_CODE_INTERPRETER)]
+    if tools is None:
+        tools = [SimpleNamespace(enabled=True, tool_type=AgentToolType.HOSTED_CODE_INTERPRETER)]
 
     monkeypatch.setattr(
         mod,
@@ -235,7 +246,7 @@ async def _note(monkeypatch, ws_files, attachments, bound=None, read_bytes=None)
     )
     monkeypatch.setattr(
         "contexts.agents.infrastructure.sandbox.docker_runsc.docker_runsc_sandbox_from_settings",
-        lambda: _NoteRunner(),
+        lambda: _NoteRunner(skills_raise=skills_raise),
     )
     # `mod.SkillsFacade`, not the facade module's own attribute: turn_engine imports the
     # name at module scope, so that is where it is looked up. Patching the definition site
@@ -248,8 +259,19 @@ async def _note(monkeypatch, ws_files, attachments, bound=None, read_bytes=None)
         lambda _db: SimpleNamespace(read_skill_file_bytes=read_bytes or _async_return(b"print(1)")),
     )
     return await TurnEngine._stage_workspace_inputs(
-        engine, SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), attachments, bound or BoundSet(skills=())
+        engine,
+        SimpleNamespace(id=uuid.uuid4()),
+        uuid.uuid4(),
+        attachments,
+        bound or BoundSet(skills=()),
+        tools,
     )
+
+
+async def _note(monkeypatch, ws_files, attachments, bound=None, read_bytes=None) -> str | None:
+    """Just the note, for the cases that are only about what the model is told."""
+    note, _unstaged = await _stage_inputs(monkeypatch, ws_files, attachments, bound, read_bytes)
+    return note
 
 
 async def test_the_note_the_model_reads_carries_only_absolute_paths(monkeypatch) -> None:
@@ -299,21 +321,27 @@ class _SkillRunner:
         return [f"/workspace/skills/{f.filename}" for f in files]
 
 
-async def _stage_skills(monkeypatch, bound) -> tuple[_SkillRunner, list[str]]:
-    """Drive `_stage_skill_scripts` unbound over stubs."""
+async def _stage_skills(monkeypatch, bound, read_bytes=None) -> tuple[_SkillRunner, list[str], list]:
+    """Drive `_stage_skill_scripts` unbound over stubs.
+
+    Returns `(runner, out_paths, dropped)` — the third is the skills whose scripts never
+    reached the volume, which the caller must remove from the snapshot.
+    """
     monkeypatch.setattr(
         te,
         "SkillsFacade",
         lambda _db: SimpleNamespace(
-            read_skill_file_bytes=lambda f: _async_return(f"bytes:{f.path}".encode())()
+            read_skill_file_bytes=read_bytes or (lambda f: _async_return(f"bytes:{f.path}".encode())())
         ),
     )
     engine = TurnEngine.__new__(TurnEngine)
     engine._db = None
     runner = _SkillRunner()
     out: list[str] = []
-    await TurnEngine._stage_skill_scripts(engine, SimpleNamespace(id=uuid.uuid4()), runner, bound, out)
-    return runner, out
+    dropped = await TurnEngine._stage_skill_scripts(
+        engine, SimpleNamespace(id=uuid.uuid4()), runner, bound, out
+    )
+    return runner, out, dropped
 
 
 def _bound(*pairs):
@@ -331,7 +359,7 @@ async def test_scripts_stage_under_the_skill_name_preserving_the_bundle_layout(m
     skill = make_skill(name="pdf-fill")
     script = make_skill_file(skill.id, path="scripts/fill.py")
 
-    runner, out = await _stage_skills(monkeypatch, _bound((skill, [script])))
+    runner, out, _dropped = await _stage_skills(monkeypatch, _bound((skill, [script])))
 
     assert runner.calls[0]["staged"] == [("pdf-fill/scripts/fill.py", b"bytes:scripts/fill.py")]
     assert out == ["/workspace/skills/pdf-fill/scripts/fill.py"]
@@ -347,7 +375,7 @@ async def test_only_scripts_stage_never_references_or_assets(monkeypatch) -> Non
         make_skill_file(skill.id, path="assets/logo.png"),
     ]
 
-    runner, out = await _stage_skills(monkeypatch, _bound((skill, files)))
+    runner, out, _dropped = await _stage_skills(monkeypatch, _bound((skill, files)))
 
     assert [n for n, _ in runner.calls[0]["staged"]] == ["s/scripts/run.py"]
     assert out == ["/workspace/skills/s/scripts/run.py"]
@@ -355,7 +383,7 @@ async def test_only_scripts_stage_never_references_or_assets(monkeypatch) -> Non
 
 async def test_a_skill_with_no_scripts_stages_nothing(monkeypatch) -> None:
     skill = make_skill(name="s")
-    runner, out = await _stage_skills(
+    runner, out, _dropped = await _stage_skills(
         monkeypatch, _bound((skill, [make_skill_file(skill.id, path="references/g.md")]))
     )
 
@@ -372,7 +400,7 @@ async def test_an_unreadable_skill_stages_no_scripts(monkeypatch) -> None:
         make_skill_file(skill.id, path="scripts/run.py", scan_status=SkillScanStatus.QUARANTINED),
     ]
 
-    runner, out = await _stage_skills(monkeypatch, _bound((skill, files)))
+    runner, out, _dropped = await _stage_skills(monkeypatch, _bound((skill, files)))
 
     assert runner.calls == []
     assert out == []
@@ -387,7 +415,7 @@ async def test_one_quarantined_reference_withholds_the_skills_clean_scripts(monk
         make_skill_file(skill.id, path="references/g.md", scan_status=SkillScanStatus.QUARANTINED),
     ]
 
-    runner, out = await _stage_skills(monkeypatch, _bound((skill, files)))
+    runner, out, _dropped = await _stage_skills(monkeypatch, _bound((skill, files)))
 
     assert runner.calls == []
     assert out == []
@@ -399,7 +427,7 @@ async def test_a_pending_scan_withholds_the_script_too(monkeypatch) -> None:
     skill = make_skill(name="s")
     files = [make_skill_file(skill.id, path="scripts/run.py", scan_status=SkillScanStatus.PENDING)]
 
-    runner, out = await _stage_skills(monkeypatch, _bound((skill, files)))
+    runner, out, _dropped = await _stage_skills(monkeypatch, _bound((skill, files)))
 
     assert runner.calls == []
 
@@ -414,10 +442,176 @@ async def test_an_unreadable_skill_does_not_suppress_a_readable_one(monkeypatch)
         (good, [make_skill_file(good.id, path="scripts/y.py")]),
     )
 
-    runner, out = await _stage_skills(monkeypatch, bound)
+    runner, out, _dropped = await _stage_skills(monkeypatch, bound)
 
     assert [n for n, _ in runner.calls[0]["staged"]] == ["good/scripts/y.py"]
     assert out == ["/workspace/skills/good/scripts/y.py"]
+
+
+async def test_an_unreadable_skill_is_not_dropped_from_the_snapshot(monkeypatch) -> None:
+    """It stages nothing but stays in the index, unlike the two failures below. `read_skill`
+    refuses an unreadable skill by name at call time and tells the model not to guess
+    (D-27), so the index and the tool already agree — and a pending scan is transient, so
+    dropping it every turn while it settles would be noisier than the honest error."""
+    skill = make_skill(name="s")
+    bound = _bound(
+        (skill, [make_skill_file(skill.id, path="scripts/x.py", scan_status=SkillScanStatus.PENDING)])
+    )
+
+    _runner, _out, dropped = await _stage_skills(monkeypatch, bound)
+
+    assert dropped == []
+
+
+# --- the two ways a skill's scripts can fail to reach the volume -------------
+#
+# Both mean the same thing to the model — the skill is in the index, `read_skill` serves a
+# body saying "run scripts/x.py", and the file is not there — so both drop it from the
+# snapshot, the way AC-35 already drops a skill whose `requires:` tool is gone.
+
+
+async def test_a_budget_skipped_skill_is_dropped_from_the_snapshot(monkeypatch) -> None:
+    big = make_skill(name="big")
+    small = make_skill(name="small")
+    bound = _bound(
+        (big, [make_skill_file(big.id, path="scripts/a.py", size_bytes=40 * _MIB)]),
+        (small, [make_skill_file(small.id, path="scripts/b.py", size_bytes=10)]),
+    )
+
+    _runner, _out, dropped = await _stage_skills(monkeypatch, bound)
+
+    assert [(d.name, d.reason) for d in dropped] == [("big", "scripts_over_budget")]
+    # And the drop actually reduces the snapshot the index and read_skill are built from.
+    assert [s.name for s in bound.without(dropped).skills] == ["small"]
+
+
+async def test_one_skills_storage_fault_drops_only_that_skill(monkeypatch) -> None:
+    """The fetch used to run in one flat loop, so a single missing object raised past every
+    skill and none were staged — one of twenty taking the other nineteen down, which is the
+    opposite of the rule [R31.08] states for exactly this reason."""
+    bad = make_skill(name="bad")
+    good = make_skill(name="good")
+    bound = _bound(
+        (bad, [make_skill_file(bad.id, path="scripts/x.py", minio_key="gone")]),
+        (good, [make_skill_file(good.id, path="scripts/y.py", minio_key="here")]),
+    )
+
+    async def _read(f):
+        if f.minio_key == "gone":
+            raise RuntimeError("minio 404")
+        return b"print(1)"
+
+    runner, out, dropped = await _stage_skills(monkeypatch, bound, read_bytes=_read)
+
+    # The survivor is staged...
+    assert [n for n, _ in runner.calls[0]["staged"]] == ["good/scripts/y.py"]
+    assert out == ["/workspace/skills/good/scripts/y.py"]
+    # ...and only the casualty leaves the snapshot.
+    assert [(d.name, d.reason) for d in dropped] == [("bad", "scripts_unreadable")]
+    assert [s.name for s in bound.without(dropped).skills] == ["good"]
+
+
+async def test_a_failed_fetch_is_not_half_staged(monkeypatch) -> None:
+    """Whole-skill: a skill whose second script fails must not leave its first on the
+    volume — that is the partial staging the budget rule refuses to produce."""
+    skill = make_skill(name="s")
+    bound = _bound(
+        (
+            skill,
+            [
+                make_skill_file(skill.id, path="scripts/a.py", minio_key="ok"),
+                make_skill_file(skill.id, path="scripts/b.py", minio_key="gone"),
+            ],
+        )
+    )
+
+    async def _read(f):
+        if f.minio_key == "gone":
+            raise RuntimeError("minio 404")
+        return b"print(1)"
+
+    runner, out, dropped = await _stage_skills(monkeypatch, bound, read_bytes=_read)
+
+    assert runner.calls == []
+    assert out == []
+    assert [d.reason for d in dropped] == ["scripts_unreadable"]
+
+
+async def test_the_manifest_excludes_a_skill_whose_fetch_failed(monkeypatch) -> None:
+    """The manifest is computed after the fetch, not before: a cache key naming bytes the
+    fetch never produced would mark the volume as holding them."""
+    good = make_skill(name="good")
+    bad = make_skill(name="bad")
+    bound = _bound(
+        (good, [make_skill_file(good.id, path="scripts/y.py", sha256="b" * 64, minio_key="ok")]),
+        (bad, [make_skill_file(bad.id, path="scripts/x.py", sha256="c" * 64, minio_key="gone")]),
+    )
+
+    async def _read(f):
+        if f.minio_key == "gone":
+            raise RuntimeError("minio 404")
+        return b"print(1)"
+
+    runner, _out, _dropped = await _stage_skills(monkeypatch, bound, read_bytes=_read)
+
+    assert (
+        runner.calls[0]["manifest_sha"]
+        == hashlib.sha256(f"good/scripts/y.py:{'b' * 64}".encode()).hexdigest()
+    )
+
+
+async def test_a_wholesale_staging_failure_drops_every_script_bearing_skill(monkeypatch) -> None:
+    """No daemon, gVisor refused: the write itself failed, so nothing reached the volume and
+    no script-bearing skill may stay in the index. A skill with no scripts is unaffected —
+    nothing about it was staged.
+
+    Note the fetch cannot reach this arm any more: it is caught per skill above, which is
+    why this drives the *runner* rather than MinIO."""
+    scripted = make_skill(name="scripted")
+    plain = make_skill(name="plain")
+    bound = _bound(
+        (scripted, [make_skill_file(scripted.id, path="scripts/x.py")]),
+        (plain, [make_skill_file(plain.id, path="references/g.md")]),
+    )
+
+    note, unstaged = await _stage_inputs(
+        monkeypatch, ws_files=[], attachments=[], bound=bound, skills_raise=True
+    )
+
+    assert note is None
+    assert [(d.name, d.reason) for d in unstaged] == [("scripted", "scripts_unstaged")]
+    assert [s.name for s in bound.without(unstaged).skills] == ["plain"]
+
+
+async def test_a_skills_staging_failure_still_reports_the_agent_files(monkeypatch) -> None:
+    """The three staging sources are independent: a skills fault costs the scripts, not the
+    workspace files the model is also told about."""
+    skill = make_skill(name="s")
+    bound = _bound((skill, [make_skill_file(skill.id, path="scripts/x.py")]))
+
+    note, unstaged = await _stage_inputs(
+        monkeypatch,
+        ws_files=[_wf("a.csv", "sha-a", 10)],
+        attachments=[],
+        bound=bound,
+        skills_raise=True,
+    )
+
+    assert note == '[Files available in the code_exec workspace: "/workspace/agent-files/a.csv"]'
+    assert [d.name for d in unstaged] == ["s"]
+
+
+async def test_no_code_exec_drops_nothing(monkeypatch) -> None:
+    """The gate returning early is not a staging failure. An agent without the interpreter
+    cannot hold a script-bearing skill at all — AC-20 refuses the bind and the tap
+    re-checks — so there is nothing advertised-but-unrunnable to drop."""
+    skill = make_skill(name="s")
+    bound = _bound((skill, [make_skill_file(skill.id, path="references/g.md")]))
+
+    note, unstaged = await _stage_inputs(monkeypatch, ws_files=[], attachments=[], bound=bound, tools=[])
+
+    assert note is None
+    assert unstaged == []
 
 
 async def test_the_manifest_covers_exactly_the_staged_scripts(monkeypatch) -> None:
@@ -431,7 +625,7 @@ async def test_the_manifest_covers_exactly_the_staged_scripts(monkeypatch) -> No
         (bad, [make_skill_file(bad.id, path="scripts/x.py", scan_status=SkillScanStatus.QUARANTINED)]),
     )
 
-    runner, _out = await _stage_skills(monkeypatch, bound)
+    runner, _out, _dropped = await _stage_skills(monkeypatch, bound)
 
     expected = hashlib.sha256(f"good/scripts/y.py:{'b' * 64}".encode()).hexdigest()
     assert runner.calls[0]["manifest_sha"] == expected
@@ -441,10 +635,10 @@ async def test_editing_a_script_changes_the_manifest(monkeypatch) -> None:
     """The cache key must move when the bytes move, or an edited script never re-stages
     and the volume serves the old one forever."""
     skill = make_skill(name="s")
-    before, _ = await _stage_skills(
+    before, _, _ = await _stage_skills(
         monkeypatch, _bound((skill, [make_skill_file(skill.id, path="scripts/x.py", sha256="a" * 64)]))
     )
-    after, _ = await _stage_skills(
+    after, _, _ = await _stage_skills(
         monkeypatch, _bound((skill, [make_skill_file(skill.id, path="scripts/x.py", sha256="c" * 64)]))
     )
 
@@ -460,7 +654,7 @@ async def test_a_skill_whose_scripts_overrun_the_budget_is_skipped_whole(monkeyp
         make_skill_file(skill.id, path="scripts/b.py", size_bytes=20 * _MIB),
     ]
 
-    runner, out = await _stage_skills(monkeypatch, _bound((skill, files)))
+    runner, out, _dropped = await _stage_skills(monkeypatch, _bound((skill, files)))
 
     assert runner.calls == []
     assert out == []
@@ -476,7 +670,7 @@ async def test_an_oversized_skill_does_not_drop_the_smaller_ones_behind_it(monke
         (small, [make_skill_file(small.id, path="scripts/b.py", size_bytes=10)]),
     )
 
-    runner, out = await _stage_skills(monkeypatch, bound)
+    runner, out, _dropped = await _stage_skills(monkeypatch, bound)
 
     assert [n for n, _ in runner.calls[0]["staged"]] == ["small/scripts/b.py"]
     assert out == ["/workspace/skills/small/scripts/b.py"]

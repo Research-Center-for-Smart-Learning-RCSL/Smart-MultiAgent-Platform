@@ -109,6 +109,29 @@ class BoundSet:
     def files_for(self, skill_id: uuid.UUID) -> tuple[SkillFile, ...]:
         return self.files.get(skill_id, ())
 
+    def without(self, dropped: Sequence[DroppedSkill]) -> BoundSet:
+        """This snapshot minus `dropped`, with the reasons folded into `self.dropped`.
+
+        The tap is not the only stage that can find a skill unusable: staging can fail to
+        put a skill's scripts on the volume, and a skill whose scripts are absent must
+        leave the snapshot too, or the index advertises it and `read_skill` serves a body
+        telling the model to run a file that is not there ([R31.08]'s reasoning, reached
+        one step later than the tap).
+
+        Here rather than in the runtime because it is this dataclass's invariant: a skill
+        removed from `skills` is recorded in `dropped` with a reason, its files go with it,
+        and the three stay consistent. A caller rebuilding the tuple by hand would have to
+        remember all three.
+        """
+        ids = {d.skill_id for d in dropped}
+        if not ids:
+            return self
+        return BoundSet(
+            skills=tuple(s for s in self.skills if s.id not in ids),
+            dropped=self.dropped + tuple(dropped),
+            files={sid: fs for sid, fs in self.files.items() if sid not in ids},
+        )
+
 
 class BindingService:
     def __init__(self, db: AsyncSession) -> None:
@@ -190,34 +213,30 @@ class BindingService:
         whole bound set in one query. A `None`-means-go-look default would make the N+1 the
         easy path and the batch the exception.
 
-        The **single-skill** entry point, for `bind`. `resolve_bound_set` fetches the tool
-        set once and calls `assert_requirements_against` directly — see `_enabled_tools`.
+        The **single-skill** entry point, for `bind`, which has no turn to share a tool read
+        with. `resolve_bound_set` takes the tool set from its caller and calls
+        `assert_requirements_against` directly, so the tap never queries per skill.
         """
         needed = self._required_tool_types(skill, has_scripts=has_scripts)
+        # Not merely a fast path: it keeps the tool read off `bind` entirely for a skill
+        # that requires nothing, which is most of them.
         if not needed:
             return
-        self.assert_requirements_against(
-            skill, has_scripts=has_scripts, enabled=await self._enabled_tools(agent_id)
-        )
-
-    async def _enabled_tools(self, agent_id: uuid.UUID) -> set[AgentToolType]:
-        """The agent's enabled tool types — one query.
-
-        Hoisted out of `assert_requirements` because the tap calls it per skill and this is
-        a real DB read (`AgentsFacade.list_agent_tools`). It used to be *reachable* per
-        skill but almost never *reached*: `requires` is SMAP-invented and appears in 0 of
-        42 real bundles (Q-29), so `needed` was near-always empty and the short-circuit
-        above skipped the query. Deriving `code_exec` from `scripts/` inverted that — every
-        script-bearing skill now needs a check — so the guard that used to make this free
-        would have turned it into one query per bound skill per turn.
-        """
-        return {t.tool_type for t in await self._agents.list_agent_tools(agent_id) if t.enabled}
+        enabled = {t.tool_type for t in await self._agents.list_agent_tools(agent_id) if t.enabled}
+        self._assert_needed_are_enabled(skill, needed=needed, enabled=enabled)
 
     def assert_requirements_against(
         self, skill: Skill, *, has_scripts: bool, enabled: set[AgentToolType]
     ) -> None:
         """The pure half: prove `skill`'s requirements against an already-fetched tool set."""
-        needed = self._required_tool_types(skill, has_scripts=has_scripts)
+        self._assert_needed_are_enabled(
+            skill, needed=self._required_tool_types(skill, has_scripts=has_scripts), enabled=enabled
+        )
+
+    @staticmethod
+    def _assert_needed_are_enabled(
+        skill: Skill, *, needed: dict[str, AgentToolType], enabled: set[AgentToolType]
+    ) -> None:
         for name, tool_type in needed.items():
             if tool_type not in enabled:
                 raise SkillRequiresToolMissing(name, skill_name=skill.name)
@@ -427,33 +446,42 @@ class BindingService:
 
     # -- the per-turn snapshot ([R31.08]) ------------------------------------
 
-    async def resolve_bound_set(self, *, agent_id: uuid.UUID, agent_project_id: uuid.UUID) -> BoundSet:
+    async def resolve_bound_set(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        agent_project_id: uuid.UUID,
+        enabled_tools: set[AgentToolType],
+    ) -> BoundSet:
         """Re-prove every binding at the start of a turn, on both turn paths.
 
         Bind-time-only authorization is the live anti-pattern this codebase already has
         (`prompt_studio`'s session `post_message`, §8.5); Skills follows turn_engine and
         re-validates each turn instead. Failure is **per skill**: a stale binding drops
         that skill and the turn proceeds.
+
+        `enabled_tools` is supplied by the caller for the same two reasons `agent_project_id`
+        already is. It is one read the turn makes anyway — three consumers needed it and each
+        was querying for itself — and reads taken separately can *disagree*: a tool toggled
+        mid-turn could let the runtime build `code_exec` while this tap concluded the agent
+        lacks it, so the same turn both offers the tool and drops the skill that needs it.
+        One snapshot, one answer (the `_resolve_trigger_attachments` rule).
         """
         kept: list[Skill] = []
         dropped: list[DroppedSkill] = []
 
         candidates = await self._bindings.list_live_for_agent(agent_id)
-        # At most two queries for the whole set, before the loop — never per skill.
-        # `requires:` is derived per skill (AC-20), so both inputs it needs are batched
-        # here: which skills own a script, and which tools the agent has. This is the
-        # hottest path in the product and it runs for every bound skill on every turn.
+        # One query for the whole set, before the loop — never per skill. `requires:` is
+        # derived per skill (AC-20) and this is the hottest path in the product, running
+        # for every bound skill on every turn.
         with_scripts = await self._files.skill_ids_with_scripts([s.id for s in candidates])
-        # Lazily, because an agent whose skills need nothing must still pay nothing: before
-        # derivation the near-universal empty `requires` made the tool read free, and this
-        # keeps that true rather than trading one N+1 for one unconditional query.
-        needs_tools = any(self._required_tool_types(s, has_scripts=s.id in with_scripts) for s in candidates)
-        enabled = await self._enabled_tools(agent_id) if needs_tools else set()
 
         for skill in candidates:
             try:
                 await self._assert_contains(skill, agent_id=agent_id, agent_project_id=agent_project_id)
-                self.assert_requirements_against(skill, has_scripts=skill.id in with_scripts, enabled=enabled)
+                self.assert_requirements_against(
+                    skill, has_scripts=skill.id in with_scripts, enabled=enabled_tools
+                )
             except SkillContainmentFailed as exc:
                 dropped.append(DroppedSkill(skill_id=skill.id, name=skill.name, reason=exc.reason))
                 continue

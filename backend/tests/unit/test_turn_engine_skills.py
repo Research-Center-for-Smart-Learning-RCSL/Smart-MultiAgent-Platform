@@ -1,8 +1,10 @@
 """AC-7 — the turn-time skills tap drops per skill, never per turn (§31).
 
-`_resolve_skills` is the third AuthZ tap and the one shared by both turn paths.
-Building a full TurnEngine needs settings/router/qdrant wiring, so these exercise
-it as an unbound method over a stub — the same shape as
+`_resolve_skills` is the third AuthZ tap and the one shared by both turn paths;
+`_report_skill_drops` is the reporting half, split out because the tap is not the
+last stage that can drop a skill — staging can too, and one turn must produce one
+warning covering both. Building a full TurnEngine needs settings/router/qdrant
+wiring, so these exercise both as unbound methods over a stub — the same shape as
 `test_turn_engine_observer_activity.py` — with the skills facade and the room
 publisher stubbed.
 
@@ -58,15 +60,31 @@ def _agent() -> SimpleNamespace:
     return SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
 
 
-async def test_the_tap_asks_for_the_agents_own_scope(
+def _tool(kind: object, *, enabled: bool = True) -> SimpleNamespace:
+    return SimpleNamespace(tool_type=kind, enabled=enabled)
+
+
+async def test_the_tap_asks_for_the_agents_own_scope_and_its_tool_snapshot(
     engine: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The tap must not read the agent's tools for itself: the turn resolves them once and
+    every consumer shares that snapshot, or a tool toggled mid-turn lets the runtime build
+    `code_exec` while the tap concludes the agent lacks it."""
     agent = _agent()
     resolve = _facade(monkeypatch, BoundSet(skills=(make_skill(),)))
+    tools = [
+        _tool(te.AgentToolType.HOSTED_CODE_INTERPRETER),
+        _tool(te.AgentToolType.HOSTED_WEB_SEARCH, enabled=False),
+    ]
 
-    await TurnEngine._resolve_skills(engine, agent, uuid.uuid4(), "ws:room:x")
+    await TurnEngine._resolve_skills(engine, agent, tools)
 
-    resolve.assert_awaited_once_with(agent_id=agent.id, agent_project_id=agent.project_id)
+    resolve.assert_awaited_once_with(
+        agent_id=agent.id,
+        agent_project_id=agent.project_id,
+        # Disabled tools are not "enabled", and the tap must never see them as such.
+        enabled_tools={te.AgentToolType.HOSTED_CODE_INTERPRETER},
+    )
 
 
 async def test_a_clean_snapshot_is_returned_untouched_and_says_nothing(
@@ -75,7 +93,8 @@ async def test_a_clean_snapshot_is_returned_untouched_and_says_nothing(
     skill = make_skill(name="pdf-fill")
     _facade(monkeypatch, BoundSet(skills=(skill,)))
 
-    bound = await TurnEngine._resolve_skills(engine, _agent(), uuid.uuid4(), "ws:room:x")
+    bound = await TurnEngine._resolve_skills(engine, _agent(), [])
+    await TurnEngine._report_skill_drops(engine, _agent(), uuid.uuid4(), "ws:room:x", bound)
 
     assert bound.skills == (skill,)
     assert emitted == []
@@ -90,7 +109,8 @@ async def test_a_dropped_skill_is_audited_and_the_survivors_still_run(
     _facade(monkeypatch, BoundSet(skills=(kept,), dropped=(gone,)))
     room_id = uuid.uuid4()
 
-    bound = await TurnEngine._resolve_skills(engine, _agent(), room_id, "ws:room:x")
+    bound = await TurnEngine._resolve_skills(engine, _agent(), [])
+    await TurnEngine._report_skill_drops(engine, _agent(), room_id, "ws:room:x", bound)
 
     # The turn is not skipped and the surviving skill is not collateral: an agent
     # cannot run without a key, but it runs fine without one of twenty skills.
@@ -110,7 +130,8 @@ async def test_every_dropped_skill_is_audited_but_the_room_hears_one_warning(
     _facade(monkeypatch, BoundSet(skills=(), dropped=dropped))
     agent = _agent()
 
-    await TurnEngine._resolve_skills(engine, agent, uuid.uuid4(), "ws:room:x")
+    bound = await TurnEngine._resolve_skills(engine, agent, [])
+    await TurnEngine._report_skill_drops(engine, agent, uuid.uuid4(), "ws:room:x", bound)
 
     assert engine._audit.await_count == 3
     assert len(emitted) == 1
@@ -131,12 +152,9 @@ async def test_the_room_warning_never_names_the_dropped_skills(
     # would route around that: a guest could watch code_exec get disabled and harvest the
     # names of the agent's org- and platform-scoped skills.
     secret = "acme-merger-due-diligence"
-    _facade(
-        monkeypatch,
-        BoundSet(skills=(), dropped=(DroppedSkill(skill_id=uuid.uuid4(), name=secret, reason="scope"),)),
-    )
+    bound = BoundSet(skills=(), dropped=(DroppedSkill(skill_id=uuid.uuid4(), name=secret, reason="scope"),))
 
-    await TurnEngine._resolve_skills(engine, _agent(), uuid.uuid4(), "ws:room:x")
+    await TurnEngine._report_skill_drops(engine, _agent(), uuid.uuid4(), "ws:room:x", bound)
 
     assert secret not in json.dumps(emitted)
     # The audit trail is the surface that may name it — it is not guest-readable.
@@ -156,13 +174,10 @@ async def test_a_failed_warning_is_logged_rather_than_swallowed(
             raise RuntimeError("redis down")
 
     monkeypatch.setattr(te, "Publisher", _Broken)
-    _facade(
-        monkeypatch,
-        BoundSet(skills=(), dropped=(DroppedSkill(skill_id=uuid.uuid4(), name="a", reason="scope"),)),
-    )
+    bound = BoundSet(skills=(), dropped=(DroppedSkill(skill_id=uuid.uuid4(), name="a", reason="scope"),))
 
     with caplog.at_level(logging.WARNING):
-        await TurnEngine._resolve_skills(engine, _agent(), uuid.uuid4(), "ws:room:x")
+        await TurnEngine._report_skill_drops(engine, _agent(), uuid.uuid4(), "ws:room:x", bound)
 
     assert any("skills warning emit failed" in r.message for r in caplog.records)
 
@@ -172,12 +187,9 @@ async def test_a_headless_turn_audits_the_drop_and_emits_nothing(
 ) -> None:
     # An A2A turn has no room and an observer turn deliberately has no room channel
     # (R28.01). Both reach here with room=None and must not emit.
-    _facade(
-        monkeypatch,
-        BoundSet(skills=(), dropped=(DroppedSkill(skill_id=uuid.uuid4(), name="a", reason="scope"),)),
-    )
+    bound = BoundSet(skills=(), dropped=(DroppedSkill(skill_id=uuid.uuid4(), name="a", reason="scope"),))
 
-    await TurnEngine._resolve_skills(engine, _agent(), None, None)
+    await TurnEngine._report_skill_drops(engine, _agent(), None, None, bound)
 
     engine._audit.assert_awaited_once()
     assert emitted == []
@@ -205,6 +217,7 @@ async def test_a_broken_room_channel_never_costs_the_turn_its_skills(
         ),
     )
 
-    bound = await TurnEngine._resolve_skills(engine, _agent(), uuid.uuid4(), "ws:room:x")
+    bound = await TurnEngine._resolve_skills(engine, _agent(), [])
+    await TurnEngine._report_skill_drops(engine, _agent(), uuid.uuid4(), "ws:room:x", bound)
 
     assert bound.skills == (kept,)

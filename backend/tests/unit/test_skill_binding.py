@@ -26,6 +26,8 @@ from contexts.skills.application.binding_service import (
     DERIVED_SCRIPT_REQUIREMENT,
     REQUIRES_VOCABULARY,
     BindingService,
+    BoundSet,
+    DroppedSkill,
 )
 from contexts.skills.domain.errors import (
     SkillContainmentFailed,
@@ -83,6 +85,20 @@ class _Harness:
         project = FakeProject(id=uuid.uuid4(), owner_org_id=org_id, deleted_at=NOW if deleted else None)
         self.tenancy.projects[project.id] = project
         return project
+
+    async def resolve(self, agent: FakeAgent, project: FakeProject) -> Any:
+        """`resolve_bound_set` fed the agent's own enabled tools, as a turn feeds it.
+
+        The tool set is the caller's argument, not something the tap reads, so that a turn
+        resolves it once and every consumer shares one answer. Derived here from the same
+        fake the tap would otherwise have queried, so these tests still describe a real
+        agent rather than an arbitrary tool set.
+        """
+        return await self.svc.resolve_bound_set(
+            agent_id=agent.id,
+            agent_project_id=project.id,
+            enabled_tools={t.tool_type for t in self.agents.tools[agent.id] if t.enabled},
+        )
 
 
 @pytest.fixture
@@ -365,7 +381,7 @@ async def test_the_turn_time_tap_drops_a_skill_that_grew_a_script_after_binding(
 
     h.files.put(make_skill_file(skill.id, path="scripts/fill.py"))
 
-    bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
+    bound = await h.resolve(agent, project)
     assert bound.skills == ()
     assert [(d.name, d.reason) for d in bound.dropped] == [("pdf-fill", "requires:code_exec")]
 
@@ -378,11 +394,16 @@ class TestTheTapsQueryCount:
     on: `requires` is SMAP-invented and appears in 0 of 42 real bundles (Q-29), so `needed`
     was near-always empty and `assert_requirements`' short-circuit skipped the tool read.
     Once every script-bearing skill derives a requirement that guard stops firing, and the
-    read that was free becomes one query per skill per turn. Caught by this task's quality
+    read that was free became one query per skill per turn. Caught by this task's quality
     gate, not by a test — hence these.
     """
 
-    async def test_the_tool_set_is_read_once_for_a_whole_bound_set(self, h: _Harness) -> None:
+    async def test_the_tap_never_reads_the_agents_tools(self, h: _Harness) -> None:
+        """Stronger than "reads once": the tap takes the tool set as an argument and never
+        queries at all, so the turn resolves it once for every consumer. Sharing is not an
+        optimisation — three independent reads can observe a tool toggled mid-turn and
+        disagree, letting the runtime build `code_exec` while the tap drops the very skill
+        that needs it."""
         project = h.add_project()
         agent = h.add_agent(project_id=project.id, tools=[FakeTool(AgentToolType.HOSTED_CODE_INTERPRETER)])
         for i in range(5):
@@ -391,26 +412,87 @@ class TestTheTapsQueryCount:
             await h.svc.bind(skill_id=skill.id, agent_id=agent.id)
 
         h.agents.tool_reads = 0
-        bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
+        bound = await h.resolve(agent, project)
 
         assert len(bound.skills) == 5
-        assert h.agents.tool_reads == 1
+        assert h.agents.tool_reads == 0
 
-    async def test_a_bound_set_that_needs_no_tool_reads_none(self, h: _Harness) -> None:
-        """The lazy half: the old code paid nothing here and it must stay that way, or the
-        fix trades one N+1 for one unconditional query on every turn."""
+    async def test_the_tap_honours_the_tool_set_it_is_handed(self, h: _Harness) -> None:
+        """The other half of taking it as an argument: the tap must actually use it, or
+        `enabled_tools` is decorative. A disabled `code_exec` row hands it an empty set and
+        every script-bearing skill must drop."""
         project = h.add_project()
-        agent = h.add_agent(project_id=project.id)
-        for i in range(3):
-            skill = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name=f"s{i}"))
-            h.files.put(make_skill_file(skill.id, path="references/g.md"))
-            await h.svc.bind(skill_id=skill.id, agent_id=agent.id)
+        agent = h.add_agent(
+            project_id=project.id,
+            tools=[FakeTool(AgentToolType.HOSTED_CODE_INTERPRETER, enabled=False)],
+        )
+        skill = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name="s"))
+        h.bindings.seed(agent_id=agent.id, skill_id=skill.id)
+        h.files.put(make_skill_file(skill.id, path="scripts/x.py"))
+
+        bound = await h.resolve(agent, project)
+
+        assert bound.skills == ()
+        assert [(d.name, d.reason) for d in bound.dropped] == [("s", "requires:code_exec")]
+
+    async def test_bind_reads_the_tool_set_only_when_the_skill_needs_one(self, h: _Harness) -> None:
+        """`bind` is a request, not a turn: it has nothing to share a read with, so it does
+        its own — but still not for a skill that requires nothing, which is most of them."""
+        project = h.add_project()
+        agent = h.add_agent(project_id=project.id, tools=[FakeTool(AgentToolType.HOSTED_CODE_INTERPRETER)])
+        plain = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name="a"))
+        scripted = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name="b"))
+        h.files.put(make_skill_file(scripted.id, path="scripts/x.py"))
 
         h.agents.tool_reads = 0
-        bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
-
-        assert len(bound.skills) == 3
+        await h.svc.bind(skill_id=plain.id, agent_id=agent.id)
         assert h.agents.tool_reads == 0
+
+        await h.svc.bind(skill_id=scripted.id, agent_id=agent.id)
+        assert h.agents.tool_reads == 1
+
+
+class TestBoundSetWithout:
+    """`BoundSet.without` — the tap is not the last stage that can drop a skill.
+
+    Staging can fail to put a skill's scripts on the volume, and such a skill must leave
+    the snapshot or the index advertises it and `read_skill` serves a body telling the
+    model to run a file that is not there.
+    """
+
+    def test_it_removes_the_skill_records_the_reason_and_takes_its_files(self) -> None:
+        kept, gone = make_skill(name="kept"), make_skill(name="gone")
+        bound = BoundSet(
+            skills=(kept, gone),
+            files={kept.id: (make_skill_file(kept.id),), gone.id: (make_skill_file(gone.id),)},
+        )
+        drop = DroppedSkill(skill_id=gone.id, name="gone", reason="scripts_over_budget")
+
+        out = bound.without([drop])
+
+        assert [s.name for s in out.skills] == ["kept"]
+        assert out.dropped == (drop,)
+        # The files go with it, or `read_skill`'s manifest would still list a skill the
+        # snapshot no longer contains.
+        assert out.files_for(gone.id) == ()
+        assert out.files_for(kept.id) != ()
+
+    def test_it_accumulates_rather_than_replaces_the_taps_own_drops(self) -> None:
+        """The tap's drops and staging's drops are one turn's story; the second call must
+        not erase the first, or the audit and the warning under-report."""
+        tap_drop = DroppedSkill(skill_id=uuid.uuid4(), name="revoked", reason="scope")
+        skill = make_skill(name="s")
+        bound = BoundSet(skills=(skill,), dropped=(tap_drop,))
+        stage_drop = DroppedSkill(skill_id=skill.id, name="s", reason="scripts_unstaged")
+
+        out = bound.without([stage_drop])
+
+        assert out.skills == ()
+        assert out.dropped == (tap_drop, stage_drop)
+
+    def test_dropping_nothing_returns_the_same_snapshot(self) -> None:
+        bound = BoundSet(skills=(make_skill(),))
+        assert bound.without([]) is bound
 
 
 class TestTheScriptProbePredicate:
@@ -594,7 +676,7 @@ async def test_the_snapshot_returns_every_live_binding(h: _Harness) -> None:
         skill = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name=name))
         h.bindings.seed(agent_id=agent.id, skill_id=skill.id)
 
-    bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
+    bound = await h.resolve(agent, project)
 
     # Name-ordered: the index block is rendered from this, so an unordered result would
     # make the system prompt and its token estimate vary between turns for an unchanged
@@ -615,7 +697,7 @@ async def test_a_skill_whose_containment_went_stale_drops_and_the_turn_runs_on(h
     h.bindings.seed(agent_id=agent.id, skill_id=good.id)
     h.bindings.seed(agent_id=agent.id, skill_id=stale.id)
 
-    bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
+    bound = await h.resolve(agent, project)
 
     assert [s.name for s in bound.skills] == ["good"]
     assert [(d.name, d.reason) for d in bound.dropped] == [("stale", "project_scope_mismatch")]
@@ -638,7 +720,7 @@ async def test_two_skills_sharing_a_name_in_a_bound_set_both_drop(h: _Harness) -
     for s in (platform, shadow, other):
         h.bindings.seed(agent_id=agent.id, skill_id=s.id)
 
-    bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
+    bound = await h.resolve(agent, project)
 
     # The vetted platform skill goes too. That is the point: there is no principled
     # winner, and serving the admin's `deploy` while the operator's UI shows two is the
@@ -661,7 +743,7 @@ async def test_a_collision_costs_only_the_colliding_names(h: _Harness) -> None:
         dup = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name="dup"))
         h.bindings.seed(agent_id=agent.id, skill_id=dup.id)
 
-    bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
+    bound = await h.resolve(agent, project)
 
     assert [s.name for s in bound.skills] == ["a", "b", "c"]
     assert {d.name for d in bound.dropped} == {"dup"}
@@ -678,7 +760,7 @@ async def test_a_skill_whose_required_tool_was_disabled_drops_with_a_naming_reas
     )
     h.bindings.seed(agent_id=agent.id, skill_id=skill.id)
 
-    bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
+    bound = await h.resolve(agent, project)
 
     assert bound.skills == ()
     assert [(d.name, d.reason) for d in bound.dropped] == [("scripted", "requires:code_exec")]
@@ -694,7 +776,7 @@ async def test_an_unbound_or_deleted_skill_is_absent_from_the_snapshot_entirely(
     h.bindings.seed(agent_id=agent.id, skill_id=unbound.id, deleted_at=NOW)
     h.bindings.seed(agent_id=agent.id, skill_id=deleted.id, cascade_deleted_at=NOW)
 
-    bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
+    bound = await h.resolve(agent, project)
 
     assert bound.skills == ()
     assert bound.dropped == ()
@@ -704,7 +786,7 @@ async def test_an_agent_with_nothing_bound_gets_an_empty_snapshot(h: _Harness) -
     project = h.add_project()
     agent = h.add_agent(project_id=project.id)
 
-    bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
+    bound = await h.resolve(agent, project)
 
     assert bound.skills == ()
     assert bound.dropped == ()
