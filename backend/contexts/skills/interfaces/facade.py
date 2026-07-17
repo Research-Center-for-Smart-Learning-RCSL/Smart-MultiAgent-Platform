@@ -30,7 +30,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
 from contexts.agents.domain.models import AgentToolType
+from contexts.skills.application import bundle_jobs
 from contexts.skills.application.binding_service import BindingService, BoundSet, DroppedSkill
+from contexts.skills.application.bundle_jobs import (
+    MAX_CONCURRENT_IMPORTS_PER_ORG,
+    BundleJobStatus,
+    ExportJobState,
+    ImportJobState,
+)
 from contexts.skills.application.bundle_service import BundleService, ImportResult
 from contexts.skills.application.file_service import (
     MAX_SKILL_FILE_BYTES,
@@ -482,6 +489,50 @@ class SkillsFacade:
         """[R31.11] — live skills per scope, for the admin metric."""
         return await SkillRepository(self._db).count_by_scope()
 
+    # -- bundle transport job state (D-58) ----------------------------------
+    #
+    # Import/export are `202 + task id` background jobs whose ephemeral status lives in
+    # Redis (`bundle_jobs`, mirroring `export_service`). These are `staticmethod`s for the
+    # same reason `render_index` is: they are sessionless — no query, no `self._db` — so
+    # the transport routers and the worker reach the coordination state through this facade
+    # rather than importing `application/` directly, and the status GETs need no DB session.
+
+    @staticmethod
+    async def create_import_job(
+        *, scope: SkillScope, owner_id: uuid.UUID | None, actor_user_id: uuid.UUID
+    ) -> ImportJobState:
+        return await bundle_jobs.create_import(
+            scope=scope.value, owner_id=owner_id, actor_user_id=actor_user_id
+        )
+
+    @staticmethod
+    async def get_import_job(job_id: uuid.UUID) -> ImportJobState | None:
+        return await bundle_jobs.get_import(job_id)
+
+    @staticmethod
+    async def create_export_job(
+        *, skill_id: uuid.UUID, scope: SkillScope, owner_id: uuid.UUID | None, actor_user_id: uuid.UUID
+    ) -> ExportJobState:
+        return await bundle_jobs.create_export(
+            skill_id=skill_id, scope=scope.value, owner_id=owner_id, actor_user_id=actor_user_id
+        )
+
+    @staticmethod
+    async def get_export_job(job_id: uuid.UUID) -> ExportJobState | None:
+        return await bundle_jobs.get_export(job_id)
+
+    @staticmethod
+    async def mark_export_job_failed(*, job_id: uuid.UUID, error: str) -> None:
+        await bundle_jobs.mark_export_failed(job_id=job_id, error=error)
+
+    @staticmethod
+    async def acquire_import_slot(org_key: str) -> bool:
+        return await bundle_jobs.acquire_import_slot(org_key)
+
+    @staticmethod
+    async def release_import_slot(org_key: str) -> None:
+        await bundle_jobs.release_import_slot(org_key)
+
 
 # `BoundSet` and `DroppedSkill` are re-exported deliberately: the first is
 # `resolve_bound_set`'s return type and the second is what the runtime must construct to
@@ -490,5 +541,16 @@ class SkillsFacade:
 # MAX_SKILL_FILE_BYTES is re-exported so the routers can take the upload cap from this
 # context's public surface rather than reaching into `application/` for it — which this
 # module's own docstring says they never do. It is the same constant, named where the
-# rule says to name it.
-__all__ = ["MAX_SKILL_FILE_BYTES", "BoundSet", "DroppedSkill", "SkillsFacade"]
+# rule says to name it. `BundleJobStatus`, the job-state dataclasses, and the per-org cap
+# are re-exported for the same reason: the transport routers name them (response models,
+# the 429 message) and must reach them through this facade, not through `application/`.
+__all__ = [
+    "MAX_CONCURRENT_IMPORTS_PER_ORG",
+    "MAX_SKILL_FILE_BYTES",
+    "BoundSet",
+    "BundleJobStatus",
+    "DroppedSkill",
+    "ExportJobState",
+    "ImportJobState",
+    "SkillsFacade",
+]

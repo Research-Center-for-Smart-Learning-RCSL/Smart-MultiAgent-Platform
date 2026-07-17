@@ -34,7 +34,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
 from app.api.v1.deps import PaginationParams, assert_project_membership, parse_if_match
-from contexts.skills.application import bundle_jobs
 from contexts.skills.domain.models import (
     MAX_DESCRIPTION_CHARS,
     SKILL_NAME_RE,
@@ -48,7 +47,12 @@ from contexts.skills.domain.text_rules import (
     skill_file_path_reason,
     text_rejection_reason,
 )
-from contexts.skills.interfaces.facade import MAX_SKILL_FILE_BYTES, SkillsFacade
+from contexts.skills.interfaces.facade import (
+    MAX_CONCURRENT_IMPORTS_PER_ORG,
+    MAX_SKILL_FILE_BYTES,
+    BundleJobStatus,
+    SkillsFacade,
+)
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
@@ -227,12 +231,12 @@ class BundleJobOut(BaseModel):
     """The 202 body for import/export — a task id to poll."""
 
     job_id: uuid.UUID
-    status: bundle_jobs.BundleJobStatus
+    status: BundleJobStatus
 
 
 class BundleImportStatusOut(BaseModel):
     job_id: uuid.UUID
-    status: bundle_jobs.BundleJobStatus
+    status: BundleJobStatus
     # Populated once ready: the skill the bundle produced and any compatibility warnings.
     skill_id: uuid.UUID | None
     warnings: list[str]
@@ -245,7 +249,7 @@ class BundleImportStatusOut(BaseModel):
 # churn the unrelated ExportsService client. Distinct names keep both clients clean.
 class BundleExportStatusOut(BaseModel):
     job_id: uuid.UUID
-    status: bundle_jobs.BundleJobStatus
+    status: BundleJobStatus
     # A short-lived presigned URL once ready; the client fetches the .zip directly.
     url: str | None
     error: str | None
@@ -725,19 +729,18 @@ async def _import(
         )
 
     org_key = await SkillsFacade(db).import_org_key(scope=scope, owner_id=owner_id, project_id=project_id)
-    if not await bundle_jobs.acquire_import_slot(org_key):
-        _max = bundle_jobs.MAX_CONCURRENT_IMPORTS_PER_ORG
+    if not await SkillsFacade.acquire_import_slot(org_key):
         raise HTTPException(
             status_code=429,
-            detail=f"too many concurrent imports for this org (max {_max})",
+            detail=f"too many concurrent imports for this org (max {MAX_CONCURRENT_IMPORTS_PER_ORG})",
         )
+    minio = get_minio_client()
     staged_key: str | None = None
     try:
-        job = await bundle_jobs.create_import(
-            scope=scope.value, owner_id=owner_id, actor_user_id=principal.user_id
+        job = await SkillsFacade.create_import_job(
+            scope=scope, owner_id=owner_id, actor_user_id=principal.user_id
         )
         key = skill_import_staging_key(job_id=job.job_id)
-        minio = get_minio_client()
         await minio.put_object(
             bucket=minio.skill_bundles_bucket,
             key=key,
@@ -761,9 +764,9 @@ async def _import(
         # never runs because the job never ran, so release the slot here — otherwise the
         # failure permanently consumes one of the org's slots — and delete the staged bytes
         # if they landed, since the skill-bundles bucket has no lifecycle to reclaim them.
-        await bundle_jobs.release_import_slot(org_key)
+        await SkillsFacade.release_import_slot(org_key)
         if staged_key is not None:
-            await get_minio_client().remove(bucket=get_minio_client().skill_bundles_bucket, key=staged_key)
+            await minio.remove(bucket=minio.skill_bundles_bucket, key=staged_key)
         raise
     return BundleJobOut(job_id=job.job_id, status=job.status)
 
@@ -785,6 +788,9 @@ async def _export(
     skill = await SkillsFacade(db).get_owned(skill_id, scope, owner_id=owner_id)
     from shared_kernel import audit
 
+    # Emitted before the enqueue, uncommitted: if the enqueue fails and this handler raises,
+    # `db_session` rolls the audit back with the request, so we never record an export that
+    # was never queued. It commits with the request only once the work is actually enqueued.
     await audit.emit(
         db,
         audit.AuditEvent(
@@ -801,16 +807,23 @@ async def _export(
             request_id=ctx.request_id,
         ),
     )
-    job = await bundle_jobs.create_export(
-        skill_id=skill.id, scope=scope.value, owner_id=owner_id, actor_user_id=principal.user_id
+    job = await SkillsFacade.create_export_job(
+        skill_id=skill.id, scope=scope, owner_id=owner_id, actor_user_id=principal.user_id
     )
-    await enqueue(
-        "skill_export_bundle",
-        job_id=str(job.job_id),
-        skill_id=str(skill.id),
-        scope=scope.value,
-        owner_id=str(owner_id) if owner_id else None,
-    )
+    try:
+        await enqueue(
+            "skill_export_bundle",
+            job_id=str(job.job_id),
+            skill_id=str(skill.id),
+            scope=scope.value,
+            owner_id=str(owner_id) if owner_id else None,
+        )
+    except Exception:
+        # The job row was created but nothing will run it. Mark it failed so a client that
+        # somehow holds the id does not poll a QUEUED job forever, then re-raise (which rolls
+        # the audit back).
+        await SkillsFacade.mark_export_job_failed(job_id=job.job_id, error="failed to enqueue export")
+        raise
     return BundleJobOut(job_id=job.job_id, status=job.status)
 
 
@@ -823,24 +836,27 @@ async def _agent_project_id(db: AsyncSession, agent_id: uuid.UUID) -> uuid.UUID:
     return agent.project_id
 
 
-async def _assert_agent_write(db: AsyncSession, principal: Principal, agent_id: uuid.UUID) -> None:
-    """RESOURCE_CREATE_EDIT at the agent's own project.
+async def _assert_agent_write(db: AsyncSession, principal: Principal, agent_id: uuid.UUID) -> uuid.UUID:
+    """RESOURCE_CREATE_EDIT at the agent's own project; returns that project id.
 
     The agent routers cannot use `scope_from_path` — there is no `{project_id}` in the
-    path — so the project is lifted off the agent first, mirroring `agents.py:265-275`.
+    path — so the project is lifted off the agent first, mirroring `agents.py:265-275`. The
+    resolved project id is returned so a caller that also needs it (import's concurrency
+    bucket) does not resolve the agent a second time.
     """
     from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
     from shared_kernel.auth.permissions import Scope, decide
 
     project_id = await _agent_project_id(db, agent_id)
     if principal.is_admin:
-        return
+        return project_id
     resolver = await get_role_resolver(db)
     decision = await decide(
         principal, Capability.RESOURCE_CREATE_EDIT, Scope(project_id=project_id), resolver
     )
     if not decision.allowed:
         _raise_forbidden(decision.reason)
+    return project_id
 
 
 # ---------------------------------------------------------------------------
@@ -947,8 +963,7 @@ async def agent_import_bundle(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> BundleJobOut:
-    await _assert_agent_write(db, principal, agent_id)
-    project_id = await _agent_project_id(db, agent_id)
+    project_id = await _assert_agent_write(db, principal, agent_id)
     return await _import(db, ctx, principal, SkillScope.AGENT, agent_id, project_id=project_id, upload=upload)
 
 
@@ -1700,7 +1715,7 @@ async def get_import_status(
     same shape `GET /api/exports/{job_id}` uses. A stranger with a guessed id gets a 403, not
     a leak of whether the id is live.
     """
-    state = await bundle_jobs.get_import(task_id)
+    state = await SkillsFacade.get_import_job(task_id)
     if state is None:
         raise HTTPException(status_code=404, detail="import job not found")
     if state.actor_user_id != principal.user_id and not principal.is_admin:
@@ -1727,7 +1742,7 @@ async def get_export_status(
     (D-58 records this). The URL dictates the download's filename and content type via the
     presigned response headers, so the object's stored metadata never reaches the browser.
     """
-    state = await bundle_jobs.get_export(task_id)
+    state = await SkillsFacade.get_export_job(task_id)
     if state is None:
         raise HTTPException(status_code=404, detail="export job not found")
     if state.actor_user_id != principal.user_id and not principal.is_admin:
@@ -1735,7 +1750,7 @@ async def get_export_status(
 
         _raise_forbidden("not the export initiator")
     url: str | None = None
-    if state.status == bundle_jobs.BundleJobStatus.READY and state.bucket and state.object_key:
+    if state.status == BundleJobStatus.READY and state.bucket and state.object_key:
         url = await get_minio_client().presigned_get(
             bucket=state.bucket,
             key=state.object_key,

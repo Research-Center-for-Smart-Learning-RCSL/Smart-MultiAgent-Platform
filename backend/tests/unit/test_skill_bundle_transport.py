@@ -18,6 +18,8 @@ import pytest
 from app.workers.tasks import skills as worker
 from contexts.skills.application import bundle_jobs
 from contexts.skills.domain.errors import BundleInvalid, BundleQuarantined, SkillUnreadable
+from contexts.skills.domain.models import SkillScope
+from contexts.skills.interfaces.facade import SkillsFacade
 
 
 class _FakeRedis:
@@ -159,6 +161,42 @@ class TestConcurrencySlots:
         assert await bundle_jobs.acquire_import_slot("org:a") is False
         # A different org's budget is untouched.
         assert await bundle_jobs.acquire_import_slot("org:b") is True
+
+
+class TestFacadeJobDelegators:
+    """The routers reach job state through the facade (SoC), not `bundle_jobs` directly.
+
+    These delegators are sessionless staticmethods; the test drives them with no `db` — the
+    same way the status GET endpoints do — and checks they round-trip through the module.
+    """
+
+    async def test_import_job_delegators_round_trip(self, redis: _FakeRedis) -> None:
+        owner = uuid.uuid4()
+        job = await SkillsFacade.create_import_job(
+            scope=SkillScope.ORG, owner_id=owner, actor_user_id=uuid.uuid4()
+        )
+        got = await SkillsFacade.get_import_job(job.job_id)
+        assert got is not None
+        assert got.scope == "org"
+        assert got.owner_id == owner
+
+    async def test_export_job_delegators_round_trip(self, redis: _FakeRedis) -> None:
+        job = await SkillsFacade.create_export_job(
+            skill_id=uuid.uuid4(), scope=SkillScope.PLATFORM, owner_id=None, actor_user_id=uuid.uuid4()
+        )
+        await SkillsFacade.mark_export_job_failed(job_id=job.job_id, error="failed to enqueue export")
+        got = await SkillsFacade.get_export_job(job.job_id)
+        assert got is not None
+        assert got.status is bundle_jobs.BundleJobStatus.FAILED
+        assert got.error == "failed to enqueue export"
+
+    async def test_slot_delegators_round_trip(self, redis: _FakeRedis) -> None:
+        key = "org:facade"
+        for _ in range(bundle_jobs.MAX_CONCURRENT_IMPORTS_PER_ORG):
+            assert await SkillsFacade.acquire_import_slot(key) is True
+        assert await SkillsFacade.acquire_import_slot(key) is False
+        await SkillsFacade.release_import_slot(key)
+        assert await SkillsFacade.acquire_import_slot(key) is True
 
 
 # ---------------------------------------------------------------------------
