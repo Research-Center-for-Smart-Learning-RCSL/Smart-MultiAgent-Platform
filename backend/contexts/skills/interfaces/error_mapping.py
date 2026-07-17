@@ -95,6 +95,15 @@ def _extras(exc: Exception) -> dict[str, Any]:
         return {}
     if isinstance(exc, errors.SkillContainmentFailed):
         return {"reason": exc.reason}
+    if isinstance(exc, errors.BundleInvalid):
+        # §10's mitigation for "editor is a textarea; frontmatter errors invisible" is
+        # server-side validation "naming the offending key/line". The reason carries the
+        # line; `key` and `path` are what let a UI point at the field rather than make the
+        # author re-read a zip. Both are None for a whole-bundle rejection (a size cap, a
+        # missing SKILL.md), which is honest: no single entry is at fault.
+        return {"key": exc.key, "path": exc.path}
+    if isinstance(exc, errors.BundleQuarantined):
+        return {"path": exc.path}
     return {}
 
 

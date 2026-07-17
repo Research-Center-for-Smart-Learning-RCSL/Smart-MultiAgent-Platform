@@ -43,6 +43,7 @@ from contexts.skills.application.skill_md import (
 from contexts.skills.domain.errors import BundleInvalid, BundleQuarantined
 from contexts.skills.domain.models import Skill, SkillScope, SkillSource
 from contexts.skills.domain.text_rules import skill_file_path_reason
+from contexts.skills.interfaces import error_mapping
 
 SKILL_MD = "---\nname: pdf-fill\ndescription: Fills PDF forms.\n---\n\n# PDF Fill\n\nProse.\n"
 
@@ -1099,6 +1100,48 @@ class TestDivergence:
         pinned = self._digest_of(s, [f])
         edited = SimpleNamespace(path="references/a.md", sha256="bb")
         assert bundle_service.is_diverged(self._skill(bundle_sha256=pinned), [edited])  # type: ignore[arg-type]
+
+
+class TestTheRejectionsReachTheClientAsTheirSlugs:
+    """AC-24 and AC-25 are worded as slugs, not as exceptions.
+
+    `skills/bundle-invalid` and `skills/bundle-quarantined` are the contract; the
+    exception classes are an implementation detail behind them. Asserted against the real
+    registration map rather than a hand-written expectation, so a rename that misses the
+    map is caught here rather than by a client.
+    """
+
+    def test_bundle_invalid_maps_to_its_slug_and_422(self) -> None:
+        slug, status_code, _ = error_mapping._MAP[BundleInvalid]
+        assert (slug, status_code) == ("skills/bundle-invalid", 422)
+
+    def test_bundle_quarantined_maps_to_its_slug_and_422(self) -> None:
+        slug, status_code, _ = error_mapping._MAP[BundleQuarantined]
+        assert (slug, status_code) == ("skills/bundle-quarantined", 422)
+
+    def test_the_offending_key_travels_with_the_problem(self) -> None:
+        # §10's mitigation for invisible frontmatter errors is a rejection "naming the
+        # offending key". Without this the author sees a 422 over a zip and no field.
+        exc = BundleInvalid("nope", key="scope")
+        assert error_mapping._extras(exc) == {"key": "scope", "path": None}
+
+    def test_the_offending_path_travels_with_the_problem(self) -> None:
+        exc = BundleInvalid("nope", path="references/x.md")
+        assert error_mapping._extras(exc)["path"] == "references/x.md"
+
+    def test_a_whole_bundle_rejection_names_no_entry_rather_than_a_wrong_one(self) -> None:
+        # A size cap or a missing SKILL.md is nobody's fault in particular.
+        assert error_mapping._extras(BundleInvalid("too big")) == {"key": None, "path": None}
+
+    def test_the_quarantined_path_travels(self) -> None:
+        assert error_mapping._extras(BundleQuarantined("assets/x.bin")) == {"path": "assets/x.bin"}
+
+    def test_a_real_rejection_carries_a_key_the_mapping_can_surface(self) -> None:
+        # End to end over the two layers: the importer's own error, through the extras
+        # function the handler calls.
+        with pytest.raises(BundleInvalid) as exc:
+            read_bundle(build_zip({"SKILL.md": doc("name: t\ndescription: d\nscope: platform")}))
+        assert error_mapping._extras(exc.value)["key"] == "scope"
 
 
 # Zip records each entry twice: a local header before the payload and a central-directory

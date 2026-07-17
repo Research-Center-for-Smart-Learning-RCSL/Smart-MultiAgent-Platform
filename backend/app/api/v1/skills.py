@@ -306,11 +306,17 @@ def _summary_fields(s: Skill) -> dict[str, Any]:
         "body_sha256": s.body_sha256,
         "source": s.source.value,
         "bundle_sha256": s.bundle_sha256,
-        # Q-20's badge is derived here rather than on the model, and it is honestly False
-        # for now: divergence is `hash(current authored byte set) != bundle_sha256`, and
-        # the authored byte set is defined by the exporter, which lands with bundles. No
-        # row carries a bundle_sha256 until an importer exists, so anything else this
-        # could compute would badge every imported skill as diverged forever.
+        # Q-20's badge. **The definition now exists** — `bundle_service.is_diverged`, which
+        # Phase 4's exporter finally made definable (Q-30's byte set) — so the old comment
+        # here ("the authored byte set is defined by the exporter, which lands with
+        # bundles") is spent, and this False is no longer for want of a definition.
+        #
+        # It stays False because this function is the wrong place to compute it: it is
+        # sync, takes only the row, and feeds the *list* endpoint as well as the detail
+        # one. Divergence needs every file's sha256, so computing it here is one query per
+        # skill per list — the N+1 D-45 removed from the turn path, reintroduced on the
+        # read path. The batched version belongs with the badge that reads it (FU-47), and
+        # AC-16 stays unchecked for the frontend it also owes (D-26).
         "diverged": False,
         "requires": list(s.requires),
         "allowed_tools": list(s.allowed_tools),
