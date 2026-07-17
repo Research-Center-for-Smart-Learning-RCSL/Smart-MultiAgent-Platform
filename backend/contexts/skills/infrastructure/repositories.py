@@ -567,11 +567,33 @@ class SkillFileRepository:
         )
         return None if row is None else _row_to_file(row)
 
-    async def mark_scan(self, file_id: uuid.UUID, *, scan_status: SkillScanStatus) -> bool:
-        """Record the scanner's verdict. Mirrors `RagDocumentRepository.mark_scan`."""
+    async def mark_scan(
+        self, file_id: uuid.UUID, *, scan_status: SkillScanStatus, expected_sha256: str
+    ) -> bool:
+        """Record the scanner's verdict **on the bytes it was reached about**.
+
+        The `sha256` predicate is the whole point, and this is where the RAG parallel
+        breaks. `RagDocumentRepository.mark_scan` keys on the id alone, which is safe
+        there because a document's bytes are immutable once written — `minio_path` is
+        only ever assigned at create. `skill_files` has `update_content`, so the row's
+        bytes can be replaced while a scan of the old ones is still in flight.
+
+        Without this clause: upload 32 MiB of benign markdown, let its scan start, then
+        edit the file to a small malicious payload. The edit's own scan finishes first
+        and writes `quarantined`; the slow scan of the *old* bytes then completes and
+        writes `clean` over it. Nothing rescans, so the gate AC-34 rests on is defeated
+        permanently, and the attacker picks the ordering with two file sizes.
+
+        Returns False when the row moved on — the verdict is about bytes that are no
+        longer stored, and neither direction may land: a stale `quarantined` would brick
+        a skill whose current file is fine.
+        """
         result = await self._db.execute(
             sa.update(t.skill_files)
-            .where(t.skill_files.c.id == file_id)
+            .where(
+                t.skill_files.c.id == file_id,
+                t.skill_files.c.sha256 == expected_sha256,
+            )
             .values(scan_status=scan_status.value)
         )
         return bool(result.rowcount)

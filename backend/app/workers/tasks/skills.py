@@ -32,8 +32,13 @@ async def skill_scan_file(ctx: dict[str, Any], *, file_id: str) -> str:
         # No scanner deployed. `file_service._initial_scan_status` already wrote CLEAN on
         # this path, so this is only reached if the setting flipped between upload and
         # scan; writing CLEAN again keeps the two agreeing rather than stranding the row.
-        async with sm() as db, db.begin():
-            await SkillFileRepository(db).mark_scan(fid, scan_status=SkillScanStatus.CLEAN)
+        async with sm() as db:
+            repo = SkillFileRepository(db)
+            existing = await repo.get(fid)
+            if existing is None:
+                return "not_found"
+            async with db.begin():
+                await repo.mark_scan(fid, scan_status=SkillScanStatus.CLEAN, expected_sha256=existing.sha256)
         return SkillScanStatus.CLEAN.value
 
     from shared_kernel.scanning import ScanError, get_scanner
@@ -49,6 +54,10 @@ async def skill_scan_file(ctx: dict[str, Any], *, file_id: str) -> str:
     if f is None:
         _log.warning("skill_scan_file: file %s not found", file_id)
         return "not_found"
+    # The sha of the bytes this run is about. Every verdict below is conditional on it,
+    # because the row is read here and written in a later session, and `update_content`
+    # can replace the bytes in between — see `SkillFileRepository.mark_scan`.
+    scanned_sha = f.sha256
 
     if f.size_bytes > settings.security.clamav_max_scan_bytes:
         # Unreachable at stock settings — a skill file caps at 32 MiB (Q-17) and the scan
@@ -63,7 +72,9 @@ async def skill_scan_file(ctx: dict[str, Any], *, file_id: str) -> str:
             settings.security.clamav_max_scan_bytes,
         )
         async with sm() as db, db.begin():
-            await SkillFileRepository(db).mark_scan(fid, scan_status=SkillScanStatus.SKIPPED)
+            await SkillFileRepository(db).mark_scan(
+                fid, scan_status=SkillScanStatus.SKIPPED, expected_sha256=scanned_sha
+            )
         return "skipped:too_large"
 
     minio = get_minio_client()
@@ -74,7 +85,9 @@ async def skill_scan_file(ctx: dict[str, Any], *, file_id: str) -> str:
     except ScanError:
         _log.exception("skill_scan_file: ClamAV error for file %s", file_id)
         async with sm() as db, db.begin():
-            await SkillFileRepository(db).mark_scan(fid, scan_status=SkillScanStatus.SKIPPED)
+            await SkillFileRepository(db).mark_scan(
+                fid, scan_status=SkillScanStatus.SKIPPED, expected_sha256=scanned_sha
+            )
         # Re-raised so Arq retries: SKIPPED is terminal for readability here, so a
         # transient ClamAV blip that goes unretried would leave a legitimate skill dark.
         # The row is marked first so the gate is closed *during* the retries, not after.
@@ -87,7 +100,23 @@ async def skill_scan_file(ctx: dict[str, Any], *, file_id: str) -> str:
         _log.warning("skill_scan_file: file %s quarantined — threat=%s", file_id, result.threat_name)
 
     async with sm() as db, db.begin():
-        await SkillFileRepository(db).mark_scan(fid, scan_status=scan_status)
+        landed = await SkillFileRepository(db).mark_scan(
+            fid, scan_status=scan_status, expected_sha256=scanned_sha
+        )
+        if not landed:
+            # The bytes were replaced while this scan ran, so the verdict is about a file
+            # that is no longer stored. Dropping it is the only safe move in *both*
+            # directions: a stale `clean` would overwrite the replacement's `quarantined`
+            # and defeat the gate permanently, and a stale `quarantined` would brick a
+            # skill whose current file is fine. The replacement's own scan is already
+            # queued under its own sha and is the authority on the bytes that exist.
+            _log.warning(
+                "skill_scan_file: verdict %s for file %s discarded — its bytes were "
+                "replaced while the scan ran",
+                scan_status.value,
+                file_id,
+            )
+            return "superseded"
         if scan_status is SkillScanStatus.QUARANTINED:
             await audit.emit(
                 db,
@@ -99,6 +128,7 @@ async def skill_scan_file(ctx: dict[str, Any], *, file_id: str) -> str:
                     resource_id=f.skill_id,
                     metadata={
                         "path": f.path,
+                        "sha256": scanned_sha,
                         "scan_status": scan_status.value,
                         "threat_name": result.threat_name,
                     },

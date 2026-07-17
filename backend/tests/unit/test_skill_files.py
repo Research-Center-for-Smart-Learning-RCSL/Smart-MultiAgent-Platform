@@ -204,15 +204,12 @@ class TestCaps:
 
 class TestSha:
     def test_sha_is_over_the_bytes(self) -> None:
+        # The only claim worth making here. The two tests that used to follow —
+        # "identical bytes hash identically", "different bytes differ" — asserted
+        # properties of hashlib, not of this function, and are subsumed by this one.
         import hashlib
 
         assert file_sha256(b"abc") == hashlib.sha256(b"abc").hexdigest()
-
-    def test_identical_bytes_hash_identically(self) -> None:
-        assert file_sha256(b"x") == file_sha256(b"x")
-
-    def test_different_bytes_differ(self) -> None:
-        assert file_sha256(b"x") != file_sha256(b"y")
 
 
 class _Harness:
@@ -260,29 +257,30 @@ class TestAdd:
         # object agreeing is the whole contract read_skill depends on.
         assert h.minio.objects[f.minio_key] == b"# Guide"
 
-    async def test_an_upload_and_an_authored_file_are_the_same_row_shape(self, h: _Harness) -> None:
-        # Q-20: two authoring paths, one row shape, and an uploaded file stays editable.
-        # The service takes bytes either way, so this pins that there is no second path
-        # to drift.
+    async def test_an_uploaded_file_is_editable_afterwards(self, h: _Harness) -> None:
+        # Q-20's real claim. An earlier version of this test called `add` twice with
+        # identical arguments and asserted the two results matched — true of any
+        # function, and it exercised neither route. What Q-20 actually promises is that
+        # import-then-freeze was rejected: a file that arrived as opaque uploaded bytes
+        # stays editable, because that is what lets someone localise an imported skill.
         skill = _skill()
-        a = await h.svc.add(
+        uploaded = await h.svc.add(
             skill=skill,
             path="references/a.md",
-            data=b"x",
-            mime="text/markdown",
+            data=b"bytes as they arrived from an upload",
+            mime="application/octet-stream",
             scan_enabled=False,
             actor_user_id=ACTOR,
         )
-        b = await h.svc.add(
+        edited = await h.svc.update_content(
             skill=skill,
-            path="references/b.md",
-            data=b"x",
-            mime="text/markdown",
+            file=uploaded,
+            data=b"# now authored in the UI",
             scan_enabled=False,
             actor_user_id=ACTOR,
         )
-        assert a.kind == b.kind
-        assert a.scan_status == b.scan_status
+        assert edited.sha256 == file_sha256(b"# now authored in the UI")
+        assert edited.id == uploaded.id, "an edit re-points the same row, it does not add one"
 
     async def test_add_is_audited(self, h: _Harness) -> None:
         await h.svc.add(
