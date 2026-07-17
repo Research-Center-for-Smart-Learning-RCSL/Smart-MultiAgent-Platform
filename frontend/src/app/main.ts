@@ -17,6 +17,7 @@ import { installIdentitySlice, useSessionStore } from '@slices/identity'
 import { installKeysSlice } from '@slices/keys'
 import { installNotificationsSlice } from '@slices/notifications'
 import { installPromptStudioSlice } from '@slices/prompt-studio'
+import { installSkillsSlice } from '@slices/skills'
 import { installTenancySlice } from '@slices/tenancy'
 import { installWorkflowSlice } from '@slices/workflow'
 
@@ -45,6 +46,7 @@ installWorkflowSlice()
 installAdminSlice()
 installNotificationsSlice()
 installPromptStudioSlice()
+installSkillsSlice()
 
 const app = createApp(App)
 installErrorHandler(app)

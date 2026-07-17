@@ -11,6 +11,7 @@ import {
   BookOpenIcon,
   ServerIcon,
   ArrowsPointingOutIcon,
+  PuzzlePieceIcon,
   TrashIcon,
 } from '@heroicons/vue/24/outline'
 import {
@@ -47,6 +48,7 @@ import {
 import { ApiError } from '@shared/errors'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
 import { PromptAssistantPanel, PromptTemplatePicker } from '@slices/prompt-studio'
+import { SkillBindingsPanel } from '@slices/skills'
 import { agentsApi, type AgentTool, type AgentToolType, type ConceptMapOwnerKind } from '../api'
 import { agentKeys } from '../queries'
 import { useModelCatalog } from '@shared/composables'
@@ -585,6 +587,7 @@ const tabs = computed(() => [
     icon: ServerIcon,
     ...(enabledToolCount.value > 0 && { badge: String(enabledToolCount.value) }),
   },
+  { key: 'skills', label: t('agents.detail.tabs.skills'), icon: PuzzlePieceIcon },
   { key: 'orchestration', label: t('agents.detail.tabs.orchestration'), icon: ArrowsPointingOutIcon },
 ])
 
@@ -1221,6 +1224,23 @@ const breadcrumbs = computed(() => [
               </template>
               {{ t('agents.detail.openOrchestration') }}
             </SButton>
+          </SCard>
+        </div>
+
+        <!-- Tab: Skills -->
+        <div
+          v-show="activeTab === 'skills'"
+          class="mt-6 space-y-6"
+        >
+          <SkillBindingsPanel
+            v-if="!isCreateMode && pickerProjectId"
+            :agent-id="agentId"
+            :project-id="pickerProjectId"
+          />
+          <SCard v-else>
+            <p class="text-sm text-muted">
+              {{ t('agents.detail.skillsCreateFirst') }}
+            </p>
           </SCard>
         </div>
       </form>

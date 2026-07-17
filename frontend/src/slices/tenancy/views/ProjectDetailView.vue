@@ -13,7 +13,7 @@ import { isProblemWithType } from '@shared/transport'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   PencilIcon, UserGroupIcon, ClipboardIcon,
-  TrashIcon, ArrowPathIcon, UserIcon, BuildingOffice2Icon,
+  TrashIcon, ArrowPathIcon, UserIcon, BuildingOffice2Icon, PuzzlePieceIcon,
 } from '@heroicons/vue/24/outline'
 import { projectsApi, type Project, type ProjectMember } from '../api/projects'
 import { tenancyKeys } from '../queries'
@@ -158,6 +158,18 @@ const breadcrumbs = computed(() => [
                 <UserGroupIcon class="w-4 h-4" />
               </template>
               {{ t('tenancy.breadcrumb.members') }}
+            </SButton>
+
+            <SButton
+              v-if="isOwner"
+              variant="secondary"
+              as="router-link"
+              :to="{ name: 'skills.project', params: { projectId: project.id } }"
+            >
+              <template #icon-left>
+                <PuzzlePieceIcon class="w-4 h-4" />
+              </template>
+              {{ t('tenancy.project.skills') }}
             </SButton>
           </template>
 

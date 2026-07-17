@@ -13,7 +13,7 @@ import { isProblemWithType } from '@shared/transport'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   PencilIcon, UserGroupIcon, ArrowsRightLeftIcon,
-  ClipboardIcon, TrashIcon, ArrowPathIcon, SparklesIcon,
+  ClipboardIcon, TrashIcon, ArrowPathIcon, SparklesIcon, PuzzlePieceIcon,
 } from '@heroicons/vue/24/outline'
 import { orgsApi, type OrgMember } from '../api/orgs'
 import { tenancyKeys } from '../queries'
@@ -178,6 +178,18 @@ const breadcrumbs = computed(() => [
                 <SparklesIcon class="w-4 h-4" />
               </template>
               {{ t('tenancy.org.promptAssistant') }}
+            </SButton>
+
+            <SButton
+              v-if="isOwner"
+              variant="secondary"
+              as="router-link"
+              :to="{ name: 'skills.org', params: { orgId: org.id } }"
+            >
+              <template #icon-left>
+                <PuzzlePieceIcon class="w-4 h-4" />
+              </template>
+              {{ t('tenancy.org.skills') }}
             </SButton>
 
             <SButton

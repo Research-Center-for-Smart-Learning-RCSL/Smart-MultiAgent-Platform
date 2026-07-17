@@ -49,10 +49,12 @@
       "reload": "重新載入",
       "openOrchestration": "進階編排設定",
       "openOrchestrationHelp": "此 AI Agent 的喚醒觸發條件與失敗事件佇列。",
+      "skillsCreateFirst": "請先儲存此 AI Agent，再為其綁定與撰寫技能。",
       "tabs": {
         "general": "一般",
         "prompt": "提示詞",
         "knowledge": "知識庫",
+        "skills": "技能",
         "orchestration": "編排"
       },
       "toolsOverview": {

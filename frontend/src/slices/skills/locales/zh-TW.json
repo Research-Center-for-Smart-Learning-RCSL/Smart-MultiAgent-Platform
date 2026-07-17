@@ -1,0 +1,160 @@
+{
+  "skills": {
+    "actions": {
+      "save": "儲存",
+      "cancel": "取消",
+      "restore": "還原",
+      "export": "匯出套件",
+      "duplicate": "複製",
+      "delete": "刪除",
+      "remove": "移除",
+      "collapse": "收合",
+      "expand": "展開"
+    },
+    "scope": {
+      "agent": "代理人",
+      "project": "專案",
+      "org": "組織",
+      "platform": "平台"
+    },
+    "editor": {
+      "saved": "技能已儲存。",
+      "conflict": "此技能在你載入後已被變更。你的編輯仍保留，版本已更新，再次儲存即可套用。",
+      "indexBudget": "此變更會使技能索引超出某個代理人的權杖上限。請縮短描述或提高上限。",
+      "requiresMissing": "綁定此技能的代理人缺少它所需的工具。",
+      "saveFailed": "無法儲存此技能。",
+      "deleteTitle": "刪除此技能？",
+      "deleteBody": "技能會被軟刪除並從所有代理人解除綁定。你可在 60 天內還原。",
+      "deleted": "技能已刪除。",
+      "deleteFailed": "無法刪除此技能。",
+      "restored": "技能已還原。",
+      "restoreConflict": "已有使用中的技能採用此名稱。請先改名或移除後再還原。",
+      "restoreFailed": "無法還原此技能。",
+      "loading": "正在載入技能...",
+      "loadFailed": "無法載入此技能。",
+      "diverged": "已偏離套件",
+      "deletedBadge": "已刪除",
+      "deletedNotice": "此技能已被軟刪除。請先還原才能編輯。",
+      "description": "描述",
+      "descriptionHelp": "一到兩句話。模型會依此判斷是否套用此技能。",
+      "body": "SKILL.md 內容",
+      "requires": "所需工具",
+      "requiresHelp": "每行一個工具。任何附帶的腳本也會隱含需要 code_exec。",
+      "allowedTools": "允許的工具（宣告）",
+      "allowedToolsNotEnforced": "允許的工具由作者宣告，SMAP 並不強制執行。",
+      "duplicated": "技能已複製。",
+      "duplicateFailed": "無法複製此技能。",
+      "duplicateName": "新名稱"
+    },
+    "files": {
+      "sectionHeading": "附帶檔案",
+      "listHeading": "檔案",
+      "empty": "尚無檔案。",
+      "loading": "正在載入檔案...",
+      "loadFailed": "無法載入此技能的檔案。",
+      "addHeading": "新增檔案",
+      "modeAuthor": "撰寫",
+      "modeUpload": "上傳",
+      "pathLabel": "路徑",
+      "pathHelp": "置於 references/、scripts/ 或 assets/ 之下。頂層資料夾決定檔案類型。",
+      "contentPlaceholder": "檔案內容",
+      "addButton": "新增檔案",
+      "uploadButton": "上傳檔案",
+      "editHeading": "取代 {path}",
+      "assetNotEditable": "資產檔為不透明的二進位內容，無法以文字方式編輯。",
+      "replaceNotice": "此處不會顯示已儲存的內容。儲存會取代檔案內容。",
+      "replaceButton": "取代內容",
+      "added": "檔案已新增。",
+      "uploaded": "檔案已上傳。",
+      "replaced": "檔案內容已取代。",
+      "deleted": "檔案已刪除。",
+      "deleteTitle": "刪除此檔案？",
+      "deleteBody": "要從此技能移除 {path} 嗎？",
+      "deleteFailed": "無法刪除此檔案。",
+      "addFailed": "無法新增此檔案。",
+      "replaceFailed": "無法取代檔案內容。",
+      "notEditable": "此檔案為資產二進位內容，無法以文字方式編輯。",
+      "pathTaken": "已有檔案佔用該路徑。",
+      "pathInvalid": "不允許此路徑。請使用 references/、scripts/ 或 assets/。",
+      "limit": "一個技能最多可容納 500 個檔案。",
+      "unreadableTitle": "此技能無法被代理人讀取",
+      "quarantinedBody": "{count} 個檔案未通過惡意程式掃描。在所有檔案皆為乾淨之前，代理人無法讀取此技能。",
+      "scanningTitle": "檔案仍在掃描中",
+      "scanningBody": "{count} 個檔案正在掃描。掃描完成前，代理人無法讀取此技能。",
+      "kind": {
+        "reference": "參考",
+        "script": "腳本",
+        "asset": "資產"
+      },
+      "scan": {
+        "pending": "掃描中",
+        "clean": "乾淨",
+        "infected": "已感染",
+        "error": "掃描錯誤"
+      }
+    },
+    "create": {
+      "heading": "新技能",
+      "name": "名稱",
+      "nameHelp": "小寫字母、數字與連字號。1 至 64 個字元。建立後無法變更。",
+      "nameInvalid": "請使用小寫字母、數字與連字號（1 至 64 個字元）。",
+      "bodyPlaceholder": "代理人依需求載入的 SKILL.md 指示內容。",
+      "submit": "建立技能",
+      "created": "技能已建立。",
+      "nameTaken": "此範圍中已有同名技能。",
+      "failed": "無法建立此技能。"
+    },
+    "workbench": {
+      "new": "新技能",
+      "import": "匯入套件",
+      "importHelp": "採用 Agent Skills 版面的 .zip，上限 32 MB。",
+      "showDeleted": "顯示已刪除",
+      "loadFailed": "無法載入技能。",
+      "empty": "此範圍尚無技能。",
+      "pickTitle": "尚未選取技能",
+      "pickBody": "請從清單挑選技能，或建立一個新技能。"
+    },
+    "bundle": {
+      "importReady": "套件已匯入。",
+      "importFailed": "套件匯入失敗。",
+      "exportReady": "匯出已就緒。下載即將開始。",
+      "exportFailed": "匯出失敗。",
+      "invalid": "該套件不是有效的 Agent Skills .zip。",
+      "quarantined": "套件因有檔案未通過惡意程式掃描而被拒絕。"
+    },
+    "bindings": {
+      "heading": "技能",
+      "subtitle": "綁定至此代理人的技能會將其索引載入每一回合；代理人再依需求讀取內容。",
+      "boundHeading": "已綁定",
+      "noneBound": "尚無技能綁定至此代理人。",
+      "unbind": "解除綁定",
+      "availableHeading": "可綁定",
+      "noneAvailable": "沒有可綁定的代理人或專案範圍技能。",
+      "bind": "綁定",
+      "bound": "技能已綁定。",
+      "unbound": "技能已解除綁定。",
+      "requiresMissing": "此技能需要代理人尚未啟用的工具。",
+      "indexBudget": "綁定此技能會使代理人的技能索引超出其權杖上限。",
+      "nameTaken": "另一個已綁定的技能已使用此名稱。",
+      "notBindable": "此技能無法綁定至此代理人。",
+      "bindFailed": "無法綁定此技能。",
+      "unbindFailed": "無法解除綁定此技能。",
+      "authoringHeading": "代理人專屬技能",
+      "authoringSubtitle": "建立僅屬於此代理人的技能。它們會自動綁定且不共用。"
+    },
+    "project": {
+      "title": "專案技能",
+      "subtitle": "此專案擁有的技能，可綁定至其代理人。"
+    },
+    "org": {
+      "title": "組織技能",
+      "subtitle": "此組織擁有的技能，可綁定至其中任何代理人。"
+    },
+    "admin": {
+      "title": "平台技能",
+      "subtitle": "當管理者明確綁定時，可供每個租戶使用的技能。",
+      "total": "所有範圍共 {total} 個使用中的技能。",
+      "metricsFailed": "無法載入技能統計。"
+    }
+  }
+}

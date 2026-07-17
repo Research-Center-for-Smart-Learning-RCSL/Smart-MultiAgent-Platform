@@ -49,10 +49,12 @@
       "reload": "Reload",
       "openOrchestration": "Advanced Orchestration",
       "openOrchestrationHelp": "Wake-up triggers and the failed-event queue for this ai agent.",
+      "skillsCreateFirst": "Save this ai agent first, then bind and author skills for it.",
       "tabs": {
         "general": "General",
         "prompt": "Prompt",
         "knowledge": "Knowledge",
+        "skills": "Skills",
         "orchestration": "Orchestration"
       },
       "toolsOverview": {

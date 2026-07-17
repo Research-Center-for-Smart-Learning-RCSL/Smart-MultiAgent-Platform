@@ -13,6 +13,7 @@ import { identityRoutes, useSessionStore } from '@slices/identity'
 import { keysRoutes } from '@slices/keys'
 import { notificationsRoutes } from '@slices/notifications'
 import { promptStudioRoutes } from '@slices/prompt-studio'
+import { skillsRoutes } from '@slices/skills'
 import { tenancyRoutes } from '@slices/tenancy'
 import { workflowRoutes } from '@slices/workflow'
 import { onUnauthorizedRedirect } from '@shared/transport'
@@ -36,6 +37,7 @@ const routes: RouteRecordRaw[] = [
   ...adminRoutes,
   ...notificationsRoutes,
   ...promptStudioRoutes,
+  ...skillsRoutes,
   {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
