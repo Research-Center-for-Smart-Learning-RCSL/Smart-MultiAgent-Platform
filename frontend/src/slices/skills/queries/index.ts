@@ -43,13 +43,16 @@ export const skillsKeys = {
 
 // --- read hooks ---
 
+// `scope` accepts a getter/ref as well as a plain value so a caller whose scope changes
+// without a remount (the agent binding panel, keyed on props) re-queries the right scope
+// instead of a stale snapshot; a plain scope (the workbench) is stable through `toValue`.
 export function useSkillsQuery(
-  scope: SkillScopeRef,
+  scope: MaybeRefOrGetter<SkillScopeRef>,
   includeDeleted: MaybeRefOrGetter<boolean> = false,
 ) {
   return useQuery({
-    queryKey: computed(() => skillsKeys.list(scope, toValue(includeDeleted))),
-    queryFn: () => skillsApi.list(scope, { includeDeleted: toValue(includeDeleted), limit: 500 }),
+    queryKey: computed(() => skillsKeys.list(toValue(scope), toValue(includeDeleted))),
+    queryFn: () => skillsApi.list(toValue(scope), { includeDeleted: toValue(includeDeleted), limit: 500 }),
   })
 }
 

@@ -26,9 +26,10 @@ const projectScope = computed<SkillScopeRef>(() => ({ kind: 'project', projectId
 const bindingsQuery = useBindingsQuery(() => props.agentId)
 // Candidates the binder can actually browse: this agent's own skills and its project's.
 // Org and platform skills bind by the same endpoint but have no member-reachable listing,
-// so they are bound by their managers, not offered here.
-const agentSkillsQuery = useSkillsQuery(agentScope.value)
-const projectSkillsQuery = useSkillsQuery(projectScope.value)
+// so they are bound by their managers, not offered here. Passed as getters so a prop
+// change re-queries the right scope rather than a setup-time snapshot.
+const agentSkillsQuery = useSkillsQuery(() => agentScope.value)
+const projectSkillsQuery = useSkillsQuery(() => projectScope.value)
 
 const bindMutation = useBindSkillMutation(() => props.agentId)
 const unbindMutation = useUnbindSkillMutation(() => props.agentId)

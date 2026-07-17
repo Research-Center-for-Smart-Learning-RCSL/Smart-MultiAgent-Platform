@@ -286,7 +286,7 @@ const selectedIsAsset = computed(() => !!selected.value && isAssetFile(selected.
               variant="primary"
               size="sm"
               :loading="busy"
-              :disabled="!!disabled"
+              :disabled="!!disabled || !editContent"
               @click="submitReplace"
             >
               {{ t('skills.files.replaceButton') }}

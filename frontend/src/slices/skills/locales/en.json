@@ -117,8 +117,10 @@
     "bundle": {
       "importReady": "Bundle imported.",
       "importFailed": "The bundle import failed.",
+      "importTimeout": "The import is taking too long and was stopped. Check back later or try again.",
       "exportReady": "Export ready. Your download should begin shortly.",
       "exportFailed": "The export failed.",
+      "exportTimeout": "The export is taking too long and was stopped. Try again.",
       "invalid": "That bundle is not a valid Agent Skills .zip.",
       "quarantined": "The bundle was rejected because a file failed the malware scan."
     },

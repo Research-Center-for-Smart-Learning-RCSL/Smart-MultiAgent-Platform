@@ -1,4 +1,4 @@
-import { computed, ref, watch } from 'vue'
+import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQueryClient } from '@tanstack/vue-query'
 
@@ -34,6 +34,31 @@ export function useBundleTransport(scope: SkillScopeRef) {
   const importStatus = useImportStatusQuery(importTaskId)
   const exportStatus = useExportStatusQuery(exportTaskId)
 
+  // A job that never reaches a terminal state (a crashed worker) would otherwise poll
+  // forever with the spinner stuck on; a status endpoint that keeps erroring (a 500, or a
+  // 403 for a non-initiator) would give no feedback at all. Bound both with a wall-clock
+  // timeout that stops the poll and surfaces the give-up.
+  const POLL_TIMEOUT_MS = 90_000
+  let importTimer: ReturnType<typeof setTimeout> | null = null
+  let exportTimer: ReturnType<typeof setTimeout> | null = null
+
+  function clearImportTimer(): void {
+    if (importTimer) {
+      clearTimeout(importTimer)
+      importTimer = null
+    }
+  }
+  function clearExportTimer(): void {
+    if (exportTimer) {
+      clearTimeout(exportTimer)
+      exportTimer = null
+    }
+  }
+  onScopeDispose(() => {
+    clearImportTimer()
+    clearExportTimer()
+  })
+
   const importing = computed(
     () => importMutation.isPending.value || importStatus.data.value?.status === 'queued' || importStatus.data.value?.status === 'running',
   )
@@ -50,6 +75,7 @@ export function useBundleTransport(scope: SkillScopeRef) {
       if (!state || state.job_id === handledImport.value) return
       if (state.status === 'ready') {
         handledImport.value = state.job_id
+        clearImportTimer()
         qc.invalidateQueries({ queryKey: skillsKeys.listRoot(scope) })
         toast.success(
           t('skills.bundle.importReady'),
@@ -57,6 +83,7 @@ export function useBundleTransport(scope: SkillScopeRef) {
         )
       } else if (state.status === 'failed') {
         handledImport.value = state.job_id
+        clearImportTimer()
         toast.error(t('skills.bundle.importFailed'), state.error ? { description: state.error } : undefined)
       }
     },
@@ -67,12 +94,20 @@ export function useBundleTransport(scope: SkillScopeRef) {
     () => exportStatus.data.value,
     (state) => {
       if (!state || state.job_id === handledExport.value) return
-      if (state.status === 'ready' && state.url) {
+      if (state.status === 'ready') {
         handledExport.value = state.job_id
-        triggerDownload(state.url)
-        toast.success(t('skills.bundle.exportReady'))
+        clearExportTimer()
+        // Ready always carries a URL (the worker sets bucket+key with the READY status);
+        // guard anyway so a URL-less ready surfaces as a failure rather than a silent no-op.
+        if (state.url) {
+          triggerDownload(state.url)
+          toast.success(t('skills.bundle.exportReady'))
+        } else {
+          toast.error(t('skills.bundle.exportFailed'))
+        }
       } else if (state.status === 'failed') {
         handledExport.value = state.job_id
+        clearExportTimer()
         toast.error(t('skills.bundle.exportFailed'), state.error ? { description: state.error } : undefined)
       }
     },
@@ -80,18 +115,30 @@ export function useBundleTransport(scope: SkillScopeRef) {
 
   function triggerDownload(url: string): void {
     // The presigned URL carries a content-disposition attachment header, so navigating to
-    // it downloads the .zip rather than replacing the page.
+    // it downloads the .zip rather than replacing the page. The anchor must be attached to
+    // the document before click() — Firefox ignores a click on a detached anchor.
     const a = document.createElement('a')
     a.href = url
     a.rel = 'noopener'
+    document.body.appendChild(a)
     a.click()
+    a.remove()
   }
 
   async function importFile(file: File): Promise<void> {
     try {
       const job = await importMutation.mutateAsync(file)
+      const jobId = job.job_id
       handledImport.value = null
-      importTaskId.value = job.job_id
+      clearImportTimer()
+      importTaskId.value = jobId
+      importTimer = setTimeout(() => {
+        importTimer = null
+        if (handledImport.value === jobId) return
+        handledImport.value = jobId
+        importTaskId.value = null // disable the query so polling stops
+        toast.error(t('skills.bundle.importTimeout'))
+      }, POLL_TIMEOUT_MS)
     } catch (err) {
       if (isProblemWithType(err, 'skills/bundle-invalid')) {
         toast.error(t('skills.bundle.invalid'))
@@ -106,8 +153,17 @@ export function useBundleTransport(scope: SkillScopeRef) {
   async function exportSkill(skillId: string): Promise<void> {
     try {
       const job = await exportMutation.mutateAsync(skillId)
+      const jobId = job.job_id
       handledExport.value = null
-      exportTaskId.value = job.job_id
+      clearExportTimer()
+      exportTaskId.value = jobId
+      exportTimer = setTimeout(() => {
+        exportTimer = null
+        if (handledExport.value === jobId) return
+        handledExport.value = jobId
+        exportTaskId.value = null // disable the query so polling stops
+        toast.error(t('skills.bundle.exportTimeout'))
+      }, POLL_TIMEOUT_MS)
     } catch {
       toast.error(t('skills.bundle.exportFailed'))
     }

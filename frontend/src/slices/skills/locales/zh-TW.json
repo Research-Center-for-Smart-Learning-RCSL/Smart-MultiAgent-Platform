@@ -117,8 +117,10 @@
     "bundle": {
       "importReady": "套件已匯入。",
       "importFailed": "套件匯入失敗。",
+      "importTimeout": "匯入耗時過久已停止。請稍後再查看或重試。",
       "exportReady": "匯出已就緒。下載即將開始。",
       "exportFailed": "匯出失敗。",
+      "exportTimeout": "匯出耗時過久已停止。請重試。",
       "invalid": "該套件不是有效的 Agent Skills .zip。",
       "quarantined": "套件因有檔案未通過惡意程式掃描而被拒絕。"
     },
