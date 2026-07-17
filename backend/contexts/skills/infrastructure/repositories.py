@@ -8,6 +8,7 @@ is the single mechanism (DB-5).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 import sqlalchemy as sa
@@ -457,6 +458,32 @@ class SkillFileRepository:
             .first()
         )
         return None if row is None else _row_to_file(row)
+
+    async def list_for_skills(self, skill_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, list[SkillFile]]:
+        """Every listed skill's files, in one query.
+
+        Batched rather than per-skill because the caller is `resolve_bound_set`, which
+        runs on **every turn**: one query per bound skill would be an N+1 on the hottest
+        path in the product. Rows carry metadata only — the bytes stay in MinIO and are
+        fetched only when `read_skill` is actually asked for a file.
+        """
+        if not skill_ids:
+            return {}
+        rows = (
+            (
+                await self._db.execute(
+                    sa.select(t.skill_files)
+                    .where(t.skill_files.c.skill_id.in_(list(skill_ids)))
+                    .order_by(t.skill_files.c.path)
+                )
+            )
+            .mappings()
+            .all()
+        )
+        out: dict[uuid.UUID, list[SkillFile]] = {sid: [] for sid in skill_ids}
+        for r in rows:
+            out[r["skill_id"]].append(_row_to_file(r))
+        return out
 
     async def list_paths_for_skill(self, skill_id: uuid.UUID) -> list[str]:
         """Just the paths — the collision check has no use for the rest of the row."""

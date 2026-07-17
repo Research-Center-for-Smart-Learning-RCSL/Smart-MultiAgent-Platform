@@ -33,6 +33,7 @@ from tests.unit.skill_fakes import (
     FakeAgent,
     FakeAgentsFacade,
     FakeBindingRepo,
+    FakeSkillFileRepo,
     FakeSkillRepo,
     FakeTenancyFacade,
     make_skill,
@@ -49,6 +50,7 @@ class _Harness:
         self.bindings = FakeBindingRepo(self.skills)
         self.agents = FakeAgentsFacade()
         self.tenancy = FakeTenancyFacade()
+        self.files = FakeSkillFileRepo()
         self.events: list[audit.AuditEvent] = []
 
         rules = BindingService.__new__(BindingService)
@@ -57,6 +59,7 @@ class _Harness:
         rules._bindings = self.bindings  # type: ignore[attr-defined]
         rules._agents = self.agents  # type: ignore[attr-defined]
         rules._tenancy = self.tenancy  # type: ignore[attr-defined]
+        rules._files = self.files  # type: ignore[attr-defined]
 
         svc = SkillService.__new__(SkillService)
         svc._db = None  # type: ignore[attr-defined]

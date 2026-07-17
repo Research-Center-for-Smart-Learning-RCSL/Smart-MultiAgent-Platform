@@ -377,6 +377,17 @@ class FakeSkillFileRepo:
     async def list_paths_for_skill(self, skill_id: uuid.UUID) -> list[str]:
         return [f.path for f in self.rows.values() if f.skill_id == skill_id]
 
+    async def list_for_skills(self, skill_ids: Any) -> dict[uuid.UUID, list[SkillFile]]:
+        # Mirrors the real method's contract exactly, including that every requested id
+        # gets a key even with no files — `resolve_bound_set` builds the manifest from
+        # this, and a missing key would read as "skill absent" rather than "no files".
+        ids = list(skill_ids)
+        out: dict[uuid.UUID, list[SkillFile]] = {sid: [] for sid in ids}
+        for f in sorted(self.rows.values(), key=lambda x: x.path):
+            if f.skill_id in out:
+                out[f.skill_id].append(f)
+        return out
+
     async def create(
         self,
         *,

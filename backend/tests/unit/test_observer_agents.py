@@ -985,7 +985,10 @@ async def test_room_turn_folds_the_bound_skills_index_into_system(monkeypatch) -
     )
 
     assert "- pdf-fill: Fills PDF forms." in stream_seen["system_text"]
-    assert built["skills"] == (skill,)
+    # The whole snapshot reaches the registry, not just its skills: the bodies, the file
+    # manifest, and the scan statuses that gate them must not be able to drift apart
+    # between the tap and the tool.
+    assert built["skills"].skills == (skill,)
 
 
 @pytest.mark.asyncio

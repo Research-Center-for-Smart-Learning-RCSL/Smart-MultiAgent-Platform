@@ -14,8 +14,8 @@ attached Project B's config and exfiltrated its chunks — except that here it l
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,9 +31,10 @@ from contexts.skills.domain.errors import (
     SkillRequiresToolMissing,
     SkillScopeMismatch,
 )
-from contexts.skills.domain.models import Skill, SkillScope
+from contexts.skills.domain.models import Skill, SkillFile, SkillScope
 from contexts.skills.infrastructure.repositories import (
     SkillBindingRepository,
+    SkillFileRepository,
     SkillRepository,
 )
 from contexts.tenancy.interfaces.facade import TenancyFacade
@@ -93,6 +94,14 @@ class BoundSet:
 
     skills: tuple[Skill, ...]
     dropped: tuple[DroppedSkill, ...] = ()
+    # Metadata only — `read_skill` renders this as the file manifest (AC-18) and reads
+    # `scan_status` off it for AC-34's gate, so both answers come from the snapshot the
+    # tap already validated rather than a query at tool-call time. The bytes stay in
+    # MinIO until a `path` is actually asked for.
+    files: Mapping[uuid.UUID, tuple[SkillFile, ...]] = field(default_factory=dict)
+
+    def files_for(self, skill_id: uuid.UUID) -> tuple[SkillFile, ...]:
+        return self.files.get(skill_id, ())
 
 
 class BindingService:
@@ -100,6 +109,7 @@ class BindingService:
         self._db = db
         self._skills = SkillRepository(db)
         self._bindings = SkillBindingRepository(db)
+        self._files = SkillFileRepository(db)
         self._agents = AgentsFacade(db)
         self._tenancy = TenancyFacade(db)
 
@@ -387,7 +397,14 @@ class BindingService:
 
         kept, collided = _split_name_collisions(kept)
         dropped.extend(collided)
-        return BoundSet(skills=tuple(kept), dropped=tuple(dropped))
+        # After the collision split, so a dropped skill's files are never fetched or
+        # rendered: a skill that is not in the snapshot has no manifest.
+        files = await self._files.list_for_skills([s.id for s in kept])
+        return BoundSet(
+            skills=tuple(kept),
+            dropped=tuple(dropped),
+            files={sid: tuple(fs) for sid, fs in files.items()},
+        )
 
 
 def _split_name_collisions(skills: list[Skill]) -> tuple[list[Skill], list[DroppedSkill]]:

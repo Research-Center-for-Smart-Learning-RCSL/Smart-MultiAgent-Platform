@@ -122,6 +122,37 @@ class SkillFile:
 
 
 @dataclass(frozen=True, slots=True)
+class SkillRead:
+    """One `read_skill` invocation, for `message.metadata` ([R31.17] / AC-19).
+
+    `body_sha256` is the field that makes this worth recording. Bodies are mutable in
+    place and there is no version tree (Q-21), so `version` alone answers "which row was
+    read", never "which bytes ran" — and the two differ the moment a body is edited
+    between the read and the question. Q-15/Q-27 name the hash for exactly this.
+
+    Not an audit event: R31.25 excludes `read_skill` explicitly, because a read is part
+    of a turn and the turn's message is where it belongs. That has a known cost — the
+    metadata is user-erasable via MESSAGE_DELETE (#20), which is why §8's item 10 keeps
+    the *mutation* trail standing alone in the audit log.
+    """
+
+    skill_id: uuid.UUID
+    name: str
+    scope: SkillScope
+    version: int
+    body_sha256: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "skill_id": str(self.skill_id),
+            "name": self.name,
+            "scope": self.scope.value,
+            "version": self.version,
+            "body_sha256": self.body_sha256,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class SkillBinding:
     agent_id: uuid.UUID
     skill_id: uuid.UUID
@@ -169,6 +200,7 @@ __all__ = [
     "SkillDraft",
     "SkillFile",
     "SkillFileKind",
+    "SkillRead",
     "SkillScanStatus",
     "SkillScope",
     "SkillScopeCounts",

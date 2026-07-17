@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from typing import ClassVar
 
 import pytest
 
@@ -16,8 +17,20 @@ from contexts.agents.application.runtime.tool_registry import (
     build_registry,
     build_update_wakeup_tool,
 )
+from contexts.skills.application.binding_service import BoundSet
+from contexts.skills.domain.models import Skill, SkillFile, SkillFileKind, SkillRead, SkillScanStatus
 from shared_kernel.tokens import estimate_tokens
-from tests.unit.skill_fakes import make_skill
+from tests.unit.skill_fakes import NOW, make_skill
+
+
+def _snap(*skills: Skill, files: dict | None = None) -> BoundSet:
+    """The turn snapshot the tool reads.
+
+    `build_registry` takes the whole `BoundSet` rather than a list of skills, so the
+    bodies, the file manifest, and the scan statuses that gate them cannot drift apart
+    between the tap and the tool.
+    """
+    return BoundSet(skills=tuple(skills), files=files or {})
 
 
 @pytest.mark.asyncio
@@ -59,7 +72,7 @@ async def test_update_wakeup_tool_invokes_facade(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_registry_dispatch_and_unknown() -> None:
-    reg = build_registry(object(), agent_id=uuid.uuid4(), skills=[])
+    reg = build_registry(object(), agent_id=uuid.uuid4(), skills=_snap())
     # update_wakeup is the only unconditional built-in: an agent with nothing bound
     # is not offered read_skill and pays no tokens for a tool it cannot use.
     assert len(reg) == 1
@@ -127,7 +140,7 @@ def test_read_skill_is_a_reserved_builtin_and_build_registry_builds_it() -> None
     # called read_skill would otherwise shadow the real one.
     assert "read_skill" in BUILTIN_TOOL_NAMES
 
-    reg = build_registry(object(), agent_id=uuid.uuid4(), skills=[make_skill()])
+    reg = build_registry(object(), agent_id=uuid.uuid4(), skills=_snap(make_skill()))
 
     assert reg.get("read_skill") is not None
     assert "read_skill" in {s["name"] for s in reg.specs()}
@@ -137,7 +150,7 @@ def test_read_skill_is_a_reserved_builtin_and_build_registry_builds_it() -> None
 async def test_read_skill_returns_the_body_from_the_snapshot() -> None:
     # AC-5. The tool holds the snapshot; there is no db argument it could query with.
     skill = make_skill(name="pdf-fill", body="# PDF Fill\n\nOpen the form, then fill it.")
-    tool = build_read_skill_tool([skill])
+    tool = build_read_skill_tool(_snap(skill))
 
     out = await _read(tool, name="pdf-fill")
 
@@ -148,7 +161,7 @@ async def test_read_skill_returns_the_body_from_the_snapshot() -> None:
 async def test_read_skill_unknown_name_is_a_tool_error_not_a_raise() -> None:
     # AC-5. The model can misread the index; that must cost it a tool round, not the
     # user's turn. `is_error` goes back to the model, an exception aborts the loop.
-    tool = build_read_skill_tool([make_skill(name="pdf-fill")])
+    tool = build_read_skill_tool(_snap(make_skill(name="pdf-fill")))
 
     res = await tool.invoke({"name": "no-such-skill"})
 
@@ -162,7 +175,7 @@ async def test_read_skill_cannot_reach_a_skill_outside_the_snapshot() -> None:
     # The turn-time tap drops a skill whose containment now fails. If read_skill could
     # still resolve it, the tap would be decorative and the drop cosmetic.
     dropped = make_skill(name="secret-skill", body="the other tenant's instructions")
-    tool = build_read_skill_tool([make_skill(name="pdf-fill")])
+    tool = build_read_skill_tool(_snap(make_skill(name="pdf-fill")))
 
     res = await tool.invoke({"name": dropped.name})
 
@@ -172,7 +185,7 @@ async def test_read_skill_cannot_reach_a_skill_outside_the_snapshot() -> None:
 
 @pytest.mark.asyncio
 async def test_read_skill_rejects_an_offset_outside_the_body() -> None:
-    tool = build_read_skill_tool([make_skill(name="pdf-fill", body="short")])
+    tool = build_read_skill_tool(_snap(make_skill(name="pdf-fill", body="short")))
 
     res = await tool.invoke({"name": "pdf-fill", "offset": 9_999})
 
@@ -196,7 +209,7 @@ _LONG_BODIES = {
 async def test_read_skill_spans_reassemble_the_body_exactly(label: str) -> None:
     # AC-33. Walk the whole body through continuation calls and rebuild it.
     body = _LONG_BODIES[label]
-    tool = build_read_skill_tool([make_skill(name="long-one", body=body)])
+    tool = build_read_skill_tool(_snap(make_skill(name="long-one", body=body)))
 
     spans: list[str] = []
     offset: int | None = 0
@@ -225,9 +238,337 @@ async def test_read_skill_spans_reassemble_the_body_exactly(label: str) -> None:
 
 @pytest.mark.asyncio
 async def test_read_skill_body_within_budget_is_not_truncated() -> None:
-    tool = build_read_skill_tool([make_skill(name="short-one", body="a" * 200)])
+    tool = build_read_skill_tool(_snap(make_skill(name="short-one", body="a" * 200)))
 
     out = await _read(tool, name="short-one")
 
     assert "truncated_at_offset" not in out
     assert out["body"] == "a" * 200
+
+
+# --------------------------------------------------------------------------- #
+# Phase 2 — the file manifest, the `path` arm, the scan gate, and AC-19        #
+# --------------------------------------------------------------------------- #
+
+
+def _sfile(
+    skill_id: uuid.UUID,
+    *,
+    path: str = "references/guide.md",
+    kind: SkillFileKind = SkillFileKind.REFERENCE,
+    scan_status: SkillScanStatus = SkillScanStatus.CLEAN,
+    size_bytes: int = 12,
+) -> SkillFile:
+    return SkillFile(
+        id=uuid.uuid4(),
+        skill_id=skill_id,
+        path=path,
+        kind=kind,
+        mime="text/markdown",
+        size_bytes=size_bytes,
+        sha256="a" * 64,
+        minio_key="k",
+        scan_status=scan_status,
+        extracted_chars=size_bytes,
+        created_at=NOW,
+    )
+
+
+class _FileFacade:
+    """Stands in for `SkillsFacade` at the seam `_serve_file` imports it through."""
+
+    texts: ClassVar[dict[str, str]] = {}
+    asked: ClassVar[list[str]] = []
+
+    def __init__(self, _db: object) -> None:
+        pass
+
+    async def read_skill_file_text(self, file: SkillFile) -> str:
+        _FileFacade.asked.append(file.path)
+        return _FileFacade.texts[file.path]
+
+
+@pytest.fixture
+def file_facade(monkeypatch) -> type[_FileFacade]:
+    import contexts.skills.interfaces.facade as facade_mod
+
+    _FileFacade.texts = {}
+    _FileFacade.asked = []
+    monkeypatch.setattr(facade_mod, "SkillsFacade", _FileFacade)
+    return _FileFacade
+
+
+@pytest.mark.asyncio
+async def test_read_skill_lists_its_files(file_facade) -> None:
+    # AC-18: the response lists file paths, so the model learns what it may ask for.
+    skill = make_skill(name="pdf-fill", body="# Body")
+    files = (
+        _sfile(skill.id, path="references/guide.md"),
+        _sfile(skill.id, path="scripts/run.py", kind=SkillFileKind.SCRIPT),
+    )
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: files}))
+
+    out = await _read(tool, name="pdf-fill")
+
+    assert out["body"] == "# Body"
+    assert out["files"] == [
+        {"path": "references/guide.md", "kind": "reference", "size_bytes": 12},
+        {"path": "scripts/run.py", "kind": "script", "size_bytes": 12},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_skill_with_no_files_carries_no_manifest_key(file_facade) -> None:
+    # An empty list dressed as data costs tokens on every read and tells the model
+    # nothing it could act on.
+    skill = make_skill(name="pdf-fill")
+    out = await _read(build_read_skill_tool(_snap(skill)), name="pdf-fill")
+    assert "files" not in out
+
+
+@pytest.mark.asyncio
+async def test_read_skill_serves_a_reference_files_text(file_facade) -> None:
+    # AC-18: reference-file text is readable.
+    skill = make_skill(name="pdf-fill")
+    f = _sfile(skill.id, path="references/guide.md")
+    file_facade.texts["references/guide.md"] = "# Guide\n\nStep one."
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: (f,)}))
+
+    out = await _read(tool, name="pdf-fill", path="references/guide.md")
+
+    assert out["path"] == "references/guide.md"
+    assert out["text"] == "# Guide\n\nStep one."
+    # `body` is absent: the model asked for a file, and shipping the body too would
+    # double the cost of every file read.
+    assert "body" not in out
+
+
+@pytest.mark.asyncio
+async def test_a_file_read_resolves_against_the_snapshot_not_a_query(file_facade) -> None:
+    # The facade is handed the snapshot's own SkillFile row. If the tool passed an id
+    # instead, the facade would need a lookup — a read primitive over every tenant's
+    # files, which is the same reason read_skill never resolves a *name*.
+    skill = make_skill(name="pdf-fill")
+    f = _sfile(skill.id, path="references/guide.md")
+    file_facade.texts["references/guide.md"] = "text"
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: (f,)}))
+
+    await _read(tool, name="pdf-fill", path="references/guide.md")
+
+    assert file_facade.asked == ["references/guide.md"]
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_path_is_a_tool_error_naming_the_real_ones(file_facade) -> None:
+    skill = make_skill(name="pdf-fill")
+    f = _sfile(skill.id, path="references/guide.md")
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: (f,)}))
+
+    res = await tool.invoke({"name": "pdf-fill", "path": "references/nope.md"})
+
+    assert res.is_error
+    assert "references/guide.md" in res.content
+
+
+@pytest.mark.asyncio
+async def test_another_skills_file_is_unreachable_by_path(file_facade) -> None:
+    # The manifest is per skill, so naming a path that exists on a *different* skill
+    # must not resolve — the snapshot is keyed by skill id for this reason.
+    mine, theirs = make_skill(name="mine"), make_skill(name="theirs")
+    theirs_file = _sfile(theirs.id, path="references/secret.md")
+    file_facade.texts["references/secret.md"] = "another tenant's document"
+    tool = build_read_skill_tool(_snap(mine, theirs, files={theirs.id: (theirs_file,)}))
+
+    res = await tool.invoke({"name": "mine", "path": "references/secret.md"})
+
+    assert res.is_error
+    assert "another tenant's document" not in res.content
+    assert file_facade.asked == []
+
+
+@pytest.mark.parametrize(
+    ("kind", "word"),
+    [(SkillFileKind.SCRIPT, "script"), (SkillFileKind.ASSET, "asset")],
+)
+@pytest.mark.asyncio
+async def test_only_reference_files_are_readable_as_text(file_facade, kind, word) -> None:
+    # R31.18: a script is staged for the interpreter, an asset is opaque bytes.
+    skill = make_skill(name="pdf-fill")
+    f = _sfile(skill.id, path=f"scripts/x.{word}", kind=kind)
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: (f,)}))
+
+    res = await tool.invoke({"name": "pdf-fill", "path": f.path})
+
+    assert res.is_error
+    assert word in res.content
+    assert file_facade.asked == []
+
+
+@pytest.mark.parametrize(
+    "status", [SkillScanStatus.PENDING, SkillScanStatus.SKIPPED, SkillScanStatus.QUARANTINED]
+)
+@pytest.mark.asyncio
+async def test_a_non_clean_file_makes_the_whole_skill_unreadable(file_facade, status) -> None:
+    # AC-34 — including the *body*, not just the offending file: Q-18's rule is that a
+    # skill is one semantic unit, and a body whose references cannot be fetched induces
+    # confabulation.
+    skill = make_skill(name="pdf-fill", body="secret instructions")
+    f = _sfile(skill.id, path="assets/x.bin", kind=SkillFileKind.ASSET, scan_status=status)
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: (f,)}))
+
+    res = await tool.invoke({"name": "pdf-fill"})
+
+    assert res.is_error
+    assert "assets/x.bin" in res.content
+    assert "secret instructions" not in res.content
+    # The error tells the model not to invent the contents — the failure mode AC-34
+    # exists to prevent is confabulation, not disclosure.
+    assert "Do not guess" in res.content
+
+
+@pytest.mark.asyncio
+async def test_the_scan_gate_also_blocks_the_file_arm(file_facade) -> None:
+    skill = make_skill(name="pdf-fill")
+    bad = _sfile(skill.id, path="references/guide.md", scan_status=SkillScanStatus.QUARANTINED)
+    file_facade.texts["references/guide.md"] = "infected text"
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: (bad,)}))
+
+    res = await tool.invoke({"name": "pdf-fill", "path": "references/guide.md"})
+
+    assert res.is_error
+    assert file_facade.asked == [], "the gate must fire before any byte is fetched"
+
+
+@pytest.mark.asyncio
+async def test_a_clean_skill_is_unaffected_by_another_skills_quarantine(file_facade) -> None:
+    # The gate is per skill. One poisoned skill must not take the agent's others down.
+    good, bad = make_skill(name="good", body="fine"), make_skill(name="bad")
+    tool = build_read_skill_tool(
+        _snap(
+            good,
+            bad,
+            files={
+                good.id: (_sfile(good.id, path="references/a.md"),),
+                bad.id: (_sfile(bad.id, path="references/b.md", scan_status=SkillScanStatus.QUARANTINED),),
+            },
+        )
+    )
+
+    out = await _read(tool, name="good")
+    assert out["body"] == "fine"
+    assert (await tool.invoke({"name": "bad"})).is_error
+
+
+@pytest.mark.asyncio
+async def test_a_body_read_is_recorded_for_message_metadata(file_facade) -> None:
+    # AC-19 / R31.17. body_sha256 is the load-bearing field: bodies are mutable in place
+    # with no version tree, so `version` says which row was read and only the hash says
+    # which bytes ran.
+    skill = make_skill(name="pdf-fill", body="# Body")
+    reads: list[SkillRead] = []
+    tool = build_read_skill_tool(_snap(skill), reads=reads)
+
+    await _read(tool, name="pdf-fill")
+
+    assert len(reads) == 1
+    assert reads[0].to_dict() == {
+        "skill_id": str(skill.id),
+        "name": "pdf-fill",
+        "scope": skill.scope.value,
+        "version": skill.version,
+        "body_sha256": skill.body_sha256,
+    }
+
+
+@pytest.mark.asyncio
+async def test_every_body_read_is_recorded_including_continuations(file_facade) -> None:
+    # Two reads of one skill are two records: the question "which bytes ran" is asked of
+    # a turn, and a body edited between two reads would otherwise be invisible.
+    skill = make_skill(name="pdf-fill", body="# Body")
+    reads: list[SkillRead] = []
+    tool = build_read_skill_tool(_snap(skill), reads=reads)
+
+    await _read(tool, name="pdf-fill")
+    await _read(tool, name="pdf-fill")
+
+    assert len(reads) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_failed_read_records_nothing(file_facade) -> None:
+    # An unknown name and a blocked skill both served no bytes, so neither is a read.
+    skill = make_skill(name="pdf-fill")
+    blocked = make_skill(name="blocked")
+    reads: list[SkillRead] = []
+    tool = build_read_skill_tool(
+        _snap(
+            skill,
+            blocked,
+            files={blocked.id: (_sfile(blocked.id, scan_status=SkillScanStatus.QUARANTINED),)},
+        ),
+        reads=reads,
+    )
+
+    await tool.invoke({"name": "no-such-skill"})
+    await tool.invoke({"name": "blocked"})
+    await tool.invoke({"name": "pdf-fill", "offset": 99_999})
+
+    assert reads == []
+
+
+@pytest.mark.asyncio
+async def test_a_file_read_is_not_recorded(file_facade) -> None:
+    # R31.17 names the *body* hash. A file read is already pinned by the body read that
+    # had to precede it to learn the path.
+    skill = make_skill(name="pdf-fill")
+    f = _sfile(skill.id, path="references/guide.md")
+    file_facade.texts["references/guide.md"] = "text"
+    reads: list[SkillRead] = []
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: (f,)}), reads=reads)
+
+    await _read(tool, name="pdf-fill", path="references/guide.md")
+
+    assert reads == []
+
+
+@pytest.mark.asyncio
+async def test_a_long_file_reassembles_across_continuations(file_facade) -> None:
+    # AC-33's contract holds on the file arm too: the span/offset walk is the same code.
+    skill = make_skill(name="pdf-fill")
+    f = _sfile(skill.id, path="references/guide.md")
+    text = "The quick brown fox jumps over the lazy dog. " * 4_000
+    file_facade.texts["references/guide.md"] = text
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: (f,)}))
+
+    spans: list[str] = []
+    offset: int | None = 0
+    while offset is not None:
+        res = await tool.invoke({"name": "pdf-fill", "path": "references/guide.md", "offset": offset})
+        assert not res.is_error, res.content
+        assert len(res.content) <= _MAX_TOOL_OUTPUT
+        assert "[truncated]" not in res.content, "the byte clip severed the JSON"
+        out = json.loads(res.content)
+        spans.append(out["text"])
+        offset = out.get("truncated_at_offset")
+
+    assert len(spans) > 1
+    assert "".join(spans) == text
+
+
+@pytest.mark.asyncio
+async def test_the_manifest_is_counted_in_the_span_budget(file_facade) -> None:
+    # The manifest rides in the same JSON as the body, so a long one must shrink the
+    # body's span rather than push the rendered result past _MAX_TOOL_OUTPUT — where the
+    # byte clip would sever the JSON carrying truncated_at_offset (D-13).
+    skill = make_skill(name="long-one", body="x" * 100_000)
+    many = tuple(_sfile(skill.id, path=f"references/file-{i:03d}-with-a-long-name.md") for i in range(60))
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: many}))
+
+    res = await tool.invoke({"name": "long-one"})
+
+    assert not res.is_error
+    assert len(res.content) <= _MAX_TOOL_OUTPUT
+    assert "[truncated]" not in res.content
+    out = json.loads(res.content)
+    assert len(out["files"]) == 60
+    assert out["truncated_at_offset"] > 0
