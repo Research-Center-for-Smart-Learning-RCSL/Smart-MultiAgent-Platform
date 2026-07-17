@@ -135,13 +135,13 @@ async def test_reconcile_runs_a_real_container_not_a_never_started_one(monkeypat
     assert container.removed is True
 
 
-async def test_the_command_stages_the_archive_on_the_durable_volume(monkeypatch) -> None:
-    """AC-1 (orchestration half) + regression for the tmpfs-shadow bug. The reconcile
-    command targets the caller's own subtree, and the staging tar is put to the **volume
-    root**, never a tmpfs: put_archive runs before start, and a tmpfs mount does not exist
-    until the container runs, so a /tmp file would be shadowed at start and the reconcile
-    would fail to open it every turn. The clear-then-extract behaviour is proven against a
-    real FS below."""
+async def test_the_command_overlays_files_and_a_manifest_on_the_volume(monkeypatch) -> None:
+    """AC-1 (orchestration half) + regression for the tmpfs-shadow bug. Two put_archives,
+    both to the **volume root** and never a tmpfs (put_archive runs before start, and a
+    tmpfs mount does not exist until the container runs, so a /tmp file would be shadowed
+    at start): the staged files overlay the live subtree, and a tiny manifest of the
+    desired paths lands beside them for the prune to read. The prune itself is proven
+    against a real FS below."""
     container = _FakeContainer()
     box, client = _box(monkeypatch, container)
 
@@ -152,18 +152,23 @@ async def test_the_command_stages_the_archive_on_the_durable_volume(monkeypatch)
     env = client.create_kwargs["environment"]
     assert env["SMAP_RECONCILE_SUBDIR"] == "agent-files"
     assert env["SMAP_RECONCILE_ROOT"] == "/workspace"
-    # On the volume, outside the reconciled subtree, and never a /tmp (tmpfs) path.
-    assert env["SMAP_RECONCILE_ARCHIVE"].startswith("/workspace/.smap-reconcile-")
-    assert env["SMAP_RECONCILE_ARCHIVE"].endswith(".tar")
-    assert not env["SMAP_RECONCILE_ARCHIVE"].startswith("/tmp")
-    assert [path for path, _ in container.archives] == ["/workspace"]
+    assert env["SMAP_RECONCILE_MANIFEST"].startswith("/workspace/.smap-reconcile-")
+    assert env["SMAP_RECONCILE_MANIFEST"].endswith(".manifest")
+    assert "SMAP_RECONCILE_ARCHIVE" not in env  # no staged-copy transport any more
+
+    # Both put_archives go to the volume, never /tmp. First carries the files (overlay),
+    # second the manifest.
+    assert [path for path, _ in container.archives] == ["/workspace", "/workspace"]
+    files_archive, manifest_archive = (data for _p, data in container.archives)
+    assert _tar_file_names(files_archive) == ["agent-files/a.csv"]
+    assert _tar_file_names(manifest_archive)[0].endswith(".manifest")
 
 
 async def test_a_non_zero_exit_raises(monkeypatch) -> None:
     """AC-3. An in-container reconcile failure must surface as an error, so the caller's
     best-effort swallow runs the turn without the files rather than trusting a
     half-reconciled volume."""
-    container = _FakeContainer(exit_code=1, stderr=b"reconcile: member escapes root: ../x")
+    container = _FakeContainer(exit_code=1, stderr=b"reconcile: empty subdir")
     box, _client = _box(monkeypatch, container)
 
     with pytest.raises(SandboxReconcileError) as excinfo:
@@ -171,7 +176,7 @@ async def test_a_non_zero_exit_raises(monkeypatch) -> None:
             agent_id=uuid.uuid4(), files=[_staged("s/scripts/x.py")], manifest_sha="sha1"
         )
 
-    assert "member escapes root" in str(excinfo.value)
+    assert "empty subdir" in str(excinfo.value)
     assert container.removed is True
 
 
@@ -252,39 +257,60 @@ def test_the_reconcile_docstring_describes_reconciliation_not_a_cache() -> None:
     assert "idempotent" not in doc
 
 
-# --- the _RECONCILE script against a real filesystem -------------------------
+# --- the _RECONCILE prune against a real filesystem --------------------------
 #
-# The script is stdlib-only and reads its target from the environment precisely so it can
-# run here, on a real FS, without a Docker daemon. Symlink cases skip where the host cannot
-# create symlinks (unprivileged Windows); the drop-file and `..`-escape cases run anywhere.
+# `_RECONCILE` runs AFTER the overlay put_archive: the staged files are already on the
+# volume, and its job is to prune whatever the staged set no longer contains. These tests
+# model that state directly — write the post-overlay tree, write the manifest of desired
+# paths, run the stdlib-only script, and assert what survives. The script reads its target
+# from the environment precisely so it can run here without a Docker daemon. Symlink cases
+# skip where the host cannot create symlinks (unprivileged Windows).
 
 
-def _inner_archive(subdir: str, files: dict[str, bytes]) -> bytes:
-    """The staging archive the container reads from the volume: the same shape
-    `_tar_staged_inputs` produces — a DIRTYPE for the subtree plus its files."""
-    archive, _staged = ds._tar_staged_inputs(
-        rel_dir=subdir,
-        files=[StagedFile(filename=name, data=data) for name, data in files.items()],
-        preserve_tree=True,
-    )
-    return archive
+def _tar_file_names(data: bytes) -> list[str]:
+    with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+        return [m.name for m in tar.getmembers() if m.isfile()]
 
 
-def _run_reconcile(root, subdir: str, archive_bytes: bytes) -> subprocess.CompletedProcess:
-    archive_path = root.parent / "reconcile.tar"
-    archive_path.write_bytes(archive_bytes)
+def _run_prune(root, subdir: str, present: dict[str, bytes], desired: list[str]):
+    """Simulate the state after the overlay put_archive and run the prune.
+
+    *present* maps volume-root-relative paths to the bytes already on the volume (the staged
+    files just overlaid, plus any stale leftovers); *desired* is the manifest of paths the
+    staged set contains. Returns (CompletedProcess, manifest_path)."""
+    root.mkdir(parents=True, exist_ok=True)
+    for rel, payload in present.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(payload)
+    manifest = root / ".smap-reconcile-test.manifest"
+    manifest.write_text("\n".join(desired) + "\n", encoding="utf-8")
     env = {
         **os.environ,
         "SMAP_RECONCILE_ROOT": str(root),
         "SMAP_RECONCILE_SUBDIR": subdir,
-        "SMAP_RECONCILE_ARCHIVE": str(archive_path),
+        "SMAP_RECONCILE_MANIFEST": str(manifest),
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", ds._RECONCILE], env=env, capture_output=True, text=True, check=False
+    )
+    return result, manifest
+
+
+def _run_prune_raw(root, subdir: str, manifest_lines: list[str]):
+    """Like `_run_prune` but assumes the caller already built the on-disk tree (used by the
+    symlink cases, which need os.symlink rather than write_bytes)."""
+    root.mkdir(parents=True, exist_ok=True)
+    manifest = root / ".smap-reconcile-test.manifest"
+    manifest.write_text("\n".join(manifest_lines) + "\n", encoding="utf-8")
+    env = {
+        **os.environ,
+        "SMAP_RECONCILE_ROOT": str(root),
+        "SMAP_RECONCILE_SUBDIR": subdir,
+        "SMAP_RECONCILE_MANIFEST": str(manifest),
     }
     return subprocess.run(
-        [sys.executable, "-c", ds._RECONCILE],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
+        [sys.executable, "-c", ds._RECONCILE], env=env, capture_output=True, text=True, check=False
     )
 
 
@@ -299,86 +325,86 @@ def _supports_symlink(tmp_path) -> bool:
 
 
 def test_a_dropped_file_is_removed_from_the_subtree(tmp_path) -> None:
-    """AC-1. The headline: stage {a, b}, then reconcile to {a}, and b's bytes are gone
-    from the volume — not merely unnamed in the note. Overlay-staging left b behind."""
+    """AC-1. The headline: the volume held {a, b}, the staged set is {a}, and after the
+    prune b's bytes are gone — not merely unnamed in the note. The old overlay left b."""
     root = tmp_path / "workspace"
-    sub = root / "agent-files"
-    sub.mkdir(parents=True)
-    (sub / "a.csv").write_bytes(b"old-a")
-    (sub / "b.csv").write_bytes(b"b-should-vanish")
-
-    result = _run_reconcile(root, "agent-files", _inner_archive("agent-files", {"a.csv": b"new-a"}))
-
-    assert result.returncode == 0, result.stderr
-    assert (sub / "a.csv").read_bytes() == b"new-a"
-    assert not (sub / "b.csv").exists()
-
-
-def test_the_staging_tar_and_stale_siblings_are_cleaned_up(tmp_path) -> None:
-    """The staging tar lives on the quota-limited volume, so the reconcile unlinks its own
-    tar even on success, and sweeps an *aged* sibling orphaned by an earlier killed
-    container. A fresh sibling (a concurrent worker's in-flight archive) is left alone — the
-    age gate is what keeps concurrent stagers from deleting each other's archives."""
-    import time
-
-    root = tmp_path / "workspace"
-    (root / "agent-files").mkdir(parents=True)
-
-    aged_orphan = root / ".smap-reconcile-OLD.tar"
-    aged_orphan.write_bytes(b"junk from a container killed long ago")
-    old = time.time() - 3600
-    os.utime(aged_orphan, (old, old))
-
-    fresh_sibling = root / ".smap-reconcile-CONCURRENT.tar"
-    fresh_sibling.write_bytes(b"another worker's in-flight archive")
-
-    archive_path = root / ".smap-reconcile-CURRENT.tar"
-    archive_path.write_bytes(_inner_archive("agent-files", {"a.csv": b"a"}))
-
-    env = {
-        **os.environ,
-        "SMAP_RECONCILE_ROOT": str(root),
-        "SMAP_RECONCILE_SUBDIR": "agent-files",
-        "SMAP_RECONCILE_ARCHIVE": str(archive_path),
-    }
-    result = subprocess.run(
-        [sys.executable, "-c", ds._RECONCILE], env=env, capture_output=True, text=True, check=False
+    result, _m = _run_prune(
+        root,
+        "agent-files",
+        present={"agent-files/a.csv": b"new-a", "agent-files/b.csv": b"b-should-vanish"},
+        desired=["agent-files/a.csv"],
     )
 
     assert result.returncode == 0, result.stderr
-    assert (root / "agent-files" / "a.csv").read_bytes() == b"a"
-    assert not archive_path.exists()  # our own staging tar is always removed
-    assert not aged_orphan.exists()  # the aged orphan is swept
-    assert fresh_sibling.exists()  # a concurrent worker's fresh archive is left intact
+    assert (root / "agent-files" / "a.csv").read_bytes() == b"new-a"
+    assert not (root / "agent-files" / "b.csv").exists()
 
 
-def test_a_nested_dropped_file_is_removed(tmp_path) -> None:
-    """The subtree is emptied wholesale, so a survivor's folder is rebuilt and a dropped
-    file inside a folder does not linger."""
+def test_the_manifest_is_removed_after_the_prune(tmp_path) -> None:
+    """The manifest is a per-call file on the volume; the prune unlinks it in its finally so
+    it never lingers to fill the quota or be mistaken for content."""
     root = tmp_path / "workspace"
-    sub = root / "agent-files"
-    (sub / "reports").mkdir(parents=True)
-    (sub / "reports" / "q1.csv").write_bytes(b"keep")
-    (sub / "reports" / "q2.csv").write_bytes(b"drop")
-
-    result = _run_reconcile(root, "agent-files", _inner_archive("agent-files", {"reports/q1.csv": b"keep"}))
+    result, manifest = _run_prune(
+        root, "agent-files", present={"agent-files/a.csv": b"a"}, desired=["agent-files/a.csv"]
+    )
 
     assert result.returncode == 0, result.stderr
-    assert (sub / "reports" / "q1.csv").read_bytes() == b"keep"
-    assert not (sub / "reports" / "q2.csv").exists()
+    assert not manifest.exists()
+
+
+def test_the_subtree_is_never_emptied_only_extras_pruned(tmp_path) -> None:
+    """AC + FU-6: in-place reconcile never clears first, so a desired file present on the
+    volume is untouched while only the extras are removed — there is no window where the
+    subtree is empty."""
+    root = tmp_path / "workspace"
+    result, _m = _run_prune(
+        root,
+        "agent-files",
+        present={"agent-files/keep.csv": b"keep", "agent-files/drop.csv": b"drop"},
+        desired=["agent-files/keep.csv"],
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (root / "agent-files" / "keep.csv").read_bytes() == b"keep"
+    assert not (root / "agent-files" / "drop.csv").exists()
+
+
+def test_a_nested_dropped_file_is_removed_and_empty_dirs_pruned(tmp_path) -> None:
+    """A dropped file inside a folder does not linger, and a folder left empty by the prune
+    is removed, while a folder still holding a desired file is kept."""
+    root = tmp_path / "workspace"
+    result, _m = _run_prune(
+        root,
+        "agent-files",
+        present={
+            "agent-files/reports/q1.csv": b"keep",
+            "agent-files/reports/q2.csv": b"drop",
+            "agent-files/old/gone.csv": b"drop",
+        },
+        desired=["agent-files/reports/q1.csv"],
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (root / "agent-files" / "reports" / "q1.csv").read_bytes() == b"keep"
+    assert not (root / "agent-files" / "reports" / "q2.csv").exists()
+    assert not (root / "agent-files" / "old").exists()  # wholly-stale folder pruned
 
 
 def test_the_other_subtree_is_untouched(tmp_path) -> None:
-    """Reconciling agent-files clears only agent-files: the skills subtree and the file
+    """Reconciling agent-files prunes only agent-files: the skills subtree and the file
     tool's own state on the same volume survive (AC-21, and the §9 danger this guards)."""
     root = tmp_path / "workspace"
-    (root / "agent-files").mkdir(parents=True)
-    (root / "agent-files" / "stale.csv").write_bytes(b"stale")
-    (root / "skills" / "s").mkdir(parents=True)
-    (root / "skills" / "s" / "keep.py").write_bytes(b"skill")
-    (root / "notes.txt").write_bytes(b"file-tool state")
-
-    result = _run_reconcile(root, "agent-files", _inner_archive("agent-files", {"a.csv": b"a"}))
+    result, _m = _run_prune(
+        root,
+        "agent-files",
+        present={
+            "agent-files/a.csv": b"a",
+            "agent-files/stale.csv": b"stale",
+            "skills/s/keep.py": b"skill",
+            "notes.txt": b"file-tool state",
+        },
+        desired=["agent-files/a.csv"],
+    )
 
     assert result.returncode == 0, result.stderr
     assert (root / "skills" / "s" / "keep.py").read_bytes() == b"skill"
@@ -386,29 +412,26 @@ def test_the_other_subtree_is_untouched(tmp_path) -> None:
     assert not (root / "agent-files" / "stale.csv").exists()
 
 
-def test_a_member_escaping_the_root_is_refused(tmp_path) -> None:
-    """AC-6. A crafted archive member with `..` cannot write outside the volume root. Our
-    own tars never carry such a member, but the guard is defence against a bug upstream."""
+def test_a_manifest_path_cannot_make_the_prune_delete_outside_the_subtree(tmp_path) -> None:
+    """AC-6. The prune only ever deletes entries it walks *under* the subtree; the manifest
+    is a keep-set, never a list of paths to act on. A hostile manifest entry pointing
+    outside agent-files therefore cannot cause a deletion there."""
     root = tmp_path / "workspace"
-    (root / "agent-files").mkdir(parents=True)
+    result, _m = _run_prune(
+        root,
+        "agent-files",
+        present={"agent-files/a.csv": b"a", "notes.txt": b"file-tool state"},
+        desired=["agent-files/a.csv", "../notes.txt", "/etc/passwd"],
+    )
 
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w") as tar:
-        info = tarfile.TarInfo(name="agent-files/../../escaped.txt")
-        payload = b"escaped"
-        info.size = len(payload)
-        tar.addfile(info, io.BytesIO(payload))
-
-    result = _run_reconcile(root, "agent-files", buf.getvalue())
-
-    assert result.returncode != 0
-    assert "escapes root" in result.stderr
-    assert not (tmp_path / "escaped.txt").exists()
+    assert result.returncode == 0, result.stderr
+    assert (root / "notes.txt").read_bytes() == b"file-tool state"
+    assert (root / "agent-files" / "a.csv").read_bytes() == b"a"
 
 
 def test_a_symlink_out_of_the_subtree_is_removed_not_followed(tmp_path) -> None:
     """AC-6. A symlink the agent's own code_exec left inside agent-files, pointing at the
-    rest of the volume, is unlinked by the clear — never traversed, so its target is not
+    rest of the volume, is unlinked by the prune — never traversed, so its target is not
     deleted."""
     if not _supports_symlink(tmp_path):
         pytest.skip("host cannot create symlinks")
@@ -418,9 +441,10 @@ def test_a_symlink_out_of_the_subtree_is_removed_not_followed(tmp_path) -> None:
     sub.mkdir(parents=True)
     secret = root / "file-tool-secret.txt"
     secret.write_bytes(b"must survive")
-    os.symlink(secret, sub / "escape-link")
+    (sub / "a.csv").write_bytes(b"a")  # a desired file, overlaid
+    os.symlink(secret, sub / "escape-link")  # agent-planted, not in the staged set
 
-    result = _run_reconcile(root, "agent-files", _inner_archive("agent-files", {"a.csv": b"a"}))
+    result = _run_prune_raw(root, "agent-files", ["agent-files/a.csv"])
 
     assert result.returncode == 0, result.stderr
     assert secret.read_bytes() == b"must survive"
@@ -428,10 +452,34 @@ def test_a_symlink_out_of_the_subtree_is_removed_not_followed(tmp_path) -> None:
     assert (sub / "a.csv").read_bytes() == b"a"
 
 
+def test_a_symlinked_subdir_is_not_descended_and_its_target_survives(tmp_path) -> None:
+    """AC-6. A symlinked directory inside the subtree pointing at other volume state is
+    removed as a link (os.walk does not descend into it), so the files behind it survive."""
+    if not _supports_symlink(tmp_path):
+        pytest.skip("host cannot create symlinks")
+
+    root = tmp_path / "workspace"
+    sub = root / "agent-files"
+    sub.mkdir(parents=True)
+    outside = root / "other-state"
+    outside.mkdir()
+    (outside / "keep.txt").write_bytes(b"must survive")
+    (sub / "a.csv").write_bytes(b"a")
+    os.symlink(outside, sub / "sneaky")  # symlinked dir, not in the staged set
+
+    result = _run_prune_raw(root, "agent-files", ["agent-files/a.csv"])
+
+    assert result.returncode == 0, result.stderr
+    assert (outside / "keep.txt").read_bytes() == b"must survive"
+    assert not (sub / "sneaky").exists()
+    assert (sub / "a.csv").read_bytes() == b"a"
+
+
 def test_the_subtree_itself_being_a_symlink_is_replaced_not_followed(tmp_path) -> None:
-    """AC-6. If the subtree root is itself a symlink to elsewhere on the volume, the clear
-    removes the link (rmtree is never called on it) and rebuilds a real directory, leaving
-    the link's former target untouched."""
+    """AC-6. If the subtree root is itself a symlink to elsewhere on the volume (the overlay
+    having written the staged files through it), the prune removes the link and rebuilds a
+    real directory rather than walking — and following — it, so the link's former target
+    survives untouched."""
     if not _supports_symlink(tmp_path):
         pytest.skip("host cannot create symlinks")
 
@@ -442,9 +490,8 @@ def test_the_subtree_itself_being_a_symlink_is_replaced_not_followed(tmp_path) -
     (elsewhere / "keep.txt").write_bytes(b"untouched")
     os.symlink(elsewhere, root / "agent-files")
 
-    result = _run_reconcile(root, "agent-files", _inner_archive("agent-files", {"a.csv": b"a"}))
+    result = _run_prune_raw(root, "agent-files", ["agent-files/a.csv"])
 
     assert result.returncode == 0, result.stderr
     assert not (root / "agent-files").is_symlink()
-    assert (root / "agent-files" / "a.csv").read_bytes() == b"a"
     assert (elsewhere / "keep.txt").read_bytes() == b"untouched"

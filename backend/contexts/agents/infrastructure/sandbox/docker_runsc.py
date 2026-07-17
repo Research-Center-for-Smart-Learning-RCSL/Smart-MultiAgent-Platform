@@ -341,85 +341,87 @@ _kernels_guard = asyncio.Lock()
 # tree and record a manifest sha in a per-process dict — an overlay that could
 # add but never remove, so a file deleted from the source of truth kept its bytes
 # on the volume, and a cache that returned paths without touching Docker, so it
-# could not notice a volume removed out of band. Both are gone. Staging now runs
-# a real container that empties the subtree and re-extracts the staged set, so
-# the subtree equals the set every turn ([R12.03a]).
+# could not notice a volume removed out of band. Both are gone. Staging now
+# reconciles **in place**: `put_archive` overlays the staged files onto the live
+# subtree (add/overwrite), then a real container prunes whatever the staged set no
+# longer contains, so the subtree equals the set every turn ([R12.03a]).
 #
-# The staged archive is put onto the **named volume** as a file
-# (`/workspace/.smap-reconcile-{uuid}.tar`), NOT into a tmpfs. A tmpfs mount only
-# exists while the container runs, so a file `put_archive`d to /tmp before start
-# is shadowed by the fresh tmpfs at start and vanishes — the volume is mounted at
-# create time and survives, which is why every other put_archive-before-start
-# site in this module targets it too (`run_file_op`'s `.smap-stage-{uuid}`). The
-# staging file lives outside the reconciled subtree, so the clear never touches
-# it, and `_RECONCILE` unlinks it (and any stale sibling) itself.
-_RECONCILE_STAGE_PREFIX = ".smap-reconcile-"
+# Overlay-then-prune (not stage-a-copy-then-swap) is what keeps this cheap and
+# safe: the staged files go straight onto the volume with no second copy, so peak
+# volume and worker memory stay ~1x (a full staging tar would be ~2x of a 100 MB
+# volume and 128 MiB of worker heap), and the subtree is never emptied, so a
+# reconcile that fails partway degrades to "some stale files linger", never to
+# "the agent's files vanished". The desired-path set is carried in a tiny manifest
+# file put beside the archive; the prune reads it and removes the rest.
+_RECONCILE_MANIFEST_PREFIX = ".smap-reconcile-"
 _RECONCILE_TIMEOUT_S = 30.0
 
 # Executed as `python -c _RECONCILE` inside the sandbox container. Reads its
 # target from the environment so the same source can be exercised directly, on a
 # real filesystem, by test_workspace_volume_reconcile.py without a Docker daemon.
 #
-# The clear-then-extract order is load-bearing (Q-1): extracting after the clear
-# means no member ever lands on a symlink the agent's own code_exec left in the
-# tree, and the tree is never a transient union of the old and new sets. The
-# clear must not follow a symlink out of the subtree, and no member may resolve
-# outside the volume root — the one real danger in this change is deleting the
-# agent's own `file`-tool state, which shares the volume and has no other copy
-# (§9). Both guards are covered by AC-6.
+# The one real danger here is deleting data outside the reconciled subtree — the
+# agent's own `file`-tool state and per-room dirs share the volume and have no
+# other copy (§9). The prune defends on three fronts, all covered by AC-6: it
+# refuses to walk a symlinked subtree root (os.walk would follow it and prune the
+# target); os.walk does not descend into a symlinked subdir; and os.unlink removes
+# a symlink entry itself, never its target. So nothing outside the subtree is ever
+# reached, whatever the agent's own code_exec left on the volume.
 _RECONCILE = r"""
-import glob, os, sys, shutil, tarfile, time, warnings
+import os, sys, warnings
 
 warnings.filterwarnings("ignore")  # keep stderr clean; failures still print
 
 root = os.environ["SMAP_RECONCILE_ROOT"]
 subdir = os.environ["SMAP_RECONCILE_SUBDIR"].strip("/")
-archive = os.environ["SMAP_RECONCILE_ARCHIVE"]
+manifest = os.environ["SMAP_RECONCILE_MANIFEST"]
 if not subdir:
     sys.exit("reconcile: empty subdir")
 
 target = os.path.join(root, subdir)
-root_real = os.path.realpath(root)
 
 try:
-    # 1. Empty the projection. rmtree unlinks a symlink entry rather than recursing
-    #    into its target, and is never called on the top path when that path is
-    #    itself a symlink, so nothing outside the subtree is ever followed.
-    if os.path.islink(target) or os.path.isfile(target):
+    with open(manifest, encoding="utf-8") as fh:
+        desired = {line.rstrip("\n") for line in fh if line.strip()}
+
+    # The staged files were already extracted into `target`, over any existing tree.
+    # If `target` is a symlink, that overlay wrote through it to elsewhere on the
+    # volume; never walk a symlinked top -- os.walk follows a symlinked root and would
+    # prune the target's contents. Replace it with a real empty dir. The misplaced
+    # files converge next turn; only an agent that planted the symlink is affected.
+    if os.path.islink(target):
         os.unlink(target)
-    elif os.path.isdir(target):
-        shutil.rmtree(target)
     os.makedirs(target, exist_ok=True)
 
-    # 2. Extract the staged set over the now-empty subtree. The archive is built by
-    #    SMAP, not from agent input, but vet every member: skip links and device
-    #    nodes, and refuse any member whose path resolves outside the volume root.
-    with tarfile.open(archive, "r") as tar:
-        for m in tar.getmembers():
-            if m.issym() or m.islnk() or m.isdev():
-                continue
-            dest = os.path.realpath(os.path.join(root, m.name))
-            if dest != root_real and not dest.startswith(root_real + os.sep):
-                sys.exit("reconcile: member escapes root: " + m.name)
-            tar.extract(m, root)
+    # Prune: remove every entry under the subtree whose path is not in the staged set.
+    # os.walk does not descend into a symlinked subdir (followlinks defaults False) and
+    # os.unlink never follows a symlink to its target, so nothing outside is touched.
+    for dirpath, dirnames, filenames in os.walk(target, topdown=False):
+        for nm in filenames:
+            full = os.path.join(dirpath, nm)
+            rel = os.path.relpath(full, root).replace(os.sep, "/")
+            if rel not in desired:
+                try:
+                    os.unlink(full)
+                except OSError:
+                    pass
+        for nm in dirnames:
+            full = os.path.join(dirpath, nm)
+            if os.path.islink(full):
+                try:
+                    os.unlink(full)  # a symlinked "dir" is never a desired file
+                except OSError:
+                    pass
+            else:
+                try:
+                    os.rmdir(full)  # only succeeds once empty (no desired file remains)
+                except OSError:
+                    pass
 finally:
-    # The staging tar sits on the quota-limited volume; always remove our own, and
-    # sweep siblings orphaned by an earlier killed container (whose finally never ran).
-    # Age-gate the sweep: a concurrent worker reconciling the same volume finishes or is
-    # killed within the timeout, so only siblings older than that can be dead — deleting a
-    # live sibling's in-flight archive would fail its reconcile (no cross-process lock yet,
-    # FU-1). The window is generous relative to the wait timeout.
-    cutoff = time.time() - 300
     try:
-        os.unlink(archive)
+        os.unlink(manifest)
     except OSError:
         pass
-    for stale in glob.glob(os.path.join(root, ".smap-reconcile-*.tar")):
-        try:
-            if os.path.getmtime(stale) < cutoff:
-                os.unlink(stale)
-        except OSError:
-            pass
 """
 
 
@@ -1228,10 +1230,14 @@ class DockerRunscSandbox:
         **projection** of a source of truth — the ``agent_workspace_files`` rows, or the
         bound-skill set — so staging reconciles rather than overlays ([R12.03a]): a file
         no longer in *files* is removed from the volume, not merely omitted from the note.
-        ``put_archive`` alone can add but never remove, so a real container runs
-        ``_RECONCILE`` (empty the subtree, then extract the staged set over it) and a
-        non-zero exit raises, so the caller degrades the turn rather than trusting a
-        half-reconciled volume.
+
+        Reconciles **in place**, not by clear-and-replace. ``put_archive`` overlays the
+        staged files straight onto the live subtree (add/overwrite), then a real container
+        runs ``_RECONCILE``, which prunes whatever the staged set no longer contains. A
+        second copy is never staged, so peak volume and worker memory stay ~1x, and the
+        subtree is never emptied — a reconcile that fails partway leaves stale files, never
+        an empty tree. The desired-path set travels in a tiny manifest put beside the
+        archive. A non-zero exit raises, so the caller degrades the turn.
 
         Not cached: the retired manifest cache returned paths without touching Docker, so
         it could neither prune a dropped file (FU-19) nor notice a volume removed out of
@@ -1248,12 +1254,11 @@ class DockerRunscSandbox:
         client = self._client()
         volume = f"smap-agent-fs-{agent_id}"
         archive, raw_staged = _tar_staged_inputs(rel_dir=rel_dir, files=files, preserve_tree=True)
-        # Wrap the staged tar as one member and land it on the volume as a file. It must
-        # be on the volume, not a tmpfs: put_archive runs before start, and a tmpfs mount
-        # does not exist until the container runs, so a /tmp file would be shadowed away.
-        stage_name = f"{_RECONCILE_STAGE_PREFIX}{uuid.uuid4().hex}.tar"
-        wrapped = _tar_single_file(stage_name, archive)
-        del archive  # drop the inner copy; only `wrapped` is put, `raw_staged` is returned
+        # The prune needs the desired-path set. Carry it in a tiny manifest (KBs, not the
+        # 128 MiB archive) put beside the files; a per-call uuid name keeps concurrent
+        # stagers of the same volume from colliding on it.
+        manifest_name = f"{_RECONCILE_MANIFEST_PREFIX}{uuid.uuid4().hex}.manifest"
+        manifest_tar = _tar_single_file(manifest_name, ("\n".join(raw_staged) + "\n").encode())
 
         host_config = self._base_host_config()
         host_config["network_mode"] = "none"
@@ -1266,17 +1271,18 @@ class DockerRunscSandbox:
                 environment={
                     "SMAP_RECONCILE_ROOT": _VOLUME_ROOT,
                     "SMAP_RECONCILE_SUBDIR": rel_dir.strip("/"),
-                    "SMAP_RECONCILE_ARCHIVE": f"{_VOLUME_ROOT}/{stage_name}",
+                    "SMAP_RECONCILE_MANIFEST": f"{_VOLUME_ROOT}/{manifest_name}",
                 },
                 user=_SANDBOX_UID,
                 tmpfs={"/tmp": f"size={_TMP_TMPFS_BYTES}"},  # noqa: S108 — in-container tmpfs
                 **host_config,
             )
             try:
-                # put_archive extracts into the created container immediately; the volume
-                # is mounted at create time, so the staging tar lands on it and survives
-                # start. It sits outside the reconciled subtree, so the clear leaves it be.
-                await asyncio.to_thread(container.put_archive, _VOLUME_ROOT, wrapped)
+                # Both put_archives run before start; the volume is mounted at create, so
+                # both survive it. The files overlay the live subtree (in place, no second
+                # copy), and the manifest lands at the volume root for the prune to read.
+                await asyncio.to_thread(container.put_archive, _VOLUME_ROOT, archive)
+                await asyncio.to_thread(container.put_archive, _VOLUME_ROOT, manifest_tar)
                 await asyncio.to_thread(container.start)
                 await self._await_reconcile(container, rel_dir)
             finally:

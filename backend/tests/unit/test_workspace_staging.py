@@ -852,20 +852,6 @@ def _tar_names(data: bytes) -> list[str]:
         return [m.name for m in tar.getmembers() if m.isfile()]
 
 
-def _reconcile_inner_names(wrapped: bytes) -> list[str]:
-    """The file names inside the reconcile archive. Staging wraps the staged tar as a
-    single `.smap-reconcile-{uuid}.tar` member and puts it on the volume, where `_RECONCILE`
-    reads it, so the payload is one tar deep."""
-    import io
-    import tarfile
-
-    with tarfile.open(fileobj=io.BytesIO(wrapped)) as outer:
-        members = outer.getmembers()
-        assert len(members) == 1, "staging wraps exactly one archive member"
-        inner = outer.extractfile(members[0]).read()
-    return _tar_names(inner)
-
-
 def _staged(filename: str, data: bytes = b"x"):
     from contexts.agents.domain.mcp import StagedFile
 
@@ -873,27 +859,27 @@ def _staged(filename: str, data: bytes = b"x"):
 
 
 async def test_stage_skill_files_writes_the_scripts_into_the_volume(sandbox) -> None:
-    """The real method reconciles: it puts the wrapped staging tar onto the volume and runs
-    a container. The staged file is named `skills/{name}/{path}`, so `_RECONCILE` extracts
-    it to `/workspace/skills/{name}/{path}`."""
+    """The real method reconciles in place: it overlays the staged files onto the volume and
+    puts a manifest beside them, then runs a container. The staged file is named
+    `skills/{name}/{path}`, so it lands at `/workspace/skills/{name}/{path}`."""
     out = await sandbox.box.stage_skill_files(
         agent_id=uuid.uuid4(),
         files=[_staged("pdf-fill/scripts/fill.py", b"print(1)")],
         manifest_sha="sha1",
     )
 
-    assert len(sandbox.container.archives) == 1
-    root, archive = sandbox.container.archives[0]
-    # The volume, not /tmp: put_archive runs before start and a tmpfs file would be
-    # shadowed by the tmpfs mounted at start (the tmpfs-shadow regression).
-    assert root == "/workspace"
-    assert _reconcile_inner_names(archive) == ["skills/pdf-fill/scripts/fill.py"]
+    # Two put_archives, both to the volume (never /tmp: a tmpfs file would be shadowed at
+    # start). First the files overlay, second the manifest.
+    assert [path for path, _ in sandbox.container.archives] == ["/workspace", "/workspace"]
+    files_archive, manifest_archive = (data for _p, data in sandbox.container.archives)
+    assert _tar_names(files_archive) == ["skills/pdf-fill/scripts/fill.py"]
+    assert _tar_names(manifest_archive)[0].endswith(".manifest")
     assert sandbox.container.started is True
     assert out == ["/workspace/skills/pdf-fill/scripts/fill.py"]
 
 
 async def test_the_two_stagers_reconcile_disjoint_subtrees(sandbox) -> None:
-    """AC-21, restated for reconciliation: each stager clears only its own subtree, so
+    """AC-21, restated for reconciliation: each stager prunes only its own subtree, so
     staging skills cannot remove agent files or the reverse. The command's
     `SMAP_RECONCILE_SUBDIR` is what each call targets."""
     agent_id = uuid.uuid4()
