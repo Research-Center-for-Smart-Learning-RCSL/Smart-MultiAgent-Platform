@@ -2734,6 +2734,18 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   also an unbounded storage grow. A cap is a **new user-visible limit and a new 422** — a `feature`
   needing a number nobody has chosen, not a bugfix — which is why it is here rather than in the
   diff. Note the natural number (500) would make the bundle rule and the API rule agree.
+  **Closed 2026-07-17 (`2ac3fef`), on a correction to the reasoning above.** The premise that a cap
+  "needs a number nobody has chosen" was wrong: Q-17 already chose 500 for a bundle, and a skill
+  assembled one upload at a time must not be able to exceed what the same skill could carry as a
+  bundle — otherwise Phase 4's exporter emits skills its own importer rejects. So `MAX_SKILL_FILES`
+  is not a new decision, it is the existing one reaching the surface that was missing it. It rides
+  on the query `_assert_path_free` already makes, so it costs nothing.
+  **One claim in the review that produced this fix was false and is retracted:** that the cap
+  "would make `_fit_manifest`'s loop provably never fire and delete the reserve constant". Measured
+  rather than reasoned: 500 entries render **~42 500 bytes** against `read_skill`'s 16 000 cap, and
+  only ~188 short paths fit — so the trim stays, and the two limits do different jobs. The cap
+  bounds storage (with FU-29) and the per-add path scan; `_fit_manifest` bounds the render.
+  The O(n²) add loop is *reduced*, not removed: 500 adds still each scan up to 500 paths.
 - **FU-33: `read_skill`'s file reads are not in `message.metadata` (see D-32).** [R31.17] names the
   body hash and the reasoning holds for the common case, but the security gate's objection is
   sound: a model can reuse a path learned in an earlier turn, so a file read need not be preceded
@@ -2765,3 +2777,13 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   nearly free); and `_extract_text`'s `except ParserError` fallback (only `parser is None` is
   exercised). Recorded because "documented at length, tested nowhere" is how a rationale becomes
   folklore.
+- **FU-37: `read_skill`'s file reads have no re-scan safety net if a path is learned across
+  turns.** Split out of FU-33 by the review rather than merged into it: FU-33 is about *recording*
+  a file read, this is about the read itself. `_serve_file` resolves `path` against the turn's
+  snapshot, which is correct — but the snapshot's `scan_status` was read at turn start, and a file
+  can be quarantined by a scan that lands mid-turn. `assert_readable` therefore uses a status that
+  is up to one turn stale. Not a hole today, and deliberately so: the snapshot is the whole
+  security model (§6 forbids re-querying), and re-reading `scan_status` per tool call would put a
+  query back on the path the tap exists to keep off it. Recorded because "the gate is per turn, not
+  per call" is a real property of D-27's design that no AC states, and someone will eventually read
+  the fail-closed claim as stronger than it is.
