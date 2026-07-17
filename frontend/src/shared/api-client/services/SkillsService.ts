@@ -2,9 +2,16 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { Body_admin_upload_file_api_admin_skills__skill_id__files_upload_post } from '../models/Body_admin_upload_file_api_admin_skills__skill_id__files_upload_post';
+import type { Body_agent_upload_file_api_agents__agent_id__skills__skill_id__files_upload_post } from '../models/Body_agent_upload_file_api_agents__agent_id__skills__skill_id__files_upload_post';
+import type { Body_org_upload_file_api_orgs__org_id__skills__skill_id__files_upload_post } from '../models/Body_org_upload_file_api_orgs__org_id__skills__skill_id__files_upload_post';
+import type { Body_project_upload_file_api_projects__project_id__skills__skill_id__files_upload_post } from '../models/Body_project_upload_file_api_projects__project_id__skills__skill_id__files_upload_post';
 import type { SkillBindingOut } from '../models/SkillBindingOut';
 import type { SkillCopyIn } from '../models/SkillCopyIn';
 import type { SkillCreateIn } from '../models/SkillCreateIn';
+import type { SkillFileCreateIn } from '../models/SkillFileCreateIn';
+import type { SkillFileOut } from '../models/SkillFileOut';
+import type { SkillFilePatchIn } from '../models/SkillFilePatchIn';
 import type { SkillOut } from '../models/SkillOut';
 import type { SkillPageOut } from '../models/SkillPageOut';
 import type { SkillPatchIn } from '../models/SkillPatchIn';
@@ -180,6 +187,129 @@ export class SkillsService {
             url: '/api/admin/skills/{skill_id}/copy',
             path: {
                 'skill_id': skillId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Admin List Files
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static adminListFilesApiAdminSkillsSkillIdFilesGet({
+        skillId,
+    }: {
+        skillId: string,
+    }): CancelablePromise<Array<SkillFileOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/skills/{skill_id}/files',
+            path: {
+                'skill_id': skillId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Admin Create File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static adminCreateFileApiAdminSkillsSkillIdFilesPost({
+        skillId,
+        requestBody,
+    }: {
+        skillId: string,
+        requestBody: SkillFileCreateIn,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/skills/{skill_id}/files',
+            path: {
+                'skill_id': skillId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Admin Upload File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static adminUploadFileApiAdminSkillsSkillIdFilesUploadPost({
+        skillId,
+        formData,
+    }: {
+        skillId: string,
+        formData: Body_admin_upload_file_api_admin_skills__skill_id__files_upload_post,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/skills/{skill_id}/files/upload',
+            path: {
+                'skill_id': skillId,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Admin Delete File
+     * @returns void
+     * @throws ApiError
+     */
+    public static adminDeleteFileApiAdminSkillsSkillIdFilesFileIdDelete({
+        skillId,
+        fileId,
+    }: {
+        skillId: string,
+        fileId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/admin/skills/{skill_id}/files/{file_id}',
+            path: {
+                'skill_id': skillId,
+                'file_id': fileId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Admin Patch File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static adminPatchFileApiAdminSkillsSkillIdFilesFileIdPatch({
+        skillId,
+        fileId,
+        requestBody,
+    }: {
+        skillId: string,
+        fileId: string,
+        requestBody: SkillFilePatchIn,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/admin/skills/{skill_id}/files/{file_id}',
+            path: {
+                'skill_id': skillId,
+                'file_id': fileId,
             },
             body: requestBody,
             mediaType: 'application/json',
@@ -461,6 +591,144 @@ export class SkillsService {
         });
     }
     /**
+     * Agent List Files
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static agentListFilesApiAgentsAgentIdSkillsSkillIdFilesGet({
+        agentId,
+        skillId,
+    }: {
+        agentId: string,
+        skillId: string,
+    }): CancelablePromise<Array<SkillFileOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agents/{agent_id}/skills/{skill_id}/files',
+            path: {
+                'agent_id': agentId,
+                'skill_id': skillId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Agent Create File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static agentCreateFileApiAgentsAgentIdSkillsSkillIdFilesPost({
+        agentId,
+        skillId,
+        requestBody,
+    }: {
+        agentId: string,
+        skillId: string,
+        requestBody: SkillFileCreateIn,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/agents/{agent_id}/skills/{skill_id}/files',
+            path: {
+                'agent_id': agentId,
+                'skill_id': skillId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Agent Upload File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static agentUploadFileApiAgentsAgentIdSkillsSkillIdFilesUploadPost({
+        agentId,
+        skillId,
+        formData,
+    }: {
+        agentId: string,
+        skillId: string,
+        formData: Body_agent_upload_file_api_agents__agent_id__skills__skill_id__files_upload_post,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/agents/{agent_id}/skills/{skill_id}/files/upload',
+            path: {
+                'agent_id': agentId,
+                'skill_id': skillId,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Agent Delete File
+     * @returns void
+     * @throws ApiError
+     */
+    public static agentDeleteFileApiAgentsAgentIdSkillsSkillIdFilesFileIdDelete({
+        agentId,
+        skillId,
+        fileId,
+    }: {
+        agentId: string,
+        skillId: string,
+        fileId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/agents/{agent_id}/skills/{skill_id}/files/{file_id}',
+            path: {
+                'agent_id': agentId,
+                'skill_id': skillId,
+                'file_id': fileId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Agent Patch File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static agentPatchFileApiAgentsAgentIdSkillsSkillIdFilesFileIdPatch({
+        agentId,
+        skillId,
+        fileId,
+        requestBody,
+    }: {
+        agentId: string,
+        skillId: string,
+        fileId: string,
+        requestBody: SkillFilePatchIn,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/agents/{agent_id}/skills/{skill_id}/files/{file_id}',
+            path: {
+                'agent_id': agentId,
+                'skill_id': skillId,
+                'file_id': fileId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Agent Restore Skill
      * @returns SkillOut Successful Response
      * @throws ApiError
@@ -662,6 +930,144 @@ export class SkillsService {
         });
     }
     /**
+     * Org List Files
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static orgListFilesApiOrgsOrgIdSkillsSkillIdFilesGet({
+        orgId,
+        skillId,
+    }: {
+        orgId: string,
+        skillId: string,
+    }): CancelablePromise<Array<SkillFileOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/orgs/{org_id}/skills/{skill_id}/files',
+            path: {
+                'org_id': orgId,
+                'skill_id': skillId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Org Create File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static orgCreateFileApiOrgsOrgIdSkillsSkillIdFilesPost({
+        orgId,
+        skillId,
+        requestBody,
+    }: {
+        orgId: string,
+        skillId: string,
+        requestBody: SkillFileCreateIn,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/orgs/{org_id}/skills/{skill_id}/files',
+            path: {
+                'org_id': orgId,
+                'skill_id': skillId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Org Upload File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static orgUploadFileApiOrgsOrgIdSkillsSkillIdFilesUploadPost({
+        orgId,
+        skillId,
+        formData,
+    }: {
+        orgId: string,
+        skillId: string,
+        formData: Body_org_upload_file_api_orgs__org_id__skills__skill_id__files_upload_post,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/orgs/{org_id}/skills/{skill_id}/files/upload',
+            path: {
+                'org_id': orgId,
+                'skill_id': skillId,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Org Delete File
+     * @returns void
+     * @throws ApiError
+     */
+    public static orgDeleteFileApiOrgsOrgIdSkillsSkillIdFilesFileIdDelete({
+        orgId,
+        skillId,
+        fileId,
+    }: {
+        orgId: string,
+        skillId: string,
+        fileId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/orgs/{org_id}/skills/{skill_id}/files/{file_id}',
+            path: {
+                'org_id': orgId,
+                'skill_id': skillId,
+                'file_id': fileId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Org Patch File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static orgPatchFileApiOrgsOrgIdSkillsSkillIdFilesFileIdPatch({
+        orgId,
+        skillId,
+        fileId,
+        requestBody,
+    }: {
+        orgId: string,
+        skillId: string,
+        fileId: string,
+        requestBody: SkillFilePatchIn,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/orgs/{org_id}/skills/{skill_id}/files/{file_id}',
+            path: {
+                'org_id': orgId,
+                'skill_id': skillId,
+                'file_id': fileId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Org Restore Skill
      * @returns SkillOut Successful Response
      * @throws ApiError
@@ -854,6 +1260,144 @@ export class SkillsService {
             path: {
                 'project_id': projectId,
                 'skill_id': skillId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Project List Files
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static projectListFilesApiProjectsProjectIdSkillsSkillIdFilesGet({
+        projectId,
+        skillId,
+    }: {
+        projectId: string,
+        skillId: string,
+    }): CancelablePromise<Array<SkillFileOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/skills/{skill_id}/files',
+            path: {
+                'project_id': projectId,
+                'skill_id': skillId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Project Create File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static projectCreateFileApiProjectsProjectIdSkillsSkillIdFilesPost({
+        projectId,
+        skillId,
+        requestBody,
+    }: {
+        projectId: string,
+        skillId: string,
+        requestBody: SkillFileCreateIn,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/skills/{skill_id}/files',
+            path: {
+                'project_id': projectId,
+                'skill_id': skillId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Project Upload File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static projectUploadFileApiProjectsProjectIdSkillsSkillIdFilesUploadPost({
+        projectId,
+        skillId,
+        formData,
+    }: {
+        projectId: string,
+        skillId: string,
+        formData: Body_project_upload_file_api_projects__project_id__skills__skill_id__files_upload_post,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/skills/{skill_id}/files/upload',
+            path: {
+                'project_id': projectId,
+                'skill_id': skillId,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Project Delete File
+     * @returns void
+     * @throws ApiError
+     */
+    public static projectDeleteFileApiProjectsProjectIdSkillsSkillIdFilesFileIdDelete({
+        projectId,
+        skillId,
+        fileId,
+    }: {
+        projectId: string,
+        skillId: string,
+        fileId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/projects/{project_id}/skills/{skill_id}/files/{file_id}',
+            path: {
+                'project_id': projectId,
+                'skill_id': skillId,
+                'file_id': fileId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Project Patch File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static projectPatchFileApiProjectsProjectIdSkillsSkillIdFilesFileIdPatch({
+        projectId,
+        skillId,
+        fileId,
+        requestBody,
+    }: {
+        projectId: string,
+        skillId: string,
+        fileId: string,
+        requestBody: SkillFilePatchIn,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/projects/{project_id}/skills/{skill_id}/files/{file_id}',
+            path: {
+                'project_id': projectId,
+                'skill_id': skillId,
+                'file_id': fileId,
             },
             body: requestBody,
             mediaType: 'application/json',

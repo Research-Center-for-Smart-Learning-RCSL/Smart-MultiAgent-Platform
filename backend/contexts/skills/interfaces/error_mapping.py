@@ -43,6 +43,13 @@ _MAP: ErrorMap = {
     errors.BundleInvalid: ("skills/bundle-invalid", 422, "Skill bundle is invalid"),
     errors.BundleQuarantined: ("skills/bundle-quarantined", 422, "Skill bundle failed the malware scan"),
     errors.SkillUnreadable: ("skills/unreadable", 422, "Skill has a file that is not scan-clean"),
+    errors.SkillFileNotFound: ("skills/file-not-found", 404, "Skill file not found"),
+    errors.SkillFilePathTaken: ("skills/file-path-taken", 409, "A file already occupies that path"),
+    errors.SkillFileNotEditable: (
+        "skills/file-not-editable",
+        422,
+        "Asset files are opaque bytes and cannot be edited as text",
+    ),
 }
 
 
@@ -68,6 +75,13 @@ def _extras(exc: Exception) -> dict[str, Any]:
         return {"name": exc.name, "agent_ids": [str(a) for a in exc.agent_ids]}
     if isinstance(exc, errors.SkillRequiresToolMissing):
         return {"tool": exc.tool, "skill_name": exc.skill_name}
+    if isinstance(exc, errors.SkillFilePathTaken):
+        # `collides_with` is the whole point of the 409 when the clash is
+        # case-insensitive: without it the author sees a path they believe is free
+        # rejected for no visible reason.
+        return {"path": exc.path, "collides_with": exc.collides_with}
+    if isinstance(exc, errors.SkillFileNotEditable):
+        return {"path": exc.path, "kind": exc.kind}
     if isinstance(exc, errors.SkillScopeMismatch):
         # Before the base class, and empty: a 404 whose body names the scope that owns the
         # skill is the same oracle the status code just closed, one field down.
