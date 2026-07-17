@@ -2355,6 +2355,84 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   export its own importer rejects). It stays **out of `authored_digest`** because Q-30's byte set
   does not name it, so editing a license does not mark a skill diverged: Q-30's call, recorded
   rather than quietly widened. A `skills.license` column is the alternative and is unrequested.
+- **D-59: `zlib.error` was missing from the corrupt-entry arm, and `ValueError` was there on
+  a guess.** Found by the self-audit, after D-56's fix had already been committed and probed.
+  D-56 closed a `BadZipFile` escaping `read_bundle` as a 500, and the arm that closed it listed
+  `(BadZipFile, EOFError, ValueError)` — but `ValueError` was reasoning, not measurement.
+  Measured: a **corrupt deflate payload raises `zlib.error`**, straight out of the decompressor,
+  which `zipfile` does not wrap; `ValueError` catches nothing `zipfile` emits on hostile input.
+  So the exact 500 D-56 exists to prevent stayed open for every corrupt-payload bundle, behind
+  a clause that looked like it covered it. The tuple is now `(BadZipFile, EOFError, zlib.error)`
+  with a test per arm, probed by reverting to `ValueError` (reddens 1). The lesson is narrow and
+  worth keeping: an `except` tuple is an assertion about a dependency's behaviour, and this one
+  was never run — the fix for a guessed exception set is to make the library raise and look.
+- **D-60: `BundleService.import_bundle` created skills that could never be read, and the
+  gate caught it because no test could.** The quality gate's one Critical, confirmed against
+  the tree. **Nothing in `SkillFileService.add` enqueues a scan** — only `SkillsFacade` does,
+  at `add_file` and nowhere else — and the importer called `add` directly. So with
+  `file_scan_enabled=True` every imported file stayed `pending` forever, and under AC-34's
+  fail-closed gate (only `clean` serves) that is a skill that is permanently unreadable. The
+  inline AC-25 scan ran, proved every byte clean, and threw the verdict away.
+  Three separate things hid it, and each is a named pattern this dossier already carries:
+  **(a)** the module docstring asserted "the worker still re-scans afterwards and remains the
+  standing authority" — a comment describing code that does not exist (D-48); **(b)** FU-45
+  booked the *cost* of a double scan that never happened, so the dossier corroborated the
+  fiction (it is corrected in place); **(c)** every import test drove `BundleService`, which is
+  the layer with the hole in it, so the suite was green and the missing step was invisible from
+  inside it — D-12's lesson exactly, a box ticked over a facade with no callers.
+  The fix is the seam the codebase already had: `SkillsFacade.import_bundle` runs the import,
+  **commits, then enqueues** per file, which is `add_file`'s shape and load-bearing for the
+  reason its docstring gives — `skill_scan_file` reads the row on its own connection, so an
+  enqueue inside an open transaction is a race whose not-found arm returns rather than retries.
+  `import_bundle` returns `ImportResult` (skill, **files**, warnings) because the caller cannot
+  enqueue without the ids, and returning only the skill is what made the step invisible.
+  Rejected: having the importer write `clean` from its own inline scan. It would be *true* —
+  but it makes a second writer of `scan_status`, and D-34/D-35 are both the gate being nearly
+  bypassed by exactly that shape.
+- **D-61: three crash-vs-422 defects, one root cause — the `except` tuples were guessed
+  rather than measured.** All three turn a two-byte header edit into a 500 with a stack trace
+  where AC-24 promises a 422. Found in three passes, which is the point:
+  **(a)** self-audit — a corrupt deflate payload raises **`zlib.error`** straight out of the
+  decompressor; `zipfile` does not wrap it. The arm listed `ValueError` on suspicion, and
+  `ValueError` catches *nothing* `zipfile` emits on hostile input, so D-56's 500 was still open
+  for every corrupt-payload bundle behind a clause that looked like it covered it.
+  **(b)** security gate — `zipfile.ZipFile()` raises **`UnicodeDecodeError`** from
+  `_RealGetContents`, which does a bare `filename.decode('utf-8')` with no error handling when
+  an entry sets the UTF-8 name flag. It crashes the *constructor*, so every rule in
+  `read_bundle` is unreachable — including `_entry_path`'s non-UTF-8 arm, which was written for
+  this exact attack and never sees it.
+  **(c)** security gate — **`NotImplementedError`** from `_check_compression` on an unknown
+  `compress_type` (and `RuntimeError` when bz2/lzma are absent from the image).
+  Each now has a test, and each test was probed by reverting its arm. The generalisable rule,
+  worth more than the three fixes: **an `except` tuple is an assertion about a dependency's
+  behaviour, and it is the only kind of assertion in this codebase that nothing runs.** The way
+  to write one is to make the library raise and look — every one of these was found that way,
+  and none by reading.
+- **D-62: `MAX_BUNDLE_ENTRIES` was off by one, and the comment above it asserted the invariant
+  it broke.** `_assert_path_free` refuses an add at `>= MAX_SKILL_FILES`, so a skill holds
+  **exactly 500** files and exports 500 + `SKILL.md` = 501 entries — which a flat
+  `MAX_BUNDLE_ENTRIES = 500` rejected. The exporter emitted precisely what its own importer
+  refused, which is the single thing the constant exists to prevent, while its comment claimed
+  "at most 499 files — strictly under `MAX_SKILL_FILES`". Now `MAX_SKILL_FILES + 1`, derived
+  rather than written, so the two cannot drift. **The test was worse than absent**: it asserted
+  `MAX_BUNDLE_ENTRIES - 1 <= MAX_SKILL_FILES` — true, and about the *other* direction (a bundle
+  over-filling a skill), so it was green throughout. Replaced by the real invariant plus a
+  round trip at the boundary. The two audits disagreed on this one and it was settled against
+  the code, not the reports.
+- **D-63: `render_skill_md` emitted `extra_frontmatter` **keys** unvalidated, refuting this
+  module's own structural claim.** Values went through `_emit_scalar`; keys did not — and a key
+  is emitted at column 0, so a key holding a newline writes a forged `scope:` line into a file
+  SMAP itself signs. §8 threat 2 arriving through the one field the parser does not shape.
+  **The escalation does not complete** — `_RESERVED` rejects the forged key on re-import, which
+  is `_RESERVED` earning its keep as the second gate the docstring half-dismisses in favour of
+  the DTO — and it is unreachable today, because every writer's keys came through `_KEY_RE`.
+  Fixed anyway: `extra_frontmatter` is an untyped `dict[str, Any]` JSONB and the invariant was
+  advertised as *structural* while actually being contingent on the parser staying its only
+  writer. A second gate is not a reason to leave the first one open. Two smaller round-trip
+  losses went with it: a backslash-terminated value exported double-quoted and re-imported as
+  an unterminated quote (`_quoted_end` skips `\` while the emitter escapes nothing — it now
+  takes the single-quoted style, which has no escape rule), and an empty *tolerated* list was
+  dropped on export, losing a key the author actually wrote.
 - **D-58: Phase 4's transport is not built, and this is the session's scope boundary rather
   than a discovery.** The user scoped this session to "the whole Phase 4 backend, tus included";
   the service layer landed and the transport did not. Still owed, all specified in §6 and named by
@@ -3220,15 +3298,23 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   is the first feature whose *bind-time contract* implies a staging that never happens. Either the
   headless path gains staging or `read_skill` should tell the model the scripts are unavailable
   there; both are decisions this dossier never made.
-- **FU-45: an imported bundle is scanned twice.** AC-25 forces an inline scan before any row
-  exists (a quarantine must reject the bundle *whole*, which is meaningless once rows are
-  written), and `SkillFileService.add` then writes `pending` and enqueues `skill_scan_file` per
-  file as it does for every other path. So a 500-file bundle goes through ClamAV twice. Chosen
-  deliberately over having the importer write `clean` itself: the worker is the single authority
-  on `scan_status`, and D-34/D-35 are two ways that gate was already nearly bypassed — a second
-  writer is exactly the shape that produced them. The cost is CPU on a rare operation. If it ever
-  matters, the fix is to pass the import-time verdict to `add` as an argument rather than to have
-  it re-derive one, and the test to write first is that a quarantined verdict cannot be passed in.
+- **FU-45: an imported bundle is scanned twice.**
+  **Corrected 2026-07-17 — as first written, this entry was false, and its falseness helped hide
+  a Critical (D-60).** It claimed "`SkillFileService.add` then writes `pending` and enqueues
+  `skill_scan_file` per file as it does for every other path". `add` enqueues **nothing**; only
+  `SkillsFacade` does. So the real state was not two scans but **zero scans of record**, and
+  every imported skill was permanently unreadable under AC-34's fail-closed gate. The entry
+  booked the cost of a redundancy that did not exist and thereby corroborated the docstring that
+  asserted it — a reminder that an FU is evidence to a later reader and inherits whatever the
+  code was assumed to do.
+  **The entry is now true**, because D-60 made it so: `SkillsFacade.import_bundle` commits and
+  then enqueues a scan per file, so a bundle's bytes go through ClamAV twice — once inline as
+  AC-25's whole-bundle gate, once in the worker that is the single authority on `scan_status`.
+  Deliberate over having the importer write `clean` from its own verdict: that would be a second
+  writer of that column, and D-34/D-35 are both the gate being nearly bypassed by exactly that
+  shape. The cost is CPU on a rare operation. If it ever matters, pass the import-time verdict to
+  `add` as an argument rather than have it re-derive one, and write first the test that a
+  quarantined verdict cannot be passed in.
 - **FU-46: a frontmatter value needing quotes that holds both `"` and `'` cannot be exported.**
   `_emit_scalar` raises `BundleInvalid` for it. The reader is deliberately shallow — `_unquote`
   strips one pair of outer quotes and does **not** unescape, so a literal `\d` in a description
@@ -3238,6 +3324,41 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   ordinary description is. The fix is a real escaping rule on both sides, and its first test is
   that `\d` survives it: adding `\"` handling naively to `_unquote` turns every literal backslash
   escape in every stored description into its bare letter.
+- **FU-48: the entry-count cap fires after every `ZipInfo` already exists — and it is the one
+  header this module still trusts before paying for it.** `read_bundle` bounds the compressed
+  input at 64 MB and *then* calls `zipfile.ZipFile(...)`, whose constructor parses the whole
+  central directory before returning — so `MAX_BUNDLE_ENTRIES` is checked against a list that
+  has already been built. `zipfile` reads no local headers at open, so a central-directory-only
+  zip costs an attacker ~47 bytes per entry.
+  **Measured by the security gate, and worse than first estimated:** 200k entries → 8.96 MB of
+  zip, materialising 200k `ZipInfo` in **5.6 s** at ~391 B/entry; extrapolated to the 64 MB
+  input cap, **~1.43M entries → ~533 MB of heap and ~40 s of CPU**, all before the 500-entry
+  check runs. Compounded by FU-49: those 40 s are on the event loop.
+  The module's thesis — "counters come from inflation, never from headers" — holds for *bytes*
+  and not for *entry count*: the count is still a header the attacker writes, and the check
+  reads it only after paying for it. Not the zip-bomb path (no payload is inflated) and gated
+  behind authentication, which is why it is an FU rather than a fix. The fix is to bound the
+  EOCD's `size_cd`, or count `PK\x01\x02` signatures in the raw bytes, **before** constructing
+  the `ZipFile` — the same "measure what we hold" rule the ratio already follows.
+- **FU-49: `read_bundle` is sync CPU-bound work called straight from an `async def`.**
+  `BundleService.import_bundle` calls it with no `run_in_threadpool`, so inflating up to 128 MB,
+  sha256 over every entry, and `_NETWORK_HINTS.search` over every script all run on the event
+  loop — starving every other agent the worker is serving, which is the same argument
+  `SkillFileService.read_text` already makes for its own thread hop ("it runs **inside a
+  turn**"). Import does not run inside a turn, which is why this is a follow-up and not a
+  defect, but it does run in a process that is serving them. Sequenced with D-58: the offload
+  belongs at the endpoint that will call this, and there is no endpoint yet.
+- **FU-50: two reader asymmetries the emitter now steers around rather than resolves.**
+  Both from the quality gate. **(a)** `_flow_end` skips `\`-escapes when scanning a quoted flow
+  item; `_split_items` does not — so `allowed-tools: [a, "b\"c"]` passes the first and dies in
+  the second with "unterminated quote". Two functions parsing the same bytes under different
+  rules. **(b)** `_quoted_end` treats `\` as an escape for double-quoted scalars while
+  `_unquote` never unescapes, so the reader's two halves disagree about whether escapes exist.
+  D-63 made the *emitter* avoid both (it takes the single-quoted style, which has no escape
+  rule), so no bundle SMAP writes can hit them — but a hand-authored bundle can, and no corpus
+  file does. The real fix is one shared quote scanner and one decision about whether this format
+  has escapes at all; FU-46 is the same question from the writer's side and they should be
+  answered together.
 - **FU-47: `SkillOut.diverged` is still hardcoded `False`, and now it is a wiring gap rather
   than an undefined one.** Phase 4 defines divergence (`bundle_service.is_diverged`, over Q-30's
   byte set) and tests it, which retires the reason Phase 1 gave. `_summary_fields` still returns

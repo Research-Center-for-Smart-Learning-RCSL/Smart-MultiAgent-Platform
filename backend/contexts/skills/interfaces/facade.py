@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import get_settings
 from contexts.agents.domain.models import AgentToolType
 from contexts.skills.application.binding_service import BindingService, BoundSet, DroppedSkill
+from contexts.skills.application.bundle_service import BundleService, ImportResult
 from contexts.skills.application.file_service import (
     MAX_SKILL_FILE_BYTES,
     SkillFileService,
@@ -261,6 +262,47 @@ class SkillsFacade:
         await self._db.commit()
         await enqueue_skill_scan(file_id=created.id, sha256=created.sha256)
         return created
+
+    async def import_bundle(
+        self,
+        *,
+        data: bytes,
+        scope: SkillScope,
+        owner_id: uuid.UUID | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> ImportResult:
+        """Import a bundle, then queue a scan for every file it brought (AC-23/AC-25).
+
+        The same commit-then-enqueue shape as `add_file`, and load-bearing for the same
+        reason its docstring gives: `skill_scan_file` reads the row on its own connection,
+        so an enqueue inside an open transaction is a race the worker can win, and its
+        not-found arm returns rather than retries.
+
+        **This method is why `BundleService.import_bundle` must not be called directly.**
+        Nothing in `SkillFileService.add` enqueues — only this facade does, here and at
+        `add_file` — so an importer that skipped it left every file `pending` forever,
+        which under AC-34's fail-closed gate is a skill that never becomes readable. The
+        inline scan `BundleService` runs is the AC-25 whole-bundle gate; it deliberately
+        writes no verdict, because `skill_scan_file` is the single authority on
+        `scan_status` and a second writer is exactly the shape D-34/D-35 came from.
+
+        One enqueue failure does not cost the import: `enqueue_skill_scan` swallows Redis
+        faults by design, and the cost of that is recorded at its own definition.
+        """
+        result = await BundleService(self._db).import_bundle(
+            data=data,
+            scope=scope,
+            owner_id=owner_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+        await self._db.commit()
+        for f in result.files:
+            await enqueue_skill_scan(file_id=f.id, sha256=f.sha256)
+        return result
 
     async def update_file(
         self,

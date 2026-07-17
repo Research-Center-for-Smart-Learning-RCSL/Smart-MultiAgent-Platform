@@ -529,7 +529,13 @@ def _emit_scalar(value: str, *, key: str, in_list: bool = False) -> str:
         )
     if not _needs_quoting(value, in_list=in_list):
         return value
-    if '"' not in value:
+    # **A backslash rules out the double-quoted style**, and this is not fussiness:
+    # `_quoted_end` skips `\` + the next character when scanning for a closing `"`, while
+    # `_emit_scalar` escapes nothing. So `"#tag\"` emitted double-quoted re-imports as an
+    # *unterminated quoted value* — an export its own importer rejects. The single-quoted
+    # scan has no escape rule at all, so it carries backslashes literally, which is exactly
+    # the shallow-reader contract the round trip depends on.
+    if '"' not in value and "\\" not in value:
         return f'"{value}"'
     if "'" not in value:
         return f"'{value}'"
@@ -538,7 +544,7 @@ def _emit_scalar(value: str, *, key: str, in_list: bool = False) -> str:
     # becoming `d`). Emitting an escape the reader will not undo would break the round
     # trip silently; refusing breaks it loudly. FU-46 owns the escaping rule this needs.
     raise BundleInvalid(
-        f"frontmatter key {key!r} needs quoting but holds both quote characters",
+        f"frontmatter key {key!r} needs quoting but cannot be quoted without escaping",
         key=key,
     )
 
@@ -572,9 +578,26 @@ def render_skill_md(manifest: SkillManifest) -> str:
         lines.append(f"{KEY_LICENSE}: {_emit_scalar(manifest.license, key=KEY_LICENSE)}")
 
     for key in sorted(manifest.extra_frontmatter):
+        # **The key is validated, not just the value.** `extra_frontmatter` is an untyped
+        # JSONB `dict[str, Any]`, and a key is emitted at column 0 — so a key holding a
+        # newline writes a forged `scope:` line into a file SMAP itself signs, which is §8
+        # threat 2 arriving through the one field the parser does not shape. Unreachable
+        # today (every writer's keys came through `_KEY_RE`), and asserted as structural in
+        # this module's own docstring — so it is made structural here rather than left
+        # contingent on the parser staying the only writer. `_RESERVED` catches the forged
+        # key on re-import, but a second gate is not a reason to leave the first one open.
+        if not _KEY_RE.match(f"{key}:"):
+            raise BundleInvalid(f"frontmatter key {key!r} is not a valid key and cannot be exported", key=key)
         value = manifest.extra_frontmatter[key]
         if isinstance(value, list | tuple):
-            emit_list(key, tuple(str(v) for v in value))
+            items = tuple(str(v) for v in value)
+            if not items:
+                # An empty *tolerated* list still emits, unlike a recognized one: the
+                # author wrote this key, so dropping it loses what they wrote. A recognized
+                # empty list is absence by definition and has nothing to lose.
+                lines.append(f"{key}: []")
+            else:
+                emit_list(key, items)
         else:
             lines.append(f"{key}: {_emit_scalar(str(value), key=key)}")
 

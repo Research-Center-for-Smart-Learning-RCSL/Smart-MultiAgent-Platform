@@ -44,6 +44,7 @@ from contexts.skills.domain.errors import BundleInvalid, BundleQuarantined
 from contexts.skills.domain.models import Skill, SkillScope, SkillSource
 from contexts.skills.domain.text_rules import skill_file_path_reason
 from contexts.skills.interfaces import error_mapping
+from contexts.skills.interfaces import facade as facade_module
 
 SKILL_MD = "---\nname: pdf-fill\ndescription: Fills PDF forms.\n---\n\n# PDF Fill\n\nProse.\n"
 
@@ -337,6 +338,65 @@ class TestTheStreamingCounters:
         with pytest.raises(BundleInvalid):
             read_bundle(data)
 
+    def test_a_corrupt_deflate_payload_is_a_422_not_a_500(self) -> None:
+        # **The regression test for a bug the self-audit found.** A corrupt payload does
+        # not raise `BadZipFile` — it raises `zlib.error` straight out of the decompressor,
+        # which zipfile does not wrap. The first version of this handler caught
+        # `ValueError` on suspicion, which catches nothing zipfile emits, so every
+        # corrupt-payload bundle escaped as a 500. Measured before it was fixed.
+        data = bytearray(valid_bundle(**{"references/x.md": "x" * 5000}))
+        pos = data.find(b"PK\x03\x04")
+        while pos != -1:
+            nlen = struct.unpack_from("<H", data, pos + 26)[0]
+            elen = struct.unpack_from("<H", data, pos + 28)[0]
+            if bytes(data[pos + 30 : pos + 30 + nlen]) == b"references/x.md":
+                csize = struct.unpack_from("<I", data, pos + 18)[0]
+                start = pos + 30 + nlen + elen
+                for i in range(start, min(start + csize, len(data))):
+                    data[i] = 0xFF
+                break
+            pos = data.find(b"PK\x03\x04", pos + 4)
+
+        with pytest.raises(BundleInvalid) as exc:
+            read_bundle(bytes(data))
+        assert exc.value.path == "references/x.md"
+
+    def test_an_invalid_utf8_name_under_the_utf8_flag_is_a_422_not_a_500(self) -> None:
+        # **Found by the security gate, and it is a two-byte header edit.** `zipfile`'s
+        # `_RealGetContents` does a bare `filename.decode('utf-8')` when flag 0x800 is set,
+        # with no error handling — so this crashes the *constructor*, and every rule in
+        # `read_bundle` is unreachable. `_entry_path`'s non-UTF-8 arm was written for this
+        # attack and never sees it.
+        original = "references/xxxxx.md"  # 19 bytes
+        forged = b"references/\xff\xfe\xfd\xfc\xfb.md"  # the same 19, and not UTF-8
+        assert len(forged) == len(original.encode())  # a length mismatch skips the patch
+        data = _patch_entry_headers(
+            build_zip({"SKILL.md": SKILL_MD, original: b"x"}),
+            entry=original.encode(),
+            flags=0x800,
+            name_bytes=forged,
+        )
+        with pytest.raises(BundleInvalid) as exc:
+            read_bundle(data)
+        assert "zip archive" in exc.value.reason
+
+    def test_an_unsupported_compression_method_is_a_422_not_a_500(self) -> None:
+        # `_check_compression` raises NotImplementedError, which is not a BadZipFile.
+        # Another two-byte edit, another 500 before this arm existed.
+        data = _patch_entry_headers(
+            build_zip({"SKILL.md": SKILL_MD, "references/x.md": b"x"}),
+            entry=b"references/x.md",
+            method=99,
+        )
+        with pytest.raises(BundleInvalid) as exc:
+            read_bundle(data)
+        assert exc.value.path == "references/x.md"
+
+    def test_a_truncated_archive_is_a_422_not_a_500(self) -> None:
+        whole = valid_bundle(**{"references/x.md": "x" * 5000})
+        with pytest.raises(BundleInvalid):
+            read_bundle(whole[: len(whole) // 2])
+
     def test_the_ratio_rule_rejects_below_every_absolute_cap(self) -> None:
         # 20 MB of zeros: under the 32 MB per-file cap and the 128 MB total, so neither
         # absolute rule can fire and the ratio is the only thing standing between this
@@ -368,6 +428,7 @@ class TestTheStreamingCounters:
         assert read_bundle(data).files[0].data.decode() == text
 
     def test_too_many_entries_is_rejected(self) -> None:
+        # MAX_BUNDLE_ENTRIES files *plus* SKILL.md is one entry over the cap.
         entries: dict[str, bytes | str] = {"SKILL.md": SKILL_MD}
         entries.update({f"references/f{i}.md": "x" for i in range(MAX_BUNDLE_ENTRIES)})
         with pytest.raises(BundleInvalid) as exc:
@@ -379,15 +440,38 @@ class TestTheStreamingCounters:
             read_bundle(b"x" * (MAX_BUNDLE_COMPRESSED_BYTES + 1))
         assert "compressed" in exc.value.reason
 
-    def test_a_bundle_cannot_install_more_files_than_the_per_file_api_allows(self) -> None:
-        # The entry cap counts SKILL.md, which is not a `skill_files` row — so a full
-        # bundle installs at most 499 files, strictly under the API's own 500. The
-        # inequality is one-directional and load-bearing: the exporter must never emit a
-        # skill its own importer would reject. Asserted rather than commented, because a
-        # comment cannot fail when someone raises one number and not the other.
+    def test_a_maximal_skills_export_is_importable(self) -> None:
+        # **The invariant that matters, and the one the first version of this test missed.**
+        # It asserted `MAX_BUNDLE_ENTRIES - 1 <= MAX_SKILL_FILES` — true, and irrelevant:
+        # it checks that a bundle cannot *over*-fill a skill, while the defect ran the
+        # other way. `_assert_path_free` refuses an add at `>= MAX_SKILL_FILES`, so a skill
+        # holds exactly 500 files and exports 501 entries — which a flat 500 rejected. The
+        # exporter emitted precisely what its own importer refused, and the comment above
+        # the constant asserted the opposite.
         from contexts.skills.application.file_service import MAX_SKILL_FILES
 
-        assert MAX_BUNDLE_ENTRIES - 1 <= MAX_SKILL_FILES
+        entries_a_full_skill_exports = MAX_SKILL_FILES + 1  # its files, plus SKILL.md
+        assert entries_a_full_skill_exports <= MAX_BUNDLE_ENTRIES
+
+    def test_the_boundary_bundle_actually_round_trips(self) -> None:
+        # The arithmetic above stated as behaviour: a bundle at exactly the cap survives
+        # the packer and the reader. Cheap because the files are empty — the point is the
+        # count, not the bytes.
+        from contexts.skills.application.file_service import MAX_SKILL_FILES
+
+        files = [(f"references/f{i:04d}.md", b"x") for i in range(MAX_SKILL_FILES)]
+        packed = bundle_service.write_bundle(skill_md=SKILL_MD, files=files)
+        with zipfile.ZipFile(io.BytesIO(packed)) as zf:
+            assert len(zf.namelist()) == MAX_SKILL_FILES + 1
+        assert len(read_bundle(packed).files) == MAX_SKILL_FILES
+
+    def test_one_entry_past_the_cap_is_still_rejected(self) -> None:
+        from contexts.skills.application.file_service import MAX_SKILL_FILES
+
+        files = [(f"references/f{i:04d}.md", b"x") for i in range(MAX_SKILL_FILES + 1)]
+        with pytest.raises(BundleInvalid) as exc:
+            read_bundle(bundle_service.write_bundle(skill_md=SKILL_MD, files=files))
+        assert str(MAX_BUNDLE_ENTRIES) in exc.value.reason
 
     def test_the_per_file_ceiling_is_the_per_file_api_ceiling(self) -> None:
         from contexts.skills.application.file_service import MAX_SKILL_FILE_BYTES
@@ -572,7 +656,10 @@ class FakeSkillFileService:
 
     async def add(self, **kwargs: object) -> object:
         self.added.append(kwargs)
-        return SimpleNamespace(id=uuid.uuid4())
+        # `sha256` is not decoration: the facade enqueues `(file_id, sha256)`, and
+        # `skill_scan_file` conditions every verdict on that sha so a scan of replaced
+        # bytes cannot land. A fake without it hides whether the facade passes it.
+        return SimpleNamespace(id=uuid.uuid4(), sha256="a" * 64)
 
 
 @dataclass
@@ -614,15 +701,15 @@ class TestImportOrchestration:
         w = wire(monkeypatch)
         data = valid_bundle(**{"references/guide.md": "# Guide", "scripts/run.py": "print(1)"})
 
-        skill, warnings = await bundle_service.BundleService(None).import_bundle(  # type: ignore[arg-type]
+        result = await bundle_service.BundleService(None).import_bundle(  # type: ignore[arg-type]
             data=data,
             scope=SkillScope.PROJECT,
             owner_id=uuid.uuid4(),
             actor_user_id=uuid.uuid4(),
         )
 
-        assert skill.name == "pdf-fill"
-        assert warnings == ()
+        assert result.skill.name == "pdf-fill"
+        assert result.warnings == ()
         assert [f["path"] for f in w.files.added] == ["references/guide.md", "scripts/run.py"]
 
     async def test_it_is_recorded_as_imported_with_an_authored_digest(
@@ -682,13 +769,97 @@ class TestImportOrchestration:
 
     async def test_the_network_warning_reaches_the_caller(self, monkeypatch: pytest.MonkeyPatch) -> None:
         wire(monkeypatch)
-        _, warnings = await bundle_service.BundleService(None).import_bundle(  # type: ignore[arg-type]
+        result = await bundle_service.BundleService(None).import_bundle(  # type: ignore[arg-type]
             data=valid_bundle(**{"scripts/f.py": "import requests"}),
             scope=SkillScope.PROJECT,
             owner_id=uuid.uuid4(),
             actor_user_id=uuid.uuid4(),
         )
-        assert any("network" in w for w in warnings)
+        assert any("network" in w for w in result.warnings)
+
+
+class TestTheFacadeSeam:
+    """**The test that was missing, and its absence was a Critical.**
+
+    `SkillFileService.add` does not enqueue anything — only `SkillsFacade` does, at
+    `add_file` and here. `BundleService.import_bundle` called `add` directly, so an
+    imported file sat `pending` forever, and under AC-34's fail-closed gate that is a skill
+    that never becomes readable. Nothing caught it: every import test drove the service,
+    which is the layer with the hole in it, and the service's own docstring asserted a
+    re-scan that no code performed (D-48's class, and D-12's).
+    """
+
+    async def test_the_facade_enqueues_a_scan_for_every_imported_file(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        w = wire(monkeypatch)
+        enqueued: list[tuple[uuid.UUID, str]] = []
+
+        async def _capture(*, file_id: uuid.UUID, sha256: str) -> None:
+            enqueued.append((file_id, sha256))
+
+        monkeypatch.setattr(facade_module, "enqueue_skill_scan", _capture)
+        db = _CommitSpy()
+        monkeypatch.setattr(facade_module, "BundleService", lambda _db: _FakeBundleService(w))
+
+        result = await facade_module.SkillsFacade(db).import_bundle(  # type: ignore[arg-type]
+            data=valid_bundle(**{"references/a.md": "a", "scripts/b.py": "b"}),
+            scope=SkillScope.PROJECT,
+            owner_id=uuid.uuid4(),
+            actor_user_id=uuid.uuid4(),
+        )
+        assert [f.id for f in result.files] == [fid for fid, _ in enqueued]
+        assert len(enqueued) == 2
+
+    async def test_it_commits_before_it_enqueues(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Load-bearing, and the reason `add_file`'s docstring says so: `skill_scan_file`
+        # reads the row on its own connection, so an enqueue inside an open transaction is
+        # a race the worker can win — and its not-found arm returns rather than retries, so
+        # losing it strands the file `pending` forever. Exactly the outcome the missing
+        # enqueue produced, arrived at from the other direction.
+        w = wire(monkeypatch)
+        order: list[str] = []
+        db = _CommitSpy(order)
+
+        async def _capture(*, file_id: uuid.UUID, sha256: str) -> None:
+            order.append("enqueue")
+
+        monkeypatch.setattr(facade_module, "enqueue_skill_scan", _capture)
+        monkeypatch.setattr(facade_module, "BundleService", lambda _db: _FakeBundleService(w))
+
+        await facade_module.SkillsFacade(db).import_bundle(  # type: ignore[arg-type]
+            data=valid_bundle(**{"references/a.md": "a"}),
+            scope=SkillScope.PROJECT,
+            owner_id=uuid.uuid4(),
+            actor_user_id=uuid.uuid4(),
+        )
+        assert order == ["commit", "enqueue"]
+
+    def test_the_service_is_not_the_entry_point_and_says_so(self) -> None:
+        # A docstring test, which this file would normally not write. It earns its place:
+        # the defect was that the only *correct* way to import is invisible from the
+        # service, and the service previously documented the opposite.
+        doc = bundle_service.BundleService.import_bundle.__doc__ or ""
+        assert "SkillsFacade.import_bundle" in doc
+
+
+class _CommitSpy:
+    def __init__(self, order: list[str] | None = None) -> None:
+        self.order = order if order is not None else []
+
+    async def commit(self) -> None:
+        self.order.append("commit")
+
+
+class _FakeBundleService:
+    """Runs the real import against the wired fakes, so the facade's own steps are what
+    this class tests rather than the import it delegates."""
+
+    def __init__(self, wiring: Wiring) -> None:
+        self._w = wiring
+
+    async def import_bundle(self, **kwargs: object) -> bundle_service.ImportResult:
+        return await bundle_service.BundleService(None).import_bundle(**kwargs)  # type: ignore[arg-type]
 
 
 class TestTheQuarantineGate:
@@ -756,13 +927,13 @@ class TestTheQuarantineGate:
         # every other path into `skill_files`. Refusing imports here would make Skills the
         # one feature that requires ClamAV to exist.
         w = wire(monkeypatch, scan_enabled=False, quarantine={SKILL_MD.encode()})
-        skill, _ = await bundle_service.BundleService(None).import_bundle(  # type: ignore[arg-type]
+        result = await bundle_service.BundleService(None).import_bundle(  # type: ignore[arg-type]
             data=valid_bundle(),
             scope=SkillScope.PROJECT,
             owner_id=uuid.uuid4(),
             actor_user_id=uuid.uuid4(),
         )
-        assert skill.name == "pdf-fill"
+        assert result.skill.name == "pdf-fill"
         assert w.scanner.scanned == []
 
 
@@ -1000,9 +1171,24 @@ class TestTheStoredSkillRoundTrips:
     def test_a_stored_license_does_not_change_the_authored_digest(self) -> None:
         # Q-30's byte set does not name `license`, so editing one does not mark a skill
         # diverged. Recorded rather than quietly widened — the test states the gap.
+        #
+        # **The first version of this was a tautology**: it compared `is_diverged` on two
+        # skills whose `bundle_sha256` was None, so both early-returned False and
+        # `authored_digest` was never called at all. `False == False` — green even if
+        # `license` *were* folded into the digest, i.e. it certified the exact bug it
+        # names. It now pins the skill against its own digest, so the comparison has to go
+        # through the function.
         plain = self._skill()
-        licensed = self._skill(extra_frontmatter={"license": "MIT"})
-        assert bundle_service.is_diverged(plain, []) == bundle_service.is_diverged(licensed, [])
+        pinned = authored_digest(
+            name=plain.name,
+            description=plain.description,
+            requires=plain.requires,
+            allowed_tools=plain.allowed_tools,
+            body=plain.body,
+            file_digests={},
+        )
+        licensed = self._skill(bundle_sha256=pinned, extra_frontmatter={"license": "MIT"})
+        assert bundle_service.is_diverged(licensed, []) is False
 
 
 class TestExportEscaping:
@@ -1042,13 +1228,46 @@ class TestExportEscaping:
         assert "description: Does a thing: carefully" in rendered
         assert parse_skill_md(rendered).description == "Does a thing: carefully"
 
+    @pytest.mark.parametrize("value", ["#tag\\", "- foo\\", "[a\\", "  pad\\  "])
+    def test_a_backslash_terminated_value_still_round_trips(self, value: str) -> None:
+        # **Found by the quality gate.** `_quoted_end` skips `\` + the next char when
+        # scanning for a closing `"`, and the emitter escapes nothing — so these exported
+        # double-quoted and re-imported as "unterminated quoted value": an export its own
+        # importer rejects, and AC-26 broken for it. Single-quoting has no escape rule and
+        # carries the backslash literally.
+        m = SkillManifest(name="t", description=value, body="body")
+        assert parse_skill_md(render_skill_md(m)).description == value
+
+    def test_a_forged_key_in_extra_frontmatter_cannot_be_exported(self) -> None:
+        # **Found by the security gate, and it refutes a claim this module made.** Values
+        # go through `_emit_scalar`; keys did not — and a key is emitted at column 0, so a
+        # newline in one writes a `scope:` line into a file SMAP itself signs. Unreachable
+        # through the parser (`_KEY_RE` shapes every key it produces), but
+        # `extra_frontmatter` is an untyped JSONB dict and the invariant was advertised as
+        # structural, so it is made structural.
+        m = SkillManifest(
+            name="ok",
+            description="d",
+            body="",
+            extra_frontmatter={"a: b\nscope": "platform"},
+        )
+        with pytest.raises(BundleInvalid) as exc:
+            render_skill_md(m)
+        assert "not a valid key" in exc.value.reason
+
+    def test_an_empty_tolerated_list_survives_the_round_trip(self) -> None:
+        # The author wrote this key, so dropping it loses what they wrote — unlike a
+        # recognized empty list, where absence *is* the meaning.
+        m = SkillManifest(name="t", description="d", body="", extra_frontmatter={"x-tools": []})
+        assert parse_skill_md(render_skill_md(m)).extra_frontmatter == {"x-tools": []}
+
     def test_a_value_needing_quotes_that_holds_both_quote_characters_is_refused(self) -> None:
         # The reader does not unescape, so no quoting style round-trips this. Refusing is
         # loud; emitting an escape the reader will not undo would break it silently.
         m = SkillManifest(name="t", description="[\"a\" and 'b']", body="")
         with pytest.raises(BundleInvalid) as exc:
             render_skill_md(m)
-        assert "quote characters" in exc.value.reason
+        assert "without escaping" in exc.value.reason
 
 
 class TestDivergence:
@@ -1150,13 +1369,19 @@ class TestTheRejectionsReachTheClientAsTheirSlugs:
 # per APPNOTE 4.3.7 / 4.3.12: (signature, name offset, name-length offset, flags offset,
 # uncompressed-size offset).
 _HEADERS = (
-    (b"PK\x01\x02", 46, 28, 8, 24),
-    (b"PK\x03\x04", 30, 26, 6, 22),
+    (b"PK\x01\x02", 46, 28, 8, 24, 10),
+    (b"PK\x03\x04", 30, 26, 6, 22, 8),
 )
 
 
 def _patch_entry_headers(
-    data: bytes, *, entry: bytes, size: int | None = None, flags: int | None = None
+    data: bytes,
+    *,
+    entry: bytes,
+    size: int | None = None,
+    flags: int | None = None,
+    method: int | None = None,
+    name_bytes: bytes | None = None,
 ) -> bytes:
     """Rewrite one entry's declared size and/or flag bits in both of its headers.
 
@@ -1167,8 +1392,16 @@ def _patch_entry_headers(
     fact. In code rather than as a checked-in binary because a fixture whose entire content
     is a lie about one field is one a reviewer can read here and cannot see in a blob.
     """
+    if name_bytes is not None and len(name_bytes) != len(entry):
+        # A length mismatch would silently skip the rewrite and hand back an *inert*
+        # fixture — a test then asserting "rejected" would be asserting nothing. Raising
+        # beats returning something that looks hostile and is not.
+        raise AssertionError(
+            f"name_bytes must be {len(entry)} bytes to patch in place, got {len(name_bytes)}"
+        )
     out = bytearray(data)
-    for signature, name_off, namelen_off, flag_off, size_off in _HEADERS:
+    patched = 0
+    for signature, name_off, namelen_off, flag_off, size_off, method_off in _HEADERS:
         pos = 0
         while True:
             pos = out.find(signature, pos)
@@ -1180,7 +1413,14 @@ def _patch_entry_headers(
                     struct.pack_into("<I", out, pos + size_off, size)
                 if flags is not None:
                     struct.pack_into("<H", out, pos + flag_off, flags)
+                if method is not None:
+                    struct.pack_into("<H", out, pos + method_off, method)
+                if name_bytes is not None:
+                    out[pos + name_off : pos + name_off + name_len] = name_bytes
+                patched += 1
             pos += 4
+    if patched != len(_HEADERS):
+        raise AssertionError(f"expected to patch both headers for {entry!r}, patched {patched}")
     return bytes(out)
 
 
