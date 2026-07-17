@@ -301,6 +301,17 @@ which under that cwd resolves to `/workspace/sessions/{room}/sessions/{room}/inp
 `FileNotFoundError`. `test_code_exec_kernel.py:164-185` pins the current behavior
 (`assert staged[0] == "inputs/a.csv"`, with the comment *"returned as inputs/-relative paths"*).
 
+> **This subsection is stale from here to the end, and its central claim is dead.** Retracted
+> 2026-07-17 (D-37). `ac4339a`/`fb22aa6`/`3faf241` rewrote this layer: `_staged_members:183` joins
+> `rel_dir`, so the hardcoded `"inputs"` argued for below **no longer exists**; `_fix_paths` is
+> **deleted**; `_workspace_abspath:252` is new and both stagers now return absolute paths
+> (`:1133`, `:1185`); and `test_code_exec_kernel.py:188` now asserts
+> `sessions/room-1/inputs/a.csv`, its `:184` comment recording the old `inputs/a.csv` as history.
+> FU-15 is **closed by that commit, not by this task**. The reasoning below is preserved because
+> §6, §9, and AC-40 were all derived from it — but it describes the tree as of 2026-07-16 only.
+> The irony is §4's own preamble: this was the most heavily defended claim in the dossier, and the
+> defence is what made it look settled enough not to re-check.
+
 **`_fix_paths` (`:1024-1027`) is the half that is genuinely broken, and this task does not fix
 it.** `stage_agent_workspace_files` passes `rel_dir="agent-files"` (`:1031`/`:1037`) and
 `put_archive`s at `/workspace` (`:1053`), so files land at `/workspace/agent-files/x`; `_fix_paths`
@@ -970,13 +981,13 @@ compose topology change.
 - `load_prompt_section` returns **unclipped** output while every `builtin_tools.py` tool clips
   (`tool_registry.py:168/173` vs `builtin_tools.py:82-83`). Being deleted; `read_skill` must not
   copy it — and `_clip` itself is the wrong control (Q-31).
-- `_tar_staged_inputs` (`docker_runsc.py:106-139`) does two jobs — build the tar (generic over
-  `rel_dir`) and report the staged paths (hardcoded `"inputs"` at `:138`). The hardcoding is
-  **correct** for its one caller (`stage_kernel_inputs`, whose kernel cwd makes `inputs/x` resolve;
-  §4.4) and **wrong** for `stage_agent_workspace_files`, which papers over it with `_fix_paths`
-  (`:1024-1027`) and produces a path that does not resolve under that same cwd. **Not fixed by this
-  task** — FU-15. Do not imitate the compensating rewrite: `stage_skill_files` passes an explicit
-  `report_prefix` instead (§6).
+- ~~`_tar_staged_inputs` does two jobs … `stage_skill_files` passes an explicit `report_prefix`
+  instead~~ — **obsolete; the debt was paid by someone else. Retracted 2026-07-17 (D-37).**
+  `ac4339a` fixed FU-15: the report prefix moved into `_staged_members`, which joins `rel_dir`;
+  `_fix_paths` is gone; `_workspace_abspath` gives every stager an absolute path. There is no
+  hardcoded `"inputs"` to work around and no `report_prefix` to pass — `stage_skill_files` just
+  passes `rel_dir="skills"`. Left in place, struck through, because §4.4 and AC-40 were built on
+  the retracted claim and a reader needs to know it died rather than find it silently absent.
 - `_stage_persisted_files` computes `manifest_sha` over all files but stages only the 128 MiB
   prefix (`turn_engine.py:647-690`). **Fixed by this task** (§10).
 - `_WORKSPACE_MANIFESTS` (`docker_runsc.py:218`) is module-global, in-process, unbounded, never
@@ -1301,22 +1312,58 @@ orphaned, not deleted — consistent with §1.2's backup stance.
 
 **Phase 3 — scripts and staging**
 
-- [ ] AC-20: `requires:` is **derived from bundle content and unioned with the declaration**. A
+- [x] AC-20: `requires:` is **derived from bundle content and unioned with the declaration**. A
       skill with any `scripts/` entry cannot bind to an agent without `HOSTED_CODE_INTERPRETER`
       even if `SKILL.md` omits `requires:` — 422 naming the tool. Unknown tool names in a
       declaration are a warning, not a 422.
-- [ ] AC-21: Bundled `scripts/` appear under `/workspace/skills/{name}/` for an agent with
+      *(`_required_tool_types(skill, has_scripts=...)` unions the derived requirement with the
+      declaration; derivation only ever adds, so a declaration can tighten the gate but never
+      loosen it. 10 tests in `test_skill_binding.py` including both wiring assertions (D-12's
+      lesson: `bind` and the tap must each do the lookup). Probed: dropping the union reddens 4,
+      including both wiring cases. `TestTheScriptProbePredicate` compiles the real `WHERE` clause,
+      because the fake carries its own `kind` filter and would stay green without it — D-35's
+      lesson applied before it bit. See D-38.)*
+- [x] AC-21: Bundled `scripts/` appear under `/workspace/skills/{name}/` for an agent with
       code_exec, are reported to the model as **absolute** `/workspace/skills/{name}/{file}` paths,
       and skills staging does not evict agent-files staging (separate manifest cache).
-- [ ] AC-40: `_tar_staged_inputs`' existing behavior is unchanged when `report_prefix` is omitted:
-      `test_code_exec_kernel.py:164-185` passes untouched, and `stage_kernel_inputs` still returns
-      `inputs/x` — the kernel-cwd contract (`kernel.py:119-123`). A regression test asserts
-      `stage_kernel_inputs` and `stage_skill_files` disagree on prefix **by design**.
+      *(`stage_skill_files` (`docker_runsc.py`) + `_stage_skill_scripts` (`turn_engine.py`);
+      `_SKILL_MANIFESTS` is a separate dict and the test asserts the two are distinct objects.
+      Absolute paths come free from `_workspace_abspath`, the house pattern since `ac4339a`
+      (D-37). Scripts only, never assets (§8 item 9). 16 tests in `test_workspace_staging.py`.
+      **The staging channel enforces the scan gate itself** — see D-40 and the Critical it closes.
+      Path layout decided in D-42. **Read FU-38 before trusting this**: staged scripts are never
+      un-staged, so revocation does not reach the volume.)*
+- [x] AC-40: **Rewritten — see D-37.** The approved text pinned `report_prefix`, `inputs/x`, and
+      an "untouched" `test_code_exec_kernel.py:164-185`; `ac4339a` deliberately removed all three
+      when it fixed FU-15 independently of this task, so the AC as written asserts behaviour a
+      merged commit intentionally deleted. The intent — the stagers must not collapse onto one
+      prefix and overwrite each other on the shared volume — is asserted instead: the three
+      stagers write `sessions/{room}/inputs`, `agent-files`, and `skills` respectively, and
+      disagree **by design**. `test_code_exec_kernel.py` passes untouched by *this* task.
+      *(`test_the_three_stagers_disagree_on_prefix_by_design` in `test_workspace_staging.py`.)*
 - [ ] AC-22: `allowed-tools` is displayed with an explicit "declared by the author; not enforced by
       SMAP" label and never grants a tool.
-- [ ] AC-35: Disabling `code_exec` on an agent with a script-bearing skill bound is caught by the
+      *(**Backend N/A, and it always was.** "Never grants a tool" holds by construction: every
+      reader of `skills.allowed_tools` is storage, CRUD, or charset validation
+      (`skill_service`, `repositories`, `tables`, `facade`, `app/api/v1/skills.py`,
+      `text_rules`) — none reaches the registry, and the turn's tool set comes from
+      `build_registry` plus `agent_tools` alone. Checked deliberately rather than by a bare `rg`,
+      because `allowed_tools` is an **overloaded name**: the hits in `agent_service.py`,
+      `mcp.py`, `models.py`, and `docker_runsc.py` are the `hosted_mcp` config's own unrelated
+      `allowed_tools`, and a careless grep reads them as skill consumers. The AC's remaining
+      substance is the **label**, which is UI, so it stays unchecked with AC-16/17/34 pending
+      D-26's frontend half. Nothing in Phase 3 could close it.)*
+- [x] AC-35: Disabling `code_exec` on an agent with a script-bearing skill bound is caught by the
       turn-time tap: the skill is dropped from the snapshot with an aggregated warning, not
       silently left unrunnable.
+      *(Both halves now. The **declaration** half landed in Phase 1 —
+      `test_a_disabled_tool_does_not_satisfy_a_requirement` and
+      `test_a_skill_whose_required_tool_was_disabled_drops_with_a_naming_reason` — and AC-20's
+      derivation closes the **script-bearing** half it was actually worded for:
+      `test_the_turn_time_tap_drops_a_skill_that_grew_a_script_after_binding` covers the harder
+      direction, a skill that grows a script *after* a legal bind, which no bind-time check can
+      see. The aggregated warning and the audit event are D-17/D-25's, asserted in
+      `test_turn_engine_skills.py`.)*
 
 **Phase 4 — bundles**
 
@@ -2009,6 +2056,74 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   from nothing else. Deleting the *skill* leaves its file rows intact for the 60-day window; only
   an explicit per-file delete removes one, which is the user asking for exactly that.
 
+**Phase 3 — scripts and staging (2026-07-17).**
+
+- **D-37: AC-40 is rewritten, because the code it pinned was deliberately changed by a later
+  commit — and with it, §6's whole `report_prefix` design.** §4.4 argues at length that
+  `_tar_staged_inputs`' hardcoded `"inputs"` is "the contract, not a bug", §6 derives a
+  keyword-only `report_prefix` from that, §9 tells the implementer to pass one, and AC-40 exists
+  to prove `stage_kernel_inputs` "still returns `inputs/x`" with
+  `test_code_exec_kernel.py:164-185` "untouched". **Every one of those statements is now false.**
+  `ac4339a` ("report agent-files paths the model can actually open") fixed **FU-15** — which this
+  dossier twice states is *not* this task's job — and in doing so: moved the report prefix into
+  `_staged_members`, which joins `rel_dir` (`:183`); deleted `_fix_paths`; added
+  `_workspace_abspath` (`:252`), whose docstring already anticipates "the form the skills block
+  already uses"; and made both stagers return absolute paths (`:1133`, `:1185`). The test AC-40
+  named was rewritten in the same sweep and its `:184` comment records the old assertion as
+  history. So `report_prefix` is **unnecessary** — `stage_skill_files` passes `rel_dir="skills"`
+  and gets AC-21's absolute path for free — and AC-40 as approved is unsatisfiable, since it
+  demands behaviour that a merged commit intentionally removed. The AC's *intent* survives and is
+  what the replacement test asserts: the three stagers write into three disjoint subtrees of one
+  volume and must keep disagreeing on prefix. The user chose this over dropping AC-40. The general
+  lesson is §4's own: this dossier's most defended claim about existing code was refuted by
+  `git log`, and the defence (25 lines about why the literal was correct) is exactly what made it
+  look settled.
+- **D-38: `requires:` derivation is a required `has_scripts` argument, not a lookup inside
+  `assert_requirements`.** §6 says only that `requires:` is "derived from bundle content and
+  unioned with the declaration". The two callers learn it differently — `bind` asks about one
+  skill, the turn-time tap about a whole bound set — and a `None`-means-go-look default would make
+  the N+1 the easy path and the batch the exception, on the hottest path in the product. The tap
+  therefore runs one `skill_ids_with_scripts` query over every live binding *before* the loop.
+  That query returns ids only, deliberately: it must cover skills the tap is about to drop, while
+  `list_for_skills` still runs only for the survivors (the existing comment at
+  `binding_service.py:400` is the rule being respected).
+- **D-39: skill scripts get their own byte budget, `_MAX_SKILL_SCRIPT_BYTES` (32 MiB).** Not in
+  §6, which says nothing about a staging cap for skills. Sharing `_MAX_AGENT_FILES_BYTES` would
+  let a large *upload* silently unstage a bound skill's scripts — the confabulation AC-20's gate
+  exists to prevent, arriving by the back door. Selection is **whole-skill**: a skill whose
+  scripts do not fit is skipped entirely rather than half-staged, per Q-18, and `continue` rather
+  than `break` mirrors `_stage_persisted_files` so one large skill does not drop every smaller one
+  behind it. The residue is honest and recorded as FU-38: a skipped skill is still in the index
+  and still readable, so the model can still read a SKILL.md whose script is absent. Bounding the
+  bytes and telling the log is the small half of that problem; the large half needs a decision
+  §6 never made.
+- **D-40: staging applies `assert_readable` itself rather than trusting `read_skill`'s gate.** Not
+  in §6. They are different channels and only one of them was gated: `read_skill` refusing a
+  quarantined skill's body does not stop that skill's script from being written to the volume, and
+  the staged note **names the absolute path**, so the model would be handed the path of a
+  quarantined script to run. The gate is whole-skill (Q-18), so one quarantined *reference* file
+  also withholds the scripts. Probed: neutering the call reddens five cases.
+- **D-41: the bound set is resolved before staging, not after.** §6 places `_skills_note` in the
+  block list and leaves resolution where Phase 1 put it — after `_stage_workspace_inputs`. Staging
+  is a third consumer of the snapshot, and it is the consumer with the strongest claim on it: the
+  tap is what proves these scripts may touch this agent's volume at all. `_resolve_skills` depends
+  only on `agent` and `room`, so the move is safe; the three consumers now read one snapshot.
+- **D-42: a script stages to `/workspace/skills/{name}/{stored path}`, i.e. `scripts/` is
+  preserved.** AC-21 says `/workspace/skills/{name}/{file}` and §2 says "`scripts/` staged into
+  `/workspace/skills/{name}/`", which admits both readings. Preserving the directory makes the
+  skill root the *bundle* root, so SKILL.md's own relative references ("run `scripts/fill.py`")
+  resolve as written — the alternative silently breaks every imported bundle whose body references
+  its own scripts, which is the interop claim Q-2 rests on.
+- **D-43: this task's Phase 1 left an integration test red, and Phase 3 fixed it.**
+  `db5b003` added `Capability.SKILL_ORG_MANAGE` as #26 and added its `_EXPECTED_ALLOW` row, but
+  not the shape assertion two functions above it, which still read `== 25`. The count is genuinely
+  26, so the fix updates the fact rather than weakening the assertion. Worth recording for *why it
+  survived*: it lives in `tests/integration/`, which needs Postgres for most of its file and is
+  therefore not in the tier a session runs by default — but this one function is pure and needed
+  no database. Phase 1's Definition of Done claims gate 1 (`pytest -q`) passed; against the full
+  command in CLAUDE.md it did not. D-12 already records that Phase 1's checkmarks ran ahead of its
+  wiring; this is the same failure at the level of the gate itself.
+
 - **D-20: `status` stays `in-progress` with Phase 1 complete.** The contract
   (`docs/tasks/README.md:57`) moves `in-progress → implemented` "only after the full Definition of
   Done passes", and this dossier's Definition of Done spans four phases: AC-16 through AC-32 are
@@ -2343,6 +2458,15 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   for "Code Interpreter and File Workspace tools" — true for `file`, false for `code_exec`. And
   `D-code-interpreter-files.md:138` is not merely documentation of the broken form: it is that
   feature's **exit criterion**, so it could never have passed, and the feature was signed off anyway.
+  **Closed 2026-07-17 (`ac4339a`, with `fb22aa6` and `3faf241`)** — by its own dossier, exactly as
+  the deferral intended, and it chose the absolute-path fix (a), the same form §6 chose for skills.
+  Root cause (a) was fixed at the root: `_tar_staged_inputs` no longer hardcodes a report prefix,
+  `_fix_paths` is gone, and `_workspace_abspath` gives all three stagers one answer. Coincidence (b)
+  is gone with it, and the enshrined assertions (c) were inverted rather than extended.
+  **This closure is what invalidated Phase 3's design** — §4.4, §6's `report_prefix`, §9's warning,
+  and AC-40 were all written against the pre-`ac4339a` tree and had to be retracted; see D-37. A
+  follow-up being *fixed* is the one outcome an FU entry never anticipates, and this dossier cited
+  the code it described as settled fact in four places.
 
 *Added during Phase 0 implementation (2026-07-16):*
 
@@ -2787,3 +2911,37 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   query back on the path the tap exists to keep off it. Recorded because "the gate is per turn, not
   per call" is a real property of D-27's design that no AC states, and someone will eventually read
   the fail-closed claim as stronger than it is.
+- **FU-38: a script staged once is never unstaged — revocation does not reach the volume.**
+  Found by Phase 3's self-audit; the most serious thing this task surfaced and **it is not fixed**.
+  `smap-agent-fs-{agent_id}` is a persistent named volume, `put_archive` only adds and overwrites,
+  and **nothing in the backend ever removes a file from it** (verified: no `rm`, no cleanup path,
+  no volume prune). So when a skill is unbound — or dropped by the turn-time tap for *containment*
+  failure, a missing `requires:` tool, a name collision, or a quarantine verdict — its scripts stay
+  at `/workspace/skills/{name}/`, and `code_exec` still mounts that volume. The model does not even
+  need to remember the path from an earlier turn's staged note: `os.listdir('/workspace/skills')`
+  enumerates it. **This weakens the per-turn re-proof [R31.08] rests on**: the tap governs the index
+  and `read_skill`, but the filesystem has no tap, so for script-bearing skills revocation is
+  effective only against the *description* of the capability, not the capability. Mitigated —
+  not closed — by gVisor, `network_mode="none"` (SEC-C1), and the scripts having been scan-clean
+  when staged. Note `_stage_skill_scripts`' early `return` when nothing is stageable also leaves
+  `_SKILL_MANIFESTS` holding the previous manifest, so a naive "clean on manifest change" fix would
+  miss the unbind-the-last-skill case — the one that matters most. Not fixed here because the fix
+  is a design decision this dossier never made: `put_archive` cannot delete, so purging needs a
+  container that actually *starts* (today's staging containers are created, written into, and
+  removed without ever running), which is a new shape for this path and its own cost on every
+  binding change. The same "deleted file lingers" behaviour already exists for `agent-files`, but
+  that is an agent's own upload with no per-turn authorization claim over it; skills are
+  cross-scope, shareable, and revocable, so the same mechanic carries a different meaning. Needs
+  its own dossier.
+- **FU-39: every staged script's bytes are read from MinIO even when the manifest cache will
+  discard them.** `_stage_skill_scripts` fetches all script bytes before calling
+  `stage_skill_files`, which may then short-circuit on `_SKILL_MANIFESTS` and use names only. So an
+  agent with a script-bearing skill pays the full MinIO read on **every turn**, for bytes that are
+  already on the volume. This is copied deliberately from `_stage_persisted_files`, which has the
+  identical shape against a 4× larger cap (128 MiB), so Skills makes an existing pattern wider
+  rather than inventing a new one — and `docker_runsc.py:1156`'s comment ("this is the path the
+  cache exists to make cheap") shows the cache was understood to bound the *tar and the container
+  spawn*, not the caller's reads. The manifest is computed from row metadata alone, so the check
+  could precede the fetch; that needs either a cache-probe method on the sandbox API or a lazy
+  byte-loader argument, which is an API change neither this task nor FU-6 asked for. Both callers
+  should be fixed together.

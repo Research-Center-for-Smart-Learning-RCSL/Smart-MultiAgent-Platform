@@ -914,11 +914,11 @@ class TurnEngine:
 
         from contexts.agents.domain.mcp import StagedFile
         from contexts.skills.domain.errors import SkillUnreadable
-        from contexts.skills.domain.models import SkillFileKind
+        from contexts.skills.domain.models import SkillFile, SkillFileKind
         from contexts.skills.domain.readability import assert_readable
         from contexts.skills.interfaces.facade import SkillsFacade
 
-        chosen: list[tuple[str, Any]] = []
+        chosen: list[tuple[str, list[SkillFile]]] = []
         total = 0
         for skill in bound_skills.skills:
             files = bound_skills.files_for(skill.id)
