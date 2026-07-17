@@ -75,6 +75,42 @@ def make_skill(
     )
 
 
+def make_skill_file(
+    skill_id: uuid.UUID,
+    *,
+    path: str = "references/guide.md",
+    kind: SkillFileKind | None = None,
+    scan_status: SkillScanStatus = SkillScanStatus.CLEAN,
+    mime: str = "text/markdown",
+    size_bytes: int = 12,
+    sha256: str = "a" * 64,
+    minio_key: str = "k",
+) -> SkillFile:
+    """A `skill_files` row. `kind` defaults to what the real `kind_for_path` would derive.
+
+    Defaulting rather than requiring it keeps the double honest about R31.18's rule — the
+    directory decides the kind, and a test that hand-picks a `kind` contradicting its own
+    `path` is describing a row the write path cannot produce.
+    """
+    if kind is None:
+        kind = {"references": SkillFileKind.REFERENCE, "scripts": SkillFileKind.SCRIPT}.get(
+            path.split("/")[0], SkillFileKind.ASSET
+        )
+    return SkillFile(
+        id=uuid.uuid4(),
+        skill_id=skill_id,
+        path=path,
+        kind=kind,
+        mime=mime,
+        size_bytes=size_bytes,
+        sha256=sha256,
+        minio_key=minio_key,
+        scan_status=scan_status,
+        extracted_chars=size_bytes if kind is SkillFileKind.REFERENCE else 0,
+        created_at=NOW,
+    )
+
+
 @dataclass
 class FakeAgent:
     id: uuid.UUID
@@ -377,6 +413,12 @@ class FakeSkillFileRepo:
 
     async def list_paths_for_skill(self, skill_id: uuid.UUID) -> list[str]:
         return [f.path for f in self.rows.values() if f.skill_id == skill_id]
+
+    async def skill_ids_with_scripts(self, skill_ids: Any) -> set[uuid.UUID]:
+        ids = set(skill_ids)
+        return {
+            f.skill_id for f in self.rows.values() if f.skill_id in ids and f.kind is SkillFileKind.SCRIPT
+        }
 
     async def list_for_skills(self, skill_ids: Any) -> dict[uuid.UUID, list[SkillFile]]:
         # Mirrors the real method's contract exactly, including that every requested id

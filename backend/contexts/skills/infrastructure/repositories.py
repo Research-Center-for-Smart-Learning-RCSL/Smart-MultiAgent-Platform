@@ -485,6 +485,27 @@ class SkillFileRepository:
             out[r["skill_id"]].append(_row_to_file(r))
         return out
 
+    async def skill_ids_with_scripts(self, skill_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
+        """Which of these skills own at least one `scripts/` file (AC-20).
+
+        Ids only, and deliberately not `list_for_skills`: the caller is the turn-time tap,
+        which asks this about **every** live binding — including the ones it is about to
+        drop — whereas the manifest is fetched only for the survivors. Answering an
+        existence question with a full row set would fetch metadata for skills that never
+        reach the snapshot, and widen the cheapest query on the hottest path.
+        """
+        if not skill_ids:
+            return set()
+        rows = await self._db.execute(
+            sa.select(t.skill_files.c.skill_id)
+            .where(
+                t.skill_files.c.skill_id.in_(list(skill_ids)),
+                t.skill_files.c.kind == SkillFileKind.SCRIPT.value,
+            )
+            .distinct()
+        )
+        return set(rows.scalars().all())
+
     async def list_paths_for_skill(self, skill_id: uuid.UUID) -> list[str]:
         """Just the paths — the collision check has no use for the rest of the row."""
         rows = (
