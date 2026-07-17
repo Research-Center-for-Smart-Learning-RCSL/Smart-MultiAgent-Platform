@@ -340,6 +340,18 @@ _kernels_guard = asyncio.Lock()
 # spawn on the hot path when files haven't changed.
 _WORKSPACE_MANIFESTS: dict[uuid.UUID, str] = {}
 
+# Skill-script manifest cache. A **separate dict**, not a second entry in the one
+# above, and that is the whole point (AC-21): the two file sets change for
+# unrelated reasons — a skill bind/unbind versus a workspace upload — and share
+# only the agent id. One dict keyed by agent_id would make each set's manifest
+# evict the other's on every change, so binding a skill would re-stage every
+# agent file and vice versa. Both write under /workspace on the same volume but
+# into disjoint subtrees (`skills/` and `agent-files/`), so nothing is lost by
+# tracking them apart. Shares _WORKSPACE_MANIFESTS' limits — in-process,
+# unbounded, never invalidated, and able to lie if the volume is removed out of
+# band (FU-6).
+_SKILL_MANIFESTS: dict[uuid.UUID, str] = {}
+
 
 @dataclass(slots=True)
 class _KernelHandle:
@@ -1182,6 +1194,66 @@ class DockerRunscSandbox:
                 await self._remove_quietly(container)
 
         _WORKSPACE_MANIFESTS[agent_id] = manifest_sha
+        return [_workspace_abspath(p) for p in raw_staged]
+
+    async def stage_skill_files(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        files: Sequence[StagedFile],
+        manifest_sha: str,
+    ) -> list[str]:
+        """Materialise bound skills' scripts under ``/workspace/skills/`` ([R31.22]).
+
+        Each file's name must already be ``{skill_name}/{path_within_skill}``, so a
+        script stored at ``scripts/fill.py`` lands at
+        ``/workspace/skills/pdf-fill/scripts/fill.py``. Keeping the bundle's own layout
+        under the skill root is what makes SKILL.md's relative references resolve: the
+        body says "run scripts/fill.py", and it does, from the skill's directory.
+
+        The skill name is safe as a directory component by construction —
+        ``SKILL_NAME_RE`` is lowercase alphanumerics and hyphens — and the file path was
+        validated at upload; ``_staged_members`` re-validates both anyway, since this
+        function cannot see where its input came from.
+
+        Idempotent through its **own** manifest cache, so staging skills never evicts
+        ``stage_agent_workspace_files``' staging or the reverse (AC-21).
+
+        Returns absolute paths — see ``stage_kernel_inputs`` for why relative would be
+        ambiguous here.
+        """
+        if not files:
+            return []
+
+        cached = _SKILL_MANIFESTS.get(agent_id)
+        if cached == manifest_sha:
+            members = _staged_members("skills", files, preserve_tree=True)
+            return [_workspace_abspath(m) for _f, m in members]
+
+        await self._ensure_runtime_ready()
+        client = self._client()
+        volume = f"smap-agent-fs-{agent_id}"
+        archive, raw_staged = _tar_staged_inputs(rel_dir="skills", files=files, preserve_tree=True)
+
+        host_config = self._base_host_config()
+        host_config["network_mode"] = "none"
+        host_config["volumes"] = {volume: {"bind": _VOLUME_ROOT, "mode": "rw"}}
+        async with _get_semaphore():
+            container = await asyncio.to_thread(
+                client.containers.create,
+                image=self.code_exec_image,
+                command=["true"],
+                user=_SANDBOX_UID,
+                tmpfs={"/tmp": f"size={_TMP_TMPFS_BYTES}"},  # noqa: S108 — in-container tmpfs
+                **host_config,
+            )
+            try:
+                await self._assert_runsc(container)
+                await asyncio.to_thread(container.put_archive, _VOLUME_ROOT, archive)
+            finally:
+                await self._remove_quietly(container)
+
+        _SKILL_MANIFESTS[agent_id] = manifest_sha
         return [_workspace_abspath(p) for p in raw_staged]
 
     async def _remove_aged_containers(

@@ -132,6 +132,23 @@ class SkillFileService:
         data = await client.get_object(bucket=client.skill_bundles_bucket, key=file.minio_key)
         return await asyncio.to_thread(_extract_text, data, file.mime)
 
+    async def read_bytes(self, file: SkillFile) -> bytes:
+        """The file's bytes, unextracted — for staging a `script` into the sandbox.
+
+        Separate from `read_text` rather than a flag on it, because the two answer
+        different questions and the difference is R31.18's: `read_text` renders a
+        `reference` into the model's context and must parse it, while a script is never
+        decoded here at all — it is copied into a tar and interpreted, if ever, inside
+        gVisor. Running a script through `_extract_text` would be a decode of something
+        that is not text for the model to read, and would corrupt any script that is not
+        valid UTF-8.
+
+        No thread hop: this is a byte read, not a parse. Whether the caller may have these
+        bytes is the caller's proof, exactly as for `read_text`.
+        """
+        client = get_minio_client()
+        return await client.get_object(bucket=client.skill_bundles_bucket, key=file.minio_key)
+
     async def add(
         self,
         *,
