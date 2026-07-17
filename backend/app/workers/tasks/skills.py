@@ -156,6 +156,46 @@ def _client_reason(exc: Exception) -> str:
     return "import failed"
 
 
+async def _audit_bundle_imported(
+    sm: Any, *, result: Any, actor_user_id: str, actor_ip: str | None, request_id: str | None
+) -> None:
+    """Emit R31.25's `skill.bundle_imported` for a completed import — best effort.
+
+    The import is already committed and marked ready before this runs, so an audit-write
+    fault must not fail the job (that would report a live skill as failed). It is logged at
+    error level rather than swallowed silently: a gap in the mutation trail is an operator's
+    problem to see, not a secret to keep.
+    """
+    from shared_kernel import audit
+
+    try:
+        async with sm() as db, db.begin():
+            await audit.emit(
+                db,
+                audit.AuditEvent(
+                    action="skill.bundle_imported",
+                    actor_user_id=uuid.UUID(actor_user_id),
+                    actor_ip=actor_ip,
+                    resource_type="skill",
+                    resource_id=result.skill.id,
+                    metadata={
+                        "scope": result.skill.scope.value,
+                        "name": result.skill.name,
+                        "source": result.skill.source.value,
+                        "bundle_sha256": result.skill.bundle_sha256,
+                        "file_count": len(result.files),
+                        "warning_count": len(result.warnings),
+                    },
+                    request_id=uuid.UUID(request_id) if request_id else None,
+                ),
+            )
+    except Exception:
+        _log.exception(
+            "skill_import_bundle: skill %s imported but its audit event failed to write",
+            result.skill.id,
+        )
+
+
 async def skill_import_bundle(
     ctx: dict[str, Any],
     *,
@@ -187,8 +227,10 @@ async def skill_import_bundle(
     sm = get_sessionmaker()
     minio = get_minio_client()
 
-    await bundle_jobs.mark_import_running(jid)
     try:
+        # Inside the try so the `finally` always covers the slot and staging, even if the
+        # first Redis write faults.
+        await bundle_jobs.mark_import_running(jid)
         data = await minio.get_object(bucket=minio.skill_bundles_bucket, key=object_key)
         async with sm() as db:
             result = await SkillsFacade(db).import_bundle(
@@ -199,32 +241,14 @@ async def skill_import_bundle(
                 actor_ip=actor_ip,
                 request_id=uuid.UUID(request_id) if request_id else None,
             )
-        # `import_bundle` committed already; the audit event rides its own transaction. It
-        # is R31.25's distinct `skill.bundle_imported` — a bundle import both creates a skill
-        # (the service's own `skill.created`) and is an import, and the trail names both.
-        from shared_kernel import audit
-
-        async with sm() as db, db.begin():
-            await audit.emit(
-                db,
-                audit.AuditEvent(
-                    action="skill.bundle_imported",
-                    actor_user_id=uuid.UUID(actor_user_id),
-                    actor_ip=actor_ip,
-                    resource_type="skill",
-                    resource_id=result.skill.id,
-                    metadata={
-                        "scope": result.skill.scope.value,
-                        "name": result.skill.name,
-                        "source": result.skill.source.value,
-                        "bundle_sha256": result.skill.bundle_sha256,
-                        "file_count": len(result.files),
-                        "warning_count": len(result.warnings),
-                    },
-                    request_id=uuid.UUID(request_id) if request_id else None,
-                ),
-            )
+        # The import is done and committed — mark it ready first, so a later fault (the audit
+        # write) cannot flip a succeeded import to FAILED. A false 'failed' would send the
+        # user to re-import a skill that already exists, where the name collision then fails
+        # the retry too, stranding a live skill the UI calls failed.
         await bundle_jobs.mark_import_ready(job_id=jid, skill_id=result.skill.id, warnings=result.warnings)
+        await _audit_bundle_imported(
+            sm, result=result, actor_user_id=actor_user_id, actor_ip=actor_ip, request_id=request_id
+        )
         return "imported"
     except (BundleInvalid, BundleQuarantined) as exc:
         _log.warning("skill_import_bundle: job %s rejected — %s", job_id, exc)
