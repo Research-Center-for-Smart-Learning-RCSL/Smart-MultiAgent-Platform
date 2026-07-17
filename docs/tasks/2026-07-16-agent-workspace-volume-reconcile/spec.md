@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-16
 requirements: [R12.03, R12.05]
 ---
@@ -270,22 +270,43 @@ with `_FakeContainer` (`:17-38`), which models `reload`/`kill`/`remove`/`start`/
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: §8.1 fails before the fix and passes after — a file dropped from the manifest is removed
-      from the volume, not merely unnamed.
+Rewritten against the code as it actually stands after `2026-07-17-agent-files-path-resolution` and
+`2026-07-16-agent-skills` landed: the buggy overlay+cache is now the **shared `_stage_tree`** helper
+(`docker_runsc.py:1195`) that both `stage_agent_workspace_files` and `stage_skill_files` delegate to,
+and there are **two** manifest caches (`_WORKSPACE_MANIFESTS`, `_SKILL_MANIFESTS`). The fix lands in
+the shared helper and so covers both callers, closing skills' FU-38 as the same defect (D-1..D-4).
+
+- [x] AC-1: a file dropped from the staged set is removed from the volume, not merely unnamed.
+      `test_workspace_volume_reconcile.py::test_a_dropped_file_is_removed_from_the_subtree` runs the
+      real `_RECONCILE` against a temp FS seeded with `{a,b}` and an archive of `{a}`; `b` is gone.
+      The orchestration half (staging tar on the durable volume, subtree targeted) is
+      `test_the_command_stages_the_archive_on_the_durable_volume`.
 - [ ] AC-2: end-to-end, §4's Face A no longer reproduces: after a delete and one turn,
       `file`/`list` on `/workspace/agent-files/` does not show the file and `code_exec` cannot open
-      it by absolute path.
-- [ ] AC-3: §8.2 passes — the staging container is started, waited on, and a non-zero exit raises
-      rather than silently succeeding.
-- [ ] AC-4: §8.3 passes — staging goes through `_create_verified`; `grep` shows no direct
-      `containers.create` in `stage_agent_workspace_files`.
-- [ ] AC-5: §8.4 passes — `_WORKSPACE_MANIFESTS` no longer exists; every stage creates a container.
-- [ ] AC-6: the clear cannot escape `/workspace/agent-files/` — tests cover a symlink pointing out
-      of the tree and a member with `..` in its path.
-- [ ] AC-7: `test_workspace_staging.py` is unchanged and green — the caller's contract is untouched.
-- [ ] AC-8: `stage_agent_workspace_files`' docstring no longer claims idempotency via a cache; it
-      describes reconciliation.
-- [ ] AC-9: backend gates green — `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`.
+      it by absolute path. **Deferred to Step 4 behavioural verification** (needs a live sandbox /
+      gVisor stack; not reproducible in the unit tier per §8).
+- [x] AC-3: the staging container is started, waited on, and a non-zero exit (or a timeout) raises
+      rather than silently succeeding —
+      `test_reconcile_runs_a_real_container_not_a_never_started_one`, `test_a_non_zero_exit_raises`,
+      `test_a_timeout_kills_and_raises`.
+- [x] AC-4: staging goes through `_create_verified` (gVisor asserted before start) —
+      `test_staging_goes_through_create_verified`; `grep` shows no direct `containers.create` in
+      `_stage_tree`. (`stage_kernel_inputs` keeps its own direct create — FU-4, out of scope.)
+- [x] AC-5: neither `_WORKSPACE_MANIFESTS` nor `_SKILL_MANIFESTS` exists; every stage creates a
+      container — `test_no_cache_every_stage_spawns_a_container`.
+- [x] AC-6: the clear cannot escape the owned subtree — `test_a_member_escaping_the_root_is_refused`
+      (a `..` member), `test_a_symlink_out_of_the_subtree_is_removed_not_followed`, and
+      `test_the_subtree_itself_being_a_symlink_is_replaced_not_followed` (the latter two skip where
+      the host cannot create symlinks; they run on the Linux CI tier).
+- [x] AC-7 (rescoped, D-4): the caller's **selection-policy** contract is untouched — the
+      `_stage_persisted_files` / `_stage_skill_scripts` / `_stage_workspace_inputs` tests in
+      `test_workspace_staging.py` are unchanged and green. The **sandbox-layer** tests in the same
+      file that asserted the deleted cache were necessarily rewritten to assert reconciliation; the
+      literal "file unchanged" reading of the original AC was made impossible by the drift.
+- [x] AC-8: `_stage_tree`'s (and both public stagers') docstrings no longer claim idempotency via a
+      cache; they describe reconciliation — `test_the_reconcile_docstring_describes_reconciliation`.
+- [x] AC-9: backend gates green — `ruff check` + `ruff format --check` pass and `mypy` is clean on
+      the changed modules; `pytest -q` (full suite) — see Step 5.
 
 ## 11. SRS Delta
 
@@ -308,7 +329,58 @@ invariant this task depends on.
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+All of the below stem from one fact the spec did not know: between its writing (2026-07-16) and
+implementation, `2026-07-16-agent-skills` and `2026-07-17-agent-files-path-resolution` landed and
+refactored the exact code this fix targets. The drift was surfaced and the "fix the shared helper,
+covering both callers" scope was chosen by the user before any code was written.
+
+- **D-1: the fix lands in the shared `_stage_tree` helper, not in `stage_agent_workspace_files`.**
+  The spec's §7 describes `stage_agent_workspace_files` as a self-contained function holding the
+  overlay+cache inline (`:1008-1058` in the pre-refactor tree). It is now a 6-line delegator to
+  `_stage_tree` (`docker_runsc.py:1195`), which is also delegated to by `stage_skill_files`. The
+  reconcile therefore lives in `_stage_tree` and both public stagers get it.
+- **D-2: both manifest caches are removed, not just `_WORKSPACE_MANIFESTS`.** The skills feature
+  added a second cache, `_SKILL_MANIFESTS`, with the identical structural defect. Removing only the
+  one the spec named would have left the other lying about the skills subtree. AC-5 updated.
+- **D-3: skills' FU-38 is closed as a consequence.** `stage_skill_files` carried the identical
+  additive-overlay leak (its own docstring documented it as FU-38: an unbound/quarantined skill's
+  scripts stayed on the volume). Reconciling the shared helper removes them on the next turn. This is
+  the "fix both" scope the user approved; it is strictly the same defect, not scope creep.
+- **D-4: AC-7 rescoped.** The original AC asserted `test_workspace_staging.py` stays "unchanged and
+  green". That file now contains sandbox-layer tests (added by the skills work) that asserted the
+  now-deleted cache — `test_an_unchanged_manifest_spawns_no_container`, `test_a_changed_manifest_
+  restages`, `test_stage_skill_files_uses_the_skills_cache`, `test_the_two_stagers_do_not_evict_each_
+  other`. Those were rewritten to assert reconciliation; the caller **selection-policy** tests (the
+  AC's real intent) are unchanged. The cache-count tests moved to `test_workspace_volume_reconcile.py`.
+- **D-5: the archive is transported via a wrapped single-member tar to `/tmp`.** §7(a) says "put_archive
+  the tar to /tmp". Since `put_archive` *extracts* a tar rather than placing a file, the staged
+  archive is wrapped as one member (`reconcile.tar`) via the existing `_tar_single_file`, put to
+  `/tmp`, and read by `_RECONCILE` at `/tmp/reconcile.tar`. The `/tmp` tmpfs is enlarged to 160 MiB
+  (`_RECONCILE_TMPFS_BYTES`) so it can hold the largest staged archive (agent files cap 128 MiB); the
+  module's default `_TMP_TMPFS_BYTES` is 64 MiB, too small.
+- **D-6: `SandboxReconcileError` added** (`agents/domain/errors.py`) as the type both failure paths
+  (non-zero exit, timeout) raise, so the caller's best-effort swallow degrades the turn uniformly.
+- **D-7: `_RECONCILE` reads its target from the environment** (`SMAP_RECONCILE_ROOT/SUBDIR/ARCHIVE`)
+  rather than hardcoding `/workspace`, so the stdlib-only script can be exercised directly as a
+  subprocess against a real temp filesystem — the only way to cover AC-6's traversal cases without a
+  Docker test tier (§8).
+- **D-8: `manifest_sha` is retained but unused** in both public stagers (per §7(b)), which also keeps
+  the caller's manifest-computation tests green verbatim. `ruff` does not select `ARG`, so the
+  accepted-but-unused parameter is lint-clean.
+- **D-9: the staging archive lives on the volume, not a tmpfs (self-review correction).** §7(a) and
+  Q-1 said to `put_archive` the tar to `/tmp`. A high-effort code-review pass caught that this is a
+  latent break: `put_archive` runs before `start`, but a tmpfs mount does not exist until the
+  container runs, so a `/tmp` file is shadowed by the fresh tmpfs at start and vanishes — the
+  reconcile would fail to open it on *every* turn, and (worse) the clear would already have emptied
+  the subtree. Every other put_archive-before-start site in the module targets the named volume for
+  exactly this reason. Fixed: the wrapped tar is put to `/workspace/.smap-reconcile-{uuid}.tar` (a
+  volume path outside the reconciled subtree, so the clear leaves it be), `_RECONCILE` reads it there
+  and removes it in a `finally`, plus an **age-gated** sweep of orphans left by killed containers
+  (only siblings older than 300 s, so a concurrent worker's in-flight archive is never deleted —
+  staying inside FU-1's known no-lock envelope). Regression pinned by
+  `test_the_command_stages_the_archive_on_the_durable_volume` (asserts the volume root, never `/tmp`)
+  and `test_the_staging_tar_and_stale_siblings_are_cleaned_up`. The unit fake cannot model tmpfs
+  shadowing, which is why the orchestration test asserts the *destination* rather than the effect.
 
 ## 13. Follow-ups
 
@@ -336,8 +408,31 @@ Appended by `/build`.
   Docker-aware, which is the cross-layer coupling §6 declined. If a deletion SLA is ever required,
   the honest fix is an async reconcile job keyed on the delete, not a synchronous call from the
   service.
-- **FU-4: `stage_kernel_inputs` (`:975-1006`) keeps the never-started-container trick.** Same shape
-  as the bug (`command=["true"]` at `:995`, `put_archive` at `:1003`, no reconcile) but no source of
-  truth to drift from and no cache, so nothing can go stale. Left alone deliberately. If §7(a)'s
-  clear-then-extract becomes a shared helper, converge them and delete the divergence; until then
-  this is the module's second site that bypasses `_create_verified`.
+- **FU-4: `stage_kernel_inputs` keeps the never-started-container trick.** Same shape as the bug
+  (`command=["true"]`, `put_archive`, no reconcile) but no source of truth to drift from and no
+  cache, so nothing can go stale. Left alone deliberately, and it remains the module's one site that
+  bypasses `_create_verified` — the reconcile fix routed `_stage_tree` through `_create_verified`, so
+  `stage_kernel_inputs` is now the *only* direct `containers.create` left. If its clear-then-extract
+  is ever wanted, converge it onto `_stage_tree` and delete the divergence.
+
+- **FU-5: the staging tar doubles peak worker memory transiently.** `_tar_single_file` wraps the
+  inner archive (up to `_MAX_AGENT_FILES_BYTES` = 128 MiB) into a second in-memory tar, so during the
+  wrap both copies are held (~256 MiB), `_get_semaphore()`-bounded at 8 concurrent. `del archive`
+  drops the inner copy immediately after, but the wrap itself peaks at 2x. The clean fix that also
+  removes the wrapper is to `put_archive` the inner tar re-rooted under a per-call staging directory
+  (`.smap-reconcile-{uuid}/{subdir}/...`) and have `_RECONCILE` `os.rename` it into place — one copy,
+  and an atomic swap (see FU-6). Deferred because the rename scheme is more new logic in a
+  destructive path; the wrapper mirrors `run_file_op`'s proven shape.
+- **FU-6: the clear-then-extract window is not atomic.** `_RECONCILE` empties the subtree before
+  extracting, so a reconcile that fails *after* the clear (a timeout, a Docker fault, an escaping
+  member) leaves the subtree empty on the volume until the next successful stage, where the old
+  overlay left the prior (possibly stale) files intact. §9 accepts convergence-on-next-turn for the
+  concurrency case; this is the transient-fault variant. The atomic form is FU-5's staging-dir +
+  `os.rename` swap, which shrinks the destructive window from "extract 128 MiB" to "one rename".
+
+**Closed by this task:**
+
+- **FU-38 (from `2026-07-16-agent-skills`): skill scripts were additive-only.** `stage_skill_files`
+  shared the overlay defect — an unbound or quarantined skill's scripts stayed on the volume and
+  reachable from `code_exec`. Because the fix lands in the shared `_stage_tree` (D-1/D-3), skills now
+  reconcile too: a script dropped from the staged set is removed on the next turn. No separate change.
