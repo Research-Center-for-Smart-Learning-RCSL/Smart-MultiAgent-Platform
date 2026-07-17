@@ -327,8 +327,14 @@ def _as_scalar(value: Any, *, key: str) -> str:
 
 
 def _as_list(value: Any, *, key: str) -> tuple[str, ...]:
-    if isinstance(value, list):
-        return tuple(value)
+    # `list, tuple` and not `list` alone: `_gather_value` returns lists, but a caller's
+    # default is naturally `()`, and `str(())` is `"()"` — which the scalar arm below then
+    # split into a tool literally named `"()"`. That shipped a bogus entry on every skill
+    # whose `allowed-tools` key was simply absent, i.e. 35 of the 42 real bundles, and no
+    # parser test saw it because they all wrote the key out as present-but-empty. The
+    # callers now pass absence explicitly too; this arm is the belt to that pair of braces.
+    if isinstance(value, list | tuple):
+        return tuple(str(item) for item in value)
     text = str(value).strip()
     if not text:
         return ()
@@ -419,11 +425,16 @@ def parse_skill_md(text: str) -> SkillManifest:
     if not description.strip():
         raise BundleInvalid("frontmatter key 'description' is empty", key=KEY_DESCRIPTION)
 
-    allowed_tools = _as_list(raw.get(KEY_ALLOWED_TOOLS, ()), key=KEY_ALLOWED_TOOLS)
+    # An absent key is `()` directly rather than a default routed through `_as_list`, so
+    # "the author wrote nothing" and "the author wrote an empty list" converge on one
+    # answer without either passing through the scalar arm.
+    allowed_tools = (
+        _as_list(raw[KEY_ALLOWED_TOOLS], key=KEY_ALLOWED_TOOLS) if KEY_ALLOWED_TOOLS in raw else ()
+    )
     for tool in allowed_tools:
         _reject(tool, key=KEY_ALLOWED_TOOLS, max_chars=MAX_DESCRIPTION_CHARS)
 
-    requires = _as_list(raw.get(KEY_REQUIRES, ()), key=KEY_REQUIRES)
+    requires = _as_list(raw[KEY_REQUIRES], key=KEY_REQUIRES) if KEY_REQUIRES in raw else ()
     for req in requires:
         _reject(req, key=KEY_REQUIRES, max_chars=MAX_DESCRIPTION_CHARS)
 
