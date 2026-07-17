@@ -47,6 +47,7 @@ from typing import Any, Literal
 from contexts.agents.domain.errors import (
     McpEgressDenied,
     McpTimeout,
+    SandboxReconcileError,
     SandboxRuntimeViolation,
 )
 from contexts.agents.domain.mcp import McpTestResult, StagedFile, ToolCallResult
@@ -335,22 +336,91 @@ _KERNEL_LABEL = "smap.kernel"
 _KERNELS: dict[str, _KernelHandle] = {}
 _kernels_guard = asyncio.Lock()
 
-# Workspace-file manifest cache — keyed by agent_id (not per-session: persisted
-# files are identical across all sessions for one agent). Avoids a container
-# spawn on the hot path when files haven't changed.
-_WORKSPACE_MANIFESTS: dict[uuid.UUID, str] = {}
+# Volume reconciliation (2026-07-16-agent-workspace-volume-reconcile). The
+# tree-preserving stagers used to `put_archive` the survivors over the existing
+# tree and record a manifest sha in a per-process dict — an overlay that could
+# add but never remove, so a file deleted from the source of truth kept its bytes
+# on the volume, and a cache that returned paths without touching Docker, so it
+# could not notice a volume removed out of band. Both are gone. Staging now runs
+# a real container that empties the subtree and re-extracts the staged set, so
+# the subtree equals the set every turn ([R12.03a]).
+#
+# The staged archive is put onto the **named volume** as a file
+# (`/workspace/.smap-reconcile-{uuid}.tar`), NOT into a tmpfs. A tmpfs mount only
+# exists while the container runs, so a file `put_archive`d to /tmp before start
+# is shadowed by the fresh tmpfs at start and vanishes — the volume is mounted at
+# create time and survives, which is why every other put_archive-before-start
+# site in this module targets it too (`run_file_op`'s `.smap-stage-{uuid}`). The
+# staging file lives outside the reconciled subtree, so the clear never touches
+# it, and `_RECONCILE` unlinks it (and any stale sibling) itself.
+_RECONCILE_STAGE_PREFIX = ".smap-reconcile-"
+_RECONCILE_TIMEOUT_S = 30.0
 
-# Skill-script manifest cache. A **separate dict**, not a second entry in the one
-# above, and that is the whole point (AC-21): the two file sets change for
-# unrelated reasons — a skill bind/unbind versus a workspace upload — and share
-# only the agent id. One dict keyed by agent_id would make each set's manifest
-# evict the other's on every change, so binding a skill would re-stage every
-# agent file and vice versa. Both write under /workspace on the same volume but
-# into disjoint subtrees (`skills/` and `agent-files/`), so nothing is lost by
-# tracking them apart. Shares _WORKSPACE_MANIFESTS' limits — in-process,
-# unbounded, never invalidated, and able to lie if the volume is removed out of
-# band (FU-6).
-_SKILL_MANIFESTS: dict[uuid.UUID, str] = {}
+# Executed as `python -c _RECONCILE` inside the sandbox container. Reads its
+# target from the environment so the same source can be exercised directly, on a
+# real filesystem, by test_workspace_volume_reconcile.py without a Docker daemon.
+#
+# The clear-then-extract order is load-bearing (Q-1): extracting after the clear
+# means no member ever lands on a symlink the agent's own code_exec left in the
+# tree, and the tree is never a transient union of the old and new sets. The
+# clear must not follow a symlink out of the subtree, and no member may resolve
+# outside the volume root — the one real danger in this change is deleting the
+# agent's own `file`-tool state, which shares the volume and has no other copy
+# (§9). Both guards are covered by AC-6.
+_RECONCILE = r"""
+import glob, os, sys, shutil, tarfile, time, warnings
+
+warnings.filterwarnings("ignore")  # keep stderr clean; failures still print
+
+root = os.environ["SMAP_RECONCILE_ROOT"]
+subdir = os.environ["SMAP_RECONCILE_SUBDIR"].strip("/")
+archive = os.environ["SMAP_RECONCILE_ARCHIVE"]
+if not subdir:
+    sys.exit("reconcile: empty subdir")
+
+target = os.path.join(root, subdir)
+root_real = os.path.realpath(root)
+
+try:
+    # 1. Empty the projection. rmtree unlinks a symlink entry rather than recursing
+    #    into its target, and is never called on the top path when that path is
+    #    itself a symlink, so nothing outside the subtree is ever followed.
+    if os.path.islink(target) or os.path.isfile(target):
+        os.unlink(target)
+    elif os.path.isdir(target):
+        shutil.rmtree(target)
+    os.makedirs(target, exist_ok=True)
+
+    # 2. Extract the staged set over the now-empty subtree. The archive is built by
+    #    SMAP, not from agent input, but vet every member: skip links and device
+    #    nodes, and refuse any member whose path resolves outside the volume root.
+    with tarfile.open(archive, "r") as tar:
+        for m in tar.getmembers():
+            if m.issym() or m.islnk() or m.isdev():
+                continue
+            dest = os.path.realpath(os.path.join(root, m.name))
+            if dest != root_real and not dest.startswith(root_real + os.sep):
+                sys.exit("reconcile: member escapes root: " + m.name)
+            tar.extract(m, root)
+finally:
+    # The staging tar sits on the quota-limited volume; always remove our own, and
+    # sweep siblings orphaned by an earlier killed container (whose finally never ran).
+    # Age-gate the sweep: a concurrent worker reconciling the same volume finishes or is
+    # killed within the timeout, so only siblings older than that can be dead — deleting a
+    # live sibling's in-flight archive would fail its reconcile (no cross-process lock yet,
+    # FU-1). The window is generous relative to the wait timeout.
+    cutoff = time.time() - 300
+    try:
+        os.unlink(archive)
+    except OSError:
+        pass
+    for stale in glob.glob(os.path.join(root, ".smap-reconcile-*.tar")):
+        try:
+            if os.path.getmtime(stale) < cutoff:
+                os.unlink(stale)
+        except OSError:
+            pass
+"""
 
 
 @dataclass(slots=True)
@@ -1150,19 +1220,23 @@ class DockerRunscSandbox:
         agent_id: uuid.UUID,
         rel_dir: str,
         files: Sequence[StagedFile],
-        manifest_sha: str,
-        cache: dict[uuid.UUID, str],
     ) -> list[str]:
-        """Write *files* under ``/workspace/{rel_dir}/`` on the agent's volume.
+        """Reconcile ``/workspace/{rel_dir}/`` on the agent's volume to equal *files*.
 
-        Shared by the two tree-preserving stagers, which differ only in where they write
-        and which manifest cache tracks them. *cache* is passed rather than chosen here
-        so the two file sets cannot evict each other (AC-21) — and passing it makes that
-        choice a visible argument at each call site rather than a branch to get wrong.
+        Shared by the two tree-preserving stagers (agent workspace files and skill
+        scripts), which differ only in which subtree they own. That subtree is a
+        **projection** of a source of truth — the ``agent_workspace_files`` rows, or the
+        bound-skill set — so staging reconciles rather than overlays ([R12.03a]): a file
+        no longer in *files* is removed from the volume, not merely omitted from the note.
+        ``put_archive`` alone can add but never remove, so a real container runs
+        ``_RECONCILE`` (empty the subtree, then extract the staged set over it) and a
+        non-zero exit raises, so the caller degrades the turn rather than trusting a
+        half-reconciled volume.
 
-        Idempotent: if *cache* shows the volume already has this ``manifest_sha``, returns
-        immediately with no container spawn. The cache is updated only after a successful
-        write.
+        Not cached: the retired manifest cache returned paths without touching Docker, so
+        it could neither prune a dropped file (FU-19) nor notice a volume removed out of
+        band (FU-6). Every call reconciles. See
+        docs/tasks/2026-07-16-agent-workspace-volume-reconcile/spec.md.
 
         Returns absolute paths — see ``stage_kernel_inputs`` for why relative would be
         ambiguous here.
@@ -1170,37 +1244,63 @@ class DockerRunscSandbox:
         if not files:
             return []
 
-        if cache.get(agent_id) == manifest_sha:
-            # Names only: this is the path the cache exists to make cheap, so it
-            # must not tar up to _MAX_AGENT_FILES_BYTES of bytes just to discard them.
-            members = _staged_members(rel_dir, files, preserve_tree=True)
-            return [_workspace_abspath(m) for _f, m in members]
-
         await self._ensure_runtime_ready()
         client = self._client()
         volume = f"smap-agent-fs-{agent_id}"
         archive, raw_staged = _tar_staged_inputs(rel_dir=rel_dir, files=files, preserve_tree=True)
+        # Wrap the staged tar as one member and land it on the volume as a file. It must
+        # be on the volume, not a tmpfs: put_archive runs before start, and a tmpfs mount
+        # does not exist until the container runs, so a /tmp file would be shadowed away.
+        stage_name = f"{_RECONCILE_STAGE_PREFIX}{uuid.uuid4().hex}.tar"
+        wrapped = _tar_single_file(stage_name, archive)
+        del archive  # drop the inner copy; only `wrapped` is put, `raw_staged` is returned
 
         host_config = self._base_host_config()
         host_config["network_mode"] = "none"
         host_config["volumes"] = {volume: {"bind": _VOLUME_ROOT, "mode": "rw"}}
         async with _get_semaphore():
-            container = await asyncio.to_thread(
-                client.containers.create,
+            container = await self._create_verified(
+                client,
                 image=self.code_exec_image,
-                command=["true"],
+                command=["python", "-c", _RECONCILE],
+                environment={
+                    "SMAP_RECONCILE_ROOT": _VOLUME_ROOT,
+                    "SMAP_RECONCILE_SUBDIR": rel_dir.strip("/"),
+                    "SMAP_RECONCILE_ARCHIVE": f"{_VOLUME_ROOT}/{stage_name}",
+                },
                 user=_SANDBOX_UID,
                 tmpfs={"/tmp": f"size={_TMP_TMPFS_BYTES}"},  # noqa: S108 — in-container tmpfs
                 **host_config,
             )
             try:
-                await self._assert_runsc(container)
-                await asyncio.to_thread(container.put_archive, _VOLUME_ROOT, archive)
+                # put_archive extracts into the created container immediately; the volume
+                # is mounted at create time, so the staging tar lands on it and survives
+                # start. It sits outside the reconciled subtree, so the clear leaves it be.
+                await asyncio.to_thread(container.put_archive, _VOLUME_ROOT, wrapped)
+                await asyncio.to_thread(container.start)
+                await self._await_reconcile(container, rel_dir)
             finally:
                 await self._remove_quietly(container)
 
-        cache[agent_id] = manifest_sha
         return [_workspace_abspath(p) for p in raw_staged]
+
+    async def _await_reconcile(self, container: Any, rel_dir: str) -> None:
+        """Wait on the reconcile container; raise on timeout or non-zero exit.
+
+        Both failure paths raise :class:`SandboxReconcileError` so the caller's
+        best-effort swallow degrades the turn uniformly; the caller's ``finally``
+        removes the container either way."""
+        try:
+            exit_status = await asyncio.to_thread(container.wait, timeout=_RECONCILE_TIMEOUT_S)
+        except Exception as exc:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(container.kill)
+            raise SandboxReconcileError(f"reconcile of {rel_dir!r} timed out: {exc}") from exc
+        status_code = int(exit_status.get("StatusCode", 1))
+        if status_code != 0:
+            raw_err = await asyncio.to_thread(container.logs, stdout=False, stderr=True)
+            stderr = raw_err.decode("utf-8", errors="replace").strip()
+            raise SandboxReconcileError(f"reconcile of {rel_dir!r} failed (exit {status_code}): {stderr}")
 
     async def stage_agent_workspace_files(
         self,
@@ -1209,22 +1309,21 @@ class DockerRunscSandbox:
         files: Sequence[StagedFile],
         manifest_sha: str,
     ) -> list[str]:
-        """Materialise the agent's persisted files under ``/workspace/agent-files/``.
+        """Reconcile the agent's persisted files under ``/workspace/agent-files/``.
 
-        Idempotent through its own manifest cache: an unchanged ``manifest_sha`` returns
-        the paths with no container spawn and **no write**, so a caller that passes a stale
-        sha silently skips staging. The cache updates only after a successful write.
+        The subtree is made equal to *files* on every call: a file dropped from the set
+        is removed from the volume, not merely omitted from the note ([R12.03a]).
+
+        ``manifest_sha`` is the caller's description of the intended set. It is accepted
+        but no longer gates staging — the retired manifest cache could not observe the
+        volume, so it pruned nothing (FU-19) and could assert a set the volume did not
+        hold (FU-6). It stays in the signature as the natural key for a *verified* cache
+        should FU-2 add one.
 
         Returns absolute paths (``/workspace/agent-files/x``) — see ``stage_kernel_inputs``
         for why relative would be ambiguous here.
         """
-        return await self._stage_tree(
-            agent_id=agent_id,
-            rel_dir="agent-files",
-            files=files,
-            manifest_sha=manifest_sha,
-            cache=_WORKSPACE_MANIFESTS,
-        )
+        return await self._stage_tree(agent_id=agent_id, rel_dir="agent-files", files=files)
 
     async def stage_skill_files(
         self,
@@ -1246,24 +1345,24 @@ class DockerRunscSandbox:
         validated at upload; ``_staged_members`` re-validates both anyway, since this
         function cannot see where its input came from.
 
-        Idempotent through its **own** manifest cache, so staging skills never evicts
-        ``stage_agent_workspace_files``' staging or the reverse (AC-21).
+        Skills and agent files reconcile disjoint subtrees (``skills/`` and
+        ``agent-files/``) of one volume, so staging one never disturbs the other (AC-21):
+        each ``_RECONCILE`` clears only its own subtree.
 
-        **Additive only.** A script staged here is never removed: `put_archive` cannot
-        delete and nothing else prunes the volume, so unbinding a skill or quarantining
-        its file leaves the bytes on disk and reachable from `code_exec`. The readability
-        gate in `_stage_skill_scripts` is therefore write-time, not a revocation. FU-38.
+        **Reconciled, not additive.** A script for an unbound or quarantined skill is
+        dropped from *files* upstream in ``_stage_skill_scripts``, and the reconcile then
+        removes it from the volume — closing FU-38, the additive-overlay leak where an
+        unbound skill's scripts stayed on disk and reachable from ``code_exec``. The
+        readability gate in ``_stage_skill_scripts`` stays a write-time gate; what changed
+        is that a file omitted from the staged set no longer lingers.
+
+        ``manifest_sha`` is accepted but no longer gates staging — see
+        ``stage_agent_workspace_files`` for why it is retained.
 
         Returns absolute paths — see ``stage_kernel_inputs`` for why relative would be
         ambiguous here.
         """
-        return await self._stage_tree(
-            agent_id=agent_id,
-            rel_dir="skills",
-            files=files,
-            manifest_sha=manifest_sha,
-            cache=_SKILL_MANIFESTS,
-        )
+        return await self._stage_tree(agent_id=agent_id, rel_dir="skills", files=files)
 
     async def _remove_aged_containers(
         self, *, label: str, max_age_s: float, skip_ids: frozenset[str] = frozenset()
