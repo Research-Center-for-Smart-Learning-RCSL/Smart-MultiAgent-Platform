@@ -246,6 +246,7 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(skills_routes.org_router),
         RouterEntry(skills_routes.admin_router),
         RouterEntry(skills_routes.binding_router),
+        RouterEntry(skills_routes.bundle_router),
         # Notifications
         RouterEntry(notification_routes.router),
         # Orchestration

@@ -2,10 +2,17 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { Body_admin_import_bundle_api_admin_skills_import_post } from '../models/Body_admin_import_bundle_api_admin_skills_import_post';
 import type { Body_admin_upload_file_api_admin_skills__skill_id__files_upload_post } from '../models/Body_admin_upload_file_api_admin_skills__skill_id__files_upload_post';
+import type { Body_agent_import_bundle_api_agents__agent_id__skills_import_post } from '../models/Body_agent_import_bundle_api_agents__agent_id__skills_import_post';
 import type { Body_agent_upload_file_api_agents__agent_id__skills__skill_id__files_upload_post } from '../models/Body_agent_upload_file_api_agents__agent_id__skills__skill_id__files_upload_post';
+import type { Body_org_import_bundle_api_orgs__org_id__skills_import_post } from '../models/Body_org_import_bundle_api_orgs__org_id__skills_import_post';
 import type { Body_org_upload_file_api_orgs__org_id__skills__skill_id__files_upload_post } from '../models/Body_org_upload_file_api_orgs__org_id__skills__skill_id__files_upload_post';
+import type { Body_project_import_bundle_api_projects__project_id__skills_import_post } from '../models/Body_project_import_bundle_api_projects__project_id__skills_import_post';
 import type { Body_project_upload_file_api_projects__project_id__skills__skill_id__files_upload_post } from '../models/Body_project_upload_file_api_projects__project_id__skills__skill_id__files_upload_post';
+import type { BundleExportStatusOut } from '../models/BundleExportStatusOut';
+import type { BundleImportStatusOut } from '../models/BundleImportStatusOut';
+import type { BundleJobOut } from '../models/BundleJobOut';
 import type { SkillBindingOut } from '../models/SkillBindingOut';
 import type { SkillCopyIn } from '../models/SkillCopyIn';
 import type { SkillCreateIn } from '../models/SkillCreateIn';
@@ -68,6 +75,26 @@ export class SkillsService {
             url: '/api/admin/skills',
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Admin Import Bundle
+     * @returns BundleJobOut Successful Response
+     * @throws ApiError
+     */
+    public static adminImportBundleApiAdminSkillsImportPost({
+        formData,
+    }: {
+        formData: Body_admin_import_bundle_api_admin_skills_import_post,
+    }): CancelablePromise<BundleJobOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/skills/import',
+            formData: formData,
+            mediaType: 'multipart/form-data',
             errors: {
                 422: `Validation Error`,
             },
@@ -190,6 +217,27 @@ export class SkillsService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Admin Export Bundle
+     * @returns BundleJobOut Successful Response
+     * @throws ApiError
+     */
+    public static adminExportBundleApiAdminSkillsSkillIdExportGet({
+        skillId,
+    }: {
+        skillId: string,
+    }): CancelablePromise<BundleJobOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/skills/{skill_id}/export',
+            path: {
+                'skill_id': skillId,
+            },
             errors: {
                 422: `Validation Error`,
             },
@@ -477,6 +525,31 @@ export class SkillsService {
         });
     }
     /**
+     * Agent Import Bundle
+     * @returns BundleJobOut Successful Response
+     * @throws ApiError
+     */
+    public static agentImportBundleApiAgentsAgentIdSkillsImportPost({
+        agentId,
+        formData,
+    }: {
+        agentId: string,
+        formData: Body_agent_import_bundle_api_agents__agent_id__skills_import_post,
+    }): CancelablePromise<BundleJobOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/agents/{agent_id}/skills/import',
+            path: {
+                'agent_id': agentId,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Agent Delete Skill
      * @returns void
      * @throws ApiError
@@ -585,6 +658,30 @@ export class SkillsService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Agent Export Bundle
+     * @returns BundleJobOut Successful Response
+     * @throws ApiError
+     */
+    public static agentExportBundleApiAgentsAgentIdSkillsSkillIdExportGet({
+        agentId,
+        skillId,
+    }: {
+        agentId: string,
+        skillId: string,
+    }): CancelablePromise<BundleJobOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agents/{agent_id}/skills/{skill_id}/export',
+            path: {
+                'agent_id': agentId,
+                'skill_id': skillId,
+            },
             errors: {
                 422: `Validation Error`,
             },
@@ -816,6 +913,31 @@ export class SkillsService {
         });
     }
     /**
+     * Org Import Bundle
+     * @returns BundleJobOut Successful Response
+     * @throws ApiError
+     */
+    public static orgImportBundleApiOrgsOrgIdSkillsImportPost({
+        orgId,
+        formData,
+    }: {
+        orgId: string,
+        formData: Body_org_import_bundle_api_orgs__org_id__skills_import_post,
+    }): CancelablePromise<BundleJobOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/orgs/{org_id}/skills/import',
+            path: {
+                'org_id': orgId,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Org Delete Skill
      * @returns void
      * @throws ApiError
@@ -924,6 +1046,30 @@ export class SkillsService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Org Export Bundle
+     * @returns BundleJobOut Successful Response
+     * @throws ApiError
+     */
+    public static orgExportBundleApiOrgsOrgIdSkillsSkillIdExportGet({
+        orgId,
+        skillId,
+    }: {
+        orgId: string,
+        skillId: string,
+    }): CancelablePromise<BundleJobOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/orgs/{org_id}/skills/{skill_id}/export',
+            path: {
+                'org_id': orgId,
+                'skill_id': skillId,
+            },
             errors: {
                 422: `Validation Error`,
             },
@@ -1155,6 +1301,31 @@ export class SkillsService {
         });
     }
     /**
+     * Project Import Bundle
+     * @returns BundleJobOut Successful Response
+     * @throws ApiError
+     */
+    public static projectImportBundleApiProjectsProjectIdSkillsImportPost({
+        projectId,
+        formData,
+    }: {
+        projectId: string,
+        formData: Body_project_import_bundle_api_projects__project_id__skills_import_post,
+    }): CancelablePromise<BundleJobOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/skills/import',
+            path: {
+                'project_id': projectId,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Project Delete Skill
      * @returns void
      * @throws ApiError
@@ -1263,6 +1434,30 @@ export class SkillsService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Project Export Bundle
+     * @returns BundleJobOut Successful Response
+     * @throws ApiError
+     */
+    public static projectExportBundleApiProjectsProjectIdSkillsSkillIdExportGet({
+        projectId,
+        skillId,
+    }: {
+        projectId: string,
+        skillId: string,
+    }): CancelablePromise<BundleJobOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/skills/{skill_id}/export',
+            path: {
+                'project_id': projectId,
+                'skill_id': skillId,
+            },
             errors: {
                 422: `Validation Error`,
             },
@@ -1424,6 +1619,58 @@ export class SkillsService {
             path: {
                 'project_id': projectId,
                 'skill_id': skillId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Export Status
+     * Poll a bundle export; once ready, carry the presigned download URL.
+     *
+     * §6 names only the import status endpoint by path; export equally needs a status/fetch
+     * (D-58 records this). The URL dictates the download's filename and content type via the
+     * presigned response headers, so the object's stored metadata never reaches the browser.
+     * @returns BundleExportStatusOut Successful Response
+     * @throws ApiError
+     */
+    public static getExportStatusApiSkillsExportsTaskIdGet({
+        taskId,
+    }: {
+        taskId: string,
+    }): CancelablePromise<BundleExportStatusOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/skills/exports/{task_id}',
+            path: {
+                'task_id': taskId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Import Status
+     * Poll a bundle import. The initiator (or an admin) only — the job id is a capability.
+     *
+     * Deliberately not scope-gated: the initiator is recorded on the job and is the fence, the
+     * same shape `GET /api/exports/{job_id}` uses. A stranger with a guessed id gets a 403, not
+     * a leak of whether the id is live.
+     * @returns BundleImportStatusOut Successful Response
+     * @throws ApiError
+     */
+    public static getImportStatusApiSkillsImportsTaskIdGet({
+        taskId,
+    }: {
+        taskId: string,
+    }): CancelablePromise<BundleImportStatusOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/skills/imports/{task_id}',
+            path: {
+                'task_id': taskId,
             },
             errors: {
                 422: `Validation Error`,

@@ -2529,6 +2529,20 @@
         "title": "BanIn",
         "type": "object"
       },
+      "Body_admin_import_bundle_api_admin_skills_import_post": {
+        "properties": {
+          "upload": {
+            "contentMediaType": "application/octet-stream",
+            "title": "Upload",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload"
+        ],
+        "title": "Body_admin_import_bundle_api_admin_skills_import_post",
+        "type": "object"
+      },
       "Body_admin_upload_file_api_admin_prompt_assistant_config_files_post": {
         "properties": {
           "file": {
@@ -2560,6 +2574,20 @@
           "upload"
         ],
         "title": "Body_admin_upload_file_api_admin_skills__skill_id__files_upload_post",
+        "type": "object"
+      },
+      "Body_agent_import_bundle_api_agents__agent_id__skills_import_post": {
+        "properties": {
+          "upload": {
+            "contentMediaType": "application/octet-stream",
+            "title": "Upload",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload"
+        ],
+        "title": "Body_agent_import_bundle_api_agents__agent_id__skills_import_post",
         "type": "object"
       },
       "Body_agent_upload_file_api_agents__agent_id__skills__skill_id__files_upload_post": {
@@ -2620,6 +2648,20 @@
         "title": "Body_me_upload_file_api_me_prompt_assistant_config_files_post",
         "type": "object"
       },
+      "Body_org_import_bundle_api_orgs__org_id__skills_import_post": {
+        "properties": {
+          "upload": {
+            "contentMediaType": "application/octet-stream",
+            "title": "Upload",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload"
+        ],
+        "title": "Body_org_import_bundle_api_orgs__org_id__skills_import_post",
+        "type": "object"
+      },
       "Body_org_upload_file_api_orgs__org_id__prompt_assistant_config_files_post": {
         "properties": {
           "file": {
@@ -2651,6 +2693,20 @@
           "upload"
         ],
         "title": "Body_org_upload_file_api_orgs__org_id__skills__skill_id__files_upload_post",
+        "type": "object"
+      },
+      "Body_project_import_bundle_api_projects__project_id__skills_import_post": {
+        "properties": {
+          "upload": {
+            "contentMediaType": "application/octet-stream",
+            "title": "Upload",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload"
+        ],
+        "title": "Body_project_import_bundle_api_projects__project_id__skills_import_post",
         "type": "object"
       },
       "Body_project_upload_file_api_projects__project_id__skills__skill_id__files_upload_post": {
@@ -2775,6 +2831,128 @@
           "failed"
         ],
         "title": "BuildState",
+        "type": "string"
+      },
+      "BundleExportStatusOut": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BundleJobStatus"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "url",
+          "error"
+        ],
+        "title": "BundleExportStatusOut",
+        "type": "object"
+      },
+      "BundleImportStatusOut": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "skill_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skill Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BundleJobStatus"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "skill_id",
+          "warnings",
+          "error"
+        ],
+        "title": "BundleImportStatusOut",
+        "type": "object"
+      },
+      "BundleJobOut": {
+        "description": "The 202 body for import/export \u2014 a task id to poll.",
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BundleJobStatus"
+          }
+        },
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "BundleJobOut",
+        "type": "object"
+      },
+      "BundleJobStatus": {
+        "enum": [
+          "queued",
+          "running",
+          "ready",
+          "failed"
+        ],
+        "title": "BundleJobStatus",
         "type": "string"
       },
       "CaptchaConfigOut": {
@@ -10491,6 +10669,47 @@
         ]
       }
     },
+    "/api/admin/skills/import": {
+      "post": {
+        "operationId": "admin_import_bundle_api_admin_skills_import_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_admin_import_bundle_api_admin_skills_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleJobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Import Bundle",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
     "/api/admin/skills/metrics": {
       "get": {
         "description": "[R31.11] / AC-15 \u2014 the ratio of agent-private to shared skills.\n\nNot decoration: \u00a75's premise is that skills are shared at project scope and above.\nIf most end up agent-scoped, Skills has degraded into the \u00a79.2 prompt-strategy\nfeature it replaced, and this endpoint is what makes that visible rather than a\nmatter of opinion at the six-month review.\n\nDeclared **before** `/{skill_id}`: FastAPI matches in declaration order, and the\nUUID-typed path below would otherwise claim \"metrics\" and 422 it.",
@@ -10721,6 +10940,49 @@
           }
         },
         "summary": "Admin Copy Skill",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/admin/skills/{skill_id}/export": {
+      "get": {
+        "operationId": "admin_export_bundle_api_admin_skills__skill_id__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Skill Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleJobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Export Bundle",
         "tags": [
           "skills"
         ]
@@ -12194,6 +12456,59 @@
         ]
       }
     },
+    "/api/agents/{agent_id}/skills/import": {
+      "post": {
+        "operationId": "agent_import_bundle_api_agents__agent_id__skills_import_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_agent_import_bundle_api_agents__agent_id__skills_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleJobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Agent Import Bundle",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
     "/api/agents/{agent_id}/skills/{skill_id}": {
       "delete": {
         "operationId": "agent_delete_skill_api_agents__agent_id__skills__skill_id__delete",
@@ -12442,6 +12757,59 @@
           }
         },
         "summary": "Agent Copy Skill",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/agents/{agent_id}/skills/{skill_id}/export": {
+      "get": {
+        "operationId": "agent_export_bundle_api_agents__agent_id__skills__skill_id__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Skill Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleJobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Agent Export Bundle",
         "tags": [
           "skills"
         ]
@@ -19406,6 +19774,59 @@
         ]
       }
     },
+    "/api/orgs/{org_id}/skills/import": {
+      "post": {
+        "operationId": "org_import_bundle_api_orgs__org_id__skills_import_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Org Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_org_import_bundle_api_orgs__org_id__skills_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleJobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Org Import Bundle",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
     "/api/orgs/{org_id}/skills/{skill_id}": {
       "delete": {
         "operationId": "org_delete_skill_api_orgs__org_id__skills__skill_id__delete",
@@ -19654,6 +20075,59 @@
           }
         },
         "summary": "Org Copy Skill",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/orgs/{org_id}/skills/{skill_id}/export": {
+      "get": {
+        "operationId": "org_export_bundle_api_orgs__org_id__skills__skill_id__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Org Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Skill Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleJobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Org Export Bundle",
         "tags": [
           "skills"
         ]
@@ -22439,6 +22913,59 @@
         ]
       }
     },
+    "/api/projects/{project_id}/skills/import": {
+      "post": {
+        "operationId": "project_import_bundle_api_projects__project_id__skills_import_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_project_import_bundle_api_projects__project_id__skills_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleJobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Project Import Bundle",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
     "/api/projects/{project_id}/skills/{skill_id}": {
       "delete": {
         "operationId": "project_delete_skill_api_projects__project_id__skills__skill_id__delete",
@@ -22687,6 +23214,59 @@
           }
         },
         "summary": "Project Copy Skill",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/skills/{skill_id}/export": {
+      "get": {
+        "operationId": "project_export_bundle_api_projects__project_id__skills__skill_id__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Skill Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleJobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Project Export Bundle",
         "tags": [
           "skills"
         ]
@@ -23571,6 +24151,94 @@
         "summary": "Set Document Agents",
         "tags": [
           "rag"
+        ]
+      }
+    },
+    "/api/skills/exports/{task_id}": {
+      "get": {
+        "description": "Poll a bundle export; once ready, carry the presigned download URL.\n\n\u00a76 names only the import status endpoint by path; export equally needs a status/fetch\n(D-58 records this). The URL dictates the download's filename and content type via the\npresigned response headers, so the object's stored metadata never reaches the browser.",
+        "operationId": "get_export_status_api_skills_exports__task_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleExportStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Export Status",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/skills/imports/{task_id}": {
+      "get": {
+        "description": "Poll a bundle import. The initiator (or an admin) only \u2014 the job id is a capability.\n\nDeliberately not scope-gated: the initiator is recorded on the job and is the fence, the\nsame shape `GET /api/exports/{job_id}` uses. A stranger with a guessed id gets a 403, not\na leak of whether the id is live.",
+        "operationId": "get_import_status_api_skills_imports__task_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleImportStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Import Status",
+        "tags": [
+          "skills"
         ]
       }
     },

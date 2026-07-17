@@ -304,6 +304,45 @@ class SkillsFacade:
             await enqueue_skill_scan(file_id=f.id, sha256=f.sha256)
         return result
 
+    async def export_bundle(
+        self, skill_id: uuid.UUID, scope: SkillScope, *, owner_id: uuid.UUID | None
+    ) -> bytes:
+        """Pack a skill the caller owns into a deterministic `.zip` (Q-21 / AC-26).
+
+        Ownership first: `get_owned` raises `SkillNotFound` (404, never 403) for a skill
+        under a scope the caller does not hold. `BundleService.export_bundle` then applies
+        AC-34's fail-closed gate before it reads a byte — a quarantined file makes the whole
+        skill unexportable, the same refusal `read_skill` gives, so export cannot become the
+        side door that ships bytes the reader would refuse (D-64).
+        """
+        skill = await SkillService(self._db).get_owned(skill_id, scope, owner_id=owner_id)
+        return await BundleService(self._db).export_bundle(skill)
+
+    async def import_org_key(
+        self, *, scope: SkillScope, owner_id: uuid.UUID | None, project_id: uuid.UUID | None
+    ) -> str:
+        """The concurrency bucket for a bundle import (§6/§7/§8's per-org limit).
+
+        Resolves the *owning org* an import counts against so a tenant cannot flood the
+        worker. `project_id` is the caller's (agent scope resolves agent→project before
+        calling, so this context need not depend on the agents facade), and it feeds the
+        four-way `resolve_project_scope` — an individually-owned or deleted project has no
+        org, so it falls back to a per-project bucket rather than sharing the platform one.
+        """
+        if scope is SkillScope.PLATFORM:
+            return "platform"
+        if scope is SkillScope.ORG:
+            return f"org:{owner_id}"
+        # agent or project scope — project_id is the caller-resolved owning project.
+        if project_id is None:
+            # Defensive: the routers always pass a project_id for agent/project scope.
+            return f"scope:{scope.value}:{owner_id}"
+        from contexts.skills.application._scoping import resolve_project_scope
+        from contexts.tenancy.interfaces.facade import TenancyFacade
+
+        ps = await resolve_project_scope(TenancyFacade(self._db), project_id)
+        return f"org:{ps.owner_org_id}" if ps.owner_org_id is not None else f"project:{project_id}"
+
     async def update_file(
         self,
         skill_id: uuid.UUID,

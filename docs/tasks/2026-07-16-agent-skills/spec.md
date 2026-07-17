@@ -2489,6 +2489,55 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   is coherent on its own — an agent with no bindings behaves exactly as today (§6) — and every one
   of its 19 ACs is checked with its evidence.
 
+**Phase 4 — transport (2026-07-18).** The user scoped this session to D-58's import/export
+transport, tus deferred (below). The bundle *service* was already built and reviewed; this
+session added the HTTP surface, the two Arq tasks, and the job-state coordination that makes a
+bundle actually uploadable and downloadable.
+
+- **D-65: D-58's inventory was partly stale by the time this session ran, and the drift was
+  verified before building.** D-58 listed `SkillsFacade.import_bundle` as owed; it already existed
+  (`facade.py`), with the commit-then-enqueue-scan discipline, along with the scan worker's
+  registration and all of §6's config/deploy plumbing (`bucket_skill_bundles`, the MinIO client
+  accessor, the `minio_init` bucket creation). What was genuinely missing and is now built: the
+  `import`/`export` endpoints on all four scope routers, the two Arq tasks
+  (`skill_import_bundle`/`skill_export_bundle`) and their registration in `app/workers/main.py`,
+  the import/export status endpoints, the per-org concurrency limit, `SkillsFacade.export_bundle`,
+  and the frontend client regen. `import_org_key` was added to the facade for the concurrency
+  bucket resolution.
+- **D-66: import/export job state is Redis-backed, not a new table, so there is no migration.**
+  New `contexts/skills/application/bundle_jobs.py` mirrors `conversation.application.export_service`
+  one-for-one: a `202`'d job's status lives in Redis under a 24 h TTL matching the bucket lifecycle,
+  the web layer stages the zip in the `skill-bundles` bucket and enqueues, and the worker records
+  ready/failed. Import is single-attempt (no `max_tries`) by design — `import_bundle` commits the
+  created skill mid-run, so a retry after that commit would create a second skill from the same
+  bytes; a transient fault fails the job and the user re-uploads, and the slot release + staging
+  delete run in `finally` on every path.
+- **D-67: the router imports `bundle_jobs` (application layer) directly, following the `exports.py`
+  precedent.** CLAUDE.md's layer rule says routers call the facade, but ephemeral Redis job-state is
+  sessionless coordination and `exports.py:18` already imports `conversation.application.export_service`
+  directly for the identical concern — routing it through a session-bound facade would open a DB
+  connection for a pure Redis read (the status GETs take no `db`). Recorded as a deliberate,
+  precedent-consistent choice rather than "fixed" into an awkward facade shape the codebase's own
+  analogous feature declined. Named by the quality gate as its one Introduced-Warning, deferred with
+  this rationale.
+- **D-68: export is a side-effecting `GET`, per §6.** §6 specifies "GET .../export — 202 + task id",
+  so the export endpoint enqueues, writes an audit row, and creates a job on a GET — a mild REST
+  smell, honored because the spec chose it deliberately and the endpoint is Bearer-gated (no
+  anonymous prefetch). §6 names only `GET /api/skills/imports/{task_id}`; export equally needs a
+  status/fetch, so `GET /api/skills/exports/{task_id}` was added (returns the presigned URL once
+  ready), recorded here as the spec's omission rather than a silent addition.
+- **D-69: the multipart import cap is 32 MB, and 32–64 MB bundles need the deferred tus path.** §6's
+  "multipart ≤ 32 MB or tus above" is honored — `MAX_SKILL_FILE_BYTES` (32 MB) caps the multipart
+  body with a `413` naming tus, while the service still enforces its own 64 MB compressed / 128 MB
+  uncompressed ceilings. A bundle between 32 and 64 MB is therefore un-importable until tus lands
+  (D-70).
+- **D-70: tus (`skill_bundle` branch) is this session's scope boundary, deferred by the user.** The
+  `tus_create` ACL branch, the `TusService.patch` finaliser branch, `TusPatchResult.skill_import_id`,
+  and the PATCH `X-SMAP-Resource` header are still owed — the cross-context half of D-58. It reaches
+  into the conversation context and its frontend counterpart (`tus.ts`) is part of the deferred
+  `slices/skills` slice, so a backend-only tus branch cannot be exercised end-to-end this session.
+  See FU-51.
+
 ## 16. Follow-ups
 
 > **Verification sweep, 2026-07-17.** Every entry below was re-checked against the tree before
@@ -3408,3 +3457,21 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   reappearing on the read path. The batched shape is one `(skill_id, path, sha256)` query over the
   page's ids. Sequenced with D-26's frontend, which owns the badge that reads it; AC-16 stays
   unchecked for both.
+
+*Added during Phase 4 transport (2026-07-18):*
+
+- **FU-51: the tus `skill_bundle` upload path is unbuilt, so 32–64 MB bundles cannot be imported.**
+  Multipart import caps at 32 MB (D-69); a bundle above it needs tus, which is the cross-context
+  half of D-58 the user deferred (D-70). Owed: `tus_create`'s `purpose == "skill_bundle"` ACL branch
+  (resolve scope/owner from metadata, authorize, then stage), `TusService.patch`'s finaliser branch
+  (store the completed staging file to the `skill-bundles` bucket, create the Redis import job, and
+  enqueue `skill_import_bundle`), a `skill_import_id` on `TusPatchResult`, the PATCH
+  `X-SMAP-Resource` header pointing at `/api/skills/imports/{id}`, and `tus.ts`'s `skill_bundle`
+  union arm (which belongs to the deferred `slices/skills` slice, D-26). The import worker, job
+  state, status endpoint, and concurrency slots this session built are all reusable as-is by that
+  finaliser — only the receipt path differs.
+- **FU-52: bundle-import job state and concurrency slots have no test against live Redis.**
+  `test_skill_bundle_transport.py` drives a `_FakeRedis` whose `incr`/`decr`/`set` mirror the real
+  atomics, which pins the module's logic but not that the real client's `INCR`/`EXPIRE`/`DECR`
+  behave as assumed under contention. The `wiring` tier (live Redis) is where the concurrency slot's
+  atomicity claim would be proven; the same gap the RAG/knowmap wiring tests fill for their flows.
