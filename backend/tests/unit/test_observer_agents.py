@@ -777,6 +777,12 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
         async def get_agent(self, aid):
             return agent
 
+        async def list_agent_tools(self, aid):
+            # The turn resolves the agent's tools once and shares the snapshot with the
+            # built-in tool assembly, the staging gate, and the skills tap. These tests
+            # configure no tools.
+            return []
+
     monkeypatch.setattr(te, "AgentsFacade", _AgentsFacade)
 
     class _BindingRepo:
@@ -824,7 +830,7 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
         def __init__(self, db) -> None:
             pass
 
-        async def resolve_bound_set(self, *, agent_id, agent_project_id):
+        async def resolve_bound_set(self, *, agent_id, agent_project_id, enabled_tools):
             return BoundSet(skills=tuple(bound_skills))
 
         @staticmethod
@@ -857,6 +863,11 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
     async def _none(*a, **k):
         return None
 
+    async def _no_staging(*a, **k):
+        # `_stage_workspace_inputs` returns (note, unstaged): no note, and no skill whose
+        # scripts failed to reach the volume.
+        return None, []
+
     async def _empty_list(*a, **k):
         return []
 
@@ -883,7 +894,7 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
     engine._pending_context_and_tools = _pending  # type: ignore[attr-defined]
     engine._builtin_tools = _empty_list  # type: ignore[attr-defined]
     engine._resolve_trigger_attachments = _none  # type: ignore[attr-defined]
-    engine._stage_workspace_inputs = _none  # type: ignore[attr-defined]
+    engine._stage_workspace_inputs = _no_staging  # type: ignore[attr-defined]
     engine._model_attachment_blocks = _empty_list  # type: ignore[attr-defined]
     engine._observer_memory_block = _memory  # type: ignore[attr-defined]
     engine._stream_with_tools = _stream  # type: ignore[attr-defined]

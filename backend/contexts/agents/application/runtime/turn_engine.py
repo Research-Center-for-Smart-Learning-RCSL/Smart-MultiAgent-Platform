@@ -37,7 +37,13 @@ from contexts.agents.application.runtime.tool_registry import (
     build_cast_approval_vote_tool,
     build_registry,
 )
-from contexts.agents.domain.models import CONTEXT_LIMITS, DEFAULT_CHAT_MODELS, Agent
+from contexts.agents.domain.models import (
+    CONTEXT_LIMITS,
+    DEFAULT_CHAT_MODELS,
+    Agent,
+    AgentTool,
+    AgentToolType,
+)
 from contexts.agents.infrastructure.repositories import AgentRepository
 from contexts.agents.infrastructure.turn_lock import turn_lock
 from contexts.agents.interfaces.facade import AgentsFacade
@@ -72,7 +78,7 @@ from contexts.knowledge.application.knowmap_context_provider import (
 )
 from contexts.knowledge.application.rag_context_provider import RagContext, RagContextProvider
 from contexts.skills.domain.models import SkillRead
-from contexts.skills.interfaces.facade import BoundSet, SkillsFacade
+from contexts.skills.interfaces.facade import BoundSet, DroppedSkill, SkillsFacade
 from shared_kernel import audit
 from shared_kernel.observability.metrics import REGISTRY
 from shared_kernel.realtime.pubsub import Publisher
@@ -643,12 +649,17 @@ class TurnEngine:
             system_parts.extend(knowledge_blocks)
             # §31: the same tap the room path runs, on the same shared helper. There is
             # no room here, so a dropped skill is audited and nothing is emitted.
-            bound_skills = await self._resolve_skills(agent, None, None)
+            # This path stages nothing (`_stage_workspace_inputs` is room-only), so it has
+            # no staging drops to fold in — and a script-bearing skill here is FU-42's
+            # open gap, not something this call can close.
+            agent_tools = await self._resolve_agent_tools(agent)
+            bound_skills = await self._resolve_skills(agent, agent_tools)
+            await self._report_skill_drops(agent, None, None, bound_skills)
             skills_note = SkillsFacade.render_index(bound_skills.skills)
             if skills_note:
                 system_parts.append(skills_note)
             notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(agent, None)
-            extra_tools = extra_tools + await self._builtin_tools(agent)
+            extra_tools = extra_tools + await self._builtin_tools(agent, agent_tools)
             if notify_block:
                 system_parts.append(notify_block)
             system_text = "\n\n".join(p for p in system_parts if p)
@@ -706,12 +717,17 @@ class TurnEngine:
     async def _builtin_tools(
         self,
         agent: Agent,
+        agent_tools: Sequence[AgentTool],
         *,
         chatroom_id: uuid.UUID | None = None,
         artifact_sink: list[dict[str, Any]] | None = None,
     ) -> list[Tool]:
         """Assemble the sandbox (``code_exec`` / ``file``) + ``web_search`` built-in
         tools and the agent's bound MCP tools for this turn (K.5).
+
+        ``agent_tools`` is the turn's one tool snapshot (``_resolve_agent_tools``), not a
+        read of its own: the staging gate and the skills tap consume the same list, and
+        three separate reads could disagree about a tool toggled mid-turn.
 
         ``chatroom_id`` routes ``code_exec`` to the room's persistent kernel and
         ``artifact_sink`` collects any artifacts it produces; both are ``None``
@@ -722,25 +738,44 @@ class TurnEngine:
         tool's own ``invoke`` already degrades a runtime fault to an ``is_error``
         result, so this guard only covers assembly itself."""
         try:
+            from dataclasses import replace as _replace
+
             from contexts.agents.application.runtime.builtin_tools import (
                 build_agent_tools,
                 default_builtin_deps,
             )
 
-            agent_tools = await AgentsFacade(self._db).list_agent_tools(agent.id)
-            from dataclasses import replace as _replace
-
             deps = _replace(default_builtin_deps(), rag_provider=self._rag_provider)
             return build_agent_tools(
                 self._db,
                 agent=agent,
-                tools=agent_tools,
+                tools=list(agent_tools),
                 deps=deps,
                 chatroom_id=chatroom_id,
                 artifact_sink=artifact_sink,
             )
         except Exception:
             _log.warning("agent tool assembly failed for agent %s", agent.id, exc_info=True)
+            return []
+
+    async def _resolve_agent_tools(self, agent: Agent) -> list[AgentTool]:
+        """Resolve the agent's configured tools once per turn.
+
+        Shared by ``_builtin_tools``, ``_stage_workspace_inputs``' code_exec gate, and the
+        skills tap, for the reason ``_resolve_trigger_attachments`` states for its own
+        snapshot: three independent reads can observe *different* states. A tool toggled
+        mid-turn could let the runtime build ``code_exec`` while the tap concludes the agent
+        lacks it and drops every skill that requires it — one turn, two answers about the
+        same agent. It is also three identical queries where one does.
+
+        Best-effort in the same sense as its consumers: a fault yields no tools, which is
+        the conservative direction (no built-ins, no staging, and script-bearing skills drop
+        rather than being advertised unrunnable).
+        """
+        try:
+            return await AgentsFacade(self._db).list_agent_tools(agent.id)
+        except Exception:
+            _log.warning("agent tool resolution failed for agent %s", agent.id, exc_info=True)
             return []
 
     async def _resolve_trigger_attachments(
@@ -765,28 +800,31 @@ class TurnEngine:
         chatroom_id: uuid.UUID,
         attachments: list[MessageAttachment],
         bound_skills: BoundSet,
-    ) -> str | None:
+        agent_tools: Sequence[AgentTool],
+    ) -> tuple[str | None, list[DroppedSkill]]:
         """Stage the agent's persisted files, the bound skills' scripts, and the
         triggering message's attachments into the code_exec workspace.
 
-        Returns a one-line note listing the workspace paths (folded into the
-        system prompt so the model knows where the files are) or ``None``.
-        Best-effort and gated on ``code_exec`` actually being enabled — a fault
-        here must never abort the turn."""
+        Returns the one-line note listing the workspace paths (folded into the system
+        prompt so the model knows where the files are), and **the skills whose scripts did
+        not reach the volume**. The caller drops those from the snapshot: a skill left in
+        the index whose script is absent is the confabulation AC-20's gate exists to
+        prevent, arriving one step later than the tap.
+
+        Best-effort and gated on ``code_exec`` actually being enabled — a fault here must
+        never abort the turn. Note the gate returning ``None`` drops **nothing**: an agent
+        without the interpreter cannot hold a script-bearing skill at all (AC-20 refuses
+        the bind and the tap re-checks), so there is nothing to advertise unrunnable."""
         try:
             from contexts.agents.domain.mcp import StagedFile
-            from contexts.agents.domain.models import AgentToolType
             from contexts.agents.infrastructure.sandbox.docker_runsc import (
                 docker_runsc_sandbox_from_settings,
             )
 
-            agents_facade = AgentsFacade(self._db)
-            agent_tools = await agents_facade.list_agent_tools(agent.id)
-            if not any(
-                t.enabled and t.tool_type == AgentToolType.HOSTED_CODE_INTERPRETER for t in agent_tools
-            ):
-                return None
+            if AgentToolType.HOSTED_CODE_INTERPRETER not in _enabled_tool_types(agent_tools):
+                return None, []
 
+            agents_facade = AgentsFacade(self._db)
             runner = docker_runsc_sandbox_from_settings()
             all_paths: list[str] = []
 
@@ -798,9 +836,13 @@ class TurnEngine:
 
             # --- bound skills' scripts ([R31.22]) ---
             try:
-                await self._stage_skill_scripts(agent, runner, bound_skills, all_paths)
+                unstaged = await self._stage_skill_scripts(agent, runner, bound_skills, all_paths)
             except Exception:
+                # The whole skills stage failed (no daemon, gVisor refused). Every
+                # script-bearing skill is unrunnable this turn, so none may stay in the
+                # index — the same rule the per-skill failures below follow.
                 _log.warning("skill script staging failed for %s", agent.id, exc_info=True)
+                unstaged = _skills_with_scripts(bound_skills, reason="scripts_unstaged")
 
             # --- triggering message's attachments (resolved by the caller) ---
             facade = ConversationFacade(self._db)
@@ -828,7 +870,7 @@ class TurnEngine:
                         all_paths.extend(paths)
 
             if not all_paths:
-                return None
+                return None, unstaged
             # Each path is JSON-quoted, so the note's structure cannot be forged by the
             # text inside it — the same defence `read_skill`'s file manifest already uses
             # for the same reason (`tool_registry.py`, §8 threat 8). This block is
@@ -843,14 +885,19 @@ class TurnEngine:
             # (Q-7/Q-8) — but the channel predates it: a workspace upload's own path
             # lands here too, which is why the quoting wraps every source rather than
             # just the skills one.
-            return (
+            note = (
                 "[Files available in the code_exec workspace: "
                 + ", ".join(json.dumps(p, ensure_ascii=False) for p in all_paths)
                 + "]"
             )
+            return note, unstaged
         except Exception:
             _log.warning("workspace input staging failed for agent %s", agent.id, exc_info=True)
-            return None
+            # Nothing was staged, so no script-bearing skill is runnable this turn. Drop
+            # them rather than advertise them: this arm catches faults before the runner
+            # exists (settings, imports), so it cannot know how much reached the volume,
+            # and "none" is the only answer that is never an overclaim.
+            return None, _skills_with_scripts(bound_skills, reason="scripts_unstaged")
 
     async def _stage_persisted_files(
         self,
@@ -914,8 +961,15 @@ class TurnEngine:
         runner: Any,
         bound_skills: BoundSet,
         out_paths: list[str],
-    ) -> None:
+    ) -> list[DroppedSkill]:
         """Hydrate the bound skills' `scripts/` into ``/workspace/skills/`` ([R31.22]).
+
+        Returns the skills whose scripts did **not** reach the volume, for the caller to
+        drop from the snapshot. Two ways that happens — the byte budget, and a storage
+        fault reading one skill's scripts — and both mean the same thing to the model: the
+        skill is in the index, `read_skill` serves a body saying "run scripts/x.py", and
+        the file is not there. Dropping is what AC-35 already does for a missing
+        `requires:` tool; these are the same failure reached later.
 
         Only `script` files, per R31.18: a `reference` is served as text by `read_skill`
         and an `asset` is opaque bytes that §8's item 9 says explicitly must not be
@@ -942,16 +996,21 @@ class TurnEngine:
 
         from contexts.agents.domain.mcp import StagedFile
         from contexts.skills.domain.errors import SkillUnreadable
-        from contexts.skills.domain.models import SkillFile, SkillFileKind
+        from contexts.skills.domain.models import Skill, SkillFile, SkillFileKind
         from contexts.skills.domain.readability import assert_readable
 
-        chosen: list[tuple[str, list[SkillFile]]] = []
+        dropped: list[DroppedSkill] = []
+        selected: list[tuple[Skill, list[SkillFile]]] = []
         total = 0
         for skill in bound_skills.skills:
             files = bound_skills.files_for(skill.id)
             try:
                 assert_readable(skill, list(files))
             except SkillUnreadable as exc:
+                # Not a drop. `read_skill` refuses an unreadable skill by name at call time
+                # with a message telling the model not to guess (D-27), so the index and the
+                # tool already agree; a pending scan is transient and dropping it from the
+                # index every turn while it settles would be noisier than the honest error.
                 _log.warning(
                     "not staging skill %r for agent %s: file %r has not passed the scan",
                     skill.name,
@@ -976,30 +1035,49 @@ class TurnEngine:
                     agent.id,
                     size,
                 )
+                dropped.append(DroppedSkill(skill_id=skill.id, name=skill.name, reason="scripts_over_budget"))
                 continue
             total += size
-            chosen.append((skill.name, scripts))
+            selected.append((skill, scripts))
 
-        if not chosen:
-            return
+        # Fetched per skill, so one skill's storage fault costs one skill. Reading them in
+        # one flat loop made a single missing object drop *every* skill's scripts —
+        # `read_skill_file_bytes` raised past the whole loop — which is the opposite of the
+        # per-skill rule [R31.08] states for exactly this reason: an agent runs perfectly
+        # well without one of twenty skills.
+        facade = SkillsFacade(self._db)
+        staged: list[StagedFile] = []
+        members: list[str] = []
+        for skill, scripts in selected:
+            try:
+                # Built aside and merged only on success: a skill half-copied into `staged`
+                # is the partial staging the budget rule above refuses to produce.
+                fetched = [
+                    # `{skill}/{path}` keeps the bundle's own layout under the skill root,
+                    # so SKILL.md's relative "run scripts/x.py" resolves from there.
+                    StagedFile(filename=f"{skill.name}/{f.path}", data=await facade.read_skill_file_bytes(f))
+                    for f in scripts
+                ]
+            except Exception:
+                _log.warning(
+                    "not staging skill %r for agent %s: reading its scripts failed",
+                    skill.name,
+                    agent.id,
+                    exc_info=True,
+                )
+                dropped.append(DroppedSkill(skill_id=skill.id, name=skill.name, reason="scripts_unreadable"))
+                continue
+            staged.extend(fetched)
+            members.extend(f"{skill.name}/{f.path}:{f.sha256}" for f in scripts)
+
+        if not staged:
+            return dropped
 
         # Covers exactly what is staged, for the same reason `_stage_persisted_files`'
         # does (AC-12): the manifest is the cache key for what is on the volume, so
-        # hashing skills that were skipped would describe bytes the sandbox never saw.
-        manifest_sha = hashlib.sha256(
-            "\n".join(
-                sorted(f"{name}/{f.path}:{f.sha256}" for name, scripts in chosen for f in scripts)
-            ).encode()
-        ).hexdigest()
-
-        facade = SkillsFacade(self._db)
-        staged: list[StagedFile] = []
-        for name, scripts in chosen:
-            for f in scripts:
-                data = await facade.read_skill_file_bytes(f)
-                # `{skill}/{path}` keeps the bundle's own layout under the skill root, so
-                # SKILL.md's relative "run scripts/x.py" resolves from there.
-                staged.append(StagedFile(filename=f"{name}/{f.path}", data=data))
+        # hashing a skill that was skipped — or one whose fetch just failed — would
+        # describe bytes the sandbox never saw. Computed after the fetch for that reason.
+        manifest_sha = hashlib.sha256("\n".join(sorted(members)).encode()).hexdigest()
 
         paths = await runner.stage_skill_files(
             agent_id=agent.id,
@@ -1007,6 +1085,7 @@ class TurnEngine:
             manifest_sha=manifest_sha,
         )
         out_paths.extend(paths)
+        return dropped
 
     async def _persist_artifacts(
         self,
@@ -1078,9 +1157,7 @@ class TurnEngine:
                 await self._db.rollback()
             return 0
 
-    async def _resolve_skills(
-        self, agent: Agent, chatroom_id: uuid.UUID | None, room: str | None
-    ) -> BoundSet:
+    async def _resolve_skills(self, agent: Agent, agent_tools: Sequence[AgentTool]) -> BoundSet:
         """Re-prove every skill binding for this turn — the third AuthZ tap (§31).
 
         Bind-time authorisation is not enough: a skill's project can move, its owner can
@@ -1089,15 +1166,30 @@ class TurnEngine:
         since an A2A turn is triggered by *another agent* and is the cross-agent path.
 
         **Failure is per skill, not per turn.** A stale binding drops that one skill from
-        the snapshot (and so from the index and from `read_skill`), is audited, and
-        surfaces as a single aggregated room warning; the turn runs. Copying the key
-        group tap's turn-skip would make revocation an availability attack — an agent
-        cannot run without a key, but it runs perfectly well without one of twenty
+        the snapshot (and so from the index and from `read_skill`); the turn runs. Copying
+        the key group tap's turn-skip would make revocation an availability attack — an
+        agent cannot run without a key, but it runs perfectly well without one of twenty
         skills.
+
+        Reporting is **not** done here: `_report_skill_drops` is a separate step because
+        the tap is not the last stage that can drop a skill — staging can too, and the
+        room path reports both together so one turn produces one warning.
         """
-        bound = await SkillsFacade(self._db).resolve_bound_set(
-            agent_id=agent.id, agent_project_id=agent.project_id
+        return await SkillsFacade(self._db).resolve_bound_set(
+            agent_id=agent.id,
+            agent_project_id=agent.project_id,
+            enabled_tools=_enabled_tool_types(agent_tools),
         )
+
+    async def _report_skill_drops(
+        self, agent: Agent, chatroom_id: uuid.UUID | None, room: str | None, bound: BoundSet
+    ) -> None:
+        """Audit every dropped skill and surface one aggregated room warning.
+
+        Called once per turn with the **final** snapshot, after staging has had its say, so
+        a skill dropped by the tap and a skill whose scripts never reached the volume are
+        one event to the user — which is what they are.
+        """
         for dropped in bound.dropped:
             await self._audit(
                 agent,
@@ -1129,7 +1221,6 @@ class TurnEngine:
                 # is the only live signal that skills left the turn, and a warning that
                 # can vanish without trace is not a signal.
                 _log.warning("skills warning emit failed for agent %s", agent.id, exc_info=True)
-        return bound
 
     async def _pending_context_and_tools(
         self, agent: Agent, chatroom_id: uuid.UUID | None
@@ -1325,11 +1416,15 @@ class TurnEngine:
             notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(
                 agent, chatroom_id
             )
+            # The turn's one tool snapshot. Three consumers below read it — the built-in
+            # tool assembly, the staging gate, and the skills tap — and they must not
+            # disagree about a tool toggled mid-turn.
+            agent_tools = await self._resolve_agent_tools(agent)
             # code_exec artifacts (charts/files) produced this turn land here and
             # are attached to the reply after it's persisted (Code Interpreter).
             artifact_sink: list[dict[str, Any]] = []
             extra_tools = extra_tools + await self._builtin_tools(
-                agent, chatroom_id=chatroom_id, artifact_sink=artifact_sink
+                agent, agent_tools, chatroom_id=chatroom_id, artifact_sink=artifact_sink
             )
             # Resolved once and shared by both consumers below so they see the
             # same snapshot (see _resolve_trigger_attachments docstring).
@@ -1339,13 +1434,18 @@ class TurnEngine:
             # tap dropped. Resolved *before* staging because staging is one of its
             # consumers: the tap is what proves these scripts may touch this agent's
             # volume at all.
-            bound_skills = await self._resolve_skills(agent, chatroom_id, room)
+            bound_skills = await self._resolve_skills(agent, agent_tools)
             # Stage the triggering message's uploads and the bound skills' scripts into
             # the kernel workspace so code_exec can read them; the returned note tells
             # the model the paths.
-            staged_note = await self._stage_workspace_inputs(
-                agent, chatroom_id, trigger_attachments, bound_skills
+            staged_note, unstaged = await self._stage_workspace_inputs(
+                agent, chatroom_id, trigger_attachments, bound_skills, agent_tools
             )
+            # A skill whose scripts never reached the volume leaves the snapshot here, so
+            # the index and `read_skill` below never advertise a body that tells the model
+            # to run a file that is not there. Reported once, with the tap's own drops.
+            bound_skills = bound_skills.without(unstaged)
+            await self._report_skill_drops(agent, chatroom_id, room, bound_skills)
             # §30 (R30.15): an observer also sees the room's recent structured
             # activity events. Coverage-gated: None when the room has no activities.
             activity_block = await self._activity_context(chatroom_id) if is_observer else None
@@ -2499,6 +2599,27 @@ def _estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
                     if isinstance(text, str):
                         total += tx.estimate_tokens(text)
     return total
+
+
+def _enabled_tool_types(agent_tools: Sequence[AgentTool]) -> set[AgentToolType]:
+    """The enabled subset, as tool types. A disabled row is not a capability."""
+    return {t.tool_type for t in agent_tools if t.enabled}
+
+
+def _skills_with_scripts(bound_skills: BoundSet, *, reason: str) -> list[DroppedSkill]:
+    """Every bound skill that owns a script, as drops.
+
+    For the arms that fail before knowing which skills reached the volume: if staging as a
+    whole failed, none did, and a script-bearing skill that is not on disk must not stay in
+    the index. Skills with no scripts are unaffected — nothing about them was staged.
+    """
+    from contexts.skills.domain.models import SkillFileKind
+
+    return [
+        DroppedSkill(skill_id=s.id, name=s.name, reason=reason)
+        for s in bound_skills.skills
+        if any(f.kind is SkillFileKind.SCRIPT for f in bound_skills.files_for(s.id))
+    ]
 
 
 def _knowledge_queries(history: Sequence[tx.HistoryMessage], *, input_text: str | None) -> list[str]:

@@ -119,6 +119,12 @@ def _wire_engine(monkeypatch, agent, *, drain=None, member=True):
         async def get_agent(self, aid):
             return agent
 
+        async def list_agent_tools(self, aid):
+            # The headless path resolves the agent's tools once and feeds them to the
+            # skills tap, so the double has to answer this too. No tools is what every
+            # test here means.
+            return []
+
     monkeypatch.setattr(te, "AgentsFacade", _Facade)
 
     class _ConvFacade:
@@ -149,7 +155,7 @@ def _stub_skills(monkeypatch, *, bound=None):
         def __init__(self, db) -> None:
             pass
 
-        async def resolve_bound_set(self, *, agent_id, agent_project_id):
+        async def resolve_bound_set(self, *, agent_id, agent_project_id, enabled_tools):
             return resolved
 
         @staticmethod

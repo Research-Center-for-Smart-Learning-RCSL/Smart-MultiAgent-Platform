@@ -1327,12 +1327,16 @@ orphaned, not deleted — consistent with §1.2's backup stance.
       code_exec, are reported to the model as **absolute** `/workspace/skills/{name}/{file}` paths,
       and skills staging does not evict agent-files staging (separate manifest cache).
       *(`stage_skill_files` (`docker_runsc.py`) + `_stage_skill_scripts` (`turn_engine.py`);
-      `_SKILL_MANIFESTS` is a separate dict and the test asserts the two are distinct objects.
-      Absolute paths come free from `_workspace_abspath`, the house pattern since `ac4339a`
-      (D-37). Scripts only, never assets (§8 item 9). 16 tests in `test_workspace_staging.py`.
-      **The staging channel enforces the scan gate itself** — see D-40 and the Critical it closes.
-      Path layout decided in D-42. **Read FU-38 before trusting this**: staged scripts are never
-      un-staged, so revocation does not reach the volume.)*
+      `_SKILL_MANIFESTS` is a separate dict, and the eviction claim is asserted by driving the
+      **real** stager against a fake Docker client — the first version compared the two globals
+      with `is not`, which is true whichever one the code reads (D-47). Absolute paths come free
+      from `_workspace_abspath`, the house pattern since `ac4339a` (D-37). Scripts only, never
+      assets (§8 item 9). 43 tests in `test_workspace_staging.py`. **The staging channel enforces
+      the scan gate itself** — see D-40 and the Critical it closes. Path layout decided in D-42.
+      A skill whose scripts do not reach the volume — by budget or by fault — leaves the snapshot
+      rather than being advertised unrunnable (D-49), and one skill's storage fault costs one
+      skill (D-50). **Read FU-38 before trusting this**: staged scripts are never un-staged, so
+      revocation does not reach the volume.)*
 - [x] AC-40: **Rewritten — see D-37.** The approved text pinned `report_prefix`, `inputs/x`, and
       an "untouched" `test_code_exec_kernel.py:164-185`; `ac4339a` deliberately removed all three
       when it fixed FU-15 independently of this task, so the AC as written asserts behaviour a
@@ -2192,6 +2196,54 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   nothing stages at all (FU-42). Each is now scoped to what the code actually guarantees and
   points at the FU that owns the gap.
 
+- **D-49: a skill whose scripts do not reach the volume is dropped from the snapshot.**
+  Not in §6, and the fix for two findings of this task's own `/code-review` — both the same
+  defect reached two ways. §6 has staging report paths and nothing else, so a skill could be
+  *in the index* with `read_skill` serving a body that says "run `scripts/x.py`" while the
+  file was never staged. That is precisely the confabulation AC-20's derived `requires:`
+  gate exists to prevent, arriving one stage later than the gate looks. Two routes:
+  **(a)** the byte budget skipped it (D-39's recorded residue, now closed rather than
+  merely named); **(b)** staging failed. `_stage_skill_scripts` returns `list[DroppedSkill]`
+  and `BoundSet.without` folds them in, so the index, `read_skill`, the audit trail and the
+  room warning all see one final snapshot. `readable`-but-unstaged is the only case that
+  drops; an **unreadable** skill deliberately does *not*, because `read_skill` already
+  refuses it by name with an honest error (D-27) and a pending scan is transient — dropping
+  it from the index every turn while it settles would be noisier than the error. This is
+  AC-35's rule applied to a second cause, and it is why `_report_skill_drops` split out of
+  `_resolve_skills`: the tap is no longer the last stage that can drop a skill, so one turn
+  still produces one warning.
+- **D-50: one skill's storage fault cost every skill its scripts.** The first implementation
+  fetched all bytes in one flat loop, so a single missing MinIO object raised past the whole
+  loop and `stage_skill_files` was never called — nineteen skills losing their scripts to
+  the twentieth's 404, with the caller's `except` swallowing it into one log line. The exact
+  inverse of [R31.08]'s reason for existing ("an agent runs perfectly well without one of
+  twenty skills"), which this task had applied carefully in the tap and in the readability
+  gate and then dropped in the fetch. Now per skill, built aside and merged only on success
+  so a skill is never half-staged, and the manifest is computed **after** the fetch so it
+  cannot name bytes the fetch never produced. Probed: the flat loop reddens 3 tests.
+- **D-51: the agent's tool list is resolved once per turn and passed to its three
+  consumers.** D-45 removed the per-skill N+1 but left the survivor beside two existing
+  readers — `_builtin_tools` and the staging gate — so a room turn read the same rows three
+  times. The fix is `_resolve_agent_tools`, modelled on `_resolve_trigger_attachments`,
+  whose docstring supplies the argument that matters more than the query count: two
+  independent reads *can disagree*. A tool toggled mid-turn could let the runtime build
+  `code_exec` while the tap concluded the agent lacks it and dropped every skill needing
+  it — one turn, two answers about one agent. `resolve_bound_set` therefore takes
+  `enabled_tools` as a **required** argument, exactly as it already takes
+  `agent_project_id`; `bind` and `GET /skill-bindings` are requests with no turn to share a
+  read with, so they read their own. The tap now queries for tools **zero** times, which is
+  a stronger contract than D-45's "once" and is what the test asserts.
+- **D-52: `SandboxRunner` declares the three stagers.** Pre-existing: the protocol covered
+  `probe`/`invoke_mcp_tool`/`run_file_op`/`run_code_exec` but none of the staging methods,
+  which the turn engine calls through an untyped `runner`. Nothing type-checked those calls
+  and a second implementation could satisfy the protocol while missing all staging. Phase 3
+  would have widened the gap by one method; closing it is three signatures and makes the
+  module docstring's "keep the application layer framework-free" claim true for this
+  surface. `stage_agent_workspace_files` also gets its idempotency contract back on the
+  public method, which D-46's extraction had moved to the private helper — a caller reading
+  the method they actually invoke could no longer see that a stale sha silently skips the
+  write.
+
 - **D-20: `status` stays `in-progress` with Phase 1 complete.** The contract
   (`docs/tasks/README.md:57`) moves `in-progress → implemented` "only after the full Definition of
   Done passes", and this dossier's Definition of Done spans four phases: AC-16 through AC-32 are
@@ -3027,11 +3079,13 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   fix both together.
 - **FU-41: `_MAX_SKILL_SCRIPT_BYTES` (32 MiB) is exactly `MAX_SKILL_FILE_BYTES` (32 MiB).** One
   legal maximum-size script exhausts the whole bound set's staging budget by itself, and every
-  other skill's scripts are then skipped with only a log line — a silent, whole-skill drop caused
-  by an unrelated skill. The `continue`-not-`break` rule keeps a *smaller* skill behind a big one
-  stageable, but not when the first file consumed the entire budget. Nothing decides whether the
-  set budget should exceed the per-file cap; Phase 3 picked a number and made the coincidence
-  explicit rather than silently right.
+  other skill's scripts are then skipped — a whole-skill loss caused by an unrelated skill. The
+  `continue`-not-`break` rule keeps a *smaller* skill behind a big one stageable, but not when the
+  first file consumed the entire budget. Nothing decides whether the set budget should exceed the
+  per-file cap; Phase 3 picked a number and made the coincidence explicit rather than silently
+  right. **Narrowed by D-49**: the skipped skill is now *dropped, audited, and warned about*
+  rather than silently advertised, so this is no longer a correctness gap — it is a capacity
+  question about what the number should be.
 - **FU-42: a script-bearing skill on the headless path is never staged at all.** The
   derivation gate (AC-20) makes `code_exec` a precondition for binding a script-bearing skill, and
   its stated reason is that staging is gated on the same tool. That reasoning holds only on the

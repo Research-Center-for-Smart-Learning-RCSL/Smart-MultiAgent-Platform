@@ -1340,7 +1340,17 @@ async def list_bindings(
 ) -> list[SkillBindingOut]:
     project_id = await _agent_project_id(db, agent_id)
     await assert_project_membership(db=db, principal=principal, project_id=project_id)
-    bound = await SkillsFacade(db).resolve_bound_set(agent_id=agent_id, agent_project_id=project_id)
+    # This endpoint answers "what would actually be live on the next turn", so it runs the
+    # same tap the turn runs and must feed it the same input. A turn shares one tool
+    # snapshot across its consumers; a request has none to share, so it reads its own.
+    from contexts.agents.interfaces.facade import AgentsFacade
+
+    agent_tools = await AgentsFacade(db).list_agent_tools(agent_id)
+    bound = await SkillsFacade(db).resolve_bound_set(
+        agent_id=agent_id,
+        agent_project_id=project_id,
+        enabled_tools={t.tool_type for t in agent_tools if t.enabled},
+    )
     return [SkillBindingOut(agent_id=agent_id, skill_id=s.id, name=s.name) for s in bound.skills]
 
 
