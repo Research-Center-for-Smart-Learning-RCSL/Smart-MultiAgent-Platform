@@ -142,4 +142,151 @@ async def skill_scan_file(ctx: dict[str, Any], *, file_id: str) -> str:
 # skill spends unreadable.
 skill_scan_file.max_tries = 3  # type: ignore[attr-defined]
 
-__all__ = ["skill_scan_file"]
+
+def _client_reason(exc: Exception) -> str:
+    """The RFC 7807 title a skills error maps to, for the status endpoint.
+
+    A `BundleInvalid`/`BundleQuarantined` carries a reason written for the author; anything
+    else gets a generic line so a worker-side stack trace never reaches the client.
+    """
+    from contexts.skills.domain.errors import BundleInvalid, BundleQuarantined
+
+    if isinstance(exc, BundleInvalid | BundleQuarantined):
+        return str(exc)
+    return "import failed"
+
+
+async def skill_import_bundle(
+    ctx: dict[str, Any],
+    *,
+    job_id: str,
+    object_key: str,
+    scope: str,
+    owner_id: str | None,
+    actor_user_id: str,
+    org_key: str,
+    actor_ip: str | None = None,
+    request_id: str | None = None,
+) -> str:
+    """Import one staged bundle (§31, D-58). Reads the zip from MinIO, writes the skill.
+
+    Single-attempt by design (no `max_tries`): `SkillsFacade.import_bundle` commits the
+    created skill mid-way, so a retry after that commit would create a **second** skill from
+    the same bytes. A transient fault therefore fails the job rather than re-running it, and
+    the user re-uploads — the correct trade for a create, unlike the scan worker's retry.
+    The slot release and the staging delete run in `finally` so neither leaks on any path.
+    """
+    _ = ctx
+    from contexts.skills.application import bundle_jobs
+    from contexts.skills.domain.errors import BundleInvalid, BundleQuarantined
+    from contexts.skills.domain.models import SkillScope
+    from contexts.skills.interfaces.facade import SkillsFacade
+    from shared_kernel.storage import get_minio_client
+
+    jid = uuid.UUID(job_id)
+    sm = get_sessionmaker()
+    minio = get_minio_client()
+
+    await bundle_jobs.mark_import_running(jid)
+    try:
+        data = await minio.get_object(bucket=minio.skill_bundles_bucket, key=object_key)
+        async with sm() as db:
+            result = await SkillsFacade(db).import_bundle(
+                data=data,
+                scope=SkillScope(scope),
+                owner_id=uuid.UUID(owner_id) if owner_id else None,
+                actor_user_id=uuid.UUID(actor_user_id),
+                actor_ip=actor_ip,
+                request_id=uuid.UUID(request_id) if request_id else None,
+            )
+        # `import_bundle` committed already; the audit event rides its own transaction. It
+        # is R31.25's distinct `skill.bundle_imported` — a bundle import both creates a skill
+        # (the service's own `skill.created`) and is an import, and the trail names both.
+        from shared_kernel import audit
+
+        async with sm() as db, db.begin():
+            await audit.emit(
+                db,
+                audit.AuditEvent(
+                    action="skill.bundle_imported",
+                    actor_user_id=uuid.UUID(actor_user_id),
+                    actor_ip=actor_ip,
+                    resource_type="skill",
+                    resource_id=result.skill.id,
+                    metadata={
+                        "scope": result.skill.scope.value,
+                        "name": result.skill.name,
+                        "source": result.skill.source.value,
+                        "bundle_sha256": result.skill.bundle_sha256,
+                        "file_count": len(result.files),
+                        "warning_count": len(result.warnings),
+                    },
+                    request_id=uuid.UUID(request_id) if request_id else None,
+                ),
+            )
+        await bundle_jobs.mark_import_ready(job_id=jid, skill_id=result.skill.id, warnings=result.warnings)
+        return "imported"
+    except (BundleInvalid, BundleQuarantined) as exc:
+        _log.warning("skill_import_bundle: job %s rejected — %s", job_id, exc)
+        await bundle_jobs.mark_import_failed(job_id=jid, error=_client_reason(exc))
+        return "rejected"
+    except Exception as exc:
+        _log.exception("skill_import_bundle: job %s failed", job_id)
+        await bundle_jobs.mark_import_failed(job_id=jid, error=_client_reason(exc))
+        return "failed"
+    finally:
+        await bundle_jobs.release_import_slot(org_key)
+        await minio.remove(bucket=minio.skill_bundles_bucket, key=object_key)
+
+
+async def skill_export_bundle(
+    ctx: dict[str, Any],
+    *,
+    job_id: str,
+    skill_id: str,
+    scope: str,
+    owner_id: str | None,
+) -> str:
+    """Pack a skill into a `.zip` in the exports bucket (§31, D-58 / Q-21).
+
+    The reader fetches it by presigned URL from the status endpoint. `export_bundle` applies
+    AC-34's fail-closed gate, so a quarantined file fails the job with `skills/unreadable`
+    rather than shipping bytes the reader would refuse.
+    """
+    _ = ctx
+    from contexts.skills.application import bundle_jobs
+    from contexts.skills.domain.models import SkillScope
+    from contexts.skills.interfaces.facade import SkillsFacade
+    from shared_kernel.storage import get_minio_client
+    from shared_kernel.storage.minio_client import skill_export_key
+
+    jid = uuid.UUID(job_id)
+    sm = get_sessionmaker()
+    minio = get_minio_client()
+
+    await bundle_jobs.mark_export_running(jid)
+    try:
+        async with sm() as db:
+            data = await SkillsFacade(db).export_bundle(
+                uuid.UUID(skill_id),
+                SkillScope(scope),
+                owner_id=uuid.UUID(owner_id) if owner_id else None,
+            )
+        key = skill_export_key(job_id=jid)
+        await minio.put_object(
+            bucket=minio.exports_bucket, key=key, data=data, content_type="application/zip"
+        )
+        await bundle_jobs.mark_export_ready(job_id=jid, bucket=minio.exports_bucket, object_key=key)
+        return "exported"
+    except Exception as exc:
+        _log.exception("skill_export_bundle: job %s failed", job_id)
+        from contexts.skills.domain.errors import SkillError
+
+        # A domain error (unreadable, not-found) carries a client-safe message; anything else
+        # is generic so no worker internal reaches the client.
+        reason = str(exc) if isinstance(exc, SkillError) else "export failed"
+        await bundle_jobs.mark_export_failed(job_id=jid, error=reason)
+        return "failed"
+
+
+__all__ = ["skill_export_bundle", "skill_import_bundle", "skill_scan_file"]

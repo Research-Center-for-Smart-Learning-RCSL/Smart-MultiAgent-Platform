@@ -288,6 +288,21 @@ def skill_file_key(*, skill_id: uuid.UUID, sha256: str, path: str) -> str:
     return f"{skill_id}/{sha256}/{safe_path}"
 
 
+def skill_import_staging_key(*, job_id: uuid.UUID) -> str:
+    # The uploaded bundle zip, staged in the skill-bundles bucket between the multipart (or
+    # tus) receipt and the import worker reading it back. UUID-namespaced under `imports/`
+    # so it never collides with a `skill_file_key` (which leads with `{skill_id}/`), and
+    # deleted by the worker once the import terminates.
+    return f"imports/{job_id}.zip"
+
+
+def skill_export_key(*, job_id: uuid.UUID) -> str:
+    # The finished export zip, in the `exports` bucket (§6), fetched by presigned URL. A
+    # fixed basename because the download's filename is dictated by the presigned URL's
+    # response-content-disposition, not the object key.
+    return f"skills/{job_id}/skill.zip"
+
+
 def export_key(*, job_id: uuid.UUID, filename: str) -> str:
     # SEC-L6: sanitise like chat_upload_key / rag_source_key so a filename can
     # never inject path separators into the object key. Keys are UUID-namespaced
@@ -307,5 +322,7 @@ __all__ = [
     "prompt_assistant_file_key",
     "rag_source_key",
     "reset_for_tests",
+    "skill_export_key",
     "skill_file_key",
+    "skill_import_staging_key",
 ]

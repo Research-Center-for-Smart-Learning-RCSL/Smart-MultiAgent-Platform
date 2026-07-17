@@ -25,6 +25,7 @@ endpoint, which has no scope in its path at all.
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Path, UploadFile, status
@@ -33,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
 from app.api.v1.deps import PaginationParams, assert_project_membership, parse_if_match
+from contexts.skills.application import bundle_jobs
 from contexts.skills.domain.models import (
     MAX_DESCRIPTION_CHARS,
     SKILL_NAME_RE,
@@ -56,6 +58,9 @@ from shared_kernel.auth.dependencies import (
 )
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
+from shared_kernel.queue import enqueue
+from shared_kernel.storage import get_minio_client
+from shared_kernel.storage.minio_client import skill_import_staging_key
 
 # API-7: an unbounded body lets a single request drive memory and DB load. The body is
 # the SKILL.md the model reads; 256 KiB is far above any real skill and far below a
@@ -69,6 +74,11 @@ project_router = APIRouter(prefix="/api/projects/{project_id}/skills", tags=["sk
 org_router = APIRouter(prefix="/api/orgs/{org_id}/skills", tags=["skills"])
 admin_router = APIRouter(prefix="/api/admin/skills", tags=["skills"])
 binding_router = APIRouter(prefix="/api/agents/{agent_id}/skill-bindings", tags=["skills"])
+# Bundle import/export status lives off any scope path: the job id is an unguessable
+# capability and the same id is polled regardless of which scope router created it. Bind /
+# unbind's separate-path rationale (above) applies — a status GET must not collide with the
+# `/{skill_id}` routes on the scope routers.
+bundle_router = APIRouter(prefix="/api/skills", tags=["skills"])
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +214,41 @@ class SkillBindingOut(BaseModel):
     agent_id: uuid.UUID
     skill_id: uuid.UUID
     name: str
+
+
+# The multipart import cap. `MAX_SKILL_FILE_BYTES` (32 MB) is §6's "multipart <= 32 MB":
+# a bundle above it (up to the 64 MB compressed ceiling the service enforces) needs tus,
+# which is D-58's deferred half. The read below never lets a 32 MB+ zip become a `bytes`
+# in the web heap — the transfer bound itself is nginx's, as the file-upload path documents.
+_MAX_IMPORT_BYTES = MAX_SKILL_FILE_BYTES
+
+
+class BundleJobOut(BaseModel):
+    """The 202 body for import/export — a task id to poll."""
+
+    job_id: uuid.UUID
+    status: bundle_jobs.BundleJobStatus
+
+
+class BundleImportStatusOut(BaseModel):
+    job_id: uuid.UUID
+    status: bundle_jobs.BundleJobStatus
+    # Populated once ready: the skill the bundle produced and any compatibility warnings.
+    skill_id: uuid.UUID | None
+    warnings: list[str]
+    # Populated once failed: the client-safe rejection reason.
+    error: str | None
+
+
+# Named `Bundle...` rather than `ExportStatusOut` to avoid colliding with the chat-export
+# model of that name (`exports.py`): the OpenAPI codegen namespaces collisions, which would
+# churn the unrelated ExportsService client. Distinct names keep both clients clean.
+class BundleExportStatusOut(BaseModel):
+    job_id: uuid.UUID
+    status: bundle_jobs.BundleJobStatus
+    # A short-lived presigned URL once ready; the client fetches the .zip directly.
+    url: str | None
+    error: str | None
 
 
 def _validate_file_path(value: str) -> str:
@@ -653,6 +698,122 @@ async def _assert_may_write_scope(
         _raise_forbidden(decision.reason)
 
 
+async def _import(
+    db: AsyncSession,
+    ctx: RequestContext,
+    principal: Principal,
+    scope: SkillScope,
+    owner_id: uuid.UUID | None,
+    *,
+    project_id: uuid.UUID | None,
+    upload: UploadFile,
+) -> BundleJobOut:
+    """Stage a bundle and enqueue its import (§6, D-58).
+
+    The caller's router has already proven write authority in this scope. Here: cap the
+    multipart body, claim one of the org's concurrency slots, stage the zip in the
+    skill-bundles bucket, and enqueue `skill_import_bundle` with a 202. The worker validates,
+    scans, and writes the skill; a caller polls `GET /api/skills/imports/{job_id}`.
+    """
+    # Read the cap plus one byte so an oversized upload is refused without this process
+    # holding it — the same shape `_upload_file` documents. nginx bounds the transfer.
+    data = await upload.read(_MAX_IMPORT_BYTES + 1)
+    if len(data) > _MAX_IMPORT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"bundle exceeds {_MAX_IMPORT_BYTES} bytes; use tus for larger bundles",
+        )
+
+    org_key = await SkillsFacade(db).import_org_key(scope=scope, owner_id=owner_id, project_id=project_id)
+    if not await bundle_jobs.acquire_import_slot(org_key):
+        _max = bundle_jobs.MAX_CONCURRENT_IMPORTS_PER_ORG
+        raise HTTPException(
+            status_code=429,
+            detail=f"too many concurrent imports for this org (max {_max})",
+        )
+    staged_key: str | None = None
+    try:
+        job = await bundle_jobs.create_import(
+            scope=scope.value, owner_id=owner_id, actor_user_id=principal.user_id
+        )
+        key = skill_import_staging_key(job_id=job.job_id)
+        minio = get_minio_client()
+        await minio.put_object(
+            bucket=minio.skill_bundles_bucket,
+            key=key,
+            data=data,
+            content_type="application/zip",
+        )
+        staged_key = key
+        await enqueue(
+            "skill_import_bundle",
+            job_id=str(job.job_id),
+            object_key=key,
+            scope=scope.value,
+            owner_id=str(owner_id) if owner_id else None,
+            actor_user_id=str(principal.user_id),
+            org_key=org_key,
+            actor_ip=ctx.actor_ip,
+            request_id=str(ctx.request_id) if ctx.request_id else None,
+        )
+    except Exception:
+        # Enqueue or staging failed after the slot was claimed. The worker's own `finally`
+        # never runs because the job never ran, so release the slot here — otherwise the
+        # failure permanently consumes one of the org's slots — and delete the staged bytes
+        # if they landed, since the skill-bundles bucket has no lifecycle to reclaim them.
+        await bundle_jobs.release_import_slot(org_key)
+        if staged_key is not None:
+            await get_minio_client().remove(bucket=get_minio_client().skill_bundles_bucket, key=staged_key)
+        raise
+    return BundleJobOut(job_id=job.job_id, status=job.status)
+
+
+async def _export(
+    db: AsyncSession,
+    ctx: RequestContext,
+    principal: Principal,
+    scope: SkillScope,
+    owner_id: uuid.UUID | None,
+    skill_id: uuid.UUID,
+) -> BundleJobOut:
+    """Enqueue an export of a skill the caller can read (§6, D-58 / Q-21).
+
+    `get_owned` is the 404-not-403 ownership gate; the export is audited here, at request
+    time, where the actor is known (Q-27). The worker packs the .zip into the exports bucket
+    and a caller polls `GET /api/skills/exports/{job_id}` for the presigned URL.
+    """
+    skill = await SkillsFacade(db).get_owned(skill_id, scope, owner_id=owner_id)
+    from shared_kernel import audit
+
+    await audit.emit(
+        db,
+        audit.AuditEvent(
+            action="skill.exported",
+            actor_user_id=principal.user_id,
+            actor_ip=ctx.actor_ip,
+            resource_type="skill",
+            resource_id=skill.id,
+            metadata={
+                "scope": skill.scope.value,
+                "name": skill.name,
+                "body_sha256": skill.body_sha256,
+            },
+            request_id=ctx.request_id,
+        ),
+    )
+    job = await bundle_jobs.create_export(
+        skill_id=skill.id, scope=scope.value, owner_id=owner_id, actor_user_id=principal.user_id
+    )
+    await enqueue(
+        "skill_export_bundle",
+        job_id=str(job.job_id),
+        skill_id=str(skill.id),
+        scope=scope.value,
+        owner_id=str(owner_id) if owner_id else None,
+    )
+    return BundleJobOut(job_id=job.job_id, status=job.status)
+
+
 async def _agent_project_id(db: AsyncSession, agent_id: uuid.UUID) -> uuid.UUID:
     from contexts.agents.interfaces.facade import AgentsFacade
 
@@ -776,6 +937,33 @@ async def agent_copy_skill(
 ) -> SkillOut:
     await _assert_agent_write(db, principal, agent_id)
     return await _copy(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id, body)
+
+
+@agent_router.post("/import", status_code=status.HTTP_202_ACCEPTED)
+async def agent_import_bundle(
+    agent_id: uuid.UUID = Path(...),
+    upload: UploadFile = File(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> BundleJobOut:
+    await _assert_agent_write(db, principal, agent_id)
+    project_id = await _agent_project_id(db, agent_id)
+    return await _import(db, ctx, principal, SkillScope.AGENT, agent_id, project_id=project_id, upload=upload)
+
+
+@agent_router.get("/{skill_id}/export", status_code=status.HTTP_202_ACCEPTED)
+async def agent_export_bundle(
+    agent_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> BundleJobOut:
+    await assert_project_membership(
+        db=db, principal=principal, project_id=await _agent_project_id(db, agent_id)
+    )
+    return await _export(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id)
 
 
 @agent_router.get("/{skill_id}/files")
@@ -945,6 +1133,31 @@ async def project_copy_skill(
     return await _copy(db, ctx, principal, SkillScope.PROJECT, project_id, skill_id, body)
 
 
+@project_router.post("/import", status_code=status.HTTP_202_ACCEPTED, dependencies=[_PROJECT_GUARD])
+async def project_import_bundle(
+    project_id: uuid.UUID = Path(...),
+    upload: UploadFile = File(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> BundleJobOut:
+    return await _import(
+        db, ctx, principal, SkillScope.PROJECT, project_id, project_id=project_id, upload=upload
+    )
+
+
+@project_router.get("/{skill_id}/export", status_code=status.HTTP_202_ACCEPTED)
+async def project_export_bundle(
+    project_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> BundleJobOut:
+    await assert_project_membership(db=db, principal=principal, project_id=project_id)
+    return await _export(db, ctx, principal, SkillScope.PROJECT, project_id, skill_id)
+
+
 @project_router.get("/{skill_id}/files")
 async def project_list_files(
     project_id: uuid.UUID = Path(...),
@@ -1098,6 +1311,28 @@ async def org_copy_skill(
     db: AsyncSession = Depends(db_session),
 ) -> SkillOut:
     return await _copy(db, ctx, principal, SkillScope.ORG, org_id, skill_id, body)
+
+
+@org_router.post("/import", status_code=status.HTTP_202_ACCEPTED, dependencies=[_ORG_GUARD])
+async def org_import_bundle(
+    org_id: uuid.UUID = Path(...),
+    upload: UploadFile = File(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> BundleJobOut:
+    return await _import(db, ctx, principal, SkillScope.ORG, org_id, project_id=None, upload=upload)
+
+
+@org_router.get("/{skill_id}/export", status_code=status.HTTP_202_ACCEPTED, dependencies=[_ORG_GUARD])
+async def org_export_bundle(
+    org_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> BundleJobOut:
+    return await _export(db, ctx, principal, SkillScope.ORG, org_id, skill_id)
 
 
 @org_router.get("/{skill_id}/files", dependencies=[_ORG_GUARD])
@@ -1268,6 +1503,30 @@ async def admin_copy_skill(
     return await _copy(db, ctx, principal, SkillScope.PLATFORM, None, skill_id, body)
 
 
+@admin_router.post("/import", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_admin)])
+async def admin_import_bundle(
+    upload: UploadFile = File(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> BundleJobOut:
+    return await _import(db, ctx, principal, SkillScope.PLATFORM, None, project_id=None, upload=upload)
+
+
+@admin_router.get(
+    "/{skill_id}/export",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_admin)],
+)
+async def admin_export_bundle(
+    skill_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> BundleJobOut:
+    return await _export(db, ctx, principal, SkillScope.PLATFORM, None, skill_id)
+
+
 @admin_router.get("/{skill_id}/files", dependencies=[Depends(require_admin)])
 async def admin_list_files(
     skill_id: uuid.UUID = Path(...),
@@ -1425,10 +1684,73 @@ async def _emit_binding_audit(
     )
 
 
+# ---------------------------------------------------------------------------
+# /api/skills/imports|exports/{task_id} — bundle job status (D-58)
+# ---------------------------------------------------------------------------
+
+
+@bundle_router.get("/imports/{task_id}")
+async def get_import_status(
+    task_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+) -> BundleImportStatusOut:
+    """Poll a bundle import. The initiator (or an admin) only — the job id is a capability.
+
+    Deliberately not scope-gated: the initiator is recorded on the job and is the fence, the
+    same shape `GET /api/exports/{job_id}` uses. A stranger with a guessed id gets a 403, not
+    a leak of whether the id is live.
+    """
+    state = await bundle_jobs.get_import(task_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="import job not found")
+    if state.actor_user_id != principal.user_id and not principal.is_admin:
+        from shared_kernel.auth.dependencies import _raise_forbidden
+
+        _raise_forbidden("not the import initiator")
+    return BundleImportStatusOut(
+        job_id=state.job_id,
+        status=state.status,
+        skill_id=state.skill_id,
+        warnings=list(state.warnings),
+        error=state.error,
+    )
+
+
+@bundle_router.get("/exports/{task_id}")
+async def get_export_status(
+    task_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+) -> BundleExportStatusOut:
+    """Poll a bundle export; once ready, carry the presigned download URL.
+
+    §6 names only the import status endpoint by path; export equally needs a status/fetch
+    (D-58 records this). The URL dictates the download's filename and content type via the
+    presigned response headers, so the object's stored metadata never reaches the browser.
+    """
+    state = await bundle_jobs.get_export(task_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="export job not found")
+    if state.actor_user_id != principal.user_id and not principal.is_admin:
+        from shared_kernel.auth.dependencies import _raise_forbidden
+
+        _raise_forbidden("not the export initiator")
+    url: str | None = None
+    if state.status == bundle_jobs.BundleJobStatus.READY and state.bucket and state.object_key:
+        url = await get_minio_client().presigned_get(
+            bucket=state.bucket,
+            key=state.object_key,
+            expires=timedelta(minutes=15),
+            response_content_type="application/zip",
+            response_content_disposition='attachment; filename="skill.zip"',
+        )
+    return BundleExportStatusOut(job_id=state.job_id, status=state.status, url=url, error=state.error)
+
+
 __all__ = [
     "admin_router",
     "agent_router",
     "binding_router",
+    "bundle_router",
     "org_router",
     "project_router",
 ]

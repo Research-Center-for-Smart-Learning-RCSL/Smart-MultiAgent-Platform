@@ -64,7 +64,7 @@ from app.workers.tasks.orchestration import (
 from app.workers.tasks.prompt_assistant import prompt_assistant_turn
 from app.workers.tasks.rag import rag_ingest_document, rag_scan_document
 from app.workers.tasks.retention import retention_sweep
-from app.workers.tasks.skills import skill_scan_file
+from app.workers.tasks.skills import skill_export_bundle, skill_import_bundle, skill_scan_file
 from app.workers.tasks.workflow_approvals import (
     workflow_instruct_timeout,
     workflow_resume_approval,
@@ -290,6 +290,8 @@ class WorkerSettings:
         knowmap_ingest_document,
         knowmap_scan_document,
         skill_scan_file,
+        skill_import_bundle,
+        skill_export_bundle,
         # knowmap_build mirrors graphrag_build's scoped timeout: the build lock is
         # the single-writer authority, so the job timeout has TTL headroom.
         func(knowmap_build, name="knowmap_build", timeout=KNOWMAP_BUILD_TIMEOUT_S),
