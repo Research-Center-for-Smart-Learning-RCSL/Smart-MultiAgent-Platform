@@ -1144,36 +1144,42 @@ class DockerRunscSandbox:
                 await self._remove_quietly(container)
         return [_workspace_abspath(p) for p in staged]
 
-    async def stage_agent_workspace_files(
+    async def _stage_tree(
         self,
         *,
         agent_id: uuid.UUID,
+        rel_dir: str,
         files: Sequence[StagedFile],
         manifest_sha: str,
+        cache: dict[uuid.UUID, str],
     ) -> list[str]:
-        """Materialise the agent's persisted files under ``/workspace/agent-files/``.
+        """Write *files* under ``/workspace/{rel_dir}/`` on the agent's volume.
 
-        Idempotent: if the in-memory manifest cache shows the volume already
-        has this ``manifest_sha``, returns immediately (no container spawn).
-        After a successful write the cache is updated.
+        Shared by the two tree-preserving stagers, which differ only in where they write
+        and which manifest cache tracks them. *cache* is passed rather than chosen here
+        so the two file sets cannot evict each other (AC-21) — and passing it makes that
+        choice a visible argument at each call site rather than a branch to get wrong.
 
-        Returns absolute paths (``/workspace/agent-files/x``) — see
-        ``stage_kernel_inputs`` for why relative would be ambiguous here.
+        Idempotent: if *cache* shows the volume already has this ``manifest_sha``, returns
+        immediately with no container spawn. The cache is updated only after a successful
+        write.
+
+        Returns absolute paths — see ``stage_kernel_inputs`` for why relative would be
+        ambiguous here.
         """
         if not files:
             return []
 
-        cached = _WORKSPACE_MANIFESTS.get(agent_id)
-        if cached == manifest_sha:
+        if cache.get(agent_id) == manifest_sha:
             # Names only: this is the path the cache exists to make cheap, so it
             # must not tar up to _MAX_AGENT_FILES_BYTES of bytes just to discard them.
-            members = _staged_members("agent-files", files, preserve_tree=True)
+            members = _staged_members(rel_dir, files, preserve_tree=True)
             return [_workspace_abspath(m) for _f, m in members]
 
         await self._ensure_runtime_ready()
         client = self._client()
         volume = f"smap-agent-fs-{agent_id}"
-        archive, raw_staged = _tar_staged_inputs(rel_dir="agent-files", files=files, preserve_tree=True)
+        archive, raw_staged = _tar_staged_inputs(rel_dir=rel_dir, files=files, preserve_tree=True)
 
         host_config = self._base_host_config()
         host_config["network_mode"] = "none"
@@ -1193,8 +1199,27 @@ class DockerRunscSandbox:
             finally:
                 await self._remove_quietly(container)
 
-        _WORKSPACE_MANIFESTS[agent_id] = manifest_sha
+        cache[agent_id] = manifest_sha
         return [_workspace_abspath(p) for p in raw_staged]
+
+    async def stage_agent_workspace_files(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        files: Sequence[StagedFile],
+        manifest_sha: str,
+    ) -> list[str]:
+        """Materialise the agent's persisted files under ``/workspace/agent-files/``.
+
+        Returns absolute paths (``/workspace/agent-files/x``).
+        """
+        return await self._stage_tree(
+            agent_id=agent_id,
+            rel_dir="agent-files",
+            files=files,
+            manifest_sha=manifest_sha,
+            cache=_WORKSPACE_MANIFESTS,
+        )
 
     async def stage_skill_files(
         self,
@@ -1219,42 +1244,21 @@ class DockerRunscSandbox:
         Idempotent through its **own** manifest cache, so staging skills never evicts
         ``stage_agent_workspace_files``' staging or the reverse (AC-21).
 
+        **Additive only.** A script staged here is never removed: `put_archive` cannot
+        delete and nothing else prunes the volume, so unbinding a skill or quarantining
+        its file leaves the bytes on disk and reachable from `code_exec`. The readability
+        gate in `_stage_skill_scripts` is therefore write-time, not a revocation. FU-38.
+
         Returns absolute paths — see ``stage_kernel_inputs`` for why relative would be
         ambiguous here.
         """
-        if not files:
-            return []
-
-        cached = _SKILL_MANIFESTS.get(agent_id)
-        if cached == manifest_sha:
-            members = _staged_members("skills", files, preserve_tree=True)
-            return [_workspace_abspath(m) for _f, m in members]
-
-        await self._ensure_runtime_ready()
-        client = self._client()
-        volume = f"smap-agent-fs-{agent_id}"
-        archive, raw_staged = _tar_staged_inputs(rel_dir="skills", files=files, preserve_tree=True)
-
-        host_config = self._base_host_config()
-        host_config["network_mode"] = "none"
-        host_config["volumes"] = {volume: {"bind": _VOLUME_ROOT, "mode": "rw"}}
-        async with _get_semaphore():
-            container = await asyncio.to_thread(
-                client.containers.create,
-                image=self.code_exec_image,
-                command=["true"],
-                user=_SANDBOX_UID,
-                tmpfs={"/tmp": f"size={_TMP_TMPFS_BYTES}"},  # noqa: S108 — in-container tmpfs
-                **host_config,
-            )
-            try:
-                await self._assert_runsc(container)
-                await asyncio.to_thread(container.put_archive, _VOLUME_ROOT, archive)
-            finally:
-                await self._remove_quietly(container)
-
-        _SKILL_MANIFESTS[agent_id] = manifest_sha
-        return [_workspace_abspath(p) for p in raw_staged]
+        return await self._stage_tree(
+            agent_id=agent_id,
+            rel_dir="skills",
+            files=files,
+            manifest_sha=manifest_sha,
+            cache=_SKILL_MANIFESTS,
+        )
 
     async def _remove_aged_containers(
         self, *, label: str, max_age_s: float, skip_ids: frozenset[str] = frozenset()

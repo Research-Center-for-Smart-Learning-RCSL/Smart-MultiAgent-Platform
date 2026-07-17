@@ -139,11 +139,16 @@ class FakeAgentsFacade:
     ) -> None:
         self.agents = agents or {}
         self.tools = tools or {}
+        # `list_agent_tools` is a real DB read behind the facade, and `resolve_bound_set`
+        # is the hottest path in the product, so how many times it is called is part of the
+        # contract — not an implementation detail. Counted here so a test can assert it.
+        self.tool_reads = 0
 
     async def get_agent(self, agent_id: uuid.UUID) -> FakeAgent | None:
         return self.agents.get(agent_id)
 
     async def list_agent_tools(self, agent_id: uuid.UUID) -> list[FakeTool]:
+        self.tool_reads += 1
         return self.tools.get(agent_id, [])
 
 
