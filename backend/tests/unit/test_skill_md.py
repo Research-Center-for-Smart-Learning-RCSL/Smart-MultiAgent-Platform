@@ -68,6 +68,22 @@ class TestTheRealCorpusShapes:
         m = parse_skill_md(doc("name: t\ndescription: d\nallowed-tools:"))
         assert m.allowed_tools == ()
 
+    @pytest.mark.parametrize("field", ["allowed_tools", "requires"])
+    def test_an_absent_list_key_is_empty(self, field: str) -> None:
+        # **The regression test for a bug this file's own tests missed.** Every case above
+        # writes the key out as present-but-empty; absence is the far commoner shape (35
+        # of 42 files carry no `allowed-tools` at all) and took a different code path,
+        # where the `()` default stringified to "()" and split into a tool named `"()"`.
+        # Found by the importer's digest test, not here — an empty-vs-absent distinction
+        # is exactly the kind a parser test writes past.
+        m = parse_skill_md(MINIMAL)
+        assert getattr(m, field) == ()
+
+    def test_the_minimal_document_carries_no_phantom_values(self) -> None:
+        # The same bug stated as a whole-object claim, which is what a caller relies on.
+        m = parse_skill_md(MINIMAL)
+        assert (m.allowed_tools, m.requires, m.license, m.extra_frontmatter) == ((), (), None, {})
+
     def test_a_quoted_description_keeps_its_colon(self) -> None:
         m = parse_skill_md(doc('name: t\ndescription: "Does a thing: carefully"'))
         assert m.description == "Does a thing: carefully"
