@@ -36,8 +36,12 @@ class TestAcceptedPaths:
             "assets/a-b_c.1.bin",
             # CJK is ordinary content in a zh-TW product, not an edge case.
             "references/說明.md",
-            # Emoji is `So`, not `Cf` — the charset rule must not overreach into it.
-            "assets/icon-🚀.png",
+            # U+1F680 ROCKET. Emoji is `So`, not `Cf`, so the charset rule must not
+            # overreach into it. Built with `chr()` rather than written as a literal, for
+            # both of the reasons the module under test gives for doing the same
+            # (text_rules.py:47-51): CLAUDE.md forbids emoji in code, and a codepoint
+            # stays readable in a review — or a terminal — that cannot render the glyph.
+            f"assets/icon-{chr(0x1F680)}.png",
         ],
     )
     def test_an_ordinary_bundle_path_is_accepted(self, path: str) -> None:

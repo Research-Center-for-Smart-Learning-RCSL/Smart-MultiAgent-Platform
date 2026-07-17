@@ -505,9 +505,15 @@ async def _upload_file(
     reason = skill_file_path_reason(path)
     if reason is not None:
         raise HTTPException(status_code=422, detail=f"path {reason}")
-    # Read the cap plus one byte and check *before* buffering the rest, mirroring
-    # `rag.upload_document`: reading first and measuring after is how a size cap becomes
-    # a memory exhaustion primitive.
+    # Read the cap plus one byte, so an oversized upload is rejected without this process
+    # ever holding it — `rag.upload_document` does the same.
+    #
+    # What this does **not** do, despite how it reads: bound the transfer. Starlette has
+    # already streamed the whole multipart body into a SpooledTemporaryFile before this
+    # handler is called, so a 10 GB upload is fully received and spilled to disk, and only
+    # then refused. The bound on *that* is nginx's `client_max_body_size`, not this line.
+    # What this line buys is that the oversize case never becomes a 32 MB+ `bytes` in the
+    # worker's heap.
     data = await upload.read(MAX_SKILL_FILE_BYTES + 1)
     if len(data) > MAX_SKILL_FILE_BYTES:
         raise HTTPException(

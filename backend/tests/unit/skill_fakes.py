@@ -445,9 +445,16 @@ class FakeSkillFileRepo:
             )
         )
 
-    async def mark_scan(self, file_id: uuid.UUID, *, scan_status: SkillScanStatus) -> bool:
+    async def mark_scan(
+        self, file_id: uuid.UUID, *, scan_status: SkillScanStatus, expected_sha256: str
+    ) -> bool:
+        # The sha predicate is not decoration: it is what stops a scan of replaced bytes
+        # writing `clean` over the replacement's `quarantined`. This module's docstring
+        # says a double mirrors its repository's *predicates*, and that "where a predicate
+        # here diverges from the real one, the test asserting that rule is worthless" —
+        # so it is compared here rather than accepted and ignored.
         current = self.rows.get(file_id)
-        if current is None:
+        if current is None or current.sha256 != expected_sha256:
             return False
         self.put(replace(current, scan_status=scan_status))
         return True

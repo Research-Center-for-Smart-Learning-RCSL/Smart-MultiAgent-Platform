@@ -26,6 +26,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.skills.domain.errors import (
+    SkillFileLimitExceeded,
     SkillFileNotEditable,
     SkillFileNotFound,
     SkillFilePathTaken,
@@ -45,6 +46,17 @@ _log = logging.getLogger(__name__)
 # one multipart request carries. Bundles are the thing that needs tus, and they are
 # Phase 4.
 MAX_SKILL_FILE_BYTES = 32 * 1024 * 1024
+
+# Q-17's per-bundle entry limit, applied to the per-file API so the two agree. It is not a
+# new number: a bundle may carry ≤ 500 entries, so a skill assembled one file at a time
+# must not be able to exceed what the same skill could carry as a bundle — otherwise
+# Phase 4's exporter would emit skills its own importer rejects.
+#
+# What it does *not* do: retire `_fit_manifest`. 500 entries render ~42 500 bytes against
+# read_skill's 16 000 cap (only ~188 short paths fit), so the render still needs its own
+# bound. This one bounds storage — `skill-bundles` has no TTL and both delete and edit
+# orphan their objects (FU-29) — and the O(n) path scan `_assert_path_free` does per add.
+MAX_SKILL_FILES = 500
 
 # `kind` is derived from the path's top-level directory, never taken from the client.
 # R31.18 ties each directory to a behaviour — `references/` is text-extracted and served
@@ -155,7 +167,7 @@ class SkillFileService:
             sha256=sha,
             minio_key=key,
             scan_status=_initial_scan_status(scan_enabled),
-            extracted_chars=_extracted_chars(data, norm_mime, kind),
+            extracted_chars=await _count_extracted_chars(data, norm_mime, kind),
         )
         await self._emit("skill.file_created", skill, created, actor_user_id, actor_ip, request_id)
         return created
@@ -196,7 +208,7 @@ class SkillFileService:
             # content past the gate AC-34 exists to hold — the file the scanner cleared
             # is not the file now stored.
             scan_status=_initial_scan_status(scan_enabled),
-            extracted_chars=_extracted_chars(data, file.mime, file.kind),
+            extracted_chars=await _count_extracted_chars(data, file.mime, file.kind),
         )
         if updated is None:  # lost a race with a concurrent delete
             raise SkillFileNotFound(file.id, path=file.path)
@@ -234,15 +246,22 @@ class SkillFileService:
     # -- internals -----------------------------------------------------------
 
     async def _assert_path_free(self, skill_id: uuid.UUID, path: str) -> None:
-        """Reject an exact or case-insensitive collision (409).
+        """Reject an exact or case-insensitive collision (409), and enforce the count cap.
 
         The DB's `UNIQUE (skill_id, path)` catches the exact case and is the real
         backstop; this check exists for the *case-insensitive* one it cannot express, and
         it answers the exact case here too so both arrive as a 409 naming the conflict
         rather than one 409 and one IntegrityError 500.
+
+        The count cap rides on the same query rather than paying for its own: this method
+        already lists every path the skill owns, so `MAX_SKILL_FILES` is a `len()` on a
+        list that had to be fetched anyway.
         """
+        existing_paths = await self._files.list_paths_for_skill(skill_id)
+        if len(existing_paths) >= MAX_SKILL_FILES:
+            raise SkillFileLimitExceeded(limit=MAX_SKILL_FILES)
         key = path_collision_key(path)
-        for existing in await self._files.list_paths_for_skill(skill_id):
+        for existing in existing_paths:
             if path_collision_key(existing) == key:
                 raise SkillFilePathTaken(path, collides_with=existing)
 
@@ -334,13 +353,31 @@ def _extracted_chars(data: bytes, mime: str, kind: SkillFileKind) -> int:
     A count, not the text: `skill_files` stores no extracted text, so this is a display
     figure and a cheap "is there anything here" signal. The text itself is re-extracted
     on read from the bytes in MinIO, which keeps one copy of the truth.
+
+    Pure and blocking. Call :func:`_count_extracted_chars` from async code.
     """
     if kind is not SkillFileKind.REFERENCE:
         return 0
     return len(_extract_text(data, mime))
 
 
+async def _count_extracted_chars(data: bytes, mime: str, kind: SkillFileKind) -> int:
+    """`_extracted_chars` off the event loop.
+
+    The same reasoning as `read_text`, on the write path: this runs the identical
+    `_extract_text`, and `MIME_TO_PARSER` dispatches to `parse_pdf`, which is CPU-bound
+    and may shell out page by page. Threaded on read and not on write, a 32 MiB PDF upload
+    would block the API worker's event loop — every other request on it — for the whole
+    parse. A non-reference file short-circuits before the hop, so the ordinary script or
+    asset upload pays nothing.
+    """
+    if kind is not SkillFileKind.REFERENCE:
+        return 0
+    return await asyncio.to_thread(_extracted_chars, data, mime, kind)
+
+
 __all__ = [
+    "MAX_SKILL_FILES",
     "MAX_SKILL_FILE_BYTES",
     "SkillFileService",
     "enqueue_skill_scan",

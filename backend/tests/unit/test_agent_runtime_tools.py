@@ -8,6 +8,7 @@ from typing import ClassVar
 
 import pytest
 
+from contexts.agents.application.runtime import tool_registry as tr
 from contexts.agents.application.runtime.tool_registry import (
     _MAX_TOOL_OUTPUT,
     _SKILL_BODY_TOKEN_BUDGET,
@@ -702,6 +703,70 @@ async def test_a_manifest_that_fits_reports_nothing_omitted(file_facade) -> None
 
     assert "files_omitted" not in out
     assert len(out["files"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_name_error_is_clipped_like_any_other_output(file_facade) -> None:
+    # Found by review. The success path is bounded to _MAX_TOOL_OUTPUT by construction;
+    # the error path interpolated every bound skill's name and skipped the clip. FU-24
+    # notes ~1700 skills fit under the 3000-token index cap (an index line is ~2 tokens),
+    # so this branch could push ~110KB into the model's context — and the tool loop runs
+    # up to MAX_TOOL_ROUNDS times.
+    many = [make_skill(name=f"skill-{i:04d}-with-a-fairly-long-name") for i in range(2_000)]
+    tool = build_read_skill_tool(_snap(*many))
+
+    res = await tool.invoke({"name": "no-such-skill"})
+
+    assert res.is_error
+    assert len(res.content) <= _MAX_TOOL_OUTPUT + len("\n…[truncated]")
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_path_error_is_clipped(file_facade) -> None:
+    # The same hole one level down, bounded by MAX_SKILL_FILES rather than the index cap.
+    skill = make_skill(name="pdf-fill")
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: _many_files(skill.id, 500)}))
+
+    res = await tool.invoke({"name": "pdf-fill", "path": "references/nope.md"})
+
+    assert res.is_error
+    assert len(res.content) <= _MAX_TOOL_OUTPUT + len("\n…[truncated]")
+
+
+@pytest.mark.asyncio
+async def test_a_short_error_is_not_padded_or_mangled(file_facade) -> None:
+    # The clip must be a no-op below the cap — a backstop, not a transform.
+    tool = build_read_skill_tool(_snap(make_skill(name="pdf-fill")))
+    res = await tool.invoke({"name": "nope"})
+    assert res.content == "Unknown skill 'nope'. Bound skills: pdf-fill."
+
+
+@pytest.mark.asyncio
+async def test_the_manifest_is_trimmed_once_per_turn_not_once_per_span(file_facade) -> None:
+    # `_fit_manifest` re-renders the payload once per popped entry, and its inputs cannot
+    # change between two spans of one body — so recomputing it per continuation was
+    # O(spans x files^2) for an answer that never moves.
+    skill = make_skill(name="long-one", body="x" * 100_000)
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: _many_files(skill.id, 300)}))
+
+    calls: list[int] = []
+    real = tr._fit_manifest
+
+    def _counting(*a, **k):
+        calls.append(1)
+        return real(*a, **k)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(tr, "_fit_manifest", _counting)
+        offset: int | None = 0
+        spans = 0
+        while offset is not None:
+            out = await _read(tool, name="long-one", offset=offset)
+            spans += 1
+            offset = out.get("truncated_at_offset")
+
+    assert spans > 1, "the fixture must actually span or it proves nothing"
+    assert len(calls) == 1
 
 
 @pytest.mark.asyncio

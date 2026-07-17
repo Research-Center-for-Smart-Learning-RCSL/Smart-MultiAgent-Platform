@@ -178,6 +178,18 @@ class SkillFilePathTaken(SkillError):
         self.collides_with = collides_with
 
 
+class SkillFileLimitExceeded(SkillError):
+    """The skill already holds `MAX_SKILL_FILES` files ([R31.19]'s entry limit). 422.
+
+    The same 500 a bundle may carry, applied to the per-file API so a skill assembled one
+    upload at a time cannot exceed what the same skill could carry as a bundle.
+    """
+
+    def __init__(self, *, limit: int) -> None:
+        super().__init__(f"a skill may hold at most {limit} files")
+        self.limit = limit
+
+
 class SkillFileNotEditable(SkillError):
     """An `asset` is opaque bytes and has no text to edit (AC-17 / [R31.18]). 422.
 
@@ -197,6 +209,7 @@ __all__ = [
     "BundleQuarantined",
     "SkillContainmentFailed",
     "SkillError",
+    "SkillFileLimitExceeded",
     "SkillFileNotEditable",
     "SkillFileNotFound",
     "SkillFilePathTaken",

@@ -43,6 +43,23 @@ def clip_tool_output(text: str) -> str:
     return text if len(text) <= _MAX_TOOL_OUTPUT else text[:_MAX_TOOL_OUTPUT] + "\n…[truncated]"
 
 
+def _tool_error(content: str) -> ToolResult:
+    """An error result, clipped like every other tool output.
+
+    Exists because the clip is easy to honour on the path you are thinking about and easy
+    to forget on the one you are not. `read_skill`'s error branches interpolate lists whose
+    length is bounded by nothing this module controls — every bound skill's name, every
+    file path on a skill — so the *error* path could overrun `_MAX_TOOL_OUTPUT` while the
+    success path was bounded to it by construction. Routing every error through here makes
+    the cap structural rather than remembered.
+
+    Not applied in `ToolRegistry.call` instead, which would look like the tidier place:
+    `builtin_tools` already clips its own output, and clipping a clipped string re-cuts it
+    and mangles the marker.
+    """
+    return ToolResult(content=clip_tool_output(content), is_error=True)
+
+
 # Canonical set of built-in / runtime tool names a user LOCAL_FUNCTION must not
 # shadow. Single source of truth: agent_service derives its reserved-name guard
 # from this, and a drift test (test_builtin_tools_wiring) asserts every hosted
@@ -366,8 +383,6 @@ def _fit_manifest(
     name: str,
     body_len: int,
     files: Sequence[SkillFile],
-    *,
-    path: str | None = None,
 ) -> tuple[list[SkillFile], int]:
     """The longest prefix of `files` that still leaves room to serve content.
 
@@ -383,12 +398,22 @@ def _fit_manifest(
 
     Trimming the manifest rather than refusing the read is the lesser harm: the body is
     what the model asked for, and `files_omitted` tells it the list is partial so it does
-    not conclude the absent files do not exist. Returns `(kept, omitted_count)`.
+    not conclude the absent files do not exist. An omitted file is still *readable* — the
+    `path` arm resolves against the whole snapshot, not the shown prefix — so this hides
+    paths, never content. Returns `(kept, omitted_count)`.
+
+    No `path` parameter: the file arm renders `path` instead of a manifest, so it has
+    nothing to trim and never calls this. Threading one through would suggest that arm is
+    manifest-bounded when it is bounded by having no manifest at all.
+
+    Note `MAX_SKILL_FILES` does **not** retire this. 500 entries render ~42 500 bytes
+    against a 16 000 cap — only ~188 short paths fit — so the cap bounds storage and the
+    add loop, and this bounds the render. Two limits, two jobs.
     """
     kept = list(files)
     omitted = 0
     while kept:
-        rendered = _read_skill_payload(name, "", body_len, files=kept, path=path, files_omitted=omitted)
+        rendered = _read_skill_payload(name, "", body_len, files=kept, files_omitted=omitted)
         if len(rendered) + _MIN_SPAN_CHARS <= _MAX_TOOL_OUTPUT:
             break
         kept.pop()
@@ -425,6 +450,19 @@ def build_read_skill_tool(
     # reassembling — and a long file would be re-fetched and re-parsed once per span.
     # The closure is per turn, so the cache's lifetime is exactly the rule's.
     file_text_cache: dict[uuid.UUID, str] = {}
+    # `_fit_manifest`'s inputs — the skill's name, its body length, and the snapshot's
+    # file list — are fixed for the whole turn, and the trim is O(files^2) because it
+    # re-renders the payload once per popped entry. Without this it ran again for every
+    # continuation span of the same body. Same lifetime and same reason as the text cache
+    # above; both die with the closure.
+    manifest_cache: dict[uuid.UUID, tuple[list[SkillFile], int]] = {}
+
+    def _manifest_for(skill: Skill, files: Sequence[SkillFile]) -> tuple[list[SkillFile], int]:
+        cached = manifest_cache.get(skill.id)
+        if cached is None:
+            cached = _fit_manifest(skill.name, len(skill.body), files)
+            manifest_cache[skill.id] = cached
+        return cached
 
     async def _invoke(args: dict[str, Any]) -> ToolResult:
         name = str(args.get("name", ""))
@@ -433,10 +471,7 @@ def build_read_skill_tool(
             # An unknown name is a tool error, never a turn failure (R31.15): the model
             # can misread the index, and one bad call must not cost the user the turn.
             available = ", ".join(sorted(by_name)) or "(none)"
-            return ToolResult(
-                content=f"Unknown skill {name!r}. Bound skills: {available}.",
-                is_error=True,
-            )
+            return _tool_error(f"Unknown skill {name!r}. Bound skills: {available}.")
 
         files = snapshot.files_for(skill.id)
         # AC-34 / R31.20 — fail closed before serving any bytes of this skill, body
@@ -447,12 +482,9 @@ def build_read_skill_tool(
         try:
             assert_readable(skill, list(files))
         except SkillUnreadable as exc:
-            return ToolResult(
-                content=(
-                    f"Skill {name!r} is unavailable: its file {exc.path!r} has not passed "
-                    f"the malware scan. Do not guess its contents."
-                ),
-                is_error=True,
+            return _tool_error(
+                f"Skill {name!r} is unavailable: its file {exc.path!r} has not passed "
+                f"the malware scan. Do not guess its contents."
             )
 
         raw_offset = args.get("offset")
@@ -462,11 +494,11 @@ def build_read_skill_tool(
             # thinks is an offset and is wrong about. Coercing the second to 0 silently
             # restarts its continuation walk, and the two sibling error paths below and
             # above both say so out loud rather than guess.
-            return ToolResult(content=f"offset must be an integer, got {raw_offset!r}.", is_error=True)
+            return _tool_error(f"offset must be an integer, got {raw_offset!r}.")
 
         raw_path = args.get("path")
         if raw_path is None:
-            return _serve_body(skill, files, offset, reads)
+            return _serve_body(skill, files, offset, reads, _manifest_for(skill, files))
         return await _serve_file(skill, files, str(raw_path), offset, db, file_text_cache)
 
     return Tool(
@@ -488,14 +520,14 @@ def _serve_body(
     files: Sequence[SkillFile],
     offset: int,
     reads: list[SkillRead] | None,
+    manifest: tuple[list[SkillFile], int],
 ) -> ToolResult:
     if offset < 0 or offset > len(skill.body):
-        return ToolResult(
-            content=f"offset {offset} is outside skill {skill.name!r} (0..{len(skill.body)}).",
-            is_error=True,
-        )
-    # The manifest is bounded first, so the span search below always has a solution.
-    shown, omitted = _fit_manifest(skill.name, len(skill.body), files)
+        return _tool_error(f"offset {offset} is outside skill {skill.name!r} (0..{len(skill.body)}).")
+    # Bounded before the span search, so that search always has a solution — see
+    # `_fit_manifest`. Computed once per turn by the caller, not here: its inputs cannot
+    # change between two spans of one body.
+    shown, omitted = manifest
     span, next_offset = _fit_skill_body(skill.name, skill.body, offset, files=shown, files_omitted=omitted)
     if reads is not None:
         reads.append(
@@ -525,20 +557,14 @@ async def _serve_file(
     match = next((f for f in files if f.path == path), None)
     if match is None:
         available = ", ".join(f.path for f in files) or "(none)"
-        return ToolResult(
-            content=f"Skill {skill.name!r} has no file {path!r}. Its files: {available}.",
-            is_error=True,
-        )
+        return _tool_error(f"Skill {skill.name!r} has no file {path!r}. Its files: {available}.")
     if match.kind is not SkillFileKind.REFERENCE:
         # R31.18: a script is staged for the interpreter and an asset is opaque bytes.
         # Rendering either into the prompt would be a decode of something that is not
         # text for the model to read, and for a script it would also be the wrong channel.
-        return ToolResult(
-            content=(
-                f"File {path!r} is a {match.kind.value}, not a reference document, and "
-                f"cannot be read as text."
-            ),
-            is_error=True,
+        return _tool_error(
+            f"File {path!r} is a {match.kind.value}, not a reference document, and "
+            f"cannot be read as text."
         )
     text = text_cache.get(match.id)
     if text is None:
@@ -550,10 +576,7 @@ async def _serve_file(
         text = await SkillsFacade(db).read_skill_file_text(match)
         text_cache[match.id] = text
     if offset < 0 or offset > len(text):
-        return ToolResult(
-            content=f"offset {offset} is outside file {path!r} (0..{len(text)}).",
-            is_error=True,
-        )
+        return _tool_error(f"offset {offset} is outside file {path!r} (0..{len(text)}).")
     span, next_offset = _fit_skill_body(skill.name, text, offset, path=path)
     return ToolResult(content=clip_tool_output(_read_skill_payload(skill.name, span, next_offset, path=path)))
 
