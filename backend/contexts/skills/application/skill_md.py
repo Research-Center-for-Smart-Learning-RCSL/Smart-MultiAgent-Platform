@@ -38,7 +38,6 @@ the corpus, and the parser is measured against it, not against the spec of YAML.
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -92,7 +91,11 @@ _BOM = chr(0xFEFF)
 
 # Column 0 only. A continuation line of a multi-line value is indented (§6), so anchoring
 # here is what keeps `scope: platform` on an indented continuation from becoming a key.
-_KEY_RE = re.compile(r"^([A-Za-z0-9_.-]+):(.*)$")
+# `_KEY_CHARS` is the single source of truth for what a key may contain; the two regexes
+# below both derive from it so they cannot drift.
+_KEY_CHARS = r"[A-Za-z0-9_.-]+"
+_KEY_RE = re.compile(rf"^({_KEY_CHARS}):(.*)$")
+_KEY_ONLY_RE = re.compile(_KEY_CHARS)
 _SEQ_ITEM_RE = re.compile(r"^\s*-\s*(.*)$")
 
 
@@ -522,11 +525,14 @@ def _emit_scalar(value: str, *, key: str, in_list: bool = False) -> str:
     entry point, so reaching the raise below means a row got past AC-30; refusing is the
     only safe move, since emitting it would forge a key in a file SMAP itself signs.
     """
-    if any(unicodedata.category(ch) in ("Cc", "Zl", "Zp") for ch in value):
-        raise BundleInvalid(
-            f"frontmatter key {key!r} holds a control character and cannot be exported",
-            key=key,
-        )
+    # The same charset rule the parser enforces on input, run on the way out. It rejects
+    # `Cf` (zero-width, bidi, the tag block) and the index delimiter as well as `Cc/Zl/Zp`
+    # — the hand-rolled `("Cc", "Zl", "Zp")` this replaced let a `Cf` char export into a
+    # file its own importer then rejected. Export is a real second gate, not redundant:
+    # FU-26 records that a copy or facade write can store a value the input rule never saw.
+    reason = text_rejection_reason(value, max_chars=MAX_DESCRIPTION_CHARS)
+    if reason is not None:
+        raise BundleInvalid(f"frontmatter key {key!r} {reason} and cannot be exported", key=key)
     if not _needs_quoting(value, in_list=in_list):
         return value
     # **A backslash rules out the double-quoted style**, and this is not fussiness:
@@ -586,7 +592,11 @@ def render_skill_md(manifest: SkillManifest) -> str:
         # this module's own docstring — so it is made structural here rather than left
         # contingent on the parser staying the only writer. `_RESERVED` catches the forged
         # key on re-import, but a second gate is not a reason to leave the first one open.
-        if not _KEY_RE.match(f"{key}:"):
+        # `fullmatch` on the key alone, not `_KEY_RE.match(f"{key}:")` — the latter is a
+        # whole-*line* parser whose `(.*)` tail happily swallows an embedded colon, so a
+        # key like `a:b` passed it and re-imported as key `a`, value `b: ...`: silent
+        # corruption of the exact untyped-dict writer this guard exists to defend against.
+        if not _KEY_ONLY_RE.fullmatch(key):
             raise BundleInvalid(f"frontmatter key {key!r} is not a valid key and cannot be exported", key=key)
         value = manifest.extra_frontmatter[key]
         if isinstance(value, list | tuple):

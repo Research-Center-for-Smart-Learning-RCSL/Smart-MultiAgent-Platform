@@ -399,6 +399,9 @@ class FakeSkillFileRepo:
 
     def __init__(self) -> None:
         self.rows: dict[uuid.UUID, SkillFile] = {}
+        # Counts the per-skill path listings so a test can prove `add_many` queries once
+        # rather than once per file (the O(n^2) import fix).
+        self.list_paths_calls = 0
 
     def put(self, f: SkillFile) -> SkillFile:
         self.rows[f.id] = f
@@ -417,6 +420,7 @@ class FakeSkillFileRepo:
         return self.rows.get(file_id)
 
     async def list_paths_for_skill(self, skill_id: uuid.UUID) -> list[str]:
+        self.list_paths_calls += 1
         return [f.path for f in self.rows.values() if f.skill_id == skill_id]
 
     async def skill_ids_with_scripts(self, skill_ids: Any) -> set[uuid.UUID]:

@@ -2433,6 +2433,42 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   an unterminated quote (`_quoted_end` skips `\` while the emitter escapes nothing — it now
   takes the single-quoted style, which has no escape rule), and an empty *tolerated* list was
   dropped on export, losing a key the author actually wrote.
+- **D-64: `/code-review` (high effort) found ten issues in the Phase 4 diff; all ten are
+  fixed.** The four that were correctness/security and the reasoning behind each:
+  **(1) `export_bundle` bypassed the AC-34 fail-closed gate.** `read_skill` refuses a skill
+  with any non-`clean` file (`readability.assert_readable`), but the exporter read bytes from
+  MinIO and packed them with no readability check — a **third** bypass of that gate after
+  D-34/D-35, and the exfiltration direction: an org/platform skill is exported by members who
+  never uploaded it, and §6 routes the `.zip` to a presigned URL. `export_bundle` now calls
+  `assert_readable` before it fetches a byte, so a quarantined file fails closed the same way
+  it does for `read_skill`.
+  **(2) The D-63 key guard had a hole for the exact writer it defends against.** It used
+  `_KEY_RE.match(f"{key}:")`, a whole-*line* parser whose `(.*)` tail swallows an embedded
+  colon — so a key `a:b` passed and re-imported as key `a`, value `b: …`: silent corruption,
+  no exception. Now `_KEY_ONLY_RE.fullmatch(key)` against the key charset alone, and both
+  regexes derive from one `_KEY_CHARS` so they cannot drift.
+  **(3) `_emit_scalar` rejected `Cc/Zl/Zp` but not `Cf`.** A zero-width or bidi character
+  exported into a file its own importer then rejected — the backslash case D-63 fixed, one
+  Unicode category over. It now runs the domain rule `text_rejection_reason` (which skill_md
+  already imports), so export enforces exactly what input does, `Cf`, the tag block, and the
+  index delimiter included. FU-26's reachability (copy/facade writes bypass the input rule)
+  is what makes this a live second gate rather than redundancy.
+  **(4) Import was O(n²) queries.** `SkillFileService.add` re-lists the skill's paths per call
+  (`_assert_path_free`), so a 500-file bundle fired ~500 SELECTs returning up to 499 rows each
+  — the D-45 N+1 one level out, invisible to every test that does not count queries. New
+  `SkillFileService.add_many` lists once, validates count + case-insensitive collisions over
+  the whole set (against existing rows *and* the batch itself, so it does not lean on the
+  importer's own check), and the importer uses it. `add` and `add_many` share `_store_one`.
+  The remaining six were cleanup/robustness: a `RuntimeError`-catch narrowed to a
+  compression pre-check so a genuine bug can no longer be relabelled "corrupt bundle" (the
+  supported-method allowlist rejects bz2/lzma/unknown before `zf.open`, the reject-don't-guess
+  rule); sequential ClamAV scans and MinIO reads fanned out under a bounded semaphore
+  (`_IO_CONCURRENCY`); `ParsedBundle.skill_md_bytes` made required so an omitted body cannot be
+  scanned as `b""` and pass; a tautological test assertion (`path == X or <already-true>`)
+  replaced with a plain `==`; and the 33-line module docstring plus 26-line `except` comment
+  trimmed to cite D-56/D-60/D-61 in the dossier rather than re-narrate them, per the global
+  CLAUDE.md rule that long-form explanation lives in `docs/`. Every fix was probed by mutation
+  (revert → redden); the corpus stayed 42/42 parse and byte-stable.
 - **D-58: Phase 4's transport is not built, and this is the session's scope boundary rather
   than a discovery.** The user scoped this session to "the whole Phase 4 backend, tus included";
   the service layer landed and the transport did not. Still owed, all specified in §6 and named by
@@ -3348,6 +3384,10 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   turn**"). Import does not run inside a turn, which is why this is a follow-up and not a
   defect, but it does run in a process that is serving them. Sequenced with D-58: the offload
   belongs at the endpoint that will call this, and there is no endpoint yet.
+  **Partly narrowed by D-64:** the two *I/O* fan-outs this entry implied — 500 sequential ClamAV
+  scans and 500 sequential MinIO reads on export — are now bounded-concurrent, so they no longer
+  serialise on the loop. What remains is exactly the *CPU* half named above (inflation, sha256,
+  the regex sweep), still synchronous, still awaiting the endpoint that owns the thread hop.
 - **FU-50: two reader asymmetries the emitter now steers around rather than resolves.**
   Both from the quality gate. **(a)** `_flow_end` skips `\`-escapes when scanning a quoted flow
   item; `_split_items` does not — so `allowed-tools: [a, "b\"c"]` passes the first and dies in

@@ -451,6 +451,74 @@ class TestFileCountCap:
             actor_user_id=ACTOR,
         )
 
+    async def test_add_many_stores_the_whole_set_with_one_path_query(self, h: _Harness) -> None:
+        # The efficiency fix for the importer: `add_many` lists the skill's paths once,
+        # not once per file. It is exercised for correctness here — the query-count
+        # guarantee is what the importer relies on — and the stored bytes are checked so a
+        # gutted method cannot pass.
+        skill = _skill()
+        before = h.files.list_paths_calls
+        created = await h.svc.add_many(
+            skill=skill,
+            files=[
+                ("references/a.md", b"aaa", "text/markdown"),
+                ("scripts/b.py", b"print(1)", "text/x-python"),
+            ],
+            scan_enabled=False,
+            actor_user_id=ACTOR,
+        )
+        assert [c.path for c in created] == ["references/a.md", "scripts/b.py"]
+        assert h.minio.objects[created[0].minio_key] == b"aaa"
+        assert h.files.list_paths_calls - before == 1, "add_many must not re-query per file"
+
+    async def test_add_many_enforces_the_count_cap_over_the_whole_batch(self, h: _Harness) -> None:
+        # The cap is on existing + batch, not per file — a batch that fits individually but
+        # overflows together is still rejected, and nothing is written.
+        skill = _skill()
+        for i in range(MAX_SKILL_FILES - 1):
+            h.files.put(
+                SkillFile(
+                    id=uuid.uuid4(),
+                    skill_id=skill.id,
+                    path=f"references/f-{i:04d}.md",
+                    kind=SkillFileKind.REFERENCE,
+                    mime="text/markdown",
+                    size_bytes=1,
+                    sha256="a" * 64,
+                    minio_key="k",
+                    scan_status=SkillScanStatus.CLEAN,
+                    extracted_chars=1,
+                    created_at=datetime.now(UTC),
+                )
+            )
+        with pytest.raises(SkillFileLimitExceeded) as exc:
+            await h.svc.add_many(
+                skill=skill,
+                files=[
+                    ("references/x.md", b"x", "text/markdown"),
+                    ("references/y.md", b"y", "text/markdown"),
+                ],
+                scan_enabled=False,
+                actor_user_id=ACTOR,
+            )
+        assert exc.value.limit == MAX_SKILL_FILES
+
+    async def test_add_many_rejects_a_collision_within_its_own_batch(self, h: _Harness) -> None:
+        # Case-insensitive, and against the batch itself — `add_many` does not lean on its
+        # caller having de-duplicated, so a hand-built batch cannot slip a Windows-colliding
+        # pair past it.
+        with pytest.raises(SkillFilePathTaken) as exc:
+            await h.svc.add_many(
+                skill=_skill(),
+                files=[
+                    ("references/Guide.md", b"a", "text/markdown"),
+                    ("references/guide.md", b"b", "text/markdown"),
+                ],
+                scan_enabled=False,
+                actor_user_id=ACTOR,
+            )
+        assert exc.value.collides_with == "references/Guide.md"
+
     async def test_an_edit_is_not_an_add_and_ignores_the_cap(self, h: _Harness) -> None:
         # The cap gates growth, not maintenance: a skill sitting at the limit must still
         # be fixable, or reaching the cap would freeze its contents forever.
