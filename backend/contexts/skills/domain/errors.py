@@ -145,11 +145,61 @@ class SkillUnreadable(SkillError):
         self.path = path
 
 
+class SkillFileNotFound(SkillError):
+    """No such file on this skill. 404.
+
+    Separate from `SkillNotFound` so the two cannot be confused at the boundary, but it
+    carries the same rule: the caller has already proven ownership of the *skill* to
+    reach here, so this one is an honest 404 rather than a leak-avoiding one.
+    """
+
+    def __init__(self, file_id: uuid.UUID | None = None, *, path: str | None = None) -> None:
+        super().__init__(f"skill file {path or file_id} not found")
+        self.file_id = file_id
+        self.path = path
+
+
+class SkillFilePathTaken(SkillError):
+    """A file already occupies this path, or one that collides with it. 409.
+
+    `collides_with` is non-empty when the clash is case-insensitive rather than exact:
+    the DB's `UNIQUE (skill_id, path)` is byte-exact, so `assets/X.md` and `assets/x.md`
+    both fit it while resolving to one file on a Windows dev box. Naming the existing
+    path is what tells the author why a path that looks free is not.
+    """
+
+    def __init__(self, path: str, *, collides_with: str | None = None) -> None:
+        super().__init__(
+            f"path {path!r} collides with existing {collides_with!r}"
+            if collides_with and collides_with != path
+            else f"path {path!r} is already taken"
+        )
+        self.path = path
+        self.collides_with = collides_with
+
+
+class SkillFileNotEditable(SkillError):
+    """An `asset` is opaque bytes and has no text to edit (AC-17 / [R31.18]). 422.
+
+    `kind` gates the editor rather than mime: a PNG mislabelled `text/plain` is still an
+    asset, and it is the *declared kind* that decides whether `read_skill` will ever
+    render its contents.
+    """
+
+    def __init__(self, path: str, *, kind: str) -> None:
+        super().__init__(f"file {path!r} is a {kind} and cannot be edited as text")
+        self.path = path
+        self.kind = kind
+
+
 __all__ = [
     "BundleInvalid",
     "BundleQuarantined",
     "SkillContainmentFailed",
     "SkillError",
+    "SkillFileNotEditable",
+    "SkillFileNotFound",
+    "SkillFilePathTaken",
     "SkillIndexBudgetExceeded",
     "SkillNameTaken",
     "SkillNotFound",

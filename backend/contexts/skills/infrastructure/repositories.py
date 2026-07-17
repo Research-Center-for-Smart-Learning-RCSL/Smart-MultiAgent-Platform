@@ -450,6 +450,118 @@ class SkillFileRepository:
         )
         return [_row_to_file(r) for r in rows]
 
+    async def get(self, file_id: uuid.UUID) -> SkillFile | None:
+        row = (
+            (await self._db.execute(sa.select(t.skill_files).where(t.skill_files.c.id == file_id)))
+            .mappings()
+            .first()
+        )
+        return None if row is None else _row_to_file(row)
+
+    async def list_paths_for_skill(self, skill_id: uuid.UUID) -> list[str]:
+        """Just the paths — the collision check has no use for the rest of the row."""
+        rows = (
+            await self._db.execute(
+                sa.select(t.skill_files.c.path).where(t.skill_files.c.skill_id == skill_id)
+            )
+        ).all()
+        return [r[0] for r in rows]
+
+    async def create(
+        self,
+        *,
+        skill_id: uuid.UUID,
+        path: str,
+        kind: SkillFileKind,
+        mime: str,
+        size_bytes: int,
+        sha256: str,
+        minio_key: str,
+        scan_status: SkillScanStatus,
+        extracted_chars: int,
+    ) -> SkillFile:
+        row = (
+            (
+                await self._db.execute(
+                    sa.insert(t.skill_files)
+                    .values(
+                        skill_id=skill_id,
+                        path=path,
+                        kind=kind.value,
+                        mime=mime,
+                        size_bytes=size_bytes,
+                        sha256=sha256,
+                        minio_key=minio_key,
+                        scan_status=scan_status.value,
+                        extracted_chars=extracted_chars,
+                    )
+                    .returning(t.skill_files)
+                )
+            )
+            .mappings()
+            .one()
+        )
+        return _row_to_file(row)
+
+    async def update_content(
+        self,
+        file_id: uuid.UUID,
+        *,
+        size_bytes: int,
+        sha256: str,
+        minio_key: str,
+        scan_status: SkillScanStatus,
+        extracted_chars: int,
+    ) -> SkillFile | None:
+        """Re-point a file at new bytes.
+
+        `scan_status` is a parameter rather than being preserved: new bytes have not been
+        scanned, so carrying the old row's `clean` forward would let an edit smuggle past
+        the gate AC-34 exists to hold. `path` and `kind` are absent — changing either is
+        a different file, and `SKILL.md`'s references would still name the old one.
+        """
+        row = (
+            (
+                await self._db.execute(
+                    sa.update(t.skill_files)
+                    .where(t.skill_files.c.id == file_id)
+                    .values(
+                        size_bytes=size_bytes,
+                        sha256=sha256,
+                        minio_key=minio_key,
+                        scan_status=scan_status.value,
+                        extracted_chars=extracted_chars,
+                    )
+                    .returning(t.skill_files)
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return None if row is None else _row_to_file(row)
+
+    async def mark_scan(self, file_id: uuid.UUID, *, scan_status: SkillScanStatus) -> bool:
+        """Record the scanner's verdict. Mirrors `RagDocumentRepository.mark_scan`."""
+        result = await self._db.execute(
+            sa.update(t.skill_files)
+            .where(t.skill_files.c.id == file_id)
+            .values(scan_status=scan_status.value)
+        )
+        return bool(result.rowcount)
+
+    async def delete(self, file_id: uuid.UUID) -> bool:
+        """A hard delete — `skill_files` has no `deleted_at`.
+
+        Deliberate, and the asymmetry with `skills` is the point: Q-24 soft-deletes a
+        skill because it is bound by many agents and the binding graph is the expensive
+        thing to lose. A file is owned by exactly one skill and reachable from nothing
+        else, so there is no graph to preserve. Deleting the *skill* leaves these rows
+        intact for the 60-day window; it is only an explicit per-file delete that removes
+        one, which is the user asking for exactly that.
+        """
+        result = await self._db.execute(sa.delete(t.skill_files).where(t.skill_files.c.id == file_id))
+        return bool(result.rowcount)
+
 
 def _owner_predicate(scope: SkillScope, owner_id: uuid.UUID | None) -> sa.ColumnElement[bool]:
     """Match the one owner column this scope populates.
