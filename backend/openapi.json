@@ -7216,6 +7216,7 @@
         "type": "object"
       },
       "SkillFileOut": {
+        "description": "One bundled file's metadata.\n\nThere is deliberately no per-file `readable` flag. AC-34's gate is whole-skill\n(Q-18), so a badge saying one file is fine would contradict the skill it belongs to\nbeing unreadable; the UI derives that state from the collection's scan statuses.",
         "properties": {
           "created_at": {
             "title": "Created At",

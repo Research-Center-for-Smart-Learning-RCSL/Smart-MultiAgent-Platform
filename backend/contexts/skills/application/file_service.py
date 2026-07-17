@@ -17,6 +17,7 @@ the model is told exists and cannot read.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import uuid
@@ -107,10 +108,17 @@ class SkillFileService:
 
         Assets and scripts are excluded by the caller, not here: `read_skill` serves
         reference text, and an asset has no text by definition (R31.18).
+
+        The extraction is threaded because it runs **inside a turn**. `MIME_TO_PARSER`
+        dispatches to `parse_pdf`, which is CPU-bound and may shell out page by page, so a
+        32 MiB PDF reference would block the turn worker's event loop — and with it every
+        other agent that worker is serving. The blocking parse itself is the house pattern
+        (RAG ingests on the request path); running it per tool call inside a turn is new,
+        which is what makes the thread hop worth its cost here.
         """
         client = get_minio_client()
         data = await client.get_object(bucket=client.skill_bundles_bucket, key=file.minio_key)
-        return _extract_text(data, file.mime)
+        return await asyncio.to_thread(_extract_text, data, file.mime)
 
     async def add(
         self,

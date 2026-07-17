@@ -1,8 +1,9 @@
 """In-memory doubles for the skills repositories and the two facades it reads.
 
-Not a test module — shared by `test_skill_service.py`, `test_skill_binding.py`, and
-`test_skill_index_budget.py`, which all exercise application-layer *policy* (ownership,
-containment, budget) that owns no SQL. The house pattern is `_FakeKnowledge` in
+Not a test module — shared by `test_skill_service.py`, `test_skill_binding.py`,
+`test_skill_index_budget.py`, `test_skill_files.py`, and `test_agent_runtime_tools.py`,
+which exercise application-layer *policy* (ownership, containment, budget, the file
+rules) that owns no SQL. The house pattern is `_FakeKnowledge` in
 `test_agent_config_project_guard.py`: construct the service via `__new__` and hand it
 doubles, so the policy under test runs without a database.
 

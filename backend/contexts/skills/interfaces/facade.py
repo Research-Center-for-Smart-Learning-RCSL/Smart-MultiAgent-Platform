@@ -30,7 +30,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
 from contexts.skills.application.binding_service import BindingService, BoundSet
-from contexts.skills.application.file_service import SkillFileService, enqueue_skill_scan
+from contexts.skills.application.file_service import (
+    MAX_SKILL_FILE_BYTES,
+    SkillFileService,
+    enqueue_skill_scan,
+)
 from contexts.skills.application.index_builder import render_index
 from contexts.skills.application.skill_service import SkillService
 from contexts.skills.domain.models import (
@@ -232,6 +236,15 @@ class SkillsFacade:
         Ownership first, always: `get_owned` raises `SkillNotFound` (404, never 403) for
         a skill under a scope the caller does not hold, so no byte is stored and no row
         written for a skill they cannot reach.
+
+        **The commit before the enqueue is load-bearing, not tidiness.** `skill_scan_file`
+        looks the row up on its own connection, so an enqueue inside this request's open
+        transaction is a race the worker can win — and losing it is terminal, because the
+        worker's "not found" arm returns rather than retries. The file would sit `pending`
+        forever, which under AC-34's fail-closed gate means the skill never becomes
+        readable. `db_session`'s docstring sanctions the explicit commit for exactly this
+        ("enqueueing Arq jobs that reference a just-written row"), and the RAG path does
+        the same at `ingest_service.py:234`.
         """
         skill = await SkillService(self._db).get_owned(skill_id, scope, owner_id=owner_id)
         created = await SkillFileService(self._db).add(
@@ -244,6 +257,7 @@ class SkillsFacade:
             actor_ip=actor_ip,
             request_id=request_id,
         )
+        await self._db.commit()
         await enqueue_skill_scan(file_id=created.id, sha256=created.sha256)
         return created
 
@@ -271,6 +285,11 @@ class SkillsFacade:
             actor_ip=actor_ip,
             request_id=request_id,
         )
+        # Committed before the enqueue for the reason `add_file` documents. The exposure
+        # is the same here and slightly worse in effect: an edit resets `scan_status` to
+        # `pending`, so a lost scan takes a *working* skill dark rather than merely
+        # delaying a new one.
+        await self._db.commit()
         await enqueue_skill_scan(file_id=updated.id, sha256=updated.sha256)
         return updated
 
@@ -364,4 +383,7 @@ class SkillsFacade:
 # `BoundSet` is re-exported deliberately: it is `resolve_bound_set`'s return type, so the
 # agents runtime has to name it, and it must not have to reach past this module into
 # `application/` to do so.
-__all__ = ["BoundSet", "SkillsFacade"]
+# Re-exported so the routers can take the upload cap from this context's public surface
+# rather than reaching into `application/` for it — which this module's own docstring
+# says they never do. It is the same constant, named where the rule says to name it.
+__all__ = ["MAX_SKILL_FILE_BYTES", "BoundSet", "SkillsFacade"]

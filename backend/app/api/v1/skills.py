@@ -33,7 +33,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
 from app.api.v1.deps import PaginationParams, assert_project_membership, parse_if_match
-from contexts.skills.application.file_service import MAX_SKILL_FILE_BYTES
 from contexts.skills.domain.models import (
     MAX_DESCRIPTION_CHARS,
     SKILL_NAME_RE,
@@ -47,7 +46,7 @@ from contexts.skills.domain.text_rules import (
     skill_file_path_reason,
     text_rejection_reason,
 )
-from contexts.skills.interfaces.facade import SkillsFacade
+from contexts.skills.interfaces.facade import MAX_SKILL_FILE_BYTES, SkillsFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
@@ -249,6 +248,13 @@ class SkillFilePatchIn(BaseModel):
 
 
 class SkillFileOut(BaseModel):
+    """One bundled file's metadata.
+
+    There is deliberately no per-file `readable` flag. AC-34's gate is whole-skill
+    (Q-18), so a badge saying one file is fine would contradict the skill it belongs to
+    being unreadable; the UI derives that state from the collection's scan statuses.
+    """
+
     id: uuid.UUID
     skill_id: uuid.UUID
     path: str
@@ -259,16 +265,6 @@ class SkillFileOut(BaseModel):
     scan_status: str
     extracted_chars: int
     created_at: str
-
-    @property
-    def readable(self) -> bool:  # pragma: no cover — documentation, not a wire field
-        """Kept off the wire deliberately: readability is a property of the *skill*.
-
-        AC-34's gate is whole-skill (Q-18), so a per-file badge would tell the UI that
-        one file is fine while the skill it belongs to is unreadable. The UI derives the
-        skill's state from the collection.
-        """
-        return self.scan_status == "clean"
 
 
 def _file_out(f: SkillFile) -> SkillFileOut:
@@ -501,7 +497,14 @@ async def _upload_file(
     number as the RAG multipart cap — so a single file can never exceed what one request
     carries. Bundles are what need tus, and they are Phase 4.
     """
-    _validate_file_path(path)
+    # Raised as an HTTPException rather than letting `_validate_file_path`'s ValueError
+    # escape: `path` arrives as a `Form` field, so unlike `SkillFileCreateIn.path` there
+    # is no Pydantic validator to turn a ValueError into a 422, and nothing registers a
+    # ValueError handler — a bad path would answer 500 with a stack trace instead of
+    # naming the problem. Fail-closed either way; only the status and the log were wrong.
+    reason = skill_file_path_reason(path)
+    if reason is not None:
+        raise HTTPException(status_code=422, detail=f"path {reason}")
     # Read the cap plus one byte and check *before* buffering the rest, mirroring
     # `rag.upload_document`: reading first and measuring after is how a size cap becomes
     # a memory exhaustion primitive.

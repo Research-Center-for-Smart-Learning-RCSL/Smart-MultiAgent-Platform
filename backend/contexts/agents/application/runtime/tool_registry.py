@@ -281,6 +281,7 @@ def _fit_skill_body(
     *,
     files: Sequence[SkillFile] = (),
     path: str | None = None,
+    files_omitted: int = 0,
 ) -> tuple[str, int | None]:
     """The longest span of ``body[offset:]`` that fits, and where to resume after it.
 
@@ -303,7 +304,9 @@ def _fit_skill_body(
     # manifest would let the rendered result overrun `_MAX_TOOL_OUTPUT` by the manifest's
     # own length, and the byte clip would then sever the JSON that carries the offset —
     # the exact failure D-13 records.
-    envelope = len(_read_skill_payload(name, "", len(body), files=files, path=path))
+    envelope = len(
+        _read_skill_payload(name, "", len(body), files=files, path=path, files_omitted=files_omitted)
+    )
 
     def fits(span: str) -> bool:
         return (
@@ -334,6 +337,7 @@ def _read_skill_payload(
     *,
     files: Sequence[SkillFile] = (),
     path: str | None = None,
+    files_omitted: int = 0,
 ) -> str:
     payload: dict[str, Any] = {"name": name}
     if path is not None:
@@ -346,7 +350,50 @@ def _read_skill_payload(
         # rejected newlines and the index delimiter at every entry point — this is the
         # second channel into model context the path rule exists for (§8 threat 8).
         payload["files"] = [{"path": f.path, "kind": f.kind.value, "size_bytes": f.size_bytes} for f in files]
+    if files_omitted:
+        payload["files_omitted"] = files_omitted
     return json.dumps(payload, ensure_ascii=False)
+
+
+# The span every result is guaranteed room for. Its job is to make `_fit_skill_body`'s
+# "lo fits" invariant true by construction: the manifest is trimmed until an empty span
+# plus this much content still renders under `_MAX_TOOL_OUTPUT`, so the binary search can
+# never be handed a problem with no solution.
+_MIN_SPAN_CHARS = 512
+
+
+def _fit_manifest(
+    name: str,
+    body_len: int,
+    files: Sequence[SkillFile],
+    *,
+    path: str | None = None,
+) -> tuple[list[SkillFile], int]:
+    """The longest prefix of `files` that still leaves room to serve content.
+
+    Nothing caps files per skill — Q-17's 500-entry limit is a *bundle* rule, and bundles
+    are Phase 4 — and a path may be 255 characters, so a manifest can exceed
+    `_MAX_TOOL_OUTPUT` on its own. When it did, `_fit_skill_body`'s stated invariant
+    ("lo fits") was false at `lo = 0`: the search returned a one-character span anyway,
+    the byte clip severed the JSON carrying `truncated_at_offset`, and the model got
+    unparseable output plus an offset advancing one character per call — burning all
+    `MAX_TOOL_ROUNDS`. That is D-13's failure arriving through the manifest instead of the
+    body. Reproduced at 220 files; 60 files rendered 15 996 bytes, four under the cap,
+    which is exactly why the first test of this missed it.
+
+    Trimming the manifest rather than refusing the read is the lesser harm: the body is
+    what the model asked for, and `files_omitted` tells it the list is partial so it does
+    not conclude the absent files do not exist. Returns `(kept, omitted_count)`.
+    """
+    kept = list(files)
+    omitted = 0
+    while kept:
+        rendered = _read_skill_payload(name, "", body_len, files=kept, path=path, files_omitted=omitted)
+        if len(rendered) + _MIN_SPAN_CHARS <= _MAX_TOOL_OUTPUT:
+            break
+        kept.pop()
+        omitted += 1
+    return kept, omitted
 
 
 def build_read_skill_tool(
@@ -370,6 +417,14 @@ def build_read_skill_tool(
     it to learn the path.
     """
     by_name = {s.name: s for s in snapshot.skills}
+    # [R31.16] — "bodies fetched within a turn are cached for that turn only; edits take
+    # effect on the next turn". Bodies get that for free by living in the snapshot; file
+    # text does not, because it is fetched from MinIO on demand. Without this the rule is
+    # broken twice: an edit landing mid-walk would make the *next* continuation read a
+    # different document at an offset computed against the old one, so AC-33's spans stop
+    # reassembling — and a long file would be re-fetched and re-parsed once per span.
+    # The closure is per turn, so the cache's lifetime is exactly the rule's.
+    file_text_cache: dict[uuid.UUID, str] = {}
 
     async def _invoke(args: dict[str, Any]) -> ToolResult:
         name = str(args.get("name", ""))
@@ -412,7 +467,7 @@ def build_read_skill_tool(
         raw_path = args.get("path")
         if raw_path is None:
             return _serve_body(skill, files, offset, reads)
-        return await _serve_file(skill, files, str(raw_path), offset, db)
+        return await _serve_file(skill, files, str(raw_path), offset, db, file_text_cache)
 
     return Tool(
         name="read_skill",
@@ -439,7 +494,9 @@ def _serve_body(
             content=f"offset {offset} is outside skill {skill.name!r} (0..{len(skill.body)}).",
             is_error=True,
         )
-    span, next_offset = _fit_skill_body(skill.name, skill.body, offset, files=files)
+    # The manifest is bounded first, so the span search below always has a solution.
+    shown, omitted = _fit_manifest(skill.name, len(skill.body), files)
+    span, next_offset = _fit_skill_body(skill.name, skill.body, offset, files=shown, files_omitted=omitted)
     if reads is not None:
         reads.append(
             SkillRead(
@@ -451,7 +508,9 @@ def _serve_body(
             )
         )
     return ToolResult(
-        content=clip_tool_output(_read_skill_payload(skill.name, span, next_offset, files=files))
+        content=clip_tool_output(
+            _read_skill_payload(skill.name, span, next_offset, files=shown, files_omitted=omitted)
+        )
     )
 
 
@@ -461,6 +520,7 @@ async def _serve_file(
     path: str,
     offset: int,
     db: Any,
+    text_cache: dict[uuid.UUID, str],
 ) -> ToolResult:
     match = next((f for f in files if f.path == path), None)
     if match is None:
@@ -480,11 +540,15 @@ async def _serve_file(
             ),
             is_error=True,
         )
-    # Imported lazily and called with the snapshot's own `SkillFile`: the facade takes the
-    # row, never an id, so this cannot become a read primitive over other tenants' files.
-    from contexts.skills.interfaces.facade import SkillsFacade
+    text = text_cache.get(match.id)
+    if text is None:
+        # Imported lazily and called with the snapshot's own `SkillFile`: the facade takes
+        # the row, never an id, so this cannot become a read primitive over other tenants'
+        # files.
+        from contexts.skills.interfaces.facade import SkillsFacade
 
-    text = await SkillsFacade(db).read_skill_file_text(match)
+        text = await SkillsFacade(db).read_skill_file_text(match)
+        text_cache[match.id] = text
     if offset < 0 or offset > len(text):
         return ToolResult(
             content=f"offset {offset} is outside file {path!r} (0..{len(text)}).",

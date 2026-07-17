@@ -274,6 +274,12 @@ def _sfile(
     )
 
 
+def _many_files(skill_id: uuid.UUID, n: int) -> tuple[SkillFile, ...]:
+    return tuple(
+        _sfile(skill_id, path=f"references/file-{i:03d}-with-a-fairly-long-name.md") for i in range(n)
+    )
+
+
 class _FileFacade:
     """Stands in for `SkillsFacade` at the seam `_serve_file` imports it through."""
 
@@ -387,21 +393,28 @@ async def test_another_skills_file_is_unreachable_by_path(file_facade) -> None:
 
 
 @pytest.mark.parametrize(
-    ("kind", "word"),
-    [(SkillFileKind.SCRIPT, "script"), (SkillFileKind.ASSET, "asset")],
+    ("kind", "path"),
+    # The path matches what `kind_for_path` would derive, so the fixture is a state the
+    # system can actually reach — and, deliberately, neither path contains the word the
+    # assertion looks for. An earlier version used `scripts/x.asset` and asserted
+    # `word in res.content`, which passed off the echoed path: deleting `kind.value` from
+    # the message left it green. Probed.
+    [(SkillFileKind.SCRIPT, "scripts/run.py"), (SkillFileKind.ASSET, "assets/logo.png")],
 )
 @pytest.mark.asyncio
-async def test_only_reference_files_are_readable_as_text(file_facade, kind, word) -> None:
+async def test_only_reference_files_are_readable_as_text(file_facade, kind, path) -> None:
     # R31.18: a script is staged for the interpreter, an asset is opaque bytes.
     skill = make_skill(name="pdf-fill")
-    f = _sfile(skill.id, path=f"scripts/x.{word}", kind=kind)
+    f = _sfile(skill.id, path=path, kind=kind)
     tool = build_read_skill_tool(_snap(skill, files={skill.id: (f,)}))
 
-    res = await tool.invoke({"name": "pdf-fill", "path": f.path})
+    res = await tool.invoke({"name": "pdf-fill", "path": path})
 
     assert res.is_error
-    assert word in res.content
-    assert file_facade.asked == []
+    # The kind must be *named*, not merely implied by the path the caller already sent:
+    # the model has to learn why this file is unreadable, not guess.
+    assert kind.value in res.content
+    assert file_facade.asked == [], "no byte may be fetched for a file that is not text"
 
 
 @pytest.mark.parametrize(
@@ -556,13 +569,76 @@ async def test_a_long_file_reassembles_across_continuations(file_facade) -> None
 
 
 @pytest.mark.asyncio
+async def test_file_text_is_fetched_once_per_turn(file_facade) -> None:
+    # R31.16 — "bodies fetched within a turn are cached for that turn only". The body gets
+    # that free by living in the snapshot; file text is fetched on demand, so without a
+    # cache a long file is re-fetched and re-parsed once per continuation span.
+    skill = make_skill(name="pdf-fill")
+    f = _sfile(skill.id, path="references/guide.md")
+    file_facade.texts["references/guide.md"] = "The quick brown fox. " * 4_000
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: (f,)}))
+
+    offset: int | None = 0
+    spans = 0
+    while offset is not None:
+        out = await _read(tool, name="pdf-fill", path="references/guide.md", offset=offset)
+        spans += 1
+        offset = out.get("truncated_at_offset")
+
+    assert spans > 1, "the fixture must actually span or it proves nothing"
+    assert file_facade.asked == ["references/guide.md"], "re-fetched once per span"
+
+
+@pytest.mark.asyncio
+async def test_an_edit_mid_turn_cannot_move_the_ground_under_a_continuation(file_facade) -> None:
+    # The real reason the cache is correctness and not speed. An offset is computed
+    # against the text the previous call returned; if the next call re-read the file and
+    # got different bytes, that offset would index into a different document and AC-33's
+    # spans would stop reassembling. R31.16 puts edits on the next turn precisely here.
+    skill = make_skill(name="pdf-fill")
+    f = _sfile(skill.id, path="references/guide.md")
+    original = "The quick brown fox. " * 4_000
+    file_facade.texts["references/guide.md"] = original
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: (f,)}))
+
+    first = await _read(tool, name="pdf-fill", path="references/guide.md")
+    assert first.get("truncated_at_offset")
+
+    # Someone edits the file between the two calls.
+    file_facade.texts["references/guide.md"] = "totally different and much shorter"
+
+    spans = [first["text"]]
+    offset = first["truncated_at_offset"]
+    while offset is not None:
+        out = await _read(tool, name="pdf-fill", path="references/guide.md", offset=offset)
+        spans.append(out["text"])
+        offset = out.get("truncated_at_offset")
+
+    # The turn reassembles the document it started reading, not a splice of two.
+    assert "".join(spans) == original
+
+
+@pytest.mark.asyncio
+async def test_two_files_are_cached_independently(file_facade) -> None:
+    skill = make_skill(name="pdf-fill")
+    a = _sfile(skill.id, path="references/a.md")
+    b = _sfile(skill.id, path="references/b.md")
+    file_facade.texts = {"references/a.md": "AAA", "references/b.md": "BBB"}
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: (a, b)}))
+
+    assert (await _read(tool, name="pdf-fill", path="references/a.md"))["text"] == "AAA"
+    assert (await _read(tool, name="pdf-fill", path="references/b.md"))["text"] == "BBB"
+    assert (await _read(tool, name="pdf-fill", path="references/a.md"))["text"] == "AAA"
+    assert file_facade.asked == ["references/a.md", "references/b.md"]
+
+
+@pytest.mark.asyncio
 async def test_the_manifest_is_counted_in_the_span_budget(file_facade) -> None:
     # The manifest rides in the same JSON as the body, so a long one must shrink the
     # body's span rather than push the rendered result past _MAX_TOOL_OUTPUT — where the
     # byte clip would sever the JSON carrying truncated_at_offset (D-13).
     skill = make_skill(name="long-one", body="x" * 100_000)
-    many = tuple(_sfile(skill.id, path=f"references/file-{i:03d}-with-a-long-name.md") for i in range(60))
-    tool = build_read_skill_tool(_snap(skill, files={skill.id: many}))
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: _many_files(skill.id, 60)}))
 
     res = await tool.invoke({"name": "long-one"})
 
@@ -572,3 +648,72 @@ async def test_the_manifest_is_counted_in_the_span_budget(file_facade) -> None:
     out = json.loads(res.content)
     assert len(out["files"]) == 60
     assert out["truncated_at_offset"] > 0
+
+
+@pytest.mark.parametrize("n", [1, 60, 120, 220, 400])
+@pytest.mark.asyncio
+async def test_the_result_is_always_parseable_however_many_files(file_facade, n: int) -> None:
+    # Found by this task's quality gate and reproduced before it was fixed: nothing caps
+    # files per skill (Q-17's 500-entry limit is a *bundle* rule, and bundles are Phase
+    # 4), and a path may be 255 chars — so a manifest can exceed _MAX_TOOL_OUTPUT on its
+    # own. `_fit_skill_body`'s "lo fits" invariant was then false at lo=0, it returned a
+    # 1-char span regardless, and the clip severed the JSON holding truncated_at_offset.
+    # The model got unparseable output and an offset advancing one character per call,
+    # burning all MAX_TOOL_ROUNDS on garbage.
+    #
+    # The first version of this test used 60 files and rendered 15 996 bytes — four under
+    # the cap. That is why this one sweeps the count instead of picking one.
+    skill = make_skill(name="long-one", body="x" * 100_000)
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: _many_files(skill.id, n)}))
+
+    res = await tool.invoke({"name": "long-one"})
+
+    assert not res.is_error
+    assert len(res.content) <= _MAX_TOOL_OUTPUT
+    assert "[truncated]" not in res.content, "the byte clip severed the JSON"
+    out = json.loads(res.content)  # the assertion that actually failed before the fix
+    # And the span must make real progress, or the continuation walk never terminates.
+    assert len(out["body"]) >= 1
+    assert out["truncated_at_offset"] >= len(out["body"])
+
+
+@pytest.mark.asyncio
+async def test_an_over_large_manifest_is_trimmed_and_says_so(file_facade) -> None:
+    # Trimming beats refusing: the body is what was asked for. But the model must be told
+    # the list is partial, or it concludes the absent files do not exist — the
+    # confabulation Q-18 is written against, one level down.
+    skill = make_skill(name="long-one", body="x" * 100_000)
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: _many_files(skill.id, 400)}))
+
+    out = json.loads((await tool.invoke({"name": "long-one"})).content)
+
+    assert out["files_omitted"] > 0
+    assert len(out["files"]) + out["files_omitted"] == 400
+
+
+@pytest.mark.asyncio
+async def test_a_manifest_that_fits_reports_nothing_omitted(file_facade) -> None:
+    # The key must be absent, not zero: `files_omitted: 0` on every ordinary read is a
+    # constant dressed as data.
+    skill = make_skill(name="pdf-fill", body="short")
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: _many_files(skill.id, 3)}))
+
+    out = await _read(tool, name="pdf-fill")
+
+    assert "files_omitted" not in out
+    assert len(out["files"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_huge_manifest_still_lets_a_file_be_read(file_facade) -> None:
+    # The file arm renders `path` rather than the manifest, so it has room — but it runs
+    # the same search, and a skill with 400 files is exactly the one whose files someone
+    # needs to read.
+    skill = make_skill(name="long-one")
+    files = _many_files(skill.id, 400)
+    file_facade.texts[files[0].path] = "the contents"
+    tool = build_read_skill_tool(_snap(skill, files={skill.id: files}))
+
+    out = await _read(tool, name="long-one", path=files[0].path)
+
+    assert out["text"] == "the contents"
