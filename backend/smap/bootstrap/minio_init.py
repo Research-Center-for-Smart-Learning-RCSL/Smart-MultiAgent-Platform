@@ -1,10 +1,15 @@
 """`smap.bootstrap minio-init` — buckets + lifecycle + scoped service account.
 
-Four buckets:
+Seven buckets:
   * `chat-uploads` — 3-day expiration (R13.10)
   * `rag-sources` — kept as long as the `rag_documents` row lives
+  * `knowmap-sources` — kept as long as the `knowmap_documents` row lives
   * `exports` — 24-hour expiration (MinIO minimum is one day; equivalent)
   * `agent-workspace` — designer-uploaded files for Code Interpreter (no TTL)
+  * `prompt-assistant-files` — kept as long as the prompt-assistant file row lives
+  * `skill-bundles` — bundled skill file bytes; kept as long as the `skill_files`
+    row lives (§21.5, R31.19). No TTL: a skill's files are part of the skill, not
+    a transient artifact — generated `.zip` exports go to `exports` instead.
 
 A dedicated MinIO service account is created with a canned IAM-style policy
 scoped to just these buckets. Its access_key/secret_key are written to
@@ -38,6 +43,7 @@ def _policy_document(settings: Settings) -> dict[str, Any]:
         settings.minio.bucket_exports,
         settings.minio.bucket_agent_workspace,
         settings.minio.bucket_prompt_assistant_files,
+        settings.minio.bucket_skill_bundles,
     )
     obj_arns = [f"arn:aws:s3:::{b}/*" for b in buckets]
     bucket_arns = [f"arn:aws:s3:::{b}" for b in buckets]
@@ -152,6 +158,7 @@ def run(
     )
     _ensure_bucket(data, settings.minio.bucket_agent_workspace, lifecycle=None, report=report)
     _ensure_bucket(data, settings.minio.bucket_prompt_assistant_files, lifecycle=None, report=report)
+    _ensure_bucket(data, settings.minio.bucket_skill_bundles, lifecycle=None, report=report)
 
     admin = _admin_client(settings)
 

@@ -74,6 +74,10 @@ class MinioClient:
     def prompt_assistant_files_bucket(self) -> str:
         return self._cfg.bucket_prompt_assistant_files
 
+    @property
+    def skill_bundles_bucket(self) -> str:
+        return self._cfg.bucket_skill_bundles
+
     # ---- operations ------------------------------------------------------
 
     async def put_object(
@@ -274,6 +278,16 @@ def prompt_assistant_file_key(*, config_id: uuid.UUID, sha256: str, filename: st
     return f"{config_id}/{sha256}/{safe_name}"
 
 
+def skill_file_key(*, skill_id: uuid.UUID, sha256: str, path: str) -> str:
+    # `path` is bundle-relative and legitimately holds separators (`references/x.md`),
+    # unlike every other builder's flat filename — so flattening is what keeps the object
+    # key one segment deep under the sha, rather than letting a bundle path steer the
+    # key layout. Traversal is already rejected upstream (`skill_file_path_reason`); this
+    # is the same defence-in-depth `export_key` documents at SEC-L6.
+    safe_path = path.replace("/", "_").replace("\\", "_")
+    return f"{skill_id}/{sha256}/{safe_path}"
+
+
 def export_key(*, job_id: uuid.UUID, filename: str) -> str:
     # SEC-L6: sanitise like chat_upload_key / rag_source_key so a filename can
     # never inject path separators into the object key. Keys are UUID-namespaced
@@ -293,4 +307,5 @@ __all__ = [
     "prompt_assistant_file_key",
     "rag_source_key",
     "reset_for_tests",
+    "skill_file_key",
 ]
