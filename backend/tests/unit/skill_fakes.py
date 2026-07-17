@@ -23,6 +23,9 @@ from contexts.agents.domain.models import AgentToolType
 from contexts.skills.domain.models import (
     Skill,
     SkillBinding,
+    SkillFile,
+    SkillFileKind,
+    SkillScanStatus,
     SkillScope,
     SkillScopeCounts,
     SkillSource,
@@ -345,12 +348,109 @@ class FakeBindingRepo:
         return [b.agent_id for k, b in self.rows.items() if k[1] == skill_id and b.is_live]
 
 
+class FakeSkillFileRepo:
+    """`SkillFileRepository` in memory.
+
+    `skill_files` has no `deleted_at`, so `delete` really removes — the asymmetry with
+    `FakeBindingRepo` above is the schema's, not this double's.
+    """
+
+    def __init__(self) -> None:
+        self.rows: dict[uuid.UUID, SkillFile] = {}
+
+    def put(self, f: SkillFile) -> SkillFile:
+        self.rows[f.id] = f
+        return f
+
+    async def list_for_skill(self, skill_id: uuid.UUID) -> list[SkillFile]:
+        # Ordered by path, mirroring the real `ORDER BY path`: the manifest read_skill
+        # renders is order-sensitive, so a double that returned insertion order would
+        # hide a determinism bug rather than reveal it.
+        return sorted(
+            (f for f in self.rows.values() if f.skill_id == skill_id),
+            key=lambda f: f.path,
+        )
+
+    async def get(self, file_id: uuid.UUID) -> SkillFile | None:
+        return self.rows.get(file_id)
+
+    async def list_paths_for_skill(self, skill_id: uuid.UUID) -> list[str]:
+        return [f.path for f in self.rows.values() if f.skill_id == skill_id]
+
+    async def create(
+        self,
+        *,
+        skill_id: uuid.UUID,
+        path: str,
+        kind: SkillFileKind,
+        mime: str,
+        size_bytes: int,
+        sha256: str,
+        minio_key: str,
+        scan_status: SkillScanStatus,
+        extracted_chars: int,
+    ) -> SkillFile:
+        # The real table has UNIQUE (skill_id, path); without it here, a test proving the
+        # collision check works would pass even if the check were deleted.
+        if any(f.skill_id == skill_id and f.path == path for f in self.rows.values()):
+            raise AssertionError(f"UNIQUE (skill_id, path) violated for {path!r}")
+        f = SkillFile(
+            id=uuid.uuid4(),
+            skill_id=skill_id,
+            path=path,
+            kind=kind,
+            mime=mime,
+            size_bytes=size_bytes,
+            sha256=sha256,
+            minio_key=minio_key,
+            scan_status=scan_status,
+            extracted_chars=extracted_chars,
+            created_at=NOW,
+        )
+        return self.put(f)
+
+    async def update_content(
+        self,
+        file_id: uuid.UUID,
+        *,
+        size_bytes: int,
+        sha256: str,
+        minio_key: str,
+        scan_status: SkillScanStatus,
+        extracted_chars: int,
+    ) -> SkillFile | None:
+        current = self.rows.get(file_id)
+        if current is None:
+            return None
+        return self.put(
+            replace(
+                current,
+                size_bytes=size_bytes,
+                sha256=sha256,
+                minio_key=minio_key,
+                scan_status=scan_status,
+                extracted_chars=extracted_chars,
+            )
+        )
+
+    async def mark_scan(self, file_id: uuid.UUID, *, scan_status: SkillScanStatus) -> bool:
+        current = self.rows.get(file_id)
+        if current is None:
+            return False
+        self.put(replace(current, scan_status=scan_status))
+        return True
+
+    async def delete(self, file_id: uuid.UUID) -> bool:
+        return self.rows.pop(file_id, None) is not None
+
+
 __all__ = [
     "NOW",
     "FakeAgent",
     "FakeAgentsFacade",
     "FakeBindingRepo",
     "FakeProject",
+    "FakeSkillFileRepo",
     "FakeSkillRepo",
     "FakeTenancyFacade",
     "FakeTool",
