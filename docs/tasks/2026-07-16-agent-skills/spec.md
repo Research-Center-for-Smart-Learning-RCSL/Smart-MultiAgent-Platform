@@ -1371,33 +1371,90 @@ orphaned, not deleted — consistent with §1.2's backup stance.
 
 **Phase 4 — bundles**
 
-- [ ] AC-23: A valid Anthropic-layout `.zip` imports; `SKILL.md` frontmatter populates name /
+> **The bundle *service layer* is built; the *transport* is not (2026-07-17).** Every AC below
+> is stated over parsing, packing, or rejecting bytes, and each is closed and evidenced at
+> that layer. What no AC below names, and what is therefore **still owed before a user can
+> import anything**: the `POST .../import` and `GET .../export` endpoints on all four
+> routers, their Arq tasks, the import-status endpoint, and `tus.py`'s `skill_bundle`
+> branch (§6). That is D-58, and it is scoped work rather than a discovered gap — the
+> user's session scope covered it and it is where the session ended. Treat "AC-23 checked"
+> as "a bundle imports", not as "a bundle can be uploaded".
+
+- [x] AC-23: A valid Anthropic-layout `.zip` imports; `SKILL.md` frontmatter populates name /
       description / requires / allowed-tools via `SkillManifest`.
-- [ ] AC-24: Rejected with `skills/bundle-invalid`: path traversal, absolute path, symlink entry,
+      *(`bundle_service.read_bundle` + `BundleService.import_bundle`; 118 tests in
+      `test_skill_bundle.py`. `SkillManifest` is never splatted — `import_bundle` names each
+      field it copies, so `scope`/`owner_id` come from the router's path and `source` is decided
+      in code. **Measured: all 42 real `SKILL.md` files on this machine parse**, which is the
+      evidence Q-29 rests on and the thing that rejected the parser's first version. Transport
+      is D-58.)*
+- [x] AC-24: Rejected with `skills/bundle-invalid`: path traversal, absolute path, symlink entry,
       >500 entries, >128 MB uncompressed, >32 MB file, missing `SKILL.md`, unknown top-level
       directory, **a reserved frontmatter key** (`scope`, `source`, `version`, `created_by`,
       `bundle_sha256` — server-assigned state), non-NFC path, case-insensitively colliding paths,
       control byte or newline in a path, Windows reserved name. An **unrecognized** key is *not* in
       this list — it is preserved (AC-29, Q-29).
-- [ ] AC-25: A bundle with one quarantined file is rejected whole with `skills/bundle-quarantined`;
+      *(The matrix in `TestTheLayoutMatrix`, plus the slug asserted against the real
+      registration map. **`version` is struck from the reserved list — see D-53**; it is in 13 of
+      42 real bundles and always an author semver. The backslash arm is `skipif`'d on Windows and
+      runs on Linux CI, because `ZipInfo.__init__` rewrites `os.sep` and no backslash path can
+      reach the reader here — the rule itself is asserted platform-independently beside it. Three
+      fixtures are byte-patched after packing because `zipfile` normalizes them away on write
+      (D-55): the encrypted flag, a non-UTF-8 name, and a forged size.)*
+- [x] AC-25: A bundle with one quarantined file is rejected whole with `skills/bundle-quarantined`;
       no partial skill is created.
-- [ ] AC-26: Export → import → export is byte-identical **over the Q-30 byte set** (`SKILL.md`
+      *(`BundleService._assert_clean` scans **before** any row exists — the async
+      `skill_scan_file` worker cannot deliver "whole", because it runs after `skill_files` rows
+      are written, which is a partial import by definition. `SKILL.md` is scanned too though it
+      never becomes a row. The load-bearing assertion is `test_no_partial_skill_is_created`;
+      probed by moving the scan after the create, which reddens 4. FU-45 owns the double scan.)*
+- [x] AC-26: Export → import → export is byte-identical **over the Q-30 byte set** (`SKILL.md`
       body + file bytes + name/description/requires/allowed-tools). Server-assigned state
       (`source`, `version`, `scope`, `created_by`, `bundle_sha256`) is excluded and is not emitted
       into frontmatter.
-- [ ] AC-27: A bundle whose scripts perform network I/O imports with a compatibility warning.
-- [ ] AC-29: `skill_md.py` implements Q-29's **three-way** key policy, and the test asserts all
+      *(`render_skill_md` + `write_bundle`. The exclusion holds **by construction**:
+      `SkillManifest` cannot express server state, so there is no omission to remember. Timestamps
+      are pinned to the zip epoch and modes to a fixed regular-file mode — without which two
+      exports of one unchanged skill differ over a clock. **Measured: all 42 real bundles are
+      byte-stable across parse→render→parse→render with zero semantic loss.** One real defect the
+      round trip caught: `_fold` stripped unconditionally, so `"  padded  "` exported quoted and
+      re-imported stripped, and export2 ≠ export1.)*
+- [x] AC-27: A bundle whose scripts perform network I/O imports with a compatibility warning.
+      *(`_network_warning`, `scripts/` only — prose about `import requests` in a `references/`
+      guide is documentation, and a non-UTF-8 script is a miss on the warning rather than a
+      rejection. A warning and never a 422: the isolation is SEC-C1 (Q-10) and the skill may work
+      without its network path, so refusing would decide for the author.)*
+- [x] AC-29: `skill_md.py` implements Q-29's **three-way** key policy, and the test asserts all
       three arms: a **recognized** key round-trips (every one, both list syntaxes); a **reserved**
       key (`scope`, `source`, `version`, `created_by`, `bundle_sha256`) is rejected by name; an
       **unrecognized** key (e.g. `x-vendor-foo`) is preserved into `extra_frontmatter` and re-emitted
       on export byte-identically, **not** rejected — a flat allowlist rejects 40% of real-world
       `SKILL.md` files (Q-29's measurement against 42 samples). Plus: a body containing `---`
       thematic breaks and a body containing a `key: value` line both round-trip.
-- [ ] AC-31: A `description` authored as `Formats CSV.\nscope: platform` cannot produce a bundle
+      *(All three arms, **`version` excepted per D-53**. The two list syntaxes converge on one
+      emitted form, which is what makes the second export identical to the first. Both body cases
+      hold; the thematic-break one is structural — `split_frontmatter` takes the *first* closing
+      fence, so a body `---` is unreachable, and the test is probed against the realistic
+      last-fence bug rather than a token swap.)*
+- [x] AC-31: A `description` authored as `Formats CSV.\nscope: platform` cannot produce a bundle
       whose frontmatter contains a `scope:` line (blocked at AC-30; export escaping is the second
       line of defense and is asserted independently).
-- [ ] AC-32: A **lying-header** zip — declaring 1 MB, inflating past the cap — is rejected
+      *(`_emit_scalar` **refuses** rather than escapes, and that is the decision: the reader is
+      deliberately shallow — it does not unescape, so a literal `\d` in a description stays `\d`
+      rather than becoming `d` — and emitting an escape the reader will not undo would break the
+      round trip silently where refusing breaks it loudly. Asserted independently of AC-30, per
+      the AC. A colon deliberately does **not** trigger quoting; the round trip is what makes that
+      safe and it is asserted. FU-46 owns the both-quote-characters case.)*
+- [x] AC-32: A **lying-header** zip — declaring 1 MB, inflating past the cap — is rejected
       mid-inflate by the streaming counter. An honest bomb is also rejected. Both fixtures exist.
+      *(**Rejected, but not the way this AC says — see D-56.** Measured, CPython's `zipfile`
+      bounds a read at the entry's *declared* size, so the 200 MB never inflates and the counter
+      never sees a byte; the CRC check fails against the truncated stream instead. The real defect
+      there was a `BadZipFile` escaping as a 500 where a 422 belongs, which the fixture drove out
+      and which is fixed. The honest bomb is rejected by the ratio rule. The counter is not
+      decoration: it is the only control that bounds a *set* of individually-legal files, and it
+      is the backstop if a future decompressor stops bounding reads — both asserted, the latter by
+      a wiring test, after the probe showed the three size rules were masking each other.)*
 
 ## 12. Test Plan
 
@@ -2243,6 +2300,72 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   public method, which D-46's extraction had moved to the private helper — a caller reading
   the method they actually invoke could no longer see that a stale sha silently skips the
   write.
+
+- **D-53: `version` is a tolerated frontmatter key, not a reserved one — reversing AC-24,
+  AC-26 and AC-29's literal text.** Agreed with the user before any code was written. The
+  dossier contradicts itself here and says so out loud: §6's *recognized* list contains
+  `version`, while its *reserved* list says "`version`-**as-row-version**" — the two senses
+  collide on one name, and AC-24/26/29 kept only the second. Measured against the same 42-file
+  corpus Q-29 rests on, `version:` appears in **13 (31%)** and is **always an author's semver**
+  (`0.1.0`, `1.0.0`, `0.2.0`), never a row counter. Rejecting it by name rejects 31% of real
+  bundles — the exact failure Q-29 exists to prevent, having already discarded a flat allowlist
+  for rejecting 40%, and Q-2 calls interop "the value §9.2 lacked". So it falls to the tolerated
+  arm and round-trips through `extra_frontmatter`, which needs no column and no migration.
+  **The concern underneath is real and is answered better than a blocklist answers it.** §8
+  threat 2 does not ask for names to be rejected; it asks for "server-assigned fields
+  structurally unreachable from parsed input", and that is what ships: `SkillManifest` has no
+  `version`, `scope`, `source`, `created_by`, `bundle_sha256` or owner field, and
+  `import_bundle` names every field it copies. A DTO that cannot express the state is stronger
+  than a list of names, because it also holds for the key nobody enumerated. The rejected
+  alternative — `version` as a *recognized* key — needs a `skills.author_version` column and so
+  a migration, plus an amendment to AC-26's byte set, to store a string nothing reads.
+- **D-54: the parser's tests are their own file.** §12 files AC-29 under `test_skill_bundle.py`.
+  `test_skill_md.py` splits it: the parser is pure and has no zip, no IO and no service in it,
+  while the bundle file carries the streaming counters and the quarantine gate. Same call Phase 2
+  made when `test_skill_file_paths.py` came out of the sanitization matrix.
+- **D-55: bundle fixtures are built in code, not checked in.** §12 calls for
+  `backend/tests/fixtures/skill-bundles/`. Every fixture is assembled in memory instead, and for
+  three of them there is no alternative: **`zipfile` normalizes on write**, so it rewrites a
+  backslash to `/`, drops the encryption flag, and forces the UTF-8 name flag on — the three
+  hostile shapes a real packer emits and Python's writer refuses to. Those are patched into the
+  bytes after packing, and the patcher has its own tests, because a patcher that silently matched
+  nothing would leave the suite asserting that *ordinary* bundles are rejected. AC-32's zip is the
+  clearest case: its entire content is a lie about one field, which a reviewer can read in three
+  lines of builder and cannot see in a blob.
+- **D-56: AC-32's lying-header zip is rejected, but not by the streaming counter, because
+  CPython forecloses the attack first.** AC-32 predicts the counter catches a 1 MB-declaring,
+  200 MB-inflating zip mid-inflate. Measured, `zipfile` bounds a read at the entry's declared
+  uncompressed size: the 200 MB never inflates, the counter never sees a byte, and the CRC check
+  fails against the truncated stream. **The real defect the fixture found** was that the
+  resulting `BadZipFile` escaped `read_bundle` as a 500 where a 422 belongs; that is fixed and is
+  what the test now asserts. The counter is not thereby decoration — it is the only control that
+  bounds a *set* of individually-legal files (the 128 MB total), it carries the ratio rule, and it
+  is the backstop if a future decompressor stops bounding reads. Both claims are asserted, the
+  second by a wiring test. The general lesson is the one D-47 already names from the other side:
+  a rule can be right and still be untested because a *neighbouring* rule catches every case you
+  wrote — the probe found the three size rules masking each other, and both "counter" tests were
+  really exercising the per-file cap.
+- **D-57: `license` has no column, so it rides in `extra_frontmatter`.** §6 enumerates every
+  `skills` column and `license` is not among them — yet §6's recognized-key list names it, AC-30's
+  matrix names it as a column to validate, and Phase 1 recorded it as vacuous because it "arrives
+  with bundles (Phase 4)". This is Phase 4 and the column still does not exist. Storing it in the
+  existing `extra_frontmatter` JSONB costs no migration, round-trips, and inherits the charset
+  rule already applied to tolerated values; `manifest_of` lifts it back into its declared slot so
+  it is emitted once rather than twice (a duplicate key is `BundleInvalid` on re-import — an
+  export its own importer rejects). It stays **out of `authored_digest`** because Q-30's byte set
+  does not name it, so editing a license does not mark a skill diverged: Q-30's call, recorded
+  rather than quietly widened. A `skills.license` column is the alternative and is unrequested.
+- **D-58: Phase 4's transport is not built, and this is the session's scope boundary rather
+  than a discovery.** The user scoped this session to "the whole Phase 4 backend, tus included";
+  the service layer landed and the transport did not. Still owed, all specified in §6 and named by
+  **no** AC — which is why all eight Phase 4 boxes are checked and a user still cannot upload a
+  bundle: `POST .../import` (multipart ≤ 32 MB) and `GET .../export` (202 + task id) on each of
+  the four routers, the two Arq tasks and their registration in `app/workers/main.py`,
+  `GET /api/skills/imports/{task_id}`, the per-org concurrent-import limit, and `tus.py`'s
+  `skill_bundle` else-branch plus its ACL branch. `SkillsFacade` has no `import_bundle`/
+  `export_bundle` either. The gap is recorded here rather than left for a reader to infer from
+  eight checked boxes, because D-12's lesson is exactly this shape: a box was ticked while the
+  facade behind it had zero production callers.
 
 - **D-20: `status` stays `in-progress` with Phase 1 complete.** The contract
   (`docs/tasks/README.md:57`) moves `in-progress → implemented` "only after the full Definition of
@@ -3097,3 +3220,30 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   is the first feature whose *bind-time contract* implies a staging that never happens. Either the
   headless path gains staging or `read_skill` should tell the model the scripts are unavailable
   there; both are decisions this dossier never made.
+- **FU-45: an imported bundle is scanned twice.** AC-25 forces an inline scan before any row
+  exists (a quarantine must reject the bundle *whole*, which is meaningless once rows are
+  written), and `SkillFileService.add` then writes `pending` and enqueues `skill_scan_file` per
+  file as it does for every other path. So a 500-file bundle goes through ClamAV twice. Chosen
+  deliberately over having the importer write `clean` itself: the worker is the single authority
+  on `scan_status`, and D-34/D-35 are two ways that gate was already nearly bypassed — a second
+  writer is exactly the shape that produced them. The cost is CPU on a rare operation. If it ever
+  matters, the fix is to pass the import-time verdict to `add` as an argument rather than to have
+  it re-derive one, and the test to write first is that a quarantined verdict cannot be passed in.
+- **FU-46: a frontmatter value needing quotes that holds both `"` and `'` cannot be exported.**
+  `_emit_scalar` raises `BundleInvalid` for it. The reader is deliberately shallow — `_unquote`
+  strips one pair of outer quotes and does **not** unescape, so a literal `\d` in a description
+  stays `\d` rather than becoming `d` — and no quoting style round-trips such a value without an
+  escape the reader would have to undo. Reachable only by a value that both needs quoting (leading
+  `[`, a quote, padding) *and* carries both quote characters, so no corpus file is affected and no
+  ordinary description is. The fix is a real escaping rule on both sides, and its first test is
+  that `\d` survives it: adding `\"` handling naively to `_unquote` turns every literal backslash
+  escape in every stored description into its bare letter.
+- **FU-47: `SkillOut.diverged` is still hardcoded `False`, and now it is a wiring gap rather
+  than an undefined one.** Phase 4 defines divergence (`bundle_service.is_diverged`, over Q-30's
+  byte set) and tests it, which retires the reason Phase 1 gave. `_summary_fields` still returns
+  `False` because it is the wrong place to compute it: it is sync, takes only the row, and feeds
+  the **list** endpoint as well as the detail one — and divergence needs every file's `sha256`, so
+  computing it there is one query per skill per list, the N+1 D-45 removed from the turn path
+  reappearing on the read path. The batched shape is one `(skill_id, path, sha256)` query over the
+  page's ids. Sequenced with D-26's frontend, which owns the badge that reads it; AC-16 stays
+  unchecked for both.
