@@ -20,7 +20,9 @@ import struct
 import uuid
 import zipfile
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -30,13 +32,23 @@ from contexts.skills.application.bundle_service import (
     MAX_BUNDLE_ENTRIES,
     MAX_BUNDLE_UNCOMPRESSED_BYTES,
     authored_digest,
+    manifest_of,
     read_bundle,
 )
+from contexts.skills.application.skill_md import (
+    SkillManifest,
+    parse_skill_md,
+    render_skill_md,
+)
 from contexts.skills.domain.errors import BundleInvalid, BundleQuarantined
-from contexts.skills.domain.models import SkillScope, SkillSource
+from contexts.skills.domain.models import Skill, SkillScope, SkillSource
 from contexts.skills.domain.text_rules import skill_file_path_reason
 
 SKILL_MD = "---\nname: pdf-fill\ndescription: Fills PDF forms.\n---\n\n# PDF Fill\n\nProse.\n"
+
+
+def doc(frontmatter: str, body: str = "# Title\n\nProse.\n") -> str:
+    return f"---\n{frontmatter}\n---\n{body}"
 
 
 def build_zip(entries: dict[str, bytes | str], *, compression: int = zipfile.ZIP_DEFLATED) -> bytes:
@@ -751,6 +763,342 @@ class TestTheQuarantineGate:
         )
         assert skill.name == "pdf-fill"
         assert w.scanner.scanned == []
+
+
+class TestTheRoundTrip:
+    """AC-26 — export → import → export is byte-identical over Q-30's byte set."""
+
+    def _round_trip(self, data: bytes) -> bytes:
+        parsed = read_bundle(data)
+        return bundle_service.write_bundle(
+            skill_md=render_skill_md(parsed.manifest),
+            files=[(f.path, f.data) for f in parsed.files],
+        )
+
+    def test_export_import_export_is_byte_identical(self) -> None:
+        first = self._round_trip(
+            valid_bundle(
+                **{
+                    "references/guide.md": "# Guide\n",
+                    "scripts/run.py": "print(1)\n",
+                    "assets/logo.png": b"\x89PNG\r\n\x1a\n",
+                }
+            )
+        )
+        assert self._round_trip(first) == first
+
+    def test_it_is_identical_across_separate_exports_of_the_same_input(self) -> None:
+        # Determinism proper: not "stable under round trip" but "a function of the skill".
+        # A zip records an mtime per entry, so without a pinned timestamp two exports one
+        # second apart differ for a reason the skill had no part in.
+        data = valid_bundle(**{"references/a.md": "x"})
+        assert self._round_trip(data) == self._round_trip(data)
+
+    def test_entry_order_does_not_depend_on_the_input_zips_order(self) -> None:
+        a = valid_bundle(**{"references/a.md": "1", "scripts/z.py": "2"})
+        b = valid_bundle(**{"scripts/z.py": "2", "references/a.md": "1"})
+        assert self._round_trip(a) == self._round_trip(b)
+
+    def test_skill_md_leads_and_the_rest_sort(self) -> None:
+        out = self._round_trip(valid_bundle(**{"scripts/z.py": "z", "references/a.md": "a"}))
+        with zipfile.ZipFile(io.BytesIO(out)) as zf:
+            assert zf.namelist() == ["SKILL.md", "references/a.md", "scripts/z.py"]
+
+    @pytest.mark.parametrize(
+        "frontmatter",
+        [
+            "name: t\ndescription: d",
+            "name: t\ndescription: d\nallowed-tools: [Read, Grep]",
+            "name: t\ndescription: d\nallowed-tools: Read, Grep, Bash(git:*)",
+            "name: t\ndescription: d\nallowed-tools:\n  - Read\n  - Grep",
+            "name: t\ndescription: d\nx-smap-requires: [code_exec]",
+            "name: t\ndescription: d\nlicense: Complete terms in LICENSE.txt",
+            "name: t\ndescription: d\nversion: 1.2.0\nuser-invocable: true",
+            'name: t\ndescription: "Does a thing: carefully"',
+            "name: t\ndescription: Fills forms, checks them, and signs.",
+            'name: t\ndescription:\n  "Folded across\n  two lines."',
+        ],
+    )
+    def test_every_recognized_and_tolerated_shape_survives(self, frontmatter: str) -> None:
+        # AC-29's "every one, both list syntaxes". The two list syntaxes converge on one
+        # emitted form, which is what makes the *second* export identical to the first.
+        first = self._round_trip(build_zip({"SKILL.md": doc(frontmatter)}))
+        assert self._round_trip(first) == first
+
+    def test_the_values_survive_and_not_just_the_bytes(self) -> None:
+        # Byte-identity between two exports would also hold if both dropped a field, so
+        # the semantic claim is asserted separately.
+        first = read_bundle(
+            self._round_trip(
+                build_zip(
+                    {
+                        "SKILL.md": doc(
+                            "name: pdf-fill\ndescription: Fills forms.\n"
+                            "allowed-tools: Read, Bash(git:*)\nx-smap-requires: [code_exec]\n"
+                            "license: MIT\nversion: 2.0.0"
+                        )
+                    }
+                )
+            )
+        ).manifest
+        assert first.name == "pdf-fill"
+        assert first.description == "Fills forms."
+        assert first.allowed_tools == ("Read", "Bash(git:*)")
+        assert first.requires == ("code_exec",)
+        assert first.license == "MIT"
+        assert first.extra_frontmatter == {"version": "2.0.0"}
+
+    def test_a_body_with_thematic_breaks_survives(self) -> None:
+        body = "# Title\n\n---\n\nMiddle.\n\n---\n\nEnd.\n"
+        out = read_bundle(self._round_trip(build_zip({"SKILL.md": doc("name: t\ndescription: d", body)})))
+        assert out.manifest.body == body
+
+    def test_server_assigned_state_is_never_emitted(self) -> None:
+        # AC-26's exclusion list. It holds by construction — SkillManifest cannot express
+        # these — so this asserts the construction, which is the thing that could regress.
+        text = render_skill_md(read_bundle(valid_bundle()).manifest)
+        head = text.split("---")[1]
+        for key in ("source:", "version:", "scope:", "created_by:", "bundle_sha256:"):
+            assert key not in head
+
+
+class TestDeterminismIsAFunctionOfTheSkill:
+    """The parts of Q-19 that "two exports match" cannot see.
+
+    Every test here exists because a mutation survived without it: comparing two exports
+    taken microseconds apart passes with a live clock in the timestamp, and feeding
+    already-sorted input to the packer passes with the sort deleted. A determinism claim
+    has to be tested against the thing that would vary, not against a repeat of itself.
+    """
+
+    def test_every_entry_carries_the_pinned_epoch_rather_than_a_clock(self) -> None:
+        # **The literal, not the constant.** Asserting `== bundle_service._ZIP_EPOCH` reads
+        # whatever the module currently says and passes even with a live clock substituted
+        # — which the probe confirmed. The zip epoch is the contract, so it is written out
+        # here; if someone changes the constant, this is meant to fail.
+        out = bundle_service.write_bundle(skill_md=SKILL_MD, files=[("references/a.md", b"x")])
+        with zipfile.ZipFile(io.BytesIO(out)) as zf:
+            for info in zf.infolist():
+                assert info.date_time == (1980, 1, 1, 0, 0, 0)
+
+    def test_every_entry_carries_a_fixed_regular_file_mode(self) -> None:
+        out = bundle_service.write_bundle(skill_md=SKILL_MD, files=[("scripts/run.py", b"x")])
+        with zipfile.ZipFile(io.BytesIO(out)) as zf:
+            for info in zf.infolist():
+                assert info.external_attr == (0o100644 << 16)
+                # And not a link — the shape `_assert_not_a_link` reads on the way back in.
+                assert info.create_system == 3
+
+    def test_the_packer_sorts_input_it_is_handed_unsorted(self) -> None:
+        # `read_bundle` already sorts, so the packer's own sort is unreachable through the
+        # round trip and was deletable without reddening anything. `export_bundle` is a
+        # second caller, and the guarantee belongs to the packer.
+        out = bundle_service.write_bundle(
+            skill_md=SKILL_MD,
+            files=[("scripts/z.py", b"z"), ("assets/m.bin", b"m"), ("references/a.md", b"a")],
+        )
+        with zipfile.ZipFile(io.BytesIO(out)) as zf:
+            assert zf.namelist() == ["SKILL.md", "assets/m.bin", "references/a.md", "scripts/z.py"]
+
+    def test_the_packer_is_a_pure_function_of_its_arguments(self) -> None:
+        args = {"skill_md": SKILL_MD, "files": [("references/a.md", b"x")]}
+        assert bundle_service.write_bundle(**args) == bundle_service.write_bundle(**args)  # type: ignore[arg-type]
+
+    def test_tolerated_keys_are_emitted_sorted_not_in_dict_order(self) -> None:
+        # `extra_frontmatter` is a JSONB round trip; nobody controls its key order. Built
+        # in deliberately reverse order, because an insertion-ordered dict makes a sorted
+        # emitter and an unsorted one agree by accident.
+        m = SkillManifest(
+            name="t",
+            description="d",
+            body="",
+            extra_frontmatter={"z-last": "1", "m-mid": "2", "a-first": "3"},
+        )
+        emitted = [ln.split(":")[0] for ln in render_skill_md(m).splitlines() if ":" in ln]
+        assert emitted == ["name", "description", "a-first", "m-mid", "z-last"]
+
+    def test_an_empty_list_is_omitted_rather_than_emitted_as_brackets(self) -> None:
+        # Absence is what an empty list already means to the reader, so emitting `[]` would
+        # add a key the author never wrote to every skill in the corpus.
+        rendered = render_skill_md(read_bundle(valid_bundle()).manifest)
+        assert "allowed-tools" not in rendered
+        assert "x-smap-requires" not in rendered
+
+
+class TestTheStoredSkillRoundTrips:
+    """`manifest_of` — the seam between a `skills` row and a bundle, D-57 included.
+
+    It had no test at all: every round-trip case above goes `read_bundle` → `render`, and
+    never through the row. Deleting the `license` pop left the suite green.
+    """
+
+    def _skill(self, **over: object) -> Skill:
+        base: dict[str, Any] = {
+            "id": uuid.uuid4(),
+            "scope": SkillScope.PROJECT,
+            "agent_id": None,
+            "project_id": uuid.uuid4(),
+            "org_id": None,
+            "name": "pdf-fill",
+            "description": "Fills forms.",
+            "body": "# Body\n",
+            "body_sha256": "a" * 64,
+            "source": SkillSource.IMPORTED,
+            "bundle_sha256": None,
+            "requires": ("code_exec",),
+            "allowed_tools": ("Read",),
+            "extra_frontmatter": {},
+            "created_by": uuid.uuid4(),
+            "version": 3,
+            "created_at": datetime.now(UTC),
+            "deleted_at": None,
+        }
+        base.update(over)
+        return Skill(**base)
+
+    def test_a_row_renders_to_a_bundle_that_parses_back_to_it(self) -> None:
+        m = parse_skill_md(render_skill_md(manifest_of(self._skill())))
+        assert (m.name, m.description, m.body) == ("pdf-fill", "Fills forms.", "# Body\n")
+        assert m.requires == ("code_exec",)
+        assert m.allowed_tools == ("Read",)
+
+    def test_manifest_of_lifts_license_out_of_the_jsonb_into_its_field(self) -> None:
+        # **Asserted on `manifest_of` directly, not through a render.** The round-trip test
+        # below launders this: with the lift deleted, `license` stays in
+        # `extra_frontmatter`, gets emitted by the tolerated-key loop, and parses back into
+        # `.license` anyway — so the round trip is green either way and says nothing about
+        # D-57's seam. The probe proved it.
+        m = manifest_of(self._skill(extra_frontmatter={"license": "MIT", "version": "1.0.0"}))
+        assert m.license == "MIT"
+        assert m.extra_frontmatter == {"version": "1.0.0"}
+
+    def test_license_rides_in_extra_frontmatter_and_survives(self) -> None:
+        # D-57: there is no `skills.license` column, so it round-trips through the JSONB.
+        skill = self._skill(extra_frontmatter={"license": "MIT", "version": "1.0.0"})
+        m = parse_skill_md(render_skill_md(manifest_of(skill)))
+        assert m.license == "MIT"
+        assert m.extra_frontmatter == {"version": "1.0.0"}
+
+    def test_license_is_emitted_once_in_its_declared_slot(self) -> None:
+        # Once, because a duplicate key is `BundleInvalid` on re-import — an export its own
+        # importer rejects. In its declared slot, because that is what the lift buys over
+        # leaving it among the sorted vendor keys.
+        skill = self._skill(extra_frontmatter={"license": "MIT", "a-vendor-key": "v"})
+        keys = [ln.split(":")[0] for ln in render_skill_md(manifest_of(skill)).splitlines() if ":" in ln]
+        assert keys.count("license") == 1
+        assert keys.index("license") < keys.index("a-vendor-key")
+
+    def test_the_row_state_a_bundle_must_never_carry_is_not_emitted(self) -> None:
+        # `version=3`, `source=imported`, a project owner, a `created_by` — every one is on
+        # the row handed in, and none may appear in the file (AC-26).
+        skill = self._skill(bundle_sha256="b" * 64)
+        head = render_skill_md(manifest_of(skill)).split("---")[1]
+        for token in ("version:", "source:", "scope:", "created_by:", "bundle_sha256:", "3"):
+            assert token not in head
+
+    def test_a_stored_license_does_not_change_the_authored_digest(self) -> None:
+        # Q-30's byte set does not name `license`, so editing one does not mark a skill
+        # diverged. Recorded rather than quietly widened — the test states the gap.
+        plain = self._skill()
+        licensed = self._skill(extra_frontmatter={"license": "MIT"})
+        assert bundle_service.is_diverged(plain, []) == bundle_service.is_diverged(licensed, [])
+
+
+class TestExportEscaping:
+    """AC-31 — the second line of defense, asserted independently of AC-30's first."""
+
+    def test_a_newline_bearing_description_cannot_be_exported(self) -> None:
+        # The attack: `Formats CSV.\nscope: platform` exports as a new `scope:` line and
+        # re-imports as a platform skill — self-escalation with no zip crafting. AC-30
+        # blocks it at every entry point; this is what happens if a row ever gets past it.
+        m = SkillManifest(name="t", description="Formats CSV.\nscope: platform", body="")
+        with pytest.raises(BundleInvalid) as exc:
+            render_skill_md(m)
+        assert exc.value.key == "description"
+
+    def test_the_forged_key_never_reaches_the_output(self) -> None:
+        # Stronger than "it raises": the failure must not be a partial write that already
+        # contains the line.
+        m = SkillManifest(name="t", description="ok.\nscope: platform", body="")
+        with pytest.raises(BundleInvalid):
+            render_skill_md(m)
+
+    @pytest.mark.parametrize("value", ["[not a list]", '"quoted"', "  padded  ", "#comment"])
+    def test_a_value_that_would_reparse_differently_is_quoted(self, value: str) -> None:
+        m = SkillManifest(name="t", description=value, body="body")
+        assert parse_skill_md(render_skill_md(m)).description == value
+
+    def test_a_list_item_with_a_comma_is_quoted_rather_than_split(self) -> None:
+        m = SkillManifest(name="t", description="d", body="", allowed_tools=("a,b", "c"))
+        assert parse_skill_md(render_skill_md(m)).allowed_tools == ("a,b", "c")
+
+    def test_a_colon_does_not_trigger_quoting(self) -> None:
+        # Deliberate: the reader splits on the first colon and takes the rest verbatim, so
+        # quoting for a colon would add quotes the author never wrote to most real
+        # descriptions. The round trip is what makes this safe, and it is asserted.
+        m = SkillManifest(name="t", description="Does a thing: carefully", body="")
+        rendered = render_skill_md(m)
+        assert "description: Does a thing: carefully" in rendered
+        assert parse_skill_md(rendered).description == "Does a thing: carefully"
+
+    def test_a_value_needing_quotes_that_holds_both_quote_characters_is_refused(self) -> None:
+        # The reader does not unescape, so no quoting style round-trips this. Refusing is
+        # loud; emitting an escape the reader will not undo would break it silently.
+        m = SkillManifest(name="t", description="[\"a\" and 'b']", body="")
+        with pytest.raises(BundleInvalid) as exc:
+            render_skill_md(m)
+        assert "quote characters" in exc.value.reason
+
+
+class TestDivergence:
+    """Q-20 / AC-16's badge — the clause that has had no definition since Phase 2."""
+
+    def _skill(self, **over: object) -> object:
+        base: dict[str, object] = {
+            "name": "t",
+            "description": "d",
+            "body": "# Body",
+            "requires": (),
+            "allowed_tools": (),
+            "bundle_sha256": None,
+        }
+        base.update(over)
+        return SimpleNamespace(**base)
+
+    def _digest_of(self, skill: object, files: list[object]) -> str:
+        return authored_digest(
+            name=skill.name,  # type: ignore[attr-defined]
+            description=skill.description,  # type: ignore[attr-defined]
+            requires=skill.requires,  # type: ignore[attr-defined]
+            allowed_tools=skill.allowed_tools,  # type: ignore[attr-defined]
+            body=skill.body,  # type: ignore[attr-defined]
+            file_digests={f.path: f.sha256 for f in files},  # type: ignore[attr-defined]
+        )
+
+    def test_an_authored_skill_is_never_diverged(self) -> None:
+        # It was never a bundle, so it has nothing to diverge from. "Imported and has a
+        # hash" — the only thing Phase 1 could compute — is true of every import forever,
+        # which is why Phase 1 returned False rather than guess.
+        assert bundle_service.is_diverged(self._skill(), []) is False  # type: ignore[arg-type]
+
+    def test_a_freshly_imported_skill_is_not_diverged(self) -> None:
+        s = self._skill()
+        s = self._skill(bundle_sha256=self._digest_of(s, []))
+        assert bundle_service.is_diverged(s, []) is False  # type: ignore[arg-type]
+
+    def test_an_edited_body_diverges(self) -> None:
+        s = self._skill()
+        pinned = self._digest_of(s, [])
+        assert bundle_service.is_diverged(  # type: ignore[arg-type]
+            self._skill(bundle_sha256=pinned, body="# Edited"), []
+        )
+
+    def test_an_edited_file_diverges(self) -> None:
+        f = SimpleNamespace(path="references/a.md", sha256="aa")
+        s = self._skill()
+        pinned = self._digest_of(s, [f])
+        edited = SimpleNamespace(path="references/a.md", sha256="bb")
+        assert bundle_service.is_diverged(self._skill(bundle_sha256=pinned), [edited])  # type: ignore[arg-type]
 
 
 # Zip records each entry twice: a local header before the payload and a central-directory
