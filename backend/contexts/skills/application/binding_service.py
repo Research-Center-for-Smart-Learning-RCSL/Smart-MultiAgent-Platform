@@ -439,10 +439,10 @@ class BindingService:
         dropped: list[DroppedSkill] = []
 
         candidates = await self._bindings.list_live_for_agent(agent_id)
-        # Two queries for the whole set, before the loop — never per skill. `requires:` is
-        # derived per skill (AC-20), so both inputs it needs are batched here: which skills
-        # own a script, and which tools the agent has. This is the hottest path in the
-        # product and it runs for every bound skill on every turn.
+        # At most two queries for the whole set, before the loop — never per skill.
+        # `requires:` is derived per skill (AC-20), so both inputs it needs are batched
+        # here: which skills own a script, and which tools the agent has. This is the
+        # hottest path in the product and it runs for every bound skill on every turn.
         with_scripts = await self._files.skill_ids_with_scripts([s.id for s in candidates])
         # Lazily, because an agent whose skills need nothing must still pay nothing: before
         # derivation the near-universal empty `requires` made the tool read free, and this
