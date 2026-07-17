@@ -337,6 +337,16 @@ class SkillsFacade:
         """
         return await SkillFileService(self._db).read_text(file)
 
+    async def read_skill_file_bytes(self, file: SkillFile) -> bytes:
+        """One script's raw bytes, for staging into the sandbox ([R31.22] / AC-21).
+
+        Same access-control shape as `read_skill_file_text`: it takes the row, which only
+        `resolve_bound_set` hands out, so the tap has already proven the agent may have it.
+        Unlike that method these bytes never enter the model's context — they are tarred
+        into the agent's volume and interpreted, if at all, inside gVisor with no network.
+        """
+        return await SkillFileService(self._db).read_bytes(file)
+
     @staticmethod
     def render_index(skills: Sequence[Skill]) -> str:
         """The skills index block for a turn's system prompt ([R31.12]-[R31.14]).

@@ -1,8 +1,15 @@
-"""AC-12 — the workspace-file manifest covers exactly the file set that is staged.
+"""Workspace staging: the agent's persisted files (AC-12) and a skill's scripts (AC-21).
 
-``_stage_persisted_files`` hashed *every* persisted file into ``manifest_sha`` but
-staged only the ``_MAX_AGENT_FILES_BYTES`` prefix, so the sandbox's cache key
+AC-12 — ``_stage_persisted_files`` hashed *every* persisted file into ``manifest_sha``
+but staged only the ``_MAX_AGENT_FILES_BYTES`` prefix, so the sandbox's cache key
 described bytes that were never written to the volume.
+
+AC-21 — bound skills' ``scripts/`` are staged under ``/workspace/skills/{name}/``,
+reported absolutely, gated on the same scan status ``read_skill`` enforces, and tracked
+by a manifest cache of their own so the two file sets never evict each other.
+
+AC-40 — the three stagers disagree on prefix **by design**; see the test of that name,
+and D-37 for why the AC no longer reads as approved.
 
 Building a real TurnEngine needs settings/router/qdrant wiring, so these drive the
 method unbound over stubs — the house pattern (see test_turn_engine_observer_activity.py).
@@ -18,6 +25,9 @@ import pytest
 
 import contexts.agents.application.runtime.turn_engine as te
 from contexts.agents.application.runtime.turn_engine import TurnEngine
+from contexts.skills.application.binding_service import BoundSet
+from contexts.skills.domain.models import SkillScanStatus
+from tests.unit.skill_fakes import make_skill, make_skill_file
 
 _MIB = 1024 * 1024
 
@@ -177,13 +187,20 @@ async def test_a_file_that_fits_after_an_overrun_is_still_staged() -> None:
 
 
 class _NoteRunner:
-    """Both staging methods, returning what the real ones now return (absolute)."""
+    """All three staging methods, returning what the real ones now return (absolute)."""
+
+    def __init__(self) -> None:
+        self.skill_calls: list[dict] = []
 
     async def stage_agent_workspace_files(self, *, agent_id, files, manifest_sha):
         return [f"/workspace/agent-files/{f.filename}" for f in files]
 
     async def stage_kernel_inputs(self, *, agent_id, chatroom_id, files):
         return [f"/workspace/sessions/{chatroom_id}/inputs/{f.filename}" for f in files]
+
+    async def stage_skill_files(self, *, agent_id, files, manifest_sha):
+        self.skill_calls.append({"manifest_sha": manifest_sha, "filenames": [f.filename for f in files]})
+        return [f"/workspace/skills/{f.filename}" for f in files]
 
 
 def _async_return(value):
@@ -193,7 +210,7 @@ def _async_return(value):
     return _f
 
 
-async def _note(monkeypatch, ws_files, attachments) -> str | None:
+async def _note(monkeypatch, ws_files, attachments, bound=None, read_bytes=None) -> str | None:
     """Drive `_stage_workspace_inputs` unbound, stubbing its lazy imports."""
     import contexts.agents.application.runtime.turn_engine as mod
     from contexts.agents.domain.models import AgentToolType
@@ -219,8 +236,12 @@ async def _note(monkeypatch, ws_files, attachments) -> str | None:
         "contexts.agents.infrastructure.sandbox.docker_runsc.docker_runsc_sandbox_from_settings",
         lambda: _NoteRunner(),
     )
+    monkeypatch.setattr(
+        "contexts.skills.interfaces.facade.SkillsFacade",
+        lambda _db: SimpleNamespace(read_skill_file_bytes=read_bytes or _async_return(b"print(1)")),
+    )
     return await TurnEngine._stage_workspace_inputs(
-        engine, SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), attachments
+        engine, SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), attachments, bound or BoundSet(skills=())
     )
 
 
@@ -252,3 +273,280 @@ def test_cap_is_the_documented_128_mib() -> None:
     # The manifest fix is only meaningful against a real cut; pin the constant
     # the truncation cases above are sized against.
     assert te._MAX_AGENT_FILES_BYTES == 128 * _MIB
+
+
+# --- AC-21 / AC-40: skill script staging ------------------------------------
+
+
+class _SkillRunner:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def stage_skill_files(self, *, agent_id, files, manifest_sha):
+        self.calls.append(
+            {
+                "manifest_sha": manifest_sha,
+                "staged": [(f.filename, f.data) for f in files],
+            }
+        )
+        return [f"/workspace/skills/{f.filename}" for f in files]
+
+
+async def _stage_skills(monkeypatch, bound) -> tuple[_SkillRunner, list[str]]:
+    """Drive `_stage_skill_scripts` unbound over stubs."""
+    monkeypatch.setattr(
+        "contexts.skills.interfaces.facade.SkillsFacade",
+        lambda _db: SimpleNamespace(
+            read_skill_file_bytes=lambda f: _async_return(f"bytes:{f.path}".encode())()
+        ),
+    )
+    engine = TurnEngine.__new__(TurnEngine)
+    engine._db = None
+    runner = _SkillRunner()
+    out: list[str] = []
+    await TurnEngine._stage_skill_scripts(engine, SimpleNamespace(id=uuid.uuid4()), runner, bound, out)
+    return runner, out
+
+
+def _bound(*pairs):
+    """A BoundSet from (skill, files) pairs, as `resolve_bound_set` would return it."""
+    return BoundSet(
+        skills=tuple(s for s, _ in pairs),
+        files={s.id: tuple(fs) for s, fs in pairs},
+    )
+
+
+async def test_scripts_stage_under_the_skill_name_preserving_the_bundle_layout(monkeypatch) -> None:
+    """AC-21. The staged name is `{skill}/{path}`, so the file lands at
+    `/workspace/skills/pdf-fill/scripts/fill.py` and SKILL.md's own relative
+    "run scripts/fill.py" resolves from the skill root."""
+    skill = make_skill(name="pdf-fill")
+    script = make_skill_file(skill.id, path="scripts/fill.py")
+
+    runner, out = await _stage_skills(monkeypatch, _bound((skill, [script])))
+
+    assert runner.calls[0]["staged"] == [("pdf-fill/scripts/fill.py", b"bytes:scripts/fill.py")]
+    assert out == ["/workspace/skills/pdf-fill/scripts/fill.py"]
+
+
+async def test_only_scripts_stage_never_references_or_assets(monkeypatch) -> None:
+    """R31.18 and §8's item 9: a reference is served as text by `read_skill`, and an
+    asset is opaque bytes the note explicitly forbids staging."""
+    skill = make_skill(name="s")
+    files = [
+        make_skill_file(skill.id, path="scripts/run.py"),
+        make_skill_file(skill.id, path="references/guide.md"),
+        make_skill_file(skill.id, path="assets/logo.png"),
+    ]
+
+    runner, out = await _stage_skills(monkeypatch, _bound((skill, files)))
+
+    assert [n for n, _ in runner.calls[0]["staged"]] == ["s/scripts/run.py"]
+    assert out == ["/workspace/skills/s/scripts/run.py"]
+
+
+async def test_a_skill_with_no_scripts_stages_nothing(monkeypatch) -> None:
+    skill = make_skill(name="s")
+    runner, out = await _stage_skills(
+        monkeypatch, _bound((skill, [make_skill_file(skill.id, path="references/g.md")]))
+    )
+
+    assert runner.calls == []
+    assert out == []
+
+
+async def test_an_unreadable_skill_stages_no_scripts(monkeypatch) -> None:
+    """AC-34's gate on the staging channel. `read_skill` refusing the body does not stop
+    the bytes reaching the volume, and the staged note *names the path* — so without this
+    the model is handed the absolute path of a quarantined script to run."""
+    skill = make_skill(name="evil")
+    files = [
+        make_skill_file(skill.id, path="scripts/run.py", scan_status=SkillScanStatus.QUARANTINED),
+    ]
+
+    runner, out = await _stage_skills(monkeypatch, _bound((skill, files)))
+
+    assert runner.calls == []
+    assert out == []
+
+
+async def test_one_quarantined_reference_withholds_the_skills_clean_scripts(monkeypatch) -> None:
+    """Whole-skill, not per-file (Q-18). A skill whose SKILL.md the model cannot read has
+    no business having its scripts on disk, even the clean ones."""
+    skill = make_skill(name="s")
+    files = [
+        make_skill_file(skill.id, path="scripts/run.py", scan_status=SkillScanStatus.CLEAN),
+        make_skill_file(skill.id, path="references/g.md", scan_status=SkillScanStatus.QUARANTINED),
+    ]
+
+    runner, out = await _stage_skills(monkeypatch, _bound((skill, files)))
+
+    assert runner.calls == []
+    assert out == []
+
+
+async def test_a_pending_scan_withholds_the_script_too(monkeypatch) -> None:
+    """D-27's fail-closed rule reaches this channel as well: `clean` is the only status
+    that serves, so a scan still in flight does not stage."""
+    skill = make_skill(name="s")
+    files = [make_skill_file(skill.id, path="scripts/run.py", scan_status=SkillScanStatus.PENDING)]
+
+    runner, out = await _stage_skills(monkeypatch, _bound((skill, files)))
+
+    assert runner.calls == []
+
+
+async def test_an_unreadable_skill_does_not_suppress_a_readable_one(monkeypatch) -> None:
+    """Per skill, like every other skills failure path (AC-7): one quarantined skill must
+    not cost the agent the rest of its bound set."""
+    bad = make_skill(name="bad")
+    good = make_skill(name="good")
+    bound = _bound(
+        (bad, [make_skill_file(bad.id, path="scripts/x.py", scan_status=SkillScanStatus.QUARANTINED)]),
+        (good, [make_skill_file(good.id, path="scripts/y.py")]),
+    )
+
+    runner, out = await _stage_skills(monkeypatch, bound)
+
+    assert [n for n, _ in runner.calls[0]["staged"]] == ["good/scripts/y.py"]
+    assert out == ["/workspace/skills/good/scripts/y.py"]
+
+
+async def test_the_manifest_covers_exactly_the_staged_scripts(monkeypatch) -> None:
+    """AC-12's rule on this channel: the manifest is the cache key for what is on the
+    volume, so it must not describe a skill that was skipped."""
+    good = make_skill(name="good")
+    bad = make_skill(name="bad")
+    g = make_skill_file(good.id, path="scripts/y.py", sha256="b" * 64)
+    bound = _bound(
+        (good, [g]),
+        (bad, [make_skill_file(bad.id, path="scripts/x.py", scan_status=SkillScanStatus.QUARANTINED)]),
+    )
+
+    runner, _out = await _stage_skills(monkeypatch, bound)
+
+    expected = hashlib.sha256(f"good/scripts/y.py:{'b' * 64}".encode()).hexdigest()
+    assert runner.calls[0]["manifest_sha"] == expected
+
+
+async def test_editing_a_script_changes_the_manifest(monkeypatch) -> None:
+    """The cache key must move when the bytes move, or an edited script never re-stages
+    and the volume serves the old one forever."""
+    skill = make_skill(name="s")
+    before, _ = await _stage_skills(
+        monkeypatch, _bound((skill, [make_skill_file(skill.id, path="scripts/x.py", sha256="a" * 64)]))
+    )
+    after, _ = await _stage_skills(
+        monkeypatch, _bound((skill, [make_skill_file(skill.id, path="scripts/x.py", sha256="c" * 64)]))
+    )
+
+    assert before.calls[0]["manifest_sha"] != after.calls[0]["manifest_sha"]
+
+
+async def test_a_skill_whose_scripts_overrun_the_budget_is_skipped_whole(monkeypatch) -> None:
+    """Whole skills, not whole files: a half-staged skill is Q-18's failure — the model
+    reads a SKILL.md, finds one of two scripts missing, and confabulates."""
+    skill = make_skill(name="big")
+    files = [
+        make_skill_file(skill.id, path="scripts/a.py", size_bytes=20 * _MIB),
+        make_skill_file(skill.id, path="scripts/b.py", size_bytes=20 * _MIB),
+    ]
+
+    runner, out = await _stage_skills(monkeypatch, _bound((skill, files)))
+
+    assert runner.calls == []
+    assert out == []
+
+
+async def test_an_oversized_skill_does_not_drop_the_smaller_ones_behind_it(monkeypatch) -> None:
+    """`continue`, not `break` — the same rule `_stage_persisted_files` follows, and the
+    reason its asymmetry was a defect rather than a policy."""
+    big = make_skill(name="big")
+    small = make_skill(name="small")
+    bound = _bound(
+        (big, [make_skill_file(big.id, path="scripts/a.py", size_bytes=40 * _MIB)]),
+        (small, [make_skill_file(small.id, path="scripts/b.py", size_bytes=10)]),
+    )
+
+    runner, out = await _stage_skills(monkeypatch, bound)
+
+    assert [n for n, _ in runner.calls[0]["staged"]] == ["small/scripts/b.py"]
+    assert out == ["/workspace/skills/small/scripts/b.py"]
+
+
+async def test_the_note_names_skill_scripts_by_absolute_path(monkeypatch) -> None:
+    """AC-21's reporting half, through the real `_stage_workspace_inputs`. Relative would
+    be wrong here for a reason of its own: the kernel's cwd is the session dir, so a
+    relative skill path would have to be `../../skills/{name}/x` — per-room, for a file
+    that is per-agent."""
+    skill = make_skill(name="pdf-fill")
+    bound = _bound((skill, [make_skill_file(skill.id, path="scripts/fill.py")]))
+
+    note = await _note(monkeypatch, ws_files=[], attachments=[], bound=bound)
+
+    assert note == "[Files available in the code_exec workspace: /workspace/skills/pdf-fill/scripts/fill.py]"
+
+
+async def test_skill_staging_failure_does_not_abort_the_turn_or_the_other_paths(monkeypatch) -> None:
+    """The whole staging path is best-effort: a fault must cost the scripts, not the turn.
+    The agent-files note must survive a skills failure."""
+    skill = make_skill(name="s")
+    bound = _bound((skill, [make_skill_file(skill.id, path="scripts/x.py")]))
+
+    note = await _note(
+        monkeypatch,
+        ws_files=[_wf("a.csv", "sha-a", 10)],
+        attachments=[],
+        bound=bound,
+        read_bytes=_boom,
+    )
+
+    assert note == "[Files available in the code_exec workspace: /workspace/agent-files/a.csv]"
+
+
+async def _boom(*_a, **_kw):
+    raise RuntimeError("minio down")
+
+
+def test_the_skill_script_budget_is_its_own_constant() -> None:
+    """Not shared with `_MAX_AGENT_FILES_BYTES`: sharing one budget would let a large
+    upload silently unstage a bound skill's scripts."""
+    assert te._MAX_SKILL_SCRIPT_BYTES == 32 * _MIB
+    assert te._MAX_SKILL_SCRIPT_BYTES != te._MAX_AGENT_FILES_BYTES
+
+
+def test_the_two_manifest_caches_are_distinct_objects() -> None:
+    """AC-21's "skills staging does not evict agent-files staging". One dict keyed by
+    agent_id would make each set's manifest evict the other's on every change, so binding
+    a skill would re-stage every agent file and vice versa."""
+    from contexts.agents.infrastructure.sandbox import docker_runsc as ds
+
+    assert ds._SKILL_MANIFESTS is not ds._WORKSPACE_MANIFESTS
+
+
+def test_the_three_stagers_disagree_on_prefix_by_design() -> None:
+    """AC-40, rewritten — see D-37.
+
+    The AC as approved asserted that `stage_kernel_inputs` "still returns `inputs/x`" and
+    that `test_code_exec_kernel.py:164-185` "passes untouched". Both were overtaken by
+    `ac4339a`, which fixed FU-15 independently: `_tar_staged_inputs` no longer hardcodes a
+    report prefix, `_fix_paths` is gone, and every stager now reports absolute paths
+    through `_workspace_abspath`. The `report_prefix` parameter §6 designed is therefore
+    unnecessary — `stage_skill_files` just passes its own `rel_dir`.
+
+    What the AC was protecting is still real, so it is asserted here instead: the three
+    stagers write into three disjoint subtrees of one volume, and nothing in this task
+    made them share one. A regression that collapsed two of these prefixes would let one
+    file set overwrite another's on the agent's persistent volume.
+    """
+    import inspect
+
+    from contexts.agents.infrastructure.sandbox import docker_runsc as ds
+
+    kernel = inspect.getsource(ds.DockerRunscSandbox.stage_kernel_inputs)
+    workspace = inspect.getsource(ds.DockerRunscSandbox.stage_agent_workspace_files)
+    skills = inspect.getsource(ds.DockerRunscSandbox.stage_skill_files)
+
+    assert 'rel_dir = f"sessions/{chatroom_id}/inputs"' in kernel
+    assert 'rel_dir="agent-files"' in workspace
+    assert 'rel_dir="skills"' in skills

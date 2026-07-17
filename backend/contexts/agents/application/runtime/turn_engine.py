@@ -137,6 +137,13 @@ _TURN_RATE_MAX_TURNS = 30
 _MAX_STAGED_FILES = 10
 _MAX_STAGED_BYTES = 64 * 1024 * 1024
 _MAX_AGENT_FILES_BYTES = 128 * 1024 * 1024
+# Skill scripts get their own, much smaller budget rather than sharing the agent-files
+# one. Two reasons. It is a *different* file set with a different shape — scripts are
+# source text, where a workspace holds datasets — and 32 MiB is already ~10k lines per
+# file at Q-17's per-file cap. And the budgets must not interact: sharing one would let a
+# large upload silently unstage a bound skill's scripts, which is precisely the
+# confabulation AC-20's gate exists to prevent, arriving by the back door.
+_MAX_SKILL_SCRIPT_BYTES = 32 * 1024 * 1024
 _MAX_KNOWLEDGE_QUERIES = 3
 _MAX_KNOWLEDGE_QUERY_CHARS = 1200
 
@@ -750,10 +757,14 @@ class TurnEngine:
         return await facade.latest_user_attachments(chatroom_id)
 
     async def _stage_workspace_inputs(
-        self, agent: Agent, chatroom_id: uuid.UUID, attachments: list[MessageAttachment]
+        self,
+        agent: Agent,
+        chatroom_id: uuid.UUID,
+        attachments: list[MessageAttachment],
+        bound_skills: BoundSet,
     ) -> str | None:
-        """Stage the agent's persisted files and the triggering message's
-        attachments into the code_exec workspace.
+        """Stage the agent's persisted files, the bound skills' scripts, and the
+        triggering message's attachments into the code_exec workspace.
 
         Returns a one-line note listing the workspace paths (folded into the
         system prompt so the model knows where the files are) or ``None``.
@@ -781,6 +792,12 @@ class TurnEngine:
                 await self._stage_persisted_files(agent, runner, agents_facade, all_paths)
             except Exception:
                 _log.warning("agent workspace file staging failed for %s", agent.id, exc_info=True)
+
+            # --- bound skills' scripts ([R31.22]) ---
+            try:
+                await self._stage_skill_scripts(agent, runner, bound_skills, all_paths)
+            except Exception:
+                _log.warning("skill script staging failed for %s", agent.id, exc_info=True)
 
             # --- triggering message's attachments (resolved by the caller) ---
             facade = ConversationFacade(self._db)
@@ -864,6 +881,100 @@ class TurnEngine:
             staged.append(StagedFile(filename=wf.path, data=data))
 
         paths = await runner.stage_agent_workspace_files(
+            agent_id=agent.id,
+            files=staged,
+            manifest_sha=manifest_sha,
+        )
+        out_paths.extend(paths)
+
+    async def _stage_skill_scripts(
+        self,
+        agent: Agent,
+        runner: Any,
+        bound_skills: BoundSet,
+        out_paths: list[str],
+    ) -> None:
+        """Hydrate the bound skills' `scripts/` into ``/workspace/skills/`` ([R31.22]).
+
+        Only `script` files, per R31.18: a `reference` is served as text by `read_skill`
+        and an `asset` is opaque bytes that §8's item 9 says explicitly must not be
+        staged. Do not "improve" this to stage assets without revisiting that note.
+
+        **Unreadable skills stage nothing** — the same fail-closed whole-skill gate
+        `read_skill` applies (AC-34 / Q-18), and it has to be applied here too rather than
+        trusted from there. The two are different channels: `read_skill` refusing a
+        quarantined skill's body does not stop its script from reaching the volume, and
+        the staged note *names the paths*, so without this gate a quarantined script would
+        be written into the workspace and its absolute path handed to the model to run.
+        The gate is whole-skill, so one quarantined reference file also withholds the
+        scripts: a skill whose SKILL.md the model cannot read has no business having its
+        scripts on disk.
+        """
+        import hashlib
+
+        from contexts.agents.domain.mcp import StagedFile
+        from contexts.skills.domain.errors import SkillUnreadable
+        from contexts.skills.domain.models import SkillFileKind
+        from contexts.skills.domain.readability import assert_readable
+        from contexts.skills.interfaces.facade import SkillsFacade
+
+        chosen: list[tuple[str, Any]] = []
+        total = 0
+        for skill in bound_skills.skills:
+            files = bound_skills.files_for(skill.id)
+            try:
+                assert_readable(skill, list(files))
+            except SkillUnreadable as exc:
+                _log.warning(
+                    "not staging skill %r for agent %s: file %r has not passed the scan",
+                    skill.name,
+                    agent.id,
+                    exc.path,
+                )
+                continue
+            scripts = [f for f in files if f.kind is SkillFileKind.SCRIPT]
+            if not scripts:
+                continue
+
+            # Whole skills, not whole files: a partially staged skill is Q-18's failure —
+            # the model reads a SKILL.md, finds one of its two scripts missing, and
+            # confabulates around the gap. `continue` rather than `break` mirrors
+            # `_stage_persisted_files`, so one large skill early in the set does not
+            # silently drop every smaller one behind it.
+            size = sum(f.size_bytes for f in scripts)
+            if total + size > _MAX_SKILL_SCRIPT_BYTES:
+                _log.warning(
+                    "not staging skill %r for agent %s: %d bytes of scripts exceeds the remaining budget",
+                    skill.name,
+                    agent.id,
+                    size,
+                )
+                continue
+            total += size
+            chosen.append((skill.name, scripts))
+
+        if not chosen:
+            return
+
+        # Covers exactly what is staged, for the same reason `_stage_persisted_files`'
+        # does (AC-12): the manifest is the cache key for what is on the volume, so
+        # hashing skills that were skipped would describe bytes the sandbox never saw.
+        manifest_sha = hashlib.sha256(
+            "\n".join(
+                sorted(f"{name}/{f.path}:{f.sha256}" for name, scripts in chosen for f in scripts)
+            ).encode()
+        ).hexdigest()
+
+        facade = SkillsFacade(self._db)
+        staged: list[StagedFile] = []
+        for name, scripts in chosen:
+            for f in scripts:
+                data = await facade.read_skill_file_bytes(f)
+                # `{skill}/{path}` keeps the bundle's own layout under the skill root, so
+                # SKILL.md's relative "run scripts/x.py" resolves from there.
+                staged.append(StagedFile(filename=f"{name}/{f.path}", data=data))
+
+        paths = await runner.stage_skill_files(
             agent_id=agent.id,
             files=staged,
             manifest_sha=manifest_sha,
@@ -1196,15 +1307,21 @@ class TurnEngine:
             # Resolved once and shared by both consumers below so they see the
             # same snapshot (see _resolve_trigger_attachments docstring).
             trigger_attachments = await self._resolve_trigger_attachments(chatroom_id, trigger_message_id)
-            # Stage the triggering message's uploads into the kernel workspace so
-            # code_exec can read them; the returned note tells the model the paths.
-            staged_note = await self._stage_workspace_inputs(agent, chatroom_id, trigger_attachments)
+            # §31: one snapshot, resolved once, feeding the index block, read_skill's
+            # closure, and script staging — so none of the three can act on a skill the
+            # tap dropped. Resolved *before* staging because staging is one of its
+            # consumers: the tap is what proves these scripts may touch this agent's
+            # volume at all.
+            bound_skills = await self._resolve_skills(agent, chatroom_id, room)
+            # Stage the triggering message's uploads and the bound skills' scripts into
+            # the kernel workspace so code_exec can read them; the returned note tells
+            # the model the paths.
+            staged_note = await self._stage_workspace_inputs(
+                agent, chatroom_id, trigger_attachments, bound_skills
+            )
             # §30 (R30.15): an observer also sees the room's recent structured
             # activity events. Coverage-gated: None when the room has no activities.
             activity_block = await self._activity_context(chatroom_id) if is_observer else None
-            # §31: one snapshot, resolved once, feeding both the index block below and
-            # read_skill's closure — so the tool can never serve a body the tap dropped.
-            bound_skills = await self._resolve_skills(agent, chatroom_id, room)
             skills_note = SkillsFacade.render_index(bound_skills.skills)
             # AC-19 / [R31.17]: the tool appends one entry per served body read, and the
             # reply's metadata carries them. Collected here rather than inside the tool so
