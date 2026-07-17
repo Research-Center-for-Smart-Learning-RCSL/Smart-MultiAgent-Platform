@@ -775,9 +775,12 @@ def test_the_skill_script_budget_is_its_own_constant() -> None:
 
 
 class _FakeContainer:
-    def __init__(self) -> None:
+    def __init__(self, *, exit_code: int = 0) -> None:
         self.archives: list[tuple[str, bytes]] = []
         self.removed = False
+        self.started = False
+        self.waited = False
+        self._exit_code = exit_code
 
     def reload(self) -> None:
         self.attrs = {"HostConfig": {"Runtime": "runsc"}}
@@ -785,6 +788,16 @@ class _FakeContainer:
     def put_archive(self, path: str, data: bytes) -> bool:
         self.archives.append((path, data))
         return True
+
+    def start(self) -> None:
+        self.started = True
+
+    def wait(self, timeout: float | None = None) -> dict:
+        self.waited = True
+        return {"StatusCode": self._exit_code}
+
+    def logs(self, *, stdout: bool = True, stderr: bool = False) -> bytes:
+        return b""
 
     def remove(self, *, force: bool = False) -> None:
         self.removed = True
@@ -810,11 +823,12 @@ class _FakeDocker:
 
 @pytest.fixture
 def sandbox(monkeypatch):
-    """A real DockerRunscSandbox with the daemon and both manifest caches faked out.
+    """A real DockerRunscSandbox with only the daemon faked out.
 
     The class is a frozen slots dataclass, so the doubles go on the class rather than the
     instance. `_assert_runsc` is deliberately **not** stubbed — the fake container reports
     `runsc`, so the real guard runs and a regression that dropped it would fail here.
+    There is no manifest cache to reset any more: staging reconciles unconditionally.
     """
     from contexts.agents.infrastructure.sandbox import docker_runsc as ds
 
@@ -825,9 +839,6 @@ def sandbox(monkeypatch):
     monkeypatch.setattr(ds.DockerRunscSandbox, "_ensure_runtime_ready", _async_return(None))
     monkeypatch.setattr(ds.DockerRunscSandbox, "_base_host_config", lambda self: {})
     monkeypatch.setattr(ds.DockerRunscSandbox, "_remove_quietly", _async_return(None))
-    # Module globals: without this a test would leak a manifest into the next one.
-    monkeypatch.setattr(ds, "_SKILL_MANIFESTS", {})
-    monkeypatch.setattr(ds, "_WORKSPACE_MANIFESTS", {})
 
     box = ds.DockerRunscSandbox(code_exec_image="img")
     return SimpleNamespace(box=box, container=container, client=client, ds=ds)
@@ -841,6 +852,20 @@ def _tar_names(data: bytes) -> list[str]:
         return [m.name for m in tar.getmembers() if m.isfile()]
 
 
+def _reconcile_inner_names(wrapped: bytes) -> list[str]:
+    """The file names inside the reconcile archive. Staging wraps the staged tar as a
+    single `.smap-reconcile-{uuid}.tar` member and puts it on the volume, where `_RECONCILE`
+    reads it, so the payload is one tar deep."""
+    import io
+    import tarfile
+
+    with tarfile.open(fileobj=io.BytesIO(wrapped)) as outer:
+        members = outer.getmembers()
+        assert len(members) == 1, "staging wraps exactly one archive member"
+        inner = outer.extractfile(members[0]).read()
+    return _tar_names(inner)
+
+
 def _staged(filename: str, data: bytes = b"x"):
     from contexts.agents.domain.mcp import StagedFile
 
@@ -848,8 +873,9 @@ def _staged(filename: str, data: bytes = b"x"):
 
 
 async def test_stage_skill_files_writes_the_scripts_into_the_volume(sandbox) -> None:
-    """The real method: the tar reaches `put_archive` at the volume root, with the file
-    at `skills/{name}/{path}` so it lands at `/workspace/skills/{name}/{path}`."""
+    """The real method reconciles: it puts the wrapped staging tar onto the volume and runs
+    a container. The staged file is named `skills/{name}/{path}`, so `_RECONCILE` extracts
+    it to `/workspace/skills/{name}/{path}`."""
     out = await sandbox.box.stage_skill_files(
         agent_id=uuid.uuid4(),
         files=[_staged("pdf-fill/scripts/fill.py", b"print(1)")],
@@ -858,76 +884,29 @@ async def test_stage_skill_files_writes_the_scripts_into_the_volume(sandbox) -> 
 
     assert len(sandbox.container.archives) == 1
     root, archive = sandbox.container.archives[0]
+    # The volume, not /tmp: put_archive runs before start and a tmpfs file would be
+    # shadowed by the tmpfs mounted at start (the tmpfs-shadow regression).
     assert root == "/workspace"
-    assert _tar_names(archive) == ["skills/pdf-fill/scripts/fill.py"]
+    assert _reconcile_inner_names(archive) == ["skills/pdf-fill/scripts/fill.py"]
+    assert sandbox.container.started is True
     assert out == ["/workspace/skills/pdf-fill/scripts/fill.py"]
 
 
-async def test_stage_skill_files_uses_the_skills_cache_not_the_agent_files_one(sandbox) -> None:
-    """AC-21's "skills staging does not evict agent-files staging", asserted properly.
-
-    The previous version of this test compared the two module globals with `is not`, which
-    is true whichever one the method reads — a quality pass pointed `stage_skill_files` at
-    `_WORKSPACE_MANIFESTS` and the suite stayed green. This drives the real method and
-    checks which dict it actually wrote.
-    """
+async def test_the_two_stagers_reconcile_disjoint_subtrees(sandbox) -> None:
+    """AC-21, restated for reconciliation: each stager clears only its own subtree, so
+    staging skills cannot remove agent files or the reverse. The command's
+    `SMAP_RECONCILE_SUBDIR` is what each call targets."""
     agent_id = uuid.uuid4()
 
     await sandbox.box.stage_skill_files(
         agent_id=agent_id, files=[_staged("s/scripts/x.py")], manifest_sha="sha-skills"
     )
+    assert sandbox.client.create_kwargs["environment"]["SMAP_RECONCILE_SUBDIR"] == "skills"
 
-    assert sandbox.ds._SKILL_MANIFESTS == {agent_id: "sha-skills"}
-    assert sandbox.ds._WORKSPACE_MANIFESTS == {}
-
-
-async def test_the_two_stagers_do_not_evict_each_other(sandbox) -> None:
-    """The claim end to end: staging one set must not make the other re-stage. Under a
-    single shared cache the second call would evict the first's manifest, and the third
-    would spawn a container it does not need."""
-    agent_id = uuid.uuid4()
-
-    await sandbox.box.stage_skill_files(
-        agent_id=agent_id, files=[_staged("s/scripts/x.py")], manifest_sha="sha-skills"
-    )
     await sandbox.box.stage_agent_workspace_files(
         agent_id=agent_id, files=[_staged("data.csv")], manifest_sha="sha-files"
     )
-    assert len(sandbox.container.archives) == 2
-
-    # The skills manifest is unchanged, so this must be a cache hit: no third archive.
-    out = await sandbox.box.stage_skill_files(
-        agent_id=agent_id, files=[_staged("s/scripts/x.py")], manifest_sha="sha-skills"
-    )
-
-    assert len(sandbox.container.archives) == 2
-    assert out == ["/workspace/skills/s/scripts/x.py"]
-
-
-async def test_an_unchanged_manifest_spawns_no_container_but_still_reports_paths(sandbox) -> None:
-    agent_id = uuid.uuid4()
-    first = await sandbox.box.stage_skill_files(
-        agent_id=agent_id, files=[_staged("s/scripts/x.py")], manifest_sha="sha1"
-    )
-    second = await sandbox.box.stage_skill_files(
-        agent_id=agent_id, files=[_staged("s/scripts/x.py")], manifest_sha="sha1"
-    )
-
-    assert len(sandbox.container.archives) == 1
-    assert first == second == ["/workspace/skills/s/scripts/x.py"]
-
-
-async def test_a_changed_manifest_restages(sandbox) -> None:
-    agent_id = uuid.uuid4()
-    await sandbox.box.stage_skill_files(
-        agent_id=agent_id, files=[_staged("s/scripts/x.py")], manifest_sha="sha1"
-    )
-    await sandbox.box.stage_skill_files(
-        agent_id=agent_id, files=[_staged("s/scripts/x.py", b"edited")], manifest_sha="sha2"
-    )
-
-    assert len(sandbox.container.archives) == 2
-    assert sandbox.ds._SKILL_MANIFESTS == {agent_id: "sha2"}
+    assert sandbox.client.create_kwargs["environment"]["SMAP_RECONCILE_SUBDIR"] == "agent-files"
 
 
 async def test_the_staging_container_has_no_network(sandbox) -> None:
@@ -940,14 +919,15 @@ async def test_the_staging_container_has_no_network(sandbox) -> None:
     assert sandbox.client.create_kwargs["network_mode"] == "none"
 
 
-async def test_no_files_stages_nothing_and_caches_nothing(sandbox) -> None:
-    """The manifest must not be recorded for a set that was never written, or a later real
-    set with the same sha would be skipped as already-staged."""
+async def test_no_files_stages_nothing_and_spawns_no_container(sandbox) -> None:
+    """An empty set is not "reconcile to empty": there is nothing to make the note out of,
+    and the caller only asks to stage when it has files, so this short-circuits before any
+    container is spawned."""
     out = await sandbox.box.stage_skill_files(agent_id=uuid.uuid4(), files=[], manifest_sha="sha1")
 
     assert out == []
     assert sandbox.container.archives == []
-    assert sandbox.ds._SKILL_MANIFESTS == {}
+    assert sandbox.container.started is False
 
 
 async def test_the_three_stagers_disagree_on_prefix_by_design(sandbox) -> None:

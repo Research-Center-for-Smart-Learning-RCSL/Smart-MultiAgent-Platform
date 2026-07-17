@@ -136,6 +136,22 @@ class SandboxRuntimeViolation(AgentsError):
     code = "agents/sandbox-runtime-violation"
 
 
+class SandboxReconcileError(AgentsError):
+    """Reconciling an agent volume's staged subtree against its source of truth
+    failed inside the sandbox container (non-zero exit or timeout).
+
+    Staging is a projection: ``/workspace/agent-files`` mirrors the
+    ``agent_workspace_files`` rows and ``/workspace/skills`` the bound-skill set
+    ([R12.03a]). The reconcile container empties the subtree and re-extracts the
+    staged set; if that container fails, the volume is in an unknown state, so we
+    raise rather than report paths the model would then trust. The caller's
+    best-effort staging swallow turns this into a turn that runs without the files
+    — the correct degradation, provided it is *reached* and not silently skipped.
+    """
+
+    code = "agents/sandbox-reconcile-failed"
+
+
 class CapabilityMismatch(AgentsError):
     """Tool invocation asked for a capability the key/group cannot serve."""
 
@@ -183,6 +199,7 @@ __all__ = [
     "McpTestFailed",
     "McpTimeout",
     "RagConfigOutOfProject",
+    "SandboxReconcileError",
     "SandboxRuntimeViolation",
     "SearchKeyNotConfigured",
     "SearchQuotaExceeded",
