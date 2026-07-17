@@ -278,9 +278,9 @@ the shared helper and so covers both callers, closing skills' FU-38 as the same 
 
 - [x] AC-1: a file dropped from the staged set is removed from the volume, not merely unnamed.
       `test_workspace_volume_reconcile.py::test_a_dropped_file_is_removed_from_the_subtree` runs the
-      real `_RECONCILE` against a temp FS seeded with `{a,b}` and an archive of `{a}`; `b` is gone.
-      The orchestration half (staging tar on the durable volume, subtree targeted) is
-      `test_the_command_stages_the_archive_on_the_durable_volume`.
+      real `_RECONCILE` prune against a temp FS holding `{a,b}` with a manifest of `{a}`; `b` is gone.
+      The orchestration half (files overlaid + manifest, both on the volume) is
+      `test_the_command_overlays_files_and_a_manifest_on_the_volume`.
 - [ ] AC-2: end-to-end, §4's Face A no longer reproduces: after a delete and one turn,
       `file`/`list` on `/workspace/agent-files/` does not show the file and `code_exec` cannot open
       it by absolute path. **Deferred to Step 4 behavioural verification** (needs a live sandbox /
@@ -294,10 +294,14 @@ the shared helper and so covers both callers, closing skills' FU-38 as the same 
       `_stage_tree`. (`stage_kernel_inputs` keeps its own direct create — FU-4, out of scope.)
 - [x] AC-5: neither `_WORKSPACE_MANIFESTS` nor `_SKILL_MANIFESTS` exists; every stage creates a
       container — `test_no_cache_every_stage_spawns_a_container`.
-- [x] AC-6: the clear cannot escape the owned subtree — `test_a_member_escaping_the_root_is_refused`
-      (a `..` member), `test_a_symlink_out_of_the_subtree_is_removed_not_followed`, and
-      `test_the_subtree_itself_being_a_symlink_is_replaced_not_followed` (the latter two skip where
-      the host cannot create symlinks; they run on the Linux CI tier).
+- [x] AC-6: the prune cannot escape the owned subtree — a hostile manifest entry cannot cause a
+      deletion outside it (`test_a_manifest_path_cannot_make_the_prune_delete_outside_the_subtree`),
+      a symlinked file (`test_a_symlink_out_of_the_subtree_is_removed_not_followed`), a symlinked
+      subdir (`test_a_symlinked_subdir_is_not_descended_and_its_target_survives`), and a symlinked
+      subtree root (`test_the_subtree_itself_being_a_symlink_is_replaced_not_followed`) are all
+      removed as links, never followed. The three symlink cases skip on the Windows host (no symlink
+      privilege); they were run against **real Linux symlinks** via WSL using the `_RECONCILE` string
+      extracted from source, all pass, and they run in the Linux CI tier.
 - [x] AC-7 (rescoped, D-4): the caller's **selection-policy** contract is untouched — the
       `_stage_persisted_files` / `_stage_skill_scripts` / `_stage_workspace_inputs` tests in
       `test_workspace_staging.py` are unchanged and green. The **sandbox-layer** tests in the same
@@ -367,7 +371,25 @@ covering both callers" scope was chosen by the user before any code was written.
 - **D-8: `manifest_sha` is retained but unused** in both public stagers (per §7(b)), which also keeps
   the caller's manifest-computation tests green verbatim. `ruff` does not select `ARG`, so the
   accepted-but-unused parameter is lint-clean.
-- **D-9: the staging archive lives on the volume, not a tmpfs (self-review correction).** §7(a) and
+- **D-10: reconcile in place (overlay + prune), not clear-and-replace (second-review correction).**
+  A second high-effort code-review pass on the D-9 volume-staging design surfaced four issues, all
+  rooted in staging a *full copy* of the set and clearing-then-replacing: staging the tar on the
+  quota-limited volume doubled transient volume usage and could hit ENOSPC on agents with large
+  workspace files (every-turn failure), the `_tar_single_file` wrapper doubled peak worker memory,
+  the clear-then-extract window left the subtree empty on a mid-flight failure, and the orphan sweep
+  depended on an in-container-vs-host clock comparison. The fix reconciles **in place**:
+  `put_archive` overlays the staged files straight onto the live subtree (no second copy, ~1x volume
+  and memory), and `_RECONCILE` prunes whatever a tiny per-call manifest (the desired-path set) does
+  not list. The subtree is never emptied, so a partial failure degrades to "stale files linger", not
+  "files vanished". This retires the staging tar, the wrapper, and the age-gated sweep from D-9. The
+  §9 danger moves from the clear to the prune walk and is defended the same way (guard a symlinked
+  root, `os.walk` never descends a symlinked subdir, `os.unlink` never follows) — verified against
+  real Linux symlinks (WSL) since the Windows host cannot create them. The one accepted residual is
+  the overlay writing *desired* files through an agent-planted symlink at create time, which stays
+  within the agent's own volume (rootfs read-only, no network) — self-scoped, matching the audit's
+  existing Hardening classification and the pre-task overlay's own behaviour.
+- **D-9: the staging archive lives on the volume, not a tmpfs (self-review correction).** *(Superseded
+  by D-10, which removes the staging archive entirely; retained for the record.)* §7(a) and
   Q-1 said to `put_archive` the tar to `/tmp`. A high-effort code-review pass caught that this is a
   latent break: `put_archive` runs before `start`, but a tmpfs mount does not exist until the
   container runs, so a `/tmp` file is shadowed by the fresh tmpfs at start and vanishes — the
@@ -415,20 +437,15 @@ covering both callers" scope was chosen by the user before any code was written.
   `stage_kernel_inputs` is now the *only* direct `containers.create` left. If its clear-then-extract
   is ever wanted, converge it onto `_stage_tree` and delete the divergence.
 
-- **FU-5: the staging tar doubles peak worker memory transiently.** `_tar_single_file` wraps the
-  inner archive (up to `_MAX_AGENT_FILES_BYTES` = 128 MiB) into a second in-memory tar, so during the
-  wrap both copies are held (~256 MiB), `_get_semaphore()`-bounded at 8 concurrent. `del archive`
-  drops the inner copy immediately after, but the wrap itself peaks at 2x. The clean fix that also
-  removes the wrapper is to `put_archive` the inner tar re-rooted under a per-call staging directory
-  (`.smap-reconcile-{uuid}/{subdir}/...`) and have `_RECONCILE` `os.rename` it into place — one copy,
-  and an atomic swap (see FU-6). Deferred because the rename scheme is more new logic in a
-  destructive path; the wrapper mirrors `run_file_op`'s proven shape.
-- **FU-6: the clear-then-extract window is not atomic.** `_RECONCILE` empties the subtree before
-  extracting, so a reconcile that fails *after* the clear (a timeout, a Docker fault, an escaping
-  member) leaves the subtree empty on the volume until the next successful stage, where the old
-  overlay left the prior (possibly stale) files intact. §9 accepts convergence-on-next-turn for the
-  concurrency case; this is the transient-fault variant. The atomic form is FU-5's staging-dir +
-  `os.rename` swap, which shrinks the destructive window from "extract 128 MiB" to "one rename".
+- **FU-7: the overlay writes desired files through an agent-planted symlink at create.** The
+  in-place overlay (D-10) `put_archive`s the staged files onto the live subtree before the prune
+  runs, so if the agent's own code_exec left a symlink at a staged path, `put_archive` may write
+  through it to elsewhere *on the same volume*. It cannot escape the volume (rootfs is read-only, no
+  other mounts, `network_mode=none`), so the blast radius is the agent corrupting its own state —
+  self-scoped, matching the security audit's existing Hardening item and the pre-task overlay's own
+  behaviour. Closing it would need the file writes to happen inside the container after a symlink
+  scrub, i.e. the container extracting from a staged copy — which reintroduces the volume/memory
+  doubling D-10 removed. Left as accepted; the prune's *delete* side is fully guarded (AC-6).
 
 **Closed by this task:**
 
