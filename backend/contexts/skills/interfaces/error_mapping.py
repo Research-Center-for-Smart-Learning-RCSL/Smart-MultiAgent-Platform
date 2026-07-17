@@ -50,6 +50,11 @@ _MAP: ErrorMap = {
         422,
         "Asset files are opaque bytes and cannot be edited as text",
     ),
+    errors.SkillFileLimitExceeded: (
+        "skills/file-limit-exceeded",
+        422,
+        "A skill may hold at most 500 files",
+    ),
 }
 
 
@@ -82,6 +87,8 @@ def _extras(exc: Exception) -> dict[str, Any]:
         return {"path": exc.path, "collides_with": exc.collides_with}
     if isinstance(exc, errors.SkillFileNotEditable):
         return {"path": exc.path, "kind": exc.kind}
+    if isinstance(exc, errors.SkillFileLimitExceeded):
+        return {"limit": exc.limit}
     if isinstance(exc, errors.SkillScopeMismatch):
         # Before the base class, and empty: a 404 whose body names the scope that owns the
         # skill is the same oracle the status code just closed, one field down.

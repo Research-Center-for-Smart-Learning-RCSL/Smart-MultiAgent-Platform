@@ -16,11 +16,13 @@ import pytest
 from contexts.skills.application import file_service as fs
 from contexts.skills.application.file_service import (
     MAX_SKILL_FILE_BYTES,
+    MAX_SKILL_FILES,
     SkillFileService,
     file_sha256,
     kind_for_path,
 )
 from contexts.skills.domain.errors import (
+    SkillFileLimitExceeded,
     SkillFileNotEditable,
     SkillFileNotFound,
     SkillFilePathTaken,
@@ -388,6 +390,101 @@ class TestAdd:
             assert_readable(skill, [f])
 
 
+class TestFileCountCap:
+    async def test_the_five_hundred_and_first_file_is_rejected(self, h: _Harness) -> None:
+        # Q-17's per-bundle entry limit, applied to the per-file API so the two agree: a
+        # skill assembled one upload at a time must not exceed what the same skill could
+        # carry as a bundle, or Phase 4's exporter emits skills its own importer rejects.
+        skill = _skill()
+        for i in range(MAX_SKILL_FILES):
+            h.files.put(
+                SkillFile(
+                    id=uuid.uuid4(),
+                    skill_id=skill.id,
+                    path=f"references/f-{i:04d}.md",
+                    kind=SkillFileKind.REFERENCE,
+                    mime="text/markdown",
+                    size_bytes=1,
+                    sha256="a" * 64,
+                    minio_key="k",
+                    scan_status=SkillScanStatus.CLEAN,
+                    extracted_chars=1,
+                    created_at=datetime.now(UTC),
+                )
+            )
+        with pytest.raises(SkillFileLimitExceeded) as exc:
+            await h.svc.add(
+                skill=skill,
+                path="references/one-too-many.md",
+                data=b"x",
+                mime="text/markdown",
+                scan_enabled=False,
+                actor_user_id=ACTOR,
+            )
+        assert exc.value.limit == MAX_SKILL_FILES
+
+    async def test_the_cap_is_per_skill(self, h: _Harness) -> None:
+        # A full skill must not stop a different skill accepting its first file.
+        full, empty = _skill("full"), _skill("empty")
+        for i in range(MAX_SKILL_FILES):
+            h.files.put(
+                SkillFile(
+                    id=uuid.uuid4(),
+                    skill_id=full.id,
+                    path=f"references/f-{i:04d}.md",
+                    kind=SkillFileKind.REFERENCE,
+                    mime="text/markdown",
+                    size_bytes=1,
+                    sha256="a" * 64,
+                    minio_key="k",
+                    scan_status=SkillScanStatus.CLEAN,
+                    extracted_chars=1,
+                    created_at=datetime.now(UTC),
+                )
+            )
+        await h.svc.add(
+            skill=empty,
+            path="references/a.md",
+            data=b"x",
+            mime="text/markdown",
+            scan_enabled=False,
+            actor_user_id=ACTOR,
+        )
+
+    async def test_an_edit_is_not_an_add_and_ignores_the_cap(self, h: _Harness) -> None:
+        # The cap gates growth, not maintenance: a skill sitting at the limit must still
+        # be fixable, or reaching the cap would freeze its contents forever.
+        skill = _skill()
+        first = await h.svc.add(
+            skill=skill,
+            path="references/a.md",
+            data=b"before",
+            mime="text/markdown",
+            scan_enabled=False,
+            actor_user_id=ACTOR,
+        )
+        for i in range(MAX_SKILL_FILES - 1):
+            h.files.put(
+                SkillFile(
+                    id=uuid.uuid4(),
+                    skill_id=skill.id,
+                    path=f"references/f-{i:04d}.md",
+                    kind=SkillFileKind.REFERENCE,
+                    mime="text/markdown",
+                    size_bytes=1,
+                    sha256="a" * 64,
+                    minio_key="k",
+                    scan_status=SkillScanStatus.CLEAN,
+                    extracted_chars=1,
+                    created_at=datetime.now(UTC),
+                )
+            )
+        edited = await h.svc.update_content(
+            skill=skill, file=first, data=b"after", scan_enabled=False, actor_user_id=ACTOR
+        )
+        assert edited.sha256 == file_sha256(b"after")
+
+
 class TestUpdate:
     async def test_editing_an_uploaded_file_changes_its_sha(self, h: _Harness) -> None:
         # AC-16: an uploaded file is editable, and editing changes sha256.
@@ -463,7 +560,7 @@ class TestUpdate:
             scan_enabled=True,
             actor_user_id=ACTOR,
         )
-        await h.files.mark_scan(f.id, scan_status=SkillScanStatus.CLEAN)
+        await h.files.mark_scan(f.id, scan_status=SkillScanStatus.CLEAN, expected_sha256=f.sha256)
         clean = await h.files.get(f.id)
         assert clean is not None
         assert clean.scan_status is SkillScanStatus.CLEAN
