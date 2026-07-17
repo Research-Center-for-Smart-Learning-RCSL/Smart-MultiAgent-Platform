@@ -1249,15 +1249,55 @@ orphaned, not deleted — consistent with §1.2's backup stance.
 
 **Phase 2 — files and editor (the `slices/skills` frontend lands here)**
 
+> **Phase 2 was split in two, and only the backend half is built (2026-07-17).** The user
+> scoped this session to "Phase 2 backend only"; the `slices/skills` frontend is deferred to
+> its own session (D-26). Three of the five ACs below name a UI surface, so they stay
+> **unchecked** even though nothing in their backend half is outstanding — an AC is checked
+> when *its* mapped test passes, not when most of it does. What each one still owes is
+> recorded inline. AC-16 additionally owes a clause no frontend can satisfy: `diverged` needs
+> the Phase 4 exporter to define the authored byte set (Q-30), and is hardcoded `False` until
+> then, which `_summary_fields` already says.
+
 - [ ] AC-16: A file can be added by upload or authored in the UI; an uploaded file is editable, and
       editing changes `sha256` and marks the skill diverged from `bundle_sha256`.
+      *(**Backend done, two clauses outstanding.** `SkillFileService.add` takes bytes from either
+      route; `update_content` re-points the row and changes `sha256`; 40 tests in
+      `test_skill_files.py`, and `test_an_uploaded_file_is_editable_afterwards` pins Q-20's real
+      claim. **Owed:** the UI (D-26), and the `diverged` badge, which is not merely unbuilt but
+      **undefined until Phase 4** — divergence is `hash(authored byte set) != bundle_sha256` and
+      the exporter defines that set. No row carries a `bundle_sha256` until an importer exists, so
+      `False` is the honest answer rather than a placeholder.)*
 - [ ] AC-17: `assets/` binaries are not editable; `kind` gates the editor.
-- [ ] AC-18: `read_skill`'s response lists file paths; reference-file text is readable. File paths
+      *(**Backend done.** `update_content` raises `SkillFileNotEditable` (422) for `ASSET`, and
+      `kind` is derived from the path's directory rather than accepted from the client — a
+      client-chosen kind would let an uploader stage a script from `assets/` or have a binary's
+      bytes rendered into the prompt. `SkillFileCreateIn` omits it with `extra="forbid"`, asserted
+      both ways. **Owed:** the editor the gate is for (D-26).)*
+- [x] AC-18: `read_skill`'s response lists file paths; reference-file text is readable. File paths
       are sanitized identically to the index (AC-30).
-- [ ] AC-19: `read_skill` invocations record `{skill_id, name, scope, version, body_sha256}` in
+      *(`read_skill(name)` returns the manifest; `read_skill(name, path=...)` returns that
+      reference file's text — §6 specified the manifest but never how text is read, see D-28.
+      Paths go through `skill_file_path_reason`, which reuses `text_rejection_reason` and adds the
+      layout/traversal/NFC/Windows rules a structured path needs: 42 tests in
+      `test_skill_file_paths.py`, wired at both entry points and asserted in
+      `test_skills_api_models.py`. The manifest is bounded by `_fit_manifest` — see D-31 and the
+      Critical it fixes. Probed: dropping the sha/newline arms or the manifest bound reddens.)*
+- [x] AC-19: `read_skill` invocations record `{skill_id, name, scope, version, body_sha256}` in
       `message.metadata`; `skill.updated` records `body_sha256` before→after.
+      *(`SkillRead` appended per served body read by `read_skill`'s closure, folded into
+      `reply_meta["skill_reads"]` at `turn_engine.py`. Failed reads record nothing; file reads are
+      excluded (D-32). The `skill.updated` half **was already implemented in Phase 1** despite
+      D-16 recording AC-19 as untouched — see D-33. 13 tests in `test_agent_runtime_tools.py`.)*
 - [ ] AC-34: A file whose `scan_status` is not `clean` makes the whole skill unreadable —
       `read_skill` returns a defined error and the skill is flagged in the UI.
+      *(**Backend done, and it is the load-bearing half.** `domain/readability.assert_readable` is
+      fail-closed — only `clean` serves — which is knowingly stricter than the RAG precedent and
+      was the user's explicit call (D-27). `read_skill` refuses the **body** too, not just the
+      offending file (Q-18), and tells the model not to guess. `skill_scan_file` is the pipeline
+      §4.5 recorded as missing. Two ways the gate could be bypassed were found by this task's own
+      gates and fixed — see D-34/D-35. **Owed:** the UI flag (D-26); `SkillFileOut.scan_status` is
+      the field it reads, and there is deliberately no per-file `readable` flag because the gate is
+      whole-skill.)*
 
 **Phase 3 — scripts and staging**
 
@@ -1876,6 +1916,99 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   `requires: [code_exec]`) and harvest the names of the agent's org- and platform-scoped skills.
   The count carries the whole signal the warning is for; the names stay in the audit trail, which
   is not guest-readable. FU-23 records that the event has no consumer yet, so this cost nothing.
+**Phase 2 — backend half (2026-07-17).**
+
+- **D-26: Phase 2 was split into a backend half and a frontend half; only the backend half is
+  built.** §11 scopes Phase 2 as "files and editor (the `slices/skills` frontend lands here)".
+  The user scoped this session to the backend. The split is clean because the halves have no
+  shared blocker in this direction — `check-openapi-drift` forces backend-first or same-PR, and
+  the backend is now landed with its client regenerated, so the frontend session starts against
+  a settled contract. The cost is recorded in AC-16/AC-17/AC-34, which stay unchecked with their
+  outstanding halves named. **Phase 2 is coherent as far as it goes**: an agent with no bound
+  skills behaves exactly as today, and a skill with files is fully usable by a *model* — it is
+  only unauthorable by a *human* without the API.
+- **D-27: AC-34's gate treats `skipped` as a refusal, diverging from the RAG precedent.** The AC
+  says "not `clean` makes the whole skill unreadable"; the RAG pipeline is fail-open, marking
+  `skipped` on a scanner error and serving the document anyway. Taken literally the AC means a
+  ClamAV outage makes newly-uploaded skills unreadable until re-scanned. **The user chose
+  fail-closed**, and [R31.20] is the reason it is the right literal reading: "every bundled file
+  passes the malware scan **before the skill becomes readable**" — `skipped` did not pass, and §8's
+  whole posture is that a skill is instructions the agent executes, not data it reads. Two horns
+  were checked and defused rather than assumed: `file_scan_enabled` defaults to `False`, so a
+  deployment without ClamAV marks `clean` at upload and is unaffected; and `clamav_max_scan_bytes`
+  (100 MiB) is above Q-17's 32 MiB per-file cap, so oversize→`skipped` is unreachable at stock
+  settings. The residue is an operator who lowers the scan limit under the file cap, which the
+  worker logs by name.
+- **D-28: `read_skill(name, path=...)` is how reference text is read. §6 never decided this.**
+  AC-18 says "reference-file text is readable" and §6 specifies only
+  `{body, truncated_at_offset?, files[]}`. `skill_files` stores `extracted_chars` — a count — and
+  the bytes live in MinIO, so nothing in the specified shape could deliver text. Chosen over
+  inlining every reference file into the per-turn snapshot (which is FU-24's blast radius,
+  multiplied) and over a second `read_skill_file` tool (a second reserved name, schema, and drift
+  test). The `path` arm shares the AC-33 span/offset contract, so a long reference file
+  reassembles exactly as a long body does — asserted.
+- **D-29: `build_registry` takes the whole `BoundSet`, not `Sequence[Skill]`.** §6 says the
+  snapshot is a required explicit argument, which is honoured; the type changed. The bodies, the
+  file manifest, and the scan statuses that gate them are three views of one snapshot, and passing
+  them as parallel arguments is three chances for them to drift apart between the tap and the tool.
+  Cost: two wiring assertions now read `built["skills"].skills`.
+- **D-30: Phase 2 has no tus path; single files are multipart only.** §6 adds `skill_bundle` to
+  `tus.ts`'s union and `tus.py`'s branch — that is **bundle import, which is Phase 4**. A single
+  skill file caps at 32 MB (Q-17), which is exactly `MAX_MULTIPART_BYTES`, so one file can never
+  exceed one request. The coincidence is load-bearing rather than lucky and is pinned by test.
+  Related: §9's reuse inventory cites "the tus finalizer pattern (`rag_tus_finalizer.py`) **and its
+  Arq registration**" — that file is at `contexts/knowledge/application/`, not
+  `app/workers/tasks/`, and **has no Arq registration**; it is a class called synchronously from
+  the tus PATCH. Phase 4 should not plan around the registration it does not have.
+- **D-31: `read_skill`'s payload gained `files_omitted`, and the manifest is bounded.** Not in §6.
+  Forced by a Critical the quality gate found and reproduced: nothing caps files per skill (Q-17's
+  500-entry limit is a *bundle* rule), so a manifest can exceed `_MAX_TOOL_OUTPUT` on its own —
+  after which `_fit_skill_body`'s stated invariant ("lo fits") is false at `lo = 0`, it returns a
+  one-character span regardless, and the byte clip severs the JSON carrying
+  `truncated_at_offset`. The model then gets unparseable output and an offset advancing one
+  character per call, burning all `MAX_TOOL_ROUNDS`. That is D-13's failure arriving through the
+  manifest instead of the body. `_fit_manifest` trims until an empty span plus `_MIN_SPAN_CHARS`
+  fits; `files_omitted` tells the model the list is partial so it does not conclude the absent
+  files do not exist. **The first test of this used 60 files and rendered 15 996 bytes — four
+  under the cap**, which is why it missed; the replacement sweeps 1..400.
+- **D-32: file reads are not recorded in `message.metadata`.** AC-19 names "`read_skill`
+  invocations"; only body reads are recorded. [R31.17] names the **body** hash, and a file read is
+  already pinned by the body read that had to precede it to learn the path. Flagged rather than
+  assumed: the security gate notes a model can reuse a path learned in an *earlier* turn, and file
+  bytes are mutable — so the trail cannot answer §8 threat 10's "which bytes executed" for files.
+  `skill.file_updated` records `sha256` before→after, which covers the mutation half. FU-33.
+- **D-33: `skill.updated`'s `body_sha256` before→after was already implemented in Phase 1.** D-16
+  records AC-19 as "Phase 2 and was not implemented here", which is true of the `message.metadata`
+  half and **false of this one** — `skill_service.update` has emitted both hashes since Phase 1.
+  Recorded because the dossier asserted an absence that was not there, which is the same class of
+  error §4's preamble warns about for negatives.
+- **D-34: the scan job is enqueued after an explicit commit, breaking the "the dependency owns the
+  transaction" norm.** `db_session`'s docstring sanctions exactly this ("an endpoint that must run
+  work *after* a durable commit — e.g. enqueueing Arq jobs that reference a just-written row"), and
+  `ingest_service.py:234` does it. Found by self-audit: without it the worker reads on its own
+  connection, can lose the race, take the `not_found` arm — which **returns rather than raises**,
+  so `max_tries` never engages — and leave the file `pending` forever, i.e. a permanently
+  unreadable skill under D-27's gate. Independently confirmed by the quality gate as a Critical.
+- **D-35: `SkillFileRepository.mark_scan` is conditional on the scanned sha, unlike its RAG
+  exemplar.** §9's reuse inventory and the first implementation both copied
+  `RagDocumentRepository.mark_scan`, which keys on the id alone. **That is safe only because a RAG
+  document's bytes are immutable once written**, and `update_content` makes `skill_files` a
+  mutable-bytes row — so the copy imported an assumption that no longer held. Found by the security
+  gate: upload 32 MiB of benign markdown, let its scan start, PATCH to a small malicious payload,
+  let the edit's fast scan write `quarantined`, and the slow scan of the *old* bytes writes `clean`
+  over it. Terminal, and the attacker picks the ordering with two file sizes. Verdicts are now
+  dropped in **both** directions when the sha has moved — a stale `quarantined` would brick a skill
+  whose current file is fine. Worth naming the verification limit: the unit tests drive a fake that
+  carries its own sha check, so **they stay green against the bug** (probed); `TestTheRepositoryPredicate`
+  compiles the statement and pins the clause, and the real proof is a concurrent write against live
+  Postgres, which needs the `wiring` tier.
+- **D-36: `skill_files` hard-deletes; there is no `deleted_at`.** The schema (0056) has none, so
+  this is not a departure from §6 so much as a decision §6 never states. The asymmetry with
+  `skills` is the point: Q-24 soft-deletes a skill because it is bound by many agents and the
+  binding graph is the expensive thing to lose. A file is owned by exactly one skill and reachable
+  from nothing else. Deleting the *skill* leaves its file rows intact for the 60-day window; only
+  an explicit per-file delete removes one, which is the user asking for exactly that.
+
 - **D-20: `status` stays `in-progress` with Phase 1 complete.** The contract
   (`docs/tasks/README.md:57`) moves `in-progress → implemented` "only after the full Definition of
   Done passes", and this dossier's Definition of Done spans four phases: AC-16 through AC-32 are
@@ -2559,3 +2692,76 @@ stays out of scope. This edit is why `R23.01` appears in the frontmatter.
   enforcement point FU-26 creates. Type: implementing is a `feature` (a stored value changes form);
   dropping it is two words in docs. Note `:921` and `:1264` promise NFC for *bundle paths* too — a
   separate unimplemented surface, out of scope here but the same broken promise.
+
+*Added during Phase 2 (backend) implementation (2026-07-17):*
+
+- **FU-29: `skill-bundles` accumulates orphaned objects with no reclamation path.** Both
+  `SkillFileService.delete` and `update_content` leave the old object in MinIO deliberately — keys
+  are content-addressed (`{skill_id}/{sha}/{path}`), so two rows can legitimately point at one
+  object and removing it on delete could pull the bytes out from under a sibling. The bucket has
+  **no lifecycle** by design (§21.5: a skill's files are part of the skill), so nothing ever
+  collects them. Deleting is therefore not the leak; *editing* is — every `PATCH` to a file strands
+  its predecessor's bytes forever, and `delete` at least says so in a comment while
+  `update_content` does not. Combined with FU-32 (no file-count cap), an ordinary edit loop grows
+  storage without bound. A real fix needs refcounting by sha within a skill, or a sweep keyed on
+  "objects under `{skill_id}/` whose sha no live row carries" — the second is a retention worker in
+  `retention.py`'s existing family and is the cheaper shape. **Not a Phase 2 bug**: the behaviour is
+  chosen and consistent; what is missing is the collector nobody has written.
+- **FU-30: there is no re-scan endpoint, so a lost or terminal scan is unrecoverable except by
+  delete-and-re-add.** Three paths reach a permanently-`pending` or permanently-`skipped` file, and
+  under D-27's fail-closed gate each means a permanently unreadable skill: a swallowed Redis
+  enqueue failure (`enqueue_skill_scan` logs and continues, mirroring its RAG sibling — but the RAG
+  sibling's scan is advisory and this one is a gate); a ClamAV outage outlasting `max_tries = 3`;
+  and an operator lowering `clamav_max_scan_bytes` below the 32 MiB file cap. The user-visible
+  recovery today is to delete the file and add it again, which works — delete frees the path and
+  add re-enqueues — but requires the owner to know that. A `POST .../files/{id}/rescan` is a small
+  endpoint; it is out of scope because it is a **new API surface**, not a repair.
+- **FU-31: `check:openapi-drift` cannot run on a Windows dev box.**
+  `frontend/scripts/check-openapi-drift.sh:22` invokes `python`, which is not on PATH inside
+  git-bash here, so the gate fails with "command not found" rather than reporting drift — the same
+  class as FU-17's `rg`, which Phase 1 resolved by rewriting the gate in Python. CI's Linux image
+  has `python`, so this is a local-verification gap, not a CI gap. This task verified the spec
+  structurally instead (parse both, diff paths/schemas/shared entries), which proved the change is
+  exactly +12 paths and +7 schemas with zero churn — but that is a hand-rolled substitute, and the
+  next person will hit the same wall. Fix shape: `python3` fallback, or `uv run`, or the FU-17
+  treatment.
+- **FU-32: nothing caps files per skill.** Raised as MEDIUM by the security gate and as the root of
+  the Critical D-31 fixes. `SkillFileService.add` checks only the path; no route is rate-limited;
+  Q-17's ≤ 500 entries is a **bundle** rule that Phase 4's importer will enforce on import and which
+  binds nothing on the per-file API. Consequences already visible: `_fit_manifest` exists because a
+  manifest can outgrow the whole tool-output budget, and `_assert_path_free` does a full
+  `list_paths_for_skill` scan per add, so the add loop is O(n²) against itself. With FU-29 it is
+  also an unbounded storage grow. A cap is a **new user-visible limit and a new 422** — a `feature`
+  needing a number nobody has chosen, not a bugfix — which is why it is here rather than in the
+  diff. Note the natural number (500) would make the bundle rule and the API rule agree.
+- **FU-33: `read_skill`'s file reads are not in `message.metadata` (see D-32).** [R31.17] names the
+  body hash and the reasoning holds for the common case, but the security gate's objection is
+  sound: a model can reuse a path learned in an earlier turn, so a file read need not be preceded
+  by a body read *in the same turn*, and file bytes are mutable. §8 threat 10's question — "which
+  bytes executed" — is therefore answerable for bodies and not for reference files. Deciding this
+  means amending [R31.17], so it is an SRS question, not a code one. Cheap if wanted: the sink and
+  the `SkillRead` shape both exist; it needs a `sha256` field and a decision about whether a file
+  read is an "invocation".
+- **FU-34: bound-set path collisions are check-then-act with no database backstop for the
+  case-insensitive arm.** `_assert_path_free` compares `path_collision_key` (casefold) across the
+  skill's existing paths, but `UNIQUE (skill_id, path)` is **byte-exact**, so two concurrent adds of
+  `assets/X.md` and `assets/x.md` both pass the check and both commit. The rule cannot be expressed
+  as a plain constraint; a functional unique index on `(skill_id, lower(path))` would come close but
+  `lower()` is not `casefold()` (the ẞ→ss case the helper's own test pins). Blast radius is small
+  and self-inflicted — the caller already owns the skill, and the result is two files that collide
+  only on a Windows checkout — but it is the D-23 shape one level down and should be recorded rather
+  than discovered twice.
+- **FU-35: an exact path-collision race answers 500, not 409.** The other half of FU-34: for the
+  byte-exact arm the DB constraint *does* fire, but as an `IntegrityError` that nothing maps, so a
+  loser of the race gets a 500 where the sequential path gives a clean `skills/file-path-taken`.
+  Cheap fix (catch it in `SkillFileService.add` and re-raise `SkillFilePathTaken`), left out because
+  it is a distinct concern from FU-34's missing constraint and the two want one decision.
+- **FU-36: four documented branches in the Phase 2 diff carry no test.** Named by the quality gate,
+  all cheap, none load-bearing enough to hold the phase: `read_skill`'s non-integer `offset` arm
+  (six lines of rationale explain why it is *not* coerced to 0 — the branch most likely to regress
+  into `_opt_int(...) or 0`); the `path` arm's offset-range check (only `_serve_body`'s is covered,
+  and negative offsets are untested on both); `SkillFileService.update_content`'s concurrent-delete
+  race (`FakeSkillFileRepo.update_content` already returns `None` for a missing id, so the test is
+  nearly free); and `_extract_text`'s `except ParserError` fallback (only `parser is None` is
+  exercised). Recorded because "documented at length, tested nowhere" is how a rationale becomes
+  folklore.
