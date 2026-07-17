@@ -370,6 +370,49 @@ async def test_the_turn_time_tap_drops_a_skill_that_grew_a_script_after_binding(
     assert [(d.name, d.reason) for d in bound.dropped] == [("pdf-fill", "requires:code_exec")]
 
 
+class TestTheTapsQueryCount:
+    """`resolve_bound_set` runs on every turn for every bound skill, so its query count is
+    part of its contract rather than an implementation detail.
+
+    Deriving `code_exec` from `scripts/` (AC-20) inverted an assumption the old code rested
+    on: `requires` is SMAP-invented and appears in 0 of 42 real bundles (Q-29), so `needed`
+    was near-always empty and `assert_requirements`' short-circuit skipped the tool read.
+    Once every script-bearing skill derives a requirement that guard stops firing, and the
+    read that was free becomes one query per skill per turn. Caught by this task's quality
+    gate, not by a test — hence these.
+    """
+
+    async def test_the_tool_set_is_read_once_for_a_whole_bound_set(self, h: _Harness) -> None:
+        project = h.add_project()
+        agent = h.add_agent(project_id=project.id, tools=[FakeTool(AgentToolType.HOSTED_CODE_INTERPRETER)])
+        for i in range(5):
+            skill = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name=f"s{i}"))
+            h.files.put(make_skill_file(skill.id, path="scripts/x.py"))
+            await h.svc.bind(skill_id=skill.id, agent_id=agent.id)
+
+        h.agents.tool_reads = 0
+        bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
+
+        assert len(bound.skills) == 5
+        assert h.agents.tool_reads == 1
+
+    async def test_a_bound_set_that_needs_no_tool_reads_none(self, h: _Harness) -> None:
+        """The lazy half: the old code paid nothing here and it must stay that way, or the
+        fix trades one N+1 for one unconditional query on every turn."""
+        project = h.add_project()
+        agent = h.add_agent(project_id=project.id)
+        for i in range(3):
+            skill = h.skills.put(make_skill(scope=SkillScope.PROJECT, project_id=project.id, name=f"s{i}"))
+            h.files.put(make_skill_file(skill.id, path="references/g.md"))
+            await h.svc.bind(skill_id=skill.id, agent_id=agent.id)
+
+        h.agents.tool_reads = 0
+        bound = await h.svc.resolve_bound_set(agent_id=agent.id, agent_project_id=project.id)
+
+        assert len(bound.skills) == 3
+        assert h.agents.tool_reads == 0
+
+
 class TestTheScriptProbePredicate:
     """The `WHERE` clause itself, compiled — the D-35 lesson applied before it bites.
 

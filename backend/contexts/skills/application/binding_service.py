@@ -178,7 +178,7 @@ class BindingService:
     # -- requirements (Q-9 / [R31.09]) ---------------------------------------
 
     async def assert_requirements(self, skill: Skill, agent_id: uuid.UUID, *, has_scripts: bool) -> None:
-        """Re-check `requires:` against the agent's enabled tools.
+        """Re-check one skill's `requires:` against the agent's enabled tools.
 
         Checked at bind *and* every turn. The reviewed design condemned bind-time-only
         authorization and then made `requires:` exactly that: disabling code_exec after
@@ -189,11 +189,35 @@ class BindingService:
         learn it differently: `bind` asks about one skill, the turn-time tap asks about a
         whole bound set in one query. A `None`-means-go-look default would make the N+1 the
         easy path and the batch the exception.
+
+        The **single-skill** entry point, for `bind`. `resolve_bound_set` fetches the tool
+        set once and calls `assert_requirements_against` directly — see `_enabled_tools`.
         """
         needed = self._required_tool_types(skill, has_scripts=has_scripts)
         if not needed:
             return
-        enabled = {t.tool_type for t in await self._agents.list_agent_tools(agent_id) if t.enabled}
+        self.assert_requirements_against(
+            skill, has_scripts=has_scripts, enabled=await self._enabled_tools(agent_id)
+        )
+
+    async def _enabled_tools(self, agent_id: uuid.UUID) -> set[AgentToolType]:
+        """The agent's enabled tool types — one query.
+
+        Hoisted out of `assert_requirements` because the tap calls it per skill and this is
+        a real DB read (`AgentsFacade.list_agent_tools`). It used to be *reachable* per
+        skill but almost never *reached*: `requires` is SMAP-invented and appears in 0 of
+        42 real bundles (Q-29), so `needed` was near-always empty and the short-circuit
+        above skipped the query. Deriving `code_exec` from `scripts/` inverted that — every
+        script-bearing skill now needs a check — so the guard that used to make this free
+        would have turned it into one query per bound skill per turn.
+        """
+        return {t.tool_type for t in await self._agents.list_agent_tools(agent_id) if t.enabled}
+
+    def assert_requirements_against(
+        self, skill: Skill, *, has_scripts: bool, enabled: set[AgentToolType]
+    ) -> None:
+        """The pure half: prove `skill`'s requirements against an already-fetched tool set."""
+        needed = self._required_tool_types(skill, has_scripts=has_scripts)
         for name, tool_type in needed.items():
             if tool_type not in enabled:
                 raise SkillRequiresToolMissing(name, skill_name=skill.name)
@@ -210,11 +234,17 @@ class BindingService:
         file means the skill needs the interpreter whether or not `SKILL.md` says so, and
         the declaration alone would make the gate *cooperative*: omitting `requires:` — or
         importing a foreign bundle that never had it, since `requires` is SMAP-invented and
-        appears in 0 of 42 real skills (Q-29) — would bypass it entirely. Staging is gated
-        on the same tool, so without derivation the model reads a SKILL.md whose script was
-        never staged and confabulates around the absence, which is Q-9's whole objection.
-        The union direction matters: derivation can only ever *add* a requirement, so a
-        declaration can tighten the gate but never loosen it.
+        appears in 0 of 42 real skills (Q-29) — would bypass it entirely. On the room path,
+        staging is gated on this same tool, so without derivation the model reads a
+        SKILL.md whose script was never staged and confabulates around the absence, which
+        is Q-9's whole objection. The union direction matters: derivation can only ever
+        *add* a requirement, so a declaration can tighten the gate but never loosen it.
+
+        **"The room path" is not a hedge.** `run_input_turn` (the headless/A2A path) never
+        calls `_stage_workspace_inputs` at all, so there a script-bearing skill passes this
+        gate and is *still* never staged — Q-9's confabulation, reached by a different
+        route that derivation cannot close. FU-42; do not read this gate as a promise that
+        a bound script exists on disk.
         """
         names = set(skill.requires)
         if has_scripts:
@@ -409,14 +439,21 @@ class BindingService:
         dropped: list[DroppedSkill] = []
 
         candidates = await self._bindings.list_live_for_agent(agent_id)
-        # One query for the whole set, before the loop: `requires:` is derived per skill
-        # (AC-20) and asking per skill would be an N+1 on every turn.
+        # Two queries for the whole set, before the loop — never per skill. `requires:` is
+        # derived per skill (AC-20), so both inputs it needs are batched here: which skills
+        # own a script, and which tools the agent has. This is the hottest path in the
+        # product and it runs for every bound skill on every turn.
         with_scripts = await self._files.skill_ids_with_scripts([s.id for s in candidates])
+        # Lazily, because an agent whose skills need nothing must still pay nothing: before
+        # derivation the near-universal empty `requires` made the tool read free, and this
+        # keeps that true rather than trading one N+1 for one unconditional query.
+        needs_tools = any(self._required_tool_types(s, has_scripts=s.id in with_scripts) for s in candidates)
+        enabled = await self._enabled_tools(agent_id) if needs_tools else set()
 
         for skill in candidates:
             try:
                 await self._assert_contains(skill, agent_id=agent_id, agent_project_id=agent_project_id)
-                await self.assert_requirements(skill, agent_id, has_scripts=skill.id in with_scripts)
+                self.assert_requirements_against(skill, has_scripts=skill.id in with_scripts, enabled=enabled)
             except SkillContainmentFailed as exc:
                 dropped.append(DroppedSkill(skill_id=skill.id, name=skill.name, reason=exc.reason))
                 continue
