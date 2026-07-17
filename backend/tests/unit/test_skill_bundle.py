@@ -40,8 +40,15 @@ from contexts.skills.application.skill_md import (
     parse_skill_md,
     render_skill_md,
 )
-from contexts.skills.domain.errors import BundleInvalid, BundleQuarantined
-from contexts.skills.domain.models import Skill, SkillScope, SkillSource
+from contexts.skills.domain.errors import BundleInvalid, BundleQuarantined, SkillUnreadable
+from contexts.skills.domain.models import (
+    Skill,
+    SkillFile,
+    SkillFileKind,
+    SkillScanStatus,
+    SkillScope,
+    SkillSource,
+)
 from contexts.skills.domain.text_rules import skill_file_path_reason
 from contexts.skills.interfaces import error_mapping
 from contexts.skills.interfaces import facade as facade_module
@@ -63,6 +70,17 @@ def build_zip(entries: dict[str, bytes | str], *, compression: int = zipfile.ZIP
 
 def valid_bundle(**extra: bytes | str) -> bytes:
     return build_zip({"SKILL.md": SKILL_MD, **extra})
+
+
+class TestParsedBundleShape:
+    def test_skill_md_bytes_is_required_not_defaulted(self) -> None:
+        # `_assert_clean` feeds this field to the scanner as the SKILL.md payload, so a
+        # `b""` default would let a construction path that omitted it scan nothing and pass
+        # the gate on the one file the model is most certain to read. Required by
+        # construction; this pins it so a future default re-addition is caught here rather
+        # than by a silently-unscanned import.
+        with pytest.raises(TypeError):
+            bundle_service.ParsedBundle(manifest=None, files=(), warnings=())  # type: ignore[call-arg]
 
 
 class TestAValidBundle:
@@ -417,7 +435,10 @@ class TestTheStreamingCounters:
         with pytest.raises(BundleInvalid) as exc:
             read_bundle(data)
         assert "per-file" in exc.value.reason
-        assert exc.value.path == "assets/big.bin" or "per-file" in exc.value.reason
+        # A plain `==`, not `path == X or "per-file" in reason`: the right disjunct was
+        # already asserted above, so the `or` form could never fail and left `path`
+        # untested — point the per-file raise at the wrong entry and it stayed green.
+        assert exc.value.path == "assets/big.bin"
 
     def test_an_honest_small_but_highly_compressible_bundle_is_not_a_bomb(self) -> None:
         # The false positive the floor exists to prevent: ordinary repetitive prose beats
@@ -654,12 +675,15 @@ class FakeSkillFileService:
     def __init__(self, _db: object) -> None:
         self.added: list[dict[str, object]] = []
 
-    async def add(self, **kwargs: object) -> object:
-        self.added.append(kwargs)
-        # `sha256` is not decoration: the facade enqueues `(file_id, sha256)`, and
-        # `skill_scan_file` conditions every verdict on that sha so a scan of replaced
-        # bytes cannot land. A fake without it hides whether the facade passes it.
-        return SimpleNamespace(id=uuid.uuid4(), sha256="a" * 64)
+    async def add_many(self, *, files: object, **_kwargs: object) -> list[object]:
+        created: list[object] = []
+        for path, _data, mime in files:  # type: ignore[attr-defined]
+            self.added.append({"path": path, "mime": mime})
+            # `sha256` is not decoration: the facade enqueues `(file_id, sha256)`, and
+            # `skill_scan_file` conditions every verdict on that sha so a scan of replaced
+            # bytes cannot land. A fake without it hides whether the facade passes it.
+            created.append(SimpleNamespace(id=uuid.uuid4(), sha256="a" * 64))
+        return created
 
 
 @dataclass
@@ -1097,6 +1121,95 @@ class TestDeterminismIsAFunctionOfTheSkill:
         assert "x-smap-requires" not in rendered
 
 
+def _stored_skill(**over: object) -> Skill:
+    base: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "scope": SkillScope.ORG,
+        "agent_id": None,
+        "project_id": None,
+        "org_id": uuid.uuid4(),
+        "name": "pdf-fill",
+        "description": "Fills forms.",
+        "body": "# Body\n",
+        "body_sha256": "a" * 64,
+        "source": SkillSource.IMPORTED,
+        "bundle_sha256": None,
+        "requires": (),
+        "allowed_tools": (),
+        "extra_frontmatter": {},
+        "created_by": uuid.uuid4(),
+        "version": 1,
+        "created_at": datetime.now(UTC),
+        "deleted_at": None,
+    }
+    base.update(over)
+    return Skill(**base)
+
+
+def _stored_file(path: str, scan_status: SkillScanStatus) -> SkillFile:
+    return SkillFile(
+        id=uuid.uuid4(),
+        skill_id=uuid.uuid4(),
+        path=path,
+        kind=SkillFileKind.REFERENCE,
+        mime="text/markdown",
+        size_bytes=3,
+        sha256="b" * 64,
+        minio_key="k",
+        scan_status=scan_status,
+        extracted_chars=3,
+        created_at=datetime.now(UTC),
+    )
+
+
+class TestExportRefusesUnreadableFiles:
+    """Finding 1 — `export_bundle` must apply the AC-34 fail-closed gate `read_skill` does.
+
+    A quarantined (or still-pending) file makes a skill unreadable; an export that shipped
+    those bytes anyway is a side door for exactly what the gate exists to stop — and an
+    org/platform skill is exported by members who never uploaded it, to a presigned URL.
+    """
+
+    def _wire(self, monkeypatch: pytest.MonkeyPatch, files: list[SkillFile], *, read_bytes: bytes = b"x"):
+        reads: list[str] = []
+
+        class _Files:
+            def __init__(self, _db: object) -> None:
+                pass
+
+            async def list_for_skill(self, _skill_id: object) -> list[SkillFile]:
+                return files
+
+            async def read_bytes(self, f: SkillFile) -> bytes:
+                reads.append(f.path)
+                return read_bytes
+
+        monkeypatch.setattr(bundle_service, "SkillFileService", lambda db: _Files(db))
+        return reads
+
+    @pytest.mark.parametrize(
+        "status",
+        [SkillScanStatus.QUARANTINED, SkillScanStatus.PENDING, SkillScanStatus.SKIPPED],
+    )
+    async def test_a_non_clean_file_blocks_export(
+        self, monkeypatch: pytest.MonkeyPatch, status: SkillScanStatus
+    ) -> None:
+        bad = _stored_file("references/x.md", status)
+        reads = self._wire(monkeypatch, [bad])
+        with pytest.raises(SkillUnreadable):
+            await bundle_service.BundleService(None).export_bundle(_stored_skill())  # type: ignore[arg-type]
+        # Fail-closed *before* fetching: the condemned bytes are never even read.
+        assert reads == []
+
+    async def test_a_clean_skill_exports(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        clean = _stored_file("references/x.md", SkillScanStatus.CLEAN)
+        self._wire(monkeypatch, [clean], read_bytes=b"# guide")
+        data = await bundle_service.BundleService(None).export_bundle(_stored_skill())  # type: ignore[arg-type]
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            assert set(zf.namelist()) == {"SKILL.md", "references/x.md"}
+            assert zf.read("references/x.md") == b"# guide"
+
+
 class TestTheStoredSkillRoundTrips:
     """`manifest_of` — the seam between a `skills` row and a bundle, D-57 included.
 
@@ -1254,6 +1367,28 @@ class TestExportEscaping:
         with pytest.raises(BundleInvalid) as exc:
             render_skill_md(m)
         assert "not a valid key" in exc.value.reason
+
+    def test_a_key_containing_a_colon_cannot_be_exported(self) -> None:
+        # **The code-review finding.** The guard used `_KEY_RE.match(f"{key}:")`, a whole-
+        # line parser whose `(.*)` tail swallowed the embedded colon — so `a:b` passed and
+        # re-imported as key `a`, value `b: ...`: silent corruption, no exception, of the
+        # exact untyped-dict writer the guard exists to defend against.
+        m = SkillManifest(name="ok", description="d", body="", extra_frontmatter={"a:b": "v"})
+        with pytest.raises(BundleInvalid) as exc:
+            render_skill_md(m)
+        assert "not a valid key" in exc.value.reason
+
+    @pytest.mark.parametrize("codepoint", [0x200B, 0x202E, 0xE0041])
+    def test_a_format_char_in_a_value_cannot_be_exported(self, codepoint: int) -> None:
+        # **The code-review finding.** `_emit_scalar` rejected `Cc/Zl/Zp` but not `Cf`, so
+        # a zero-width/bidi/tag character exported into a file its own importer then
+        # rejected. Now it runs the same charset rule the parser does on input.
+        m = SkillManifest(name="t", description=f"safe{chr(codepoint)}text", body="body")
+        with pytest.raises(BundleInvalid) as exc:
+            render_skill_md(m)
+        assert exc.value.key == "description"
+        # And it really is symmetric: nothing SMAP emits is something SMAP would refuse to
+        # re-read. (The positive direction is covered by the 42-file round-trip corpus.)
 
     def test_an_empty_tolerated_list_survives_the_round_trip(self) -> None:
         # The author wrote this key, so dropping it loses what they wrote — unlike a

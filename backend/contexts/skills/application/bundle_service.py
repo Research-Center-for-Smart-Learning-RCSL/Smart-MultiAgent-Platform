@@ -1,39 +1,22 @@
-"""Bundle import (§31, Phase 4) — Anthropic Agent Skills `.zip` in, `Skill` out.
+"""Bundle import/export (§31, Phase 4) — Anthropic Agent Skills `.zip` in, `Skill` out.
 
-**The zip is a request body written by a stranger** (Q-2 is precisely what makes the
-author one), so every rule here rejects and nothing repairs. A silently sanitised path is
-one `SKILL.md` references by its original spelling and can no longer find — the
-confabulation Q-18 rejects partial imports to avoid.
+The zip is a request body written by a stranger (Q-2), so every rule rejects and nothing
+repairs. Three constraints shape the module and their full rationale is in the dossier,
+`docs/tasks/2026-07-16-agent-skills/spec.md` — cited here, not restated:
 
-Two rules carry most of the weight:
-
-**Counters come from inflation, never from headers.** `ZipInfo.file_size` and
-`compress_size` live in the central directory, which the attacker wrote. A header-based
-check passes a zip declaring 1 MB and inflating to 40 GB (§8 item 8 / AC-32), so every
-byte here is counted as it comes out of the decompressor and the budget trips mid-stream.
-The one size we can trust is `len(data)` — we hold those bytes — which is why the ratio is
-computed against it rather than against a per-entry `compress_size`.
-
-**Scanning precedes creation.** AC-25/Q-18 reject a bundle whole when one file is
-quarantined, and "whole" is only meaningful before rows exist. The async `skill_scan_file`
-worker cannot deliver that — it runs after `skill_files` rows are written, which is a
-partial import by definition — so the import path scans inline and creates nothing until
-every entry is clean.
-
-**That inline scan is the AC-25 gate and is *not* what fills in `scan_status`.** Rows are
-written `pending` exactly as every other path writes them, and `skill_scan_file` remains
-the single authority on that column — which means an import is only complete once its scans
-are **enqueued**, and that cannot happen here: the enqueue must follow a durable commit (the
-worker reads the row on its own connection and its not-found arm returns rather than
-retries), and this service owns no transaction. So `SkillsFacade.import_bundle` is the
-entry point, and it is not a formality — calling `BundleService.import_bundle` directly
-leaves every file `pending` forever, and under AC-34's fail-closed gate that is a skill
-which never becomes readable. That is why this returns the files it created rather than
-just the skill.
+  * Size counters come from inflation, never from the central-directory headers the
+    attacker wrote (§8 item 8 / AC-32).
+  * A bundle is scanned whole before any row is created (AC-25 / Q-18); the inline scan is
+    the gate, not the `scan_status` writer.
+  * Import must run through `SkillsFacade.import_bundle`, which commits and then enqueues a
+    scan per file. Calling `BundleService.import_bundle` directly leaves every file
+    `pending` under AC-34's fail-closed gate, i.e. a permanently unreadable skill (D-60) —
+    which is why the return type carries the files it created, not just the skill.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import logging
@@ -63,12 +46,12 @@ from contexts.skills.application.skill_md import (
 from contexts.skills.application.skill_service import SkillService
 from contexts.skills.domain.errors import BundleInvalid, BundleQuarantined
 from contexts.skills.domain.models import Skill, SkillFile, SkillScope, SkillSource
+from contexts.skills.domain.readability import assert_readable
 from contexts.skills.domain.text_rules import (
     SKILL_BODY_PATH,
     path_collision_key,
     skill_file_path_reason,
 )
-from shared_kernel.text_extraction.parsers import normalise_mime
 
 _log = logging.getLogger(__name__)
 
@@ -99,6 +82,20 @@ MAX_COMPRESSION_RATIO = 100
 _RATIO_FLOOR_BYTES = 4 * 1024 * 1024
 
 _INFLATE_CHUNK = 64 * 1024
+
+# The only two methods a skill bundle may use — the same two `write_bundle` emits. Rejecting
+# anything else *before* `zf.open` is what lets the read arm below catch a narrow, measured
+# set of exceptions: an unknown method would raise `NotImplementedError` and a bz2/lzma
+# entry on an image without those modules would raise a bare `RuntimeError`, and catching
+# `RuntimeError` broadly would relabel a genuine bug ("dictionary changed size…", "Event
+# loop is closed") as "the bundle is corrupt". Validating the method up front is the
+# reject-don't-guess rule the rest of the module already follows.
+_SUPPORTED_COMPRESSION = frozenset({zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED})
+
+# Scans and MinIO reads fan out with a bounded concurrency: a 500-file bundle otherwise
+# serialises 500 clamd round-trips (or 500 MinIO GETs) on one request, and unbounded
+# concurrency would open 500 connections at once. The cap trades a little latency for both.
+_IO_CONCURRENCY = 8
 
 # Bit 0 of the general-purpose flags: the entry is encrypted. Rejected rather than
 # attempted — bytes we cannot read are bytes ClamAV cannot scan, and AC-25's gate would
@@ -153,7 +150,10 @@ class ParsedBundle:
     warnings: tuple[str, ...]
     # The bytes that actually arrived, not `manifest.body`. The scanner must see what the
     # bundle carried — frontmatter included — rather than the fraction the parser kept.
-    skill_md_bytes: bytes = b""
+    # Required, not defaulted: `_assert_clean` feeds this to the scanner as the SKILL.md
+    # payload, so a `b""` default would let a construction path that forgot it scan nothing
+    # and pass the gate on the one file the model is most certain to read.
+    skill_md_bytes: bytes
 
 
 class _InflationBudget:
@@ -206,6 +206,14 @@ def _read_entry(zf: zipfile.ZipFile, info: zipfile.ZipInfo, budget: _InflationBu
     32 MB limit enforced after `read()` returns has already allocated whatever the entry
     inflated to.
     """
+    if info.compress_type not in _SUPPORTED_COMPRESSION:
+        # Rejected before `zf.open`, so the arm below never has to catch the
+        # `NotImplementedError`/`RuntimeError` this would otherwise raise (see
+        # `_SUPPORTED_COMPRESSION`).
+        raise BundleInvalid(
+            f"bundle entry {info.filename!r} uses an unsupported compression method",
+            path=info.filename,
+        )
     out = bytearray()
     try:
         with zf.open(info) as fh:
@@ -221,32 +229,15 @@ def _read_entry(zf: zipfile.ZipFile, info: zipfile.ZipInfo, budget: _InflationBu
                         f"byte per-file limit",
                         path=info.filename,
                     )
-    except (zipfile.BadZipFile, EOFError, zlib.error, NotImplementedError, RuntimeError) as exc:
-        # **This is the arm a forged size header actually lands in**, and it is not
-        # decoration. CPython's `zipfile` bounds a read at the entry's *declared*
-        # uncompressed size, so a header claiming 1 MB over a 200 MB payload never
-        # inflates 200 MB: the read stops at 1 MB and the CRC check fails here. AC-32
-        # describes that zip as "rejected mid-inflate by the streaming counter" — on this
-        # runtime the counter never sees it, and without this arm the rejection was a
-        # `BadZipFile` escaping as a 500 instead of a 422 (D-56).
-        #
-        # **Every member of this tuple was measured, and the tuple is the whole point.**
-        # An earlier draft listed `ValueError` here on suspicion — and `ValueError` catches
-        # nothing `zipfile` emits on hostile input, so the 500 this arm exists to prevent
-        # stayed open behind a clause that looked like it covered it. What it actually
-        # raises, made to happen rather than reasoned about:
-        #   `zlib.error`          — a corrupt deflate payload, straight out of the
-        #                           decompressor; `zipfile` does not wrap it.
-        #   `NotImplementedError` — `_check_compression` on an unknown `compress_type`.
-        #                           A two-byte header edit.
-        #   `RuntimeError`        — the same check when bz2/lzma are missing from the
-        #                           image, and the encrypted-without-password path.
-        # An `except` tuple is an assertion about a dependency's behaviour; this one is now
-        # run rather than believed, with a test per arm.
-        #
-        # None of these can shadow a `BundleInvalid` the `try` body raises for the per-file
-        # cap or the budget: `SkillError` descends from `Exception`, and none of these is an
-        # ancestor of it.
+    except (zipfile.BadZipFile, EOFError, zlib.error) as exc:
+        # The arm a forged size header lands in. CPython's `zipfile` bounds a read at the
+        # entry's *declared* uncompressed size, so a 1 MB-declaring, 200 MB-inflating entry
+        # never inflates 200 MB — the read stops and the CRC check fails here. `zlib.error`
+        # (a corrupt deflate payload) is not a `BadZipFile` and `zipfile` does not wrap it;
+        # both were measured, not guessed (D-56/D-61). An earlier draft's `ValueError`
+        # caught nothing zipfile emits, and its `RuntimeError` was too broad — the
+        # compression pre-check above removes the need for either. None of these shadows a
+        # `BundleInvalid` from the loop body: `SkillError` is not an ancestor of them.
         raise BundleInvalid(
             f"bundle entry {info.filename!r} is corrupt or its declared size is wrong: {exc}",
             path=info.filename,
@@ -550,19 +541,17 @@ class BundleService:
             request_id=request_id,
         )
 
-        created = [
-            await self._files.add(
-                skill=skill,
-                path=entry.path,
-                data=entry.data,
-                mime=normalise_mime("application/octet-stream", entry.path),
-                scan_enabled=scan_enabled,
-                actor_user_id=actor_user_id,
-                actor_ip=actor_ip,
-                request_id=request_id,
-            )
-            for entry in parsed.files
-        ]
+        # `add_many`, not a loop of `add`: the per-file `add` re-lists the skill's paths on
+        # every call, which is O(n^2) over a bundle (the D-45 N+1, one level out). Mime is
+        # normalised inside `_store_one`, so the raw octet-stream default is fine here.
+        created = await self._files.add_many(
+            skill=skill,
+            files=[(entry.path, entry.data, "application/octet-stream") for entry in parsed.files],
+            scan_enabled=scan_enabled,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
         return ImportResult(skill=skill, files=tuple(created), warnings=parsed.warnings)
 
     async def export_bundle(self, skill: Skill) -> bytes:
@@ -572,10 +561,24 @@ class BundleService:
         records what was stored, and the export has to carry what *is* stored.
         """
         files = await self._files.list_for_skill(skill.id)
-        payloads: list[tuple[str, bytes]] = []
-        for f in sorted(files, key=lambda f: f.path):
-            payloads.append((f.path, await self._files.read_bytes(f)))
-        return write_bundle(skill_md=render_skill_md(manifest_of(skill)), files=payloads)
+
+        # Fail closed before packing: a quarantined (or still-pending) file makes the whole
+        # skill unreadable to `read_skill` (AC-34), and an export must not become the side
+        # door that ships those bytes anyway — an org/platform skill is exported by members
+        # who never uploaded it, and §6 routes the .zip to a presigned URL. Same gate,
+        # applied to the second reader of a skill's files.
+        assert_readable(skill, files)
+
+        sem = asyncio.Semaphore(_IO_CONCURRENCY)
+
+        async def _read(f: SkillFile) -> tuple[str, bytes]:
+            async with sem:
+                return f.path, await self._files.read_bytes(f)
+
+        # No sort here: `write_bundle` sorts its own input, so the read order does not reach
+        # the output and the fetches are free to fan out.
+        payloads = await asyncio.gather(*(_read(f) for f in files))
+        return write_bundle(skill_md=render_skill_md(manifest_of(skill)), files=list(payloads))
 
     async def _assert_clean(self, parsed: ParsedBundle) -> None:
         """Scan every byte the bundle carries. One quarantine rejects the whole (Q-18).
@@ -599,10 +602,21 @@ class BundleService:
             (SKILL_BODY_PATH, parsed.skill_md_bytes),
             *((f.path, f.data) for f in parsed.files),
         ]
-        for path, blob in payloads:
-            result = await scanner.scan(blob)
-            if not result.clean:
-                _log.warning("bundle import rejected — %s quarantined (threat=%s)", path, result.threat_name)
+
+        sem = asyncio.Semaphore(_IO_CONCURRENCY)
+
+        async def _scan(path: str, blob: bytes) -> tuple[str, bool, str | None]:
+            async with sem:
+                result = await scanner.scan(blob)
+            return path, result.clean, result.threat_name
+
+        # Fanned out, but the verdict is still read in payload order so the rejection names
+        # the same entry every time — the whole bundle is rejected regardless of which scan
+        # finishes first, so order is a determinism nicety, not a correctness one.
+        verdicts = await asyncio.gather(*(_scan(path, blob) for path, blob in payloads))
+        for path, clean, threat in verdicts:
+            if not clean:
+                _log.warning("bundle import rejected — %s quarantined (threat=%s)", path, threat)
                 raise BundleQuarantined(path)
 
 

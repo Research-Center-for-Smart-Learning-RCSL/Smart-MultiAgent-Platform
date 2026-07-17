@@ -21,6 +21,7 @@ import asyncio
 import hashlib
 import logging
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -166,6 +167,80 @@ class SkillFileService:
         `path` has already passed `skill_file_path_reason` at the API boundary.
         """
         await self._assert_path_free(skill.id, path)
+        return await self._store_one(
+            skill=skill,
+            path=path,
+            data=data,
+            mime=mime,
+            scan_enabled=scan_enabled,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def add_many(
+        self,
+        *,
+        skill: Skill,
+        files: Sequence[tuple[str, bytes, str]],
+        scan_enabled: bool,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> list[SkillFile]:
+        """Add a set of `(path, data, mime)` files, validating the whole set with one query.
+
+        The per-file `add` re-lists the skill's paths on every call, so importing a bundle
+        one file at a time is O(n) queries per add and O(n^2) over the bundle — the same
+        shape as the turn-path N+1 that `resolve_bound_set` was rewritten to remove. A
+        bundle arrives already validated as a set (its importer rejects case-insensitive
+        collisions and caps the count), so the collision scan here is against the existing
+        rows plus the batch itself, run once rather than per file.
+
+        Paths have already passed `skill_file_path_reason`. Ordering is preserved.
+        """
+        existing = await self._files.list_paths_for_skill(skill.id)
+        if len(existing) + len(files) > MAX_SKILL_FILES:
+            raise SkillFileLimitExceeded(limit=MAX_SKILL_FILES)
+        # One collision namespace over existing rows and the incoming batch. The batch's
+        # own paths are checked against each other too, so `add_many` is safe for a set the
+        # caller has not de-duplicated — it does not lean on the bundle importer's own check.
+        seen: dict[str, str] = {path_collision_key(p): p for p in existing}
+        for path, _data, _mime in files:
+            key = path_collision_key(path)
+            if key in seen:
+                raise SkillFilePathTaken(path, collides_with=seen[key])
+            seen[key] = path
+        created: list[SkillFile] = []
+        for path, data, mime in files:
+            created.append(
+                await self._store_one(
+                    skill=skill,
+                    path=path,
+                    data=data,
+                    mime=mime,
+                    scan_enabled=scan_enabled,
+                    actor_user_id=actor_user_id,
+                    actor_ip=actor_ip,
+                    request_id=request_id,
+                )
+            )
+        return created
+
+    async def _store_one(
+        self,
+        *,
+        skill: Skill,
+        path: str,
+        data: bytes,
+        mime: str,
+        scan_enabled: bool,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+    ) -> SkillFile:
+        """Put the bytes and write the row. **Assumes the path is already free** — the
+        collision/count check is the caller's, so `add` and `add_many` can amortise it."""
         norm_mime = normalise_mime(mime, path)
         kind = kind_for_path(path)
         sha = file_sha256(data)
