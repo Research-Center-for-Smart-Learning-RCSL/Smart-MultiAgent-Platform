@@ -1,8 +1,15 @@
 """Charset rules for every author-controlled string a model or the UI will see (AC-30).
 
-One pure function, three callers: create, update, and — when bundles land — import. A
-rule enforced at only some entry points is not a rule, and import is precisely the entry
-point whose author is a stranger (Q-2).
+Pure rules, and the same three entry points for each: create, update, and — when bundles
+land — import. A rule enforced at only some entry points is not a rule, and import is
+precisely the entry point whose author is a stranger (Q-2).
+
+Two rule families, because two things reach the model:
+  * :func:`text_rejection_reason` — `description`, `requires[]`, `allowed_tools[]`,
+    `license`: the free-form fields the index block renders.
+  * :func:`skill_file_path_reason` — bundled file paths, which `read_skill` renders into
+    the file manifest. A path is structured, so it carries the charset rule *plus*
+    layout, traversal, and cross-filesystem rules the free-form fields have no use for.
 
 What this buys, stated honestly (§8): a compliant model gets an unambiguous parse of the
 index block, and an injected string cannot *forge* the frame, because the one sequence
@@ -133,8 +140,103 @@ def text_rejection_reason(value: str, *, max_chars: int) -> str | None:
     return None
 
 
+# --------------------------------------------------------------------------- #
+# File paths (AC-18 / AC-30 / R31.19)                                          #
+# --------------------------------------------------------------------------- #
+
+# The bundle root's own file, and the only three directories a bundle may carry
+# (R31.19). `SKILL.md` is the body and is not a `skill_files` row — it is named here
+# because the *path* rule has to reject it as a file path, not because it is allowed.
+SKILL_BODY_PATH = "SKILL.md"
+ALLOWED_TOP_LEVEL_DIRS: tuple[str, ...] = ("references", "scripts", "assets")
+
+MAX_FILE_PATH_CHARS = 255
+
+# Reserved on Windows regardless of extension, so `scripts/CON.py` is unusable on a
+# Windows dev box even though Linux prod accepts it (R31.19). Rejected rather than
+# renamed: this codebase rejects and never sanitises bundle paths, because a silently
+# renamed path is one `SKILL.md` references and cannot find.
+_WINDOWS_RESERVED = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }
+)
+
+
+def skill_file_path_reason(path: str) -> str | None:
+    """Why `path` is unacceptable as a bundled file's path, or None if it is fine.
+
+    Same reason-not-raise contract as :func:`text_rejection_reason`, and the same
+    charset rule underneath — a path is model-facing text too. `read_skill` renders the
+    file manifest into the model's context, so a newline in a path forges a manifest
+    entry exactly as a newline in a `description` forges an index line (§8 threat 8).
+
+    Rejection is total: nothing here sanitises. A path that is *almost* right is one the
+    body references by its original spelling, so repairing it produces a skill whose
+    `SKILL.md` points at a file that no longer exists under that name — the
+    confabulation Q-18 rejects partial imports to avoid.
+    """
+    if not path:
+        return "is empty"
+    if len(path) > MAX_FILE_PATH_CHARS:
+        return f"exceeds {MAX_FILE_PATH_CHARS} characters"
+    # Charset first: every arm below reasons about the path's *structure*, and a
+    # zero-width character between "references" and "/" would fail the top-level-dir
+    # test below while still displaying as `references/x` to whoever approved it.
+    charset = text_rejection_reason(path, max_chars=MAX_FILE_PATH_CHARS)
+    if charset is not None:
+        return charset
+    if unicodedata.normalize("NFC", path) != path:
+        # Rejected, not normalised: two paths differing only by form would collide in
+        # `UNIQUE (skill_id, path)` on one filesystem and not another.
+        return "is not NFC-normalised"
+    if "\\" in path:
+        return "contains a backslash"
+    if path.startswith("/"):
+        return "is absolute"
+    segments = path.split("/")
+    if any(seg == "" for seg in segments):
+        return "contains an empty path segment"
+    if any(seg in (".", "..") for seg in segments):
+        return "contains a path traversal segment"
+    for seg in segments:
+        if seg != seg.strip(" ") or seg.endswith("."):
+            # Windows silently strips both, so `assets/x ` and `assets/x.` round-trip to
+            # `assets/x` there and collide with it — a collision Linux prod does not see.
+            return f"has a segment with a trailing dot or space ({seg!r})"
+        if seg.split(".")[0].upper() in _WINDOWS_RESERVED:
+            return f"uses a Windows reserved name ({seg!r})"
+    if path == SKILL_BODY_PATH:
+        return f"{SKILL_BODY_PATH} is the skill body, not a bundled file"
+    if len(segments) < 2 or segments[0] not in ALLOWED_TOP_LEVEL_DIRS:
+        allowed = ", ".join(f"{d}/" for d in ALLOWED_TOP_LEVEL_DIRS)
+        return f"must live under one of {allowed}"
+    return None
+
+
+def path_collision_key(path: str) -> str:
+    """The key two paths collide on across the supported filesystems.
+
+    `UNIQUE (skill_id, path)` is byte-exact, which is Linux's rule. A Windows dev box
+    resolves `Assets/X.md` and `assets/x.md` to one file, so a bundle carrying both
+    imports cleanly in prod and destroys one of them on a developer's machine. Case
+    folding — not `.lower()`, which does not fold every script the charset rule admits.
+    """
+    return path.casefold()
+
+
 __all__ = [
+    "ALLOWED_TOP_LEVEL_DIRS",
     "INDEX_DELIMITER_MARKER",
+    "MAX_FILE_PATH_CHARS",
+    "SKILL_BODY_PATH",
     "contains_delimiter",
+    "path_collision_key",
+    "skill_file_path_reason",
     "text_rejection_reason",
 ]

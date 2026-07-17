@@ -112,6 +112,7 @@ class MinioSection(BaseSettings):
     bucket_exports: str = "exports"
     bucket_agent_workspace: str = "agent-workspace"
     bucket_prompt_assistant_files: str = "prompt-assistant-files"
+    bucket_skill_bundles: str = "skill-bundles"
     # TTLs encoded here so both the bootstrap CLI and tests reference a single
     # source of truth; changing them is a config + Alembic change, never a
     # one-off mutation of the bucket lifecycle via the console.
