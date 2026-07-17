@@ -2537,6 +2537,23 @@ bundle actually uploadable and downloadable.
   into the conversation context and its frontend counterpart (`tus.ts`) is part of the deferred
   `slices/skills` slice, so a backend-only tus branch cannot be exercised end-to-end this session.
   See FU-51.
+- **D-71: `/code-review` (high effort) of the transport commit found six issues; the four real ones
+  are fixed, and one supersedes D-67's deferral.** (1) **A post-commit audit fault marked a
+  succeeded import as FAILED.** `import_bundle` commits the created skill, then the worker emitted
+  `skill.bundle_imported` in a fresh transaction; a fault there fell to `except Exception ->
+  mark_import_failed`. The skill existed and its scans ran, so the user saw "failed", re-imported,
+  and hit the name collision that failed the retry too — stranding a live skill. Now the job is
+  marked ready first and the audit is best-effort (logged, never raised); `mark_import_running` moved
+  inside the `try` so the slot-release/staging-delete `finally` always runs. (2) **`_export`'s
+  enqueue failure** now marks the job failed and rolls the audit back with the request, rather than
+  leaving a stuck-QUEUED job. (3) **`skill_export_bundle`** deletes the zip it wrote if
+  `mark_export_ready` then faults, rather than orphaning it for the bucket lifecycle. (4) **The
+  agent-scope import resolved the agent's project twice**; `_assert_agent_write` now returns the
+  project id it already resolved. **The SoC finding supersedes D-67**: rather than accept the
+  router->application import per the `exports.py` precedent, the job-state ops are now sessionless
+  `staticmethod` delegators on `SkillsFacade` (the shape `render_index` already uses), so the router
+  reaches Redis job state through the facade and imports no `application/` module. The two remaining
+  findings were the side-effecting `GET` export (spec-mandated, D-68) and are unchanged.
 
 ## 16. Follow-ups
 

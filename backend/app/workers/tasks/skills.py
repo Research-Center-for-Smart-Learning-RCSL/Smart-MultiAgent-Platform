@@ -289,6 +289,7 @@ async def skill_export_bundle(
     minio = get_minio_client()
 
     await bundle_jobs.mark_export_running(jid)
+    wrote_key: str | None = None
     try:
         async with sm() as db:
             data = await SkillsFacade(db).export_bundle(
@@ -300,6 +301,7 @@ async def skill_export_bundle(
         await minio.put_object(
             bucket=minio.exports_bucket, key=key, data=data, content_type="application/zip"
         )
+        wrote_key = key
         await bundle_jobs.mark_export_ready(job_id=jid, bucket=minio.exports_bucket, object_key=key)
         return "exported"
     except Exception as exc:
@@ -310,6 +312,11 @@ async def skill_export_bundle(
         # is generic so no worker internal reaches the client.
         reason = str(exc) if isinstance(exc, SkillError) else "export failed"
         await bundle_jobs.mark_export_failed(job_id=jid, error=reason)
+        # If the zip was written but `mark_export_ready` then faulted, the client will see
+        # 'failed' and never fetch it — delete the orphan rather than lean on the bucket's
+        # 24 h lifecycle to reclaim a file no one can reach.
+        if wrote_key is not None:
+            await minio.remove(bucket=minio.exports_bucket, key=wrote_key)
         return "failed"
 
 
