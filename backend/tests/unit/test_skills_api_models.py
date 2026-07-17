@@ -15,7 +15,13 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from app.api.v1.skills import SkillCopyIn, SkillCreateIn, SkillPatchIn
+from app.api.v1.skills import (
+    SkillCopyIn,
+    SkillCreateIn,
+    SkillFileCreateIn,
+    SkillFilePatchIn,
+    SkillPatchIn,
+)
 from contexts.skills.application.index_builder import INDEX_OPEN
 from contexts.skills.domain.models import MAX_DESCRIPTION_CHARS, SkillScope
 
@@ -193,3 +199,119 @@ def skills_api_admin_routes() -> list:
     from app.api.v1.skills import admin_router
 
     return [r for r in admin_router.routes if getattr(r, "path", None)]
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — the file boundary (AC-16 / AC-17 / AC-30's path column)
+# ---------------------------------------------------------------------------
+
+
+def _file(**overrides: object) -> SkillFileCreateIn:
+    body: dict[str, object] = {"path": "references/guide.md", "content": "# Guide"}
+    body.update(overrides)
+    return SkillFileCreateIn(**body)  # type: ignore[arg-type]
+
+
+def test_a_clean_file_body_is_accepted() -> None:
+    f = _file(mime="text/markdown")
+    assert f.path == "references/guide.md"
+    assert f.content == "# Guide"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "../etc/passwd",
+        "/etc/passwd",
+        "references/../../secret",
+        "bin/run.sh",
+        "SKILL.md",
+        "loose.md",
+        f"references/{RLO}evil.md",
+        f"references/x{ZWSP}.md",
+        "references/x\nassets/evil.sh",
+        "scripts/CON.py",
+        "references\\x.md",
+    ],
+)
+def test_a_bad_path_is_rejected_at_the_boundary(path: str) -> None:
+    # AC-30's file-path column, wired. `test_skill_file_paths` proves the rule; this
+    # proves the create model actually calls it.
+    with pytest.raises(ValidationError):
+        _file(path=path)
+
+
+def test_the_index_delimiter_is_rejected_in_a_path() -> None:
+    with pytest.raises(ValidationError):
+        _file(path=f"references/{INDEX_OPEN.strip()}.md")
+
+
+def test_kind_cannot_be_supplied_by_the_client() -> None:
+    # R31.18 derives kind from the path's directory. `extra="forbid"` makes a
+    # client-supplied kind a 422 rather than a silent no-op — the difference between a
+    # rejected upload and one that thinks it marked a binary as readable text.
+    with pytest.raises(ValidationError):
+        _file(kind="reference")
+
+
+def test_scan_status_cannot_be_supplied_by_the_client() -> None:
+    # The gate AC-34 rests on is server state; a body field that set it would be the
+    # whole control, bypassed.
+    with pytest.raises(ValidationError):
+        _file(scan_status="clean")
+
+
+def test_a_file_patch_cannot_rename() -> None:
+    # `path` is the key SKILL.md references the file by, so a rename is a delete plus an
+    # add — the same reasoning as AC-39's `name`.
+    assert "path" not in SkillFilePatchIn.model_fields
+    with pytest.raises(ValidationError):
+        SkillFilePatchIn(content="x", path="references/other.md")  # type: ignore[call-arg]
+
+
+def test_an_oversize_authored_file_is_rejected() -> None:
+    from app.api.v1.skills import _MAX_BODY
+
+    with pytest.raises(ValidationError):
+        _file(content="a" * (_MAX_BODY + 1))
+
+
+def test_the_upload_route_is_not_shadowed_by_the_file_id_route() -> None:
+    # `POST /{skill_id}/files/upload` and `{file_id}` are different methods today, so
+    # nothing collides — but if a POST-by-id ever lands, declaration order decides
+    # whether "upload" parses as a UUID and 422s the endpoint into uselessness. Pinned
+    # for the same reason as the /metrics route above.
+    paths = [r.path for r in skills_api_admin_routes()]
+    assert "/api/admin/skills/{skill_id}/files/upload" in paths
+    assert paths.index("/api/admin/skills/{skill_id}/files/upload") < paths.index(
+        "/api/admin/skills/{skill_id}/files/{file_id}"
+    )
+
+
+def test_every_scope_router_exposes_the_same_file_surface() -> None:
+    # A scope that silently lacks an endpoint is how a feature ships half-wired. The
+    # agent/project/org routers carry an owner path param; admin does not.
+    from app.api.v1.skills import admin_router, agent_router, org_router, project_router
+
+    def suffixes(router: object, prefix: str) -> set[tuple[str, str]]:
+        out = set()
+        for r in router.routes:  # type: ignore[attr-defined]
+            path = getattr(r, "path", None)
+            if path is None or "/files" not in path:
+                continue
+            for m in r.methods:  # type: ignore[attr-defined]
+                if m not in ("HEAD", "OPTIONS"):
+                    out.add((m, path[len(prefix) :]))
+        return out
+
+    expected = {
+        ("GET", "/{skill_id}/files"),
+        ("POST", "/{skill_id}/files"),
+        ("POST", "/{skill_id}/files/upload"),
+        ("PATCH", "/{skill_id}/files/{file_id}"),
+        ("DELETE", "/{skill_id}/files/{file_id}"),
+    }
+    assert suffixes(agent_router, "/api/agents/{agent_id}/skills") == expected
+    assert suffixes(project_router, "/api/projects/{project_id}/skills") == expected
+    assert suffixes(org_router, "/api/orgs/{org_id}/skills") == expected
+    assert suffixes(admin_router, "/api/admin/skills") == expected

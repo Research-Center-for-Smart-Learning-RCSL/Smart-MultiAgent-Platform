@@ -28,8 +28,9 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config.settings import get_settings
 from contexts.skills.application.binding_service import BindingService, BoundSet
-from contexts.skills.application.file_service import SkillFileService
+from contexts.skills.application.file_service import SkillFileService, enqueue_skill_scan
 from contexts.skills.application.index_builder import render_index
 from contexts.skills.application.skill_service import SkillService
 from contexts.skills.domain.models import (
@@ -204,6 +205,96 @@ class SkillsFacade:
     async def unbind(self, *, skill_id: uuid.UUID, agent_id: uuid.UUID) -> Skill | None:
         """Unbind, returning what was unbound — or None when nothing was bound."""
         return await BindingService(self._db).unbind(skill_id=skill_id, agent_id=agent_id)
+
+    # -- files (the scope routers) -------------------------------------------
+
+    async def list_files(
+        self, skill_id: uuid.UUID, scope: SkillScope, *, owner_id: uuid.UUID | None
+    ) -> list[SkillFile]:
+        skill = await SkillService(self._db).get_owned(skill_id, scope, owner_id=owner_id)
+        return await SkillFileService(self._db).list_for_skill(skill.id)
+
+    async def add_file(
+        self,
+        skill_id: uuid.UUID,
+        scope: SkillScope,
+        *,
+        owner_id: uuid.UUID | None,
+        path: str,
+        data: bytes,
+        mime: str,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> SkillFile:
+        """Add a file to a skill the caller owns, then queue its scan.
+
+        Ownership first, always: `get_owned` raises `SkillNotFound` (404, never 403) for
+        a skill under a scope the caller does not hold, so no byte is stored and no row
+        written for a skill they cannot reach.
+        """
+        skill = await SkillService(self._db).get_owned(skill_id, scope, owner_id=owner_id)
+        created = await SkillFileService(self._db).add(
+            skill=skill,
+            path=path,
+            data=data,
+            mime=mime,
+            scan_enabled=get_settings().security.file_scan_enabled,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+        await enqueue_skill_scan(file_id=created.id, sha256=created.sha256)
+        return created
+
+    async def update_file(
+        self,
+        skill_id: uuid.UUID,
+        scope: SkillScope,
+        file_id: uuid.UUID,
+        *,
+        owner_id: uuid.UUID | None,
+        data: bytes,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> SkillFile:
+        skill = await SkillService(self._db).get_owned(skill_id, scope, owner_id=owner_id)
+        files = SkillFileService(self._db)
+        current = await files.get_owned(skill.id, file_id)
+        updated = await files.update_content(
+            skill=skill,
+            file=current,
+            data=data,
+            scan_enabled=get_settings().security.file_scan_enabled,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+        await enqueue_skill_scan(file_id=updated.id, sha256=updated.sha256)
+        return updated
+
+    async def delete_file(
+        self,
+        skill_id: uuid.UUID,
+        scope: SkillScope,
+        file_id: uuid.UUID,
+        *,
+        owner_id: uuid.UUID | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        skill = await SkillService(self._db).get_owned(skill_id, scope, owner_id=owner_id)
+        files = SkillFileService(self._db)
+        current = await files.get_owned(skill.id, file_id)
+        await files.delete(
+            skill=skill,
+            file=current,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
 
     # -- cross-context ------------------------------------------------------
 

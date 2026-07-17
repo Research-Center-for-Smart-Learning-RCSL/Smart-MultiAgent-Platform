@@ -27,20 +27,26 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Path, UploadFile, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
 from app.api.v1.deps import PaginationParams, assert_project_membership, parse_if_match
+from contexts.skills.application.file_service import MAX_SKILL_FILE_BYTES
 from contexts.skills.domain.models import (
     MAX_DESCRIPTION_CHARS,
     SKILL_NAME_RE,
     Skill,
     SkillDraft,
+    SkillFile,
     SkillScope,
 )
-from contexts.skills.domain.text_rules import text_rejection_reason
+from contexts.skills.domain.text_rules import (
+    MAX_FILE_PATH_CHARS,
+    skill_file_path_reason,
+    text_rejection_reason,
+)
 from contexts.skills.interfaces.facade import SkillsFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
@@ -199,6 +205,87 @@ class SkillBindingOut(BaseModel):
     agent_id: uuid.UUID
     skill_id: uuid.UUID
     name: str
+
+
+def _validate_file_path(value: str) -> str:
+    reason = skill_file_path_reason(value)
+    if reason is not None:
+        raise ValueError(f"path {reason}")
+    return value
+
+
+class SkillFileCreateIn(BaseModel):
+    """A UI-authored file (AC-16).
+
+    `kind` is **absent by construction**, not optional: R31.18 derives it from the path's
+    top-level directory, and a client-chosen kind would let an uploader put a script under
+    `assets/` and have it staged, or mark a binary `reference` and have `read_skill`
+    render its bytes into the prompt. With `extra="forbid"` a client that sends one gets a
+    422 rather than a silent no-op.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    path: str = Field(min_length=1, max_length=MAX_FILE_PATH_CHARS)
+    content: str = Field(max_length=_MAX_BODY)
+    mime: str = Field(default="text/plain", max_length=_MAX_TOOL_NAME)
+
+    @field_validator("path")
+    @classmethod
+    def _check_path(cls, v: str) -> str:
+        return _validate_file_path(v)
+
+
+class SkillFilePatchIn(BaseModel):
+    """New text for an existing file.
+
+    `path` is absent for the same reason `SkillPatchIn` omits `name`: it is the key
+    `SKILL.md` references the file by, so a rename is a delete plus an add, not an edit.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    content: str = Field(max_length=_MAX_BODY)
+
+
+class SkillFileOut(BaseModel):
+    id: uuid.UUID
+    skill_id: uuid.UUID
+    path: str
+    kind: str
+    mime: str
+    size_bytes: int
+    sha256: str
+    scan_status: str
+    extracted_chars: int
+    created_at: str
+
+    @property
+    def readable(self) -> bool:  # pragma: no cover — documentation, not a wire field
+        """Kept off the wire deliberately: readability is a property of the *skill*.
+
+        AC-34's gate is whole-skill (Q-18), so a per-file badge would tell the UI that
+        one file is fine while the skill it belongs to is unreadable. The UI derives the
+        skill's state from the collection.
+        """
+        return self.scan_status == "clean"
+
+
+def _file_out(f: SkillFile) -> SkillFileOut:
+    # `minio_key` is deliberately not exposed: it is the object path, and the client has
+    # no bucket access. Publishing it would leak the storage layout for nothing.
+    return SkillFileOut(
+        id=f.id,
+        skill_id=f.skill_id,
+        path=f.path,
+        kind=f.kind.value,
+        mime=f.mime,
+        size_bytes=f.size_bytes,
+        sha256=f.sha256,
+        scan_status=f.scan_status.value,
+        extracted_chars=f.extracted_chars,
+        created_at=f.created_at.isoformat(),
+    )
 
 
 class SkillScopeCountsOut(BaseModel):
@@ -365,6 +452,122 @@ async def _restore(
         request_id=ctx.request_id,
     )
     return _skill_out(skill)
+
+
+async def _list_files(
+    db: AsyncSession, scope: SkillScope, owner_id: uuid.UUID | None, skill_id: uuid.UUID
+) -> list[SkillFileOut]:
+    rows = await SkillsFacade(db).list_files(skill_id, scope, owner_id=owner_id)
+    return [_file_out(f) for f in rows]
+
+
+async def _create_file(
+    db: AsyncSession,
+    ctx: RequestContext,
+    principal: Principal,
+    scope: SkillScope,
+    owner_id: uuid.UUID | None,
+    skill_id: uuid.UUID,
+    body: SkillFileCreateIn,
+) -> SkillFileOut:
+    created = await SkillsFacade(db).add_file(
+        skill_id,
+        scope,
+        owner_id=owner_id,
+        path=body.path,
+        data=body.content.encode("utf-8"),
+        mime=body.mime,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return _file_out(created)
+
+
+async def _upload_file(
+    db: AsyncSession,
+    ctx: RequestContext,
+    principal: Principal,
+    scope: SkillScope,
+    owner_id: uuid.UUID | None,
+    skill_id: uuid.UUID,
+    path: str,
+    upload: UploadFile,
+) -> SkillFileOut:
+    """The uploaded-bytes twin of `_create_file` (AC-16, Q-20).
+
+    Multipart only, with no tus path, and that is a consequence rather than an omission:
+    Q-17 caps a skill file at 32 MB, which is exactly `MAX_SKILL_FILE_BYTES` — the same
+    number as the RAG multipart cap — so a single file can never exceed what one request
+    carries. Bundles are what need tus, and they are Phase 4.
+    """
+    _validate_file_path(path)
+    # Read the cap plus one byte and check *before* buffering the rest, mirroring
+    # `rag.upload_document`: reading first and measuring after is how a size cap becomes
+    # a memory exhaustion primitive.
+    data = await upload.read(MAX_SKILL_FILE_BYTES + 1)
+    if len(data) > MAX_SKILL_FILE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"file exceeds {MAX_SKILL_FILE_BYTES} bytes",
+        )
+    created = await SkillsFacade(db).add_file(
+        skill_id,
+        scope,
+        owner_id=owner_id,
+        path=path,
+        data=data,
+        # The client's declared type is a hint; `normalise_mime` prefers the path's own
+        # extension when it is absent or the generic octet-stream.
+        mime=upload.content_type or "",
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return _file_out(created)
+
+
+async def _patch_file(
+    db: AsyncSession,
+    ctx: RequestContext,
+    principal: Principal,
+    scope: SkillScope,
+    owner_id: uuid.UUID | None,
+    skill_id: uuid.UUID,
+    file_id: uuid.UUID,
+    body: SkillFilePatchIn,
+) -> SkillFileOut:
+    updated = await SkillsFacade(db).update_file(
+        skill_id,
+        scope,
+        file_id,
+        owner_id=owner_id,
+        data=body.content.encode("utf-8"),
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return _file_out(updated)
+
+
+async def _delete_file(
+    db: AsyncSession,
+    ctx: RequestContext,
+    principal: Principal,
+    scope: SkillScope,
+    owner_id: uuid.UUID | None,
+    skill_id: uuid.UUID,
+    file_id: uuid.UUID,
+) -> None:
+    await SkillsFacade(db).delete_file(
+        skill_id,
+        scope,
+        file_id,
+        owner_id=owner_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
 
 
 async def _copy(
@@ -560,6 +763,75 @@ async def agent_copy_skill(
     return await _copy(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id, body)
 
 
+@agent_router.get("/{skill_id}/files")
+async def agent_list_files(
+    agent_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[SkillFileOut]:
+    await assert_project_membership(
+        db=db, principal=principal, project_id=await _agent_project_id(db, agent_id)
+    )
+    return await _list_files(db, SkillScope.AGENT, agent_id, skill_id)
+
+
+@agent_router.post("/{skill_id}/files", status_code=status.HTTP_201_CREATED)
+async def agent_create_file(
+    body: SkillFileCreateIn,
+    agent_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> SkillFileOut:
+    await _assert_agent_write(db, principal, agent_id)
+    return await _create_file(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id, body)
+
+
+@agent_router.post("/{skill_id}/files/upload", status_code=status.HTTP_201_CREATED)
+async def agent_upload_file(
+    agent_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    path: str = Form(...),
+    upload: UploadFile = File(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> SkillFileOut:
+    await _assert_agent_write(db, principal, agent_id)
+    return await _upload_file(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id, path, upload)
+
+
+@agent_router.patch("/{skill_id}/files/{file_id}")
+async def agent_patch_file(
+    body: SkillFilePatchIn,
+    agent_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    file_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> SkillFileOut:
+    await _assert_agent_write(db, principal, agent_id)
+    return await _patch_file(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id, file_id, body)
+
+
+@agent_router.delete(
+    "/{skill_id}/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
+)
+async def agent_delete_file(
+    agent_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    file_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    await _assert_agent_write(db, principal, agent_id)
+    await _delete_file(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id, file_id)
+
+
 # ---------------------------------------------------------------------------
 # /api/projects/{project_id}/skills — project scope
 # ---------------------------------------------------------------------------
@@ -658,6 +930,74 @@ async def project_copy_skill(
     return await _copy(db, ctx, principal, SkillScope.PROJECT, project_id, skill_id, body)
 
 
+@project_router.get("/{skill_id}/files")
+async def project_list_files(
+    project_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[SkillFileOut]:
+    await assert_project_membership(db=db, principal=principal, project_id=project_id)
+    return await _list_files(db, SkillScope.PROJECT, project_id, skill_id)
+
+
+@project_router.post("/{skill_id}/files", status_code=status.HTTP_201_CREATED, dependencies=[_PROJECT_GUARD])
+async def project_create_file(
+    body: SkillFileCreateIn,
+    project_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> SkillFileOut:
+    return await _create_file(db, ctx, principal, SkillScope.PROJECT, project_id, skill_id, body)
+
+
+@project_router.post(
+    "/{skill_id}/files/upload", status_code=status.HTTP_201_CREATED, dependencies=[_PROJECT_GUARD]
+)
+async def project_upload_file(
+    project_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    path: str = Form(...),
+    upload: UploadFile = File(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> SkillFileOut:
+    return await _upload_file(db, ctx, principal, SkillScope.PROJECT, project_id, skill_id, path, upload)
+
+
+@project_router.patch("/{skill_id}/files/{file_id}", dependencies=[_PROJECT_GUARD])
+async def project_patch_file(
+    body: SkillFilePatchIn,
+    project_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    file_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> SkillFileOut:
+    return await _patch_file(db, ctx, principal, SkillScope.PROJECT, project_id, skill_id, file_id, body)
+
+
+@project_router.delete(
+    "/{skill_id}/files/{file_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    dependencies=[_PROJECT_GUARD],
+)
+async def project_delete_file(
+    project_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    file_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    await _delete_file(db, ctx, principal, SkillScope.PROJECT, project_id, skill_id, file_id)
+
+
 # ---------------------------------------------------------------------------
 # /api/orgs/{org_id}/skills — org scope (Org Owner)
 # ---------------------------------------------------------------------------
@@ -743,6 +1083,70 @@ async def org_copy_skill(
     db: AsyncSession = Depends(db_session),
 ) -> SkillOut:
     return await _copy(db, ctx, principal, SkillScope.ORG, org_id, skill_id, body)
+
+
+@org_router.get("/{skill_id}/files", dependencies=[_ORG_GUARD])
+async def org_list_files(
+    org_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    db: AsyncSession = Depends(db_session),
+) -> list[SkillFileOut]:
+    return await _list_files(db, SkillScope.ORG, org_id, skill_id)
+
+
+@org_router.post("/{skill_id}/files", status_code=status.HTTP_201_CREATED, dependencies=[_ORG_GUARD])
+async def org_create_file(
+    body: SkillFileCreateIn,
+    org_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> SkillFileOut:
+    return await _create_file(db, ctx, principal, SkillScope.ORG, org_id, skill_id, body)
+
+
+@org_router.post("/{skill_id}/files/upload", status_code=status.HTTP_201_CREATED, dependencies=[_ORG_GUARD])
+async def org_upload_file(
+    org_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    path: str = Form(...),
+    upload: UploadFile = File(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> SkillFileOut:
+    return await _upload_file(db, ctx, principal, SkillScope.ORG, org_id, skill_id, path, upload)
+
+
+@org_router.patch("/{skill_id}/files/{file_id}", dependencies=[_ORG_GUARD])
+async def org_patch_file(
+    body: SkillFilePatchIn,
+    org_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    file_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> SkillFileOut:
+    return await _patch_file(db, ctx, principal, SkillScope.ORG, org_id, skill_id, file_id, body)
+
+
+@org_router.delete(
+    "/{skill_id}/files/{file_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    dependencies=[_ORG_GUARD],
+)
+async def org_delete_file(
+    org_id: uuid.UUID = Path(...),
+    skill_id: uuid.UUID = Path(...),
+    file_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    await _delete_file(db, ctx, principal, SkillScope.ORG, org_id, skill_id, file_id)
 
 
 # ---------------------------------------------------------------------------
@@ -847,6 +1251,71 @@ async def admin_copy_skill(
     db: AsyncSession = Depends(db_session),
 ) -> SkillOut:
     return await _copy(db, ctx, principal, SkillScope.PLATFORM, None, skill_id, body)
+
+
+@admin_router.get("/{skill_id}/files", dependencies=[Depends(require_admin)])
+async def admin_list_files(
+    skill_id: uuid.UUID = Path(...),
+    db: AsyncSession = Depends(db_session),
+) -> list[SkillFileOut]:
+    return await _list_files(db, SkillScope.PLATFORM, None, skill_id)
+
+
+@admin_router.post(
+    "/{skill_id}/files", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)]
+)
+async def admin_create_file(
+    body: SkillFileCreateIn,
+    skill_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> SkillFileOut:
+    return await _create_file(db, ctx, principal, SkillScope.PLATFORM, None, skill_id, body)
+
+
+@admin_router.post(
+    "/{skill_id}/files/upload",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
+async def admin_upload_file(
+    skill_id: uuid.UUID = Path(...),
+    path: str = Form(...),
+    upload: UploadFile = File(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> SkillFileOut:
+    return await _upload_file(db, ctx, principal, SkillScope.PLATFORM, None, skill_id, path, upload)
+
+
+@admin_router.patch("/{skill_id}/files/{file_id}", dependencies=[Depends(require_admin)])
+async def admin_patch_file(
+    body: SkillFilePatchIn,
+    skill_id: uuid.UUID = Path(...),
+    file_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> SkillFileOut:
+    return await _patch_file(db, ctx, principal, SkillScope.PLATFORM, None, skill_id, file_id, body)
+
+
+@admin_router.delete(
+    "/{skill_id}/files/{file_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    dependencies=[Depends(require_admin)],
+)
+async def admin_delete_file(
+    skill_id: uuid.UUID = Path(...),
+    file_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    await _delete_file(db, ctx, principal, SkillScope.PLATFORM, None, skill_id, file_id)
 
 
 # ---------------------------------------------------------------------------
