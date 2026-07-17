@@ -36,6 +36,7 @@ const infectedFile = {
   extracted_chars: 0,
   created_at: 't',
 }
+const cleanRef = { ...infectedFile, id: 'f_c', path: 'references/ok.md', scan_status: 'clean' }
 
 describe('SkillFiles', () => {
   beforeAll(installMessages)
@@ -60,6 +61,20 @@ describe('SkillFiles', () => {
     await assetButton!.trigger('click')
     await settle(0)
     expect(wrapper.text()).toContain('cannot be edited as text')
+  })
+
+  it('disables Replace on a file whose content is not shown, so a blank editor cannot wipe it', async () => {
+    seedFiles([cleanRef])
+    const wrapper = await renderView(SkillFiles, {
+      props: { scope: { kind: 'project', projectId: 'p_1' }, skillId: 's_1' },
+    })
+    await settle()
+    const refButton = wrapper.findAll('button').find((b) => b.text().includes('references/ok.md'))
+    await refButton!.trigger('click')
+    await settle(0)
+    const replace = wrapper.findAll('button').find((b) => b.text().includes('Replace content'))
+    expect(replace).toBeTruthy()
+    expect(replace!.attributes('disabled')).toBeDefined()
   })
 
   it('offers both authoring and upload for adding a file (AC-16)', async () => {
