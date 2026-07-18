@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-16
 requirements: [R24.48, R24.15]
 ---
@@ -299,34 +299,52 @@ the `--color-*` token discipline in the existing style block; `shared/ui` import
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `AgentToolsView.vue:1101` and `:1209` render a CodeMirror editor with JSON highlighting;
-      the other four call sites render exactly as they do today.
-- [ ] AC-2: typing malformed JSON in either field surfaces a positioned diagnostic (gutter marker at
-      the offending line) **without submitting**.
-- [ ] AC-3: the existing submit-time validation is unchanged — `configJsonError` (`:335`),
+- [x] AC-1: `AgentToolsView.vue:1101` and `:1209` render a CodeMirror editor with JSON highlighting;
+      the other four call sites render exactly as they do today. Verified: component tests, view
+      tests, and e2e screenshots (Add Server / Add Function modals show CodeMirror; the readonly
+      test-failure textarea and the Prompt tab's markdown textarea remain plain, unstyled). D-2 notes
+      three more call sites now exist beyond the spec's table; unaffected by design.
+- [x] AC-2: typing malformed JSON in either field surfaces a positioned diagnostic (gutter marker at
+      the offending line) **without submitting**. Verified: component test, view test, and e2e
+      screenshot (red gutter marker on `{"a":}` before any submit).
+- [x] AC-3: the existing submit-time validation is unchanged — `configJsonError` (`:335`),
       `fnParamsError` (`:563`), and the distinct `invalidParamsSchema` (`:572`) all still fire on
-      their existing conditions, with their existing i18n strings.
-- [ ] AC-4: `v-model` round-trips — editing updates the ref, and a programmatic write (`:251`,
-      `:279`, `:485`, `:514`) updates the editor without an echo loop or a lost caret.
-- [ ] AC-5: `readonly` (`:1142`) still renders non-editable and still carries the `[readonly]` style.
-- [ ] AC-6: `pnpm run check:bundle-size` passes, and the CodeMirror chunk is asserted **under
-      180 000 B gz** — a deliberate 25 KB below `LAZY_LIMIT` so the margin is defended, not merely
-      observed. A test or script comment records the 2026-07-17 measurement (150 911 B) as the
-      baseline.
-- [ ] AC-7: each grammar is reached by its own dynamic `import()`; no module statically imports two
-      grammars. A comment at the import site states the measured reason (258 515 B gz / FAIL by
-      26% for all four together), so the next person to add one sees the constraint.
-- [ ] AC-8: **accessibility is re-verified, not assumed.** `pnpm lint` (gate #11) is green, and the
-      editor is confirmed reachable and labelled — the `<textarea>`'s label association came from the
-      literal `:id` binding documented at `SCodeEditor.vue:23-33`, and a `contenteditable` does not
-      inherit it. If gate #11 cannot see the new markup, that is a finding, not a pass.
-- [ ] AC-9: no user-visible English ships from CodeMirror (§6.4) — any library-rendered string is
-      routed through `$t()` or the feature is off.
-- [ ] AC-10: `codemirror` (the meta-package) is absent from `package.json`; `basicSetup` appears
-      nowhere in `src/`.
-- [ ] AC-11: `pnpm audit --prod` clean at implementation time.
-- [ ] AC-12: gates green — `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build`,
-      `pnpm run check:bundle-size`, `pnpm run check:type-coverage`.
+      their existing conditions, with their existing i18n strings. Verified: view tests exercise both
+      messages after typing malformed JSON via the CodeMirror instance and submitting.
+- [x] AC-4: `v-model` round-trips — editing updates the ref, and a programmatic write (`:251`,
+      `:279`, `:485`, `:514`) updates the editor without an echo loop or a lost caret. Verified:
+      component tests cover both directions (editor-originated change via `EditorView.dispatch` →
+      one `update:modelValue`; external `setProps` → one idempotent echo, not a chain).
+- [x] AC-5: `readonly` (`:1142`) still renders non-editable and still carries the `[readonly]` style.
+      Verified: component test and view test — `language="text"` never mounts CodeMirror, so this
+      site is provably untouched by construction, not just by observation.
+- [x] AC-6: `pnpm run check:bundle-size` passes, and the CodeMirror chunk is asserted **under
+      180 000 B gz**. Implemented as a dedicated block in `check-bundle-size.sh` (Test Plan's own
+      fallback — D-4) with a comment recording the 2026-07-17 150 911 B baseline. Actual integrated
+      build measured **110 670 B gz** (lower than the throwaway-project baseline — shared deps dedupe
+      into vendor chunks in the real build).
+- [x] AC-7: each grammar is reached by its own dynamic `import()`; no module statically imports two
+      grammars. `shared/ui/codeMirrorJson.ts` is the single dynamic-import boundary (D-5), with the
+      measured-reason comment at its top.
+- [x] AC-8: **accessibility is re-verified, not assumed.** `pnpm lint` (gate #11) is green (confirmed
+      blind to the new markup — the template's only form-control tag is still the fallback
+      `<textarea>`). Re-verified live in a real browser (e2e, Docker stack): the function-parameters
+      field (the one site wrapped by `SFormField`) has its CM content element inherit
+      `id="config.parameters"` from `SFormField`'s `syncAria()`, `label[for="config.parameters"]`
+      resolves to it, and pressing Tab from the adjacent field lands focus on `.cm-content` —
+      genuine keyboard reachability, not just click-focusability. FU-8 notes the MCP config field
+      (no `SFormField` wrapper) has no formal label either way, pre-existing.
+- [x] AC-9: no user-visible English ships from CodeMirror (§6.4). D-3: `jsonParseLinter`'s
+      `Diagnostic.message` is JS-engine text, not one of CodeMirror's own `phrase()`-driven strings —
+      wrapped in a thin linter that replaces the message with `t('shared.codeEditor.invalidJson')`
+      while preserving position/severity from the native parse. Verified no other included extension
+      calls `view.state.phrase()` (that only happens inside the lint *panel*, not included here).
+- [x] AC-10: `codemirror` (the meta-package) is absent from `package.json`; `basicSetup` appears
+      nowhere in `src/`. Verified via grep.
+- [x] AC-11: `pnpm audit --prod` clean at implementation time (re-verified multiple times during the
+      session, most recently after the final dependency install).
+- [x] AC-12: gates green — `pnpm test` (722/722), `pnpm lint`, `pnpm typecheck`, `pnpm build`,
+      `pnpm run check:bundle-size`, `pnpm run check:type-coverage` (98.67%).
 
 ## 12. Test Plan
 
@@ -354,18 +372,50 @@ FU-1.
 
 ## 14. Open Questions
 
-- **OQ-1: does jsdom support CodeMirror well enough for gate #8?** CodeMirror needs layout
-  measurement, which jsdom does not do. This determines whether AC-1/AC-2 are unit-testable or e2e
-  only. It does not change the design, so it is not a blocker — but the implementer will hit it in
-  the first hour and should not be surprised.
-- **OQ-2: how does the lint gutter interact with `SFormField`'s error slot?** Two error affordances
-  in one field (the gutter marker and the existing `<p class="text-danger">` at `:1107`) may read as
-  duplication. Worth one design look before building; the answer might be that the submit-time
-  message moves or shortens once the position is shown inline.
+- **OQ-1: does jsdom support CodeMirror well enough for gate #8? Resolved: yes, with two shims.**
+  `Range#getClientRects`/`getBoundingClientRect` need a guarded polyfill (jsdom implements neither;
+  now in `tests/setup.ts`, global and no-op for non-CodeMirror tests). With that in place, jsdom
+  handles real CodeMirror instances, `EditorView.dispatch`, DOM queries (`.cm-content`,
+  `.cm-lint-marker`), and `EditorView.findFromDOM` (a public CM6 API used to recover the view
+  instance from its host DOM node for test-driven dispatch) without further workarounds. The one
+  piece genuinely out of jsdom's reach is the actual DOM *input-event* pipeline for a real keystroke
+  landing on a `contenteditable` (jsdom doesn't implement contenteditable editing commands) — that
+  gap is covered by driving `EditorView.dispatch` directly (proves the same `updateListener` → `emit`
+  wiring a keystroke would drive) plus the e2e pass in Step 5.4 for the real thing.
+- **OQ-2: how does the lint gutter interact with `SFormField`'s error slot? Resolved: no changes
+  made, no duplication observed.** The gutter marker and the existing submit-time `<p>` message serve
+  different moments (live-while-typing vs. post-submit) and different fields in practice — the MCP
+  config field's `<p>` isn't even wrapped in `SFormField`. Left both as designed; revisit only if
+  user feedback says otherwise.
 
 ## 15. Deviation Log
 
-_None yet._
+- **D-1: `AgentToolsView.vue` had no existing test file to extend, contra the spec's Test Plan §12.**
+  `check:view-tests` (gate #8) was already failing for it pre-task (68/70 covered). Created
+  `src/slices/agents/__tests__/AgentToolsView.test.ts` from scratch instead of extending one;
+  incidentally brings gate #8 to 69/70. One unrelated pre-existing gap remains
+  (`KnowledgeMapConfigListView.vue` — FU-7).
+- **D-2: the spec's "six call sites" table (§4) is now nine.** Three more `SCodeEditor` call sites
+  exist in `slices/skills/components/` (`SkillFiles.vue` ×2, `SkillCreateForm.vue`,
+  `SkillDetail.vue`), added by the concurrently-landed `2026-07-16-agent-skills` task after this spec
+  was drafted. All three use `language="markdown"`, identical to the three original markdown sites —
+  the design (only `language="json"` ever mounts CodeMirror) is unaffected by construction. Confirmed
+  via a full regression run of the `skills` slice's test suite (all passing, unchanged).
+- **D-3: `jsonParseLinter`'s diagnostic message needed a translation wrapper the spec didn't fully
+  specify.** §6.4/AC-9 says library-rendered text must route through `$t()`; the JSON parse error
+  text is the JS engine's own (always-English) message, not one of CodeMirror's `phrase()`-driven
+  strings, so `EditorState.phrases` cannot reach it. Resolved by wrapping the linter: reuse
+  `jsonParseLinter()`'s position/severity, replace `.message` with `t('shared.codeEditor.invalidJson')`.
+  New key added to `shared/locales/{en,zh-TW}.json`.
+- **D-4: the AC-6/AC-7 bundle assertion's "home"** (left as an open implementer choice by the Test
+  Plan) is a dedicated block in `scripts/check-bundle-size.sh` matching `codeMirrorJson-*.js` against
+  a 180 000 B ceiling, with a comment recording the 150 911 B measured baseline — per the Test Plan's
+  own suggested fallback.
+- **D-5: `shared/ui/codeMirrorJson.ts`** (a re-export module, not named in §6's Detailed Changes) is
+  the single dynamic-import boundary that makes AC-6's "one measurable chunk" and AC-7's "one grammar,
+  one dynamic import" both concretely checkable — `SCodeEditor.vue` does `await import('./codeMirrorJson')`
+  once; the module statically imports core + `lang-json` + `lint`, so Rollup emits exactly one lazy
+  chunk for the whole JSON build.
 
 ## 16. Follow-ups
 
@@ -397,3 +447,18 @@ _None yet._
   highlighting in a system-prompt box turns out to be wanted, the grammar is measured and the seam
   exists — but note Q-5: `lang-markdown` must arrive by its own dynamic import, and the four-grammar
   total (258 515 B gz) fails the gate if it does not.
+- **FU-7: `KnowledgeMapConfigListView.vue` still lacks a gate-#8 test.** Pre-existing gap (`git blame`
+  predates this task), unrelated to `SCodeEditor` — discovered as the one remaining `check:view-tests`
+  failure after D-1 fixed `AgentToolsView.vue`'s.
+- **FU-8: the MCP config JSON field (`AgentToolsView.vue:1101`) has no formal accessible-name
+  association at all.** Unlike the function-parameters field, it isn't wrapped by `SFormField` and no
+  `:id` is passed, so there was nothing for `SCodeEditor`'s id-inheritance logic (AC-8) to inherit —
+  confirmed live (e2e) that the CodeMirror content element's `id` is empty there. Pre-existing (the
+  textarea before this task had the same gap); more visible now because AC-8 required investigating
+  it directly.
+- **FU-9: `frontend/.claude/skills/verify/SKILL.md`'s dev-stack bootstrap notes were incomplete.**
+  Its "Unblocking the local dev stack" section documented two blockers (Vault transit keys, seed
+  users) but missed a third: `vault-init` throws on the policy-file read *before* reaching its KV-seed
+  loop, so `secret/smap/config/{hmac-key,captcha,smtp,minio}` never get written — `POST /api/keys`
+  500s until seeded by hand. Fixed as part of this task's behavioral-verification pass (the fix
+  commands are now in that file).
