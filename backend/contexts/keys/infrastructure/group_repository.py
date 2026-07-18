@@ -145,7 +145,7 @@ class KeyGroupMemberRepository:
         return [_row_to_member(r) for r in rows]
 
     async def list_ordered_carried(self, group_id: uuid.UUID) -> list[KeyGroupMember]:
-        """Members whose key is *actively carried* into the group's project.
+        """Members whose key is *actively carried* into a **live** group's project.
 
         SEC-H3: provider-call eligibility must require an active
         ``key_projects`` carry row scoped to the group's project — not bare
@@ -155,6 +155,12 @@ class KeyGroupMemberRepository:
         decrypt that key. Because the check is a DB join re-run on every call,
         a revocation takes effect immediately and does not depend on the
         in-process DEK cache TTL or an at-most-once pub/sub invalidation.
+
+        R7.09a: the join also requires ``key_groups.deleted_at IS NULL``. A
+        soft-deleted group is a revocation of every member it carries — this is
+        the layer that actually selects a key to spend, so a deleted group must
+        stop yielding members here rather than relying solely on a caller-side
+        liveness check.
         """
         m = t.key_group_members
         kg = t.key_groups
@@ -163,7 +169,7 @@ class KeyGroupMemberRepository:
         stmt = (
             sa.select(m)
             .select_from(
-                m.join(kg, kg.c.id == m.c.group_id)
+                m.join(kg, sa.and_(kg.c.id == m.c.group_id, kg.c.deleted_at.is_(None)))
                 .join(
                     kp,
                     sa.and_(
