@@ -269,6 +269,7 @@ __all__ = [
     "CHAT_MODEL_CATALOG",
     "CONTEXT_LIMITS",
     "DEFAULT_CHAT_MODELS",
+    "MAX_CONTEXT_TOKEN_CAP",
     "MAX_SKILL_INDEX_TOKEN_CAP",
     "Agent",
     "AgentDraft",
