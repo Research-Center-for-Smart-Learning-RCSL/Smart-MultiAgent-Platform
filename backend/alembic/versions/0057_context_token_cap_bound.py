@@ -63,7 +63,21 @@ def upgrade() -> None:
         )
 
     op.drop_constraint("agents_context_cap_positive", "agents", type_="check")
-    op.create_check_constraint("agents_context_cap_bounded", "agents", _CAP_CHECK)
+    # `agents` is read on essentially every chat turn (compaction ceiling lookup), so
+    # ADD CONSTRAINT here must not take ACCESS EXCLUSIVE for a full-table validation
+    # scan. NOT VALID + a separate VALIDATE CONSTRAINT only takes SHARE UPDATE
+    # EXCLUSIVE, letting concurrent reads/writes proceed during validation.
+    # op.create_check_constraint() has no support for issuing the two statements
+    # separately, so this is raw SQL — using the fully-resolved name
+    # (shared_kernel/db's `ck_%(table_name)s_%(constraint_name)s` naming convention
+    # applied to "agents_context_cap_bounded") since VALIDATE CONSTRAINT needs the
+    # literal name and won't go through naming-convention resolution the way
+    # op.create_check_constraint/op.drop_constraint do.
+    op.execute(
+        "ALTER TABLE agents ADD CONSTRAINT ck_agents_agents_context_cap_bounded "
+        f"CHECK ({_CAP_CHECK}) NOT VALID"
+    )
+    op.execute("ALTER TABLE agents VALIDATE CONSTRAINT ck_agents_agents_context_cap_bounded")
 
 
 def downgrade() -> None:
