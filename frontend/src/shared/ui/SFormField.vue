@@ -98,7 +98,8 @@ watch(() => [props.error, props.help], () => nextTick(syncAria))
 }
 .form-field--error .form-field__control :deep(input),
 .form-field--error .form-field__control :deep(select),
-.form-field--error .form-field__control :deep(textarea) {
+.form-field--error .form-field__control :deep(textarea),
+.form-field--error .form-field__control :deep([contenteditable='true']) {
   border-color: var(--color-danger);
 }
 </style>
