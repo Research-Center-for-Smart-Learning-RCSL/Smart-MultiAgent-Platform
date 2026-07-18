@@ -1,8 +1,8 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-07-16
-requirements: [R7.04, R7.05, R11.11]
+requirements: [R7.04, R7.05, R7.09a, R11.11]
 ---
 
 # A deleted Key Group keeps spending provider keys on the headless turn path
