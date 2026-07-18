@@ -794,14 +794,14 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
 
     monkeypatch.setattr(te, "ChatroomAgentRepository", _BindingRepo)
 
-    class _KeyGroupRepo:
+    class _KeysFacade:
         def __init__(self, db) -> None:
             pass
 
-        async def get_active(self, kgid):
+        async def get_key_group(self, kgid):
             return SimpleNamespace(project_id=agent.project_id)
 
-    monkeypatch.setattr(te, "KeyGroupRepository", _KeyGroupRepo)
+    monkeypatch.setattr(te, "KeysFacade", _KeysFacade)
 
     class _BoomMessageService:
         def __init__(self, db) -> None:
