@@ -389,6 +389,29 @@ mis-citation is why the rule looked documented when it was not.
   (confirmed by running it both ways). It concerns `RagConfigService`'s embedding
   pin logic, a file this task never touches. Recorded as FU-5 rather than fixed,
   per this task's scope (key-group liveness, not embedding pins).
+- **D-5: a post-implementation `/code-review` pass found two real defects in
+  §7(c)'s own work, both fixed.** (1) The builder pre-flight raised before any
+  state write, so a rejected build left the config at `IDLE` with no
+  `last_build_error` and no audit event — invisible via the config's own
+  state, and in direct tension with `[R7.09a]`'s own "never silently" text.
+  Fixed by recording `FAILED` plus an audit event (mirroring `_fail_phase1`)
+  before raising; `test_build_fails_fast_when_builder_key_group_is_deleted`
+  and its cross-project sibling now assert the transition and the commit.
+  (2) `resolve_live_builder_group_project_id` still bypassed the facade with a
+  raw `sa.select` against `keys_t.key_groups` — the FU-2 debt was already
+  disclosed, but the review judged the newly-added call sites worth fixing
+  outright rather than deferring further. Routed through
+  `KeysFacade.get_key_group` instead, which resolves FU-2 for this predicate
+  (down from "hand-rolled copy" to "the facade, like every other caller").
+  Three lower-severity test-hygiene findings from the same review were also
+  fixed: `test_graphrag_builder.py`'s `FakeDb` no longer string-sniffs the
+  compiled statement to decide its return value (unconditional on
+  `builder_group_project_id` now that it's the only `.first()` caller); the
+  two new pre-flight tests use their destructured `db` local directly instead
+  of reaching through `builder._db` with a `# type: ignore`; and
+  `test_key_group_liveness_gate.py`'s `sessionmaker`/`project` fixtures — which
+  had duplicated `test_embedding_pin_race.py`'s almost verbatim — are now
+  shared via `tests/integration/conftest.py`.
 
 ## 13. Follow-ups
 
@@ -400,24 +423,17 @@ mis-citation is why the rule looked documented when it was not.
   A2A `call` and `instruct` both handle skips correctly (`a2a_handler.py:92-108`, `:130-142`), so
   this is the one caller with no error surface. Fixing it means deciding what an approver that
   cannot vote should do to the gate — its own decision, its own dossier.
-- **FU-2: the *predicate* "live key group in my project" is hand-rolled two ways; only the read
-  is shared.** `KeysFacade.get_key_group` (`contexts/keys/interfaces/facade.py:63-70`) is the
-  shared read and its docstring names the use case — but it returns the group, so each caller still
-  writes its own liveness/project comparison: `agent_service.py:222-225` (correctly, through the
-  facade) and `turn_engine.py`'s `_key_group_out_of_scope` (also now through the facade, per §7(b) —
-  no longer a divergent copy). The remaining, worse copy is
-  `graphrag_config_service.py`'s `resolve_live_builder_group_project_id` (added by §7(c); used by
-  `create`, `update`, and `GraphRagBuilder`'s pre-flight — three call sites, one shared
-  implementation, still an **SoC break this task does not fix**: it builds a raw `sa.select`
-  against `keys_t.key_groups` from inside the *knowledge* context's application layer, where
-  `backend/CLAUDE.md:26` says application code must not touch SQLAlchemy directly and cross-context
-  reads go through a facade — so it silently re-implements the facade method next door, including
-  the `deleted_at` filter. The collapse is `KeysFacade.assert_group_in_project(group_id,
-  project_id)` raising a shared error, replacing both remaining predicates. Out of scope here: it
-  touches three contexts and would drag this bugfix into a refactor, and §7(a)/§7(c) make the money
-  safe without it. This task took the count from three hand-rolled copies to one (in
-  `turn_engine.py`, fixed) plus one shared-but-still-leaky one (in `graphrag_config_service.py`,
-  now consolidated from two copies to one, reused a third time rather than copied a fourth).
+- **FU-2: RESOLVED by D-5.** Originally: the *predicate* "live key group in my project" was
+  hand-rolled two ways, with `graphrag_config_service.py`'s `resolve_live_builder_group_project_id`
+  building a raw `sa.select` against `keys_t.key_groups` from inside the *knowledge* context's
+  application layer instead of going through `KeysFacade`. A later `/code-review` pass judged this
+  worth fixing outright rather than deferring further; it now reads through
+  `KeysFacade.get_key_group`, the same as `agent_service.py` and `turn_engine.py`'s
+  `_key_group_out_of_scope`. All three "live key group in my project" call sites now share one read
+  path through the facade — only the liveness/project comparison itself is still written at each
+  call site, which is a much smaller, purely stylistic remaining duplication (a
+  `KeysFacade.assert_group_in_project(group_id, project_id)` helper could collapse that too, but
+  the SoC break that made this FU load-bearing is gone).
 - **FU-3: the headless path has no rate or quota backstop.** `_run_locked` has a per-`(agent, room)`
   turn bucket (`turn_engine.py:1130`, `:1735`); it is not portable to a path with no room, and
   `a2a_service.py` has no rate, quota, or concurrency guard of any kind. So an A2A trigger loop
