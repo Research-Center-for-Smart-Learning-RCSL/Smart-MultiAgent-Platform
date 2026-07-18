@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agent_groups.infrastructure import tables as ag
 from contexts.conversation.infrastructure import tables as conv_t
-from contexts.keys.infrastructure import tables as keys_t
+from contexts.keys.interfaces.facade import KeysFacade
 from contexts.knowledge.application.embed_resolution import resolve_embed_key
 from contexts.knowledge.domain.embedding_pin import PinKind, TeardownOutcome
 from contexts.knowledge.domain.errors import (
@@ -73,19 +73,12 @@ async def resolve_live_builder_group_project_id(
     R7.09a: the single predicate for "is this builder key group live", shared by
     ``create``/``update`` (validated on write) and :class:`GraphRagBuilder`'s
     dispatch-time pre-flight (validated again at build time), so the check is not
-    written a fourth time.
+    written a fourth time. Reads through `KeysFacade.get_key_group` rather than a
+    raw `sa.select` against the keys context's tables, so this cross-context read
+    goes through the facade contract like every other caller of this predicate.
     """
-    row = (
-        await db.execute(
-            sa.select(keys_t.key_groups.c.project_id).where(
-                sa.and_(
-                    keys_t.key_groups.c.id == builder_key_group_id,
-                    keys_t.key_groups.c.deleted_at.is_(None),
-                )
-            )
-        )
-    ).first()
-    return row.project_id if row else None
+    group = await KeysFacade(db).get_key_group(builder_key_group_id)
+    return group.project_id if group is not None else None
 
 
 class GraphRagConfigService:
