@@ -3,7 +3,7 @@
 Guardrails enforced here:
 
 - **1 000 active agents / project cap** (R9.01).
-- **Key Group must live in the same project** as the agent (R7.02 spirit:
+- **Key Group must live in the same project** as the agent (R7.09a:
   Key Groups are project-scoped; an agent pointing at another project's
   Group would silently break isolation).
 - **Attached RAG / Knowledge Map config must live in the same project** as
