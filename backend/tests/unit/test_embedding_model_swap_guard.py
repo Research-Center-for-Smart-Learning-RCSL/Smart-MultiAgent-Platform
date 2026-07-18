@@ -39,8 +39,10 @@ _BUILT = datetime(2026, 7, 14, tzinfo=UTC)
 
 
 class _FirstRowDb:
-    """AsyncSession double: every query's ``.first()`` resolves to ``project_id``
-    so the builder-group project check inside update() passes."""
+    """AsyncSession double: every query's ``.first()`` resolves to a key-group row
+    with ``project_id`` set, so the builder-group project check inside update()
+    (which reads through ``KeysFacade.get_key_group`` -> ``KeyGroupRepository.get_active``
+    -> ``_row_to_group``) passes."""
 
     def __init__(self, project_id: Any) -> None:
         self._project_id = project_id
@@ -50,7 +52,13 @@ class _FirstRowDb:
 
         class _R:
             def first(_self) -> Any:  # noqa: N805
-                return SimpleNamespace(project_id=pid)
+                return SimpleNamespace(
+                    id=uuid.uuid4(),
+                    project_id=pid,
+                    name="builder-group",
+                    created_at=datetime.now(UTC),
+                    deleted_at=None,
+                )
 
         return _R()
 

@@ -232,9 +232,16 @@ class GraphRagBuilder:
             self._db, cfg.builder_key_group_id
         )
         if builder_group_project_id is None or builder_group_project_id != cfg.project_id:
-            raise GraphRagBuilderKeyGroupProjectMismatch(
-                f"builder_key_group_id {cfg.builder_key_group_id} does not belong to project {cfg.project_id}"
+            error = (
+                f"builder_key_group_id {cfg.builder_key_group_id} "
+                f"does not belong to project {cfg.project_id}"
             )
+            # R7.09a: never silently -- record FAILED + an audit event before
+            # raising, so this is visible via the config's own state, not only
+            # in worker logs (unlike the BuildBusy refusal above, this is a
+            # permanent condition, not a transient one worth leaving unrecorded).
+            await self._fail_preflight(cfg.id, build_id, error)
+            raise GraphRagBuilderKeyGroupProjectMismatch(error)
 
         await self._configs.set_state(
             config_id=cfg.id,
@@ -545,6 +552,41 @@ class GraphRagBuilder:
             entities_written=len(embeddings),
             error=None,
         )
+
+    async def _fail_preflight(
+        self,
+        config_id: uuid.UUID,
+        build_id: uuid.UUID,
+        error: str,
+    ) -> None:
+        """R7.09a: record a pre-flight rejection the same way every other build
+        failure is recorded -- FAILED state, an audit event, and the build-state
+        channel -- before the caller raises. No snapshot exists yet at this point
+        (unlike `_fail_phase1`, which runs after Phase-1 has taken one), so there
+        is nothing to delete or clear here.
+        """
+        await self._configs.set_state(
+            config_id=config_id,
+            state=BuildState.FAILED,
+            error=error,
+        )
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="graphrag.build_failed",
+                resource_type="graphrag_config",
+                resource_id=config_id,
+                metadata={
+                    "build_id": str(build_id),
+                    "phase": "pre-flight",
+                    "error": error,
+                },
+            ),
+        )
+        await publish_build_state(
+            config_id, BuildState.FAILED.value, build_id=build_id, channel=self._channel_fn(config_id)
+        )
+        await self._db.commit()
 
     async def _fail_phase1(
         self,
