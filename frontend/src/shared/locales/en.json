@@ -20,6 +20,9 @@
     },
     "table": {
       "actions": "Actions"
+    },
+    "codeEditor": {
+      "invalidJson": "Invalid JSON"
     }
   }
 }

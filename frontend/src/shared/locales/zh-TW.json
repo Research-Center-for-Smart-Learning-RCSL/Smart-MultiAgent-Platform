@@ -20,6 +20,9 @@
     },
     "table": {
       "actions": "操作"
+    },
+    "codeEditor": {
+      "invalidJson": "JSON 格式錯誤"
     }
   }
 }
