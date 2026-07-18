@@ -29,8 +29,10 @@ fi
 # a future grammar addition pushes past it, that is the signal to split
 # further before LAZY_LIMIT itself is at risk.
 CODEMIRROR_JSON_LIMIT=180000
+CODEMIRROR_JSON_FOUND=0
 for file in "$DIST"/codeMirrorJson-*.js; do
   [ -e "$file" ] || continue
+  CODEMIRROR_JSON_FOUND=1
   size=$(gzip -c "$file" | wc -c)
   basename=$(basename "$file")
   if [ "$size" -gt "$CODEMIRROR_JSON_LIMIT" ]; then
@@ -40,6 +42,16 @@ for file in "$DIST"/codeMirrorJson-*.js; do
     echo "OK:   $basename ($size bytes gzip) within CodeMirror JSON budget ($CODEMIRROR_JSON_LIMIT bytes)"
   fi
 done
+# A silent zero-match here (chunk renamed, merged into another bundle, etc.)
+# would mean this budget stops being enforced without CI ever going red —
+# exactly the dead-exemption failure mode §5/FU-1 of the task spec found in
+# the pre-existing mermaid/hljs exempt list. Fail loudly instead: the chunk
+# is produced by a static import (shared/ui/SCodeEditor.vue), so it must
+# exist in every build.
+if [ "$CODEMIRROR_JSON_FOUND" -eq 0 ]; then
+  echo "FAIL: no codeMirrorJson-*.js chunk found in $DIST — the CodeMirror JSON budget was not checked"
+  FAILED=1
+fi
 
 for file in "$DIST"/*.js; do
   size=$(gzip -c "$file" | wc -c)
@@ -55,6 +67,10 @@ for file in "$DIST"/*.js; do
     fi
   elif echo "$basename" | grep -qE "$EXEMPT_PREFIXES"; then
     echo "SKIP: $basename ($size bytes gzip) — exempt heavy lazy lib"
+  elif echo "$basename" | grep -qE '^codeMirrorJson-'; then
+    : # Already checked above against the stricter CODEMIRROR_JSON_LIMIT —
+      # checking it again here against the looser LAZY_LIMIT would print a
+      # contradictory OK/FAIL pair for the same file.
   else
     if [ "$size" -gt "$LAZY_LIMIT" ]; then
       echo "FAIL: $basename ($size bytes gzip) exceeds lazy budget ($LAZY_LIMIT bytes)"
