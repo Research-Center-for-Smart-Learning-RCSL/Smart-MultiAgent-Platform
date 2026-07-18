@@ -65,6 +65,29 @@ def _validate_half_life(value: float | None) -> None:
         raise GraphRagInvalidHalfLife(f"recency_half_life_days must be > 0, got {value}")
 
 
+async def resolve_live_builder_group_project_id(
+    db: AsyncSession, builder_key_group_id: uuid.UUID
+) -> uuid.UUID | None:
+    """Return a builder Key Group's ``project_id`` if it is live, else ``None``.
+
+    R7.09a: the single predicate for "is this builder key group live", shared by
+    ``create``/``update`` (validated on write) and :class:`GraphRagBuilder`'s
+    dispatch-time pre-flight (validated again at build time), so the check is not
+    written a fourth time.
+    """
+    row = (
+        await db.execute(
+            sa.select(keys_t.key_groups.c.project_id).where(
+                sa.and_(
+                    keys_t.key_groups.c.id == builder_key_group_id,
+                    keys_t.key_groups.c.deleted_at.is_(None),
+                )
+            )
+        )
+    ).first()
+    return row.project_id if row else None
+
+
 class GraphRagConfigService:
     def __init__(
         self,
@@ -104,17 +127,10 @@ class GraphRagConfigService:
         )
         _validate_half_life(draft.recency_half_life_days)
 
-        builder_group = (
-            await self._db.execute(
-                sa.select(keys_t.key_groups.c.project_id).where(
-                    sa.and_(
-                        keys_t.key_groups.c.id == draft.builder_key_group_id,
-                        keys_t.key_groups.c.deleted_at.is_(None),
-                    )
-                )
-            )
-        ).first()
-        if builder_group is None or builder_group.project_id != project_id:
+        builder_group_project_id = await resolve_live_builder_group_project_id(
+            self._db, draft.builder_key_group_id
+        )
+        if builder_group_project_id is None or builder_group_project_id != project_id:
             raise GraphRagBuilderKeyGroupProjectMismatch(
                 f"builder_key_group_id {draft.builder_key_group_id} "
                 f"does not belong to project {project_id}"
@@ -385,17 +401,12 @@ class GraphRagConfigService:
         group_changed = builder_key_group_id is not None and builder_key_group_id != cfg.builder_key_group_id
         new_pin: tuple[str, str, int] | None = None
         if group_changed:
-            builder_group = (
-                await self._db.execute(
-                    sa.select(keys_t.key_groups.c.project_id).where(
-                        sa.and_(
-                            keys_t.key_groups.c.id == builder_key_group_id,
-                            keys_t.key_groups.c.deleted_at.is_(None),
-                        )
-                    )
-                )
-            ).first()
-            if builder_group is None or builder_group.project_id != cfg.project_id:
+            # group_changed is True only when builder_key_group_id is not None.
+            assert builder_key_group_id is not None
+            builder_group_project_id = await resolve_live_builder_group_project_id(
+                self._db, builder_key_group_id
+            )
+            if builder_group_project_id is None or builder_group_project_id != cfg.project_id:
                 raise GraphRagBuilderKeyGroupProjectMismatch(
                     f"builder_key_group_id {builder_key_group_id} "
                     f"does not belong to project {cfg.project_id}"
@@ -404,7 +415,6 @@ class GraphRagConfigService:
             # project's pinned dimension; re-derive and persist the new pin. The
             # dimension conflict (raised inside _enforce_and_resolve_pin) keeps
             # precedence over the F-13 model-change guard below.
-            assert builder_key_group_id is not None
             new_pin = await self._enforce_and_resolve_pin(
                 cfg.project_id, builder_key_group_id, exclude_config_id=config_id
             )

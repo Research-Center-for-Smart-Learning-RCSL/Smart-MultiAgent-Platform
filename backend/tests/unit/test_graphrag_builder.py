@@ -13,6 +13,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -123,21 +124,32 @@ class FakeConfigStore:
 
 
 class FakeDb:
-    """Just enough of AsyncSession for audit.emit + repo execution."""
+    """Just enough of AsyncSession for audit.emit + repo execution.
 
-    def __init__(self) -> None:
+    ``builder_group_project_id`` stands in for the R7.09a pre-flight's raw
+    ``key_groups.project_id`` lookup (``_run_locked`` queries ``self._db``
+    directly, mirroring ``graphrag_config_service.py``'s existing pattern): the
+    happy-path tests wire it to the config's own project so the pre-flight
+    passes; the mismatch/deleted tests set it to a different id or ``None``.
+    """
+
+    def __init__(self, *, builder_group_project_id: uuid.UUID | None = None) -> None:
         self.executed: list[Any] = []
         self.committed = False
         self.closed = False
+        self.builder_group_project_id = builder_group_project_id
 
     async def execute(self, stmt: Any, *a: Any, **kw: Any) -> Any:
         self.executed.append(stmt)
+        project_id = self.builder_group_project_id
 
         class _R:
             def one(_self) -> Any:  # noqa: N805
                 return None
 
             def first(_self) -> Any:  # noqa: N805
+                if project_id is not None and "key_groups" in str(stmt):
+                    return SimpleNamespace(project_id=project_id)
                 return None
 
             def all(_self) -> list[Any]:  # noqa: N805
@@ -402,7 +414,7 @@ def _make_builder(
     extractor: FakeExtractor,
     channel_fn: Any = graphrag_channel,
 ) -> tuple[GraphRagBuilder, FakeConfigStore, FakeDb]:
-    db = FakeDb()
+    db = FakeDb(builder_group_project_id=cfg.project_id)
     store = FakeConfigStore(cfg)
     builder = GraphRagBuilder(
         db,  # type: ignore[arg-type]
@@ -470,6 +482,69 @@ async def test_happy_path_transitions_to_idle() -> None:
     assert vectors.points_not_in_build_calls == []
 
 
+# ---------------------------------------------------------------------------
+# R7.09a pre-flight — AC-5 of 2026-07-16-headless-turn-key-group-authz
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_fails_fast_when_builder_key_group_is_deleted() -> None:
+    # Before this pre-flight, a deleted builder group surfaced as an empty
+    # eligible-member list partway through extraction (group_repository.py's
+    # join fixes that for free, but it reads as indistinguishable from
+    # exhaustion). This fails loudly, before the first extraction window.
+    from contexts.knowledge.domain.errors import GraphRagBuilderKeyGroupProjectMismatch
+
+    cfg = _make_cfg()
+    neo4j, vectors = FakeNeo4j(), FakeVectorStore()
+    lock, snaps = FakeLock(), FakeSnapshots()
+    extractor = FakeExtractor(_make_triples())
+    builder, store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
+        extractor=extractor,
+    )
+    # The group is missing entirely (deleted): the fake's lookup returns nothing.
+    builder._db.builder_group_project_id = None  # type: ignore[attr-defined]
+
+    with pytest.raises(GraphRagBuilderKeyGroupProjectMismatch):
+        await builder.run(config_id=cfg.id, mode="delta", triggered_by="manual")
+
+    # Nothing was touched: no state transition, no extraction, no Neo4j write.
+    assert store.transitions == []
+    assert extractor.calls == 0
+    assert neo4j.applied == []
+
+
+@pytest.mark.asyncio
+async def test_build_fails_fast_when_builder_key_group_is_cross_project() -> None:
+    from contexts.knowledge.domain.errors import GraphRagBuilderKeyGroupProjectMismatch
+
+    cfg = _make_cfg()
+    neo4j, vectors = FakeNeo4j(), FakeVectorStore()
+    lock, snaps = FakeLock(), FakeSnapshots()
+    extractor = FakeExtractor(_make_triples())
+    builder, store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
+        extractor=extractor,
+    )
+    # The group exists and is live, but belongs to a different project.
+    builder._db.builder_group_project_id = uuid.uuid4()  # type: ignore[attr-defined]
+
+    with pytest.raises(GraphRagBuilderKeyGroupProjectMismatch):
+        await builder.run(config_id=cfg.id, mode="delta", triggered_by="manual")
+
+    assert store.transitions == []
+    assert extractor.calls == 0
+
+
 @pytest.mark.asyncio
 async def test_replace_build_prunes_graph_and_uses_build_scoped_vector_sweep() -> None:
     # F-6: a full-corpus knowmap replacement build applies replacement semantics —
@@ -514,7 +589,7 @@ def _provenance_builder(
     *, cfg: GraphRagConfig, neo4j: FakeNeo4j, window: list[_Msg], triples: list[Triple]
 ) -> GraphRagBuilder:
     return GraphRagBuilder(
-        FakeDb(),  # type: ignore[arg-type]
+        FakeDb(builder_group_project_id=cfg.project_id),  # type: ignore[arg-type]
         neo4j=neo4j,
         vector_store=FakeVectorStore(),  # type: ignore[arg-type]
         extractor=FakeExtractor(triples),
@@ -636,7 +711,7 @@ async def test_windowed_build_extracts_per_window_but_commits_once() -> None:
     neo4j, vectors = FakeNeo4j(), FakeVectorStore()
     lock, snaps = FakeLock(), FakeSnapshots()
     extractor = FakeExtractor(_make_triples())
-    db = FakeDb()
+    db = FakeDb(builder_group_project_id=cfg.project_id)
     store = FakeConfigStore(cfg)
     builder = GraphRagBuilder(
         db,  # type: ignore[arg-type]

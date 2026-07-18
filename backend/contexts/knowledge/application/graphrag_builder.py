@@ -29,6 +29,9 @@ from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.graphrag_config_service import (
+    resolve_live_builder_group_project_id,
+)
 from contexts.knowledge.application.graphrag_events import publish_build_state
 from contexts.knowledge.application.graphrag_ports import (
     BuildLockStore,
@@ -41,6 +44,7 @@ from contexts.knowledge.application.graphrag_ports import (
 )
 from contexts.knowledge.domain.errors import (
     GraphRagBuildBusy,
+    GraphRagBuilderKeyGroupProjectMismatch,
     GraphRagBuildFailed,
 )
 from contexts.knowledge.domain.graphrag import (
@@ -215,6 +219,21 @@ class GraphRagBuilder:
         }:
             raise GraphRagBuildBusy(
                 f"config {cfg.id} in non-resumable state " f"{cfg.last_build_state.value}"
+            )
+
+        # R7.09a pre-flight: re-verify the builder key group is still live and in
+        # this config's project before spending anything. Validated on write
+        # (graphrag_config_service.py), re-checked here at dispatch time so a group
+        # deleted after the config was created fails loudly with the same
+        # actionable error instead of surfacing as an empty eligible-member list
+        # partway through extraction (fixed for free by group_repository.py's join,
+        # but that reads as indistinguishable-from-exhaustion, not this).
+        builder_group_project_id = await resolve_live_builder_group_project_id(
+            self._db, cfg.builder_key_group_id
+        )
+        if builder_group_project_id is None or builder_group_project_id != cfg.project_id:
+            raise GraphRagBuilderKeyGroupProjectMismatch(
+                f"builder_key_group_id {cfg.builder_key_group_id} does not belong to project {cfg.project_id}"
             )
 
         await self._configs.set_state(
