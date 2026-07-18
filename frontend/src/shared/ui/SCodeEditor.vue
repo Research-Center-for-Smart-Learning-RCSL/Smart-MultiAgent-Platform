@@ -43,8 +43,10 @@ function onInput(e: Event) {
 
 // Only reached on the textarea fallback path: permanently for the
 // non-`json` languages, and transiently for `json` while the CodeMirror
-// chunk is still loading. Once CodeMirror mounts, its own `defaultKeymap`
-// handles Tab.
+// chunk is still loading. Once CodeMirror mounts, `indentWithTab` (added
+// explicitly below — `defaultKeymap` deliberately omits it, since binding
+// Tab is an accessibility trade-off CodeMirror leaves to the embedder)
+// takes over.
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Tab') {
     e.preventDefault()
@@ -123,11 +125,19 @@ onMounted(async () => {
     extensions: [
       cm.lineNumbers(),
       cm.history(),
-      cm.keymap.of([...cm.defaultKeymap, ...cm.historyKeymap]),
+      // indentWithTab first: defaultKeymap deliberately doesn't bind Tab
+      // (CodeMirror leaves that trade-off to the embedder), so without it
+      // Tab just moves focus to the next form control instead of indenting.
+      cm.keymap.of([cm.indentWithTab, ...cm.defaultKeymap, ...cm.historyKeymap]),
       cm.syntaxHighlighting(cm.defaultHighlightStyle),
       cm.json(),
       cm.linter(localizedJsonLint),
       cm.lintGutter(),
+      // No call site combines language="json" with :placeholder today, but
+      // the textarea fallback supports it — CodeMirror needs its own
+      // extension for the same affordance, or it silently disappears the
+      // moment CodeMirror mounts.
+      ...(placeholderAttr.value ? [cm.placeholder(placeholderAttr.value)] : []),
       cm.EditorView.contentAttributes.of(contentAttrs),
       // Fixed at construction: no call site toggles `readonly` on a live
       // CodeMirror-backed instance today.
