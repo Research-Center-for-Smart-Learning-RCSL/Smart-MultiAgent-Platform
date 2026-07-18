@@ -17,65 +17,19 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from contexts.identity.infrastructure.tables import users as users_t
 from contexts.knowledge.domain.embedding_pin import PinKind, TeardownOutcome
 from contexts.knowledge.infrastructure.embedding_pin_repository import EmbeddingPinRepository
 from contexts.knowledge.infrastructure.embedding_pin_tables import project_embedding_pins as pins_t
-from contexts.tenancy.infrastructure.tables import projects as projects_t
 
-
-@pytest.fixture
-async def sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    from app.config.settings import get_settings
-
-    engine = create_async_engine(get_settings().database.dsn)
-    try:
-        yield async_sessionmaker(engine, expire_on_commit=False)
-    finally:
-        await engine.dispose()
-
-
-@pytest.fixture
-async def project_id(sessionmaker: async_sessionmaker[AsyncSession]) -> AsyncIterator[uuid.UUID]:
-    """A real ``projects`` row -- ``project_embedding_pins.project_id`` is a FK to it.
-
-    Owned by a throwaway user, since ``created_by_user_id`` is NOT NULL. Dropping the
-    user at the end cascades the project and, through it, the pin.
-    """
-    pid, uid = uuid.uuid4(), uuid.uuid4()
-    async with sessionmaker() as session:
-        await session.execute(
-            users_t.insert().values(
-                id=uid,
-                email=f"pin-race-{uid}@test.invalid",
-                password_hash="x",  # never authenticated against
-            )
-        )
-        await session.execute(
-            projects_t.insert().values(
-                id=pid,
-                name="pin-race",
-                owner_user_id=uid,
-                created_by_user_id=uid,
-            )
-        )
-        await session.commit()
-    try:
-        yield pid
-    finally:
-        async with sessionmaker() as cleanup:
-            await cleanup.execute(projects_t.delete().where(projects_t.c.id == pid))
-            await cleanup.execute(users_t.delete().where(users_t.c.id == uid))
-            await cleanup.commit()
+# `sessionmaker` and `project_id` fixtures come from tests/integration/conftest.py.
 
 
 async def _seed_pin(session: AsyncSession, project_id: uuid.UUID, dim: int) -> None:
