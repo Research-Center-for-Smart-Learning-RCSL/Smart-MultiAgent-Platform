@@ -2852,6 +2852,9 @@ are all checked.
   first. The `turn_engine.py:1237` half is not a defect at all; it faithfully honours a config
   value, and only the config's range is wrong. The migration is the real cost: existing rows above
   any new bound must be handled.
+  **Resolved 2026-07-18: split into `docs/tasks/2026-07-16-context-token-cap-upper-bound/`
+  (status: implemented). `MAX_CONTEXT_TOKEN_CAP` now bounds `context_token_cap` at the API, the DB
+  CHECK, and the domain layer, mirroring `skill_index_token_cap` as this entry anticipated.**
 - **FU-11: `_MAX_TOOL_OUTPUT` is characters, not tokens** (`tool_registry.py` — it lived at
   `builtin_tools.py:35` when this was written; D-14 moved it, and the cap itself is unchanged),
   giving a 4× spread between Latin and CJK, and tool results are counted in no budget across
