@@ -60,6 +60,7 @@ R9.02,"9. AI Agents","Agents are not versioned; no export/import (Q41). Editing 
 R9.03,"9. AI Agents","Deleting an Agent soft-deletes it for 60 days (consistent with R8.11) since agents may be referenced by historical chat messages."
 R9.09,"9. AI Agents","context_mode = general: unbounded growth. The system sends the entire chat history (subject to provider's hard context limit, at which point the provider will error; this is surfaced to the UI)."
 R9.10,"9. AI Agents","context_mode = compact: when the running token count of the *next* request would exceed context_token_cap (default: 75 % of provider's context limit), the system runs /compact:"
+R9.10a,"9. AI Agents","An Agent's context_token_cap override is bounded above by the widest provider context window the platform supports (currently 1 000 000 — Gemini); a value above it is rejected at the API with a 422 and by a DB constraint."
 R9.11,"9. AI Agents","/compact is retryable; on failure the system keeps the original context and logs the failure to audit."
 R9.12,"9. AI Agents","Transport: internal only, no external exposure. Messages flow via the event bus."
 R9.13,"9. AI Agents","Message schema (JSON):"
