@@ -68,7 +68,7 @@ from contexts.keys.application.provider_router import (
 from contexts.keys.domain.errors import KeyGroupExhausted
 from contexts.keys.domain.providers import ProviderCapability
 from contexts.keys.infrastructure.adapters import build_router
-from contexts.keys.infrastructure.group_repository import KeyGroupRepository
+from contexts.keys.interfaces.facade import KeysFacade
 from contexts.knowledge.application.graphrag_context_provider import (
     GraphRagContextProvider,
     build_evidence_fetcher,
@@ -620,6 +620,19 @@ class TurnEngine:
         agent = await AgentsFacade(self._db).get_agent(agent_id)
         if agent is None:
             return TurnResult(status="skipped", reason="agent_gone")
+        # AuthZ tap: same predicate `_run_locked` runs for the room path (R7.09a).
+        # No room here, so audit unconditionally and emit nothing — there is no
+        # chatroom_id for emit_agent_finished_error / _emit_observation_event to
+        # target, mirroring `_resolve_skills`' precedent for a tap on both paths.
+        if await self._key_group_out_of_scope(agent):
+            await self._audit(
+                agent,
+                None,
+                "agent.turn_skipped",
+                {"reason": "key_group_scope", "key_group_id": str(agent.key_group_id)},
+            )
+            await self._db.commit()
+            return TurnResult(status="skipped", reason="key_group_scope")
         models = _resolve_models(agent)
         wf = str(workflow_run_id) if workflow_run_id else None
         pending_notes: list[dict[str, Any]] = []
@@ -1317,6 +1330,18 @@ class TurnEngine:
                 exc_info=True,
             )
 
+    async def _key_group_out_of_scope(self, agent: Agent) -> bool:
+        """R7.09a: the agent's key group must still be live and in its project.
+
+        Shared by `_run_locked` (the room path) and `run_input_turn` (the headless
+        A2A/approval path) — the two taps that gate the money path. Reads through
+        `KeysFacade.get_key_group` rather than `KeyGroupRepository` directly, so
+        this stays a cross-context read through the facade contract instead of the
+        agents context reaching into keys' infrastructure.
+        """
+        group = await KeysFacade(self._db).get_key_group(agent.key_group_id)
+        return group is None or group.project_id != agent.project_id
+
     async def _run_locked(
         self,
         *,
@@ -1346,8 +1371,7 @@ class TurnEngine:
         is_observer = role is ChatroomAgentRole.OBSERVER
         # AuthZ tap: the agent's key group must still belong to the agent's
         # project (defends against a key-group move/delete racing the trigger).
-        group = await KeyGroupRepository(self._db).get_active(agent.key_group_id)
-        if group is None or group.project_id != agent.project_id:
+        if await self._key_group_out_of_scope(agent):
             await self._audit(
                 agent,
                 chatroom_id,

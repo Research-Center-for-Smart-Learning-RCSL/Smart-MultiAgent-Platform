@@ -12,6 +12,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -111,7 +112,11 @@ def _headless_engine(monkeypatch, agent, *, member=True):
 # --------------------------------------------------------------------------- #
 
 
-def _wire_engine(monkeypatch, agent, *, drain=None, member=True):
+def _wire_engine(monkeypatch, agent, *, drain=None, member=True, group="match"):
+    """``group`` mirrors ``test_no_response_notices.py``'s ``_wire_locked``: 'match'
+    (key group OK — what every pre-existing test here means), 'mismatch' (wrong
+    project), 'none' (deleted)."""
+
     class _Facade:
         def __init__(self, db) -> None:
             pass
@@ -126,6 +131,21 @@ def _wire_engine(monkeypatch, agent, *, drain=None, member=True):
             return []
 
     monkeypatch.setattr(te, "AgentsFacade", _Facade)
+
+    grp = None
+    if group == "match" and agent is not None:
+        grp = SimpleNamespace(project_id=agent.project_id)
+    elif group == "mismatch":
+        grp = SimpleNamespace(project_id=uuid.uuid4())
+
+    class _KeysFacade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def get_key_group(self, kgid):
+            return grp
+
+    monkeypatch.setattr(te, "KeysFacade", _KeysFacade)
 
     class _ConvFacade:
         def __init__(self, db) -> None:
@@ -361,6 +381,68 @@ async def test_run_input_turn_agent_gone(monkeypatch) -> None:
     result = await engine.run_input_turn(agent_id=uuid.uuid4(), input_text="hi")
     assert result.status == "skipped"
     assert result.reason == "agent_gone"
+
+
+def _wire_key_group_scope_skip(monkeypatch, agent, *, group):
+    """A bare engine wired so the key-group-scope guard is the only thing that can
+    fire: reaching the provider or emitting a room event is a defect, not a path
+    this test tolerates."""
+    _wire_engine(monkeypatch, agent, group=group)
+
+    async def _unreached_stream(**_kw):
+        raise AssertionError("must not reach the provider when the key group is out of scope")
+
+    async def _unreached_emit(*_a, **_k):
+        raise AssertionError("must not emit — there is no room on the headless path")
+
+    monkeypatch.setattr(te, "emit_agent_finished_error", _unreached_emit)
+
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = _FakeDB()  # type: ignore[attr-defined]
+    engine._router = object()  # type: ignore[attr-defined]
+    engine._stream_with_tools = _unreached_stream  # type: ignore[attr-defined]
+    audit_mock = AsyncMock()
+    engine._audit = audit_mock  # type: ignore[attr-defined]
+    return engine, audit_mock
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_key_group_deleted_skips(monkeypatch) -> None:
+    # R7.09a / AC-2: `_run_locked` has this gate for the room path; the headless
+    # path lacked it entirely and would run the turn (and bill the key) for an
+    # agent whose Key Group was soft-deleted.
+    agent = _agent()
+    engine, audit_mock = _wire_key_group_scope_skip(monkeypatch, agent, group="none")
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    assert result.status == "skipped"
+    assert result.reason == "key_group_scope"
+    audit_mock.assert_awaited_once_with(
+        agent,
+        None,
+        "agent.turn_skipped",
+        {"reason": "key_group_scope", "key_group_id": str(agent.key_group_id)},
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_key_group_cross_project_skips(monkeypatch) -> None:
+    # Q-4 defence-in-depth arm: unreachable via any API today, but `_run_locked`
+    # keeps the same check, so the shared predicate must too.
+    agent = _agent()
+    engine, audit_mock = _wire_key_group_scope_skip(monkeypatch, agent, group="mismatch")
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    assert result.status == "skipped"
+    assert result.reason == "key_group_scope"
+    audit_mock.assert_awaited_once_with(
+        agent,
+        None,
+        "agent.turn_skipped",
+        {"reason": "key_group_scope", "key_group_id": str(agent.key_group_id)},
+    )
 
 
 # --------------------------------------------------------------------------- #

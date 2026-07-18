@@ -85,14 +85,14 @@ def _wire_locked(
     elif group == "mismatch":
         grp = SimpleNamespace(project_id=uuid.uuid4())
 
-    class _KeyGroupRepo:
+    class _KeysFacade:
         def __init__(self, db) -> None:
             pass
 
-        async def get_active(self, kgid):
+        async def get_key_group(self, kgid):
             return grp
 
-    monkeypatch.setattr(te, "KeyGroupRepository", _KeyGroupRepo)
+    monkeypatch.setattr(te, "KeysFacade", _KeysFacade)
 
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = _FakeDB()  # type: ignore[attr-defined]
