@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
+
 // Mirrors backend `AgentCreateIn` (backend/app/api/v1/agents.py). `model_hint`
 // + `key_group_id` are the required pair the BYO-key runtime routes on; the
 // former "model_provider/model_name/temperature/max_tokens" shape never
@@ -32,7 +34,7 @@ export const agentCreateSchema = z.object({
   context_mode: z.enum(['general', 'compact']).default('general'),
   context_token_cap: z.preprocess(
     zeroOrEmptyToNull,
-    z.number().int().positive().nullable().default(null),
+    z.number().int().positive().max(INPUT_LIMITS.CONTEXT_TOKEN_CAP).nullable().default(null),
   ),
   // Sampling controls for reproducible-enough-to-audit output. null = provider
   // default (param not sent). temperature=0 is a *meaningful* low-variance value,
