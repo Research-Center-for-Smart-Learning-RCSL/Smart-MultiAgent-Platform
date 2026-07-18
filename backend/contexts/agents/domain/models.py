@@ -83,6 +83,13 @@ def chat_model_catalog() -> tuple[ChatModelCatalogEntry, ...]:
 # this so an over-cap value is a 422 rather than an IntegrityError 500.
 MAX_SKILL_INDEX_TOKEN_CAP = 16_000
 
+# Upper bound on `agents.context_token_cap`, mirrored by the
+# `agents_context_cap_bounded` CHECK in migration 0057. Derived from CONTEXT_LIMITS
+# rather than a literal: above the widest provider window the value cannot help any
+# provider, so this is the highest number that is ever meaningful and the lowest that
+# rejects nothing legitimate. Same shape as MAX_SKILL_INDEX_TOKEN_CAP above.
+MAX_CONTEXT_TOKEN_CAP = max(CONTEXT_LIMITS.values())
+
 
 class ContextMode(str, enum.Enum):
     GENERAL = "general"
@@ -140,10 +147,12 @@ class Agent:
     rag_config_id: uuid.UUID | None
     knowmap_config_id: uuid.UUID | None
     context_mode: ContextMode
+    # Compaction ceiling in R9.10 compact mode; None means the 75%-of-provider-window
+    # default. Upper-bounded at the DB (<= MAX_CONTEXT_TOKEN_CAP, currently 1000000).
     context_token_cap: int | None
     # Cap on the §31 skills index block; None means the 3000 default. Upper-bounded at
-    # the DB (<= 16000), unlike context_token_cap above, which is unbounded everywhere
-    # and is a self-DoS once the index counts against the knowledge budget (FU-10).
+    # the DB (<= MAX_SKILL_INDEX_TOKEN_CAP, currently 16000), same shape as
+    # context_token_cap above.
     skill_index_token_cap: int | None
     temperature: float | None
     top_p: float | None

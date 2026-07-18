@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.deps import PaginationParams, require_if_match
 from contexts.agents.application.agent_service import AgentService
 from contexts.agents.domain.models import (
+    MAX_CONTEXT_TOKEN_CAP,
     MAX_SKILL_INDEX_TOKEN_CAP,
     AgentDraft,
     AgentEffort,
@@ -79,7 +80,7 @@ class AgentCreateIn(BaseModel):
     rag_config_id: uuid.UUID | None = None
     knowmap_config_id: uuid.UUID | None = None
     context_mode: Literal["general", "compact"] = "general"
-    context_token_cap: int | None = Field(default=None, gt=0)
+    context_token_cap: int | None = Field(default=None, gt=0, le=MAX_CONTEXT_TOKEN_CAP)
     skill_index_token_cap: int | None = Field(default=None, gt=0, le=MAX_SKILL_INDEX_TOKEN_CAP)
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, ge=0, le=1)
@@ -113,7 +114,7 @@ class AgentPatchIn(BaseModel):
     rag_config_id: uuid.UUID | None = None
     knowmap_config_id: uuid.UUID | None = None
     context_mode: Literal["general", "compact"] | None = None
-    context_token_cap: int | None = Field(default=None, gt=0)
+    context_token_cap: int | None = Field(default=None, gt=0, le=MAX_CONTEXT_TOKEN_CAP)
     skill_index_token_cap: int | None = Field(default=None, gt=0, le=MAX_SKILL_INDEX_TOKEN_CAP)
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, ge=0, le=1)
