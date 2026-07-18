@@ -22,6 +22,12 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@codemirror/commands": "6.10.4",
+    "@codemirror/lang-json": "6.0.2",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/lint": "6.9.7",
+    "@codemirror/state": "6.7.1",
+    "@codemirror/view": "6.43.6",
     "@heroicons/vue": "^2.2.0",
     "@tanstack/vue-query": "5.59.20",
     "@vee-validate/zod": "4.14.6",
