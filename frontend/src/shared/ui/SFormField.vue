@@ -12,7 +12,13 @@ const props = defineProps<{
 const controlRef = ref<HTMLElement | null>(null)
 
 function syncAria() {
-  const el = controlRef.value?.querySelector('input, select, textarea') as HTMLElement | null
+  // `[contenteditable="true"]` covers CodeMirror-backed fields (SCodeEditor
+  // with language="json") — a contenteditable div, not a native form
+  // control, so it needs its own match or this never re-fires once the
+  // control swaps from a <textarea> to CodeMirror's content element.
+  const el = controlRef.value?.querySelector(
+    'input, select, textarea, [contenteditable="true"]',
+  ) as HTMLElement | null
   if (!el) return
   // Associate the control with our <label for="name"> so clicking the label
   // focuses it and assistive tech / getByLabel can resolve the accessible name.
