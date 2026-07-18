@@ -19,6 +19,28 @@ if [ ! -d "$DIST" ]; then
   exit 1
 fi
 
+# AC-6 (2026-07-16-code-editor-syntax-highlighting): the CodeMirror JSON build
+# (shared/ui/codeMirrorJson.ts — core + lang-json + lint, one dynamic import,
+# never a static import alongside a second @codemirror/lang-* grammar per
+# AC-7) is pinned well under LAZY_LIMIT, not merely under it. Measured
+# 150 911 B gz on 2026-07-17 via a throwaway vite@6 project (see the task
+# spec §5); the integrated build dedupes shared deps into vendor chunks and
+# lands lower. 180 000 B is a defended margin, not the observed number — if
+# a future grammar addition pushes past it, that is the signal to split
+# further before LAZY_LIMIT itself is at risk.
+CODEMIRROR_JSON_LIMIT=180000
+for file in "$DIST"/codeMirrorJson-*.js; do
+  [ -e "$file" ] || continue
+  size=$(gzip -c "$file" | wc -c)
+  basename=$(basename "$file")
+  if [ "$size" -gt "$CODEMIRROR_JSON_LIMIT" ]; then
+    echo "FAIL: $basename ($size bytes gzip) exceeds the CodeMirror JSON budget ($CODEMIRROR_JSON_LIMIT bytes)"
+    FAILED=1
+  else
+    echo "OK:   $basename ($size bytes gzip) within CodeMirror JSON budget ($CODEMIRROR_JSON_LIMIT bytes)"
+  fi
+done
+
 for file in "$DIST"/*.js; do
   size=$(gzip -c "$file" | wc -c)
   basename=$(basename "$file")
