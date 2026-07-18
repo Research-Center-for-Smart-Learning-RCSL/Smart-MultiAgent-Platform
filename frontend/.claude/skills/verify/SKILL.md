@@ -54,6 +54,22 @@ provisioned. Two blockers seen:
    then INSERT into `users` (`email_verified=true, status='active'`) via
    `docker exec -i smap_postgres psql -U smap -d smap`. Admin = row in `admins(user_id)`.
    Credentials live in `e2e/fixtures/auth.ts`.
+3. **Key upload 500s: KV config paths missing.** `vault-init` throws on the
+   `/deploy/vault/policies/*.hcl` read (blocker #1 above) *before* it reaches
+   its KV-seed loop, so `secret/smap/config/{hmac-key,captcha,smtp,minio}`
+   never get written. Login/JWT works (transit keys are created earlier), but
+   `POST /api/keys` 500s with `InvalidPath: .../smap/config/hmac-key` — needed
+   for any flow that uploads a provider key (agent creation needs a key
+   carried into its key group first). Fix (idempotent):
+   ```
+   docker exec smap_vault sh -c "VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN=root vault kv put secret/smap/config/hmac-key key=$(docker exec smap_vault sh -c 'head -c32 /dev/urandom | base64')"
+   docker exec smap_vault sh -c "VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN=root vault kv put secret/smap/config/captcha provider=hcaptcha public_key= secret_key="
+   docker exec smap_vault sh -c "VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN=root vault kv put secret/smap/config/smtp host= port=587 user= password="
+   docker exec smap_vault sh -c "VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN=root vault kv put secret/smap/config/minio access_key= secret_key="
+   ```
+   A fake key (`sk-test-00000000000000000000000000000000`) uploads and carries
+   fine after this — the backend doesn't validate provider keys against the
+   real API in dev.
 
 `qdrant`/`neo4j`/`minio` are often down in this stack — fine for create/read/toggle
 surfaces, but the GraphRAG **build** path and file uploads need them.
