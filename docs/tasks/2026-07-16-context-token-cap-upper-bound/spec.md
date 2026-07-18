@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-16
 requirements: [R9.10, R11.19]
 ---
@@ -77,26 +77,26 @@ that shape.
 
 ## 4. Acceptance Criteria
 
-- [ ] AC-1: `POST /api/agents` with `context_token_cap = 1_000_001` returns 422; `1_000_000` succeeds;
+- [x] AC-1: `POST /api/agents` with `context_token_cap = 1_000_001` returns 422; `1_000_000` succeeds;
       `null` succeeds and still means "provider default".
-- [ ] AC-2: `PATCH /api/agents/{id}` enforces the same bound (`agents.py:116`), and clearing to `null`
+- [x] AC-2: `PATCH /api/agents/{id}` enforces the same bound (`agents.py:116`), and clearing to `null`
       still works (`:339` — `clear_context_token_cap`).
-- [ ] AC-3: the DB CHECK rejects an over-bound value written outside the API, mirroring
+- [x] AC-3: the DB CHECK rejects an over-bound value written outside the API, mirroring
       `agents_skill_index_cap_bounded`. A direct `UPDATE` to 2 000 000 raises `IntegrityError`.
-- [ ] AC-4: the migration's upgrade clamps pre-existing rows above the bound and logs how many; a
+- [x] AC-4: the migration's upgrade clamps pre-existing rows above the bound and logs how many; a
       downgrade drops the CHECK and leaves the clamped values (the data change is not reversible and
       the downgrade must not pretend otherwise).
-- [ ] AC-5: `MAX_CONTEXT_TOKEN_CAP` lives in `contexts/agents/domain/models.py` beside
+- [x] AC-5: `MAX_CONTEXT_TOKEN_CAP` lives in `contexts/agents/domain/models.py` beside
       `MAX_SKILL_INDEX_TOKEN_CAP`, is derived from `CONTEXT_LIMITS` rather than typed as a literal,
       and a test asserts `MAX_CONTEXT_TOKEN_CAP == max(CONTEXT_LIMITS.values())` so a future provider
       with a larger window cannot silently make the bound wrong.
-- [ ] AC-6: `models.py:144-146`'s comment no longer describes `context_token_cap` as "unbounded
+- [x] AC-6: `models.py:144-146`'s comment no longer describes `context_token_cap` as "unbounded
       everywhere"; both caps are described as bounded, and FU-10 is no longer cited as open.
-- [ ] AC-7: `INPUT_LIMITS.CONTEXT_TOKEN_CAP` exists and the agent form's field carries it, so the
+- [x] AC-7: `INPUT_LIMITS.CONTEXT_TOKEN_CAP` exists and the agent form's field carries it, so the
       counter/`max` matches the backend (Q-4).
-- [ ] AC-8: compact-mode behaviour is unchanged for every legal value — `turn_engine.py:1237` is not
+- [x] AC-8: compact-mode behaviour is unchanged for every legal value — `turn_engine.py:1237` is not
       touched, and the existing turn tests stay green.
-- [ ] AC-9: gates green — `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`;
+- [x] AC-9: gates green — `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`;
       `pnpm test`, `pnpm lint`, `pnpm typecheck`; `alembic upgrade head` applied and the downgrade
       round-tripped.
 
@@ -179,7 +179,12 @@ the per-agent override, which is why nothing was violated. Add the bound to §9,
 `docs/traceability.csv` gains a row for `[R9.10a]`. Note the file currently has zero rows for six
 sections (`2026-07-16-agent-skills` FU-3) — this task adds its own row and does not fix that.
 
-## 9. Follow-ups
+## 9. Deviation Log
+
+None. Implementation matches this spec exactly — same constant name and placement,
+same migration shape (clamp + rename CHECK), same frontend field.
+
+## 10. Follow-ups
 
 - **FU-1: `general` mode has no per-agent ceiling at all.** `turn_engine.py:1238-1239` uses
   `context_limit` — the provider's hard window — so a general-mode agent cannot be given a *lower*
