@@ -411,6 +411,11 @@ Q36 asked for both "inline every call" and "retrieve on demand" to be offered. B
   2. Use the same Agent's Key Group to issue a summarization call with a system prompt modeled after Claude Code's `/compact` ("Summarize the following conversation preserving decisions, file paths, and open questions. Output ≤ 2 000 tokens").
   3. Replace the range with a single system-role message tagged `"type":"compact_summary"`.
   4. The user-visible chat log is unchanged; only what is sent to the model changes.
+- **[R9.10a]** An Agent's `context_token_cap` override is bounded above by the widest provider
+  context window the platform supports (currently 1 000 000 — Gemini; see the model catalog). A
+  value above it is rejected at the API with a 422 and by a DB constraint: it cannot be honoured by
+  any provider, and in compact mode it would suppress compaction entirely and guarantee a rejected
+  request. `NULL` continues to mean the provider-derived default.
 - **[R9.11]** `/compact` is retryable; on failure the system keeps the original context and logs the failure to audit.
 
 ### 9.4 A2A (Agent-to-Agent)
