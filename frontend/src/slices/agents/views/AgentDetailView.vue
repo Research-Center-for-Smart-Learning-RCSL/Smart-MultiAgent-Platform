@@ -843,6 +843,7 @@ const breadcrumbs = computed(() => [
               <SInput
                 v-model="contextTokenCapModel"
                 type="number"
+                :max="INPUT_LIMITS.CONTEXT_TOKEN_CAP"
                 :placeholder="contextTokenCapPlaceholder"
               />
             </SFormField>

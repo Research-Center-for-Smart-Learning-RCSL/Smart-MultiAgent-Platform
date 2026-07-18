@@ -53,6 +53,13 @@ export const INPUT_LIMITS = {
    * never approach it.
    */
   CONFIG_TEXT: 20_000,
+  /**
+   * Agent compact-mode compaction ceiling (`agents.context_token_cap`). Mirrors
+   * `MAX_CONTEXT_TOKEN_CAP` in `backend/contexts/agents/domain/models.py` — the widest
+   * provider context window (currently Gemini's 1 000 000). Above it the value cannot
+   * help any provider and, in compact mode, silently disables compaction.
+   */
+  CONTEXT_TOKEN_CAP: 1_000_000,
 } as const
 
 export type InputLimitKey = keyof typeof INPUT_LIMITS
