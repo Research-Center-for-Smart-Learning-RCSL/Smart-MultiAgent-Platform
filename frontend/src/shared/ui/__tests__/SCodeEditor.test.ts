@@ -93,4 +93,36 @@ describe('SCodeEditor', () => {
     })
     expect(w.find('.cm-lint-marker').exists()).toBe(true)
   })
+
+  // Regression: a code-review finding (2026-07-18) caught that the code's
+  // own comment claiming "CodeMirror's defaultKeymap handles Tab" was wrong
+  // — defaultKeymap deliberately omits Tab, so it silently moved focus out
+  // of the editor instead of indenting. `indentWithTab` must be added
+  // explicitly.
+  it('indents on Tab instead of moving focus out of the editor', async () => {
+    const w = mountEditor({ modelValue: '{}', language: 'json' })
+    await waitForCodeMirror(w)
+    const host = w.find('.code-editor-cm-host').element as HTMLElement
+    const view = EditorView.findFromDOM(host)!
+    view.dispatch({ selection: { anchor: 1 } })
+    view.contentDOM.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', bubbles: true, cancelable: true }),
+    )
+    // indentWithTab runs indentMore, which indents the current *line* (not a
+    // literal "insert two spaces at the cursor" like the old textarea
+    // handler) — the correct code-editor behavior CodeMirror provides.
+    expect(view.state.doc.toString()).toBe('  {}')
+  })
+
+  // Regression: the placeholder prop had no CodeMirror equivalent — it
+  // silently disappeared once CodeMirror mounted (no live call site
+  // exercised this, but SCodeEditor is a shared component and the textarea
+  // fallback supports it).
+  it('renders a placeholder in the CodeMirror-backed field', async () => {
+    const w = mountEditor({ modelValue: '', language: 'json', placeholder: 'Enter JSON' })
+    await waitForCodeMirror(w)
+    const placeholderEl = w.find('.cm-placeholder')
+    expect(placeholderEl.exists()).toBe(true)
+    expect(placeholderEl.text()).toBe('Enter JSON')
+  })
 })

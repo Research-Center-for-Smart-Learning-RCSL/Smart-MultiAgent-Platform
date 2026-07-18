@@ -8,9 +8,9 @@
 // 26%. Each additional grammar must get its own sibling module and its own
 // dynamic import() call in SCodeEditor.vue, never a static import alongside
 // this one.
-export { EditorView, lineNumbers, keymap } from '@codemirror/view'
+export { EditorView, lineNumbers, keymap, placeholder } from '@codemirror/view'
 export { EditorState, Compartment } from '@codemirror/state'
-export { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
+export { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 export { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 export { json, jsonParseLinter } from '@codemirror/lang-json'
 export { linter, lintGutter } from '@codemirror/lint'
