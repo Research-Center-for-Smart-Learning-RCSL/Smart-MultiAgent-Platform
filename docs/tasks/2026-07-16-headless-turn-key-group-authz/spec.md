@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-16
 requirements: [R7.04, R7.05, R7.09a, R11.11]
 ---
@@ -281,29 +281,50 @@ Note 3 fills coverage the room path never had: `_wire_locked` stubs `engine._aud
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: §8.2's integration test fails before the fix and passes after — `list_ordered_carried`
+- [x] AC-1: §8.2's integration test fails before the fix and passes after — `list_ordered_carried`
       returns `[]` for a soft-deleted group and its carried member while live.
-- [ ] AC-2: §8.3's tests pass — `run_input_turn` returns `skipped`/`key_group_scope`, audits
+      (`tests/integration/test_key_group_liveness_gate.py::test_list_ordered_carried_excludes_soft_deleted_group`,
+      confirmed failing pre-fix then passing post-fix against real Postgres.)
+- [x] AC-2: §8.3's tests pass — `run_input_turn` returns `skipped`/`key_group_scope`, audits
       `agent.turn_skipped` with `reason` and `key_group_id`, and reaches no provider, for both a
       deleted group and a cross-project group.
-- [ ] AC-3: `run_input_turn` emits no room event on the skip (there is no room), verified by the
-      absence of any emit call in the §8.3 test.
-- [ ] AC-4: §8.4 passes — `resolve_embed_key` selects nothing for a deleted builder key group.
-- [ ] AC-5: a GraphRAG build whose `builder_key_group_id` was deleted fails with
+      (`tests/unit/test_a2a_turn_dispatch.py::test_run_input_turn_key_group_deleted_skips` and
+      `::test_run_input_turn_key_group_cross_project_skips`.)
+- [x] AC-3: `run_input_turn` emits no room event on the skip (there is no room), verified by the
+      absence of any emit call in the §8.3 test. (Both new tests stub `emit_agent_finished_error`
+      to raise `AssertionError` if called — never triggered.)
+- [x] AC-4: §8.4 passes — `resolve_embed_key` selects nothing for a deleted builder key group.
+      (Moved to an integration test per D-1 — see Deviation Log —
+      `test_key_group_liveness_gate.py::test_resolve_embed_key_selects_nothing_for_deleted_builder_group`.)
+- [x] AC-5: a GraphRAG build whose `builder_key_group_id` was deleted fails with
       `GraphRagBuilderKeyGroupProjectMismatch` before the first extraction window, not with an
       empty-eligible-members error mid-build.
-- [ ] AC-6: `patch_member` on a member of a deleted group raises `KeyNotFound` — the §9 behaviour
+      (`tests/unit/test_graphrag_builder.py::test_build_fails_fast_when_builder_key_group_is_deleted`
+      and `::test_build_fails_fast_when_builder_key_group_is_cross_project`; asserts zero state
+      transitions and zero extractor calls. See D-2 for the pre-flight's exact placement.)
+- [x] AC-6: `patch_member` on a member of a deleted group raises `KeyNotFound` — the §9 behaviour
       change, pinned deliberately rather than discovered.
-- [ ] AC-7: `test_no_response_notices.py` is unchanged and green — `_run_locked`'s behaviour is
-      identical after the predicate extraction.
-- [ ] AC-8: the room and headless paths call one shared predicate; `grep` shows no second
-      hand-rolled `group.project_id != agent.project_id` inside `turn_engine.py`.
-- [ ] AC-9: `turn_engine.py` no longer imports `KeyGroupRepository` from
+      (Moved to an integration test per D-1 —
+      `test_key_group_liveness_gate.py::test_patch_member_on_deleted_group_raises_key_not_found`.)
+- [x] AC-7: `test_no_response_notices.py` is unchanged and green — `_run_locked`'s behaviour is
+      identical after the predicate extraction. (Only its `_wire_locked` stub target changed, per
+      AC-9; all assertions and behavior are untouched and green.)
+- [x] AC-8: the room and headless paths call one shared predicate; `grep` shows no second
+      hand-rolled `group.project_id != agent.project_id` inside `turn_engine.py`. (One occurrence,
+      inside `_key_group_out_of_scope`.)
+- [x] AC-9: `turn_engine.py` no longer imports `KeyGroupRepository` from
       `contexts.keys.infrastructure` (`:65`); the predicate reads through `KeysFacade.get_key_group`,
       and `test_no_response_notices.py`'s stub is retargeted accordingly.
-- [ ] AC-10: `agent_service.py:6`'s `[R7.02]` citation is corrected to the requirement added in §11,
+      (`test_observer_agents.py`'s `_wire_observer_engine` needed the identical retarget — not
+      anticipated by §8, see D-3.)
+- [x] AC-10: `agent_service.py:6`'s `[R7.02]` citation is corrected to the requirement added in §11,
       and the "R7.02 spirit" hedge is removed.
-- [ ] AC-11: backend gates green — `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`.
+- [x] AC-11: backend gates green — `pytest -q` (unit tier 5156 passed, integration tier 261 passed;
+      pre-existing unrelated failures confirmed via stash-and-rerun on unmodified `main` — see
+      Deviation Log D-4), `ruff check . && ruff format --check .` (clean), `mypy .` (clean on all
+      touched files; 6 pre-existing unrelated errors confirmed present on unmodified `main`),
+      `lint-imports` (2 contracts kept, 0 broken — no cycle from the new
+      `graphrag_builder.py → graphrag_config_service.py` import).
 
 ## 11. SRS Delta
 
@@ -327,7 +348,47 @@ mis-citation is why the rule looked documented when it was not.
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+- **D-1: AC-4 and AC-6's regression tests moved from fake-based unit tests to the
+  real-DB integration file, not `tests/unit/test_embed_resolution.py` / a new
+  `tests/unit/test_key_group_service.py`.** Both `resolve_embed_key` and
+  `patch_member` delegate their entire liveness gate to `list_ordered_carried`; a
+  fake standing in for that repository can only prove the *caller's* behaviour
+  given a canned result — it cannot prove the real join gates on `deleted_at`,
+  because the fake's return value is authored by the test, not derived from the
+  fix. Written as designed, either test would have passed identically before and
+  after fix (a), so it would not have pinned the regression §8 claims it does.
+  Both cases are instead covered as two more tests in
+  `tests/integration/test_key_group_liveness_gate.py`, seeding a real soft-deleted
+  group and exercising the real `resolve_embed_key` / `KeyGroupService.patch_member`
+  against Postgres — verified failing pre-fix, passing post-fix, same as AC-1.
+  User-confirmed before writing (see conversation).
+- **D-2: the GraphRAG builder pre-flight (fix (c)) runs immediately after the
+  `GraphRagBuildBusy` state check, not literally "before the extraction loop" at
+  the loop's own line.** Both satisfy "before the first extraction window," but the
+  Phase-1 `try/except Exception` block (`graphrag_builder.py`, wraps the extraction
+  loop through the Neo4j apply) converts any exception raised inside it into a
+  swallowed `BuildResult(state=FAILED, error=str(exc))` rather than a raised
+  exception — which would make `GraphRagBuilderKeyGroupProjectMismatch` invisible
+  as a distinct type to any caller checking `isinstance`, only visible as an error
+  string. Placing the check before that block, alongside the sibling
+  `GraphRagBuildBusy` raise (also uncaught), keeps it a raised exception —
+  consistent with how `create`/`update` already raise the same error, and
+  actionable the same way. Confirmed via `tests/unit/test_graphrag_builder.py`
+  (`store.transitions == []`, `extractor.calls == 0` — no state mutation attempted).
+- **D-3: `tests/unit/test_observer_agents.py`'s `_wire_observer_engine` also stubbed
+  `te.KeyGroupRepository` and needed the same retarget to `te.KeysFacade` as
+  `test_no_response_notices.py` (AC-9).** Not anticipated by §8 — that section only
+  named `test_no_response_notices.py`'s `_wire_locked`. Found by running the full
+  unit suite (Definition of Done), which failed 6 tests in this file with
+  `AttributeError: ... has no attribute 'KeyGroupRepository'` once fix (b) removed
+  the import. Fixed identically to AC-9's retarget; all 6 tests green afterward.
+- **D-4: one pre-existing, unrelated test failure surfaced during Definition of
+  Done and is explicitly not fixed here** —
+  `tests/unit/test_embedding_pin.py::test_recreate_rejected_when_pin_survives_sibling_delete`
+  fails identically with this task's diff stashed out against unmodified `main`
+  (confirmed by running it both ways). It concerns `RagConfigService`'s embedding
+  pin logic, a file this task never touches. Recorded as FU-5 rather than fixed,
+  per this task's scope (key-group liveness, not embedding pins).
 
 ## 13. Follow-ups
 
@@ -339,20 +400,24 @@ Appended by `/build`.
   A2A `call` and `instruct` both handle skips correctly (`a2a_handler.py:92-108`, `:130-142`), so
   this is the one caller with no error surface. Fixing it means deciding what an approver that
   cannot vote should do to the gate — its own decision, its own dossier.
-- **FU-2: the *predicate* "live key group in my project" is hand-rolled three times; only the read
+- **FU-2: the *predicate* "live key group in my project" is hand-rolled two ways; only the read
   is shared.** `KeysFacade.get_key_group` (`contexts/keys/interfaces/facade.py:63-70`) is the
-  shared read and its docstring names the use case — but it returns the group, so every caller still
-  writes `group is None or group.project_id != project_id` itself:
-  `agent_service.py:222-225` (correctly, through the facade), `turn_engine.py:1111` (bypassing it —
-  fixed by §7(b)), and `graphrag_config_service.py:107-121`. The last is the worst of the three and
-  is an **SoC break this task does not fix**: it builds a raw `sa.select` against
-  `keys_t.key_groups` from inside the *knowledge* context's application layer, where
+  shared read and its docstring names the use case — but it returns the group, so each caller still
+  writes its own liveness/project comparison: `agent_service.py:222-225` (correctly, through the
+  facade) and `turn_engine.py`'s `_key_group_out_of_scope` (also now through the facade, per §7(b) —
+  no longer a divergent copy). The remaining, worse copy is
+  `graphrag_config_service.py`'s `resolve_live_builder_group_project_id` (added by §7(c); used by
+  `create`, `update`, and `GraphRagBuilder`'s pre-flight — three call sites, one shared
+  implementation, still an **SoC break this task does not fix**: it builds a raw `sa.select`
+  against `keys_t.key_groups` from inside the *knowledge* context's application layer, where
   `backend/CLAUDE.md:26` says application code must not touch SQLAlchemy directly and cross-context
   reads go through a facade — so it silently re-implements the facade method next door, including
   the `deleted_at` filter. The collapse is `KeysFacade.assert_group_in_project(group_id,
-  project_id)` raising a shared error, replacing all three predicates. Out of scope here: it touches
-  three contexts and would drag this bugfix into a refactor, and §7(a) makes the money safe without
-  it. §7(b) reduces the count from three to two on the way past.
+  project_id)` raising a shared error, replacing both remaining predicates. Out of scope here: it
+  touches three contexts and would drag this bugfix into a refactor, and §7(a)/§7(c) make the money
+  safe without it. This task took the count from three hand-rolled copies to one (in
+  `turn_engine.py`, fixed) plus one shared-but-still-leaky one (in `graphrag_config_service.py`,
+  now consolidated from two copies to one, reused a third time rather than copied a fourth).
 - **FU-3: the headless path has no rate or quota backstop.** `_run_locked` has a per-`(agent, room)`
   turn bucket (`turn_engine.py:1130`, `:1735`); it is not portable to a path with no room, and
   `a2a_service.py` has no rate, quota, or concurrency guard of any kind. So an A2A trigger loop
@@ -364,3 +429,8 @@ Appended by `/build`.
   (`:48`), and `key_group_scope` appears 4× as a literal in `turn_engine.py` plus once in
   `frontend/src/slices/conversation/constants/agentErrors.ts:11`. Nothing validates a typo, and no
   test asserts the set of known actions. This task adds a fifth literal.
+- **FU-5: `test_recreate_rejected_when_pin_survives_sibling_delete` fails on unmodified `main`,
+  unrelated to this task.** `tests/unit/test_embedding_pin.py` — `RagConfigService.create` does not
+  raise `EmbedDimensionConflict` when a sibling delete left the pin behind, in the specific scenario
+  the test sets up. Confirmed present with this task's entire diff stashed out (D-4); concerns
+  embedding-pin dimension conflicts, not key groups. Needs its own investigation and dossier.
