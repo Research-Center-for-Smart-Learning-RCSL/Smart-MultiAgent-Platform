@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-07-16
 requirements: [R24.48, R24.15]
 ---
