@@ -181,7 +181,7 @@ sections (`2026-07-16-agent-skills` FU-3) — this task adds its own row and doe
 
 ## 9. Deviation Log
 
-None. Implementation matches this spec exactly — same constant name and placement,
+None. Implementation matches this spec exactly: same constant name and placement,
 same migration shape (clamp + rename CHECK), same frontend field.
 
 ## 10. Follow-ups
