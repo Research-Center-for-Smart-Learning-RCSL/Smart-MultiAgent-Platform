@@ -30,6 +30,7 @@ R7.06,"7. API Key Management","A Key Group is an ordered list of keys (explicit 
 R7.07,"7. API Key Management","Rotation triggers are defined by the group creator (Q25). Configurable per group:"
 R7.08,"7. API Key Management","When all keys in the Group are unavailable:"
 R7.09,"7. API Key Management","Usage Limitation scope: set per Key, inside the Key Group. Unit: per hour (Q28). Fields:"
+R7.09a,"7. API Key Management","A Key Group reference held by any resource must resolve to a live Key Group in the same project as the referring resource, re-verified at dispatch time, not only when the reference is written."
 R7.10,"7. API Key Management","The scheduler maintains a per-key sliding-window counter in Redis (1-minute buckets for the trailing 60 minutes) to enforce hourly limits accurately."
 R7.11,"7. API Key Management","UI notification: when any key in a Group exceeds 80 % of *any* of its hourly limits, raise an in-app notification (Q29) to all Project Members with usage-view permission. No email or webhook."
 R7.12,"7. API Key Management","Every outbound provider call is recorded: (key_id, agent_id, chatroom_id, input_tokens, output_tokens, request_ms, http_status, error_code_if_any, timestamp). This feeds the per-hour limiter and the UI usage dashboard."

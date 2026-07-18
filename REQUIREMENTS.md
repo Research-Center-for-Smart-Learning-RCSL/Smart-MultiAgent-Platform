@@ -286,6 +286,14 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
   - If the unavailability is due to **API errors** from all keys, the scheduler continues exponential backoff until `max_retries` is exhausted on every key, then returns `503`.
 - **[R7.09]** Usage Limitation scope: set per Key, inside the Key Group. Unit: **per hour** (Q28). Fields:
   - `max_input_tokens_per_hour`, `max_output_tokens_per_hour`, `max_requests_per_hour`. Any field omitted = unlimited.
+- **[R7.09a]** A Key Group reference held by any resource (an Agent's `key_group_id`, a Knowledge
+  Map or GraphRAG config's `builder_key_group_id`) must resolve to a **live** Key Group in the
+  **same project** as the referring resource, and this is re-verified at **dispatch time**, not
+  only when the reference is written. A deleted Key Group issues no new provider calls (the
+  `[R7.04]` principle applied to the group rather than the carry); in-flight calls complete. A
+  turn or build that cannot satisfy this is skipped or failed with an actionable reason and an
+  audit record — never silently, and never by falling through to "no keys available", which is
+  indistinguishable from exhaustion.
 - **[R7.10]** The scheduler maintains a per-key sliding-window counter in Redis (1-minute buckets for the trailing 60 minutes) to enforce hourly limits accurately.
 - **[R7.11]** **UI notification**: when any key in a Group exceeds 80 % of *any* of its hourly limits, raise an in-app notification (Q29) to all Project Members with usage-view permission. No email or webhook.
 
