@@ -678,7 +678,58 @@ async def set_knowmap_document_agents(
     return _to_document_out(updated)
 
 
+# ---------------------------------------------------------------------------
+# Admin override (R11a.02)
+# ---------------------------------------------------------------------------
+
+admin_router = APIRouter(
+    prefix="/api/admin/knowmap",
+    tags=["knowmap-admin"],
+)
+
+
+@admin_router.post("/{config_id}/reset")
+async def admin_reset(
+    config_id: uuid.UUID = Path(...),
+    force: bool = Query(
+        default=False,
+        description=(
+            "Override lock contention and, when 2PC compensation cannot complete, "
+            "still force idle while recording the incomplete outcome (R11a.02)."
+        ),
+    ),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> KnowmapConfigOut:
+    """Mirrors graphrag.py's admin_reset, down to the platform-admin check.
+
+    Knowledge Maps had no reset until
+    docs/tasks/2026-07-17-graphrag-reset-expired-recovery/, which made
+    ``recovery_unavailable`` reachable here — a state outside the reconciler's sweep
+    set, so without this route an operator's only option would have been a rebuild.
+
+    AuthZ deliberately matches the Concept Map's: platform admin, no project scoping.
+    That is weaker than every other route in this module (FU-2 in the dossier), and
+    diverging here would have made the two resets inconsistent while fixing neither.
+    """
+    if not principal.is_admin:
+        from shared_kernel.auth.dependencies import _raise_forbidden
+
+        _raise_forbidden("R11a.02 admin reset requires platform admin")
+    service = KnowmapConfigService(db)
+    cfg = await service.admin_reset(
+        config_id=config_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        force=force,
+        request_id=ctx.request_id,
+    )
+    return _to_config_out(cfg)
+
+
 __all__ = [
+    "admin_router",
     "config_router",
     "document_router",
     "project_router",

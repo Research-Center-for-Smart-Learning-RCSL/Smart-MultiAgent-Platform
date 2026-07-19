@@ -268,9 +268,14 @@ platform-admin check, OpenAPI regeneration, and client regeneration as the exist
   and `test_recovery_unavailable_is_read_blocked_but_not_swept`, which pins
   `_STUCK_STATES` as a strict subset of `IN_FLIGHT_BUILD_STATES` so a future edit cannot
   silently re-couple them.
-- [ ] AC-10: Knowledge Map exposes an `admin_reset` with the same platform-admin
+- [x] AC-10: Knowledge Map exposes an `admin_reset` with the same platform-admin
   authorization, audit shape, 503 semantics, and `force=true` behavior as the Concept Map
-  one; a Knowledge Map config can be driven out of `recovery_unavailable` by it.
+  one; a Knowledge Map config can be driven out of `recovery_unavailable` by it. Verified
+  by the new `test_knowmap_reset.py`, which reuses `test_graphrag_reset.py`'s fakes so the
+  two suites assert one contract, including
+  `test_reset_drives_config_out_of_recovery_unavailable` and an audit-shape test pinning
+  the exact metadata key set. "Same" is structural rather than asserted: both services are
+  thin bindings of the single `perform_admin_reset`.
 - [ ] AC-11: The Prometheus `graphrag_build_state` gauge reports the new state distinctly
   rather than defaulting it to `idle`, and the frontend socket whitelist accepts
   `build.state` events carrying it.
@@ -298,11 +303,19 @@ None. This restores the existing [R11.04] and [R11a.02] contract.
   prevented), and it makes the visualizer agree with turn-context retrieval, which has
   refused those states since F-10. Narrowing the gate to `recovery_unavailable` alone
   would be a one-line change if the mid-build view turns out to be wanted.
-- D-2: `plan_discard`'s outcome enum lives in
-  `contexts/knowledge/application/graphrag_config_service.py` rather than in a new shared
-  module. §7.4 called for "a small application-layer discard primitive"; keeping it beside
-  its only caller avoids a module whose sole purpose is to be shared with a reconciler path
-  that FU-4 records as still separate. Revisit if FU-4 is taken.
+- D-2 (superseded by M6): `plan_discard` initially lived in `graphrag_config_service.py`
+  beside its only caller. Adding the Knowledge Map reset gave it a second caller, so the
+  whole reset — `plan_discard`, the lock/compensation/audit body, and the lazy Neo4j driver
+  — moved to `contexts/knowledge/application/graph_admin_reset.py` and both services became
+  thin bindings. §7.8 said the knowmap route should "mirror" the graphrag one; extracting
+  rather than mirroring is what makes AC-10's "same behavior" structural instead of a
+  claim two copies could quietly break.
+- D-4: The Knowledge Map reset raises a new `KnowmapResetCompensationFailed`
+  (`knowledge/knowmap-reset-compensation-failed`, also mapped 503) rather than §7.8's
+  literal "the same 503 error". Reusing `GraphRagResetCompensationFailed` would answer a
+  knowmap request with a `graphrag-` error code; a per-product error matches how
+  `KnowmapConfigNotFound` parallels `GraphRagConfigNotFound`. Behaviour and status are
+  identical, which is what the section was protecting.
 
 ## 13. Follow-ups
 

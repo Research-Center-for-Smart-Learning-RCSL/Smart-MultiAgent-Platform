@@ -268,7 +268,7 @@ async def test_force_true_compensation_failure_forces_idle_with_error() -> None:
     service, repo = _service(RecordingDb(), cfg, locks=locks, snaps=snaps, neo4j=neo4j)
 
     with patch(
-        "contexts.knowledge.application.graphrag_config_service.audit.emit",
+        "contexts.knowledge.application.graph_admin_reset.audit.emit",
         new_callable=AsyncMock,
     ) as emit:
         out = await _reset(service, cfg, force=True)
@@ -334,7 +334,7 @@ async def test_audit_metadata_carries_state_build_forced_outcome() -> None:
     service, _repo = _service(RecordingDb(), cfg, locks=locks, snaps=snaps, neo4j=neo4j)
 
     with patch(
-        "contexts.knowledge.application.graphrag_config_service.audit.emit",
+        "contexts.knowledge.application.graph_admin_reset.audit.emit",
         new_callable=AsyncMock,
     ) as emit:
         await _reset(service, cfg)
@@ -420,7 +420,7 @@ async def test_unavailable_audit_metadata_is_distinct_and_carries_no_secrets() -
 
     with (
         patch(
-            "contexts.knowledge.application.graphrag_config_service.audit.emit",
+            "contexts.knowledge.application.graph_admin_reset.audit.emit",
             new_callable=AsyncMock,
         ) as emit,
         pytest.raises(GraphRagResetCompensationFailed),
@@ -446,7 +446,7 @@ async def test_missing_pointer_audit_records_null_build_id() -> None:
 
     with (
         patch(
-            "contexts.knowledge.application.graphrag_config_service.audit.emit",
+            "contexts.knowledge.application.graph_admin_reset.audit.emit",
             new_callable=AsyncMock,
         ) as emit,
         pytest.raises(GraphRagResetCompensationFailed),
@@ -469,7 +469,7 @@ async def test_force_true_still_overrides_missing_material() -> None:
     service, repo = _service(RecordingDb(), cfg, locks=locks, snaps=snaps, neo4j=neo4j)
 
     with patch(
-        "contexts.knowledge.application.graphrag_config_service.audit.emit",
+        "contexts.knowledge.application.graph_admin_reset.audit.emit",
         new_callable=AsyncMock,
     ) as emit:
         out = await _reset(service, cfg, force=True)

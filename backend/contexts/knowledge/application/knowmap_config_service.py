@@ -17,7 +17,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,7 @@ from contexts.knowledge.application.embed_resolution import (
     resolve_embed_key,
     resolve_pinned_embed_key,
 )
+from contexts.knowledge.application.graph_admin_reset import perform_admin_reset
 from contexts.knowledge.domain.embedding_pin import PinKind, TeardownOutcome
 from contexts.knowledge.domain.errors import (
     ChunkParamsImmutable,
@@ -34,6 +35,7 @@ from contexts.knowledge.domain.errors import (
     KnowmapEmbedDimensionConflict,
     KnowmapEmbeddingModelChangeBlocked,
     KnowmapNoEmbeddingKey,
+    KnowmapResetCompensationFailed,
 )
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapConfigDraft, KnowmapDocument
 from contexts.knowledge.domain.models import embed_dimension, normalized_chunk_params
@@ -45,14 +47,35 @@ from contexts.knowledge.infrastructure.knowmap_repositories import (
 from shared_kernel import audit
 from shared_kernel.db.advisory_lock import advisory_xact_lock, knowmap_builder_lock_key
 
+if TYPE_CHECKING:
+    from contexts.knowledge.application.graphrag_ports import (
+        BuildLockStore,
+        Neo4jDriver,
+        SnapshotStore,
+    )
+
 _log = logging.getLogger(__name__)
 
 
 class KnowmapConfigService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        snapshot_store: SnapshotStore | None = None,
+        lock_store: BuildLockStore | None = None,
+        neo4j: Neo4jDriver | None = None,
+    ) -> None:
         self._db = db
         self._configs = KnowmapConfigRepository(db)
         self._pins = EmbeddingPinRepository(db)
+        # Injectable external-store ports for admin_reset compensation, mirroring
+        # GraphRagConfigService. Left None on the normal request path — the reset
+        # builds short-lived Redis stores and a Neo4j driver itself; only tests
+        # override these.
+        self._snapshots = snapshot_store
+        self._locks = lock_store
+        self._neo4j = neo4j
 
     async def create(
         self,
@@ -140,6 +163,51 @@ class KnowmapConfigService:
 
     async def list_for_project(self, project_id: uuid.UUID) -> Sequence[KnowmapConfig]:
         return await self._configs.list_for_project(project_id)
+
+    async def admin_reset(
+        self,
+        *,
+        config_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        force: bool = False,
+        request_id: uuid.UUID | None = None,
+    ) -> KnowmapConfig:
+        """R11a.02 — reset a stuck Knowledge Map config to ``idle``.
+
+        Thin binding of :func:`perform_admin_reset` to this product's repository, audit
+        identity, and error class; the Concept Map binds the same implementation, so the
+        two resets cannot drift apart. Added with
+        docs/tasks/2026-07-17-graphrag-reset-expired-recovery/ — before it, a Knowledge
+        Map had no reset at all, which would have left ``recovery_unavailable`` (outside
+        the reconciler's sweep set) with no admin escape.
+        """
+        from contexts.knowledge.infrastructure.redis_lock import (
+            RedisBuildLockStore,
+            RedisSnapshotStore,
+        )
+
+        cfg = await self.get(config_id)
+
+        await perform_admin_reset(
+            self._db,
+            config_id=config_id,
+            project_id=cfg.project_id,
+            prev=cfg.last_build_state,
+            configs=self._configs,
+            snapshots=self._snapshots or RedisSnapshotStore(),
+            locks=self._locks or RedisBuildLockStore(),
+            neo4j=self._neo4j,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            force=force,
+            request_id=request_id,
+            audit_action="admin.knowmap_reset",
+            resource_type="knowmap_config",
+            compensation_error=KnowmapResetCompensationFailed,
+        )
+
+        return await self.get(config_id)
 
     async def update(
         self,
