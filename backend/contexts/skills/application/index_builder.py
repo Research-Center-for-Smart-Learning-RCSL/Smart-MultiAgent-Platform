@@ -31,6 +31,11 @@ from shared_kernel.tokens import estimate_tokens
 # point, so a hostile description cannot close the frame early and have the rest of itself
 # read as trusted instruction — that rule is `domain.text_rules`, re-exported here so the
 # frame and the rule that protects it cannot drift apart.
+#
+# "Every entry point" is enforced by `SkillService._insert`/`update`, which every write
+# converges on, rather than by each writer calling the rule — it used to be the latter, and
+# `copy` was the writer that did not. `render_index` has no defence of its own: it renders
+# whatever the row holds, so that gate is load-bearing rather than belt-and-braces.
 INDEX_OPEN = "<<<SMAP_SKILLS_UNTRUSTED>>>"
 INDEX_CLOSE = "<<<END_SMAP_SKILLS_UNTRUSTED>>>"
 
