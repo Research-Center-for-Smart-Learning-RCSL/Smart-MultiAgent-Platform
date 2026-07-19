@@ -495,3 +495,132 @@ def test_the_subtree_itself_being_a_symlink_is_replaced_not_followed(tmp_path) -
     assert result.returncode == 0, result.stderr
     assert not (root / "agent-files").is_symlink()
     assert (elsewhere / "keep.txt").read_bytes() == b"untouched"
+
+
+# --- the legacy sessions purge (2026-07-19-session-dir-room-isolation, AC-7) --
+#
+# Session state moved to its own per-room volume, so nothing writes
+# /workspace/sessions any more -- and therefore nothing cleans it up either. The
+# repair reuses this same script with an empty manifest rather than adding a
+# second deletion path, so what is tested here is that "reconcile to nothing"
+# clears the subtree and only the subtree.
+
+
+def _run_purge(root, subdir: str = "sessions"):
+    """Drive `_RECONCILE` exactly as `purge_legacy_session_dirs` does: empty manifest."""
+    root.mkdir(parents=True, exist_ok=True)
+    manifest = root / ".smap-reconcile-purge.manifest"
+    manifest.write_text("\n", encoding="utf-8")
+    env = {
+        **os.environ,
+        "SMAP_RECONCILE_ROOT": str(root),
+        "SMAP_RECONCILE_SUBDIR": subdir,
+        "SMAP_RECONCILE_MANIFEST": str(manifest),
+    }
+    return subprocess.run(
+        [sys.executable, "-c", ds._RECONCILE], env=env, capture_output=True, text=True, check=False
+    )
+
+
+def test_purge_clears_the_legacy_sessions_tree(tmp_path) -> None:
+    """T-6/AC-7. Every room's leftovers go, however deep."""
+    root = tmp_path / "workspace"
+    for rel in (
+        "sessions/room-a/inputs/secret.pdf",
+        "sessions/room-a/outputs/chart.png",
+        "sessions/room-b/inputs/other.csv",
+    ):
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"x")
+
+    result = _run_purge(root)
+
+    assert result.returncode == 0, result.stderr
+    assert not (root / "sessions" / "room-a").exists()
+    assert not (root / "sessions" / "room-b").exists()
+
+
+def test_purge_leaves_every_other_region_of_the_volume_intact(tmp_path) -> None:
+    """T-6/AC-7. The blast radius. `agent-files/` and `skills/` are projections of
+    live tables and the volume root is the `file` tool's own state -- all three are
+    Agent-scoped and stay shared across rooms by design (Q-1). A purge that took
+    them would be a far worse bug than the leak it repairs."""
+    root = tmp_path / "workspace"
+    keep = {
+        "notes.md": b"file-tool state",
+        "agent-files/reports/q1.csv": b"designer upload",
+        "skills/pdf-fill/scripts/fill.py": b"skill script",
+    }
+    for rel, payload in keep.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(payload)
+    stale = root / "sessions" / "room-a" / "inputs" / "leak.pdf"
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_bytes(b"leak")
+
+    result = _run_purge(root)
+
+    assert result.returncode == 0, result.stderr
+    assert not stale.exists()
+    for rel, payload in keep.items():
+        assert (root / rel).read_bytes() == payload
+
+
+def test_purge_is_idempotent_on_a_volume_that_never_had_sessions(tmp_path) -> None:
+    """AC-7. Most volumes are already clean; re-running must be a cheap no-op, not
+    an error the sweep would have to special-case as a failure."""
+    root = tmp_path / "workspace"
+    (root / "agent-files").mkdir(parents=True, exist_ok=True)
+    (root / "agent-files" / "a.csv").write_bytes(b"a")
+
+    first = _run_purge(root)
+    second = _run_purge(root)
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    assert (root / "agent-files" / "a.csv").read_bytes() == b"a"
+
+
+def test_purge_does_not_follow_a_symlinked_sessions_root(tmp_path) -> None:
+    """T-6/AC-7. The one that matters: the agent's own code_exec could have left
+    `sessions` as a symlink to elsewhere on the volume, and a purge that walked it
+    would delete the target's contents -- turning a repair into data loss. The
+    script replaces a symlinked root rather than walking it."""
+    if not _supports_symlink(tmp_path):
+        pytest.skip("host cannot create symlinks")
+
+    root = tmp_path / "workspace"
+    elsewhere = root / "agent-files"
+    elsewhere.mkdir(parents=True, exist_ok=True)
+    (elsewhere / "precious.csv").write_bytes(b"must survive")
+    os.symlink(elsewhere, root / "sessions")
+
+    result = _run_purge(root)
+
+    assert result.returncode == 0, result.stderr
+    assert (elsewhere / "precious.csv").read_bytes() == b"must survive"
+    assert not (root / "sessions").is_symlink()
+
+
+def test_purge_does_not_follow_a_symlinked_room_dir(tmp_path) -> None:
+    """T-6/AC-7. Same danger one level down: a room dir symlinked out of the
+    subtree. os.walk does not descend into it and os.unlink removes the link, not
+    what it points at."""
+    if not _supports_symlink(tmp_path):
+        pytest.skip("host cannot create symlinks")
+
+    root = tmp_path / "workspace"
+    elsewhere = root / "agent-files"
+    elsewhere.mkdir(parents=True, exist_ok=True)
+    (elsewhere / "precious.csv").write_bytes(b"must survive")
+    sessions = root / "sessions"
+    sessions.mkdir(parents=True, exist_ok=True)
+    os.symlink(elsewhere, sessions / "room-a")
+
+    result = _run_purge(root)
+
+    assert result.returncode == 0, result.stderr
+    assert (elsewhere / "precious.csv").read_bytes() == b"must survive"
+    assert not (sessions / "room-a").exists()
