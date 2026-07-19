@@ -44,6 +44,7 @@ try:
         EXIT_ERROR,
         EXIT_OK,
         egress_headers,
+        format_listing,
         frame_tools,
         is_egress_denied_response,
         parse_command,
@@ -56,6 +57,7 @@ except ImportError:  # pragma: no cover - packaged form
         EXIT_ERROR,
         EXIT_OK,
         egress_headers,
+        format_listing,
         frame_tools,
         is_egress_denied_response,
         parse_command,
@@ -239,12 +241,13 @@ def cmd_file() -> int:
     path = safe_workspace_path(_env("SMAP_FILE_PATH", "/workspace"))
 
     if op == "list":
-        entries = (
-            sorted(os.listdir(path))
-            if os.path.isdir(path)
-            else [os.path.basename(path)]
-        )
-        sys.stdout.write("\n".join(entries))
+        if os.path.isdir(path):
+            listing = format_listing(path, sorted(os.listdir(path)))
+        else:
+            # A single file lists as itself. `path` is already absolute, so its
+            # own directory is the base that reproduces it unchanged.
+            listing = format_listing(os.path.dirname(path), [os.path.basename(path)])
+        sys.stdout.write(listing)
         return EXIT_OK
     if op == "read":
         with open(path, "rb") as fh:

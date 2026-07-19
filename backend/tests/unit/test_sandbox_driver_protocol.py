@@ -145,3 +145,41 @@ def test_frame_tools_matches_host_reader() -> None:
 def test_exit_codes() -> None:
     assert protocol.EXIT_OK == 0
     assert protocol.EXIT_EGRESS_DENIED == 42  # the host maps 42 → McpEgressDenied
+
+
+# --- format_listing (2026-07-16-workspace-path-convention) -------------------
+#
+# `file op=list` is the only place the platform, not the model, chooses a path
+# string. It used to emit bare names, which are unusable in code_exec (whose cwd
+# is the per-room session dir, not /workspace). These pin the absolute contract.
+
+
+def test_format_listing_returns_absolute_paths() -> None:
+    """T-1. Bare listdir names become /workspace-rooted paths, one per line."""
+    out = protocol.format_listing("/workspace", ["notes.md", "a"])
+    assert out == "/workspace/notes.md\n/workspace/a"
+
+
+def test_format_listing_preserves_nesting() -> None:
+    """T-2. A listing of a subdirectory keeps the subdirectory, never flattens."""
+    assert protocol.format_listing("/workspace/sub", ["x.csv"]) == "/workspace/sub/x.csv"
+
+
+def test_format_listing_output_round_trips_through_the_guard() -> None:
+    """T-3. The listing can never emit a path its own containment guard rejects.
+
+    Ties the formatter to the existing invariant rather than to a hand-written
+    string: whatever it emits must be something `file op=read` would accept.
+    """
+    out = protocol.format_listing("/workspace/sub", ["x.csv", "deep", "name with spaces"])
+    for line in out.splitlines():
+        assert protocol.safe_workspace_path(line) == line
+
+
+def test_format_listing_empty_directory_is_empty_not_the_root() -> None:
+    """T-5. An empty directory lists as "", not "/workspace".
+
+    Helper-level only: `builtin_tools._build_file_tool` maps a falsy stdout to
+    "(ok)", so the model never sees this string. Do not promote to end-to-end.
+    """
+    assert protocol.format_listing("/workspace", []) == ""
