@@ -276,9 +276,13 @@ platform-admin check, OpenAPI regeneration, and client regeneration as the exist
   `test_reset_drives_config_out_of_recovery_unavailable` and an audit-shape test pinning
   the exact metadata key set. "Same" is structural rather than asserted: both services are
   thin bindings of the single `perform_admin_reset`.
-- [ ] AC-11: The Prometheus `graphrag_build_state` gauge reports the new state distinctly
+- [x] AC-11: The Prometheus `graphrag_build_state` gauge reports the new state distinctly
   rather than defaulting it to `idle`, and the frontend socket whitelist accepts
-  `build.state` events carrying it.
+  `build.state` events carrying it. The gauge's label map was extracted from inside the
+  arq task to module level so it could be tested at all (`test_graphrag_build_metrics.py`),
+  including that an unmapped state now reports `failed` and logs, never `idle`. The socket
+  whitelist is no longer hand-listed: `isBuildState` derives from
+  `GRAPHRAG_BUILD_STATES`, so no future state can be silently dropped (see D-5).
 
 ## 11. SRS Delta
 
@@ -310,6 +314,19 @@ None. This restores the existing [R11.04] and [R11a.02] contract.
   thin bindings. §7.8 said the knowmap route should "mirror" the graphrag one; extracting
   rather than mirroring is what makes AC-10's "same behavior" structural instead of a
   claim two copies could quietly break.
+- D-5: §7.9 asked only that the new state be added to the frontend socket whitelist.
+  Instead the whitelist was deleted: `GRAPHRAG_BUILD_STATES` is now a `const` array in
+  `slices/agents/api/index.ts` with `GraphragBuildState` derived from it, and
+  `useBuildStateSocket`'s `isBuildState` tests membership against that array. The
+  hand-listed whitelist was a second copy of the state set that the type system could not
+  keep honest — the exact mechanism by which this task's new state would have been dropped
+  from live `build.state` events. Adding one string would have left the trap armed for the
+  next state. The two socket test files also stopped hand-mocking the state set and now
+  spread the real module.
+- D-6: The Prometheus label map and its lookup were extracted from a closure inside the
+  `graphrag_build` arq task to module-level `BUILD_STATE_METRIC_LABELS` /
+  `build_state_metric_label`. Not called for by the spec, but AC-11 asserts behaviour that
+  was untestable where it lived; the alternative was to tick the AC on inspection alone.
 - D-4: The Knowledge Map reset raises a new `KnowmapResetCompensationFailed`
   (`knowledge/knowmap-reset-compensation-failed`, also mapped 503) rather than §7.8's
   literal "the same 503 error". Reusing `GraphRagResetCompensationFailed` would answer a

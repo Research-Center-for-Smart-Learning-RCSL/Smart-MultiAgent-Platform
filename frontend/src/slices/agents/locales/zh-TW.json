@@ -219,7 +219,8 @@
         "neo4jCommitted": "Neo4j 已提交",
         "qdrantCommitted": "Qdrant 已提交",
         "failed": "失敗",
-        "compensating": "補償中"
+        "compensating": "補償中",
+        "recoveryUnavailable": "無法復原，需重新建置"
       },
       "viewStatus": "檢視狀態",
       "viewGraph": "檢視圖譜",

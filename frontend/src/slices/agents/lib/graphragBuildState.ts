@@ -14,6 +14,9 @@ const VARIANT_BY_STATE: Record<GraphragBuildState, BadgeVariant> = {
   qdrant_committed: 'info',
   failed: 'danger',
   failed_compensating: 'warning',
+  // Danger, not warning: unlike a plain failure the last good graph is gone and
+  // the map serves nothing until it is rebuilt.
+  recovery_unavailable: 'danger',
 }
 
 const LABEL_KEY_BY_STATE: Record<GraphragBuildState, string> = {
@@ -23,6 +26,7 @@ const LABEL_KEY_BY_STATE: Record<GraphragBuildState, string> = {
   qdrant_committed: 'agents.graphragList.states.qdrantCommitted',
   failed: 'agents.graphragList.states.failed',
   failed_compensating: 'agents.graphragList.states.compensating',
+  recovery_unavailable: 'agents.graphragList.states.recoveryUnavailable',
 }
 
 export function graphragBuildStateVariant(state: string): BadgeVariant {

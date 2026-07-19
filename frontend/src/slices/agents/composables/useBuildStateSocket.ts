@@ -12,12 +12,16 @@ import { useQueryClient, type QueryKey } from '@tanstack/vue-query'
 import { onBeforeUnmount, ref } from 'vue'
 
 import { wsManager, type ChannelEvent } from '@shared/transport'
-import { GRAPHRAG_IN_PROGRESS, type GraphragBuildState } from '../api'
+import { GRAPHRAG_BUILD_STATES, GRAPHRAG_IN_PROGRESS, type GraphragBuildState } from '../api'
 
 const POLL_FALLBACK_MS = 15000
 
+// Derived from the state list itself, so a state added to the union is accepted
+// here automatically. The previous hand-listed whitelist would have dropped
+// `build.state` events carrying any new state, leaving the UI on a stale badge
+// until the next REST refetch.
 function isBuildState(s: string): s is GraphragBuildState {
-  return GRAPHRAG_IN_PROGRESS.has(s as GraphragBuildState) || ['idle', 'qdrant_committed', 'failed'].includes(s)
+  return (GRAPHRAG_BUILD_STATES as readonly string[]).includes(s)
 }
 
 export interface BuildStateSocketOptions {
