@@ -345,3 +345,137 @@ async def test_audit_metadata_carries_state_build_forced_outcome() -> None:
     assert event.metadata["build_id"] == str(build_id)
     assert event.metadata["forced"] is False
     assert event.metadata["outcome"] == "discarded"
+
+
+# ===========================================================================
+# 7. Missing recovery material fails closed
+#    (2026-07-17-graphrag-reset-expired-recovery, AC-1/AC-2/AC-3)
+#
+# The Redis pointer and snapshot are two independently expiring keys, and the
+# pointer is written last (graphrag_builder.py:282-292), so it outlives the
+# snapshot. Compensating an in-flight build with the snapshot already gone is
+# impossible: delete_by_build would strip the build's nodes with nothing to
+# restore the pre-build subgraph from. Default reset must refuse rather than
+# report a successful discard over a truncated graph.
+# ===========================================================================
+
+
+_IN_FLIGHT = [BuildState.NEO4J_COMMITTED, BuildState.FAILED_COMPENSATING, BuildState.RUNNING]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", _IN_FLIGHT)
+async def test_missing_snapshot_refuses_and_touches_nothing(state: BuildState) -> None:
+    """Pointer present, snapshot expired — no delete-only rollback, no idle."""
+    cfg = _cfg(state)
+    build_id = uuid.uuid4()
+    locks = FakeLockStore()
+    snaps = FakeSnapshotStore(current=build_id, snapshot=None)
+    neo4j = FakeNeo4j()
+    db = RecordingDb()
+    service, repo = _service(db, cfg, locks=locks, snaps=snaps, neo4j=neo4j)
+
+    with pytest.raises(GraphRagResetCompensationFailed):
+        await _reset(service, cfg, force=False)
+
+    assert neo4j.deleted == []  # the destructive half never runs
+    assert neo4j.restored == []
+    assert repo.sets == []  # never advertises idle
+    assert snaps.deleted == []  # recovery material untouched
+    assert snaps.cleared is False  # pointer survives for a later forced reset
+    assert locks.released is True
+    assert db.committed is True  # audit durable before the 5xx unwinds the txn
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", _IN_FLIGHT)
+async def test_missing_pointer_on_in_flight_state_refuses(state: BuildState) -> None:
+    """No pointer while the config claims an in-flight build — unresolvable."""
+    cfg = _cfg(state)
+    locks = FakeLockStore()
+    snaps = FakeSnapshotStore(current=None, snapshot=None)
+    neo4j = FakeNeo4j()
+    db = RecordingDb()
+    service, repo = _service(db, cfg, locks=locks, snaps=snaps, neo4j=neo4j)
+
+    with pytest.raises(GraphRagResetCompensationFailed):
+        await _reset(service, cfg, force=False)
+
+    assert neo4j.deleted == []
+    assert neo4j.restored == []
+    assert repo.sets == []
+    assert snaps.cleared is False
+    assert locks.released is True
+    assert db.committed is True
+
+
+@pytest.mark.asyncio
+async def test_unavailable_audit_metadata_is_distinct_and_carries_no_secrets() -> None:
+    cfg = _cfg(BuildState.NEO4J_COMMITTED)
+    build_id = uuid.uuid4()
+    locks = FakeLockStore()
+    snaps = FakeSnapshotStore(current=build_id, snapshot=None)
+    neo4j = FakeNeo4j()
+    service, _repo = _service(RecordingDb(), cfg, locks=locks, snaps=snaps, neo4j=neo4j)
+
+    with (
+        patch(
+            "contexts.knowledge.application.graphrag_config_service.audit.emit",
+            new_callable=AsyncMock,
+        ) as emit,
+        pytest.raises(GraphRagResetCompensationFailed),
+    ):
+        await _reset(service, cfg, force=False)
+
+    meta = emit.await_args.args[1].metadata
+    assert meta["outcome"] == "compensation_unavailable"
+    assert meta["forced"] is False
+    assert meta["previous_state"] == BuildState.NEO4J_COMMITTED.value
+    assert meta["build_id"] == str(build_id)  # known build id is recorded
+    # Audit carries identifiers only — never snapshot contents or error text.
+    assert set(meta) == {"previous_state", "project_id", "build_id", "forced", "outcome"}
+
+
+@pytest.mark.asyncio
+async def test_missing_pointer_audit_records_null_build_id() -> None:
+    cfg = _cfg(BuildState.FAILED_COMPENSATING)
+    locks = FakeLockStore()
+    snaps = FakeSnapshotStore(current=None, snapshot=None)
+    neo4j = FakeNeo4j()
+    service, _repo = _service(RecordingDb(), cfg, locks=locks, snaps=snaps, neo4j=neo4j)
+
+    with (
+        patch(
+            "contexts.knowledge.application.graphrag_config_service.audit.emit",
+            new_callable=AsyncMock,
+        ) as emit,
+        pytest.raises(GraphRagResetCompensationFailed),
+    ):
+        await _reset(service, cfg, force=False)
+
+    meta = emit.await_args.args[1].metadata
+    assert meta["outcome"] == "compensation_unavailable"
+    assert meta["build_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_force_true_still_overrides_missing_material() -> None:
+    """The documented escape hatch is unchanged: force accepts the loss."""
+    cfg = _cfg(BuildState.NEO4J_COMMITTED)
+    build_id = uuid.uuid4()
+    locks = FakeLockStore()
+    snaps = FakeSnapshotStore(current=build_id, snapshot=None)
+    neo4j = FakeNeo4j()
+    service, repo = _service(RecordingDb(), cfg, locks=locks, snaps=snaps, neo4j=neo4j)
+
+    with patch(
+        "contexts.knowledge.application.graphrag_config_service.audit.emit",
+        new_callable=AsyncMock,
+    ) as emit:
+        out = await _reset(service, cfg, force=True)
+
+    assert out.last_build_state is BuildState.IDLE
+    assert repo.sets[-1]["error"] is not None  # honest residue flag
+    meta = emit.await_args.args[1].metadata
+    assert meta["outcome"] == "compensation_unavailable"
+    assert meta["forced"] is True

@@ -7,6 +7,7 @@ soft-delete, and external store cascade (Neo4j + Qdrant teardown).
 
 from __future__ import annotations
 
+import enum
 import logging
 import uuid
 from collections.abc import Sequence
@@ -31,6 +32,7 @@ from contexts.knowledge.domain.errors import (
     GraphRagResetCompensationFailed,
 )
 from contexts.knowledge.domain.graphrag import (
+    IN_FLIGHT_BUILD_STATES,
     BuildState,
     GraphRagConfig,
     GraphRagConfigDraft,
@@ -57,6 +59,42 @@ _log = logging.getLogger(__name__)
 # from the reconciler because the reconciler imports this module — importing back
 # would cycle (F-26).
 _BUILD_LOCK_TTL_S = 10 * 60
+
+
+class DiscardPlan(enum.Enum):
+    """What an admin reset may safely do about a config's in-flight build."""
+
+    NOOP = "noop"
+    COMPENSATE = "discarded"
+    UNAVAILABLE = "compensation_unavailable"
+
+
+def plan_discard(
+    *,
+    prev: BuildState,
+    build_id: uuid.UUID | None,
+    snapshot: dict[str, Any] | None,
+) -> DiscardPlan:
+    """Classify a reset's compensation options from the recovery material on hand.
+
+    Rolling an in-flight build back needs BOTH the current-build pointer and its
+    snapshot. ``delete_by_build`` on its own is not a rollback: it strips the
+    build's own nodes with nothing to restore the pre-build subgraph from, so a
+    config that had relations overwritten by the build loses them permanently.
+    The pointer and the snapshot are two independently expiring Redis keys and
+    the pointer is written last (``graphrag_builder.py``), so "pointer present,
+    snapshot gone" is the ordinary shape of a lapsed 24-hour recovery window
+    rather than a corruption — and it must fail closed, not report a discard.
+
+    A prior state outside :data:`IN_FLIGHT_BUILD_STATES` owes no compensation,
+    so it keeps the historical behaviour (see FU-5 in the task dossier for the
+    stale-pointer-on-a-settled-config gap this deliberately does not close).
+    """
+    if prev not in IN_FLIGHT_BUILD_STATES:
+        return DiscardPlan.NOOP if build_id is None else DiscardPlan.COMPENSATE
+    if build_id is None or snapshot is None:
+        return DiscardPlan.UNAVAILABLE
+    return DiscardPlan.COMPENSATE
 
 
 def _validate_half_life(value: float | None) -> None:
@@ -496,13 +534,17 @@ class GraphRagConfigService:
         snapshot, snapshot deleted, current pointer cleared — then forces ``idle``.
 
         ``force=false`` (default): a held lock raises ``GraphRagBuildBusy`` (409);
-        a compensation failure raises ``GraphRagResetCompensationFailed`` (503)
-        without forcing idle or destroying recovery material, so the config never
-        advertises inconsistent state as healthy (R11.04). ``force=true``:
-        overrides a held lock (force-release + re-acquire) and, when compensation
-        cannot complete, still forces ``idle`` but records the incomplete outcome
-        (non-null ``last_build_error``, audit ``outcome=compensation_failed``).
-        The reconciler is not touched. Every reset is audit-logged.
+        a compensation that fails *or was never possible* raises
+        ``GraphRagResetCompensationFailed`` (503) without forcing idle or
+        destroying recovery material, so the config never advertises inconsistent
+        state as healthy (R11.04). "Never possible" is :func:`plan_discard`'s
+        ``UNAVAILABLE`` — an in-flight build whose pointer or snapshot has
+        expired past the 24-hour window; that path touches no store at all.
+        ``force=true``: overrides a held lock (force-release + re-acquire) and
+        still forces ``idle``, recording the incomplete outcome (non-null
+        ``last_build_error``, audit ``outcome=compensation_failed`` or
+        ``compensation_unavailable``). The reconciler is not touched. Every
+        reset is audit-logged.
         """
         from contexts.knowledge.infrastructure.redis_lock import (
             RedisBuildLockStore,
@@ -540,9 +582,29 @@ class GraphRagConfigService:
                     )
             try:
                 build_id = await snapshots.get_current(config_id=config_id)
+                snapshot = (
+                    await snapshots.get(config_id=config_id, build_id=build_id)
+                    if build_id is not None
+                    else None
+                )
+                plan = plan_discard(prev=prev, build_id=build_id, snapshot=snapshot)
                 comp_error: str | None = None
-                if build_id is not None:
-                    snapshot = await snapshots.get(config_id=config_id, build_id=build_id)
+                outcome = plan.value
+
+                if plan is DiscardPlan.UNAVAILABLE:
+                    # The 24h recovery window lapsed (or the material was evicted).
+                    # Touch nothing: no delete-only rollback, no pointer/snapshot
+                    # clear. Whatever material survives is the only thing a later
+                    # forced reset or an operator could work from.
+                    _log.warning(
+                        "admin reset: recovery material unavailable for config %s " "(state=%s, build_id=%s)",
+                        config_id,
+                        prev.value,
+                        build_id,
+                    )
+                    comp_error = "admin reset: recovery material unavailable"
+                elif plan is DiscardPlan.COMPENSATE:
+                    assert build_id is not None  # narrowed by plan_discard
                     if neo4j is None:
                         neo4j = self._build_neo4j_driver()
                         owns_neo4j = neo4j is not None
@@ -557,6 +619,7 @@ class GraphRagConfigService:
                     except Exception:
                         _log.exception("admin reset: neo4j compensation failed for config %s", config_id)
                         comp_error = "admin reset: compensation incomplete"
+                        outcome = "compensation_failed"
                     if comp_error is None:
                         # Only after a successful Neo4j rollback drop the recovery
                         # material — §7.4 ordering (Neo4j first, Redis-delete on
@@ -568,17 +631,19 @@ class GraphRagConfigService:
                     await snapshots.clear_current(config_id=config_id)
 
                 if comp_error is not None and not force:
-                    # Refuse (R11.04): keep the recovery material, leave the config
-                    # in its reconciler-visible stuck state, do NOT set idle. Persist
-                    # the audit before the 5xx unwinds the request transaction
-                    # (db_session rolls back on exception), so the outcome is durable.
+                    # Refuse (R11.04 / R11a.02): keep the recovery material, leave
+                    # the config in its prior state, do NOT set idle. Persist the
+                    # audit before the 5xx unwinds the request transaction
+                    # (db_session rolls back on exception), so the outcome is
+                    # durable. ``outcome`` distinguishes a compensation that failed
+                    # (retryable) from one that was never possible (terminal).
                     await self._emit_reset_audit(
                         config_id=config_id,
                         cfg=cfg,
                         prev=prev,
                         build_id=build_id,
                         forced=False,
-                        outcome="compensation_failed",
+                        outcome=outcome,
                         actor_user_id=actor_user_id,
                         actor_ip=actor_ip,
                         request_id=request_id,
@@ -587,19 +652,13 @@ class GraphRagConfigService:
                     raise GraphRagResetCompensationFailed(str(config_id))
 
                 # Clean discard, no-op, or force=true override. ``comp_error`` is
-                # non-null only on a force=true compensation failure — recorded as a
-                # non-null last_build_error so the incomplete state is honest.
+                # non-null only on a force=true failed/unavailable compensation —
+                # recorded as a non-null last_build_error so the state is honest.
                 await self._configs.set_state(
                     config_id=config_id,
                     state=BuildState.IDLE,
                     error=comp_error,
                 )
-                if comp_error is not None:
-                    outcome = "compensation_failed"
-                elif build_id is not None:
-                    outcome = "discarded"
-                else:
-                    outcome = "noop"
                 await self._emit_reset_audit(
                     config_id=config_id,
                     cfg=cfg,

@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-07-17
 requirements: [R11.04, R11a.02]
 ---
@@ -270,3 +270,10 @@ Appended by `/build`.
   state change must be made twice.
 - FU-4: Reset and reconciler still duplicate discard logic even after the shared primitive in
   §7.4; the reconciler's `_finalize_failed` and the reset path remain separate call graphs.
+- FU-5: `plan_discard` only requires a snapshot when the prior state is in
+  `IN_FLIGHT_BUILD_STATES`, per §7.4. A *settled* config (`idle`/`failed`) that still carries
+  a stale current-build pointer with no snapshot therefore keeps the historical behaviour:
+  `delete_by_build` runs with no restore. That shape is only reachable after a crash between
+  the build's completion and its pointer clear, and closing it means deciding whether a
+  pointer on a settled config is evidence of live data at all — out of scope here, but it is
+  the same destructive primitive this task fixed for the in-flight case.
