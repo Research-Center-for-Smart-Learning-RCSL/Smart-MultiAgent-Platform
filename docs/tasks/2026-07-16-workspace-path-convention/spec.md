@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-07-16
 requirements: [R12.03]
 ---
@@ -222,21 +222,28 @@ End-to-end (`/verify`, live sandbox): the §4 reproduction, expecting step 2 to 
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: T-1 and T-4 fail against current code and pass after the fix.
+- [x] AC-1: T-1 and T-4 fail against current code and pass after the fix. Both observed red for
+      the documented reason (`AttributeError: no attribute 'format_listing'`; descriptions
+      lacking the required substrings) before either fix, green after.
 - [ ] AC-2: `file(op="list")` returns absolute `/workspace/...` paths; feeding one verbatim to
-      `code_exec`'s `open()` succeeds (`/verify`, live sandbox).
-- [ ] AC-3: `code_exec`'s tool description states its working directory is the per-chat session
+      `code_exec`'s `open()` succeeds (`/verify`, live sandbox). **Outstanding** — requires a
+      running Docker/gVisor tier and a rebuilt `smap/mcp-runtime`; not reachable from the unit
+      tier by construction (§4).
+- [x] AC-3: `code_exec`'s tool description states its working directory is the per-chat session
       directory and that the shared volume is at `/workspace`; `file`'s states its `/workspace`
       root. Asserted by test, not by inspection.
-- [ ] AC-4: `inputs/` and `outputs/` still work relative to the session cwd;
-      `test_code_exec_kernel.py:164-185` passes **unmodified**; artifacts are still collected.
-- [ ] AC-5: Nesting is preserved — a file at `/workspace/sub/x.csv` lists as
-      `/workspace/sub/x.csv`, never `x.csv`.
-- [ ] AC-6: Every path emitted by `format_listing` round-trips through `safe_workspace_path`
+      (`test_builtin_tools_wiring.py::test_code_exec_description_states_both_roots`,
+      `::test_file_description_states_its_workspace_root`.)
+- [x] AC-4: `inputs/` and `outputs/` still work relative to the session cwd;
+      `test_code_exec_kernel.py` passes **unmodified**; artifacts are still collected.
+- [x] AC-5: Nesting is preserved — a file at `/workspace/sub/x.csv` lists as
+      `/workspace/sub/x.csv`, never `x.csv`. (T-2.)
+- [x] AC-6: Every path emitted by `format_listing` round-trips through `safe_workspace_path`
       unchanged (T-3).
-- [ ] AC-7: No backend code post-processes the driver's `list` output — `_build_file_tool`
+- [x] AC-7: No backend code post-processes the driver's `list` output — `_build_file_tool`
       (`builtin_tools.py:202-229`) does no string rewriting of `res.stdout` beyond the existing
-      `clip_tool_output`.
+      `clip_tool_output`. Also verified one layer down: `FileTool.list_` (`file_tool.py:59-67`)
+      returns the runner result untouched.
 
 ## 11. SRS Delta
 
@@ -253,7 +260,23 @@ duplicated here.
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+- **D-1 (2026-07-19).** §7.1's proposed `file` description asserted that `op=list` returns
+  absolute paths. Shipped without that clause. `op=list` executes inside the tag-pinned
+  `smap/mcp-runtime` image, which deploys independently of the backend, so against a stale image
+  the claim is simply false — and the new-backend/old-image combination is the one §7 calls out
+  as safe *precisely because* it degrades to stating the root without promising the listing
+  shape. The description now states the root and the absolute form `code_exec` needs, and says
+  nothing about what `list` returns. AC-3 is unaffected: it requires the root to be stated, not
+  the listing shape. Caught in the Step 7 self-audit after the first commit; corrected in
+  `3e7edc9`.
+
+**Build state (2026-07-19, paused).** Implementation and all mechanical gates are complete —
+`pytest tests/unit` 5297 passed / 4 skipped (pre-existing host-symlink skips), `ruff check`,
+`ruff format --check`, and `mypy .` (787 files) all clean; the integration and wiring tiers were
+not run (no Postgres/Redis locally, `socket.gaierror`) and are untouched by this diff. Landed in
+`6e38e5c`, `c81b54c`, `3e7edc9`. **Remaining to close out: AC-2 (`/verify` against a live
+sandbox with a rebuilt image), then `status: implemented`.** Paused by the user's decision to
+spec FU-4 first.
 
 ## 13. Follow-ups
 
@@ -296,6 +319,22 @@ Appended by `/build`.
   `2026-07-17-agent-files-path-resolution`' FU-4** — nothing in CI runs a container — of which this
   is one instance; that entry is the general form and would subsume this. The build-stamp assertion
   is nonetheless a much cheaper partial fix and worth taking first. Type: `feature`/infra.
+- **FU-4: the `file` tool can read every room's session directory — cross-room leak.**
+  Surfaced by the `check-security` gate on this task's diff (2026-07-19); **pre-existing, not
+  introduced here.** `_safe_relpath` (`file_tool.py:30-41`) admits anything under `/workspace`
+  and `FileTool` has no chatroom in its signature (`:44-57`), but the kernel stages each room's
+  attachments to `sessions/{chatroom_id}/inputs` (`docker_runsc.py:1197`) on the *same* per-agent
+  volume both containers mount (`:807` file, `:1119` kernel). So an agent in room B can
+  `file(op="list", path="sessions")` to enumerate room ids and `file(op="read", ...)` room A's
+  uploads. Rooms have independent member lists, so this crosses a membership boundary; it stays
+  within one agent, hence one project and one tenant.
+  This dossier's change neither adds nor removes the capability — `list` already returned the bare
+  name `sessions` and `read` already accepted `sessions/{room}/...`. It does raise
+  *discoverability* (listings are now pasteable into `code_exec`, and `code_exec`'s description
+  now names `/workspace` as the shared volume), which is why it is recorded here rather than left
+  to the next audit. Type: `bugfix`, CRITICAL. Fixing it means excluding `sessions/` from the
+  `file` tool's reachable subtree or scoping `file` per-room — and Q-2 records why the latter is
+  not expressible today, so it needs its own analysis rather than a patch here.
 - **FU-3: `list` is not recursive** (`driver.py:243`, `os.listdir`), so discovering a nested
   layout costs one tool round per directory against `MAX_TOOL_ROUNDS = 8`
   (`turn_engine.py:90`). Out of scope — it is a capability gap, not the reported defect — but it
