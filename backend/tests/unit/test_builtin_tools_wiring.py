@@ -187,6 +187,40 @@ def test_code_exec_description_states_both_roots() -> None:
     assert "/workspace" in desc
 
 
+def test_artifact_note_names_what_came_back_and_what_did_not() -> None:
+    """T-5/AC-3. The model was told nothing about artifacts at all -- not even on
+    success -- while the description promised unconditional return. A model that
+    cannot distinguish a delivered chart from a destroyed one will tell the user
+    it delivered the chart."""
+    note = bt._artifact_note(
+        [
+            {"filename": "chart.png", "size_bytes": 1024},
+            {"filename": "huge.csv", "size_bytes": bt._ARTIFACT_LIMIT_BYTES + 1},
+        ]
+    )
+
+    assert "chart.png" in note
+    assert "huge.csv" in note
+    assert "NOT returned" in note
+    # It must be actionable, not just an apology: the file is still on disk in
+    # the sandbox, so the model can write a smaller one instead of retrying.
+    assert "outputs/" in note
+
+
+def test_artifact_note_is_empty_when_nothing_was_produced() -> None:
+    """Most calls produce no files; they must not pay for this in tool-output
+    budget, which is clipped at 16 000 characters."""
+    assert bt._artifact_note(None) == ""
+    assert bt._artifact_note([]) == ""
+
+
+def test_code_exec_description_states_the_artifact_limit() -> None:
+    """T-5/AC-6. The description promised 'anything you save to outputs/ is
+    returned' with no caveat, which was false above 8 MiB."""
+    desc = _tool_by_name("code_exec").description
+    assert "32 MB" in desc
+
+
 def test_code_exec_description_states_the_workspace_is_read_only() -> None:
     """T-2/AC-7. The model must learn the restriction from the contract, not from
     an OSError mid-task -- a discovered restriction costs a tool round against

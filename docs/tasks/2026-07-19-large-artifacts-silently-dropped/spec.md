@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-07-19
 requirements: [R12.03, R12.05, R13.10]
 ---
@@ -191,18 +191,29 @@ to the room and a >32 MB variant to produce a warning and a model-visible note.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: T-1 through T-6 fail against current code where marked and pass after the fix.
-- [ ] AC-2: An artifact between 8 MiB and 32 MB is delivered to the room (`/verify`).
-- [ ] AC-3: An artifact above 32 MB is **not** silently dropped — it produces a warning log naming
-      the file and size, and a model-visible note. Asserted by test.
-- [ ] AC-4: A `get_archive` failure does not fail the turn; the text response still lands (T-4).
-- [ ] AC-5: Artifacts at or below 8 MiB still travel inline, unchanged (T-7).
-- [ ] AC-6: `code_exec`'s description states the artifact size limit instead of promising
-      unconditionally. Asserted by test.
-- [ ] AC-7: `kernel.py`'s comment no longer claims a host-side read that does not exist; it
-      describes the mechanism that does.
-- [ ] AC-8: A shortfall between descriptors produced and artifacts persisted is logged at warning
-      (T-6) — the signal whose absence made this defect invisible.
+- [x] AC-1: T-1 through T-6 fail against current code where marked and pass after the fix. **With
+      one honest correction:** T-1 passed on first run. The kernel's oversized branch was already
+      correct — it emits a complete descriptor with `b64: None` — so the defect was purely the
+      missing host tier. The test is still worth having (the branch had no coverage at all, which is
+      why nothing noticed the tier was absent), but it was never red. The genuinely red one is
+      `test_persist_artifacts_dedupes_skips_and_binds`, which **asserted the drop as correct**
+      (`count == 1`) and now asserts retrieval (`count == 2`).
+- [ ] AC-2: An artifact between 8 MiB and 32 MB is delivered to the room. **Outstanding — needs
+      `/verify`**, since only a live container exercises `get_archive`.
+- [x] AC-3: An artifact above 32 MB is **not** silently dropped — warning log naming file and size,
+      plus a model-visible note. (`test_an_artifact_above_the_ceiling_is_never_fetched`,
+      `test_artifact_note_names_what_came_back_and_what_did_not`.)
+- [x] AC-4: A fetch failure does not fail the turn
+      (`test_a_failed_fetch_does_not_cost_the_other_artifacts` — the other artifacts still land).
+- [x] AC-5: Artifacts at or below 8 MiB still travel inline, unchanged (T-7:
+      `test_new_output_files_become_artifacts` passes unmodified).
+- [x] AC-6: `code_exec`'s description states the 32 MB limit and that the result names what came
+      back (`test_code_exec_description_states_the_artifact_limit`).
+- [x] AC-7: `kernel.py`'s comment describes the real mechanism and records that the claim it
+      replaced was false.
+- [x] AC-8: Undelivered artifacts are logged at warning with count and names
+      (`test_an_unfetchable_artifact_is_reported_not_swallowed`). The sibling undecodable-b64 path
+      was raised from debug to warning at the same time (§6).
 
 ## 11. SRS Delta
 
@@ -218,7 +229,30 @@ drafted speculatively.
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+- **D-1.** §7.5 proposed comparing `_persist_artifacts`' returned count against the descriptors it
+  was given, and logging a shortfall. Implemented as an explicit `dropped` list built where each
+  loss occurs, rather than a count subtraction at the end. The subtraction would have said only
+  *how many* went missing; the list names them and their sizes, which is what an operator answering
+  "where did my file go" actually needs. It also correctly ignores dedup, which a naive
+  produced-minus-persisted comparison would have miscounted as loss.
+- **D-2.** §7 did not mention the undecodable-b64 branch; §6 had cleared it as "adjacent". It was
+  raised from `debug` to `warning` here anyway — it is the same class of silent loss, and leaving
+  one of the two paths quiet would have preserved exactly the asymmetry that hid this defect.
+- **D-3.** `_single_member_tar_bytes` bounds the read twice: the caller checks the tar header size
+  and the extractor reads one byte past the ceiling to detect an understated header. Not in §7,
+  which treated the size check as a single gate. The stream describes a path the agent's own code
+  controls, so trusting the header alone would let a grown file be silently truncated into a
+  corrupt artifact — worse than the loss this task is fixing.
+
+**Build state (2026-07-19).** Gates: `pytest tests/unit` 5370 passed / 6 skipped, `ruff check`,
+`ruff format --check`, `mypy .` (792 files) clean. Integration and wiring tiers not run (no local
+Postgres/Redis) and untouched.
+
+All ACs met except **AC-2**, which needs `/verify` on Linux + gVisor — only a live container
+exercises `get_archive`. This joins the four other verification items blocked on the same tier.
+
+**Deploy note.** `kernel.py` changes are comment-only, so the backend half works against the
+current image; the image rebuild only keeps the comment honest. No lockstep requirement.
 
 ## 13. Follow-ups
 

@@ -88,6 +88,14 @@ _log = logging.getLogger(__name__)
 CancelCheck = Callable[[], Awaitable[bool]]
 
 MAX_TOOL_ROUNDS = 8
+
+# Ceiling for a code_exec artifact delivered into the room. Matches the
+# single-shot attachment limit (`app/api/v1/attachments.py`): a user can upload
+# 32 MB in one request, so an agent producing that much is within what the
+# platform already treats as ordinary. Above it the artifact stays on the session
+# volume and the loss is reported rather than silent — see
+# docs/tasks/2026-07-19-large-artifacts-silently-dropped.
+_MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 _DEFAULT_MAX_TOKENS = 4096
 # F-16: token budget the allocator reserves for each of the two small graph
 # blocks (Concept Map, Knowledge Map) before File RAG takes the remainder. Sized
@@ -1100,6 +1108,42 @@ class TurnEngine:
         out_paths.extend(paths)
         return dropped
 
+    async def _fetch_large_artifact(
+        self, agent: Agent, chatroom_id: uuid.UUID, art: dict[str, Any]
+    ) -> bytes | None:
+        """Retrieve an artifact the kernel could not inline. ``None`` if it cannot be.
+
+        Never raises: an artifact is one output of a turn whose text response has
+        already been committed, so a failure here costs the file, not the reply.
+        """
+        path = str(art.get("rel_path") or "")
+        size = int(art.get("size_bytes") or 0)
+        if not path:
+            return None
+        if size > _MAX_ARTIFACT_BYTES:
+            _log.warning(
+                "artifact %s is %d bytes, above the %d limit — not delivered",
+                art.get("filename"),
+                size,
+                _MAX_ARTIFACT_BYTES,
+            )
+            return None
+        try:
+            from contexts.agents.infrastructure.sandbox.docker_runsc import (
+                docker_runsc_sandbox_from_settings,
+            )
+
+            runner = docker_runsc_sandbox_from_settings()
+            return await runner.fetch_kernel_artifact(
+                agent_id=agent.id,
+                chatroom_id=chatroom_id,
+                path=path,
+                max_bytes=_MAX_ARTIFACT_BYTES,
+            )
+        except Exception:
+            _log.warning("artifact fetch raised for %s", path, exc_info=True)
+            return None
+
     async def _persist_artifacts(
         self,
         agent: Agent,
@@ -1121,6 +1165,7 @@ class TurnEngine:
             svc = AttachmentService(self._db)
             seen: set[str] = set()
             prepared: list[tuple[str, str, bytes]] = []
+            dropped: list[tuple[str, int]] = []
             for art in artifacts:
                 rel = str(art.get("rel_path") or art.get("filename") or "")
                 # Only dedup *named* artifacts. A blank key would otherwise make
@@ -1130,21 +1175,41 @@ class TurnEngine:
                     if rel in seen:
                         continue
                     seen.add(rel)
+                name = str(art.get("filename") or "artifact")
+                size = int(art.get("size_bytes") or 0)
                 b64 = art.get("b64")
                 if not b64:
-                    # Large artifact not inlined by the kernel — skipped in v1.
-                    continue
-                try:
-                    data = base64.b64decode(b64)
-                except Exception:
-                    _log.debug("skipping artifact with undecodable b64", exc_info=True)
-                    continue
+                    # Too large for the exec reply, so fetch it off the live
+                    # kernel instead. Until 2026-07-19 this was a bare `continue`
+                    # and the file was destroyed with no trace anywhere.
+                    data = await self._fetch_large_artifact(agent, chatroom_id, art)
+                    if data is None:
+                        dropped.append((name, size))
+                        continue
+                else:
+                    try:
+                        data = base64.b64decode(b64)
+                    except Exception:
+                        _log.warning("artifact %s has undecodable b64 — dropping", name, exc_info=True)
+                        dropped.append((name, size))
+                        continue
                 prepared.append(
                     (
                         str(art.get("filename") or "artifact"),
                         str(art.get("mime") or "application/octet-stream"),
                         data,
                     )
+                )
+            if dropped:
+                # The signal whose absence made this defect invisible for as long
+                # as it existed. A file the agent produced did not reach the room,
+                # and this is the only place a human can find out.
+                _log.warning(
+                    "agent %s: %d of %d artifacts could not be delivered: %s",
+                    agent.id,
+                    len(dropped),
+                    len(artifacts),
+                    ", ".join(f"{n} ({s} bytes)" for n, s in dropped),
                 )
             if not prepared:
                 return 0

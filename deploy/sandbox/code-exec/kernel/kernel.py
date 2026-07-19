@@ -49,8 +49,14 @@ _INPUTS = _SESSION_DIR / "inputs"
 # look, or this kernel looking at a mount the host did not bind.
 PROTOCOL_VERSION = 2
 
-# Inline small artifacts as base64 in the reply; larger ones are read from the
-# volume host-side. Keeps the exec reply bounded.
+# Inline small artifacts as base64 in the reply, which is what keeps the reply
+# bounded: this container has 512 MB, and an inlined file is resident as raw
+# bytes, as base64, in the serialised JSON and again in the host's buffers.
+# Above the cap the descriptor carries `rel_path` and `size_bytes` with no
+# payload, and the HOST fetches the file over the Docker API
+# (`docker_runsc.fetch_kernel_artifact`). Until 2026-07-19 that fetch did not
+# exist and this comment claimed it did, so every artifact over the cap was
+# destroyed without a trace.
 _ARTIFACT_B64_CAP = 8 * 1024 * 1024
 
 # The one persistent namespace. Survives across calls for the kernel's lifetime.
@@ -211,7 +217,12 @@ def main() -> None:
                 _send_framed(
                     conn,
                     json.dumps(
-                        {"ok": False, "stdout": "", "stderr": f"kernel error: {exc}", "artifacts": []}
+                        {
+                            "ok": False,
+                            "stdout": "",
+                            "stderr": f"kernel error: {exc}",
+                            "artifacts": [],
+                        }
                     ).encode("utf-8"),
                 )
         finally:

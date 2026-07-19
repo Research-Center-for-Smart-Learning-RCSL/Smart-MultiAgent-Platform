@@ -101,7 +101,24 @@ class SandboxRunner(Protocol):
         chatroom_id: uuid.UUID,
         files: Sequence[StagedFile],
     ) -> list[str]:
-        """Copy a message's uploads into ``/workspace/sessions/{room}/inputs/``."""
+        """Copy a message's uploads into this chatroom's ``/session/inputs/``."""
+        ...
+
+    async def fetch_kernel_artifact(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        path: str,
+        max_bytes: int,
+    ) -> bytes | None:
+        """Read one artifact off the live kernel. ``None`` when it cannot be had.
+
+        The retrieval tier for artifacts too large to inline in the exec reply.
+        Returns ``None`` rather than raising for expected failures (kernel
+        evicted or reaped mid-turn): the caller reports the loss, and an
+        artifact must never cost the turn its text response.
+        """
         ...
 
     async def stage_agent_workspace_files(

@@ -1,13 +1,15 @@
 """Unit test for TurnEngine._persist_artifacts (Code-Interpreter artifacts).
 
 Drives the method with a fake DB + a stubbed AttachmentService so no MinIO or
-Postgres is required — asserts dedupe, the skip of non-inlined artifacts, and
-that binding targets the reply message id.
+Postgres is required — asserts dedupe, retrieval of artifacts the kernel could
+not inline, that an unretrievable one is reported rather than dropped, and that
+binding targets the reply message id.
 """
 
 from __future__ import annotations
 
 import base64
+import logging
 import uuid
 from types import SimpleNamespace
 from typing import Any, ClassVar
@@ -61,20 +63,35 @@ async def test_persist_artifacts_dedupes_skips_and_binds(monkeypatch: pytest.Mon
     artifacts = [
         {"filename": "chart.png", "mime": "image/png", "rel_path": "/w/chart.png", "b64": png},
         {"filename": "chart.png", "mime": "image/png", "rel_path": "/w/chart.png", "b64": png},  # dup
-        {"filename": "big.csv", "mime": "text/csv", "rel_path": "/w/big.csv", "b64": None},  # not inlined
+        # Not inlined. Until 2026-07-19 this test asserted it was *skipped*, which
+        # is how it stayed green over silent data loss; it is now fetched.
+        {
+            "filename": "big.csv",
+            "mime": "text/csv",
+            "rel_path": "/w/big.csv",
+            "size_bytes": 9 * 1024 * 1024,
+            "b64": None,
+        },
     ]
+
+    async def _fetch(_agent, _room, art):
+        return b"col-a,col-b\n" if art["filename"] == "big.csv" else None
+
+    engine._fetch_large_artifact = _fetch
 
     count = await TurnEngine._persist_artifacts(engine, agent, room, msg_id, artifacts)  # type: ignore[arg-type]
 
-    assert count == 1  # dedup + skip of the non-inlined artifact
+    assert count == 2  # dedup, plus the large one now retrieved rather than dropped
     svc = _FakeAttachmentService.instances[-1]
-    assert len(svc.uploaded) == 1  # uploads run concurrently, one per unique artifact
+    assert len(svc.uploaded) == 2  # uploads run concurrently, one per unique artifact
     assert svc.uploaded[0]["filename"] == "chart.png"
     assert svc.uploaded[0]["project_id"] == agent.project_id
+    assert svc.uploaded[1]["filename"] == "big.csv"
+    assert svc.uploaded[1]["data"] == b"col-a,col-b\n"
     assert svc.persisted is not None
     assert svc.persisted["message_id"] == msg_id
     assert svc.persisted["chatroom_id"] == room
-    assert len(svc.persisted["uploads"]) == 1
+    assert len(svc.persisted["uploads"]) == 2
     assert engine._db.committed is True
 
 
@@ -85,3 +102,137 @@ async def test_persist_artifacts_empty_is_noop() -> None:
     count = await TurnEngine._persist_artifacts(engine, agent, uuid.uuid4(), uuid.uuid4(), [])  # type: ignore[arg-type]
     assert count == 0
     assert engine._db.committed is False
+
+
+# --- 2026-07-19-large-artifacts-silently-dropped ----------------------------
+#
+# An artifact the kernel could not inline used to be dropped by a bare
+# `continue`, with no log, no audit event and no signal to model or user. These
+# pin the two halves of the fix: it is fetched when it can be, and its loss is
+# reported when it cannot.
+
+
+def _big(name: str = "big.bin", size: int = 9 * 1024 * 1024) -> dict:
+    """A descriptor as the kernel emits it above _ARTIFACT_B64_CAP."""
+    return {
+        "filename": name,
+        "mime": "application/octet-stream",
+        "rel_path": f"/session/outputs/{name}",
+        "size_bytes": size,
+        "b64": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_an_unfetchable_artifact_is_reported_not_swallowed(
+    monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    """T-3/T-4/AC-3. The kernel can be evicted or reaped between the exec reply
+    and the fetch, so retrieval genuinely can fail. What must not happen is what
+    used to: the file vanishing with nothing written down anywhere."""
+    _FakeAttachmentService.instances.clear()
+    monkeypatch.setattr(
+        "contexts.conversation.application.attachment_service.AttachmentService",
+        _FakeAttachmentService,
+    )
+    engine = SimpleNamespace(_db=_FakeDB())
+    agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
+
+    async def _fetch(_agent, _room, _art):
+        return None  # kernel gone
+
+    engine._fetch_large_artifact = _fetch
+
+    with caplog.at_level(logging.WARNING):
+        count = await TurnEngine._persist_artifacts(  # type: ignore[arg-type]
+            engine, agent, uuid.uuid4(), uuid.uuid4(), [_big()]
+        )
+
+    assert count == 0
+    assert "big.bin" in caplog.text
+    assert "could not be delivered" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_failed_fetch_does_not_cost_the_other_artifacts(
+    monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    """T-4. One unretrievable file must not take the whole batch with it. The
+    turn's text response is already committed by this point; artifacts are a
+    best-effort addition to it."""
+    _FakeAttachmentService.instances.clear()
+    monkeypatch.setattr(
+        "contexts.conversation.application.attachment_service.AttachmentService",
+        _FakeAttachmentService,
+    )
+    engine = SimpleNamespace(_db=_FakeDB())
+    agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
+    png = base64.b64encode(b"\x89PNG").decode("ascii")
+
+    async def _fetch(_agent, _room, _art):
+        return None
+
+    engine._fetch_large_artifact = _fetch
+    artifacts = [
+        _big(),
+        {"filename": "ok.png", "mime": "image/png", "rel_path": "/session/outputs/ok.png", "b64": png},
+    ]
+
+    with caplog.at_level(logging.WARNING):
+        count = await TurnEngine._persist_artifacts(  # type: ignore[arg-type]
+            engine, agent, uuid.uuid4(), uuid.uuid4(), artifacts
+        )
+
+    assert count == 1
+    svc = _FakeAttachmentService.instances[-1]
+    assert [u["filename"] for u in svc.uploaded] == ["ok.png"]
+    assert "big.bin" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_an_artifact_above_the_ceiling_is_never_fetched(
+    monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    """T-3/AC-3. Past the ceiling the platform declines rather than pulling tens
+    of MB through a tool round. The refusal is explicit, unlike the old drop."""
+    from contexts.agents.application.runtime import turn_engine as te
+
+    engine = SimpleNamespace(_db=_FakeDB())
+    agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
+    called: list[str] = []
+
+    def _boom():
+        called.append("fetched")
+        raise AssertionError("must not reach the sandbox for an oversized artifact")
+
+    monkeypatch.setattr(te, "docker_runsc_sandbox_from_settings", _boom, raising=False)
+    huge = _big("huge.bin", size=te._MAX_ARTIFACT_BYTES + 1)
+
+    with caplog.at_level(logging.WARNING):
+        data = await TurnEngine._fetch_large_artifact(engine, agent, uuid.uuid4(), huge)  # type: ignore[arg-type]
+
+    assert data is None
+    assert called == []
+    assert "huge.bin" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_undecodable_b64_is_now_reported_too(monkeypatch: pytest.MonkeyPatch, caplog) -> None:
+    """The sibling loss path: it logged at debug, so a corrupt payload was
+    nearly as quiet as the dropped one. Both now report at warning."""
+    _FakeAttachmentService.instances.clear()
+    monkeypatch.setattr(
+        "contexts.conversation.application.attachment_service.AttachmentService",
+        _FakeAttachmentService,
+    )
+    engine = SimpleNamespace(_db=_FakeDB())
+    agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
+    bad = {"filename": "corrupt.png", "mime": "image/png", "rel_path": "/x", "b64": "!!!not base64!!!"}
+
+    with caplog.at_level(logging.WARNING):
+        count = await TurnEngine._persist_artifacts(  # type: ignore[arg-type]
+            engine, agent, uuid.uuid4(), uuid.uuid4(), [bad]
+        )
+
+    assert count == 0
+    assert "corrupt.png" in caplog.text

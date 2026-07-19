@@ -35,6 +35,7 @@ import asyncio
 import contextlib
 import datetime
 import hmac
+import io
 import json
 import logging
 import time
@@ -264,6 +265,32 @@ def _tar_staged_inputs(
             tar.addfile(info, io.BytesIO(f.data))
             staged.append(member)
     return buf.getvalue(), staged
+
+
+def _single_member_tar_bytes(stream: Any, max_bytes: int) -> bytes | None:
+    """Extract the one regular file from a ``get_archive`` tar stream.
+
+    Bounded twice: the caller checks the header size before extracting, and this
+    stops reading past ``max_bytes`` in case the header understated it. A tar
+    whose member is a symlink, a directory, or absent yields ``None`` -- the
+    stream comes from a path the agent's own code controls, so its shape is not
+    a given.
+    """
+    import tarfile
+
+    buf = io.BytesIO(b"".join(stream))
+    with tarfile.open(fileobj=buf, mode="r|*") as tar:
+        for member in tar:
+            if not member.isfile():
+                continue
+            extracted = tar.extractfile(member)
+            if extracted is None:
+                return None
+            # read one byte past the ceiling so an oversized member is detected
+            # rather than silently truncated into a corrupt artifact.
+            data = extracted.read(max_bytes + 1)
+            return None if len(data) > max_bytes else data
+    return None
 
 
 def _agent_volume_name(agent_id: uuid.UUID) -> str:
@@ -1371,6 +1398,45 @@ class DockerRunscSandbox:
                 await self._remove_quietly(container)
 
         return [_workspace_abspath(p) for p in raw_staged]
+
+    async def fetch_kernel_artifact(
+        self, *, agent_id: uuid.UUID, chatroom_id: uuid.UUID, path: str, max_bytes: int
+    ) -> bytes | None:
+        """Read one artifact off the live kernel by path. ``None`` if unavailable.
+
+        The second transport tier for artifacts too large to inline in the exec
+        reply. ``get_archive`` streams a tar through the Docker API, so the
+        bytes never pass through the kernel's own 512 MB budget — which is why
+        raising the inline cap was not an option ([R12.05] sandbox limits).
+
+        Returns ``None`` rather than raising for every expected failure: the
+        kernel may have been evicted or idle-reaped between the exec reply and
+        this call, and an artifact is one output of a turn whose text response is
+        still worth delivering. The caller reports the loss; it must not become
+        a failed turn.
+        """
+        key = _session_key(agent_id, chatroom_id)
+        handle = _KERNELS.get(key)
+        if handle is None:
+            _log.warning("artifact fetch: no live kernel for session %s (%s)", key, path)
+            return None
+        client = self._client()
+        container = await asyncio.to_thread(_get_container_quietly, client, handle.container_id)
+        if container is None or not _is_running(container):
+            _log.warning("artifact fetch: kernel gone for session %s (%s)", key, path)
+            return None
+        try:
+            stream, stat = await asyncio.to_thread(container.get_archive, path)
+        except Exception as exc:
+            _log.warning("artifact fetch failed for %s: %s", path, exc)
+            return None
+        # Trust the archive header, not the descriptor: the file is the agent's
+        # own and could have grown between the kernel's stat and this read.
+        declared = int(stat.get("size") or 0)
+        if declared > max_bytes:
+            _log.warning("artifact %s is %d bytes, above the %d ceiling", path, declared, max_bytes)
+            return None
+        return await asyncio.to_thread(_single_member_tar_bytes, stream, max_bytes)
 
     async def purge_legacy_session_dirs(self, *, agent_id: uuid.UUID) -> None:
         """Empty ``/workspace/sessions/`` on one agent's volume.
