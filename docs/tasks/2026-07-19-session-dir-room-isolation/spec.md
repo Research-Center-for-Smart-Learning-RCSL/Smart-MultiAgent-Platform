@@ -337,6 +337,16 @@ Add **[R12.03b]** (`REQUIREMENTS.md`, §12.3, after [R12.03a]):
 > not room-scoped. Session volumes are garbage-collected when their Agent is collected under
 > [R12.03]'s retention rule, or when their chatroom ceases to exist.
 
+**Amended 2026-07-19, after the `check-security` gate (FU-7).** The wording above overclaimed:
+"one chatroom's attachments and artifacts are not reachable from another" is false against an Agent
+that launders data through the shared per-agent volume, which is writable from every chatroom's
+context. An unqualified requirement is what the next change gets checked against, so the applied
+text distinguishes the guarantee the mount actually delivers — no other chatroom's session state is
+*present in* a given chatroom's execution context, a property that holds whatever code the Agent
+runs — from the general information-flow guarantee it does not deliver, and names the shared volume
+as a known residual channel. See `REQUIREMENTS.md` [R12.03b] for the applied text. The `ro`-mount
+candidate that would close the residual channel remains open in FU-7.
+
 Amend **[R12.03]** (`REQUIREMENTS.md:595`) — its list of containers receiving the `/workspace`
 mount names "the two staging helpers that populate `inputs/` and `agent-files/`", which §7.3 makes
 false: the `inputs/` stager moves to the session volume. Added at approval time, after the initial
@@ -465,8 +475,13 @@ Nothing writes there any more — the harness assertion added in D-4 fails the r
   **Candidate fix:** mount the agent volume `ro` in the kernel while the `file` tool keeps `rw`.
   `kernel.py` never writes `/workspace` (only `/session`), and the shipped `code_exec` description
   promises the volume is *visible*, not writable — so this may be nearly free. It is still a
-  behaviour change that needs its own analysis. Type: `bugfix` (SRS correction) + `feature` (the
-  `ro` mount). **Do the SRS half first** — it is a documentation defect that exists right now.
+  behaviour change that needs its own analysis, including whether any agent legitimately writes to
+  `/workspace` from `code_exec` today (the tool description invites reading it by absolute path but
+  never promises writing).
+  **SRS half: DONE 2026-07-19** — [R12.03b] amended in place (see §11) to state the presence
+  guarantee rather than an information-flow one, and to name the shared volume as a residual
+  channel. **The `ro`-mount half remains open**, and is the only part that would actually close it.
+  Type: `feature`/security.
 - **FU-6: the `smap` CLI's `--help` is broken in this environment.** `python -m smap.rotation --help`
   and `python -m smap.maintenance --help` both die with
   `TypeError: Parameter.make_metavar() missing 1 required positional argument` — typer 0.12.5
