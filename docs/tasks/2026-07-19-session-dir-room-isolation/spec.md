@@ -263,10 +263,10 @@ room A's data.
 ## 10. Acceptance Criteria
 
 - [x] AC-1: T-1 through T-7 fail against current code where marked and pass after the fix.
-      **Partial — T-6 not written (see AC-7).** T-1..T-5 and T-7 done. T-3 and the description
-      tests were observed red for the documented reason before the fix; the T-7 family is
-      structurally red pre-fix (`_parse_session_ids` and `_sweep_session_volumes` did not exist),
-      which was not separately demonstrated by running it.
+      T-1..T-7 all written. T-3 and the description tests were observed red for the documented
+      reason before the fix; the T-6/T-7 families are structurally red pre-fix (`_parse_session_ids`,
+      `_sweep_session_volumes` and `purge_legacy_session_dirs` did not exist), which was not
+      separately demonstrated by running them.
 - [x] AC-2: Chat attachments stage to the per-room session volume and are readable from their own
       room's `code_exec` by the documented relative form (`open('inputs/x')`), unchanged from
       today. (`test_kernel_inputs_mount_only_this_rooms_session_volume`; the relative form is
@@ -284,8 +284,15 @@ room A's data.
       persistence (`turn_engine.py:1103-1171`) is untouched.
 - [x] AC-6: The headless / run-and-burn path still gets a tmpfs and mounts no named volume —
       cleared in §6 and now pinned (`test_headless_code_exec_mounts_no_named_volume`).
-- [ ] AC-7: The purge removes `sessions/` and nothing else from an agent volume, including when
-      `sessions` is a symlink (T-6), and is dry-run unless explicitly armed. **NOT STARTED.**
+- [x] AC-7: The purge removes `sessions/` and nothing else from an agent volume, including when
+      `sessions` is a symlink (T-6), and is dry-run unless explicitly armed.
+      `python -m smap.maintenance purge-session-dirs [--arm]`. T-6 in
+      `test_workspace_volume_reconcile.py` (clears the tree; leaves the root, `agent-files/` and
+      `skills/` byte-identical; idempotent on a clean volume; refuses to follow a symlinked
+      `sessions` root or a symlinked room dir), sweep behaviour in `test_purge_session_dirs.py`.
+      **Caveat:** the two symlink cases skip on a Windows host (`_supports_symlink`), as the three
+      pre-existing reconcile symlink tests already do — they run on Linux CI. The clearing itself
+      is the existing audited `_RECONCILE`, not new deletion logic.
 - [x] AC-8: `agent_fs_gc` recognises session volumes, retains them while agent and chatroom live,
       collects them when either is gone, and still never touches a name it cannot parse (T-7).
 - [x] AC-9: No unbounded growth — after an agent is collected, no volume bearing its id in either
@@ -361,24 +368,36 @@ draft (the drift is a consequence of §7.3 that the first pass missed):
 - **D-5.** `_VOLUME_ROOT`'s comment claimed the constant must equal "the kernel's
   SMAP_KERNEL_WORKSPACE default". False after D-2 — corrected rather than left as a trap for the
   next reader.
+- **D-6.** §7.6 left the purge's clearing mechanism open ("modelled on `agent_fs_gc`'s structure,
+  reusing the `_RECONCILE`-style container pattern"). It reuses `_RECONCILE` *itself* with an empty
+  manifest rather than a new script in that style. "Make this subtree equal the empty set" is
+  literally a reconcile, and that script already carries the audit for the one danger here —
+  escaping the subtree via a symlinked root, a symlinked subdir, or a `..` member. It also ships as
+  `python -c` from the backend, so the repair needs no image rebuild. Landing a second deletion path
+  aimed at agent-authored data would have had to re-earn all of that.
+- **D-7.** The purge lives in `smap/maintenance/` (a typer CLI, following `smap/rotation/`) rather
+  than in `app/workers/`. §7.6 said "CLI/worker task"; a repair is not a policy, and a cron job that
+  has had nothing to do for a year is indistinguishable from one that is broken.
+- **D-8.** `_enumerate_agent_volumes` **raises** where `agent_fs_gc._enumerate_volumes` degrades to
+  an empty list on a daemon failure. Copying the fail-open posture would have made an unreachable
+  daemon report "no agent volumes" and exit 0 — telling the operator the deployment is clean when
+  nothing was examined. A nightly sweep can skip a night; a one-shot repair has no tomorrow. Found
+  by running the CLI on this daemonless host, which produced a raw traceback.
 
-**Build state (2026-07-19, paused — NOT complete).** Landed in `f7c4ea6` (mount split + protocol
-stamp), `929f2d1` (GC), `fa4c35e` (headless pin). Gates on what landed: `pytest tests/unit` 5326
-passed / 4 skipped (pre-existing host-symlink skips), `ruff check`, `ruff format --check`, `mypy .`
-(787 files) all clean. Integration and wiring tiers were not run (no local Postgres/Redis) and are
-untouched by this diff.
+**Build state (2026-07-19).** Landed in `f7c4ea6` (mount split + protocol stamp), `929f2d1` (GC),
+`fa4c35e` (headless pin), `1acc4c8` (the legacy purge). Gates: `pytest tests/unit` 5337 passed /
+6 skipped (3 pre-existing host-symlink skips plus the 2 new ones and 1 other), `ruff check`,
+`ruff format --check`, `mypy .` (791 files) all clean. Integration and wiring tiers were not run
+(no local Postgres/Redis) and are untouched by this diff.
 
-**Outstanding, in priority order:**
+Every AC is met except **AC-3, which is partial**: the containment property holds at the wiring
+level and, once the purge has been armed on a deployment, in the data — but the §4 reproduction
+against a live sandbox has not been run. That step also exercises the two-volume mount, the change
+most likely to fail only at runtime (§9), and the operator-facing purge command end to end.
 
-1. **AC-7 — the legacy purge (§7.6) is not written.** This is the one that matters: until it runs,
-   **every existing agent volume still carries its accumulated `/workspace/sessions/` tree, and
-   both channels still reach it.** The fix is prospective only. New rooms are isolated; every room
-   that ran before this deploy is not. Deliberately left rather than rushed — it is the only
-   destructive component in the task, and the spec requires dry-run-by-default posture.
-2. **AC-3 — `/verify` against a live sandbox** (§4 reproduction), which also exercises the two-volume
-   mount, the one change most likely to fail only at runtime (§9).
-3. Definition-of-Done gates 5 and 6 (`check-quality`, `check-security`) have not been run on this
-   diff.
+**Deployment order matters.** The backend and the `smap/code-exec` image must ship together (Q-7,
+now enforced by the protocol stamp), and the purge should be armed *after* that deploy: running it
+before would clear trees the still-running old kernels are actively reading.
 
 **Housekeeping:** the `C:\session\` debris from the D-4 bug was removed by the user on 2026-07-19.
 Nothing writes there any more — the harness assertion added in D-4 fails the run instead.
@@ -410,6 +429,13 @@ Nothing writes there any more — the harness assertion added in D-4 fails the r
   `turn_engine.py:1135-1136` explicitly drops them ("Large artifact not inlined by the kernel —
   skipped in v1"). So an artifact over 8 MiB is silently lost. Found while confirming that no
   host path depends on the session directory's location (§6). Type: `bugfix`.
+- **FU-6: the `smap` CLI's `--help` is broken in this environment.** `python -m smap.rotation --help`
+  and `python -m smap.maintenance --help` both die with
+  `TypeError: Parameter.make_metavar() missing 1 required positional argument` — typer 0.12.5
+  against click 8.3.1. Pre-existing and **not** caused by this task; found while smoke-testing the
+  new command. Command *dispatch* works, so the tooling is usable by anyone who already knows the
+  arguments — which is precisely the problem for a destructive command whose safety rests on an
+  operator reading `--help` and finding `--arm`. Fix is a typer bump. Type: `bugfix`/deps.
 - **FU-5: `kernel.py:122-123` swallows a failed `chdir`.** `with contextlib.suppress(Exception)`
   means a session directory that cannot be entered leaves the cwd wherever it was — after this
   change, `/`, with `inputs/` and `outputs/` silently resolving nowhere useful and artifacts never
