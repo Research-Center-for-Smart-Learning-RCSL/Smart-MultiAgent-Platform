@@ -171,6 +171,14 @@ None. This restores [R9.10] and [R11.19].
   for such an agent, which is worse than the uncapped behavior being replaced. The clamp lives in
   the shared helper, so the room path also stops granting knowledge above the provider window.
   For every agent whose cap is within its provider's window (the normal case) nothing changes.
+  A later review asked whether the clamp could newly starve *room* turns by flooring a budget
+  that used to be positive. It cannot, and the reason is the room path's existing
+  recompact-then-judge ordering: for a clamped agent `ceiling == context_limit` exactly, so a
+  floored budget implies `payload >= context_limit`, which trips the recompaction branch
+  (`turn_engine.py:1914`) before starvation is judged, and `starved` is recomputed against the
+  shed history. The residual case — a non-history fixed context (prompt, skills, tools) that
+  alone exceeds the provider window — previously built a request the provider was certain to
+  reject, so a clean `knowledge_starved` skip is an improvement rather than a regression.
 - **D-4: Behavioral verification against a running stack was not performed.** The compose stack
   (Postgres/Redis/Vault) is unavailable in this environment; the wiring tier fails with
   `socket.gaierror` on a clean checkout too. `tests/wiring/test_wiring.py::test_a2a_call_round_trip`
@@ -178,6 +186,25 @@ None. This restores [R9.10] and [R11.19].
 - **D-5: `_context_limit_for` was extracted and the two pre-existing copies collapsed onto it.**
   Not in the Fix Design, which only said headless should resolve the limit "exactly as room turns".
   Agreed with the user before implementation rather than duplicating the lookup a third time.
+- **D-6: the overflow verdict is split in two, and the provider bound is judged before
+  retrieval.** A post-implementation review found that a fixed context too large for the provider
+  floors the knowledge budget exactly as a tight cap does, so the starvation branch claimed it
+  first and audited `knowledge_starved` — pointing the operator at a cap or knowledge setting
+  that cannot fix an oversized input. `run_input_turn` now decides `fixed_context + reserve >
+  context_limit` before the starvation check and before `_assemble_agent_knowledge`, so the
+  provider-level verdict is reported as `context_overflow` and no retrieval I/O is paid for a
+  request that cannot be sent. The post-assembly guard stays as a backstop for knowledge
+  overshooting its grant. Both overflow audits carry `bound: "provider"` to keep the two
+  distinguishable if a second bound is ever added.
+- **D-7: the compact-mode cap is deliberately NOT enforced as a bound on the headless payload.**
+  The same review proposed measuring the pre-dispatch guard against `ceiling` rather than
+  `context_limit`, so a compact-mode agent could not dispatch above its cap. This was
+  implemented, rejected on evidence, and reverted: [R9.10] defines `context_token_cap` as the
+  threshold at which compaction runs, not as a bound on the request, and the room path guards
+  against the provider limit for the same reason. Enforcing it here would skip every headless
+  turn for any agent whose prompt alone exceeds its compaction trigger — a 5k-token prompt under
+  an 8k cap never dispatches. `test_run_input_turn_dispatches_above_a_cap_the_prompt_alone_overruns`
+  pins the rejection so it is not re-proposed.
 
 ## 13. Follow-ups
 
@@ -194,3 +221,9 @@ None. This restores [R9.10] and [R11.19].
   guard and then be rejected. Now has one place to fix instead of three.
 - FU-4: `turn_engine.py` is ~2650 lines mixing room orchestration, headless orchestration,
   knowledge assembly, system-block modelling, and token estimation. Pre-existing.
+- FU-5: an approver whose turn is refused pre-dispatch casts no vote, and there is no signal to
+  tell the gate so — it falls to its timeout port, which is the exact failure
+  `drive_approver_turn` was built to eliminate (`app/workers/tasks/approvals.py:1-10`). The
+  worker now logs the refusal at warning level with the reason so the cause is findable when it
+  happens rather than at the timeout, but the real fix is an abstain/unavailable signal to
+  `ApprovalService` so the gate can settle immediately instead of waiting.
