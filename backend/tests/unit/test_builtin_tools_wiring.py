@@ -168,6 +168,32 @@ def test_disabled_singletons_are_skipped() -> None:
     assert not any(n.startswith("mcp__") for n in names)
 
 
+def _tool_by_name(name: str):
+    tools = bt.build_agent_tools(AsyncMock(), agent=_agent(), tools=_singletons(), deps=_deps())
+    return next(t for t in tools if t.name == name)
+
+
+def test_code_exec_description_states_both_roots() -> None:
+    """T-4. The description is this feature's entire user interface, so assert it.
+
+    `file` roots relative paths at /workspace; the code_exec kernel chdirs into
+    the per-chat session directory. Two roots on one volume are defensible; two
+    *undisclosed* roots are the 2026-07-16-workspace-path-convention defect.
+    """
+    desc = _tool_by_name("code_exec").description
+    assert "session" in desc.lower()
+    assert "inputs/" in desc
+    assert "outputs/" in desc
+    assert "/workspace" in desc
+
+
+def test_file_description_states_its_workspace_root() -> None:
+    """T-4, reciprocal half: `file`'s own root, plus the absolute form code_exec needs."""
+    desc = _tool_by_name("file").description
+    assert "/workspace" in desc
+    assert "code_exec" in desc
+
+
 def test_file_search_appears_when_enabled() -> None:
     tools = bt.build_agent_tools(
         AsyncMock(),
