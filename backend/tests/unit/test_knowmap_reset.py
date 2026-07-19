@@ -3,7 +3,8 @@
 Knowledge Maps had no reset until 2026-07-17-graphrag-reset-expired-recovery (AC-10).
 Both products bind the same ``perform_admin_reset``, so these tests deliberately assert
 the *same* observable contract as ``test_graphrag_reset.py`` rather than re-deriving it:
-if the two ever diverge, one of the two suites fails.
+if the two ever diverge, one of the two suites fails. The shared store doubles live in
+``graph_reset_fakes`` -- not in either suite -- so neither owns the other's fixtures.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from contexts.knowledge.domain.errors import (
 )
 from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.domain.knowmap import ChunkStrategy, KnowmapConfig
-from tests.unit.test_graphrag_reset import (
+from tests.unit.graph_reset_fakes import (
     FakeLockStore,
     FakeNeo4j,
     FakeSnapshotStore,
@@ -139,11 +140,13 @@ async def test_missing_snapshot_refuses_and_touches_nothing(state: BuildState) -
 
 
 @pytest.mark.asyncio
-async def test_reset_drives_config_out_of_recovery_unavailable() -> None:
-    """The escape hatch Q-5 requires: an irrecoverable Knowledge Map can be cleared.
+async def test_reset_of_an_irrecoverable_config_keeps_it_read_blocked() -> None:
+    """Neither reset mode makes an irrecoverable Knowledge Map readable again.
 
-    RECOVERY_UNAVAILABLE is in IN_FLIGHT_BUILD_STATES, so a default reset refuses while
-    material is missing; force=true is the documented admin acceptance of the loss.
+    Default reset refuses (503) because the material is gone; force accepts the loss and
+    records it, but lands back on RECOVERY_UNAVAILABLE rather than IDLE, because nothing
+    about forcing changes the fact that the partially applied build cannot be undone.
+    The escape from this state is a rebuild (AC-9), not a reset.
     """
     cfg = _cfg(BuildState.RECOVERY_UNAVAILABLE)
     locks = FakeLockStore()
@@ -156,7 +159,7 @@ async def test_reset_drives_config_out_of_recovery_unavailable() -> None:
 
     out = await _reset(service, cfg, force=True)
 
-    assert out.last_build_state is BuildState.IDLE
+    assert out.last_build_state is BuildState.RECOVERY_UNAVAILABLE
     assert repo.sets[-1]["error"] is not None  # honest residue flag
 
 

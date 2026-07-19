@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.domain.errors import GraphRagConfigNotFound
 from contexts.knowledge.domain.graph_view_assembly import assemble_graph_view
+from contexts.knowledge.domain.graphrag import IN_FLIGHT_BUILD_STATES
 from contexts.knowledge.infrastructure.graphrag_repositories import (
     GraphRagConfigRepository,
 )
@@ -54,6 +55,10 @@ class GraphView:
     nodes: tuple[GraphNode, ...]
     edges: tuple[GraphEdge, ...]
     truncated: bool
+    # True when the build state, not the data, is why this view is empty. Without it a
+    # gated view is indistinguishable from a graph that genuinely has no nodes, and the
+    # client can only show a generic "no data" message.
+    build_state_blocked: bool = False
 
 
 class GraphRagGraphService:
@@ -72,6 +77,19 @@ class GraphRagGraphService:
         cfg = await self._configs.get(config_id)
         if cfg is None:
             raise GraphRagConfigNotFound(str(config_id))
+
+        if cfg.last_build_state in IN_FLIGHT_BUILD_STATES:
+            # Same read gate as turn-context retrieval (graphrag_retrieve.py). It lives
+            # here rather than in the route so every caller of this service inherits it,
+            # and so it costs nothing: no driver is constructed and no Neo4j read runs.
+            return GraphView(
+                config_id=config_id,
+                project_id=cfg.project_id,
+                nodes=(),
+                edges=(),
+                truncated=False,
+                build_state_blocked=True,
+            )
 
         bounded = max(1, min(limit, MAX_GRAPH_LIMIT))
 

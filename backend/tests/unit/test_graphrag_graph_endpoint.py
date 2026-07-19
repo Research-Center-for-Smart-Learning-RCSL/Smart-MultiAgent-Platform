@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.api.v1.graphrag import read_graph
-from contexts.knowledge.domain.graphrag import IN_FLIGHT_BUILD_STATES, BuildState
+from contexts.knowledge.domain.graphrag import BuildState
 
 _PROJECT_ID = uuid.uuid4()
 
@@ -30,12 +30,13 @@ def _cfg(state: BuildState = BuildState.IDLE) -> SimpleNamespace:
     return SimpleNamespace(project_id=_PROJECT_ID, last_build_state=state)
 
 
-def _view(config_id: uuid.UUID) -> SimpleNamespace:
+def _view(config_id: uuid.UUID, *, blocked: bool = False) -> SimpleNamespace:
     return SimpleNamespace(
         config_id=config_id,
-        nodes=(SimpleNamespace(name="alice", degree=1, build_id="b1", type="person"),),
+        nodes=() if blocked else (SimpleNamespace(name="alice", degree=1, build_id="b1", type="person"),),
         edges=(),
         truncated=False,
+        build_state_blocked=blocked,
     )
 
 
@@ -47,11 +48,14 @@ def _fake_facade(*, cfg: SimpleNamespace | None, view: SimpleNamespace | None) -
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("state", sorted(IN_FLIGHT_BUILD_STATES, key=lambda s: s.value))
-async def test_read_graph_gated_in_unreadable_states(state: BuildState) -> None:
-    """Mid-2PC or irrecoverable: empty view, and no Neo4j read is attempted."""
+@pytest.mark.parametrize("blocked", [False, True])
+async def test_read_graph_passes_the_gate_flag_through(blocked: bool) -> None:
+    """The route must surface build_state_blocked, or the client cannot explain an
+    empty graph. The gate itself is tested at the service level
+    (test_graph_read_gate.py), which is where it lives.
+    """
     config_id = uuid.uuid4()
-    facade = _fake_facade(cfg=_cfg(state), view=None)
+    facade = _fake_facade(cfg=_cfg(), view=_view(config_id, blocked=blocked))
 
     with (
         patch("app.api.v1.graphrag.KnowledgeFacade", facade),
@@ -64,32 +68,7 @@ async def test_read_graph_gated_in_unreadable_states(state: BuildState) -> None:
             db=AsyncMock(),
         )
 
-    assert out.config_id == config_id
-    assert out.nodes == []
-    assert out.edges == []
-    assert out.truncated is False
-    facade.return_value.get_graphrag_graph.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("state", [BuildState.IDLE, BuildState.QDRANT_COMMITTED, BuildState.FAILED])
-async def test_read_graph_served_in_readable_states(state: BuildState) -> None:
-    """Ordinary FAILED stays readable: the last good graph is intact (AC-4 guard)."""
-    config_id = uuid.uuid4()
-    facade = _fake_facade(cfg=_cfg(state), view=_view(config_id))
-
-    with (
-        patch("app.api.v1.graphrag.KnowledgeFacade", facade),
-        patch("app.api.v1.graphrag._assert_config_read", AsyncMock()),
-    ):
-        out = await read_graph(
-            config_id=config_id,
-            limit=500,
-            principal=_principal(),
-            db=AsyncMock(),
-        )
-
-    assert [n.id for n in out.nodes] == ["alice"]
+    assert out.build_state_blocked is blocked
     facade.return_value.get_graphrag_graph.assert_awaited_once_with(config_id, limit=500)
 
 

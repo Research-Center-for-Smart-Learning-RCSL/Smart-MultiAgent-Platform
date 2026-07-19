@@ -51,7 +51,7 @@ from contexts.knowledge.application.knowmap_ingest_service import (
 from contexts.knowledge.application.knowmap_triggers import enqueue_knowmap_build
 from contexts.knowledge.domain.embedding_pin import TeardownOutcome
 from contexts.knowledge.domain.errors import DocumentTooLarge, KnowmapConfigNotFound
-from contexts.knowledge.domain.graphrag import IN_FLIGHT_BUILD_STATES, BuildState
+from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.domain.knowmap import KnowmapConfigDraft
 from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus, ScanStatus
 from contexts.knowledge.infrastructure.knowmap_repositories import (
@@ -161,6 +161,8 @@ class KnowmapGraphOut(BaseModel):
     nodes: list[KnowmapGraphNodeOut]
     edges: list[KnowmapGraphEdgeOut]
     truncated: bool
+    # See GraphOut.build_state_blocked (required for the same reason).
+    build_state_blocked: bool
 
 
 def _to_config_out(c: Any) -> KnowmapConfigOut:
@@ -450,10 +452,8 @@ async def read_knowmap_graph(
     if cfg is None:
         raise KnowmapConfigNotFound(str(config_id))
     await assert_project_membership(db=db, principal=principal, project_id=cfg.project_id)
-    if cfg.last_build_state in IN_FLIGHT_BUILD_STATES:
-        # Mirrors graphrag.py's read_graph and the shared turn-context retrieval gate:
-        # a mid-2PC or irrecoverable graph is not served to either consumer.
-        return KnowmapGraphOut(config_id=config_id, nodes=[], edges=[], truncated=False)
+    # The build-state read gate lives in KnowmapGraphService, so it applies to every
+    # caller of the facade rather than only to this route.
     view = await facade.get_knowmap_graph(config_id, limit=limit)
     return KnowmapGraphOut(
         config_id=view.config_id,
@@ -471,6 +471,7 @@ async def read_knowmap_graph(
             for e in view.edges
         ],
         truncated=view.truncated,
+        build_state_blocked=view.build_state_blocked,
     )
 
 

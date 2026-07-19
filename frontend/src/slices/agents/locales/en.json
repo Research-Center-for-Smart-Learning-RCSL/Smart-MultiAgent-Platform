@@ -239,6 +239,8 @@
       "loadFailed": "Failed to load the knowledge graph.",
       "emptyTitle": "No graph yet",
       "emptyDescription": "Run a build for this configuration to populate its knowledge graph.",
+      "blockedTitle": "Graph not available right now",
+      "blockedDescription": "This graph is withheld while a build is in progress or while its state is inconsistent. Check the build state for this configuration.",
       "legendHint": "Node size = number of relations. Drag to rearrange, scroll to zoom.",
       "types": {
         "person": "Person",
