@@ -268,8 +268,6 @@ class FakeNeo4j:
         # recorded the upsert before raising would let a builder regression pass.
         if self.raise_on_replace is not None:
             raise self.raise_on_replace
-        if self.raise_on_apply is not None:
-            raise self.raise_on_apply
         self.applied.append(list(triples))
         self.applied_project_ids.append(project_id)
         self.applied_replace.append(True)
