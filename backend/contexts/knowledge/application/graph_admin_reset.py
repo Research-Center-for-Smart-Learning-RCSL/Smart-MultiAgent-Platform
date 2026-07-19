@@ -316,17 +316,24 @@ async def perform_admin_reset(
             # only on a force=true failed/unavailable compensation -- recorded as a
             # non-null last_build_error so the state is honest.
             #
-            # The landing state follows the compensation OUTCOME, not the plan (R11a.02).
-            # Any unfinished rollback lands on RECOVERY_UNAVAILABLE rather than IDLE:
-            # UNAVAILABLE leaves a partially applied build nothing can undo, and a failed
-            # COMPENSATE leaves a subgraph missing the rows delete_by_build already took,
-            # so publishing either as readable re-exposes exactly what the state exists to
-            # hide -- and IDLE is outside the reconciler sweep set, so nothing would ever
-            # revisit it. Forcing IDLE buys no recovery capability: RECOVERY_UNAVAILABLE
-            # is already accepted by the manual build endpoint and the builder engine, so
-            # force still unsticks the config. The retained snapshot and pointer let a
-            # later reset retry compensation.
-            new_state = BuildState.IDLE if comp_error is None else BuildState.RECOVERY_UNAVAILABLE
+            # The read gate exists to hide an in-flight build whose 2PC never resolved
+            # (R11.04), so the landing state asks exactly that question rather than
+            # reading ``comp_error`` as a boolean:
+            #
+            # - ``prev`` in-flight and compensation failed or was impossible -> the build
+            #   is still applied and nothing undid it. RECOVERY_UNAVAILABLE, because IDLE
+            #   would re-open reads on it and IDLE is outside the reconciler sweep set, so
+            #   nothing would ever revisit it. force still unsticks the config: manual
+            #   rebuild accepts RECOVERY_UNAVAILABLE, and the retained snapshot and
+            #   pointer let a later reset retry compensation.
+            # - ``prev`` settled with a stale pointer -> there is no unresolved build to
+            #   hide, whether the delete-only pass ran or raised. The config stays IDLE.
+            #   plan_discard only reaches COMPENSATE-without-snapshot on this branch, so
+            #   this is also the delete-only case; the data that pass can destroy is
+            #   FU-5 in 2026-07-17-graphrag-reset-expired-recovery, and read-blocking
+            #   would not bring it back.
+            unresolved_build = comp_error is not None and prev in IN_FLIGHT_BUILD_STATES
+            new_state = BuildState.RECOVERY_UNAVAILABLE if unresolved_build else BuildState.IDLE
             await binding.configs.set_state(
                 config_id=config_id,
                 state=new_state,
