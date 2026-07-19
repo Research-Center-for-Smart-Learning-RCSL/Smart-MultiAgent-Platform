@@ -60,10 +60,11 @@ _DEFAULT_CODE_IMAGE = "smap/code-exec:pinned"
 _EGRESS_NETWORK = "smap_egress_net"
 
 _SANDBOX_UID = 10001
-# Where the per-agent volume is mounted in every sandbox container. This must
-# equal `file_tool._ROOT` and the kernel's SMAP_KERNEL_WORKSPACE default, or a
-# staged path resolves to nothing; nothing yet enforces that agreement across the
-# three (see 2026-07-17-sandbox-guest-container-tests). Other `/workspace`
+# Where the per-agent volume is mounted in every sandbox container that gets one.
+# This must equal `file_tool._ROOT` or a staged path resolves to nothing; nothing
+# enforces that agreement (see 2026-07-17-sandbox-guest-container-tests). The
+# kernel no longer takes part: it addresses only its session mount, so the pair
+# that used to need coordinating here is now the pair below. Other `/workspace`
 # literals in this module predate the constant and are not in this fix's scope.
 _VOLUME_ROOT = "/workspace"
 # Where a chatroom's own session volume is mounted. Deliberately NOT under
