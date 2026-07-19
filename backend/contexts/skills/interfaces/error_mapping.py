@@ -43,7 +43,11 @@ _MAP: ErrorMap = {
     errors.SkillTextRejected: (
         "skills/text-rejected",
         422,
-        "Skill text contains rejected characters",
+        # Not "contains rejected characters": this class also carries the `name` pattern
+        # arm, and `../evil` contains no rejected character -- dots and slashes are
+        # ordinary printing characters. A title naming only the charset rule would
+        # contradict the `reason` shipped beside it in the same body.
+        "Skill text was rejected",
     ),
     errors.BundleInvalid: ("skills/bundle-invalid", 422, "Skill bundle is invalid"),
     errors.BundleQuarantined: ("skills/bundle-quarantined", 422, "Skill bundle failed the malware scan"),

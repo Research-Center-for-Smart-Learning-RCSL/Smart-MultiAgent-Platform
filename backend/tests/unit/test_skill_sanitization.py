@@ -268,8 +268,12 @@ class _Harness:
         This is what makes the defect reachable at all: `copy`'s input is a row, not a
         request, so a test that cannot produce an unvalidated row cannot reach it.
         """
-        skill = make_skill(scope=SkillScope.PROJECT, project_id=_PROJECT_ID, **overrides)  # type: ignore[arg-type]
-        return self.skills.put(skill)
+        # Merged rather than passed alongside `**overrides`, so a test may override `scope`
+        # or `project_id` -- which a cross-scope `copy` case naturally wants -- instead of
+        # getting a duplicate-keyword TypeError from the helper.
+        fields: dict[str, object] = {"scope": SkillScope.PROJECT, "project_id": _PROJECT_ID}
+        fields.update(overrides)
+        return self.skills.put(make_skill(**fields))  # type: ignore[arg-type]
 
     @property
     def row_count(self) -> int:
@@ -459,28 +463,48 @@ async def test_the_rule_is_not_applied_to_the_body(h: _Harness) -> None:
 
 
 @pytest.mark.parametrize("field", ["requires", "allowed_tools"])
-async def test_the_gate_caps_how_many_entries_a_list_may_hold(h: _Harness, field: str) -> None:
-    """Count, not just per-item length -- and the count had the same one-writer gap.
+async def test_a_row_over_the_entry_cap_can_still_be_copied(h: _Harness, field: str) -> None:
+    """`MAX_LIST_ITEMS` is an entry-point rule, and the gate must not apply it.
 
-    Neither list reaches the index, so this is load rather than injection: the entries
-    persist to an array column and are re-walked every turn by the required-tool check. A
-    bundle declaring tens of thousands of them fits well inside the archive limits, and
-    only the API was capping the number.
+    The gate is retroactive: it re-validates stored text on every copy and update. The
+    bundle parser carried no entry-count cap until 2026-07-19, so rows above it are legal
+    history, and gating on the count would strand them -- a skill imported with 100 tools
+    could never be promoted to another scope, punishing the author for a gap on our side.
+
+    The charset rules deliberately do *not* get this exemption (Q-4): a bidi override in a
+    stored description is an active attack whatever wrote it, while an over-long list is
+    only load, and the writer that could produce one is now closed.
     """
-    with pytest.raises(SkillTextRejected) as caught:
-        await h.svc.create(
-            scope=SkillScope.PROJECT,
-            owner_id=_PROJECT_ID,
-            name="pdf-filler",
-            description="Fills PDF forms.",
-            body="",
-            actor_user_id=_ACTOR_ID,
-            **{field: tuple(f"tool-{i}" for i in range(MAX_LIST_ITEMS + 1))},  # type: ignore[arg-type]
-        )
+    oversized = tuple(f"tool-{i}" for i in range(MAX_LIST_ITEMS + 1))
+    source = h.seed(**{field: oversized})
 
-    assert caught.value.field == field
-    assert f"exceeds {MAX_LIST_ITEMS} entries" in caught.value.reason
-    assert h.row_count == 0
+    copied = await h.svc.copy(
+        source.id,
+        SkillScope.PROJECT,
+        owner_id=_PROJECT_ID,
+        target_scope=SkillScope.ORG,
+        target_owner_id=uuid.uuid4(),
+        name="pdf-filler-org",
+        actor_user_id=_ACTOR_ID,
+    )
+
+    assert len(getattr(copied, field)) == MAX_LIST_ITEMS + 1
+    assert h.row_count == 2
+
+
+@pytest.mark.parametrize("field", ["requires", "allowed_tools"])
+async def test_the_entry_cap_is_still_enforced_where_new_text_enters(field: str) -> None:
+    """The other half: closing the gate for stored rows must not reopen the entry point.
+
+    This is the arm that stops a bundle declaring tens of thousands of entries, which fits
+    well inside the archive limits and is re-walked every turn by the required-tool check.
+    """
+    with pytest.raises(ValidationError):
+        SkillCreateIn(
+            name="t",
+            description="d",
+            **{field: [f"tool-{i}" for i in range(MAX_LIST_ITEMS + 1)]},  # type: ignore[arg-type]
+        )
 
 
 async def test_the_gate_rejects_a_name_the_pattern_would_reject(h: _Harness) -> None:

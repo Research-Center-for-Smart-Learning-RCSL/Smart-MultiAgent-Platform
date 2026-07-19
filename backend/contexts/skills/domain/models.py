@@ -87,6 +87,13 @@ MAX_TOOL_NAME_CHARS = 200
 # limits, persists to an array column, and is re-walked on every turn by the required-tool
 # check. The API has always capped the count; the bundle parser never did, which is the
 # same one-writer-remembered gap as the char caps, one field over.
+#
+# **An entry-point rule, not a gate rule** — enforced in `parse_skill_md` and
+# `SkillCreateIn`, deliberately *not* in `SkillService._assert_text_fields_ok`. The gate is
+# retroactive (it re-validates stored text on every copy and update) and rows above this
+# cap are legal history from before the parser enforced it, so gating on the count would
+# strand them: a skill imported with 100 tools could never be copied to another scope.
+# See the note beside the gate for why the charset rules do not get the same exemption.
 MAX_LIST_ITEMS = 64
 
 

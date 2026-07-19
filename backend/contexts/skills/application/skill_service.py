@@ -27,7 +27,6 @@ from contexts.skills.domain.errors import (
 )
 from contexts.skills.domain.models import (
     MAX_DESCRIPTION_CHARS,
-    MAX_LIST_ITEMS,
     MAX_NAME_CHARS,
     MAX_TOOL_NAME_CHARS,
     SKILL_NAME_RE,
@@ -92,15 +91,23 @@ def _assert_text_fields_ok(
     if description is not None:
         assert_text_ok("description", description, max_chars=MAX_DESCRIPTION_CHARS)
     for field, values in (("requires", requires), ("allowed_tools", allowed_tools)):
-        if values is None:
-            continue
-        if len(values) > MAX_LIST_ITEMS:
-            # Count, not just per-item length: neither list reaches the index, so an
-            # unbounded one is a load problem rather than an injection one — but it is
-            # re-walked every turn, and only the API was capping it.
-            raise SkillTextRejected(field, f"exceeds {MAX_LIST_ITEMS} entries")
-        for value in values:
+        for value in values or ():
             assert_text_ok(field, value, max_chars=MAX_TOOL_NAME_CHARS)
+
+
+# The entry *count* is deliberately not checked here, and that asymmetry is the point.
+#
+# `MAX_LIST_ITEMS` is an entry-point rule: it bounds what a new bundle or request may
+# introduce, and it lives in `parse_skill_md` and `SkillCreateIn`. It is not a gate rule,
+# because a gate rule is retroactive — every `copy` and every `update` re-validates text a
+# past writer already stored, and the bundle parser carried no count cap until 2026-07-19.
+# Rows above the cap are therefore legal history, and enforcing the count here would make
+# them uncopyable: a skill imported with 100 tools could never be promoted to another
+# scope, punishing an author for a gap on our side.
+#
+# The charset rules above are retroactive on purpose (Q-4) — a bidi override in a stored
+# description is an active attack whatever wrote it. An over-long list is not an attack on
+# anything, only load, and the writer that could produce one is already closed.
 
 
 class SkillService:
