@@ -97,17 +97,29 @@ class _FakeMinio:
         self.removed.append(key)
 
 
-def _sessionmaker_returning(rows: dict[uuid.UUID, datetime | None], *, populated: bool = True):
-    """Fake sessionmaker modelling the two queries the sweep makes.
+def _sessionmaker_returning(
+    rows: dict[uuid.UUID, datetime | None],
+    *,
+    populated: bool = True,
+    room_rows: dict[uuid.UUID, datetime | None] | None = None,
+    rooms_populated: bool = True,
+):
+    """Fake sessionmaker modelling the queries the sweep makes.
 
     `rows` is the ``{agent_id: deleted_at}`` the id lookup finds; ids absent from
-    it have no ``agents`` row — the orphan case.
+    it have no ``agents`` row — the orphan case. `room_rows` is the same for
+    ``chatrooms``, which session volumes are judged against as well ([R12.03b]).
 
-    `populated` answers the separate "is the agents table empty altogether?"
-    probe. It defaults to True because that is reality: a host holding agent
-    volumes has agents rows. `populated=False` is the wrong-database case, and
-    only the blast-radius guard's test sets it.
+    `populated` / `rooms_populated` answer the separate "is this table empty
+    altogether?" probes. Both default to True because that is reality: a host
+    holding these volumes has rows in both. False is the wrong-database case,
+    and only the blast-radius guards' tests set it.
+
+    Statements are routed by target table rather than by call order: the two
+    dimensions must be independently falsifiable, or a test claiming the
+    chatrooms guard fires would pass on the agents guard firing instead.
     """
+    room_rows = room_rows or {}
 
     class _Session:
         async def __aenter__(self):
@@ -117,6 +129,9 @@ def _sessionmaker_returning(rows: dict[uuid.UUID, datetime | None], *, populated
             return None
 
         async def execute(self, stmt):
+            is_rooms = "chatrooms" in str(stmt)
+            table_rows = room_rows if is_rooms else rows
+            table_populated = rooms_populated if is_rooms else populated
             # `col.in_(chunk)` compiles to an EXPANDING bindparam, so the param
             # value is a LIST of uuids, not a uuid. Flatten it — reading only
             # scalars here silently matched everything and left _agent_deleted_at's
@@ -130,9 +145,9 @@ def _sessionmaker_returning(rows: dict[uuid.UUID, datetime | None], *, populated
             }
             if not requested:
                 # No uuid params — the "does the table hold anything" probe.
-                probe = (uuid.uuid4(),) if populated else None
+                probe = (uuid.uuid4(),) if table_populated else None
                 return SimpleNamespace(first=lambda: probe, all=lambda: [probe] if probe else [])
-            matched = [(k, v) for k, v in rows.items() if k in requested]
+            matched = [(k, v) for k, v in table_rows.items() if k in requested]
             return SimpleNamespace(all=lambda: matched, first=lambda: matched[0] if matched else None)
 
     # get_sessionmaker() returns the maker; the maker is then called per session.
@@ -145,12 +160,27 @@ def armed(monkeypatch):
     monkeypatch.setenv(gc._ARMED_ENV, "true")
 
 
-def _install(monkeypatch, *, volumes=None, objects=None, rows=None, populated=True) -> _FakeMinio:
+def _install(
+    monkeypatch,
+    *,
+    volumes=None,
+    objects=None,
+    rows=None,
+    populated=True,
+    room_rows=None,
+    rooms_populated=True,
+) -> _FakeMinio:
     docker = _FakeDocker(volumes or [])
     minio = _FakeMinio(objects or {})
     monkeypatch.setattr(gc, "_docker_client", lambda: docker)
     monkeypatch.setattr(gc, "_minio_client", lambda: minio)
-    monkeypatch.setattr(gc, "get_sessionmaker", _sessionmaker_returning(rows or {}, populated=populated))
+    monkeypatch.setattr(
+        gc,
+        "get_sessionmaker",
+        _sessionmaker_returning(
+            rows or {}, populated=populated, room_rows=room_rows, rooms_populated=rooms_populated
+        ),
+    )
     return minio
 
 
@@ -669,3 +699,184 @@ class TestParsing:
     @pytest.mark.parametrize("raw", [None, "", "not-a-timestamp", "2026-13-45T99:99:99Z"])
     def test_unparseable_created_at_is_none(self, raw) -> None:
         assert gc._parse_created_at(raw) is None
+
+
+# ---------------------------------------------------------------------------
+# Session volumes (2026-07-19-session-dir-room-isolation) ??AC-8, AC-9, AC-11
+#
+# These accumulate one per (agent, chatroom) rather than one per agent, so a GC
+# that did not recognise the name shape would leak a volume per conversation.
+# ---------------------------------------------------------------------------
+
+
+def _session_vol(agent_id: uuid.UUID, room_id: uuid.UUID, created=_ANCIENT) -> _FakeVolume:
+    return _FakeVolume(gc._session_volume_name(agent_id, room_id), created)
+
+
+class TestSessionVolumeNameParsing:
+    def test_round_trips(self) -> None:
+        agent_id, room_id = uuid.uuid4(), uuid.uuid4()
+        assert gc._parse_session_ids(gc._session_volume_name(agent_id, room_id)) == (agent_id, room_id)
+
+    def test_agent_volume_is_not_mistaken_for_a_session_volume(self) -> None:
+        """The two prefixes must not overlap in either direction."""
+        agent_id = uuid.uuid4()
+        assert gc._parse_session_ids(gc._volume_name(agent_id)) is None
+        assert gc._parse_agent_id(gc._session_volume_name(agent_id, uuid.uuid4())) is None
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "smap-agent-session-",
+            "smap-agent-session-not-a-uuid",
+            # One valid uuid but no room half ??the shape that a naive
+            # rsplit("-") would have accepted by chopping a uuid in two.
+            f"smap-agent-session-{uuid.uuid4()}",
+            f"smap-agent-session-{uuid.uuid4()}-{uuid.uuid4()}-{uuid.uuid4()}",
+            f"prefix-smap-agent-session-{uuid.uuid4()}-{uuid.uuid4()}",
+            f"smap-agent-session-{uuid.uuid4()}-{str(uuid.uuid4()).upper()}",
+            f"smap-agent-session-{uuid.uuid4()}-{str(uuid.uuid4()).replace('-', '')}",
+            "postgres-data",
+        ],
+    )
+    def test_rejects_anything_that_is_not_two_canonical_uuids(self, name: str) -> None:
+        assert gc._parse_session_ids(name) is None
+
+
+@pytest.mark.asyncio
+async def test_session_volume_is_purged_when_its_agent_is_gone(monkeypatch, armed) -> None:
+    """AC-8/AC-9. No agents row ??the same inference the per-agent volume uses."""
+    agent_id, room_id = uuid.uuid4(), uuid.uuid4()
+    vol = _session_vol(agent_id, room_id)
+    _install(monkeypatch, volumes=[vol], rows={}, room_rows={room_id: None})
+
+    await gc.run_once(now=_NOW)
+
+    assert vol.removed is True
+
+
+@pytest.mark.asyncio
+async def test_session_volume_is_purged_when_its_chatroom_is_gone(monkeypatch, armed) -> None:
+    """AC-8. The room half: a live agent does not keep a dead room's volume."""
+    agent_id, room_id = uuid.uuid4(), uuid.uuid4()
+    vol = _session_vol(agent_id, room_id)
+    _install(monkeypatch, volumes=[vol], rows={agent_id: None}, room_rows={})
+
+    await gc.run_once(now=_NOW)
+
+    assert vol.removed is True
+
+
+@pytest.mark.asyncio
+async def test_session_volume_of_a_live_agent_and_live_room_is_kept(monkeypatch, armed) -> None:
+    """AC-8. Both alive ??the steady state, however old the volume is."""
+    agent_id, room_id = uuid.uuid4(), uuid.uuid4()
+    vol = _session_vol(agent_id, room_id)
+    _install(monkeypatch, volumes=[vol], rows={agent_id: None}, room_rows={room_id: None})
+
+    await gc.run_once(now=_NOW)
+
+    assert vol.removed is False
+
+
+@pytest.mark.asyncio
+async def test_session_volume_of_a_room_deleted_inside_the_window_is_kept(monkeypatch, armed) -> None:
+    """AC-8. A soft-deleted room can be restored (`ChatroomService.admin_restore`),
+    so its volume gets the same recovery window a soft-deleted agent's does."""
+    agent_id, room_id = uuid.uuid4(), uuid.uuid4()
+    vol = _session_vol(agent_id, room_id)
+    _install(monkeypatch, volumes=[vol], rows={agent_id: None}, room_rows={room_id: _WELL_INSIDE})
+
+    await gc.run_once(now=_NOW)
+
+    assert vol.removed is False
+
+
+@pytest.mark.asyncio
+async def test_session_volume_of_a_room_past_the_window_is_purged(monkeypatch, armed) -> None:
+    """AC-8. Past the window, purge from the row itself ??the batch-limit case."""
+    agent_id, room_id = uuid.uuid4(), uuid.uuid4()
+    vol = _session_vol(agent_id, room_id)
+    _install(monkeypatch, volumes=[vol], rows={agent_id: None}, room_rows={room_id: _WELL_PAST})
+
+    await gc.run_once(now=_NOW)
+
+    assert vol.removed is True
+
+
+@pytest.mark.asyncio
+async def test_young_orphan_session_volume_is_kept(monkeypatch, armed) -> None:
+    """AC-8. The auto-create race: Docker makes the volume on container create,
+    before the room's row is visible to this worker. The CreatedAt floor covers
+    session volumes too, or a turn starting mid-sweep loses its attachments."""
+    agent_id, room_id = uuid.uuid4(), uuid.uuid4()
+    vol = _session_vol(agent_id, room_id, created=_NOW)
+    _install(monkeypatch, volumes=[vol], rows={}, room_rows={})
+
+    await gc.run_once(now=_NOW)
+
+    assert vol.removed is False
+
+
+@pytest.mark.asyncio
+async def test_empty_chatrooms_table_refuses_to_sweep_session_volumes(monkeypatch, armed) -> None:
+    """AC-11. The blast-radius guard, chatrooms dimension.
+
+    A wrong DSN or a restoring replica makes every room look deleted. The agents
+    guard cannot catch this: the agents table is perfectly healthy here, which is
+    exactly what makes the conversation half's emptiness so easy to act on.
+    """
+    agent_id, room_id = uuid.uuid4(), uuid.uuid4()
+    vol = _session_vol(agent_id, room_id)
+    _install(
+        monkeypatch,
+        volumes=[vol],
+        rows={agent_id: None},  # agents table healthy and the agent is alive
+        room_rows={},
+        rooms_populated=False,  # ...but chatrooms is empty altogether
+    )
+
+    await gc.run_once(now=_NOW)
+
+    assert vol.removed is False
+
+
+@pytest.mark.asyncio
+async def test_session_volumes_are_not_swept_when_the_agents_guard_fires(monkeypatch, armed) -> None:
+    """AC-11. The agents guard refuses the whole pass, session volumes included ??    it returns before any sweep runs, and that must stay true."""
+    agent_id, room_id = uuid.uuid4(), uuid.uuid4()
+    vol = _session_vol(agent_id, room_id)
+    _install(monkeypatch, volumes=[vol], rows={}, populated=False, room_rows={room_id: None})
+
+    await gc.run_once(now=_NOW)
+
+    assert vol.removed is False
+
+
+@pytest.mark.asyncio
+async def test_both_volume_shapes_sweep_in_one_pass(monkeypatch, armed) -> None:
+    """AC-9. After an agent is collected, no volume bearing its id survives in
+    either name shape ??the leak this task could otherwise have introduced."""
+    agent_id, room_a, room_b = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    agent_vol = _FakeVolume(gc._volume_name(agent_id), _ANCIENT)
+    sess_a = _session_vol(agent_id, room_a)
+    sess_b = _session_vol(agent_id, room_b)
+    _install(monkeypatch, volumes=[agent_vol, sess_a, sess_b], rows={}, room_rows={})
+
+    await gc.run_once(now=_NOW)
+
+    assert agent_vol.removed is True
+    assert sess_a.removed is True
+    assert sess_b.removed is True
+
+
+@pytest.mark.asyncio
+async def test_unarmed_sweep_removes_no_session_volume(monkeypatch) -> None:
+    """AC-7's posture applied here: destructive by opt-in only. No `armed` fixture."""
+    agent_id, room_id = uuid.uuid4(), uuid.uuid4()
+    vol = _session_vol(agent_id, room_id)
+    _install(monkeypatch, volumes=[vol], rows={}, room_rows={})
+
+    await gc.run_once(now=_NOW)
+
+    assert vol.removed is False
