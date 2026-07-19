@@ -43,6 +43,79 @@ def _install(monkeypatch, names: list[str]) -> None:
     monkeypatch.setattr(ps, "docker_client", lambda: _FakeDocker(names))
 
 
+def test_the_documented_invocation_actually_dispatches(monkeypatch) -> None:
+    """The command must be reachable as `python -m smap.maintenance purge-session-dirs`.
+
+    Typer collapses a single-command app into the root, which drops the
+    subcommand name: the documented invocation then dies with "Got unexpected
+    extra argument" before any of the code below runs. Shipped that way once.
+    The failure is invisible to every other test here, because they all import
+    the implementation and bypass the CLI layer entirely.
+    """
+    from typer.testing import CliRunner
+
+    from smap.maintenance.__main__ import app
+
+    monkeypatch.setattr(ps, "docker_client", lambda: _FakeDocker([]))
+
+    result = CliRunner().invoke(app, ["purge-session-dirs"])
+
+    assert "extra argument" not in result.output
+    assert result.exit_code == 0, result.output
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, False),  # unset
+        ("", False),
+        ("false", False),
+        ("False", False),  # the exact string typer handed us when the flag was absent
+        ("0", False),
+        ("no", False),
+        ("maybe", False),  # unrecognised is never consent
+        ("true", True),
+        ("True", True),
+        ("1", True),
+        ("yes", True),
+        ("on", True),
+    ],
+)
+def test_arming_requires_an_explicit_truthy_environment_value(monkeypatch, value, expected) -> None:
+    """The single decision separating a report from an irreversible delete.
+
+    This lives on an env var, not a --arm flag, because typer 0.12.5 against the
+    installed click hands a bool option the *string* "False" when the flag is
+    absent -- truthy -- and None when it is passed. That inverted this exact
+    check: an unarmed run deleted, and --arm did not. Shipped that way in
+    1acc4c8 and caught by the CLI-layer test above, which is the only test here
+    that does not bypass typer.
+    """
+    monkeypatch.delenv(ps._ARMED_ENV, raising=False)
+    if value is not None:
+        monkeypatch.setenv(ps._ARMED_ENV, value)
+
+    assert ps.is_armed() is expected
+
+
+def test_run_defaults_to_the_environment_and_never_infers_consent(monkeypatch) -> None:
+    """`run()` with no argument must ask the environment, and a non-bool argument
+    must read as "not armed" rather than as truthiness."""
+    monkeypatch.setattr(ps, "_enumerate_agent_volumes", lambda: [uuid.uuid4()])
+    box = _FakeSandbox()
+    monkeypatch.setattr(ps, "DockerRunscSandbox", lambda: box)
+
+    monkeypatch.delenv(ps._ARMED_ENV, raising=False)
+    assert ps.run().dry_run is True
+
+    monkeypatch.setenv(ps._ARMED_ENV, "true")
+    assert ps.run().dry_run is False
+
+    # The shape that caused the incident: a truthy non-bool must not arm.
+    monkeypatch.delenv(ps._ARMED_ENV, raising=False)
+    assert ps.run(armed="False").dry_run is True  # type: ignore[arg-type]
+
+
 def test_enumerates_only_agent_volumes(monkeypatch) -> None:
     """Someone else's volumes share the daemon; the host had 144 unrelated ones
     when the GC was written. A laxer parser here would undo that care."""

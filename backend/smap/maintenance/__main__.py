@@ -13,24 +13,35 @@ app = typer.Typer(
 )
 
 
+@app.callback()
+def _main() -> None:
+    """Force group mode.
+
+    Typer collapses a single-command app into the root, which drops the
+    subcommand name from the invocation: `python -m smap.maintenance
+    purge-session-dirs` then fails with "Got unexpected extra argument". A
+    callback keeps the group even with one command, so the documented
+    invocation works and stays stable when a second command is added.
+    """
+
+
 @app.command("purge-session-dirs")
-def purge_session_dirs_cmd(
-    arm: bool = typer.Option(
-        False,
-        "--arm",
-        help="Actually delete. Without this the command only reports what it would do.",
-    ),
-) -> None:
+def purge_session_dirs_cmd() -> None:
     """Clear legacy /workspace/sessions/ trees from per-agent volumes.
 
     Repairs the cross-room exposure fixed by 2026-07-19-session-dir-room-isolation:
     session state moved to a per-room volume, but volumes created before that keep
     their old tree, still readable from every room the agent serves.
 
+    Dry-run unless SMAP_PURGE_SESSION_DIRS_ARMED is set to a truthy value. That is
+    an environment variable rather than a --arm flag because typer 0.12.5 against
+    the installed click mis-converts flag defaults, which inverted exactly this
+    decision; see purge_session_dirs._ARMED_ENV.
+
     Idempotent -- safe to re-run after a partial failure.
     """
     try:
-        report = _purge_session_dirs.run(armed=arm)
+        report = _purge_session_dirs.run()
     except _purge_session_dirs.PurgeUnavailable as exc:
         # Not a traceback: this is the expected failure when the command is run
         # somewhere without a daemon, and it must not read as "nothing to do".
