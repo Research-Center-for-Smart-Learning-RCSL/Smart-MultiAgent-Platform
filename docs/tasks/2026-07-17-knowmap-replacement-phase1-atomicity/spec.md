@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-17
 requirements: [R11.04, R11.12]
 ---
@@ -163,18 +163,39 @@ schema migration.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The forced-prune regression fails before the fix and passes after.
-- [ ] AC-2: Full replacement upsert/evidence reset and stale prune commit in one Neo4j
-  transaction; any exception rolls both back.
-- [ ] AC-3: A replacement failure leaves the exact pre-build graph, reports `FAILED`, and
-  performs no Qdrant mutation.
-- [ ] AC-4: An empty-corpus replacement atomically removes every relation and orphan entity.
-- [ ] AC-5: Existing successful evidence/provenance recomputation and Qdrant replacement
-  behavior remain green.
-- [ ] AC-6: Concept Map `replace=False` delta behavior is unchanged.
-- [ ] AC-7: Real-Neo4j integration, focused unit tests, backend lint, format, and type checks
+- [x] AC-1: The forced-prune regression fails before the fix and passes after.
+  `test_replacement_failure_leaves_the_pre_build_graph` was confirmed red against the
+  two-session form — the `alice-knows-carol` edge written by the failed replacement survived —
+  and green against the transactional form. Same test both sides (see D-1).
+- [x] AC-2: Full replacement upsert/evidence reset and stale prune commit in one Neo4j
+  transaction; any exception rolls both back. One `execute_write` callback runs both statements
+  (`neo4j_driver.py:254-284`).
+- [x] AC-3: A replacement failure leaves the exact pre-build graph, reports `FAILED`, and
+  performs no Qdrant mutation. Graph identity asserted against a real cluster in the
+  integration regression; `FAILED` plus no Qdrant call and no `NEO4J_COMMITTED` transition
+  asserted by `test_replace_build_failure_commits_nothing_and_skips_phase2`.
+- [x] AC-4: An empty-corpus replacement atomically removes every relation and orphan entity.
+  `test_empty_corpus_replacement_empties_the_subgraph` — the upsert is skipped and the prune
+  inside the transaction is what empties the subgraph.
+- [x] AC-5: Existing successful evidence/provenance recomputation and Qdrant replacement
+  behavior remain green. `test_replacement_removes_absent_and_recomputes_evidence` (all three
+  builds, including the within-build union caveat) and the build-scoped vector sweep assertions
+  pass unchanged.
+- [x] AC-6: Concept Map `replace=False` delta behavior is unchanged. The delta path keeps the
+  cross-build union Cypher byte-for-byte; `apply_triples` can no longer express replacement at
+  all (D-3).
+- [x] AC-7: Real-Neo4j integration, focused unit tests, backend lint, format, and type checks
   pass. The integration tier is run against a real cluster per the §8 prerequisite, not
-  declared N/A.
+  declared N/A. `ruff check .` and `ruff format --check .` clean over 798 files; `mypy .` clean
+  over 798 files; all 3 integration tests green against a live 5.24 cluster; the CI unit
+  selection reports 5432 passed / 6 skipped.
+
+  Ten pre-existing errors remain in that unit run
+  (`test_turn_artifacts.py` x6, `test_readyz.py`, `test_turn_engine_skills.py`,
+  `test_agent_fs_gc_race.py`, `test_graphrag_build_metrics.py`). They are setup-time
+  `gaierror: getaddrinfo failed` on infra hostnames this dev machine cannot resolve. Verified
+  not caused by this change: the same files at base commit `c410743` produce byte-identical
+  counts (12 passed/8 errors and 74 passed/2 errors respectively). No regression.
 - [ ] AC-8: WITHDRAWN before any code was written. It required adding a
   `pytest.mark.integration` to `test_knowmap_neo4j_replacement.py`, on the mistaken premise
   that the marker was missing. `tests/integration/conftest.py:30-36` already applies it to the
@@ -187,7 +208,23 @@ None. This restores [R11.04] and [R11.12].
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+- **D-1: the fix landed in two commits, not one.** The spec implies one change. Written that
+  way, the regression test could not fail for the documented reason before the fix — the new
+  `replace_triples` would not exist, so it would fail with `AttributeError` rather than by
+  observing committed partial state. So `replace_triples` was introduced first with the
+  existing two-session semantics (a behavior-preserving refactor that also delivers the Q-2
+  port collapse), the regression test was confirmed red against it, and only then did the body
+  become a single `execute_write`. One identical test, red then green.
+- **D-2: AC-8 was added at approval and then withdrawn before any code was written.** It rested
+  on a claim that `test_knowmap_neo4j_replacement.py` lacked `pytest.mark.integration`, derived
+  from grepping the file without checking `tests/integration/conftest.py:30-36`, which marks the
+  whole directory at collection time. No defect existed. See the AC-8 entry.
+- **D-3: `apply_triples` lost its `replace` parameter entirely.** §7 said to make the builder
+  call the atomic operation for `replace=True` and leave the delta path unchanged; it did not
+  say the flag itself goes. Removing it is what makes Q-2 real — a vestigial `replace=True` on
+  the delta method would leave the invariant expressible from the application layer, which is
+  the exact split this task exists to close. `FakeNeo4j.applied_replace` is now derived from
+  which port method was called, so the existing assertions still read the same.
 
 ## 13. Follow-ups
 
@@ -200,3 +237,10 @@ Appended by `/build`.
   deploy runs (`deploy/compose/docker-compose.yml:254`). On Enterprise the indexes would be
   built in one database and the data written to another. Out of scope here; no behavior in this
   task depends on it.
+- FU-3: `Neo4jAsyncDriver.restore_from_snapshot` has the same defect class this task fixed —
+  the node restore and the edge restore are two auto-commit statements
+  (`backend/contexts/knowledge/infrastructure/neo4j_driver.py:395-399`), so a failure between
+  them leaves entities restored without their relations while the reconciler treats the
+  rollback as complete. Found by the sibling sweep. Left alone because it is the Phase-2
+  compensation path, not Phase-1 replacement, and it carries its own reconciler test surface.
+  The `execute_write` pattern introduced here is directly reusable.
