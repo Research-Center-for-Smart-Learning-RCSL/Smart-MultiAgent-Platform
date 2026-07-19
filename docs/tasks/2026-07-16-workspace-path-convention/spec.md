@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-07-16
 requirements: [R12.03]
 ---
@@ -32,10 +32,10 @@ addresses the divergence itself.
     (`docker_runsc.py:917`).
   - So `file.write("notes.md")` → `/workspace/notes.md`; `code_exec` then runs
     `open('notes.md')` → `/workspace/sessions/{room}/notes.md` → `FileNotFoundError`.
-  - **The model is told nothing.** `code_exec`'s description (`builtin_tools.py:202-203`) —
+  - **The model is told nothing.** `code_exec`'s description (`builtin_tools.py:195-196`) —
     *"Run a Python snippet in a gVisor sandbox (30s cap). State persists across calls in a chat;
     loaded data and saved files survive. Returns stdout/stderr."* — never mentions the working
-    directory. `file`'s description (`:233`) and its schema (`:115`, *"Path under /workspace."*)
+    directory. `file`'s description (`:226`) and its schema (`:108`, *"Path under /workspace."*)
     state `/workspace`, which is true for `file` and false for `code_exec`.
   - **`list` actively hands over the broken path.** `driver.py:241-247` emits
     `sorted(os.listdir(path))` joined by newlines — bare names, no directory. The model's only
@@ -51,7 +51,7 @@ addresses the divergence itself.
 |---|---|---|---|
 | Q-1 | How far to fix: (a) tool descriptions only; (b) descriptions **and** `list` returns absolute paths; (c) unify the roots by pointing `code_exec`'s cwd at `/workspace`. | **(b)** — descriptions state each root, and `file` `op=list` returns absolute `/workspace/...` paths. | (a) leaves the trap armed: `list` still emits bare names and relies on the model re-deriving the prefix every time, which is exactly the kind of silent, per-call correctness the description cannot enforce. (c) is the tempting "one root" answer and is **wrong — but not for the reason it first appears.** It would *not* break artifact collection: `_OUTPUTS` (`kernel.py:40`) is an absolute module-level path built from env vars (`:37-39`), `_snapshot`/`_collect_artifacts`/`_capture_figures` (`:64-94`, `:109`) all address it absolutely, and `_run` mkdirs it *before* the chdir (`:117` vs `:123`) — so the collector never moves, and per-room separation comes from `_SESSION_DIR` (`:39`), not from the cwd. It is wrong because the cwd is what makes the **agent's own** documented relative paths resolve: with `cwd=/workspace`, `open('inputs/data.csv')` → `/workspace/inputs/data.csv` (attachments unreadable — the contract at `:119-121`, `docker_runsc.py:979`, pinned by `test_code_exec_kernel.py:174`) and `plt.savefig('outputs/x.png')` → `/workspace/outputs/x.png`, which lands **outside** the directory the collector scans, so the agent's own artifacts are silently never returned. The session cwd is load-bearing; the defect is that it is *undisclosed*, not that it exists. |
 | Q-2 | Unify by making `file` session-relative instead? | **No.** | `file` is not room-scoped — it has no chatroom in its signature (`file_tool.py:59-92`, `docker_runsc.py:588-596`) and is reachable from paths that have no room. Rooting it in a session dir is not expressible. |
-| Q-3 | Where does the `list` change live — post-process the driver's output in `_build_file_tool`, or fix the driver? | **The driver**, with the formatting extracted into `protocol.py`. | Post-processing in the backend is the exact anti-pattern that caused the sibling bug: `_fix_paths` (`docker_runsc.py:1024-1027`) is a caller laundering its callee's output by substring match. The callee must state the contract. `driver.py:27-28` already names the seam: *"Heavy deps … live only in the image and are imported lazily so the pure helpers in `protocol` stay testable on any host."* A listing formatter is a pure helper. |
+| Q-3 | Where does the `list` change live — post-process the driver's output in `_build_file_tool`, or fix the driver? | **The driver**, with the formatting extracted into `protocol.py`. | Post-processing in the backend is the exact anti-pattern that caused the sibling bug: `_fix_paths` was a caller laundering its callee's output by substring match. (Historical as of 2026-07-17 — `2026-07-17-agent-files-path-resolution` deleted it by making the staging methods return absolute paths at the source, `docker_runsc.py:1329`. Its removal is the precedent for this decision, not an argument against it.) The callee must state the contract. `driver.py:27-28` already names the seam: *"Heavy deps … live only in the image and are imported lazily so the pure helpers in `protocol` stay testable on any host."* A listing formatter is a pure helper. |
 | Q-4 | Data repair? | **None.** | Nothing is persisted. Both defects are per-call computed strings. |
 
 ## 4. Reproduction
@@ -61,7 +61,7 @@ Deterministic. Preconditions: an agent with **both** `file` and `code_exec` enab
 
 1. `file(op="write", path="notes.md", content="hello")` → succeeds; the audit event records
    `/workspace/notes.md` (`file_tool.py:91`, `:108-113`).
-2. `file(op="list", path="/")` → returns `notes.md`. (`builtin_tools.py:220` maps `/` to
+2. `file(op="list", path="/")` → returns `notes.md`. (`builtin_tools.py:213` maps `/` to
    `/workspace`.)
 3. `code_exec(source="open('notes.md').read()")` → **`FileNotFoundError`**.
 4. `code_exec(source="import os; os.getcwd()")` → `/workspace/sessions/{room}`.
@@ -82,7 +82,7 @@ only, `backend/pyproject.toml`). §8 tests the pure formatter and the descriptio
    chdir — the chdir exists to make the documented relative form (`:119-121`) work. Also correct
    in isolation.
 3. **Nothing reconciles 1 and 2 for the model.** `code_exec`'s description
-   (`builtin_tools.py:202-203`) omits the cwd; `file`'s says `/workspace` (`:115`, `:233`) as if
+   (`builtin_tools.py:195-196`) omits the cwd; `file`'s says `/workspace` (`:108`, `:226`) as if
    it were universal. The two tools' conventions were each documented against themselves and
    never against each other.
 4. `driver.py:241-247` returns bare names, which is only meaningful relative to an implied root
@@ -104,16 +104,21 @@ tool's output, are not.
 **Blast radius.** Every agent with both tools enabled, every tenant, since both tools have
 coexisted. Silent: `file` reports success, `code_exec` reports `FileNotFoundError`, and the
 model typically retries or confabulates rather than surfacing a platform fault. Consumes tool
-rounds against `MAX_TOOL_ROUNDS = 8` (`turn_engine.py:82`). No data loss, no persisted
+rounds against `MAX_TOOL_ROUNDS = 8` (`turn_engine.py:90`). No data loss, no persisted
 corruption.
 
 **Sibling suspects.**
 
 - `agent-files/` reported to `code_exec` → **CONFIRMED, owned by
-  `docs/tasks/2026-07-16-code-exec-agent-files-path/`**, not re-fixed here. That dossier makes
-  the reported path absolute; this one makes the *convention* explicit. They must land together
-  or the descriptions this spec writes will describe a path shape that dossier has not yet
-  shipped — see §9.
+  `docs/tasks/2026-07-17-agent-files-path-resolution/`** (which supersedes the
+  `2026-07-16-code-exec-agent-files-path` dossier this spec was written against), not re-fixed
+  here. That dossier makes the reported path absolute; this one makes the *convention* explicit.
+  **Shipped 2026-07-17** (`status: implemented`), so the coupling §9 worried about is discharged:
+  every path the platform hands the model is already absolute — `/workspace/agent-files/...`
+  (`docker_runsc.py:1329`), `/workspace/skills/...`, and
+  `/workspace/sessions/{room}/inputs/...`. That leaves `file` `op=list` as the **last remaining
+  source of a non-absolute path** anywhere in the model-facing surface, which raises the value of
+  this fix rather than lowering it.
 - `inputs/` (attachments) → **cleared.** Session-relative, cwd is the session dir, documented
   (`kernel.py:119-121`, `docker_runsc.py:979`), pinned (`test_code_exec_kernel.py:174`).
 - `outputs/` → **cleared**, same reasoning; `_OUTPUTS` is under `_SESSION_DIR`.
@@ -128,7 +133,7 @@ corruption.
 ## 7. Fix Design
 
 1. **State the contract where the model reads it.** `code_exec`'s description
-   (`builtin_tools.py:202-203`) gains the working directory and the shared root:
+   (`builtin_tools.py:195-196`) gains the working directory and the shared root:
 
    > Run a Python snippet in a gVisor sandbox (30s cap). State persists across calls in a chat;
    > loaded data and saved files survive. Your working directory is this chat's own session
@@ -137,7 +142,7 @@ corruption.
    > sees — is at `/workspace`; refer to it by absolute path (e.g. `/workspace/notes.md`).
    > Returns stdout/stderr.
 
-   `file`'s description (`:233`) and schema (`:115`) gain the reciprocal: paths are rooted at
+   `file`'s description (`:226`) and schema (`:108`) gain the reciprocal: paths are rooted at
    `/workspace`, and `code_exec` must use the absolute form.
 
 2. **Make `list` emit usable paths.** Add a pure helper to `deploy/sandbox/driver/protocol.py`
@@ -194,8 +199,8 @@ The failing test comes first.
   trusted. Red today — `code_exec`'s description contains neither.
 - **T-5.** The empty-directory case returns `""` and not `"/workspace"`, so an empty workspace
   does not read to the model as a workspace containing one mysterious file. **This is a test of
-  the helper only.** The model never sees `""`: `builtin_tools.py:229` is
-  `_clip(res.stdout or "(ok)")`, so an empty listing surfaces as `(ok)`. Do not promote T-5 into
+  the helper only.** The model never sees `""`: `builtin_tools.py:222` is
+  `clip_tool_output(res.stdout or "(ok)")`, so an empty listing surfaces as `(ok)`. Do not promote T-5 into
   an end-to-end assertion — it would be asserting a string that cannot reach the model.
 
 End-to-end (`/verify`, live sandbox): the §4 reproduction, expecting step 2 to return
@@ -203,16 +208,14 @@ End-to-end (`/verify`, live sandbox): the §4 reproduction, expecting step 2 to 
 
 ## 9. Risks and Rollback
 
-- **Ordering against the sibling dossier.** `docs/tasks/2026-07-16-code-exec-agent-files-path/`
-  makes `agent-files` paths absolute. If this spec's description ships first, the description is
-  still true (it describes `/workspace` addressing, which already works — step 5 of §4 proves
-  it); the `agent-files` *note* would just still name a broken relative path. If that one ships
-  first, nothing here breaks. **Recommended order: the sibling first, this second**, so the
-  description lands into a world where every reported path already obeys it. Neither order
-  regresses anything.
-- **`list` output grows.** Absolute paths are ~11 chars longer each, against `_clip`'s 16 000
-  characters (`builtin_tools.py:35`, applied at `:229`), so a very large workspace truncates
-  marginally sooner. Acceptable: `_clip` is character-based and already crude (Skills FU-11).
+- **Ordering against the sibling dossier — DISCHARGED 2026-07-19.** The recommended order (the
+  sibling first, this second) has already happened: `2026-07-17-agent-files-path-resolution` is
+  `implemented`, so the descriptions this spec writes land into exactly the world it wanted, one
+  where every platform-supplied path is already absolute. No ordering risk remains.
+- **`list` output grows.** Absolute paths are ~11 chars longer each, against `clip_tool_output`'s
+  cap (`tool_registry.py:41`, applied at `builtin_tools.py:222`), so a very large workspace
+  truncates marginally sooner. Acceptable: the clip is character-based and already crude
+  (Skills FU-11).
 - **A model that hardcoded bare `list` output.** Broken today; cannot regress.
 - **Rollback:** revert both changes independently. No migration, no persisted state, no API
   contract, no schema change. The image is tag-pinned, so rollback is a re-pin.
@@ -232,8 +235,8 @@ End-to-end (`/verify`, live sandbox): the §4 reproduction, expecting step 2 to 
 - [ ] AC-6: Every path emitted by `format_listing` round-trips through `safe_workspace_path`
       unchanged (T-3).
 - [ ] AC-7: No backend code post-processes the driver's `list` output — `_build_file_tool`
-      (`builtin_tools.py:209-236`) does no string rewriting of `res.stdout` beyond the existing
-      `_clip`.
+      (`builtin_tools.py:202-229`) does no string rewriting of `res.stdout` beyond the existing
+      `clip_tool_output`.
 
 ## 11. SRS Delta
 
@@ -243,9 +246,10 @@ directory"*. Both remain true. The SRS does not specify tool descriptions or lis
 should not — they are implementation surfaces that must be free to change with the model-facing
 copy.
 
-Note the sibling dossier (`2026-07-16-code-exec-agent-files-path`) carries the one SRS
-correction this investigation surfaced (`:582` claims only the `file` container mounts the
-volume; four do). It is not duplicated here.
+Note the sibling dossier (`2026-07-17-agent-files-path-resolution`, superseding
+`2026-07-16-code-exec-agent-files-path`) carries the one SRS correction this investigation
+surfaced (`:582` claims only the `file` container mounts the volume; four do). It is not
+duplicated here.
 
 ## 12. Deviation Log
 
@@ -259,6 +263,13 @@ Appended by `/build`.
 > essentially exact. None of the three is ready to spec: FU-1 is gated on two unbuilt dossiers, FU-2
 > is subsumed by `2026-07-16-code-exec-agent-files-path`' FU-4, and FU-3 depends on the test tier
 > that FU-4 describes.
+>
+> **Approval sweep, 2026-07-19.** Citations across the whole dossier re-verified and refreshed
+> against `main` before approval; the stale `turn_engine.py` numbers the 07-17 note flags are now
+> corrected in place (`MAX_TOOL_ROUNDS` is `:90`). Two substantive updates: `_clip` was renamed
+> `clip_tool_output` and moved to `tool_registry.py:41`, and `_fix_paths` no longer exists (see
+> Q-3). The sibling dossier shipped, so FU-2's trigger condition is unchanged but its blast radius
+> is now this dossier alone.
 
 - **FU-1: `code_exec` cannot see `file`'s writes without an absolute path, and vice versa — by
   design, now merely documented.** The deeper question this spec declines: should the platform
@@ -271,7 +282,7 @@ Appended by `/build`.
   live") depends on *this* dossier being built, and its `skill_reads` metadata depends on
   `2026-07-16-agent-skills` Phase 1. It is also not a defect claim — it is a deliberately deferred
   design question (`feature`/`refactor`: a shared path abstraction across tools). Note it is the
-  residue of `2026-07-16-code-exec-agent-files-path`' FU-1, the same subject at a third altitude.
+  residue of `2026-07-17-agent-files-path-resolution`' FU-1, the same subject at a third altitude.
 - **FU-2: nothing in CI detects a stale `smap/mcp-runtime:pinned`.** The `file` tool's behavior
   lives in an image the backend addresses by tag (`settings.py:256-259`), and there is no test
   tier that runs it (§4). A backend expecting absolute listings against an old image degrades
@@ -282,16 +293,17 @@ Appended by `/build`.
   the cited `:264-269` lands on that field's comment block. The tag-addressed-image gap exists
   today, but the specific failure named here (a backend expecting absolute listings against an old
   image) only arises once AC-3 ships. **Substantially the same root cause as
-  `2026-07-16-code-exec-agent-files-path`' FU-4** — nothing in CI runs a container — of which this
+  `2026-07-17-agent-files-path-resolution`' FU-4** — nothing in CI runs a container — of which this
   is one instance; that entry is the general form and would subsume this. The build-stamp assertion
   is nonetheless a much cheaper partial fix and worth taking first. Type: `feature`/infra.
 - **FU-3: `list` is not recursive** (`driver.py:243`, `os.listdir`), so discovering a nested
   layout costs one tool round per directory against `MAX_TOOL_ROUNDS = 8`
-  (`turn_engine.py:82`). Out of scope — it is a capability gap, not the reported defect — but it
+  (`turn_engine.py:90`). Out of scope — it is a capability gap, not the reported defect — but it
   compounds this one, because the agent burns rounds discovering the tree it was already
   mis-addressing.
   **Verified 2026-07-17: confirmed. `driver.py:243` is exact** (`sorted(os.listdir(path))`);
-  `MAX_TOOL_ROUNDS = 8` is now `turn_engine.py:83`, not `:82`. Not contingent — a live capability
+  `MAX_TOOL_ROUNDS = 8` is now `turn_engine.py:90` (`:83` at the 07-17 sweep, `:82` as written).
+  Not contingent — a live capability
   gap. But the fix touches `deploy/sandbox/driver/driver.py` and the in-image protocol, so it needs
   an image rebuild — which is exactly the drift FU-2 says CI cannot detect. Sequence it behind the
   test tier. Type: `feature`.
