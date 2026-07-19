@@ -286,7 +286,11 @@ room A's data.
       cleared in §6 and now pinned (`test_headless_code_exec_mounts_no_named_volume`).
 - [x] AC-7: The purge removes `sessions/` and nothing else from an agent volume, including when
       `sessions` is a symlink (T-6), and is dry-run unless explicitly armed.
-      `python -m smap.maintenance purge-session-dirs [--arm]`. T-6 in
+      `python -m smap.maintenance purge-session-dirs`, dry-run unless
+      `SMAP_PURGE_SESSION_DIRS_ARMED` is set to a truthy value. Arming is an environment variable
+      rather than the `--arm` flag §7.6 envisaged: see FU-6 and D-9 — the flag shipped inverted,
+      and after the typer fix the env var was kept because a destructive default should not be
+      re-breakable by a transitive dependency, and because `agent_fs_gc` arms the same way. T-6 in
       `test_workspace_volume_reconcile.py` (clears the tree; leaves the root, `agent-files/` and
       `skills/` byte-identical; idempotent on a clean volume; refuses to follow a symlinked
       `sessions` root or a symlinked room dir), sweep behaviour in `test_purge_session_dirs.py`.
@@ -405,6 +409,13 @@ level and, once the purge has been armed on a deployment, in the data — but th
 against a live sandbox has not been run. That step also exercises the two-volume mount, the change
 most likely to fail only at runtime (§9), and the operator-facing purge command end to end.
 
+- **D-9.** AC-7's command arms via `SMAP_PURGE_SESSION_DIRS_ARMED`, not the `--arm` flag §7.6
+  described. The flag shipped inverted (FU-6): typer handed it the string `"False"` when absent, so
+  an unarmed run deleted. After the typer fix the flag would work, but the env var was kept — the
+  single decision separating a report from an irreversible delete should not be re-breakable by a
+  transitive dependency, and `agent_fs_gc` arms its own destructive sweep the same way, so this is
+  now the consistent choice rather than an idiosyncratic one.
+
 **Definition of Done.** Gates 1 (mechanical) and 3 (AC verification) pass; gate 2 (contract) is N/A
 — no migration, no API contract change, no new i18n keys. Gate 5 (`check-quality`) found two
 Introduced-Warnings: the duplicated `_session_volume_name` was fixed here (a test now pins the GC's
@@ -483,13 +494,19 @@ Nothing writes there any more — the harness assertion added in D-4 fails the r
   [R12.03b]'s residual-channel caveat was rolled back in the same task. The kernel writes nothing to
   `/workspace`, so the write bind served agent-authored code alone. Its AC-3 (a live container
   proving `ro` is enforced) carries the same `/verify` blocker as this dossier's.
-- **FU-6: the `smap` CLI's `--help` is broken in this environment.** `python -m smap.rotation --help`
-  and `python -m smap.maintenance --help` both die with
-  `TypeError: Parameter.make_metavar() missing 1 required positional argument` — typer 0.12.5
-  against click 8.3.1. Pre-existing and **not** caused by this task; found while smoke-testing the
-  new command. Command *dispatch* works, so the tooling is usable by anyone who already knows the
-  arguments — which is precisely the problem for a destructive command whose safety rests on an
-  operator reading `--help` and finding `--arm`. Fix is a typer bump. Type: `bugfix`/deps.
+- **FU-6: typer 0.12.5 is incompatible with modern click, and it inverted this task's safety flag.**
+  **DONE 2026-07-19.** What began as "`--help` crashes" turned out to be far worse. Against click
+  8.2+, typer 0.12.5 mis-converts *every* option default: a bool flag arrives as the **string
+  `"False"`** when absent (truthy) and as `None` when passed (falsy), and a `None`-default string
+  option becomes the truthy string `"None"`. So `purge-session-dirs` **deleted on an unarmed run
+  and did nothing when armed** — shipped that way in `1acc4c8`. Repo-wide, the same inversion hit
+  `create-admin --force`/`--rescue`, `vault-approle --rotate-secret-id`, and every `--root-token`;
+  CI runs `smap.bootstrap all`. click is transitive and unpinned, so this arrived with no change on
+  our side. Fixed by pinning `typer==0.19.*` (0.15.x "fixes" it by holding click below 8.2 for every
+  consumer, which is worse), plus `tests/unit/test_smap_cli_contract.py` — the CLI layer had **no**
+  test coverage at all, which is why the inversion was invisible. Those tests were confirmed red on
+  0.12.5 and green on 0.19.2. Also fixed the single-command collapse that made the documented
+  `python -m smap.rotation rotate-transit` fail with "Got unexpected extra argument".
 - **FU-5: `kernel.py:122-123` swallows a failed `chdir`.** `with contextlib.suppress(Exception)`
   means a session directory that cannot be entered leaves the cwd wherever it was — after this
   change, `/`, with `inputs/` and `outputs/` silently resolving nowhere useful and artifacts never

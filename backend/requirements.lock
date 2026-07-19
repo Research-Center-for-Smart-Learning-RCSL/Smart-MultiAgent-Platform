@@ -218,7 +218,7 @@ tinycss2==1.5.1
     #   weasyprint
 tinyhtml5==2.1.0
     # via weasyprint
-typer==0.12.5
+typer==0.19.2
     # via smap-backend (pyproject.toml)
 typing-extensions==4.15.0
     # via
