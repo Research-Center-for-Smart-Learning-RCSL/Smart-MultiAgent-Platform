@@ -154,6 +154,84 @@ def test_new_output_files_become_artifacts(tmp_path: pathlib.Path, monkeypatch: 
     assert again["artifacts"] == []
 
 
+def test_oversized_output_is_described_but_not_inlined(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T-1. Above the cap the kernel emits a descriptor with no payload.
+
+    The branch had never been exercised, which is why nothing noticed that the
+    second transport tier it hands off to was never built: `rel_path` and
+    `size_bytes` are populated precisely so the host can go and fetch the file,
+    and until now the host just dropped it.
+    """
+    kernel = _load_kernel(tmp_path, "oversized", monkeypatch)
+    monkeypatch.setattr(kernel, "_ARTIFACT_B64_CAP", 1024)
+    code = (
+        "import pathlib\n"
+        f"out = pathlib.Path(r'{kernel._OUTPUTS}')\n"
+        "out.mkdir(parents=True, exist_ok=True)\n"
+        "(out / 'big.bin').write_bytes(b'x' * 4096)\n"
+    )
+
+    res = kernel._run(code, "", 5.0)
+
+    assert res["ok"] is True
+    (art,) = res["artifacts"]
+    assert art["b64"] is None
+    # The fields the host needs to fetch it must survive, or the descriptor is
+    # useless and the file is unrecoverable.
+    assert art["size_bytes"] == 4096
+    assert art["filename"] == "big.bin"
+    assert art["rel_path"].endswith("big.bin")
+
+
+class TestSingleMemberTarExtraction:
+    """`_single_member_tar_bytes` unpacks what `get_archive` returns.
+
+    The stream describes a path the agent's own code controls, so its shape is
+    not a given: a symlink or a directory where a file was expected must yield
+    nothing rather than something surprising.
+    """
+
+    @staticmethod
+    def _tar(name: str, data: bytes, *, kind: int | None = None) -> list[bytes]:
+        import io as _io
+        import tarfile
+
+        buf = _io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            info = tarfile.TarInfo(name)
+            if kind is not None:
+                info.type = kind
+                info.size = 0
+                tar.addfile(info)
+            else:
+                info.size = len(data)
+                tar.addfile(info, _io.BytesIO(data))
+        return [buf.getvalue()]
+
+    def test_extracts_a_regular_file(self) -> None:
+        from contexts.agents.infrastructure.sandbox.docker_runsc import _single_member_tar_bytes
+
+        stream = self._tar("big.bin", b"payload")
+        assert _single_member_tar_bytes(stream, 1024) == b"payload"
+
+    def test_refuses_a_member_larger_than_the_ceiling(self) -> None:
+        """Truncating would hand back a corrupt artifact that looks fine."""
+        from contexts.agents.infrastructure.sandbox.docker_runsc import _single_member_tar_bytes
+
+        stream = self._tar("big.bin", b"x" * 100)
+        assert _single_member_tar_bytes(stream, 10) is None
+
+    def test_ignores_a_non_file_member(self) -> None:
+        import tarfile
+
+        from contexts.agents.infrastructure.sandbox.docker_runsc import _single_member_tar_bytes
+
+        stream = self._tar("outputs", b"", kind=tarfile.DIRTYPE)
+        assert _single_member_tar_bytes(stream, 1024) is None
+
+
 def test_error_is_captured_not_raised(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     kernel = _load_kernel(tmp_path, "room-d", monkeypatch)
     res = kernel._run("raise ValueError('boom')", "", 5.0)

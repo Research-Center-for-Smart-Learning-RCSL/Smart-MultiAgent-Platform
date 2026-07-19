@@ -188,6 +188,9 @@ def _build_code_exec_tool(
                 artifact_sink.extend(a for a in produced if isinstance(a, dict))
         body = res.stdout if res.ok else f"{res.stdout}\n[stderr]\n{res.stderr}".strip()
         body = clip_tool_output(body or "(no output)")
+        note = _artifact_note(meta.get("artifacts"))
+        if note:
+            body = f"{body}\n{note}"
         # Surface a kernel restart (state loss) to the model from the structured
         # metadata flag rather than relying on a magic string in stdout.
         if meta.get("restarted"):
@@ -203,13 +206,51 @@ def _build_code_exec_tool(
         description="Run a Python snippet in a gVisor sandbox (30s cap). State persists across "
         "calls in a chat; loaded data and saved files survive. Your working directory is this "
         "chat's own session directory: `inputs/` holds files from the conversation, and anything "
-        "you save to `outputs/` is returned as an artifact. The agent's persistent volume - the "
+        "you save to `outputs/` up to 32 MB is returned as an artifact, and the tool result tells "
+        "you which files came back. The agent's persistent volume - the "
         "same files the `file` tool sees - is mounted read-only at /workspace; read it by absolute "
         "path (e.g. /workspace/notes.md), and use the `file` tool to write there. Returns "
         "stdout/stderr.",
         input_schema=_CODE_EXEC_SCHEMA,
         invoke=_invoke,
     )
+
+
+_ARTIFACT_LIMIT_BYTES = 32 * 1024 * 1024
+
+
+def _artifact_note(produced: Any) -> str:
+    """One line naming the files this call produced, and any that are too large.
+
+    The model was previously told nothing about artifacts at all -- not even on
+    success -- while the tool description promised unconditionally that anything
+    saved to `outputs/` comes back. A model that cannot tell a delivered chart
+    from a dropped one will assert it delivered the chart. Naming the oversized
+    ones also gives it something to do about them (downsample, split, summarise)
+    instead of repeating the same write.
+    """
+    if not isinstance(produced, list):
+        return ""
+    delivered: list[str] = []
+    too_large: list[str] = []
+    for art in produced:
+        if not isinstance(art, dict):
+            continue
+        name = str(art.get("filename") or "artifact")
+        size = int(art.get("size_bytes") or 0)
+        if size > _ARTIFACT_LIMIT_BYTES:
+            too_large.append(f"{name} ({size} bytes)")
+        else:
+            delivered.append(name)
+    parts = []
+    if delivered:
+        parts.append(f"[artifacts returned: {', '.join(delivered)}]")
+    if too_large:
+        parts.append(
+            f"[NOT returned, over the {_ARTIFACT_LIMIT_BYTES} byte limit: {', '.join(too_large)}. "
+            "The file is still in outputs/ inside the sandbox; write a smaller one to deliver it.]"
+        )
+    return "\n".join(parts)
 
 
 def _build_file_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps) -> Tool:
