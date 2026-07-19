@@ -6,7 +6,7 @@ earlier, and rows a project cascade never stamps at all. It therefore found
 nothing, every night. These tests pin the reclamation sweep that replaced it:
 enumerate what exists, diff against what should, and purge the difference.
 
-The Docker SDK is a hard dependency but the daemon is not, so ``_docker_client``
+The Docker SDK is a hard dependency but the daemon is not, so ``docker_client``
 is the seam every test fakes.
 """
 
@@ -172,7 +172,7 @@ def _install(
 ) -> _FakeMinio:
     docker = _FakeDocker(volumes or [])
     minio = _FakeMinio(objects or {})
-    monkeypatch.setattr(gc, "_docker_client", lambda: docker)
+    monkeypatch.setattr(gc, "docker_client", lambda: docker)
     monkeypatch.setattr(gc, "_minio_client", lambda: minio)
     monkeypatch.setattr(
         gc,
@@ -560,7 +560,7 @@ async def test_docker_enumeration_failure_does_not_block_the_minio_half(monkeypa
     def _boom():
         raise RuntimeError("docker daemon unreachable")
 
-    monkeypatch.setattr(gc, "_docker_client", _boom)
+    monkeypatch.setattr(gc, "docker_client", _boom)
 
     await gc.run_once(now=_NOW)
 
@@ -630,7 +630,7 @@ class TestTheInvariantTheSweepRestsOn:
 class TestParsing:
     def test_volume_name_roundtrips(self) -> None:
         agent_id = uuid.uuid4()
-        assert gc._parse_agent_id(gc._volume_name(agent_id)) == agent_id
+        assert gc.parse_agent_id(gc._volume_name(agent_id)) == agent_id
 
     @pytest.mark.parametrize(
         "name",
@@ -652,7 +652,7 @@ class TestParsing:
         ],
     )
     def test_rejects_non_agent_volumes(self, name: str) -> None:
-        assert gc._parse_agent_id(name) is None
+        assert gc.parse_agent_id(name) is None
 
     def test_prefix_roundtrips(self) -> None:
         agent_id = uuid.uuid4()
@@ -732,13 +732,13 @@ class TestSessionVolumeNameParsing:
         assert gc._volume_name(agent_id) == ds._agent_volume_name(agent_id)
         # And the GC can parse what the sandbox creates, not merely match its string.
         assert gc._parse_session_ids(ds._session_volume_name(agent_id, room_id)) == (agent_id, room_id)
-        assert gc._parse_agent_id(ds._agent_volume_name(agent_id)) == agent_id
+        assert gc.parse_agent_id(ds._agent_volume_name(agent_id)) == agent_id
 
     def test_agent_volume_is_not_mistaken_for_a_session_volume(self) -> None:
         """The two prefixes must not overlap in either direction."""
         agent_id = uuid.uuid4()
         assert gc._parse_session_ids(gc._volume_name(agent_id)) is None
-        assert gc._parse_agent_id(gc._session_volume_name(agent_id, uuid.uuid4())) is None
+        assert gc.parse_agent_id(gc._session_volume_name(agent_id, uuid.uuid4())) is None
 
     @pytest.mark.parametrize(
         "name",

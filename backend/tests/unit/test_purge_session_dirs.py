@@ -40,7 +40,7 @@ class _FakeSandbox:
 
 
 def _install(monkeypatch, names: list[str]) -> None:
-    monkeypatch.setattr(ps, "_docker_client", lambda: _FakeDocker(names))
+    monkeypatch.setattr(ps, "docker_client", lambda: _FakeDocker(names))
 
 
 def test_enumerates_only_agent_volumes(monkeypatch) -> None:
@@ -109,7 +109,7 @@ def test_unreachable_daemon_raises_instead_of_reporting_a_clean_host(monkeypatch
     def _boom():
         raise RuntimeError("daemon unreachable")
 
-    monkeypatch.setattr(ps, "_docker_client", _boom)
+    monkeypatch.setattr(ps, "docker_client", _boom)
 
     with pytest.raises(ps.PurgeUnavailable):
         ps.run(armed=False)

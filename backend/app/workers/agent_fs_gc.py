@@ -157,8 +157,12 @@ def _parse_uuid_strict(text: str) -> uuid.UUID | None:
     return parsed if str(parsed) == text else None
 
 
-def _parse_agent_id(name: str) -> uuid.UUID | None:
+def parse_agent_id(name: str) -> uuid.UUID | None:
     """Extract the agent uuid from a volume name, or None if it is not ours.
+
+    Public: `smap.maintenance.purge_session_dirs` enumerates the same volumes and
+    must apply the same strictness. A second parser there would be exactly the
+    laxity this one exists to prevent.
 
     A name we cannot parse belongs to something else on the same daemon — the
     host had 144 unrelated volumes when this was written — and must never be
@@ -235,7 +239,7 @@ def _parse_created_at(raw: str | None) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def _docker_client() -> Any:
+def docker_client() -> Any:
     """Seam: the daemon connection, so tests can fake it without one."""
     import docker
 
@@ -243,7 +247,7 @@ def _docker_client() -> Any:
 
 
 def _minio_client() -> Any:
-    """Seam, mirroring ``_docker_client``."""
+    """Seam, mirroring ``docker_client``."""
     from shared_kernel.storage import get_minio_client
 
     return get_minio_client()
@@ -354,14 +358,14 @@ def _enumerate_volumes() -> list[tuple[uuid.UUID, Any]]:
     ``volumes.list()`` is a single unpaginated call, acceptable nightly (§9).
     """
     try:
-        client = _docker_client()
+        client = docker_client()
         volumes = client.volumes.list()
     except Exception as exc:
         _log.warning("agent_fs_gc: volume enumeration failed, skipping volume half: %s", exc)
         return []
     found: list[tuple[uuid.UUID, Any]] = []
     for volume in volumes:
-        agent_id = _parse_agent_id(getattr(volume, "name", "") or "")
+        agent_id = parse_agent_id(getattr(volume, "name", "") or "")
         if agent_id is not None:
             found.append((agent_id, volume))
     return found
@@ -375,7 +379,7 @@ def _enumerate_session_volumes() -> list[tuple[uuid.UUID, uuid.UUID, Any]]:
     tables and guarded separately, and fusing them would couple those.
     """
     try:
-        client = _docker_client()
+        client = docker_client()
         volumes = client.volumes.list()
     except Exception as exc:
         _log.warning("agent_fs_gc: session volume enumeration failed, skipping that half: %s", exc)
@@ -432,22 +436,11 @@ def _sweep_session_volumes(
                 )
             continue
         would += 1
-        if not armed:
-            _log.warning(
-                "agent_fs_gc: DRY RUN would purge session volume %s (%s) — set %s to arm",
-                name,
-                reason,
-                _ARMED_ENV,
-            )
-            continue
-        try:
-            volume.remove(force=False)
-        except Exception as exc:
+        disposition = _remove_or_report(volume, name, reason, "session volume", armed=armed)
+        if disposition == "purged":
+            purged += 1
+        elif disposition == "declined":
             declined += 1
-            _log.warning("agent_fs_gc: failed to remove %s: %s", name, exc)
-            continue
-        purged += 1
-        _log.info("agent_fs_gc: removed session volume %s (%s)", name, reason)
     return SweepReport(
         seen=len(volumes),
         live=live,
@@ -502,6 +495,35 @@ def _prefix_newest(client: Any, bucket: str, prefix: str, sink: list[Any]) -> da
     return _newest_object(sink)
 
 
+def _remove_or_report(volume: Any, name: str, reason: str, kind: str, *, armed: bool) -> str:
+    """Perform the destructive step for one artifact. Returns its disposition.
+
+    Shared by both sweeps: this is the only code in the module that deletes
+    anything, and duplicating it put the ``force=False`` decision below -- the
+    module's single most consequential line -- in two places that could drift
+    apart. Classification stays in the callers, which genuinely differ (one
+    table vs two).
+
+    Returns one of ``"would"`` / ``"purged"`` / ``"declined"``.
+    """
+    if not armed:
+        _log.warning(
+            "agent_fs_gc: DRY RUN would purge %s %s (%s) — set %s to arm", kind, name, reason, _ARMED_ENV
+        )
+        return "would"
+    try:
+        # force=False deliberately: the daemon's "volume is in use by container
+        # X" refusal is the one guard here that does not depend on the DB join
+        # being right, and it is the last thing standing between a
+        # misclassification and a running agent's live data.
+        volume.remove(force=False)
+    except Exception as exc:
+        _log.warning("agent_fs_gc: failed to remove %s: %s", name, exc)
+        return "declined"
+    _log.info("agent_fs_gc: removed %s %s (%s)", kind, name, reason)
+    return "purged"
+
+
 def _sweep_volumes(
     volumes: list[tuple[uuid.UUID, Any]],
     rows: dict[uuid.UUID, datetime | None],
@@ -528,23 +550,11 @@ def _sweep_volumes(
                 _log.warning("agent_fs_gc: declining to purge volume %s (%s)", name, reason)
             continue
         would += 1
-        if not armed:
-            _log.warning(
-                "agent_fs_gc: DRY RUN would purge volume %s (%s) — set %s to arm", name, reason, _ARMED_ENV
-            )
-            continue
-        try:
-            # force=False deliberately: the daemon's "volume is in use by
-            # container X" refusal is the one guard here that does not depend on
-            # the DB join being right, and it is the last thing standing between
-            # a misclassification and a running agent's live data.
-            volume.remove(force=False)
-        except Exception as exc:
+        disposition = _remove_or_report(volume, name, reason, "volume", armed=armed)
+        if disposition == "purged":
+            purged += 1
+        elif disposition == "declined":
             declined += 1
-            _log.warning("agent_fs_gc: failed to remove %s: %s", name, exc)
-            continue
-        purged += 1
-        _log.info("agent_fs_gc: removed volume %s (%s)", name, reason)
     return SweepReport(
         seen=len(volumes),
         live=live,
