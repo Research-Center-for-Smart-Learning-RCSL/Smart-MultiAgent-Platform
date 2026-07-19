@@ -193,7 +193,7 @@ fetched via `read_skill`. See `docs/tasks/2026-07-16-agent-skills/`.
   - Phase-1 failure → `failed`, nothing committed.
   - Phase-2 failure → `failed_compensating`; a reconciliation worker (period 60s, not 10min) retries Qdrant up to 5× exp-backoff, else rolls back Neo4j via pre-build snapshot cached in Redis `graphrag:build:{config_id}:{build_id}`; final state `failed` with previous active build preserved.
 - Build lock: Redis key `graphrag:lock:{config_id}` with **10-min TTL**, released on completion (R11a.01).
-- Admin override (R11a.02): `POST /api/admin/graphrag/{id}/reset` force-sets `last_build_state = 'idle'`; always audited as `admin.graphrag_reset`.
+- Admin override (R11a.02): `POST /api/admin/graphrag/{id}/reset` discards any in-flight build and sets `last_build_state = 'idle'` on a clean discard; an unfinished rollback lands on the read-blocked `'recovery_unavailable'` even with `force=true`. Always audited as `admin.graphrag_reset`.
 
 **Key IDs.** §11, §11.2a, `[R11.01]`–`[R11.06]`, `[R11a.01]`–`[R11a.02]`.
 

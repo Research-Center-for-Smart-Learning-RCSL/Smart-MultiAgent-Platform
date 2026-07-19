@@ -44,7 +44,7 @@
 | POST | `/api/admin/restore/{type}/{id}` | Restore soft-deleted within 60 d (R8.13). |
 | GET | `/api/admin/metrics` | System health + usage aggregate. |
 | PATCH | `/api/admin/rate-limits/{key}` | Tune `rate_limit_policies` (R19.04). |
-| POST | `/api/admin/graphrag/{id}/reset` | Force `last_build_state='idle'` (R11a.02). |
+| POST | `/api/admin/graphrag/{id}/reset` | Discard an in-flight build: `last_build_state='idle'` on a clean discard, `'recovery_unavailable'` if the rollback did not finish (R11a.02). |
 
 - Admin never sees plaintext keys (R16.05); endpoints return masked previews.
 
