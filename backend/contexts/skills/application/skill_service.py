@@ -22,12 +22,15 @@ from contexts.skills.domain.errors import (
     SkillNameTaken,
     SkillNotFound,
     SkillRestoreConflict,
+    SkillTextRejected,
     SkillVersionMismatch,
 )
 from contexts.skills.domain.models import (
     MAX_DESCRIPTION_CHARS,
+    MAX_LIST_ITEMS,
     MAX_NAME_CHARS,
     MAX_TOOL_NAME_CHARS,
+    SKILL_NAME_RE,
     Skill,
     SkillDraft,
     SkillScope,
@@ -66,16 +69,37 @@ def _assert_text_fields_ok(
     the rule used to hold only where each writer's author remembered to call it.
 
     `None` means "not part of this write" and is skipped, so a patch touching one field
-    does not fail on the fields it omits. `body` is deliberately absent: it is multi-line
-    markdown and the rule rejects newlines, so applying it here would reject every real
-    skill (Q-1). `body` is capped at the API instead and never enters the index.
+    does not fail on the fields it omits.
+
+    Two fields are deliberately absent. `body` is multi-line markdown and the rule rejects
+    newlines, so applying it here would reject every real skill (Q-1); it is capped at the
+    API instead, never enters the index, and is escaped into a JSON tool result rather than
+    into system-prompt text. `extra_frontmatter` is an untyped JSONB dict that no model
+    ever sees — `render_index` emits only `name` and `description`, and `read_skill` does
+    not carry it — so its rule is applied at the two places it can escape instead: the
+    bundle parser on the way in and `render_skill_md` on the way out.
     """
     if name is not None:
         assert_text_ok("name", name, max_chars=MAX_NAME_CHARS)
+        if not SKILL_NAME_RE.match(name):
+            # The charset rule is not enough for `name` alone, because `name` is a
+            # directory component under /workspace/skills/ (`turn_engine`) — so a
+            # traversal segment here has a filesystem consequence the other fields do
+            # not. Both real writers enforce the pattern already; it is restated at the
+            # gate for the same reason the charset rule is, since "enforced wherever
+            # someone remembered" is what this function exists to stop being true.
+            raise SkillTextRejected("name", "must be lowercase alphanumeric with hyphens")
     if description is not None:
         assert_text_ok("description", description, max_chars=MAX_DESCRIPTION_CHARS)
     for field, values in (("requires", requires), ("allowed_tools", allowed_tools)):
-        for value in values or ():
+        if values is None:
+            continue
+        if len(values) > MAX_LIST_ITEMS:
+            # Count, not just per-item length: neither list reaches the index, so an
+            # unbounded one is a load problem rather than an injection one — but it is
+            # re-walked every turn, and only the API was capping it.
+            raise SkillTextRejected(field, f"exceeds {MAX_LIST_ITEMS} entries")
+        for value in values:
             assert_text_ok(field, value, max_chars=MAX_TOOL_NAME_CHARS)
 
 
@@ -214,16 +238,20 @@ class SkillService:
         request_id: uuid.UUID | None = None,
     ) -> Skill:
         """Patch a skill. `name` is not patchable — see `SkillDraft`."""
-        # Only what the draft carries: every field is optional on a patch, so validating
-        # an absent one would fail on `None` rather than on any rule.
+        current = await self._assert_owned(skill_id, scope, owner_id=owner_id)
+        self._assert_version(current, expected_version)
+
+        # After ownership, not before. The charset rule is about the caller's own input and
+        # leaks nothing about the target, but this module's invariant is that a caller who
+        # cannot prove ownership gets 404 and nothing else — which is a far easier property
+        # to keep than a per-error argument about which ones happen to be safe to reveal.
+        # Only what the draft carries: every field is optional on a patch, so validating an
+        # absent one would fail on `None` rather than on any rule.
         _assert_text_fields_ok(
             description=draft.description,
             requires=draft.requires,
             allowed_tools=draft.allowed_tools,
         )
-
-        current = await self._assert_owned(skill_id, scope, owner_id=owner_id)
-        self._assert_version(current, expected_version)
 
         values: dict[str, Any] = {}
         if draft.description is not None:

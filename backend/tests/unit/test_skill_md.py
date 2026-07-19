@@ -21,7 +21,11 @@ from contexts.skills.application.skill_md import (
     split_frontmatter,
 )
 from contexts.skills.domain.errors import BundleInvalid
-from contexts.skills.domain.models import MAX_DESCRIPTION_CHARS, MAX_TOOL_NAME_CHARS
+from contexts.skills.domain.models import (
+    MAX_DESCRIPTION_CHARS,
+    MAX_LIST_ITEMS,
+    MAX_TOOL_NAME_CHARS,
+)
 from contexts.skills.domain.text_rules import INDEX_DELIMITER_MARKER
 
 
@@ -363,6 +367,30 @@ class TestTheCharsetRuleReachesImport:
         assert MAX_DESCRIPTION_CHARS != MAX_TOOL_NAME_CHARS
         m = parse_skill_md(doc(f"name: t\ndescription: {'x' * MAX_DESCRIPTION_CHARS}"))
         assert len(m.description) == MAX_DESCRIPTION_CHARS
+
+    @pytest.mark.parametrize("key", ["allowed-tools", "x-smap-requires"])
+    def test_the_number_of_list_entries_is_capped(self, key: str) -> None:
+        """The per-item charset rule says nothing about how many items there are, and the
+        parser capped the count at nothing while the API capped it at 64. Neither list
+        reaches the index, so this is load rather than injection -- but the entries persist
+        to an array column and are re-walked every turn."""
+        entries = ", ".join(f"tool-{i}" for i in range(MAX_LIST_ITEMS + 1))
+
+        with pytest.raises(BundleInvalid) as exc:
+            parse_skill_md(doc(f"name: t\ndescription: d\n{key}: [{entries}]"))
+
+        assert exc.value.key == key
+        assert f"exceeds {MAX_LIST_ITEMS} entries" in exc.value.reason
+
+    @pytest.mark.parametrize(
+        ("key", "attr"),
+        [("allowed-tools", "allowed_tools"), ("x-smap-requires", "requires")],
+    )
+    def test_a_list_at_the_entry_cap_is_still_accepted(self, key: str, attr: str) -> None:
+        """The boundary itself, so a future edit cannot quietly tighten it by one."""
+        entries = ", ".join(f"tool-{i}" for i in range(MAX_LIST_ITEMS))
+        m = parse_skill_md(doc(f"name: t\ndescription: d\n{key}: [{entries}]"))
+        assert len(getattr(m, attr)) == MAX_LIST_ITEMS
 
     def test_the_rule_covers_license(self) -> None:
         with pytest.raises(BundleInvalid) as exc:
