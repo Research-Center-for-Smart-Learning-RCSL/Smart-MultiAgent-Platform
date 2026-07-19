@@ -235,9 +235,13 @@ def _build_file_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps) -
 
     return Tool(
         name="file",
+        # Deliberately does not promise what `list` returns: op=list executes inside
+        # smap/mcp-runtime, which is tag-pinned and deploys independently of this
+        # backend. Against a stale image the listing is still bare names, and a
+        # description that asserted otherwise would be actively wrong there.
         description="Read/list/write files in the agent's /workspace volume. Paths are rooted at "
-        "/workspace and `list` returns absolute paths; pass those to `code_exec` verbatim, since "
-        "its working directory is elsewhere and a bare name will not resolve there.",
+        "/workspace. When handing a path to `code_exec`, use the absolute /workspace/... form - "
+        "its working directory is elsewhere, so a bare name will not resolve there.",
         input_schema=_FILE_SCHEMA,
         invoke=_invoke,
     )
