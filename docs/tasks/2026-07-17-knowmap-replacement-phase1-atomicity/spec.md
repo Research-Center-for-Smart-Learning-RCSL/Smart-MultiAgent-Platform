@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-07-17
 requirements: [R11.04, R11.12]
 ---
@@ -145,11 +145,14 @@ Verified working setup: a standalone `neo4j:5.24-community` container with `-p 7
 is `bolt://neo4j:7687`, `backend/app/config/settings.py:78`). Baseline confirmed green under
 this setup before any change.
 
-**Pre-existing defect this task must not inherit:** that test file declares no
-`pytest.mark.integration`, while `pyproject.toml:357-358` sets `testpaths = ["tests"]` with
-`--strict-markers`. A plain `pytest -q` therefore collects it and fails with
-`ValueError: Cannot resolve address neo4j:7687` whenever no Neo4j is present. Add the marker
-so the default suite stays clean; the new tests added here inherit it.
+**Marker handling is already correct — no action needed.** `tests/integration/conftest.py:30-36`
+adds `pytest.mark.integration` to every test under that directory at collection time, so the
+file needs no `pytestmark` of its own and the CI unit job's
+`-m "not integration and not e2e and not wiring"` (`.github/workflows/ci.yml:83`) already
+deselects it. New tests added to this file inherit the same treatment. Naming the file
+explicitly on the command line bypasses the marker filter, which is why a bare
+`pytest tests/integration/test_knowmap_neo4j_replacement.py` fails without a cluster; that is
+pytest behaving as intended, not a defect.
 
 ## 9. Risks and Rollback
 
@@ -172,8 +175,11 @@ schema migration.
 - [ ] AC-7: Real-Neo4j integration, focused unit tests, backend lint, format, and type checks
   pass. The integration tier is run against a real cluster per the §8 prerequisite, not
   declared N/A.
-- [ ] AC-8: `test_knowmap_neo4j_replacement.py` carries `pytest.mark.integration`, so a plain
-  `pytest -q` on a machine with no Neo4j neither collects nor fails it.
+- [ ] AC-8: WITHDRAWN before any code was written. It required adding a
+  `pytest.mark.integration` to `test_knowmap_neo4j_replacement.py`, on the mistaken premise
+  that the marker was missing. `tests/integration/conftest.py:30-36` already applies it to the
+  whole directory at collection time, so the criterion described a defect that does not exist.
+  Retained rather than renumbered, per the append-only rule in `docs/tasks/README.md`.
 
 ## 11. SRS Delta
 
