@@ -11,6 +11,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql as pg
 
+from contexts.knowledge.domain.graphrag import build_state_check_sql
 from shared_kernel.db import metadata
 
 knowmap_configs = sa.Table(
@@ -40,20 +41,12 @@ knowmap_configs = sa.Table(
     sa.Column("embed_model", sa.Text, nullable=True),
     sa.Column("embed_dim", sa.Integer, nullable=True),
     sa.Column("last_build_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    # Text + CHECK since 0058 — see graphrag_tables.py for why the ENUM was retired.
     sa.Column(
         "last_build_state",
-        pg.ENUM(
-            "idle",
-            "running",
-            "neo4j_committed",
-            "qdrant_committed",
-            "failed_compensating",
-            "failed",
-            name="graphrag_build_state",
-            create_type=False,
-        ),
+        sa.Text,
         nullable=False,
-        server_default=sa.text("'idle'::graphrag_build_state"),
+        server_default=sa.text("'idle'"),
     ),
     sa.Column("last_build_error", sa.Text, nullable=True),
     # F-12: monotonic corpus revision bumped per committed document mutation; the
@@ -63,6 +56,7 @@ knowmap_configs = sa.Table(
     sa.Column("built_corpus_revision", sa.Integer, nullable=True),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.CheckConstraint(build_state_check_sql(), name="build_state_valid"),
 )
 
 
