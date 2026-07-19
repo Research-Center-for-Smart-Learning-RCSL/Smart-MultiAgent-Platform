@@ -9,6 +9,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql as pg
 
+from contexts.knowledge.domain.graphrag import build_state_check_sql
 from shared_kernel.db import metadata
 
 graphrag_configs = sa.Table(
@@ -26,21 +27,17 @@ graphrag_configs = sa.Table(
     ),
     sa.Column("trigger_config", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("last_build_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    # Text + CHECK, not a PG ENUM (migration 0058): the state set grows, and this
+    # backend has no ALTER TYPE ... ADD VALUE precedent. The CHECK is named with the
+    # short form so shared_kernel/db's ck_%(table_name)s_%(constraint_name)s
+    # convention renders exactly the literal 0058 creates.
     sa.Column(
         "last_build_state",
-        pg.ENUM(
-            "idle",
-            "running",
-            "neo4j_committed",
-            "qdrant_committed",
-            "failed_compensating",
-            "failed",
-            name="graphrag_build_state",
-            create_type=False,
-        ),
+        sa.Text,
         nullable=False,
-        server_default=sa.text("'idle'::graphrag_build_state"),
+        server_default=sa.text("'idle'"),
     ),
+    sa.CheckConstraint(build_state_check_sql(), name="build_state_valid"),
     sa.Column("last_build_error", sa.Text, nullable=True),
     # Embedding pin (Phase 2a D2, migration 0045). One (provider, model, dim)
     # per project so every config shares the per-project Qdrant collection at a

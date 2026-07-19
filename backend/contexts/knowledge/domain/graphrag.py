@@ -77,6 +77,23 @@ class BuildState(str, enum.Enum):
     QDRANT_COMMITTED = "qdrant_committed"
     FAILED_COMPENSATING = "failed_compensating"
     FAILED = "failed"
+    # Terminal and provably irrecoverable: an in-flight build whose Redis pointer
+    # or snapshot expired past the 24-hour compensation window, so the pre-build
+    # graph can never be restored. Distinct from FAILED, which means "the build
+    # did not land, the last good graph is intact and readable". See
+    # docs/tasks/2026-07-17-graphrag-reset-expired-recovery/.
+    RECOVERY_UNAVAILABLE = "recovery_unavailable"
+
+
+def build_state_check_sql(column: str = "last_build_state") -> str:
+    """SQL CHECK body pinning a column to the :class:`BuildState` value set.
+
+    The table modules derive their CHECK from this so the constraint cannot drift
+    from the enum. Migrations deliberately do NOT call it — a migration's value
+    list is a snapshot of the enum at that revision (0057's convention), since a
+    migration must keep describing the schema it actually produced.
+    """
+    return f"{column} IN (" + ", ".join(f"'{s.value}'" for s in BuildState) + ")"
 
 
 # The build states in which the graph is mid-2PC and therefore MUST NOT be read

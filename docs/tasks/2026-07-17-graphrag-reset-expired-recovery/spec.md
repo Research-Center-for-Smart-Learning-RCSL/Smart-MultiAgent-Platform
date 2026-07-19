@@ -218,13 +218,20 @@ platform-admin check, OpenAPI regeneration, and client regeneration as the exist
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: Missing-pointer and missing-snapshot default-reset tests fail before the fix and
-  pass after.
-- [ ] AC-2: Default reset of an in-flight config without complete recovery material returns
-  503, never sets `IDLE`, performs no delete-only rollback, and clears no material.
-- [ ] AC-3: Default reset leaves the previous state unchanged; audit records
+- [x] AC-1: Missing-pointer and missing-snapshot default-reset tests fail before the fix and
+  pass after. Verified: the 9 new tests in `test_graphrag_reset.py` failed with
+  `DID NOT RAISE GraphRagResetCompensationFailed` before the fix and pass after
+  (commit `060d522`).
+- [x] AC-2: Default reset of an in-flight config without complete recovery material returns
+  503, never sets `IDLE`, performs no delete-only rollback, and clears no material. Verified
+  by `test_missing_snapshot_refuses_and_touches_nothing` and
+  `test_missing_pointer_on_in_flight_state_refuses`, both parametrised over all three
+  in-flight states.
+- [x] AC-3: Default reset leaves the previous state unchanged; audit records
   `compensation_unavailable`, forced=false, previous state, and build id when known, without
-  snapshot/error secrets.
+  snapshot/error secrets. Verified by
+  `test_unavailable_audit_metadata_is_distinct_and_carries_no_secrets` (asserts the exact
+  metadata key set) and `test_missing_pointer_audit_records_null_build_id`.
 - [ ] AC-4: `recovery_unavailable` is terminal, not endlessly retried, and blocks both the
   turn-context retrieval path and the graph visualization reads for Concept and Knowledge
   Maps; ordinary safe `FAILED` remains readable on both.
@@ -234,10 +241,16 @@ platform-admin check, OpenAPI regeneration, and client regeneration as the exist
   retry, and documented `force=true` behavior remain unchanged.
 - [ ] AC-7: Migration, API/client generation, UI/i18n, focused tests, lint, format,
   typecheck, and frontend build pass.
-- [ ] AC-8: `last_build_state` is `Text` + CHECK on both config tables, the
+- [x] AC-8: `last_build_state` is `Text` + CHECK on both config tables, the
   `graphrag_build_state` type is gone, the CHECK accepts exactly the seven states, and the
   downgrade remaps `recovery_unavailable` rows to `failed_compensating` before re-minting
-  the type.
+  the type. Verified against a live PostgreSQL 16 on a full upgrade -> downgrade -> upgrade
+  round trip: both columns became `text` with `'idle'::text` default and the type was
+  dropped (`pg_type` count 0); the CHECK accepted `recovery_unavailable` and rejected
+  `bogus_state`; the downgrade logged `remapped 1 graphrag_configs row(s)`, restored the
+  6-value enum, and left no orphan CHECK. `alembic check` reports zero drift for
+  `last_build_state` and `build_state_valid` (the report's other entries are pre-existing
+  partition/index noise unrelated to this change).
 - [ ] AC-9: A config in `recovery_unavailable` is not selected by the reconciler sweep and
   not auto-built by triggers, but IS accepted by manual rebuild and by the build engine.
 - [ ] AC-10: Knowledge Map exposes an `admin_reset` with the same platform-admin
@@ -253,7 +266,19 @@ None. This restores the existing [R11.04] and [R11a.02] contract.
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+- D-1: Made `backend/alembic.ini` ASCII-only (commit `4178661`), which the spec did not
+  call for. Alembic reads that file with `encoding="locale"`
+  (`alembic/util/compat.py:87`), so the em-dash on line 1 and the section sign on line 14
+  raised `UnicodeDecodeError` on any non-UTF-8 locale — `alembic` would not start at all on
+  the zh-TW Windows (cp950) machine this was built on, and neither `PYTHONUTF8=1` nor
+  `-X utf8` helps because `locale.getencoding()` ignores UTF-8 mode. This blocked AC-8's
+  contract gate outright, so it was fixed here rather than deferred. Agreed with the user
+  before the change; the alternative offered was to leave it and verify AC-8 on CI instead.
+- D-2: `plan_discard`'s outcome enum lives in
+  `contexts/knowledge/application/graphrag_config_service.py` rather than in a new shared
+  module. §7.4 called for "a small application-layer discard primitive"; keeping it beside
+  its only caller avoids a module whose sole purpose is to be shared with a reconciler path
+  that FU-4 records as still separate. Revisit if FU-4 is taken.
 
 ## 13. Follow-ups
 
@@ -270,6 +295,13 @@ Appended by `/build`.
   state change must be made twice.
 - FU-4: Reset and reconciler still duplicate discard logic even after the shared primitive in
   §7.4; the reconciler's `_finalize_failed` and the reset path remain separate call graphs.
+- FU-6: `project_embedding_pins`' CHECK carries a name mismatch: migration 0052 created
+  `ck_project_embedding_pins_kind`, but `embedding_pin_tables.py:37-40` passes that same
+  string as `sa.CheckConstraint(name=...)` on metadata that applies the
+  `ck_%(table_name)s_%(constraint_name)s` convention, so the ORM renders
+  `ck_project_embedding_pins_ck_project_embedding_pins_kind`. Autogenerate would propose
+  dropping and recreating it. Found while picking a non-colliding name for this task's
+  CHECK; pre-existing, so not fixed here.
 - FU-5: `plan_discard` only requires a snapshot when the prior state is in
   `IN_FLIGHT_BUILD_STATES`, per §7.4. A *settled* config (`idle`/`failed`) that still carries
   a stale current-build pointer with no snapshot therefore keeps the historical behaviour:
