@@ -920,6 +920,49 @@ async def test_no_files_stages_nothing_and_spawns_no_container(sandbox) -> None:
     assert sandbox.container.started is False
 
 
+async def test_kernel_mounts_the_agent_volume_read_only(sandbox, monkeypatch) -> None:
+    """T-1/AC-3. The kernel reads the agent volume; it does not write it.
+
+    The write bind served session state, which moved to /session. What was left
+    was a capability nothing needs and the one that turns a shared read into a
+    cross-room transfer: copy /session/inputs/x onto /workspace in room A, read
+    it back in room B ([R12.03b]).
+    """
+    agent_id, room = uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(sandbox.ds.DockerRunscSandbox, "_assert_runsc", _async_return(None))
+
+    await sandbox.box._create_kernel(sandbox.client, agent_id=agent_id, chatroom_id=room, name="k")
+
+    volumes = sandbox.client.create_kwargs["volumes"]
+    assert volumes[f"smap-agent-fs-{agent_id}"]["mode"] == "ro"
+    # The session volume must stay writable -- artifacts are written there, and it
+    # is room-scoped, so a write cannot cross a boundary.
+    assert volumes[f"smap-agent-session-{agent_id}-{room}"]["mode"] == "rw"
+
+
+async def test_the_writing_containers_keep_read_write(sandbox, monkeypatch) -> None:
+    """T-3/AC-4/AC-6. Only the container that runs agent code loses write access.
+
+    Pinned so a later "make the mounts consistent" sweep cannot read-only the
+    three containers whose entire job is modifying the volume -- a change that
+    would break file writes, staging and the legacy purge at once, and only at
+    runtime, since CI runs no containers.
+    """
+    monkeypatch.setattr(sandbox.ds.DockerRunscSandbox, "_assert_runsc", _async_return(None))
+    agent_id = uuid.uuid4()
+
+    await sandbox.box.run_file_op(agent_id=agent_id, op="list", path="/workspace")
+    assert sandbox.client.create_kwargs["volumes"][f"smap-agent-fs-{agent_id}"]["mode"] == "rw"
+
+    await sandbox.box.stage_agent_workspace_files(
+        agent_id=agent_id, files=[_staged("x.py")], manifest_sha="a"
+    )
+    assert sandbox.client.create_kwargs["volumes"][f"smap-agent-fs-{agent_id}"]["mode"] == "rw"
+
+    await sandbox.box.purge_legacy_session_dirs(agent_id=agent_id)
+    assert sandbox.client.create_kwargs["volumes"][f"smap-agent-fs-{agent_id}"]["mode"] == "rw"
+
+
 async def test_headless_code_exec_mounts_no_named_volume(sandbox, monkeypatch) -> None:
     """AC-6. The run-and-burn path (no chatroom) stays on a tmpfs.
 

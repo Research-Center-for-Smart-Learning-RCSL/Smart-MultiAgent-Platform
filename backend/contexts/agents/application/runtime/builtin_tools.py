@@ -204,8 +204,9 @@ def _build_code_exec_tool(
         "calls in a chat; loaded data and saved files survive. Your working directory is this "
         "chat's own session directory: `inputs/` holds files from the conversation, and anything "
         "you save to `outputs/` is returned as an artifact. The agent's persistent volume - the "
-        "same files the `file` tool sees - is at /workspace; refer to it by absolute path "
-        "(e.g. /workspace/notes.md). Returns stdout/stderr.",
+        "same files the `file` tool sees - is mounted read-only at /workspace; read it by absolute "
+        "path (e.g. /workspace/notes.md), and use the `file` tool to write there. Returns "
+        "stdout/stderr.",
         input_schema=_CODE_EXEC_SCHEMA,
         invoke=_invoke,
     )
