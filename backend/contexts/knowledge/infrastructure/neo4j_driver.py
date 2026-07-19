@@ -13,7 +13,7 @@ the client.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from contexts.knowledge.domain.graphrag import Triple
 
@@ -111,16 +111,17 @@ _PRUNE_STALE_CYPHER = (
 )
 
 
-def _upsert_cypher(*, replace: bool) -> str:
+def _build_upsert_cypher(*, replace: bool) -> str:
     """Triple-upsert Cypher, shared by the delta apply and atomic replacement.
 
     ``replace`` switches evidence/member provenance from the cross-build union
     (Concept Map delta) to the per-build reset described on
-    :data:`_EVIDENCE_SET_REPLACE`.
+    :data:`_EVIDENCE_SET_REPLACE`. Called twice at import time; the callers use
+    the resulting constants, not this builder.
 
     Node ``type`` (audit L1): a specific classification wins; an empty type
     (unknown) or the catch-all 'other' never downgrades a known specific type
-    (audit review #4 — the extractor maps low-confidence guesses to 'other', so
+    (audit review #4, the extractor maps low-confidence guesses to 'other', so
     without this a later 'other' would clobber an earlier 'person'). 'other' only
     fills a node that has no type yet.
     """
@@ -195,6 +196,10 @@ _RESTORE_EDGES_CYPHER = (
 )
 
 
+_UPSERT_CYPHER_DELTA = _build_upsert_cypher(replace=False)
+_UPSERT_CYPHER_REPLACE = _build_upsert_cypher(replace=True)
+
+
 def _triple_rows(triples: list[Triple]) -> list[dict[str, Any]]:
     """Flatten domain triples into the UNWIND row payload."""
     return [
@@ -258,12 +263,23 @@ class Neo4jAsyncDriver:
             "RETURN n.name AS name, n.type AS type, n.build_id AS build_id, "
             "n.project_id AS project_id"
         )
-        async with driver.session() as session:
-            result = await session.run(cypher, cid=str(config_id))
-            rows = [dict(rec) async for rec in result]
-            node_result = await session.run(node_cypher, cid=str(config_id))
+        cid = str(config_id)
+
+        # One transaction, for the same reason the writes use one: this is the
+        # compensation material, and edges read at a different instant from nodes
+        # would restore a subgraph that never existed (edges whose endpoints the
+        # node list omits, or nodes whose edges it does not). The per-config build
+        # lock normally serializes writers, but it is a Redis key with a TTL that
+        # is refreshed on a timer, so a lapsed lock reopens the window.
+        async def _read(tx: Any) -> dict[str, Any]:
+            edge_result = await tx.run(cypher, cid=cid)
+            edges = [dict(rec) async for rec in edge_result]
+            node_result = await tx.run(node_cypher, cid=cid)
             nodes = [dict(rec) async for rec in node_result]
-        return {"edges": rows, "nodes": nodes}
+            return {"edges": edges, "nodes": nodes}
+
+        async with driver.session() as session:
+            return cast(dict[str, Any], await session.execute_read(_read))
 
     async def apply_triples(
         self,
@@ -278,7 +294,7 @@ class Neo4jAsyncDriver:
         driver = await self._ensure()
         async with driver.session() as session:
             await session.run(
-                _upsert_cypher(replace=False),
+                _UPSERT_CYPHER_DELTA,
                 rows=_triple_rows(triples),
                 cid=str(config_id),
                 pid=str(project_id),
@@ -312,7 +328,7 @@ class Neo4jAsyncDriver:
             # An empty corpus still prunes: with no upsert, every existing relation
             # carries a stale build_id, so the prune is what empties the subgraph.
             if rows:
-                await tx.run(_upsert_cypher(replace=True), rows=rows, cid=cid, pid=pid, bid=bid)
+                await tx.run(_UPSERT_CYPHER_REPLACE, rows=rows, cid=cid, pid=pid, bid=bid)
             await tx.run(_PRUNE_STALE_CYPHER, cid=cid, bid=bid)
 
         async with driver.session() as session:
