@@ -575,8 +575,8 @@ async def test_build_fails_fast_when_builder_key_group_is_cross_project() -> Non
 @pytest.mark.asyncio
 async def test_replace_build_prunes_graph_and_uses_build_scoped_vector_sweep() -> None:
     # F-6: a full-corpus knowmap replacement build applies replacement semantics —
-    # apply_triples(replace=True), a stale-relation/entity removal pass, and the
-    # build-scoped Qdrant sweep (not the name-scoped supersede).
+    # the atomic replace_triples operation (upsert + stale removal in one Neo4j
+    # transaction) and the build-scoped Qdrant sweep (not the name-scoped supersede).
     cfg = _make_cfg()
     neo4j, vectors = FakeNeo4j(), FakeVectorStore()
     lock, snaps = FakeLock(), FakeSnapshots()
@@ -593,8 +593,8 @@ async def test_replace_build_prunes_graph_and_uses_build_scoped_vector_sweep() -
     result = await builder.run(config_id=cfg.id, mode="delta", triggered_by="manual", replace=True)
 
     assert result.state is BuildState.IDLE
-    # apply_triples carried the replacement flag, and the removal pass ran for this
-    # build inside Phase 1.
+    # Replacement went through the atomic port operation, which carries the upsert
+    # and the stale removal for this build together.
     assert neo4j.applied_replace == [True]
     assert neo4j.remove_stale_calls == [result.build_id]
     # The build-scoped vector sweep ran (a superset of the name-scoped supersede);
@@ -604,6 +604,42 @@ async def test_replace_build_prunes_graph_and_uses_build_scoped_vector_sweep() -
     sweep = vectors.points_not_in_build_calls[0]
     assert sweep["keep_build_id"] == result.build_id
     assert sweep["config_id"] == cfg.id
+
+
+@pytest.mark.asyncio
+async def test_replace_build_failure_commits_nothing_and_skips_phase2() -> None:
+    # A failed atomic replacement rolls the whole Neo4j phase back, so the builder
+    # must treat it as a Phase-1 failure: FAILED, and Phase 2 never starts. If it
+    # went on to Qdrant, the vector store would advertise a build the graph does
+    # not have ([R11.04], REQUIREMENTS.md 11.2a step 4).
+    cfg = _make_cfg()
+    boom = RuntimeError("prune failed inside the transaction")
+    neo4j, vectors = FakeNeo4j(raise_on_replace=boom), FakeVectorStore()
+    lock, snaps = FakeLock(), FakeSnapshots()
+    extractor = FakeExtractor(_make_triples())
+    builder, store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
+        extractor=extractor,
+    )
+
+    result = await builder.run(config_id=cfg.id, mode="delta", triggered_by="manual", replace=True)
+
+    assert result.state is BuildState.FAILED
+    assert result.triples_written == 0
+    assert str(boom) in (result.error or "")
+    # Nothing was recorded as applied — the fake models the transaction, so a raise
+    # leaves no trace, exactly as a rollback leaves no rows.
+    assert neo4j.applied == []
+    assert neo4j.remove_stale_calls == []
+    # Phase 2 never ran: no collection ensure, no upsert, and neither vector sweep.
+    assert vectors.upserts == []
+    assert vectors.points_not_in_build_calls == []
+    assert vectors.superseded_calls == []
+    assert BuildState.NEO4J_COMMITTED not in [t[0] for t in store.transitions]
 
 
 # ---------------------------------------------------------------------------

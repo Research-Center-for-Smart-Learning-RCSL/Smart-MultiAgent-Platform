@@ -259,22 +259,29 @@ class Neo4jAsyncDriver:
         build_id: uuid.UUID,
         triples: list[Triple],
     ) -> int:
+        """Upsert + stale prune in ONE managed transaction (see the port docstring).
+
+        ``execute_write`` rather than two auto-commit ``session.run`` calls: the
+        prune must not be able to fail after the upsert is already durable. It may
+        re-run the callback on a retryable error, which is safe because both
+        statements are keyed on ``build_id`` and so are idempotent for this build.
+
+        This is the only managed transaction in the adapter; every other method is
+        a single statement, for which auto-commit is equivalent.
+        """
         driver = await self._ensure()
         rows = _triple_rows(triples)
-        async with driver.session() as session:
+        cid, pid, bid = str(config_id), str(project_id), str(build_id)
+
+        async def _replace(tx: Any) -> None:
+            # An empty corpus still prunes: with no upsert, every existing relation
+            # carries a stale build_id, so the prune is what empties the subgraph.
             if rows:
-                await session.run(
-                    _upsert_cypher(replace=True),
-                    rows=rows,
-                    cid=str(config_id),
-                    pid=str(project_id),
-                    bid=str(build_id),
-                )
-            await session.run(
-                _PRUNE_STALE_CYPHER,
-                cid=str(config_id),
-                bid=str(build_id),
-            )
+                await tx.run(_upsert_cypher(replace=True), rows=rows, cid=cid, pid=pid, bid=bid)
+            await tx.run(_PRUNE_STALE_CYPHER, cid=cid, bid=bid)
+
+        async with driver.session() as session:
+            await session.execute_write(_replace)
         return len(triples)
 
     async def delete_by_build(

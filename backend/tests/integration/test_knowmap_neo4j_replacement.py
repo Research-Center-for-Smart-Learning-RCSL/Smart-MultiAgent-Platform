@@ -16,8 +16,10 @@ import uuid
 from collections.abc import AsyncIterator
 
 import pytest
+from neo4j.exceptions import CypherSyntaxError
 
 from contexts.knowledge.domain.graphrag import Triple
+from contexts.knowledge.infrastructure import neo4j_driver as neo4j_driver_mod
 from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
 
 _PROJECT_ID = uuid.uuid4()
@@ -94,3 +96,67 @@ async def test_replacement_removes_absent_and_recomputes_evidence(driver: Neo4jA
     assert set(edges3[("alice", "knows", "bob")]["evidence_msg_ids"]) == {"docB", "docC"}
 
     await driver.delete_all(config_id=config_id)
+
+
+async def test_replacement_failure_leaves_the_pre_build_graph(
+    driver: Neo4jAsyncDriver,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A replacement whose prune step fails must commit nothing.
+
+    [R11.04] / REQUIREMENTS.md 11.2a step 4. This is the regression for the split
+    that made the upsert durable before the prune ran: the resulting graph was a
+    mixture of the old and new corpus, and a `FAILED` config still reads
+    (graphrag_retrieve skips only in-flight states), so deleted-document facts
+    stayed queryable.
+    """
+    config_id = uuid.uuid4()
+    await driver.delete_all(config_id=config_id)
+
+    await _apply(
+        driver,
+        config_id,
+        uuid.uuid4(),
+        [
+            Triple("alice", "knows", "bob", 0.9, ("docA",)),
+            Triple("xthing", "mentions", "ything", 0.7, ("docA",)),
+        ],
+    )
+    before = await driver.snapshot_subgraph(config_id=config_id, build_id=None)
+
+    # Fail the prune the way a real prune failure arrives: an error raised by the
+    # server while the statement executes, after the upsert has already been sent.
+    monkeypatch.setattr(neo4j_driver_mod, "_PRUNE_STALE_CYPHER", "MATCH (n) RETURN n.no_such(")
+
+    # This replacement would drop xthing/ything and repoint alice away from bob.
+    with pytest.raises(CypherSyntaxError):
+        await driver.replace_triples(
+            config_id=config_id,
+            project_id=_PROJECT_ID,
+            build_id=uuid.uuid4(),
+            triples=[Triple("alice", "knows", "carol", 0.9, ("docB",))],
+        )
+
+    after = await driver.snapshot_subgraph(config_id=config_id, build_id=None)
+    assert _edges_by_key(after) == _edges_by_key(before)
+    assert sorted(n["name"] for n in after["nodes"]) == sorted(n["name"] for n in before["nodes"])
+
+    await driver.delete_all(config_id=config_id)
+
+
+async def test_empty_corpus_replacement_empties_the_subgraph(driver: Neo4jAsyncDriver) -> None:
+    """A corpus emptied to zero triples must leave no relation and no entity.
+
+    The upsert is skipped when there is nothing to write, so the prune has to run
+    on its own for the last surviving rows to go.
+    """
+    config_id = uuid.uuid4()
+    await driver.delete_all(config_id=config_id)
+
+    await _apply(driver, config_id, uuid.uuid4(), [Triple("alice", "knows", "bob", 0.9, ("docA",))])
+    assert (await driver.snapshot_subgraph(config_id=config_id, build_id=None))["edges"]
+
+    await _apply(driver, config_id, uuid.uuid4(), [])
+    empty = await driver.snapshot_subgraph(config_id=config_id, build_id=None)
+    assert empty["edges"] == []
+    assert empty["nodes"] == []
