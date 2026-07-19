@@ -41,10 +41,10 @@ audit row record that anything went wrong.
 
 **This was a scoped decision, not an oversight.** `docs/tasks/2026-07-17-graphrag-reset-expired-recovery/spec.md`
 D-8 reversed its own Q-3 for the `UNAVAILABLE` path only, and states in terms: "A forced reset
-whose recovery material *was* present still lands on `idle`" (`:342`). Its stated rationale —
-forcing `idle` "bought no recovery capability", since `RECOVERY_UNAVAILABLE` is already accepted
+whose recovery material *was* present still lands on `idle`" (`:342`). Its stated rationale,
+that forcing `idle` "bought no recovery capability" since `RECOVERY_UNAVAILABLE` is already accepted
 by the builder engine (`graphrag_builder.py:224-228`) and the manual build endpoint
-(`app/api/v1/graphrag.py:539-543`) — applies unchanged to this path. This task extends that
+(`app/api/v1/graphrag.py:539-543`), applies unchanged to this path. This task extends that
 decision to the remaining half rather than contradicting it.
 
 ## 3. Clarifications
@@ -74,24 +74,24 @@ being missing up front; it does not cover a `COMPENSATE` plan that then failed. 
 leave a subgraph the rollback did not finish, so both must be read-blocked. The earliest
 correction is to select the state from `comp_error` as well as the plan.
 
-`restore_from_snapshot` being non-atomic aggravated this — a partial restore added a nodes-only
-skeleton on top — but that was fixed separately (commit `d60c57f`) and is not the root cause:
+`restore_from_snapshot` being non-atomic aggravated this, since a partial restore added a nodes-only
+skeleton on top, but that was fixed separately (commit `d60c57f`) and is not the root cause:
 even an all-or-nothing restore failure leaves the graph missing the rolled-back rows.
 
 ## 6. Blast Radius and Sibling Suspects
 
 - **Blast radius:** every `force=true` admin reset over a failed compensation, for both graph
-  products — `graph_admin_reset.py` is shared by the Concept Map and Knowledge Map bindings
+  products. `graph_admin_reset.py` is shared by the Concept Map and Knowledge Map bindings
   (`graph_admin_reset.py:10-15`), so one change covers both.
-- **Confirmed sibling — documentation drift:** D-8 changed the `UNAVAILABLE` landing state but
+- **Confirmed sibling, documentation drift:** D-8 changed the `UNAVAILABLE` landing state but
   neither intent source was updated. `REQUIREMENTS.md:522` still says a forced reset "still
   forces `idle`" when compensation cannot complete, and the shared API prose
   (`backend/app/api/v1/deps.py:15-21`) still says forcing idle "also makes the graph readable
   again, including a partially applied build that can never be rolled back". Both describe
   pre-D-8 behavior and are already wrong before this task; both are corrected here (§11).
-- **Cleared — reconciler:** its own compensation-failure path preserves the stuck state and
+- **Cleared, reconciler:** its own compensation-failure path preserves the stuck state and
   retries rather than publishing anything (`graphrag_reconciler.py:479-502`). Not affected.
-- **Cleared — `force=false`:** raises `compensation_error` and writes no state
+- **Cleared, `force=false`:** raises `compensation_error` and writes no state
   (`graph_admin_reset.py:292-313`). Unchanged.
 
 ## 7. Fix Design
@@ -99,7 +99,7 @@ even an all-or-nothing restore failure leaves the graph missing the rolled-back 
 1. Select the terminal state from the compensation outcome, not the plan alone: land on
    `RECOVERY_UNAVAILABLE` when `comp_error` is set, and on `IDLE` only for a genuinely clean
    discard or no-op. Keep the existing `UNAVAILABLE` behavior, which this subsumes.
-2. Leave the snapshot and pointer handling untouched (Q-3) — the existing
+2. Leave the snapshot and pointer handling untouched (Q-3). The existing
    `if comp_error is None` gate already retains them on this path.
 3. Update the comment at `graph_admin_reset.py:319-323` so it explains the outcome-based rule
    rather than the plan-based one.
@@ -107,7 +107,7 @@ even an all-or-nothing restore failure leaves the graph missing the rolled-back 
 
 No data repair is required: the affected configs hold a graph the rollback did not finish, and
 a rebuild is the documented escape. Configs already forced to `idle` by the old behavior are not
-migrated — nothing durably records which ones they were, and a rebuild fixes them.
+migrated, because nothing durably records which ones they were, and a rebuild fixes them.
 
 ### Patterns to follow
 
@@ -155,7 +155,7 @@ contract is not surprising. Rollback is reverting one expression and the two pro
   in `IN_FLIGHT_BUILD_STATES`, and records a non-null `last_build_error` with audit
   `outcome=compensation_failed` and `forced=true`.
   `test_force_true_compensation_failure_stays_read_blocked` asserts all five.
-- [x] AC-3: The snapshot and current-build pointer survive that reset — `snaps.deleted == []`
+- [x] AC-3: The snapshot and current-build pointer survive that reset: `snaps.deleted == []`
   and `snaps.cleared is False` in the same test, and in the Knowledge Map counterpart.
 - [x] AC-4: A clean discard and a no-op reset still land on `IDLE`. The landing expression keys
   on `comp_error is None`, and the existing clean-discard tests pass unchanged.
@@ -163,7 +163,7 @@ contract is not surprising. Rollback is reverting one expression and the two pro
   `UNAVAILABLE` path still lands on `RECOVERY_UNAVAILABLE`. The `UNAVAILABLE` branch always sets
   `comp_error` (`graph_admin_reset.py:259`), so keying on the outcome subsumes the old plan
   check rather than altering that path; both existing tests pass untouched.
-- [x] AC-6: Knowledge Map and Concept Map behave identically, each covered by its own test —
+- [x] AC-6: Knowledge Map and Concept Map behave identically, each covered by its own test:
   one shared `perform_admin_reset`, plus
   `test_forced_reset_over_a_failed_rollback_stays_read_blocked` in `test_knowmap_reset.py`.
 - [x] AC-7: `REQUIREMENTS.md` [R11a.02] and `deps.py:15-21` describe the shipped behavior for
@@ -173,7 +173,7 @@ contract is not surprising. Rollback is reverting one expression and the two pro
   `ruff format --check .` clean over 798 files; `mypy .` clean over 798 files; unit selection
   5433 passed / 6 skipped. Frontend `pnpm typecheck` and `pnpm lint` clean after regeneration.
   The 10 remaining errors are the pre-existing `getaddrinfo` environment failures documented in
-  the sibling dossier — same count as before this change, in files it does not touch.
+  the sibling dossier, at the same count as before this change, in files it does not touch.
 
 ## 11. SRS Delta
 
@@ -181,12 +181,17 @@ contract is not surprising. Rollback is reverting one expression and the two pro
 `UNAVAILABLE` path. Replace the `force=true` sentence in `REQUIREMENTS.md:522`:
 
 > An explicit `force=true` overrides lock contention and unsticks the config, but never
-> re-opens reads over an unfinished rollback: when compensation cannot complete — whether the
-> recovery material was missing (`outcome=compensation_unavailable`) or the rollback itself
-> failed (`outcome=compensation_failed`) — the reset records the incomplete outcome (non-null
+> re-opens reads over an **in-flight build whose rollback did not complete**. When
+> compensation for such a build cannot complete, because the recovery material was missing
+> (`outcome=compensation_unavailable`) or because the rollback itself failed
+> (`outcome=compensation_failed`), the reset records the incomplete outcome (non-null
 > `last_build_error`) and sets `last_build_state = 'recovery_unavailable'`, which is
-> read-blocked but accepted by manual rebuild. Only a clean discard or a no-op reset sets
-> `last_build_state = 'idle'`.
+> read-blocked but accepted by manual rebuild. Every other reset sets
+> `last_build_state = 'idle'`, including one over a config that was already settled, since no
+> unresolved build exists there to hide.
+
+The "in-flight build" scoping is load-bearing and was tightened during review (D-4): an
+earlier draft said simply "an unfinished rollback", which the delete-only pass violates.
 
 ## 12. Deviation Log
 
@@ -195,16 +200,38 @@ contract is not surprising. Rollback is reverting one expression and the two pro
   `test_force_true_compensation_failure_forces_idle_with_error` (section 4 of that file), which
   asserted the same `IDLE` landing with the fuller audit and residue assertions. Once both were
   corrected they were near-duplicates, so section 4's became the canonical test
-  (`test_force_true_compensation_failure_stays_read_blocked`) and the `:460` one — whose whole
-  purpose was to contrast with the `UNAVAILABLE` case that this change makes it agree with — was
+  (`test_force_true_compensation_failure_stays_read_blocked`) and the `:460` one, whose whole
+  purpose was to contrast with the `UNAVAILABLE` case that this change makes it agree with, was
   replaced by `test_force_true_landing_states_converge_on_any_unfinished_rollback`, which loops
   both plans and pins the shared property. Net test count is unchanged.
 - **D-2: two `docs/implement/` references were corrected beyond the ACs.**
   `E-agents-knowledge.md:196` and `I-admin-observability.md:47` both described the reset as
   force-setting `idle`. AC-7 named only `REQUIREMENTS.md` and `deps.py`. Leaving them would have
-  shipped a documented contradiction of the SRS — and unwritten-back documentation is the exact
+  shipped a documented contradiction of the SRS, and unwritten-back documentation is the exact
   failure this task exists to correct (§6), so repeating it here was not defensible. One line
   each, no behavior impact.
+- **D-4: code review tightened the landing rule and the requirement it claims.** The first
+  implementation keyed on `comp_error is not None` alone, which made [R11a.02]'s "never
+  re-opens reads over an unfinished rollback" stronger than the code: `plan_discard:103`
+  routes a *settled* config carrying a stale current-build pointer to `COMPENSATE`, where the
+  delete-only pass runs with no snapshot to restore from, leaves `comp_error` unset, and lands
+  `IDLE`. The predicate is now `comp_error is not None and prev in IN_FLIGHT_BUILD_STATES`,
+  which is what the read gate actually exists to answer, and the requirement is scoped to an
+  in-flight build. A settled config stays `IDLE` deliberately: there is no unresolved 2PC to
+  hide, and read-blocking would take a healthy config offline without recovering the rows the
+  delete-only pass can destroy (that data loss remains FU-5 in
+  `2026-07-17-graphrag-reset-expired-recovery`). Pinned by
+  `test_a_settled_config_with_a_stale_pointer_still_lands_idle`, which covers the pass both
+  succeeding and raising. This also fixed the opening sentence of [R11a.02], which still
+  asserted an unconditional `idle` landing and so contradicted the sentence added by this task.
+- **D-5: review cleanups applied to this task's diff and the sibling dossier's.** The em-dashes
+  in every document written by both tasks were replaced, per the user-level CLAUDE.md rule
+  against them in documentation; `snapshot_subgraph` was made a single `execute_read`
+  transaction, the third instance of the split-statement defect class in `neo4j_driver.py` and
+  one the sibling task's sweep missed; the duplicated replacement rationale at the builder call
+  site was reduced to a pointer at the port docstring; the builder's replace/delta branches were
+  collapsed to one call; and `_upsert_cypher` became the two module constants
+  `_UPSERT_CYPHER_DELTA` / `_UPSERT_CYPHER_REPLACE`, matching the other Cypher in the file.
 - **D-3: the OpenAPI spec and generated TS client were regenerated.** Not called out in the
   spec, but `ADMIN_RESET_FORCE_DESCRIPTION` is part of the API contract, so `backend/openapi.json`
   and the two generated admin services carry the prose. Regenerated via

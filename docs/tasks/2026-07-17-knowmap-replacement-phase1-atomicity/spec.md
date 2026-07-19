@@ -165,8 +165,8 @@ schema migration.
 
 - [x] AC-1: The forced-prune regression fails before the fix and passes after.
   `test_replacement_failure_leaves_the_pre_build_graph` was confirmed red against the
-  two-session form — the `alice-knows-carol` edge written by the failed replacement survived —
-  and green against the transactional form. Same test both sides (see D-1).
+  two-session form, where the `alice-knows-carol` edge written by the failed replacement
+  survived, and green against the transactional form. Same test both sides (see D-1).
 - [x] AC-2: Full replacement upsert/evidence reset and stale prune commit in one Neo4j
   transaction; any exception rolls both back. One `execute_write` callback runs both statements
   (`neo4j_driver.py:254-284`).
@@ -175,7 +175,7 @@ schema migration.
   integration regression; `FAILED` plus no Qdrant call and no `NEO4J_COMMITTED` transition
   asserted by `test_replace_build_failure_commits_nothing_and_skips_phase2`.
 - [x] AC-4: An empty-corpus replacement atomically removes every relation and orphan entity.
-  `test_empty_corpus_replacement_empties_the_subgraph` — the upsert is skipped and the prune
+  `test_empty_corpus_replacement_empties_the_subgraph`: the upsert is skipped and the prune
   inside the transaction is what empties the subgraph.
 - [x] AC-5: Existing successful evidence/provenance recomputation and Qdrant replacement
   behavior remain green. `test_replacement_removes_absent_and_recomputes_evidence` (all three
@@ -209,8 +209,8 @@ None. This restores [R11.04] and [R11.12].
 ## 12. Deviation Log
 
 - **D-1: the fix landed in two commits, not one.** The spec implies one change. Written that
-  way, the regression test could not fail for the documented reason before the fix — the new
-  `replace_triples` would not exist, so it would fail with `AttributeError` rather than by
+  way, the regression test could not fail for the documented reason before the fix, because the
+  new `replace_triples` would not exist, so it would fail with `AttributeError` rather than by
   observing committed partial state. So `replace_triples` was introduced first with the
   existing two-session semantics (a behavior-preserving refactor that also delivers the Q-2
   port collapse), the regression test was confirmed red against it, and only then did the body
@@ -221,7 +221,7 @@ None. This restores [R11.04] and [R11.12].
   whole directory at collection time. No defect existed. See the AC-8 entry.
 - **D-3: `apply_triples` lost its `replace` parameter entirely.** §7 said to make the builder
   call the atomic operation for `replace=True` and leave the delta path unchanged; it did not
-  say the flag itself goes. Removing it is what makes Q-2 real — a vestigial `replace=True` on
+  say the flag itself goes. Removing it is what makes Q-2 real: a vestigial `replace=True` on
   the delta method would leave the invariant expressible from the application layer, which is
   the exact split this task exists to close. `FakeNeo4j.applied_replace` is now derived from
   which port method was called, so the existing assertions still read the same.
@@ -237,7 +237,7 @@ None. This restores [R11.04] and [R11.12].
   deploy runs (`deploy/compose/docker-compose.yml:254`). On Enterprise the indexes would be
   built in one database and the data written to another. Out of scope here; no behavior in this
   task depends on it.
-- FU-3 (DONE — see the correction below): `Neo4jAsyncDriver.restore_from_snapshot` split the
+- FU-3 (DONE, see the correction below): `Neo4jAsyncDriver.restore_from_snapshot` split the
   node restore and the edge restore across two auto-commit statements, so a failure between
   them left entities restored without their relations. Found by the sibling sweep. Fixed as a
   hardening in a follow-up commit, using the `execute_write` pattern introduced here.
@@ -248,8 +248,8 @@ None. This restores [R11.04] and [R11.12].
   current-build pointer, preserves the stuck state, and retries; the restore is MERGE-based and
   idempotent, so the retry completes it. Every stuck state (`RUNNING`, `NEO4J_COMMITTED`,
   `FAILED_COMPENSATING`, `RECOVERY_UNAVAILABLE`) is read-blocked by `IN_FLIGHT_BUILD_STATES`
-  (`domain/graphrag.py:118-125`), so no automatic path ever serves the partial restore — unlike
-  the Phase-1 defect, where `FAILED` reads normally and healing depended on someone happening
+  (`domain/graphrag.py:118-125`), so no automatic path ever serves the partial restore. This is
+  unlike the Phase-1 defect, where `FAILED` reads normally and healing depended on someone
   to trigger another build. The one genuine exposure is `graph_admin_reset.py:324-326`: an
   admin reset with `force=true` lands a failed compensation on `IDLE`, where a nodes-only
   skeleton reads as healthy.
