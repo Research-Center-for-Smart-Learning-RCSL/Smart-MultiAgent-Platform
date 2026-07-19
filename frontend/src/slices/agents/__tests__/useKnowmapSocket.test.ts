@@ -8,6 +8,7 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { defineComponent } from 'vue'
 
 import type { ChannelEvent } from '@shared/transport'
+import type * as AgentsApi from '../api'
 
 const subscribedHandlers: Array<(ev: ChannelEvent) => void> = []
 const statusHandlers: Array<(connected: boolean) => void> = []
@@ -32,9 +33,11 @@ vi.mock('@shared/transport', () => {
 const getConfigMock = vi.hoisted(() =>
   vi.fn(async () => ({ last_build_state: 'idle' })),
 )
-vi.mock('../api', () => ({
+// Spread the real module so state lists (GRAPHRAG_BUILD_STATES / GRAPHRAG_IN_PROGRESS)
+// cannot drift from a hand-written mock copy.
+vi.mock('../api', async (importActual) => ({
+  ...(await importActual<typeof AgentsApi>()),
   agentsApi: { getKnowmapConfig: getConfigMock },
-  GRAPHRAG_IN_PROGRESS: new Set(['running', 'neo4j_committed', 'failed_compensating']),
 }))
 
 import { useKnowmapSocket } from '../composables/useKnowmapSocket'

@@ -271,6 +271,7 @@ export { InvitesService } from './services/InvitesService';
 export { KeyGroupsService } from './services/KeyGroupsService';
 export { KeysService } from './services/KeysService';
 export { KnowmapService } from './services/KnowmapService';
+export { KnowmapAdminService } from './services/KnowmapAdminService';
 export { McpService } from './services/McpService';
 export { MessagesService } from './services/MessagesService';
 export { ModelCatalogService } from './services/ModelCatalogService';

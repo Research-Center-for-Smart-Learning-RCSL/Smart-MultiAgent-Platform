@@ -91,16 +91,32 @@ export interface RagConfig {
 // The backend 2PC build state machine (BuildState). A closed set — kept as a
 // union so the badge/variant maps and socket logic stay exhaustive instead of
 // falling through on a typo (audit L8).
-export type GraphragBuildState =
-  | 'idle'
-  | 'running'
-  | 'neo4j_committed'
-  | 'qdrant_committed'
-  | 'failed_compensating'
-  | 'failed'
+//
+// Declared as a const array with the union derived from it, so a runtime membership
+// check cannot drift from the type. `useBuildStateSocket` previously repeated the
+// terminal half as its own literal array, which is how a new state would silently
+// be dropped from live `build.state` events.
+export const GRAPHRAG_BUILD_STATES = [
+  'idle',
+  'running',
+  'neo4j_committed',
+  'qdrant_committed',
+  'failed_compensating',
+  'failed',
+  // Terminal and irrecoverable: the build's rollback material expired, so the
+  // graph holds a partially applied build that can never be undone. The backend
+  // refuses to serve it to retrieval or to the graph view.
+  'recovery_unavailable',
+] as const
+
+export type GraphragBuildState = (typeof GRAPHRAG_BUILD_STATES)[number]
 
 // States that mean a build is still moving — anything else is terminal. Single
 // source of truth shared by the list view and the live socket (audit M14).
+//
+// `recovery_unavailable` is deliberately absent: it is terminal, so the UI offers
+// a rebuild, which is exactly the documented escape from it (the backend admits
+// that state at the manual build endpoint but not to automatic triggers).
 export const GRAPHRAG_IN_PROGRESS: ReadonlySet<GraphragBuildState> = new Set([
   'running',
   'neo4j_committed',

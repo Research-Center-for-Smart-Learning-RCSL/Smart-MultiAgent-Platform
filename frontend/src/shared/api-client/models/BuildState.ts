@@ -2,4 +2,4 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type BuildState = 'idle' | 'running' | 'neo4j_committed' | 'qdrant_committed' | 'failed_compensating' | 'failed';
+export type BuildState = 'idle' | 'running' | 'neo4j_committed' | 'qdrant_committed' | 'failed_compensating' | 'failed' | 'recovery_unavailable';

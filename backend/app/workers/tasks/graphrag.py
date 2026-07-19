@@ -37,6 +37,48 @@ from shared_kernel.observability.metrics import GRAPHRAG_BUILD_STATE
 
 _log = logging.getLogger(__name__)
 
+# Label set for the `graphrag_build_state` one-hot gauge. Audit M2: the prior set
+# used "building"/"ready", which no BuildState ever maps to, so success and
+# failed_compensating both reported "idle" and operators got no "stuck
+# compensating" signal. These mirror the real terminal states.
+BUILD_STATE_METRIC_LABELS: tuple[str, ...] = (
+    "idle",
+    "running",
+    "failed",
+    "compensating",
+    "recovery_unavailable",
+)
+
+# Terminal BuildState value -> gauge label.
+_METRIC_LABEL_BY_STATE: dict[str, str] = {
+    "idle": "idle",
+    "failed": "failed",
+    "failed_compensating": "compensating",
+    # Its own label, never folded into "failed": an irrecoverable, unreadable graph
+    # is a distinct operator-actionable condition.
+    "recovery_unavailable": "recovery_unavailable",
+}
+
+
+def build_state_metric_label(state_value: str) -> str:
+    """Gauge label for a terminal build state, failing loudly rather than silently.
+
+    The previous ``.get(..., "idle")`` default reported any unmapped state as healthy
+    — the same class of bug audit M2 exists to prevent, and one a new BuildState would
+    reintroduce for free. An unmapped state is logged and reported as "failed", so a
+    forgotten mapping can never read as a healthy config on a dashboard.
+    """
+    label = _METRIC_LABEL_BY_STATE.get(state_value)
+    if label is None:
+        _log.error(
+            "graphrag_build: no metric label for terminal state %s; reporting as failed. "
+            "Add it to _METRIC_LABEL_BY_STATE.",
+            state_value,
+        )
+        return "failed"
+    return label
+
+
 # D3 (R11.16): the job timeout is only a runaway backstop. The build lock
 # (LOCK_TTL_S), refreshed at every window boundary, is the authoritative
 # single-writer guard, so the timeout must have comfortable headroom over the
@@ -352,49 +394,19 @@ async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
 
             # One-hot per state — set the active label to 1 and zero the others so
             # `graphrag_build_state{config_id="...", state="..."} == 1` is unique
-            # at any moment. Audit M2: the prior label set used "building"/"ready"
-            # which no BuildState ever maps to, so success and failed_compensating
-            # both reported "idle" and operators got no "stuck compensating"
-            # signal. These labels mirror the real terminal states.
+            # at any moment.
             def _set_state(active: str) -> None:
-                for s in ("idle", "running", "failed", "compensating", "recovery_unavailable"):
+                for s in BUILD_STATE_METRIC_LABELS:
                     GRAPHRAG_BUILD_STATE.labels(
                         config_id=cfg_id_str,
                         state=s,
                     ).set(1.0 if s == active else 0.0)
 
-            # Map a terminal BuildState to its metric label.
-            metric_state = {
-                "idle": "idle",
-                "failed": "failed",
-                "failed_compensating": "compensating",
-                # Its own label, never folded into "failed": this config's graph is
-                # irrecoverable and unreadable, which is an operator-actionable state.
-                "recovery_unavailable": "recovery_unavailable",
-            }
-
-            def _metric_label(state_value: str) -> str:
-                """Metric label for a terminal state, loudly rather than silently.
-
-                The old `.get(..., "idle")` default reported any unmapped state as
-                healthy — the same class of bug audit M2 fixed. An unmapped state is
-                now logged and reported as "failed" so it can never read as healthy.
-                """
-                label = metric_state.get(state_value)
-                if label is None:
-                    _log.error(
-                        "graphrag_build: no metric label for terminal state %s; "
-                        "reporting as failed. Add it to metric_state.",
-                        state_value,
-                    )
-                    return "failed"
-                return label
-
             _set_state("running")
             try:
                 result = await builder.run(config_id=cfg_id, triggered_by=triggered_by)
                 await db.commit()
-                _set_state(_metric_label(result.state.value))
+                _set_state(build_state_metric_label(result.state.value))
                 _log.info(
                     "graphrag_build done config=%s state=%s triples=%d entities=%d",
                     config_id,

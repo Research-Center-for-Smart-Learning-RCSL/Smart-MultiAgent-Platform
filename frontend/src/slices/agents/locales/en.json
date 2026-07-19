@@ -219,7 +219,8 @@
         "neo4jCommitted": "Neo4j committed",
         "qdrantCommitted": "Qdrant committed",
         "failed": "Failed",
-        "compensating": "Compensating"
+        "compensating": "Compensating",
+        "recoveryUnavailable": "Unrecoverable - rebuild required"
       },
       "viewStatus": "View Status",
       "viewGraph": "View Graph",
