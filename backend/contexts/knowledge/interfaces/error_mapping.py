@@ -91,6 +91,11 @@ _MAP: ErrorMap = {
         503,
         "Admin reset could not compensate the config's external state; retry or force",
     ),
+    errors.KnowmapResetCompensationFailed: (
+        "knowledge/knowmap-reset-compensation-failed",
+        503,
+        "Admin reset could not compensate the config's external state; retry or force",
+    ),
     errors.GraphRagConfigAlreadyExists: (
         "knowledge/graphrag-config-already-exists",
         409,

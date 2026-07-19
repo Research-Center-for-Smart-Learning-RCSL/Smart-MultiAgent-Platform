@@ -108,11 +108,27 @@ class GraphRagResetCompensationFailed(KnowledgeError):
 
     The reset refuses rather than advertise an inconsistent config as healthy
     (R11.04): the config keeps its recovery material (snapshot + current pointer)
-    and stays in its reconciler-visible stuck state, so the sweep can still heal
-    it. Mapped 503 (transient, retryable). An explicit ``force=true`` overrides
-    this and forces ``idle`` with a recorded, non-null ``last_build_error``."""
+    and stays in its prior state. Mapped 503. An explicit ``force=true`` overrides
+    this and forces ``idle`` with a recorded, non-null ``last_build_error``.
+
+    Two distinct causes share this error, told apart by the audit ``outcome``:
+    ``compensation_failed`` is transient and worth retrying (the config is still
+    reconciler-visible, so the sweep may heal it first), while
+    ``compensation_unavailable`` means the recovery material expired and no retry
+    can ever succeed — only ``force=true`` or a rebuild resolves that one."""
 
     code = "knowledge/graphrag-reset-compensation-failed"
+
+
+class KnowmapResetCompensationFailed(KnowledgeError):
+    """The Knowledge Map counterpart of :class:`GraphRagResetCompensationFailed`.
+
+    Identical semantics and 503 mapping — both products bind the same
+    ``perform_admin_reset`` — but a distinct code so an API consumer is not told a
+    knowmap config failed with a ``graphrag-`` error, matching how
+    ``KnowmapConfigNotFound`` parallels ``GraphRagConfigNotFound``."""
+
+    code = "knowledge/knowmap-reset-compensation-failed"
 
 
 class GraphRagConfigAlreadyExists(KnowledgeError):
@@ -256,6 +272,7 @@ __all__ = [
     "GraphRagCollectionDimensionMismatch",
     "GraphRagConfigNotFound",
     "GraphRagResetCompensationFailed",
+    "KnowmapResetCompensationFailed",
     "GraphRagEmbedDimensionConflict",
     "GraphRagEmbeddingModelChangeBlocked",
     "GraphRagInvalidHalfLife",

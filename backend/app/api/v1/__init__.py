@@ -213,6 +213,7 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(knowmap_routes.project_router),
         RouterEntry(knowmap_routes.config_router),
         RouterEntry(knowmap_routes.document_router),
+        RouterEntry(knowmap_routes.admin_router),
         # MCP egress allowlist
         RouterEntry(mcp_routes.project_router),
         # Conversation

@@ -7,7 +7,6 @@ soft-delete, and external store cascade (Neo4j + Qdrant teardown).
 
 from __future__ import annotations
 
-import enum
 import logging
 import uuid
 from collections.abc import Sequence
@@ -20,9 +19,9 @@ from contexts.agent_groups.infrastructure import tables as ag
 from contexts.conversation.infrastructure import tables as conv_t
 from contexts.keys.interfaces.facade import KeysFacade
 from contexts.knowledge.application.embed_resolution import resolve_embed_key
+from contexts.knowledge.application.graph_admin_reset import perform_admin_reset
 from contexts.knowledge.domain.embedding_pin import PinKind, TeardownOutcome
 from contexts.knowledge.domain.errors import (
-    GraphRagBuildBusy,
     GraphRagBuilderKeyGroupProjectMismatch,
     GraphRagConfigNotFound,
     GraphRagEmbedDimensionConflict,
@@ -32,8 +31,6 @@ from contexts.knowledge.domain.errors import (
     GraphRagResetCompensationFailed,
 )
 from contexts.knowledge.domain.graphrag import (
-    IN_FLIGHT_BUILD_STATES,
-    BuildState,
     GraphRagConfig,
     GraphRagConfigDraft,
 )
@@ -54,47 +51,6 @@ if TYPE_CHECKING:
     from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
 
 _log = logging.getLogger(__name__)
-
-# Mirrors R11a.01's 10-minute build-lock TTL. Defined locally rather than imported
-# from the reconciler because the reconciler imports this module — importing back
-# would cycle (F-26).
-_BUILD_LOCK_TTL_S = 10 * 60
-
-
-class DiscardPlan(enum.Enum):
-    """What an admin reset may safely do about a config's in-flight build."""
-
-    NOOP = "noop"
-    COMPENSATE = "discarded"
-    UNAVAILABLE = "compensation_unavailable"
-
-
-def plan_discard(
-    *,
-    prev: BuildState,
-    build_id: uuid.UUID | None,
-    snapshot: dict[str, Any] | None,
-) -> DiscardPlan:
-    """Classify a reset's compensation options from the recovery material on hand.
-
-    Rolling an in-flight build back needs BOTH the current-build pointer and its
-    snapshot. ``delete_by_build`` on its own is not a rollback: it strips the
-    build's own nodes with nothing to restore the pre-build subgraph from, so a
-    config that had relations overwritten by the build loses them permanently.
-    The pointer and the snapshot are two independently expiring Redis keys and
-    the pointer is written last (``graphrag_builder.py``), so "pointer present,
-    snapshot gone" is the ordinary shape of a lapsed 24-hour recovery window
-    rather than a corruption — and it must fail closed, not report a discard.
-
-    A prior state outside :data:`IN_FLIGHT_BUILD_STATES` owes no compensation,
-    so it keeps the historical behaviour (see FU-5 in the task dossier for the
-    stale-pointer-on-a-settled-config gap this deliberately does not close).
-    """
-    if prev not in IN_FLIGHT_BUILD_STATES:
-        return DiscardPlan.NOOP if build_id is None else DiscardPlan.COMPENSATE
-    if build_id is None or snapshot is None:
-        return DiscardPlan.UNAVAILABLE
-    return DiscardPlan.COMPENSATE
 
 
 def _validate_half_life(value: float | None) -> None:
@@ -528,23 +484,10 @@ class GraphRagConfigService:
     ) -> GraphRagConfig:
         """R11a.02 — reset a stuck config to ``idle`` after compensating 2PC state (F-26).
 
-        Acquires the build lock (serialising against the builder + reconciler,
-        R11a.01), discards any in-flight build via the same infrastructure store
-        ports the reconciler's rollback uses — Neo4j rolled back to the pre-build
-        snapshot, snapshot deleted, current pointer cleared — then forces ``idle``.
-
-        ``force=false`` (default): a held lock raises ``GraphRagBuildBusy`` (409);
-        a compensation that fails *or was never possible* raises
-        ``GraphRagResetCompensationFailed`` (503) without forcing idle or
-        destroying recovery material, so the config never advertises inconsistent
-        state as healthy (R11.04). "Never possible" is :func:`plan_discard`'s
-        ``UNAVAILABLE`` — an in-flight build whose pointer or snapshot has
-        expired past the 24-hour window; that path touches no store at all.
-        ``force=true``: overrides a held lock (force-release + re-acquire) and
-        still forces ``idle``, recording the incomplete outcome (non-null
-        ``last_build_error``, audit ``outcome=compensation_failed`` or
-        ``compensation_unavailable``). The reconciler is not touched. Every
-        reset is audit-logged.
+        Thin binding of :func:`perform_admin_reset` to the Concept Map's repository,
+        audit identity, and error class; see that function for the full contract. The
+        Knowledge Map binds the same implementation, so the two products' resets cannot
+        drift apart.
         """
         from contexts.knowledge.infrastructure.redis_lock import (
             RedisBuildLockStore,
@@ -552,184 +495,28 @@ class GraphRagConfigService:
         )
 
         cfg = await self.get(config_id)
-        prev = cfg.last_build_state
 
-        snapshots: SnapshotStore = self._snapshots or RedisSnapshotStore()
-        locks: BuildLockStore = self._locks or RedisBuildLockStore()
-        neo4j = self._neo4j
-        # Build the compensation Neo4j driver lazily (below), only when an in-flight
-        # build must actually be rolled back — so the 409 fast-fail and clean/idle
-        # resets construct nothing. ``owns_neo4j`` stays False for an injected driver.
-        owns_neo4j = False
-
-        try:
-            # --- serialize against builder / reconciler (Q-5, R11a.01) ---
-            if not await locks.acquire(config_id, ttl_s=_BUILD_LOCK_TTL_S):
-                if not force:
-                    raise GraphRagBuildBusy(str(config_id))
-                # Admin-accepted override: break the lock and re-take it under this
-                # process's token so the trailing release is a clean, owned release.
-                await locks.force_release(config_id)
-                if not await locks.acquire(config_id, ttl_s=_BUILD_LOCK_TTL_S):
-                    # A concurrent worker re-grabbed the lock in the force-release
-                    # window. force=true means the admin accepted interrupting a live
-                    # build, so proceed — but record that compensation ran without
-                    # holding the lock (the trailing token-checked release no-ops).
-                    _log.warning(
-                        "admin reset: could not re-acquire lock after force-release for "
-                        "config %s; compensating without the lock (force=true)",
-                        config_id,
-                    )
-            try:
-                build_id = await snapshots.get_current(config_id=config_id)
-                snapshot = (
-                    await snapshots.get(config_id=config_id, build_id=build_id)
-                    if build_id is not None
-                    else None
-                )
-                plan = plan_discard(prev=prev, build_id=build_id, snapshot=snapshot)
-                comp_error: str | None = None
-                outcome = plan.value
-
-                if plan is DiscardPlan.UNAVAILABLE:
-                    # The 24h recovery window lapsed (or the material was evicted).
-                    # Touch nothing: no delete-only rollback, no pointer/snapshot
-                    # clear. Whatever material survives is the only thing a later
-                    # forced reset or an operator could work from.
-                    _log.warning(
-                        "admin reset: recovery material unavailable for config %s " "(state=%s, build_id=%s)",
-                        config_id,
-                        prev.value,
-                        build_id,
-                    )
-                    comp_error = "admin reset: recovery material unavailable"
-                elif plan is DiscardPlan.COMPENSATE:
-                    assert build_id is not None  # narrowed by plan_discard
-                    if neo4j is None:
-                        neo4j = self._build_neo4j_driver()
-                        owns_neo4j = neo4j is not None
-                    try:
-                        if neo4j is None:
-                            # Cannot roll back an in-flight build with no driver —
-                            # treat as a compensation failure (the stores-down case).
-                            raise RuntimeError("neo4j unavailable for compensation")
-                        await neo4j.delete_by_build(config_id=config_id, build_id=build_id)
-                        if snapshot is not None:
-                            await neo4j.restore_from_snapshot(config_id=config_id, snapshot=snapshot)
-                    except Exception:
-                        _log.exception("admin reset: neo4j compensation failed for config %s", config_id)
-                        comp_error = "admin reset: compensation incomplete"
-                        outcome = "compensation_failed"
-                    if comp_error is None:
-                        # Only after a successful Neo4j rollback drop the recovery
-                        # material — §7.4 ordering (Neo4j first, Redis-delete on
-                        # success) never strands a partially-compensated graph.
-                        await snapshots.delete(config_id=config_id, build_id=build_id)
-                        await snapshots.clear_current(config_id=config_id)
-                else:
-                    # No in-flight build — clear any stale pointer; idempotent.
-                    await snapshots.clear_current(config_id=config_id)
-
-                if comp_error is not None and not force:
-                    # Refuse (R11.04 / R11a.02): keep the recovery material, leave
-                    # the config in its prior state, do NOT set idle. Persist the
-                    # audit before the 5xx unwinds the request transaction
-                    # (db_session rolls back on exception), so the outcome is
-                    # durable. ``outcome`` distinguishes a compensation that failed
-                    # (retryable) from one that was never possible (terminal).
-                    await self._emit_reset_audit(
-                        config_id=config_id,
-                        cfg=cfg,
-                        prev=prev,
-                        build_id=build_id,
-                        forced=False,
-                        outcome=outcome,
-                        actor_user_id=actor_user_id,
-                        actor_ip=actor_ip,
-                        request_id=request_id,
-                    )
-                    await self._db.commit()
-                    raise GraphRagResetCompensationFailed(str(config_id))
-
-                # Clean discard, no-op, or force=true override. ``comp_error`` is
-                # non-null only on a force=true failed/unavailable compensation —
-                # recorded as a non-null last_build_error so the state is honest.
-                await self._configs.set_state(
-                    config_id=config_id,
-                    state=BuildState.IDLE,
-                    error=comp_error,
-                )
-                await self._emit_reset_audit(
-                    config_id=config_id,
-                    cfg=cfg,
-                    prev=prev,
-                    build_id=build_id,
-                    forced=force,
-                    outcome=outcome,
-                    actor_user_id=actor_user_id,
-                    actor_ip=actor_ip,
-                    request_id=request_id,
-                )
-            finally:
-                await locks.release(config_id)
-        finally:
-            # Close only the driver this call constructed (never an injected one).
-            # ``close`` is on the concrete Neo4jAsyncDriver, not the port Protocol.
-            if owns_neo4j and neo4j is not None:
-                closer = getattr(neo4j, "close", None)
-                if closer is not None:
-                    await closer()
+        await perform_admin_reset(
+            self._db,
+            config_id=config_id,
+            project_id=cfg.project_id,
+            prev=cfg.last_build_state,
+            configs=self._configs,
+            snapshots=self._snapshots or RedisSnapshotStore(),
+            locks=self._locks or RedisBuildLockStore(),
+            neo4j=self._neo4j,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            force=force,
+            request_id=request_id,
+            audit_action="admin.graphrag_reset",
+            resource_type="graphrag_config",
+            compensation_error=GraphRagResetCompensationFailed,
+        )
 
         refreshed = await self._configs.get(config_id)
         assert refreshed is not None
         return refreshed
-
-    def _build_neo4j_driver(self) -> Neo4jDriver | None:
-        """Short-lived Neo4j driver for admin_reset compensation (F-26).
-
-        Mirrors :meth:`cascade_external_stores`' construction; ``None`` when Neo4j
-        is unconfigured, in which case an in-flight build the reset cannot roll
-        back is treated as a compensation failure.
-        """
-        from app.config.settings import get_settings
-        from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
-
-        neo4j_conf = getattr(get_settings(), "neo4j", None)
-        if neo4j_conf is None:
-            return None
-        return Neo4jAsyncDriver(uri=neo4j_conf.url, auth=(neo4j_conf.user, neo4j_conf.password))
-
-    async def _emit_reset_audit(
-        self,
-        *,
-        config_id: uuid.UUID,
-        cfg: GraphRagConfig,
-        prev: BuildState,
-        build_id: uuid.UUID | None,
-        forced: bool,
-        outcome: str,
-        actor_user_id: uuid.UUID,
-        actor_ip: str | None,
-        request_id: uuid.UUID | None,
-    ) -> None:
-        await audit.emit(
-            self._db,
-            audit.AuditEvent(
-                action="admin.graphrag_reset",
-                actor_user_id=actor_user_id,
-                actor_ip=actor_ip,
-                resource_type="graphrag_config",
-                resource_id=config_id,
-                metadata={
-                    "previous_state": prev.value,
-                    "project_id": str(cfg.project_id),
-                    "build_id": str(build_id) if build_id is not None else None,
-                    "forced": forced,
-                    "outcome": outcome,
-                },
-                request_id=request_id,
-            ),
-        )
 
     async def status(
         self,

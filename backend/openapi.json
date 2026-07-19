@@ -2830,7 +2830,8 @@
           "neo4j_committed",
           "qdrant_committed",
           "failed_compensating",
-          "failed"
+          "failed",
+          "recovery_unavailable"
         ],
         "title": "BuildState",
         "type": "string"
@@ -9817,6 +9818,62 @@
         "summary": "Remove Ban",
         "tags": [
           "admin"
+        ]
+      }
+    },
+    "/api/admin/knowmap/{config_id}/reset": {
+      "post": {
+        "description": "Mirrors graphrag.py's admin_reset, down to the platform-admin check.\n\nKnowledge Maps had no reset until\ndocs/tasks/2026-07-17-graphrag-reset-expired-recovery/, which made\n``recovery_unavailable`` reachable here \u2014 a state outside the reconciler's sweep\nset, so without this route an operator's only option would have been a rebuild.\n\nAuthZ deliberately matches the Concept Map's: platform admin, no project scoping.\nThat is weaker than every other route in this module (FU-2 in the dossier), and\ndiverging here would have made the two resets inconsistent while fixing neither.",
+        "operationId": "admin_reset_api_admin_knowmap__config_id__reset_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "config_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Config Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Override lock contention and, when 2PC compensation cannot complete, still force idle while recording the incomplete outcome (R11a.02).",
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Override lock contention and, when 2PC compensation cannot complete, still force idle while recording the incomplete outcome (R11a.02).",
+              "title": "Force",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowmapConfigOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Reset",
+        "tags": [
+          "knowmap-admin"
         ]
       }
     },
