@@ -12,11 +12,11 @@ requirements: [R12.03, R12.03a, R12.05, R31.22]
 Chat attachments and `code_exec` artifacts are room-scoped data, but they are stored on an
 agent-scoped Docker volume. Every chatroom's kernel container mounts that whole volume
 read-write at `/workspace` (`docker_runsc.py:1124`), so an agent serving room B can read room A's
-uploaded files and generated artifacts — through `code_exec` with a two-character relative path,
+uploaded files and generated artifacts - through `code_exec` with a two-character relative path,
 or through the `file` tool with an ordinary `read`. Rooms have independent member lists
 ([R13.04], `REQUIREMENTS.md:643-652`), so this crosses a membership boundary: a file uploaded by
 the members of room A can be surfaced to the members of room B by an agent that both rooms share.
-The data persists indefinitely — nothing ever prunes a session directory (§6).
+The data persists indefinitely - nothing ever prunes a session directory (§6).
 
 Recorded as FU-4 of `docs/tasks/2026-07-16-workspace-path-convention/`, whose `check-security`
 gate surfaced it. That entry named only the `file` tool; the analysis below establishes that
@@ -32,34 +32,34 @@ gate surfaced it. That entry named only the `file` tool; the analysis below esta
     `rel_dir = f"sessions/{chatroom_id}/inputs"` (`docker_runsc.py:1197`) and `put_archive`s at
     the volume root (`:1214`). The kernel derives `_SESSION_DIR = _WORKSPACE / "sessions" / _ROOM`
     (`kernel.py:39`) with `_INPUTS`/`_OUTPUTS` beneath it (`:40-41`).
-  - **Channel 1 — `code_exec`.** `_create_kernel` mounts the entire volume rw at `/workspace`
+  - **Channel 1 - `code_exec`.** `_create_kernel` mounts the entire volume rw at `/workspace`
     (`docker_runsc.py:1124`) and the kernel `chdir`s to the session dir (`kernel.py:123`). From
     room B, `open('../{roomA}/inputs/x')` reads room A's attachment. This is arbitrary Python
-    against a real mount — `safe_workspace_path` governs the `file` tool's RPC, not the kernel's
+    against a real mount - `safe_workspace_path` governs the `file` tool's RPC, not the kernel's
     filesystem, so **there is no guard to add here.**
-  - **Channel 2 — the `file` tool.** `_safe_relpath` (`file_tool.py:30-41`) admits anything under
+  - **Channel 2 - the `file` tool.** `_safe_relpath` (`file_tool.py:30-41`) admits anything under
     `_ROOT = "/workspace"` (`:23`), and `FileTool` has no chatroom in its signature (`:44-57`).
     `file(op="read", path="sessions/{roomA}/inputs/x")` is a legal, successful call.
   - **It never expires.** `_RECONCILE`'s prune is scoped to exactly one of `agent-files/` or
     `skills/` per run (`docker_runsc.py:370-425`, subdir from `:1273`), never `sessions/`. The
     only deletion that reaches session data is whole-volume GC, 60 days after the *agent* is soft
     deleted (`agent_fs_gc.py:379`, retention `:77`).
-- **Expected** (no intent source exists — confirmed with the user, Q-1; see §3 and §11). Data
+- **Expected** (no intent source exists - confirmed with the user, Q-1; see §3 and §11). Data
   staged for one chatroom is readable only from that chatroom's own execution context. Data that
-  is genuinely agent-scoped — the `file` tool's own state, `agent-files/`, `skills/` — remains
+  is genuinely agent-scoped - the `file` tool's own state, `agent-files/`, `skills/` - remains
   shared across the agent's rooms, which is what [R12.03] designs for.
 
 ## 3. Clarifications
 
 | ID | Question | Decision | Rationale |
 |---|---|---|---|
-| Q-1 | The SRS is silent on cross-room isolation for the sandbox (§11). What is the intended model: (a) isolate `sessions/` only, keeping the rest shared; (b) make the whole volume per-room; (c) declare current behavior correct and document it; (d) isolate `inputs/` only, leave `outputs/` shared. | **(a)** — `sessions/` becomes per-`(agent, room)`; the volume root, `agent-files/` and `skills/` stay per-agent and shared. | (b) destroys the cross-room persistent memory that is the *point* of a per-agent volume and contradicts [R12.03]'s explicit `{agent_id}`-only key, so it would need an SRS reversal rather than a clarification. (c) is defensible for the agent's own files but not for attachments: those are uploaded by room members under that room's ACL, and no one uploading to room A consents to room B. (d) splits a boundary that is currently one directory into two halves with different rules, which is harder to state and harder to keep true; `outputs/` also routinely *derives* from `inputs/`, so leaving it shared leaks the same content one transformation later. `sessions/` is already exactly the room-scoped region and nothing else on the volume is — the boundary exists, it just is not enforced. |
-| Q-2 | Scope: fix both channels, or the mount channel first and the `file` tool separately? | **Both, here.** | Fixing only the `file` tool would be security theater — `code_exec` is the wider channel and needs no cleverness to exploit. Fixing only the mount happens to close both, but that is a consequence worth asserting with a test rather than inheriting by luck (AC-3). |
-| Q-3 | Where does the per-room volume mount: nested at `/workspace/sessions/{room}`, or at a separate root? | **A separate root, `/session`.** | Nesting preserves every existing path shape and needs no test changes, but its failure mode is fail-open: if the nested mount is missing — a code path that forgets it, a create that half-fails, a legacy tree left behind — the agent volume's own `sessions/{otherRoom}` shows through at exactly the path the agent is already looking at, silently and with no error. A separate root fails closed: no mount means no directory, and the failure is immediate and loud. For a fix whose entire purpose is a containment boundary, the fail-closed shape is worth the visible path change. |
-| Q-4 | Data repair for session trees already on existing agent volumes? | **Required — a one-shot purge (§7.6).** | Without it the fix is prospective only: every volume in production keeps its accumulated `sessions/` tree, still readable via both channels, for data going back to the agent's creation. The new mount point means nothing *writes* there any more, which is precisely why the leftovers will never be cleaned up by normal operation. |
-| Q-6 | §7.7 says GC must collect a session volume when its chatroom is gone. How does the worker learn that, given it currently reads only the agents context's tables? Options weighed: (a) agent-only classification, chatroom half deferred; (b) import the conversation context's tables; (c) route through a conversation facade; (d) event-driven teardown on room deletion. | **(b)**, reusing the existing absence-of-row inference rather than adding a rule. | (d) was the preferred shape and is **not available**: there is no domain-event bus — `shared_kernel/events/` does not exist, Redis pub/sub is WebSocket fan-out with no replay (`pubsub.py:3-16`), and the `chatroom.deleted` audit row (`chatroom_service.py:209`) has no consumer anywhere in the backend. Building one is far outside this task. (c) would be inconsistent: the worker reads `t.agents` directly (`agent_fs_gc.py:262`) and uses no facades. (a) leaves a disk leak and fails AC-8. (b) is not the compromise it first looks like — `agent_fs_gc` already infers "this artifact's window has closed" from the *absence* of an `agents` row, valid only because `retention_sweep` is the sole remover of such rows at the 60-day cutoff (the "load-bearing invariant", `agent_fs_gc.py:22-32`, `retention.py:51-56`). Chatrooms are hard-deleted by the *same* sweep against the *same* cutoff (`retention.py:59-65`, `:149-155`), so the identical inference carries over with no second rule to reason about. Cross-context table imports in workers are routine, not exceptional: `retention.py` imports five contexts (`:24-39`) and joins across three (`:176-192`), and `backend/CLAUDE.md` scopes the facade-only rule to `app/api/v1/`, not `app/workers/`. **Constraint:** the empty-table blast-radius guard (`agent_fs_gc.py:527-537`) must be extended to chatrooms — an empty or unreachable `chatrooms` table must refuse the sweep, never read as "every room is gone". |
-| Q-7 | The backend and the `smap/code-exec` image must deploy together (§9); neither ordering degrades safely. Document it, or enforce it? | **Enforce it** — a kernel/backend protocol stamp, checked at session start, failing loudly on mismatch. | Documentation does not survive a stale pinned tag, and this task's mismatch modes are both silent: new backend + old image stages to `/session` while the kernel reads `/workspace/sessions/{room}`, so attachments vanish with no error; old backend + new image leaves `/session` unmounted, and `kernel.py:122-123` suppresses the failed `chdir`, so the kernel runs in `/` and artifacts are silently never collected. Both present as "the agent ignored my file". This is the same root cause as `2026-07-16-workspace-path-convention` FU-2 and `2026-07-17-agent-files-path-resolution` FU-4 — nothing in CI runs a container — but scoped to one cheap assertion rather than a test tier. Agreed as a scope addition at build time; see AC-10. |
-| Q-5 | Does the model-facing absolute path change? | **Yes** — `/workspace/sessions/{room}/inputs/x` becomes `/session/inputs/x`. | Follows from Q-3. Note the tool descriptions shipped by `2026-07-16-workspace-path-convention` remain true unmodified: `code_exec`'s says the cwd is "this chat's own session directory" without naming the path, and `inputs/`/`outputs/` stay relative to the cwd. |
+| Q-1 | The SRS is silent on cross-room isolation for the sandbox (§11). What is the intended model: (a) isolate `sessions/` only, keeping the rest shared; (b) make the whole volume per-room; (c) declare current behavior correct and document it; (d) isolate `inputs/` only, leave `outputs/` shared. | **(a)** - `sessions/` becomes per-`(agent, room)`; the volume root, `agent-files/` and `skills/` stay per-agent and shared. | (b) destroys the cross-room persistent memory that is the *point* of a per-agent volume and contradicts [R12.03]'s explicit `{agent_id}`-only key, so it would need an SRS reversal rather than a clarification. (c) is defensible for the agent's own files but not for attachments: those are uploaded by room members under that room's ACL, and no one uploading to room A consents to room B. (d) splits a boundary that is currently one directory into two halves with different rules, which is harder to state and harder to keep true; `outputs/` also routinely *derives* from `inputs/`, so leaving it shared leaks the same content one transformation later. `sessions/` is already exactly the room-scoped region and nothing else on the volume is - the boundary exists, it just is not enforced. |
+| Q-2 | Scope: fix both channels, or the mount channel first and the `file` tool separately? | **Both, here.** | Fixing only the `file` tool would be security theater - `code_exec` is the wider channel and needs no cleverness to exploit. Fixing only the mount happens to close both, but that is a consequence worth asserting with a test rather than inheriting by luck (AC-3). |
+| Q-3 | Where does the per-room volume mount: nested at `/workspace/sessions/{room}`, or at a separate root? | **A separate root, `/session`.** | Nesting preserves every existing path shape and needs no test changes, but its failure mode is fail-open: if the nested mount is missing - a code path that forgets it, a create that half-fails, a legacy tree left behind - the agent volume's own `sessions/{otherRoom}` shows through at exactly the path the agent is already looking at, silently and with no error. A separate root fails closed: no mount means no directory, and the failure is immediate and loud. For a fix whose entire purpose is a containment boundary, the fail-closed shape is worth the visible path change. |
+| Q-4 | Data repair for session trees already on existing agent volumes? | **Required - a one-shot purge (§7.6).** | Without it the fix is prospective only: every volume in production keeps its accumulated `sessions/` tree, still readable via both channels, for data going back to the agent's creation. The new mount point means nothing *writes* there any more, which is precisely why the leftovers will never be cleaned up by normal operation. |
+| Q-6 | §7.7 says GC must collect a session volume when its chatroom is gone. How does the worker learn that, given it currently reads only the agents context's tables? Options weighed: (a) agent-only classification, chatroom half deferred; (b) import the conversation context's tables; (c) route through a conversation facade; (d) event-driven teardown on room deletion. | **(b)**, reusing the existing absence-of-row inference rather than adding a rule. | (d) was the preferred shape and is **not available**: there is no domain-event bus - `shared_kernel/events/` does not exist, Redis pub/sub is WebSocket fan-out with no replay (`pubsub.py:3-16`), and the `chatroom.deleted` audit row (`chatroom_service.py:209`) has no consumer anywhere in the backend. Building one is far outside this task. (c) would be inconsistent: the worker reads `t.agents` directly (`agent_fs_gc.py:262`) and uses no facades. (a) leaves a disk leak and fails AC-8. (b) is not the compromise it first looks like - `agent_fs_gc` already infers "this artifact's window has closed" from the *absence* of an `agents` row, valid only because `retention_sweep` is the sole remover of such rows at the 60-day cutoff (the "load-bearing invariant", `agent_fs_gc.py:22-32`, `retention.py:51-56`). Chatrooms are hard-deleted by the *same* sweep against the *same* cutoff (`retention.py:59-65`, `:149-155`), so the identical inference carries over with no second rule to reason about. Cross-context table imports in workers are routine, not exceptional: `retention.py` imports five contexts (`:24-39`) and joins across three (`:176-192`), and `backend/CLAUDE.md` scopes the facade-only rule to `app/api/v1/`, not `app/workers/`. **Constraint:** the empty-table blast-radius guard (`agent_fs_gc.py:527-537`) must be extended to chatrooms - an empty or unreachable `chatrooms` table must refuse the sweep, never read as "every room is gone". |
+| Q-7 | The backend and the `smap/code-exec` image must deploy together (§9); neither ordering degrades safely. Document it, or enforce it? | **Enforce it** - a kernel/backend protocol stamp, checked at session start, failing loudly on mismatch. | Documentation does not survive a stale pinned tag, and this task's mismatch modes are both silent: new backend + old image stages to `/session` while the kernel reads `/workspace/sessions/{room}`, so attachments vanish with no error; old backend + new image leaves `/session` unmounted, and `kernel.py:122-123` suppresses the failed `chdir`, so the kernel runs in `/` and artifacts are silently never collected. Both present as "the agent ignored my file". This is the same root cause as `2026-07-16-workspace-path-convention` FU-2 and `2026-07-17-agent-files-path-resolution` FU-4 - nothing in CI runs a container - but scoped to one cheap assertion rather than a test tier. Agreed as a scope addition at build time; see AC-10. |
+| Q-5 | Does the model-facing absolute path change? | **Yes** - `/workspace/sessions/{room}/inputs/x` becomes `/session/inputs/x`. | Follows from Q-3. Note the tool descriptions shipped by `2026-07-16-workspace-path-convention` remain true unmodified: `code_exec`'s says the cwd is "this chat's own session directory" without naming the path, and `inputs/`/`outputs/` stay relative to the cwd. |
 
 ## 4. Reproduction
 
@@ -79,7 +79,7 @@ file uploaded as an attachment in room A.
    bytes. **Channel 2.**
 5. Steps 2-4 also reach `sessions/{roomA}/outputs/`, i.e. artifacts the agent generated in room A.
 
-Not reproducible in CI — no Docker/gVisor tier (`wiring` is Postgres+Redis+MailHog only). §8
+Not reproducible in CI - no Docker/gVisor tier (`wiring` is Postgres+Redis+MailHog only). §8
 tests the mount wiring, the path derivation, and the purge against a real filesystem; §4 is
 `/verify`.
 
@@ -88,33 +88,33 @@ tests the mount wiring, the path derivation, and the purge against a real filesy
 1. [R12.03] (`REQUIREMENTS.md:595`) specifies one persistent volume keyed by `{agent_id}`, for
    the `file` tool's state. Correct and deliberate: an agent's own files should follow the agent.
 2. `code_exec` needed somewhere to put per-room attachments and artifacts. It reused the volume
-   that was already mounted, partitioning by directory name — `sessions/{chatroom_id}`
+   that was already mounted, partitioning by directory name - `sessions/{chatroom_id}`
    (`docker_runsc.py:1197`, `kernel.py:39`).
-3. A directory name is a *convention*, not a boundary. Both readers of that volume — the kernel
-   (`docker_runsc.py:1124`) and the `file` tool (`file_tool.py:30-41`) — are scoped to the volume,
+3. A directory name is a *convention*, not a boundary. Both readers of that volume - the kernel
+   (`docker_runsc.py:1124`) and the `file` tool (`file_tool.py:30-41`) - are scoped to the volume,
    and neither takes a chatroom into account. The kernel cannot be, since it runs arbitrary code.
-4. [R12.03a] (`REQUIREMENTS.md:596`) then *documented* the arrangement — "the rest of the volume
-   — the `file` tool's own state and per-room session directories — is Agent-authored and is never
-   reconciled against a table" — asserting that per-room directories exist while stating nothing
+4. [R12.03a] (`REQUIREMENTS.md:596`) then *documented* the arrangement - "the rest of the volume
+   - the `file` tool's own state and per-room session directories - is Agent-authored and is never
+   reconciled against a table" - asserting that per-room directories exist while stating nothing
    about who may read them. The convention was written down; the boundary was never specified,
    so it was never built.
 
-**Root cause: step 2** — room-scoped data placed on an agent-scoped volume, with directory naming
+**Root cause: step 2** - room-scoped data placed on an agent-scoped volume, with directory naming
 standing in for isolation. It is the earliest link whose correction prevents the symptom: give the
 room-scoped data a room-scoped container and both channels close at once, because neither reader
 can reach what is not mounted. Step 3 is not the root cause but explains why a guard cannot be
-the fix — one of the two readers executes arbitrary code, so containment has to be below the
+the fix - one of the two readers executes arbitrary code, so containment has to be below the
 application layer. Step 4 is the aggravating factor: the SRS's silence let the gap read as a
 design rather than an omission for as long as it has existed.
 
-This is not "`_safe_relpath` is too permissive" — it is exactly as permissive as [R12.03] says the
-`file` tool should be. It is not "the kernel's cwd is wrong" — the cwd is load-bearing and stays
+This is not "`_safe_relpath` is too permissive" - it is exactly as permissive as [R12.03] says the
+`file` tool should be. It is not "the kernel's cwd is wrong" - the cwd is load-bearing and stays
 (`2026-07-16-workspace-path-convention` §3 Q-1(c)).
 
 ## 6. Blast Radius and Sibling Suspects
 
 **Blast radius.** Every agent that belongs to more than one chatroom, every tenant, since
-`code_exec` and chat attachments have coexisted. Bounded to one agent's own rooms — the volume is
+`code_exec` and chat attachments have coexisted. Bounded to one agent's own rooms - the volume is
 per-agent, so this is not cross-agent, cross-project, or cross-org. Silent: both channels are
 ordinary successful reads that produce no error and no distinct audit signal (the `file` tool
 audits the path it was given, `file_tool.py:102-115`, but nothing flags it as another room's).
@@ -125,7 +125,7 @@ unbounded and repair is required (Q-4).
 
 - **Headless / run-and-burn `code_exec`** → **cleared.** The no-room path takes the branch at
   `docker_runsc.py:896-903` and gets `_sandbox_tmpfs()` (`:921`), a 100 MiB tmpfs at `/workspace`
-  — the named volume is not mounted at all, and the container is removed at `:944-945`.
+  - the named volume is not mounted at all, and the container is removed at `:944-945`.
 - **MCP probe and tool-invoke containers** → **cleared.** Also tmpfs, never the volume
   (`docker_runsc.py:702`, `:764`), consistent with [R12.03]'s "User-provided MCP containers do NOT
   receive this mount."
@@ -138,7 +138,7 @@ unbounded and repair is required (Q-4).
 - **The staging containers** → **confirmed as a site to change, not a separate defect.**
   `stage_kernel_inputs` mounts the agent volume (`docker_runsc.py:1201`) purely because that is
   where it writes; it moves to the session volume with the data (§7.3). The `_stage_tree`
-  reconcile container (`:1265`) keeps the agent volume — it serves `agent-files/` and `skills/`.
+  reconcile container (`:1265`) keeps the agent volume - it serves `agent-files/` and `skills/`.
 - **Artifact read-back** → **cleared.** Artifacts reach the host inline in the kernel's JSON
   reply (`kernel.py:82-92` → `docker_runsc.py:1078` → `turn_engine.py:1133-1148`); there is no
   host-side read of the volume (`get_archive` has no callers). So no host path assumes the
@@ -154,7 +154,7 @@ Give room-scoped data a room-scoped volume, mounted outside `/workspace`.
 1. **New volume.** `smap-agent-session-{agent_id}-{chatroom_id}`, auto-created by Docker on first
    mount exactly as the agent volume is today (no `volumes.create` exists in the repo;
    `agent_fs_gc.py:35-37` documents the auto-create). Introduce it behind a named helper rather
-   than a fifth inline f-string — the existing name is duplicated at five sites (§2), and this
+   than a fifth inline f-string - the existing name is duplicated at five sites (§2), and this
    change would otherwise make it seven.
 2. **Kernel mount.** `_create_kernel` (`docker_runsc.py:1116-1144`) mounts *both*: the agent
    volume at `/workspace` (unchanged, `:1124`) and the session volume at `/session`. This is the
@@ -168,7 +168,7 @@ Give room-scoped data a room-scoped volume, mounted outside `/workspace`.
 4. **Kernel path derivation.** `kernel.py:36-41` derives `_SESSION_DIR` from `_WORKSPACE`; it
    instead reads its own env var (`SMAP_KERNEL_SESSION`, default `/session`), with
    `_INPUTS`/`_OUTPUTS` beneath it unchanged (`:40-41`) and the `chdir` unchanged (`:123`). The
-   agent-facing contract — cwd is the session dir, `inputs/` and `outputs/` are relative to it —
+   agent-facing contract - cwd is the session dir, `inputs/` and `outputs/` are relative to it -
    is preserved exactly, which is why the tool descriptions need no edit (Q-5).
 5. **The `file` tool: no code change.** Once nothing writes session data under `/workspace`, the
    tool's reachable set no longer contains any, and `_safe_relpath` stays exactly as permissive as
@@ -181,7 +181,7 @@ Give room-scoped data a room-scoped volume, mounted outside `/workspace`.
    self-healing pays a per-turn cost forever, and gives no completion signal for a repair whose
    whole point is that it finishes.
 7. **GC (mandatory, not optional).** `agent_fs_gc` enumerates every volume on the daemon and
-   drops any name not matching `smap-agent-fs-` (`agent_fs_gc.py:155-164`, `:295-296`) — by
+   drops any name not matching `smap-agent-fs-` (`agent_fs_gc.py:155-164`, `:295-296`) - by
    design, since the host carries unrelated volumes. The new session volumes therefore would
    **never be reaped**, growing one per `(agent, room)` forever. GC must learn the second name
    shape, with its own classification: a session volume is garbage when its agent is garbage by
@@ -194,23 +194,23 @@ check in front of one of the two readers is not.
 
 ## 8. Regression Test Plan
 
-The failing tests come first. All are unit-tier — the mount itself cannot run in CI (§4).
+The failing tests come first. All are unit-tier - the mount itself cannot run in CI (§4).
 
 - **T-1 (fails now).** `test_workspace_staging.py` (extend): `stage_kernel_inputs` mounts the
-  session volume and not the agent volume — assert the host-config `volumes` dict has exactly the
+  session volume and not the agent volume - assert the host-config `volumes` dict has exactly the
   `smap-agent-session-{agent}-{room}` key bound at `/session`. Red today: it mounts
   `smap-agent-fs-{agent}` at `/workspace` (`docker_runsc.py:1201`).
-- **T-2 (fails now).** Same file: `stage_kernel_inputs` returns `/session/inputs/x`. Red today —
+- **T-2 (fails now).** Same file: `stage_kernel_inputs` returns `/session/inputs/x`. Red today -
   returns `/workspace/sessions/{room}/inputs/x` (pinned at `test_workspace_staging.py:949`, which
   this task updates).
 - **T-3 (fails now).** `test_code_exec_kernel.py` (extend): with `SMAP_KERNEL_SESSION` set, the
   kernel's `_INPUTS`/`_OUTPUTS` resolve beneath it and **not** beneath `SMAP_KERNEL_WORKSPACE`.
-  Red today — `_SESSION_DIR` is derived from `_WORKSPACE` (`kernel.py:39`).
+  Red today - `_SESSION_DIR` is derived from `_WORKSPACE` (`kernel.py:39`).
 - **T-4 (fails now).** `test_code_exec_kernel.py` or a sandbox host-config test: `_create_kernel`
-  mounts two volumes — the agent volume at `/workspace` **and** the session volume at `/session`.
-  Red today — one volume (`docker_runsc.py:1124`). Note no existing test asserts any host-config
+  mounts two volumes - the agent volume at `/workspace` **and** the session volume at `/session`.
+  Red today - one volume (`docker_runsc.py:1124`). Note no existing test asserts any host-config
   mount shape, so this is new coverage on a load-bearing line.
-- **T-5 — the containment assertion (Q-2, AC-3).** A test naming the property directly: for two
+- **T-5 - the containment assertion (Q-2, AC-3).** A test naming the property directly: for two
   distinct chatrooms of one agent, the session volume names differ, and the set of volumes mounted
   into room B's kernel contains nothing derived from room A. This is the test that would have
   caught the bug, so it is written to fail against the pre-fix wiring.
@@ -228,7 +228,7 @@ Existing tests this task must update rather than work around, since they pin the
 correct: `test_workspace_staging.py:949` and `:952` (disjoint-roots assertion), `:277-292` (the
 note's absolute paths), `test_turn_system_blocks.py:137` (the literal note string), and the
 `sessions/r1/inputs` parametrisation in `test_code_exec_kernel.py:175-199`, `:202+`, `:291-293`.
-Each change is a contract update following Q-3/Q-5, and each should be reviewed as such — a test
+Each change is a contract update following Q-3/Q-5, and each should be reviewed as such - a test
 that merely stops asserting the old path without asserting the new one is a silent loss of
 coverage.
 
@@ -238,25 +238,25 @@ room A's data.
 ## 9. Risks and Rollback
 
 - **Volume proliferation.** One volume per `(agent, room)` instead of one per agent. §7.7 is the
-  mitigation and is part of this task, not a follow-up — without it this trades a confidentiality
+  mitigation and is part of this task, not a follow-up - without it this trades a confidentiality
   bug for an unbounded resource leak.
 - **Two volumes per kernel container.** New for this codebase (§7.2). Low risk mechanically, but
-  it is the change most likely to fail only at runtime, which no CI tier exercises — call it out
+  it is the change most likely to fail only at runtime, which no CI tier exercises - call it out
   for `/verify`.
 - **Live kernels across the deploy.** A running kernel keeps its old single-mount view until
   reaped (idle 900s, `docker_runsc.py:334`) or evicted. During that window an in-flight room
-  still resolves the old paths, and the note it was given names them. Harmless — the data is
-  where the note says — but it means the fix is not fully in force until the last pre-deploy
+  still resolves the old paths, and the note it was given names them. Harmless - the data is
+  where the note says - but it means the fix is not fully in force until the last pre-deploy
   kernel is gone. Rolling restart of the workers makes it immediate.
 - **Attachments staged before the deploy** land at the old path; the turn that follows the deploy
   re-stages to the new one (`turn_engine.py:878-883` runs per turn). No migration of live
-  attachment data is needed — only the purge, which removes what is no longer read.
+  attachment data is needed - only the purge, which removes what is no longer read.
 - **The purge is destructive.** It deletes agent-authored data ([R12.03a] calls the region
   agent-authored and never reconciled). Dry-run default and an explicit arm flag are required,
   matching `agent_fs_gc`'s posture (`agent_fs_gc.py:90`, `:130-131`, `:369`).
 - **Rollback.** Revert the backend and re-pin the previous `smap/code-exec` image; the old code
   reads `/workspace/sessions/{room}` again. Session volumes created in the interim are then
-  orphaned — GC collects them if §7.7 shipped, otherwise they need manual removal. Data written
+  orphaned - GC collects them if §7.7 shipped, otherwise they need manual removal. Data written
   to a session volume during the window is not visible to the reverted code; it is not lost, but
   it is not read either. No schema change, no migration, no API contract change.
 
@@ -275,31 +275,31 @@ room A's data.
       the `file` tool can reach room A's `inputs/` or `outputs/`. **Partial:** T-5
       (`test_two_rooms_of_one_agent_get_different_session_volumes`) holds at the wiring level, but
       the §4 reproduction under `/verify` has not run, and **AC-7 is outstanding, so the property
-      is false for pre-existing volumes** — see the build state below.
+      is false for pre-existing volumes** - see the build state below.
 - [x] AC-4: `agent-files/`, `skills/`, and the `file` tool's own root-level state remain visible
       across all of the agent's rooms. (`test_the_three_stagers_disagree_on_prefix_by_design`,
       rewritten to assert the volume split rather than a subtree split.)
-- [x] AC-5: `outputs/` artifacts are still collected and returned — `kernel.py` addresses the new
+- [x] AC-5: `outputs/` artifacts are still collected and returned - `kernel.py` addresses the new
       location and `test_new_output_files_become_artifacts` passes against it; artifact
       persistence (`turn_engine.py:1103-1171`) is untouched.
-- [x] AC-6: The headless / run-and-burn path still gets a tmpfs and mounts no named volume —
+- [x] AC-6: The headless / run-and-burn path still gets a tmpfs and mounts no named volume -
       cleared in §6 and now pinned (`test_headless_code_exec_mounts_no_named_volume`).
 - [x] AC-7: The purge removes `sessions/` and nothing else from an agent volume, including when
       `sessions` is a symlink (T-6), and is dry-run unless explicitly armed.
       `python -m smap.maintenance purge-session-dirs`, dry-run unless
       `SMAP_PURGE_SESSION_DIRS_ARMED` is set to a truthy value. Arming is an environment variable
-      rather than the `--arm` flag §7.6 envisaged: see FU-6 and D-9 — the flag shipped inverted,
+      rather than the `--arm` flag §7.6 envisaged: see FU-6 and D-9 - the flag shipped inverted,
       and after the typer fix the env var was kept because a destructive default should not be
       re-breakable by a transitive dependency, and because `agent_fs_gc` arms the same way. T-6 in
       `test_workspace_volume_reconcile.py` (clears the tree; leaves the root, `agent-files/` and
       `skills/` byte-identical; idempotent on a clean volume; refuses to follow a symlinked
       `sessions` root or a symlinked room dir), sweep behaviour in `test_purge_session_dirs.py`.
       **Caveat:** the two symlink cases skip on a Windows host (`_supports_symlink`), as the three
-      pre-existing reconcile symlink tests already do — they run on Linux CI. The clearing itself
+      pre-existing reconcile symlink tests already do - they run on Linux CI. The clearing itself
       is the existing audited `_RECONCILE`, not new deletion logic.
 - [x] AC-8: `agent_fs_gc` recognises session volumes, retains them while agent and chatroom live,
       collects them when either is gone, and still never touches a name it cannot parse (T-7).
-- [x] AC-9: No unbounded growth — after an agent is collected, no volume bearing its id in either
+- [x] AC-9: No unbounded growth - after an agent is collected, no volume bearing its id in either
       name shape remains. (`test_both_volume_shapes_sweep_in_one_pass`.)
 - [ ] AC-10 (added at build time, Q-7): the kernel and the backend carry a shared protocol stamp,
       and a mismatch fails loudly at session start instead of degrading into a silent wrong-path.
@@ -314,7 +314,7 @@ room A's data.
 
 ## 11. SRS Delta
 
-**Not "None" — the SRS is silent where it must not be.** The analysis established that
+**Not "None" - the SRS is silent where it must not be.** The analysis established that
 `REQUIREMENTS.md` nowhere states that one chatroom's data must not be readable from another. Every
 explicit isolation guarantee is project-scoped ([R11.10] `:536`, [R12.13] `:624`) or room-scoped
 but confined to one feature ([R30.09] `:2119` activities endpoints, [R13.18] `:678` guest search,
@@ -322,19 +322,19 @@ but confined to one feature ([R30.09] `:2119` activities endpoints, [R13.18] `:6
 asserting nothing about their visibility. Q-1's decision is therefore a new requirement, not a
 restoration, and must be written down or the next change will re-introduce this.
 
-Amend **[R12.03a]** (`REQUIREMENTS.md:596`) — strike the clause that places session directories on
+Amend **[R12.03a]** (`REQUIREMENTS.md:596`) - strike the clause that places session directories on
 the per-agent volume, since they no longer live there:
 
-> The rest of the volume — the `file` tool's own state — is Agent-authored and is never
+> The rest of the volume - the `file` tool's own state - is Agent-authored and is never
 > reconciled against a table.
 
 Add **[R12.03b]** (`REQUIREMENTS.md`, §12.3, after [R12.03a]):
 
-> Per-chatroom execution state — staged attachments (`inputs/`) and generated artifacts
-> (`outputs/`) — lives on a per-`(agent, chatroom)` named Docker volume
+> Per-chatroom execution state - staged attachments (`inputs/`) and generated artifacts
+> (`outputs/`) - lives on a per-`(agent, chatroom)` named Docker volume
 > (`smap-agent-session-{agent_id}-{chatroom_id}`) mounted read-write at `/session`, and never on
 > the per-agent volume of [R12.03]. A chatroom's execution context mounts only its own session
-> volume, so one chatroom's attachments and artifacts are not reachable from another — including
+> volume, so one chatroom's attachments and artifacts are not reachable from another - including
 > via `code_exec`, which executes arbitrary code and therefore cannot be confined by a path check.
 > The per-agent volume of [R12.03] remains shared across all of the Agent's chatrooms by design:
 > the `file` tool's state, `/workspace/agent-files/` and `/workspace/skills/` are Agent-scoped,
@@ -345,19 +345,19 @@ Add **[R12.03b]** (`REQUIREMENTS.md`, §12.3, after [R12.03a]):
 "one chatroom's attachments and artifacts are not reachable from another" is false against an Agent
 that launders data through the shared per-agent volume, which is writable from every chatroom's
 context. An unqualified requirement is what the next change gets checked against, so the applied
-text distinguishes the guarantee the mount actually delivers — no other chatroom's session state is
+text distinguishes the guarantee the mount actually delivers - no other chatroom's session state is
 *present in* a given chatroom's execution context, a property that holds whatever code the Agent
-runs — from the general information-flow guarantee it does not deliver, and names the shared volume
+runs - from the general information-flow guarantee it does not deliver, and names the shared volume
 as a known residual channel. See `REQUIREMENTS.md` [R12.03b] for the applied text. The `ro`-mount
 candidate that would close the residual channel remains open in FU-7.
 
-Amend **[R12.03]** (`REQUIREMENTS.md:595`) — its list of containers receiving the `/workspace`
+Amend **[R12.03]** (`REQUIREMENTS.md:595`) - its list of containers receiving the `/workspace`
 mount names "the two staging helpers that populate `inputs/` and `agent-files/`", which §7.3 makes
 false: the `inputs/` stager moves to the session volume. Added at approval time, after the initial
 draft (the drift is a consequence of §7.3 that the first pass missed):
 
 > The containers that do are the platform's own: the built-in `file` tool, the `code_exec`
-> kernel, and the staging helper that populates `agent-files/` and `skills/` — each of which runs
+> kernel, and the staging helper that populates `agent-files/` and `skills/` - each of which runs
 > with `network_mode="none"`. The helper that stages `inputs/` mounts the session volume of
 > [R12.03b] instead.
 
@@ -380,12 +380,12 @@ draft (the drift is a consequence of §7.3 that the first pass missed):
   module silently ran against the real `/session` on the host (creating `C:\session\outputs\` on the
   developer machine) **and still passed**. A harness that can point at nothing must say so.
 - **D-5.** `_VOLUME_ROOT`'s comment claimed the constant must equal "the kernel's
-  SMAP_KERNEL_WORKSPACE default". False after D-2 — corrected rather than left as a trap for the
+  SMAP_KERNEL_WORKSPACE default". False after D-2 - corrected rather than left as a trap for the
   next reader.
 - **D-6.** §7.6 left the purge's clearing mechanism open ("modelled on `agent_fs_gc`'s structure,
   reusing the `_RECONCILE`-style container pattern"). It reuses `_RECONCILE` *itself* with an empty
   manifest rather than a new script in that style. "Make this subtree equal the empty set" is
-  literally a reconcile, and that script already carries the audit for the one danger here —
+  literally a reconcile, and that script already carries the audit for the one danger here -
   escaping the subtree via a symlinked root, a symlinked subdir, or a `..` member. It also ships as
   `python -c` from the backend, so the repair needs no image rebuild. Landing a second deletion path
   aimed at agent-authored data would have had to re-earn all of that.
@@ -394,7 +394,7 @@ draft (the drift is a consequence of §7.3 that the first pass missed):
   has had nothing to do for a year is indistinguishable from one that is broken.
 - **D-8.** `_enumerate_agent_volumes` **raises** where `agent_fs_gc._enumerate_volumes` degrades to
   an empty list on a daemon failure. Copying the fail-open posture would have made an unreachable
-  daemon report "no agent volumes" and exit 0 — telling the operator the deployment is clean when
+  daemon report "no agent volumes" and exit 0 - telling the operator the deployment is clean when
   nothing was examined. A nightly sweep can skip a night; a one-shot repair has no tomorrow. Found
   by running the CLI on this daemonless host, which produced a raw traceback.
 
@@ -405,23 +405,23 @@ draft (the drift is a consequence of §7.3 that the first pass missed):
 (no local Postgres/Redis) and are untouched by this diff.
 
 Every AC is met except **AC-3, which is partial**: the containment property holds at the wiring
-level and, once the purge has been armed on a deployment, in the data — but the §4 reproduction
+level and, once the purge has been armed on a deployment, in the data - but the §4 reproduction
 against a live sandbox has not been run. That step also exercises the two-volume mount, the change
 most likely to fail only at runtime (§9), and the operator-facing purge command end to end.
 
 - **D-9.** AC-7's command arms via `SMAP_PURGE_SESSION_DIRS_ARMED`, not the `--arm` flag §7.6
   described. The flag shipped inverted (FU-6): typer handed it the string `"False"` when absent, so
-  an unarmed run deleted. After the typer fix the flag would work, but the env var was kept — the
+  an unarmed run deleted. After the typer fix the flag would work, but the env var was kept - the
   single decision separating a report from an irreversible delete should not be re-breakable by a
   transitive dependency, and `agent_fs_gc` arms its own destructive sweep the same way, so this is
   now the consistent choice rather than an idiosyncratic one.
 
 **Definition of Done.** Gates 1 (mechanical) and 3 (AC verification) pass; gate 2 (contract) is N/A
-— no migration, no API contract change, no new i18n keys. Gate 5 (`check-quality`) found two
+- no migration, no API contract change, no new i18n keys. Gate 5 (`check-quality`) found two
 Introduced-Warnings: the duplicated `_session_volume_name` was fixed here (a test now pins the GC's
 name against the sandbox's, since drift would silently leak one volume per conversation), the
 sweep-duplication is deferred as FU-8 and the private-import as FU-9. Gate 6 (`check-security`) found
-one HIGH, pre-existing, recorded as FU-7 — **read it before treating this task as closing the
+one HIGH, pre-existing, recorded as FU-7 - **read it before treating this task as closing the
 leak**. Gate 4 (behavioural `/verify`) is the outstanding AC-3 work.
 
 **Deployment order matters.** The backend and the `smap/code-exec` image must ship together (Q-7,
@@ -429,7 +429,7 @@ now enforced by the protocol stamp), and the purge should be armed *after* that 
 before would clear trees the still-running old kernels are actively reading.
 
 **Housekeeping:** the `C:\session\` debris from the D-4 bug was removed by the user on 2026-07-19.
-Nothing writes there any more — the harness assertion added in D-4 fails the run instead.
+Nothing writes there any more - the harness assertion added in D-4 fails the run instead.
 
 ## 13. Follow-ups
 
@@ -451,17 +451,17 @@ Nothing writes there any more — the harness assertion added in D-4 fails the r
 - **FU-3: `stage_kernel_inputs` never prunes.** Unlike `_stage_tree`, it is a pure overlay
   (`docker_runsc.py:1174-1217`), so `inputs/` accumulates every attachment ever staged for that
   room rather than reflecting the current turn. Contained to one room after this fix, so it stops
-  being a confidentiality question and becomes a correctness and quota one — the agent sees stale
+  being a confidentiality question and becomes a correctness and quota one - the agent sees stale
   files it was never handed this turn. Related to FU-1. Type: `bugfix`.
 - **FU-4: `kernel.py:43-44` documents a host-side read that does not exist.** It claims artifacts
   above `_ARTIFACT_B64_CAP` "are read from the volume host-side"; no such code exists, and
-  `turn_engine.py:1135-1136` explicitly drops them ("Large artifact not inlined by the kernel —
+  `turn_engine.py:1135-1136` explicitly drops them ("Large artifact not inlined by the kernel -
   skipped in v1"). So an artifact over 8 MiB is silently lost. Found while confirming that no
   host path depends on the session directory's location (§6). Type: `bugfix`.
 - **FU-8: `_sweep_session_volumes` and `_sweep_volumes` are ~40 near-identical lines.**
   **DONE 2026-07-19 (`80b78b7`).** The considered call this entry asked for: only the *destructive
   tail* was extracted into `_remove_or_report`, not the whole sweep. The decisive argument was not
-  DRY but that `force=False` — the one guard that does not depend on the DB join being right — sat
+  DRY but that `force=False` - the one guard that does not depend on the DB join being right - sat
   in two places that could drift apart. Classification stayed in the callers, which genuinely differ
   (one table vs two) and would read worse merged.
 - **FU-9: `purge_session_dirs` imports two module-private names from `agent_fs_gc`.**
@@ -470,7 +470,7 @@ Nothing writes there any more — the harness assertion added in D-4 fails the r
   the same strictness, so a second parser there would be exactly the laxity it exists to prevent.
 - **FU-7: the shared agent volume is a residual cross-room channel, and [R12.03b] overclaims
   against it.** Found by this task's own `check-security` gate. The mount split removes room A's
-  session state from room B's execution context — that holds. But `/workspace` remains mounted
+  session state from room B's execution context - that holds. But `/workspace` remains mounted
   **read-write in every room's kernel** and shared across the agent's rooms by design (Q-1,
   [R12.03]). An injection landing in room B can write instructions into the agent's own shared
   state (`file` `op=write`, or `open('/workspace/notes.md','w')`); when the agent later runs in
@@ -485,7 +485,7 @@ Nothing writes there any more — the harness assertion added in D-4 fails the r
   name the shared volume as a known residual channel.
   **Candidate fix:** mount the agent volume `ro` in the kernel while the `file` tool keeps `rw`.
   `kernel.py` never writes `/workspace` (only `/session`), and the shipped `code_exec` description
-  promises the volume is *visible*, not writable — so this may be nearly free. It is still a
+  promises the volume is *visible*, not writable - so this may be nearly free. It is still a
   behaviour change that needs its own analysis, including whether any agent legitimately writes to
   `/workspace` from `code_exec` today (the tool description invites reading it by absolute path but
   never promises writing).
@@ -499,16 +499,16 @@ Nothing writes there any more — the harness assertion added in D-4 fails the r
   8.2+, typer 0.12.5 mis-converts *every* option default: a bool flag arrives as the **string
   `"False"`** when absent (truthy) and as `None` when passed (falsy), and a `None`-default string
   option becomes the truthy string `"None"`. So `purge-session-dirs` **deleted on an unarmed run
-  and did nothing when armed** — shipped that way in `1acc4c8`. Repo-wide, the same inversion hit
+  and did nothing when armed** - shipped that way in `1acc4c8`. Repo-wide, the same inversion hit
   `create-admin --force`/`--rescue`, `vault-approle --rotate-secret-id`, and every `--root-token`;
   CI runs `smap.bootstrap all`. click is transitive and unpinned, so this arrived with no change on
   our side. Fixed by pinning `typer==0.19.*` (0.15.x "fixes" it by holding click below 8.2 for every
-  consumer, which is worse), plus `tests/unit/test_smap_cli_contract.py` — the CLI layer had **no**
+  consumer, which is worse), plus `tests/unit/test_smap_cli_contract.py` - the CLI layer had **no**
   test coverage at all, which is why the inversion was invisible. Those tests were confirmed red on
   0.12.5 and green on 0.19.2. Also fixed the single-command collapse that made the documented
   `python -m smap.rotation rotate-transit` fail with "Got unexpected extra argument".
 - **FU-5: `kernel.py:122-123` swallows a failed `chdir`.** `with contextlib.suppress(Exception)`
-  means a session directory that cannot be entered leaves the cwd wherever it was — after this
+  means a session directory that cannot be entered leaves the cwd wherever it was - after this
   change, `/`, with `inputs/` and `outputs/` silently resolving nowhere useful and artifacts never
   collected. The mount makes the failure mode reachable in a new way (an unmounted volume rather
   than an unwritable subdirectory), which is worth a loud failure instead of a suppressed one.

@@ -223,6 +223,30 @@ class TestSingleMemberTarExtraction:
         stream = self._tar("big.bin", b"x" * 100)
         assert _single_member_tar_bytes(stream, 10) is None
 
+    def test_refuses_a_path_outside_the_session_mount(self) -> None:
+        """The descriptor naming this path comes from a container that runs
+        agent-authored code in the kernel's own process, so the agent can dictate
+        it. Without this the host would `get_archive` any path the agent names and
+        upload it into the room as an attachment."""
+        from contexts.agents.infrastructure.sandbox.docker_runsc import _safe_session_path
+
+        for hostile in (
+            "/etc/passwd",
+            "/workspace/agent-files/other.csv",
+            "/session/../workspace/secret",
+            "outputs/relative.png",
+            "",
+            "/session/ok\x00.png",
+        ):
+            assert _safe_session_path(hostile) is None, hostile
+
+    def test_allows_a_genuine_session_output(self) -> None:
+        from contexts.agents.infrastructure.sandbox.docker_runsc import _safe_session_path
+
+        assert _safe_session_path("/session/outputs/chart.png") == "/session/outputs/chart.png"
+        # Normalised, not merely accepted.
+        assert _safe_session_path("/session/outputs/./chart.png") == "/session/outputs/chart.png"
+
     def test_ignores_a_non_file_member(self) -> None:
         import tarfile
 

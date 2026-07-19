@@ -308,6 +308,27 @@ def _session_volume_name(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
     return f"smap-agent-session-{agent_id}-{chatroom_id}"
 
 
+def _safe_session_path(raw: str) -> str | None:
+    """Confine *raw* to the session mount, or ``None`` if it escapes.
+
+    Mirrors `protocol.safe_workspace_path` and `file_tool._safe_relpath`, for the
+    same reason: the path arrives from a container running agent-authored code
+    and must not be able to name anything outside the room's own outputs.
+    Returns ``None`` instead of raising because every caller degrades to "the
+    artifact was not delivered" rather than failing the turn.
+    """
+    import posixpath
+
+    if not isinstance(raw, str) or not raw or "\x00" in raw:
+        return None
+    if not raw.startswith("/"):
+        return None
+    normed = posixpath.normpath(raw)
+    if normed != _SESSION_ROOT and not normed.startswith(_SESSION_ROOT + "/"):
+        return None
+    return normed
+
+
 def _session_abspath(member: str) -> str:
     """Absolute form of a session-relative tar member, for the model's note."""
     import posixpath
@@ -1415,26 +1436,42 @@ class DockerRunscSandbox:
         still worth delivering. The caller reports the loss; it must not become
         a failed turn.
         """
+        # The descriptor carrying this path was produced inside a container that
+        # executes agent-authored code, in the same process as the kernel — so
+        # the agent can reach the kernel's globals and dictate `rel_path`. Confine
+        # it to the session mount before handing it to the daemon, exactly as
+        # every other guest-supplied path in this codebase is confined.
+        safe = _safe_session_path(path)
+        if safe is None:
+            _log.warning("artifact fetch: refusing path outside %s: %r", _SESSION_ROOT, path)
+            return None
         key = _session_key(agent_id, chatroom_id)
-        handle = _KERNELS.get(key)
+        async with _kernels_guard:
+            handle = _KERNELS.get(key)
         if handle is None:
-            _log.warning("artifact fetch: no live kernel for session %s (%s)", key, path)
+            _log.warning("artifact fetch: no live kernel for session %s (%s)", key, safe)
             return None
         client = self._client()
         container = await asyncio.to_thread(_get_container_quietly, client, handle.container_id)
         if container is None or not _is_running(container):
-            _log.warning("artifact fetch: kernel gone for session %s (%s)", key, path)
+            _log.warning("artifact fetch: kernel gone for session %s (%s)", key, safe)
             return None
         try:
-            stream, stat = await asyncio.to_thread(container.get_archive, path)
+            stream, stat = await asyncio.to_thread(container.get_archive, safe)
         except Exception as exc:
-            _log.warning("artifact fetch failed for %s: %s", path, exc)
+            _log.warning("artifact fetch failed for %s: %s", safe, exc)
             return None
         # Trust the archive header, not the descriptor: the file is the agent's
-        # own and could have grown between the kernel's stat and this read.
-        declared = int(stat.get("size") or 0)
+        # own and could have grown between the kernel's stat and this read. An
+        # unreadable header fails CLOSED — `or 0` would have waved a missing size
+        # past this check and let `_single_member_tar_bytes` buffer the whole
+        # stream, which is the one thing the ceiling exists to prevent.
+        declared = stat.get("size") if isinstance(stat, dict) else None
+        if not isinstance(declared, int) or declared < 0:
+            _log.warning("artifact fetch: unusable size in archive header for %s: %r", safe, declared)
+            return None
         if declared > max_bytes:
-            _log.warning("artifact %s is %d bytes, above the %d ceiling", path, declared, max_bytes)
+            _log.warning("artifact %s is %d bytes, above the %d ceiling", safe, declared, max_bytes)
             return None
         return await asyncio.to_thread(_single_member_tar_bytes, stream, max_bytes)
 

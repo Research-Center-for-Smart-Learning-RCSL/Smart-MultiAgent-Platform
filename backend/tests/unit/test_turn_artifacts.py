@@ -74,7 +74,7 @@ async def test_persist_artifacts_dedupes_skips_and_binds(monkeypatch: pytest.Mon
         },
     ]
 
-    async def _fetch(_agent, _room, art):
+    async def _fetch(_runner, _agent, _room, art):
         return b"col-a,col-b\n" if art["filename"] == "big.csv" else None
 
     engine._fetch_large_artifact = _fetch
@@ -138,7 +138,7 @@ async def test_an_unfetchable_artifact_is_reported_not_swallowed(
     engine = SimpleNamespace(_db=_FakeDB())
     agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
 
-    async def _fetch(_agent, _room, _art):
+    async def _fetch(_runner, _agent, _room, _art):
         return None  # kernel gone
 
     engine._fetch_large_artifact = _fetch
@@ -169,7 +169,7 @@ async def test_a_failed_fetch_does_not_cost_the_other_artifacts(
     agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     png = base64.b64encode(b"\x89PNG").decode("ascii")
 
-    async def _fetch(_agent, _room, _art):
+    async def _fetch(_runner, _agent, _room, _art):
         return None
 
     engine._fetch_large_artifact = _fetch
@@ -201,19 +201,93 @@ async def test_an_artifact_above_the_ceiling_is_never_fetched(
     agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     called: list[str] = []
 
-    def _boom():
-        called.append("fetched")
-        raise AssertionError("must not reach the sandbox for an oversized artifact")
+    class _Runner:
+        async def fetch_kernel_artifact(self, **_kwargs):
+            called.append("fetched")
+            raise AssertionError("must not reach the sandbox for an oversized artifact")
 
-    monkeypatch.setattr(te, "docker_runsc_sandbox_from_settings", _boom, raising=False)
-    huge = _big("huge.bin", size=te._MAX_ARTIFACT_BYTES + 1)
+    huge = _big("huge.bin", size=te.MAX_ARTIFACT_BYTES + 1)
 
     with caplog.at_level(logging.WARNING):
-        data = await TurnEngine._fetch_large_artifact(engine, agent, uuid.uuid4(), huge)  # type: ignore[arg-type]
+        data = await TurnEngine._fetch_large_artifact(  # type: ignore[arg-type]
+            engine, _Runner(), agent, uuid.uuid4(), huge
+        )
 
     assert data is None
     assert called == []
     assert "huge.bin" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_raising_fetch_costs_one_artifact_not_the_batch(
+    monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    """A malformed descriptor must not discard artifacts that decoded fine.
+
+    Found by this fix's own test stubs: a TypeError inside the loop reached the
+    method-level handler, which logged "artifact persistence failed" and returned
+    0 -- losing every artifact in the turn, including the good ones.
+    """
+    _FakeAttachmentService.instances.clear()
+    monkeypatch.setattr(
+        "contexts.conversation.application.attachment_service.AttachmentService",
+        _FakeAttachmentService,
+    )
+    engine = SimpleNamespace(_db=_FakeDB())
+    agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
+    png = base64.b64encode(b"\x89PNG").decode("ascii")
+
+    async def _fetch(*_args, **_kwargs):
+        raise RuntimeError("docker daemon exploded")
+
+    engine._fetch_large_artifact = _fetch
+    artifacts = [
+        _big(),
+        {"filename": "ok.png", "mime": "image/png", "rel_path": "/session/outputs/ok.png", "b64": png},
+    ]
+
+    with caplog.at_level(logging.WARNING):
+        count = await TurnEngine._persist_artifacts(  # type: ignore[arg-type]
+            engine, agent, uuid.uuid4(), uuid.uuid4(), artifacts
+        )
+
+    assert count == 1
+    assert [u["filename"] for u in _FakeAttachmentService.instances[-1].uploaded] == ["ok.png"]
+    assert "big.bin" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_the_shortfall_count_excludes_deduped_duplicates(
+    monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    """The denominator is candidates after dedup, not raw descriptors.
+
+    `len(artifacts)` counts duplicates the dedup pass already discarded, so an
+    operator reconciling "N of M" against what the user received would be given
+    a total that never existed -- in the one log line added so a human could
+    reconstruct what happened.
+    """
+    _FakeAttachmentService.instances.clear()
+    monkeypatch.setattr(
+        "contexts.conversation.application.attachment_service.AttachmentService",
+        _FakeAttachmentService,
+    )
+    engine = SimpleNamespace(_db=_FakeDB())
+    agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
+
+    async def _fetch(*_args, **_kwargs):
+        return None
+
+    engine._fetch_large_artifact = _fetch
+    # Three descriptors, but two are the same file: two real candidates.
+    artifacts = [_big(), _big(), _big("other.bin")]
+
+    with caplog.at_level(logging.WARNING):
+        await TurnEngine._persist_artifacts(  # type: ignore[arg-type]
+            engine, agent, uuid.uuid4(), uuid.uuid4(), artifacts
+        )
+
+    assert "2 of 2 artifacts" in caplog.text
 
 
 @pytest.mark.asyncio
