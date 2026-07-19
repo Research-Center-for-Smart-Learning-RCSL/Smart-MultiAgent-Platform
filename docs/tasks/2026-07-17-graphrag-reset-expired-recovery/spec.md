@@ -232,9 +232,14 @@ platform-admin check, OpenAPI regeneration, and client regeneration as the exist
   snapshot/error secrets. Verified by
   `test_unavailable_audit_metadata_is_distinct_and_carries_no_secrets` (asserts the exact
   metadata key set) and `test_missing_pointer_audit_records_null_build_id`.
-- [ ] AC-4: `recovery_unavailable` is terminal, not endlessly retried, and blocks both the
+- [x] AC-4: `recovery_unavailable` is terminal, not endlessly retried, and blocks both the
   turn-context retrieval path and the graph visualization reads for Concept and Knowledge
-  Maps; ordinary safe `FAILED` remains readable on both.
+  Maps; ordinary safe `FAILED` remains readable on both. Verified by the extended
+  `test_query_gated_in_transient_build_states` (retrieval, a single shared code path both
+  products reach) and the new/extended `test_graphrag_graph_endpoint.py` and
+  `test_knowmap_graph_endpoint.py`, each parametrised over the whole read-blocked set and
+  over readable states including `FAILED`. Terminality is pinned by the second-sweep
+  assertion in AC-5's test.
 - [x] AC-5: Reconciler missing-pointer/snapshot outcomes use the new state, while the
   successful-rollback path still lands in ordinary `FAILED`. Verified by
   `test_no_snapshot_compensation_audits_unavailable_not_rolled_back` (now asserts
@@ -284,6 +289,15 @@ None. This restores the existing [R11.04] and [R11a.02] contract.
   `-X utf8` helps because `locale.getencoding()` ignores UTF-8 mode. This blocked AC-8's
   contract gate outright, so it was fixed here rather than deferred. Agreed with the user
   before the change; the alternative offered was to leave it and verify AC-8 on CI instead.
+- D-3: Applying "the same gate" to the visualization routes (§7.3) blocks the whole of
+  `IN_FLIGHT_BUILD_STATES`, not only the new state. `read_graph` and `read_knowmap_graph`
+  previously served the graph in `running` / `neo4j_committed` / `failed_compensating`
+  too, so this is a user-visible change beyond the new state: the visualizer now shows an
+  empty graph during a build instead of a half-committed one. That follows the section's
+  wording and Q-6's rationale (a viewer seeing rollback-intended facts is the thing being
+  prevented), and it makes the visualizer agree with turn-context retrieval, which has
+  refused those states since F-10. Narrowing the gate to `recovery_unavailable` alone
+  would be a one-line change if the mid-build view turns out to be wanted.
 - D-2: `plan_discard`'s outcome enum lives in
   `contexts/knowledge/application/graphrag_config_service.py` rather than in a new shared
   module. §7.4 called for "a small application-layer discard primitive"; keeping it beside
