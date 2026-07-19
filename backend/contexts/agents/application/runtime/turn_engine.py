@@ -188,6 +188,36 @@ AGENT_STREAM_TOKENS_TOTAL = Counter(
 _DEFAULT_CHAT_MODELS: dict[str, str] = dict(DEFAULT_CHAT_MODELS)
 _CONTEXT_LIMITS: dict[str, int] = dict(CONTEXT_LIMITS)
 
+
+def _context_limit_for(agent: Agent) -> int:
+    """The provider's hard context limit for this agent's model hint.
+
+    One definition for all three turn entry points (room, headless, standalone
+    compaction): three copies of the lookup is how the headless path came to
+    have no limit to budget against at all.
+    """
+    return _CONTEXT_LIMITS.get(agent.model_hint.value, 128_000)
+
+
+def _request_ceiling(agent: Agent, context_limit: int) -> int:
+    """The token ceiling one request may occupy.
+
+    The configured cap (or its 75% default) in ``compact`` mode, the provider
+    hard limit in ``general`` mode — so [R11.19] bounds the knowledge blocks in
+    both modes without imposing [R9.10] compaction on ``general``.
+
+    Clamped to ``context_limit``: ``context_token_cap`` is bounded at the DB by
+    the *widest* provider window (``MAX_CONTEXT_TOKEN_CAP``, gemini's 1M), not by
+    the agent's own, so a claude or openai agent can legally carry a cap well
+    above what its provider will accept. Granting knowledge against that cap
+    builds a request no provider call could ever succeed with.
+    """
+    if agent.context_mode.value == "compact":
+        cap = agent.context_token_cap or ctxmod.default_cap_from_limit(context_limit)
+        return min(cap, context_limit)
+    return context_limit
+
+
 # Appended to the system prompt whenever history carries sender labels. The
 # provider sees other participants' turns as "Name: message"; without this note
 # the model tends to mirror the convention and prefix its own reply with its name.
@@ -640,11 +670,46 @@ class TurnEngine:
         pending_notes: list[dict[str, Any]] = []
         try:
             await self._audit(agent, None, "agent.turn_started", {"mode": "a2a", "workflow_run_id": wf})
-            base_system = agent.system_prompt
-            system_parts = [base_system] if base_system else []
-            # Knowledge blocks precede the notify block, matching the room path's
-            # order. With no history, retrieval keys off the current input alone.
-            knowledge_queries = _knowledge_queries([], input_text=input_text)
+            # §31: the same tap the room path runs, on the same shared helper. There is
+            # no room here, so a dropped skill is audited and nothing is emitted.
+            # This path stages nothing (`_stage_workspace_inputs` is room-only), so it has
+            # no staging drops to fold in — and a script-bearing skill here is FU-42's
+            # open gap, not something this call can close.
+            #
+            # Everything that makes up the *fixed* context resolves before knowledge,
+            # because the knowledge budget is what remains after it. Rendered order is
+            # unchanged (base, knowledge, skills, notify) — `_SystemBlocks` declares it
+            # independently of the order things are computed in.
+            agent_tools = await self._resolve_agent_tools(agent)
+            bound_skills = await self._resolve_skills(agent, agent_tools)
+            await self._report_skill_drops(agent, None, None, bound_skills)
+            skills_note = SkillsFacade.render_index(bound_skills.skills)
+            notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(agent, None)
+            extra_tools = extra_tools + await self._builtin_tools(agent, agent_tools)
+            registry = build_registry(
+                self._db,
+                agent_id=agent.id,
+                skills=bound_skills,
+                # No `reads` sink: the headless path persists no message, so there is no
+                # `message.metadata` for AC-19's records to land on. Passing a list nobody
+                # reads would look like the room path while recording nothing.
+                extra=extra_tools,
+            )
+            tool_specs = registry.specs()
+            tool_tokens = tx.estimate_tokens(json.dumps(tool_specs, ensure_ascii=False)) if tool_specs else 0
+            input_tokens = tx.estimate_tokens(input_text or "")
+            # The room-only blocks have no headless counterpart: there is no history to
+            # summarise, no observer framing, no staged workspace input, no activity feed.
+            system_blocks = _SystemBlocks.build(
+                base_system=agent.system_prompt,
+                is_observer=False,
+                memory_block=None,
+                skills_note=skills_note,
+                activity_block=None,
+                staged_note=None,
+                notify_block=notify_block,
+            )
+
             # A headless turn (e.g. an approval vote, F-15) may be threaded into a
             # room the agent does not belong to — the gate's chatroom_id can be an
             # arbitrary in-project room set by the workflow author. Room-scoped
@@ -658,36 +723,88 @@ class TurnEngine:
                 self._db
             ).is_agent_in_chatroom(chatroom_id=knowledge_chatroom_id, agent_id=agent.id):
                 knowledge_chatroom_id = None
+
+            # [R9.10]/[R11.19]: bound the combined knowledge blocks by what the fixed
+            # context leaves, exactly as the room path does. `measure` counts the
+            # participant-label note this path never renders — an over-count, which
+            # errs toward a smaller grant and so cannot cause the overflow it guards.
+            context_limit = _context_limit_for(agent)
+            ceiling = _request_ceiling(agent, context_limit)
+            fixed_context = tx.estimate_tokens(system_blocks.measure([])) + tool_tokens + input_tokens
+            total_budget = ctxmod.knowledge_budget(
+                ceiling=ceiling,
+                response_reserve=_DEFAULT_MAX_TOKENS,
+                fixed_context_tokens=fixed_context,
+                safety_margin_frac=_KNOWLEDGE_SAFETY_MARGIN,
+            )
+            # A zero budget drops every knowledge block, so an agent configured with
+            # sources would answer from nothing — confabulation dressed as an answer.
+            # Unlike the room path there is no history to shed and retry, so the
+            # verdict is final here rather than deferred past a recompaction pass. The
+            # source check uses the ACL-filtered room: a Concept Map this agent may
+            # not read is not a source it can lose.
+            if total_budget <= 0 and await self._has_knowledge_source(agent, knowledge_chatroom_id):
+                _log.warning(
+                    "headless knowledge budget floored agent=%s fixed_context=%d ceiling=%d cap=%s",
+                    agent_id,
+                    fixed_context,
+                    ceiling,
+                    agent.context_token_cap,
+                )
+                return await self._skip_headless(
+                    agent,
+                    pending_notes,
+                    reason="knowledge_starved",
+                    detail={
+                        "context_mode": agent.context_mode.value,
+                        "context_token_cap": agent.context_token_cap,
+                        "fixed_context_tokens": fixed_context,
+                        "ceiling_tokens": ceiling,
+                    },
+                )
+
+            # With no history, retrieval keys off the current input alone.
+            knowledge_queries = _knowledge_queries([], input_text=input_text)
             knowledge_blocks, _rag_ctx = await self._assemble_agent_knowledge(
-                agent, knowledge_queries, chatroom_id=knowledge_chatroom_id
+                agent,
+                knowledge_queries,
+                chatroom_id=knowledge_chatroom_id,
+                budget=ctxmod.KnowledgeBudget(total=total_budget, graph_source_cap=_GRAPH_BLOCK_TOKEN_BUDGET),
             )
-            system_parts.extend(knowledge_blocks)
-            # §31: the same tap the room path runs, on the same shared helper. There is
-            # no room here, so a dropped skill is audited and nothing is emitted.
-            # This path stages nothing (`_stage_workspace_inputs` is room-only), so it has
-            # no staging drops to fold in — and a script-bearing skill here is FU-42's
-            # open gap, not something this call can close.
-            agent_tools = await self._resolve_agent_tools(agent)
-            bound_skills = await self._resolve_skills(agent, agent_tools)
-            await self._report_skill_drops(agent, None, None, bound_skills)
-            skills_note = SkillsFacade.render_index(bound_skills.skills)
-            if skills_note:
-                system_parts.append(skills_note)
-            notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(agent, None)
-            extra_tools = extra_tools + await self._builtin_tools(agent, agent_tools)
-            if notify_block:
-                system_parts.append(notify_block)
-            system_text = "\n\n".join(p for p in system_parts if p)
+            # No participant note: headless carries a single unlabelled user turn.
+            system_text = system_blocks.render([], knowledge_blocks)
             messages: list[dict[str, Any]] = [{"role": "user", "content": input_text}]
-            registry = build_registry(
-                self._db,
-                agent_id=agent.id,
-                skills=bound_skills,
-                # No `reads` sink: the headless path persists no message, so there is no
-                # `message.metadata` for AC-19's records to land on. Passing a list nobody
-                # reads would look like the room path while recording nothing.
-                extra=extra_tools,
+
+            # The fixed context alone can exceed the provider limit — an unconstrained
+            # A2A input is the obvious vector (FU-2). The room path answers this by
+            # recompacting, which needs history this path does not have, and by letting
+            # general mode surface the provider's own error to the room UI, which this
+            # path has no way to reach. So both modes stop here instead of issuing a
+            # request that is certain to be rejected. Growth across later tool rounds
+            # is past this guard and remains FU-1, as it does for the room path.
+            payload_tokens = (
+                tx.estimate_tokens(system_text)
+                + _estimate_messages_tokens(messages)
+                + tool_tokens
+                + _DEFAULT_MAX_TOKENS
             )
+            if payload_tokens > context_limit:
+                _log.warning(
+                    "headless request ~%d tok exceeds provider limit %d agent=%s",
+                    payload_tokens,
+                    context_limit,
+                    agent_id,
+                )
+                return await self._skip_headless(
+                    agent,
+                    pending_notes,
+                    reason="context_overflow",
+                    detail={
+                        "payload_tokens": payload_tokens,
+                        "context_limit_tokens": context_limit,
+                    },
+                )
+
             await self._db.flush()
             final_text, rounds = await self._stream_with_tools(
                 agent=agent,
@@ -1414,6 +1531,30 @@ class TurnEngine:
                 exc_info=True,
             )
 
+    async def _skip_headless(
+        self,
+        agent: Agent,
+        pending_notes: list[dict[str, Any]],
+        *,
+        reason: str,
+        detail: dict[str, Any],
+    ) -> TurnResult:
+        """Abandon a headless turn before the provider call, loudly.
+
+        ``detail`` carries only the arithmetic that produced the verdict — never
+        prompt text, retrieved knowledge, tool schemas, or notification bodies.
+
+        Commits rather than rolls back, for the reason the room path's starvation
+        skip states: the pending audit row is the only record that this turn was
+        refused, and these verdicts are deterministic for a fixed config, so
+        discarding it would leave a silent skip that repeats on every trigger.
+        The drained notifications go back on the queue — the agent never saw them.
+        """
+        await self._audit(agent, None, "agent.turn_skipped", {"reason": reason, "mode": "a2a", **detail})
+        await self._db.commit()
+        await self._requeue_notifications(agent, pending_notes)
+        return TurnResult(status="skipped", reason=reason)
+
     async def _key_group_out_of_scope(self, agent: Agent) -> bool:
         """R7.09a: the agent's key group must still be live and in its project.
 
@@ -1492,9 +1633,8 @@ class TurnEngine:
                 await emit_agent_finished_error(chatroom_id, agent.id, "rate_limited")
             return TurnResult(status="skipped", reason="rate_limited")
 
-        provider = agent.model_hint.value
         models = _resolve_models(agent)
-        context_limit = _CONTEXT_LIMITS.get(provider, 128_000)
+        context_limit = _context_limit_for(agent)
 
         # Observer turns get NO room channel at all (R28.01): every emit below
         # is guarded on `room is not None`, and _stream_with_tools already
@@ -1597,13 +1737,7 @@ class TurnEngine:
                 agent, chatroom_id, context_limit, models, extra_projected_tokens=prefix_tokens
             )
 
-            # Request ceiling: the configured cap (or its 75% default) in compact
-            # mode, the provider hard limit in general mode — so R11.19 bounds the
-            # knowledge blocks in both modes without imposing R9.10 on general.
-            if agent.context_mode.value == "compact":
-                ceiling = agent.context_token_cap or ctxmod.default_cap_from_limit(context_limit)
-            else:
-                ceiling = context_limit
+            ceiling = _request_ceiling(agent, context_limit)
 
             # Resolved at most once per turn: the answer cannot change between the
             # two assembly passes (same agent, same room), and its Concept Map arm
@@ -2326,8 +2460,7 @@ class TurnEngine:
         agent = await AgentsFacade(self._db).get_agent(agent_id)
         if agent is None:
             return False
-        provider = agent.model_hint.value
-        context_limit = _CONTEXT_LIMITS.get(provider, 128_000)
+        context_limit = _context_limit_for(agent)
         try:
             await self._assemble_history(agent, chatroom_id, context_limit, _resolve_models(agent))
             await self._db.commit()
@@ -2592,7 +2725,7 @@ class TurnEngine:
         queries: Sequence[str],
         *,
         chatroom_id: uuid.UUID | None,
-        budget: ctxmod.KnowledgeBudget | None = None,
+        budget: ctxmod.KnowledgeBudget,
     ) -> tuple[list[str], RagContext | None]:
         """Assemble the per-turn knowledge system blocks in narrow-scope order.
 
@@ -2603,14 +2736,15 @@ class TurnEngine:
         is supplied. Blocks are placed in narrow-scope order (File RAG → Concept
         Map → Knowledge Map), mirroring the room path's former inline assembly.
 
-        When ``budget`` is supplied (F-16/R11.19) the two graph blocks draw first
-        in precedence order (Concept Map, then Knowledge Map), each capped at
+        ``budget`` is mandatory (F-16/R11.19): the two graph blocks draw first in
+        precedence order (Concept Map, then Knowledge Map), each capped at
         ``budget.graph_source_cap``; File RAG then receives the *measured*
         remainder of ``budget.total`` — so a graph source that resolves to nothing
         returns its reservation to File RAG rather than stranding it. A source
         whose remaining budget is zero is omitted (never queried, never sent
-        empty). ``budget=None`` leaves every block uncapped — the headless path,
-        pending FU.
+        empty). It has no optional/uncapped form on purpose: an uncapped default
+        is what let the headless path assemble an unbounded request for as long
+        as it did.
 
         Returns the blocks in placement order plus the ``RagContext`` so the room
         path can persist RAG citations (``reply_meta['rag_sources']``); headless
@@ -2620,31 +2754,20 @@ class TurnEngine:
         knowmap_block: str | None = None
         rag_ctx: RagContext | None = None
 
-        if budget is None:
-            # Uncapped (headless): query every bound source with no trimming.
-            if chatroom_id is not None:
-                concept_block = await self._graphrag_context(agent, chatroom_id, queries)
-            knowmap_block = await self._knowmap_context(agent, queries)
-            rag_ctx = await self._rag_context(agent, queries)
-        else:
-            # Concept Map (highest precedence) then Knowledge Map draw first, each
-            # up to the graph cap; File RAG takes what they leave, measured from
-            # what they actually render, so an absent graph source returns its
-            # reservation instead of stranding it. A source left zero is skipped.
-            remaining = budget.total
-            cap = budget.graph_source_cap
-            if chatroom_id is not None and remaining > 0:
-                concept_block = await self._graphrag_context(
-                    agent, chatroom_id, queries, token_budget=min(cap, remaining)
-                )
-                if concept_block:
-                    remaining = max(0, remaining - tx.estimate_tokens(concept_block))
-            if remaining > 0:
-                knowmap_block = await self._knowmap_context(agent, queries, token_budget=min(cap, remaining))
-                if knowmap_block:
-                    remaining = max(0, remaining - tx.estimate_tokens(knowmap_block))
-            if remaining > 0:
-                rag_ctx = await self._rag_context(agent, queries, token_budget=remaining)
+        remaining = budget.total
+        cap = budget.graph_source_cap
+        if chatroom_id is not None and remaining > 0:
+            concept_block = await self._graphrag_context(
+                agent, chatroom_id, queries, token_budget=min(cap, remaining)
+            )
+            if concept_block:
+                remaining = max(0, remaining - tx.estimate_tokens(concept_block))
+        if remaining > 0:
+            knowmap_block = await self._knowmap_context(agent, queries, token_budget=min(cap, remaining))
+            if knowmap_block:
+                remaining = max(0, remaining - tx.estimate_tokens(knowmap_block))
+        if remaining > 0:
+            rag_ctx = await self._rag_context(agent, queries, token_budget=remaining)
 
         blocks: list[str] = []
         if rag_ctx:

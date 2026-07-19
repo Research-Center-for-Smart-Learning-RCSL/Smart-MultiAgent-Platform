@@ -321,6 +321,39 @@ def test_starvation_carries_both_terms_that_produced_the_floor() -> None:
     assert starved.ceiling == 8_000
 
 
+# --------------------------------------------------------------------------- #
+# _request_ceiling
+# --------------------------------------------------------------------------- #
+
+
+def _capped_agent(cap, *, mode="compact"):
+    return SimpleNamespace(context_mode=SimpleNamespace(value=mode), context_token_cap=cap)
+
+
+def test_request_ceiling_clamps_a_cap_above_the_providers_window() -> None:
+    # context_token_cap is bounded at the DB by the *widest* provider window
+    # (MAX_CONTEXT_TOKEN_CAP, gemini's 1M), not by the agent's own — so a claude
+    # agent may legally carry 500k. Budgeting knowledge against that would build a
+    # request no claude call could accept, which the headless path then has to
+    # refuse outright: the cap must never raise the ceiling past the provider.
+    assert te._request_ceiling(_capped_agent(500_000), 200_000) == 200_000
+
+
+def test_request_ceiling_honours_a_cap_within_the_window() -> None:
+    assert te._request_ceiling(_capped_agent(20_000), 200_000) == 20_000
+
+
+def test_request_ceiling_defaults_to_the_75_percent_cap() -> None:
+    agent = _capped_agent(None)
+    assert te._request_ceiling(agent, 200_000) == te.ctxmod.default_cap_from_limit(200_000)
+
+
+def test_request_ceiling_in_general_mode_is_the_provider_limit() -> None:
+    # General mode never compacts, but R11.19 still bounds knowledge — against the
+    # provider window, ignoring any configured cap.
+    assert te._request_ceiling(_capped_agent(20_000, mode="general"), 200_000) == 200_000
+
+
 def test_knowledge_budget_floors_at_zero_under_a_low_cap() -> None:
     # The upstream trigger AC-11 is written against: the ceiling is the agent's
     # own context_token_cap, and a low one leaves the knowledge blocks nothing.
