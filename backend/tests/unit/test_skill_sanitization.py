@@ -505,6 +505,45 @@ async def test_the_gate_rejects_a_name_the_pattern_would_reject(h: _Harness) -> 
     assert h.row_count == 0
 
 
+async def test_whatever_the_bundle_parser_accepts_the_gate_also_accepts(h: _Harness) -> None:
+    """AC-10's first half: a legal manifest still imports after the gate was added.
+
+    `test_skill_bundle.py` drives the zip transport against a `FakeSkillService`, so this
+    is the one place the parser's output meets the *real* gate — without it, "the importer
+    still works" rested on a double that cannot reject anything. Every field is pushed to
+    its cap at once so the pass is not an artifact of short values.
+
+    Scope, stated honestly: this does **not** detect a future cap divergence, because it
+    builds its input from the same constants both sides read. The test that fails when the
+    parser and the gate disagree is
+    `test_the_tool_name_cap_is_one_number_shared_by_every_writer`, which probes one past
+    the boundary from each entry point.
+    """
+    manifest = parse_skill_md(
+        "---\n"
+        "name: " + "a" * MAX_NAME_CHARS + "\n"
+        "description: " + "x" * MAX_DESCRIPTION_CHARS + "\n"
+        "allowed-tools: [" + ", ".join(f"t{i}" for i in range(MAX_LIST_ITEMS)) + "]\n"
+        "x-smap-requires: [" + "r" * MAX_TOOL_NAME_CHARS + "]\n"
+        "---\n\n# Body\n\nWith several lines.\n"
+    )
+
+    created = await h.svc.create(
+        scope=SkillScope.PROJECT,
+        owner_id=_PROJECT_ID,
+        name=manifest.name,
+        description=manifest.description,
+        body=manifest.body,
+        requires=manifest.requires,
+        allowed_tools=manifest.allowed_tools,
+        actor_user_id=_ACTOR_ID,
+    )
+
+    assert created.name == manifest.name
+    assert len(created.allowed_tools) == MAX_LIST_ITEMS
+    assert h.row_count == 1
+
+
 async def test_a_clean_copy_still_works(h: _Harness) -> None:
     """The gate must not break the path it guards -- there are no violating rows today."""
     source = h.seed(requires=("code_exec",), allowed_tools=("Read", "Grep"))

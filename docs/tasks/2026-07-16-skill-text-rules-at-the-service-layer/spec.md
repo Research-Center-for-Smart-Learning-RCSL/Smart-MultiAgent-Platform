@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-16
 revised: 2026-07-19
 requirements: [R31.01]
@@ -270,29 +270,66 @@ homoglyph mitigation that does not exist) is a documentation fix and is independ
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: §8.1 fails before the fix and passes after — `copy` of a row with a rule-violating stored
+- [x] AC-1: §8.1 fails before the fix and passes after — `copy` of a row with a rule-violating stored
       `description` raises `SkillTextRejected` and writes nothing.
-- [ ] AC-2: §8.2 passes — `_insert` and `update` reject hostile `name`, `description`, `requires[]`,
+      *Verified*: `test_copy_rejects_a_stored_description_that_violates_the_rule` (+ the
+      `allowed_tools` arm). Confirmed red before the gate existed, for the documented reason —
+      the copy succeeded and the row landed.
+- [x] AC-2: §8.2 passes — `_insert` and `update` reject hostile `name`, `description`, `requires[]`,
       and `allowed_tools[]`.
-- [ ] AC-3: §8.3 passes — a multi-line `body` is still accepted; the rule is not applied to it.
-- [ ] AC-4: §8.4 passes — `SkillTextRejected` → 422 `skills/text-rejected` with `field` and `reason`,
+      *Verified*: `test_insert_rejects_hostile_text_in_every_covered_field` (4 params) and
+      `test_update_rejects_hostile_text_in_every_covered_field` (3 params; `name` is not patchable).
+      All 7 confirmed red before the gate.
+- [x] AC-3: §8.3 passes — a multi-line `body` is still accepted; the rule is not applied to it.
+      *Verified*: `test_the_rule_is_not_applied_to_the_body`, green before and after.
+- [x] AC-4: §8.4 passes — `SkillTextRejected` → 422 `skills/text-rejected` with `field` and `reason`,
       and the existing MRO arms are unaffected.
-- [ ] AC-5: `text_rules.py:3-5`'s "the same three entry points for each: create, update, and import"
-      is true of the code, and `index_builder.py:30-33`'s "every entry point" claim is true. Both
-      docstrings updated to describe the shared gate rather than a per-writer convention.
-- [ ] AC-6: `text_rejection_reason` (via its raising wrapper) is reached from `skill_service.py`, so
+      *Verified*: `test_a_rejected_text_field_carries_both_the_field_and_the_codepoint` and
+      `test_text_rejection_does_not_disturb_the_mro_arms_it_sits_beside`.
+- [x] AC-5: `text_rules.py`'s module docstring and `index_builder.py`'s frame comment describe the
+      shared gate rather than a per-writer convention, and both claims are now true of the code.
+      *Verified by reading*: `text_rules.py:1-19` now names `SkillService._insert`/`update` as the
+      enforcement point and records why the per-writer arrangement failed; `index_builder.py:30-39`
+      states that "every entry point" is enforced by that gate and that `render_index` has no
+      defence of its own.
+- [x] AC-6: `text_rejection_reason` (via its raising wrapper) is reached from `skill_service.py`, so
       that **no write path can reach `SkillRepository.create` or a `description=` update without
       crossing it** — verified by the §6 sweep staying true, not by grep alone.
-- [ ] AC-7: the 52 existing tests in `test_skill_sanitization.py` are unchanged and green.
-- [ ] AC-8: backend gates green — `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`.
-- [ ] AC-9 *(added 2026-07-19, Q-6)*: `MAX_NAME_CHARS` and `MAX_TOOL_NAME_CHARS` live in
+      *Verified*: `skill_service.py` imports `assert_text_ok` and calls it from `_insert` and
+      `update`. The sweep was re-run against the post-change tree by the security audit, which
+      confirmed `SkillRepository.create` has exactly one caller (`_insert`) and
+      `SkillRepository.update` exactly one (`update`), both downstream of the gate, and that
+      `BundleService` reaches them through `SkillService`, not a repository.
+- [x] AC-7: the 52 existing tests in `test_skill_sanitization.py` are unchanged and green.
+      *Verified*: the pre-change file collects exactly 52 tests (`--collect-only` against
+      `dfe1369~1`); none were edited, only appended to. All green.
+- [x] AC-8: backend gates green — `ruff check . && ruff format --check .` and `mypy .` clean
+      (787 files); `pytest tests/unit -q` → **5288 passed, 4 skipped**.
+      **`pytest -q` (the whole tree) is not green and is not expected to be here**: 46 failures, all
+      in `tests/wiring/`, all `socket.gaierror` — those need Postgres, Redis, Vault, and SMTP, which
+      this dev box does not run. None are in `tests/unit/` or `tests/integration/`, and none touch
+      skills (they are knowmap, rag_ingestion, a2a, workflow, usage, and smtp). Pre-existing and
+      environmental.
+- [x] AC-9 *(added 2026-07-19, Q-6)*: `MAX_NAME_CHARS` and `MAX_TOOL_NAME_CHARS` live in
       `domain/models.py` and are the only spelling of those caps — no numeric literal for a text cap
       remains in `app/api/v1/skills.py` or `skill_md.py`, and a test pins that the API and the
       importer now agree on the tool-name cap.
-- [ ] AC-10 *(added 2026-07-19, Q-6)*: the live import path still works end to end — a bundle whose
+      *Verified*: `test_the_tool_name_cap_is_one_number_shared_by_every_writer` (probes one past the
+      cap from both entry points) and `test_no_text_cap_is_spelled_as_a_literal_outside_the_domain`,
+      which sweeps all three writer modules for `max_chars=<digits>`. `MAX_LIST_ITEMS` joined them
+      per D-5. Known limit, recorded as FU-4: the guard catches a stray *literal*, not a field
+      wired to the wrong constant.
+- [x] AC-10 *(added 2026-07-19, Q-6)*: the live import path still works end to end — a bundle whose
       frontmatter is legal under the shared caps imports and writes its row, and one carrying an
       over-length tool name is rejected by `parse_skill_md` with a `BundleInvalid` naming the key
       (not by the service with an error that cannot).
+      *Verified*: `test_whatever_the_bundle_parser_accepts_the_gate_also_accepts` runs a manifest
+      with every field at its cap through `parse_skill_md` and then through the **real**
+      `SkillService.create` — added because `test_skill_bundle.py` drives import against a
+      `FakeSkillService` that cannot reject anything, so without it "the importer still works"
+      rested on a double. The rejection half is
+      `test_a_tool_name_is_capped_at_the_tool_name_cap_not_the_description_cap`, asserting
+      `BundleInvalid.key == "allowed-tools"`.
 
 ## 11. SRS Delta
 
@@ -313,7 +350,47 @@ sequences behind this task (§7).
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+- **D-1: the spec was revised before implementation, not deviated from.** The freshness
+  check found the bundle importer live (`bundle_service.py:495`), contradicting §1/§4/§6 of
+  the draft. Work stopped, §1-§6 were rewritten, Q-6 and AC-9/AC-10 were added, and the
+  revision was re-approved (commit `f1dde6d`) before any code was written. Recorded here
+  because the *approved* artifact is the revision, and a reader comparing the original
+  draft to the code would otherwise find three claims that no longer match.
+- **D-2: `app/api/v1/skills.py` was modified, which Q-3 said to leave untouched.** Q-3's
+  subject is the Pydantic validators, and every one of them survives unchanged. The file
+  was edited only to replace three numeric literals with the shared domain constants
+  (Q-6), which is what §9's "do not introduce a second literal" requires once the caps
+  move to the domain. No validator was added, removed, or reordered.
+- **D-3: `_MAX_MIME` was extracted in `app/api/v1/skills.py`, which the spec does not
+  mention.** Forced, not chosen: the `mime` field on the file-upload model
+  (`skills.py:279` at the time) was borrowing `_MAX_TOOL_NAME`, so deleting that constant
+  would have broken it. Left as a local constant with a comment rather than folded into
+  `MAX_TOOL_NAME_CHARS` — a file upload's content type and a bundle's tool names have no
+  reason to share a number, and tying them would recreate the coincidence this task exists
+  to remove.
+- **D-4: the gate runs *after* `_assert_owned` in `update`, not before.** The spec does not
+  specify the order. It was implemented before the ownership check, then moved during the
+  self-audit. Both post-implementation audits independently examined the original order and
+  cleared it — `SkillTextRejected` is a pure function of the caller's own input and reveals
+  nothing about the target — so this is defence in depth rather than a fix. The reason for
+  moving it anyway: this module's invariant is "a caller who cannot prove ownership gets 404
+  and nothing else", which is a cheaper property to keep than a per-error argument about
+  which errors happen to be safe to leak. Pinned by a test.
+- **D-5: two rules were added at the gate that the spec's Q-1 does not list.** Both came out
+  of the post-implementation audits and are in scope as "the same defect, one field over":
+  (a) `MAX_LIST_ITEMS` caps the entry *count* of `requires`/`allowed_tools`, which only the
+  API was enforcing — the bundle parser capped it at nothing, and the gate as first written
+  checked each item's length but never how many items there were; (b) `SKILL_NAME_RE` is
+  re-checked at the gate, because `name` is a directory component under
+  `/workspace/skills/` and the charset rule alone admits `../evil`. Neither is reachable
+  through a real writer today, which is precisely the argument Q-1 makes for the charset
+  rule itself. Both caps live in `domain/models.py` with the others.
+- **D-6: the service-layer tests were rebuilt on `tests/unit/skill_fakes.py`.** They were
+  first written against a local `_FakeSkillRepo` and a `monkeypatch`ed constructor. The
+  quality audit was right that this was a real defect and not a style point: the local
+  double returned soft-deleted rows from `get()` and hardcoded `get_by_name()` to `None`,
+  which silently stopped modelling the name-collision arm that sits immediately beside the
+  gate under test. `skill_fakes.py`'s own docstring names this failure mode.
 
 ## 13. Follow-ups
 
@@ -336,6 +413,24 @@ Appended by `/build`.
   wrapper rather than `str` — which is a larger refactor and a real design decision. The importer's
   arrival is the argument for it: that writer was added *after* the rule was written and had to
   re-derive it by hand, which is exactly the failure a type would have prevented.
+- **FU-4 *(added 2026-07-19, from the quality audit)*: the field-to-cap *mapping* is still
+  spelled three times, though the numbers are now spelled once.** `_assert_text_fields_ok`
+  (`skill_service.py`), `_validate_text`'s call sites (`app/api/v1/skills.py`), and
+  `parse_skill_md` (`skill_md.py`) each independently associate `description` with
+  `MAX_DESCRIPTION_CHARS` and a tool name with `MAX_TOOL_NAME_CHARS`. Giving a field a
+  different cap tomorrow means editing three files, and AC-9's guard test does not catch
+  that class of drift — it matches numeric literals, not wrong-constant-for-the-field. The
+  fix is a single domain-level `assert_skill_text_fields(...)` that all three call, with
+  each writer keeping only its own error shaping. Not done here because the API needs a
+  per-field `ValidationError` with a `loc` and the parser needs a `BundleInvalid` with a
+  key, so the shared function has to return a structured result rather than raise — a
+  design decision, not a mechanical extraction.
+- **FU-5 *(added 2026-07-19, from the quality audit)*: the API reports both `requires` and
+  `allowed_tools` rejections under the literal label `"tool name"`** (`_validate_names` in
+  `app/api/v1/skills.py`), while the service gate reports the actual field name. The same
+  violation is therefore described differently depending on entry point. Pre-existing and
+  mitigated by the Pydantic `loc` the API also returns, so it is cosmetic — but it is the
+  kind of small inconsistency that makes a 422 harder to act on than it needs to be.
 - **FU-3 *(added 2026-07-19)*: the `license` field is capped and charset-checked only by the
   parser.** `skill_md.py:459` validates it at 1024 characters; it is not a column this task's gate
   covers, because it is not one `_insert` takes (`skill_service.py:118-131`). When `license` becomes
