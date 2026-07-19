@@ -301,7 +301,7 @@ room A's data.
       collects them when either is gone, and still never touches a name it cannot parse (T-7).
 - [x] AC-9: No unbounded growth - after an agent is collected, no volume bearing its id in either
       name shape remains. (`test_both_volume_shapes_sweep_in_one_pass`.)
-- [ ] AC-10 (added at build time, Q-7): the kernel and the backend carry a shared protocol stamp,
+- [x] AC-10 (added at build time, Q-7): the kernel and the backend carry a shared protocol stamp,
       and a mismatch fails loudly at session start instead of degrading into a silent wrong-path.
       Both mismatch directions are covered by test.
       Done: `kernel.PROTOCOL_VERSION` / `docker_runsc._KERNEL_PROTOCOL_VERSION`, refused in
