@@ -737,6 +737,33 @@ class TurnEngine:
                 fixed_context_tokens=fixed_context,
                 safety_margin_frac=_KNOWLEDGE_SAFETY_MARGIN,
             )
+
+            # Two different failures floor the budget, and they need different
+            # verdicts. If the fixed context alone will not fit the *provider*, no
+            # configuration change can rescue the turn — decide that here, before
+            # paying for retrieval whose result is certain to be discarded. A
+            # budget floored only against the agent's own ceiling is the starvation
+            # case below, which raising the cap does fix.
+            fixed_payload_tokens = fixed_context + _DEFAULT_MAX_TOKENS
+            if fixed_payload_tokens > context_limit:
+                _log.warning(
+                    "headless fixed context ~%d tok exceeds provider limit %d agent=%s",
+                    fixed_payload_tokens,
+                    context_limit,
+                    agent_id,
+                )
+                return await self._skip_headless(
+                    agent,
+                    chatroom_id,
+                    pending_notes,
+                    reason="context_overflow",
+                    detail={
+                        "bound": "provider",
+                        "payload_tokens": fixed_payload_tokens,
+                        "context_limit_tokens": context_limit,
+                    },
+                )
+
             # A zero budget drops every knowledge block, so an agent configured with
             # sources would answer from nothing — confabulation dressed as an answer.
             # Unlike the room path there is no history to shed and retry, so the
@@ -753,6 +780,7 @@ class TurnEngine:
                 )
                 return await self._skip_headless(
                     agent,
+                    chatroom_id,
                     pending_notes,
                     reason="knowledge_starved",
                     detail={
@@ -775,13 +803,15 @@ class TurnEngine:
             system_text = system_blocks.render([], knowledge_blocks)
             messages: list[dict[str, Any]] = [{"role": "user", "content": input_text}]
 
-            # The fixed context alone can exceed the provider limit — an unconstrained
-            # A2A input is the obvious vector (FU-2). The room path answers this by
-            # recompacting, which needs history this path does not have, and by letting
-            # general mode surface the provider's own error to the room UI, which this
-            # path has no way to reach. So both modes stop here instead of issuing a
-            # request that is certain to be rejected. Growth across later tool rounds
-            # is past this guard and remains FU-1, as it does for the room path.
+            # Backstop for the knowledge blocks overshooting their grant (the
+            # estimator is coarse, which is what the safety margin absorbs).
+            # Measured against the provider limit, not the agent's ceiling: [R9.10]
+            # defines context_token_cap as the point at which compaction runs, not
+            # as a bound on the request, and the room path guards the same way. A
+            # cap below the fixed context would otherwise skip every turn for an
+            # agent whose prompt is simply larger than its compaction trigger.
+            # Growth across later tool rounds is past this guard and remains FU-1,
+            # as it is for the room path.
             payload_tokens = (
                 tx.estimate_tokens(system_text)
                 + _estimate_messages_tokens(messages)
@@ -797,9 +827,11 @@ class TurnEngine:
                 )
                 return await self._skip_headless(
                     agent,
+                    chatroom_id,
                     pending_notes,
                     reason="context_overflow",
                     detail={
+                        "bound": "provider",
                         "payload_tokens": payload_tokens,
                         "context_limit_tokens": context_limit,
                     },
@@ -1534,12 +1566,18 @@ class TurnEngine:
     async def _skip_headless(
         self,
         agent: Agent,
+        chatroom_id: uuid.UUID | None,
         pending_notes: list[dict[str, Any]],
         *,
         reason: str,
         detail: dict[str, Any],
     ) -> TurnResult:
         """Abandon a headless turn before the provider call, loudly.
+
+        ``chatroom_id`` is the *raw* room the caller threaded in, not the
+        membership-filtered one: the approval worker's gate room is what an
+        operator needs to correlate a timed-out gate against, and recording it
+        grants no access — the filtered id is what governed retrieval.
 
         ``detail`` carries only the arithmetic that produced the verdict — never
         prompt text, retrieved knowledge, tool schemas, or notification bodies.
@@ -1550,7 +1588,9 @@ class TurnEngine:
         discarding it would leave a silent skip that repeats on every trigger.
         The drained notifications go back on the queue — the agent never saw them.
         """
-        await self._audit(agent, None, "agent.turn_skipped", {"reason": reason, "mode": "a2a", **detail})
+        await self._audit(
+            agent, chatroom_id, "agent.turn_skipped", {"reason": reason, "mode": "a2a", **detail}
+        )
         await self._db.commit()
         await self._requeue_notifications(agent, pending_notes)
         return TurnResult(status="skipped", reason=reason)

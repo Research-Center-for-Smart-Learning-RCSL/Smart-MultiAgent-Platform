@@ -93,13 +93,24 @@ async def drive_approver_turn(
             chatroom_id=uuid.UUID(chatroom_id) if chatroom_id else None,
         )
 
-    logger.bind(
+    bound = logger.bind(
         event="approver_turn_driven",
         agent_id=agent_id,
         approval_id=approval_id,
         room_id=chatroom_id,
         result=result.status,
-    ).info("approver turn driven")
+        reason=result.reason,
+    )
+    if result.status != "completed":
+        # This task exists to stop gates falling to the timeout port (see the
+        # module docstring), and a turn that never reached the provider casts no
+        # vote — so the gate does exactly that, minutes or hours later, with
+        # nothing at info level to connect the two. There is no abstain signal to
+        # send the gate yet (FU-5); until there is, at least make the cause
+        # findable at the moment it happens rather than at the timeout.
+        bound.warning("approver turn cast no vote; gate will wait for its timeout")
+    else:
+        bound.info("approver turn driven")
     return result.status
 
 

@@ -528,9 +528,81 @@ async def test_run_input_turn_oversized_payload_never_reaches_the_provider(monke
     assert captured == {}
     assert requeued == [[{"id": "n1"}]]
     overflow = next(extra for action, extra in audits if extra.get("reason") == "context_overflow")
+    assert overflow["bound"] == "provider"
     assert overflow["payload_tokens"] > overflow["context_limit_tokens"] == 5_000
     # The audit must carry the arithmetic, never the prompt that produced it.
     assert not any("x" * 100 in str(v) for v in overflow.values())
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_oversized_input_is_overflow_not_starvation(monkeypatch) -> None:
+    # A fixed context too large for the provider floors the knowledge budget just
+    # as a tight cap does — but no cap or knowledge change can rescue it. Reporting
+    # it as knowledge_starved would send the operator after the wrong lever, so the
+    # provider bound is judged first, before retrieval that would be discarded.
+    monkeypatch.setitem(te._CONTEXT_LIMITS, "claude", 5_000)
+    agent = _agent()
+    agent.rag_config_id = uuid.uuid4()  # a bound source: would otherwise starve
+    engine, captured = _headless_engine(monkeypatch, agent)
+    audits: list = []
+
+    async def _audit(agent_, room_, action, extra):
+        audits.append((action, extra))
+
+    engine._audit = _audit  # type: ignore[attr-defined]
+    budgets: dict = {}
+    _wire_knowledge(engine, rag="RAG", budgets=budgets)
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="x" * 10_000)
+
+    assert result.reason == "context_overflow"
+    assert captured == {}
+    # Retrieval is never paid for a request that cannot be sent.
+    assert budgets == {}
+    assert next(e for _a, e in audits if e.get("reason") == "context_overflow")["bound"] == "provider"
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_dispatches_above_a_cap_the_prompt_alone_overruns(monkeypatch) -> None:
+    # [R9.10] makes context_token_cap the point at which compaction runs, not a
+    # bound on the request. This path has no history to compact, so a prompt larger
+    # than the cap must still dispatch while it fits the provider — bounding the
+    # payload by the cap here would skip every turn for such an agent.
+    agent = _agent()
+    agent.context_mode = SimpleNamespace(value="compact")
+    agent.context_token_cap = 6_000
+    engine, captured = _headless_engine(monkeypatch, agent)
+    _wire_knowledge(engine)  # no bound source, so nothing to starve
+
+    # ~3000 tokens of input plus the 4096 reserve overruns the 6k cap while sitting
+    # far inside claude's 200k window.
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="x" * 12_000)
+
+    assert result.status == "completed"
+    assert captured["system_text"] == "prompt"
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_skip_audits_carry_the_gates_room(monkeypatch) -> None:
+    # The approval worker threads the gate's room in. A skip that drops it leaves an
+    # operator unable to correlate a timed-out gate with the turn that refused to run.
+    agent = _agent()
+    agent.rag_config_id = uuid.uuid4()
+    agent.context_mode = SimpleNamespace(value="compact")
+    agent.context_token_cap = 100
+    room = uuid.uuid4()
+    engine, _captured = _headless_engine(monkeypatch, agent)
+    rooms: list = []
+
+    async def _audit(agent_, room_, action, extra):
+        rooms.append((extra.get("reason"), room_))
+
+    engine._audit = _audit  # type: ignore[attr-defined]
+    _wire_knowledge(engine, rag="RAG")
+
+    await engine.run_input_turn(agent_id=agent.id, input_text="hi", chatroom_id=room)
+
+    assert (("knowledge_starved", room)) in rooms
 
 
 @pytest.mark.asyncio
