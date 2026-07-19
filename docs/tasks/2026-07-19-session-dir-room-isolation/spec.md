@@ -309,6 +309,16 @@ Add **[R12.03b]** (`REQUIREMENTS.md`, §12.3, after [R12.03a]):
 > not room-scoped. Session volumes are garbage-collected when their Agent is collected under
 > [R12.03]'s retention rule, or when their chatroom ceases to exist.
 
+Amend **[R12.03]** (`REQUIREMENTS.md:595`) — its list of containers receiving the `/workspace`
+mount names "the two staging helpers that populate `inputs/` and `agent-files/`", which §7.3 makes
+false: the `inputs/` stager moves to the session volume. Added at approval time, after the initial
+draft (the drift is a consequence of §7.3 that the first pass missed):
+
+> The containers that do are the platform's own: the built-in `file` tool, the `code_exec`
+> kernel, and the staging helper that populates `agent-files/` and `skills/` — each of which runs
+> with `network_mode="none"`. The helper that stages `inputs/` mounts the session volume of
+> [R12.03b] instead.
+
 ## 12. Deviation Log
 
 Appended by `/build`.
