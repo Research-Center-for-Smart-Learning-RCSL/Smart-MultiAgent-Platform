@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-20
 requirements: [R11a.02, R11.04]
 ---
@@ -146,19 +146,34 @@ contract is not surprising. Rollback is reverting one expression and the two pro
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The rewritten `test_graphrag_reset.py` forced-recoverable-failure test fails before
-  the fix (observes `IDLE`) and passes after (`RECOVERY_UNAVAILABLE`).
-- [ ] AC-2: A `force=true` reset whose compensation failed lands on `RECOVERY_UNAVAILABLE`, is
+- [x] AC-1: The rewritten `test_graphrag_reset.py` forced-recoverable-failure test fails before
+  the fix (observes `IDLE`) and passes after (`RECOVERY_UNAVAILABLE`). Both the Concept Map and
+  Knowledge Map tests were confirmed red on the pre-fix code with
+  `assert <BuildState.IDLE: 'idle'> is <BuildState.RECOVERY_UNAVAILABLE: ...>`. See D-1 for the
+  second test §8 missed.
+- [x] AC-2: A `force=true` reset whose compensation failed lands on `RECOVERY_UNAVAILABLE`, is
   in `IN_FLIGHT_BUILD_STATES`, and records a non-null `last_build_error` with audit
   `outcome=compensation_failed` and `forced=true`.
-- [ ] AC-3: The snapshot and current-build pointer survive that reset.
-- [ ] AC-4: A clean discard and a no-op reset still land on `IDLE`.
-- [ ] AC-5: `force=false` still refuses with no state change and preserved material; the forced
-  `UNAVAILABLE` path still lands on `RECOVERY_UNAVAILABLE`.
-- [ ] AC-6: Knowledge Map and Concept Map behave identically, each covered by its own test.
-- [ ] AC-7: `REQUIREMENTS.md` [R11a.02] and `deps.py:15-21` describe the shipped behavior for
-  both forced-failure paths.
-- [ ] AC-8: Backend lint, format, typecheck, and the CI unit selection pass.
+  `test_force_true_compensation_failure_stays_read_blocked` asserts all five.
+- [x] AC-3: The snapshot and current-build pointer survive that reset — `snaps.deleted == []`
+  and `snaps.cleared is False` in the same test, and in the Knowledge Map counterpart.
+- [x] AC-4: A clean discard and a no-op reset still land on `IDLE`. The landing expression keys
+  on `comp_error is None`, and the existing clean-discard tests pass unchanged.
+- [x] AC-5: `force=false` still refuses with no state change and preserved material; the forced
+  `UNAVAILABLE` path still lands on `RECOVERY_UNAVAILABLE`. The `UNAVAILABLE` branch always sets
+  `comp_error` (`graph_admin_reset.py:259`), so keying on the outcome subsumes the old plan
+  check rather than altering that path; both existing tests pass untouched.
+- [x] AC-6: Knowledge Map and Concept Map behave identically, each covered by its own test —
+  one shared `perform_admin_reset`, plus
+  `test_forced_reset_over_a_failed_rollback_stays_read_blocked` in `test_knowmap_reset.py`.
+- [x] AC-7: `REQUIREMENTS.md` [R11a.02] and `deps.py:15-21` describe the shipped behavior for
+  both forced-failure paths. Two `docs/implement/` references were corrected too (D-2), and the
+  API prose propagated to `openapi.json` and the generated client (D-3).
+- [x] AC-8: Backend lint, format, typecheck, and the CI unit selection pass. `ruff check .` and
+  `ruff format --check .` clean over 798 files; `mypy .` clean over 798 files; unit selection
+  5433 passed / 6 skipped. Frontend `pnpm typecheck` and `pnpm lint` clean after regeneration.
+  The 10 remaining errors are the pre-existing `getaddrinfo` environment failures documented in
+  the sibling dossier — same count as before this change, in files it does not touch.
 
 ## 11. SRS Delta
 
@@ -175,7 +190,28 @@ contract is not surprising. Rollback is reverting one expression and the two pro
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+- **D-1: a second test encoded the old contract; §8 named only one.** §8 identified
+  `test_graphrag_reset.py:460-472` but missed
+  `test_force_true_compensation_failure_forces_idle_with_error` (section 4 of that file), which
+  asserted the same `IDLE` landing with the fuller audit and residue assertions. Once both were
+  corrected they were near-duplicates, so section 4's became the canonical test
+  (`test_force_true_compensation_failure_stays_read_blocked`) and the `:460` one — whose whole
+  purpose was to contrast with the `UNAVAILABLE` case that this change makes it agree with — was
+  replaced by `test_force_true_landing_states_converge_on_any_unfinished_rollback`, which loops
+  both plans and pins the shared property. Net test count is unchanged.
+- **D-2: two `docs/implement/` references were corrected beyond the ACs.**
+  `E-agents-knowledge.md:196` and `I-admin-observability.md:47` both described the reset as
+  force-setting `idle`. AC-7 named only `REQUIREMENTS.md` and `deps.py`. Leaving them would have
+  shipped a documented contradiction of the SRS — and unwritten-back documentation is the exact
+  failure this task exists to correct (§6), so repeating it here was not defensible. One line
+  each, no behavior impact.
+- **D-3: the OpenAPI spec and generated TS client were regenerated.** Not called out in the
+  spec, but `ADMIN_RESET_FORCE_DESCRIPTION` is part of the API contract, so `backend/openapi.json`
+  and the two generated admin services carry the prose. Regenerated via
+  `python -m scripts.export_openapi` plus `pnpm run gen:api`, keeping
+  `frontend/scripts/check-openapi-drift.sh` green. The first export was written with a UTF-8 BOM
+  by the invoking shell and re-exported without one, so the committed diff is the four
+  description strings only.
 
 ## 13. Follow-ups
 
