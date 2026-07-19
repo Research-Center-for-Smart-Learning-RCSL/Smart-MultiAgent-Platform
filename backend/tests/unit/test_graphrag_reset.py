@@ -492,3 +492,29 @@ async def test_force_true_landing_states_converge_on_any_unfinished_rollback() -
         assert out.last_build_state is BuildState.RECOVERY_UNAVAILABLE
         assert out.last_build_state in IN_FLIGHT_BUILD_STATES
         assert repo.sets[-1]["error"] is not None
+
+
+@pytest.mark.asyncio
+async def test_a_settled_config_with_a_stale_pointer_still_lands_idle() -> None:
+    """The read-blocked landing is scoped to an unresolved in-flight build.
+
+    A settled config carrying a stale current-build pointer has no unfinished 2PC to
+    hide, so it stays readable whether the delete-only pass succeeds or raises. The
+    data that pass can destroy is FU-5 in 2026-07-17-graphrag-reset-expired-recovery;
+    read-blocking would not bring it back, and would take a healthy config offline.
+    """
+    for raise_on_delete in (False, True):
+        cfg = _cfg(BuildState.FAILED)
+        snaps = FakeSnapshotStore(current=uuid.uuid4(), snapshot=None)
+        service, repo = _service(
+            RecordingDb(),
+            cfg,
+            locks=FakeLockStore(),
+            snaps=snaps,
+            neo4j=FakeNeo4j(raise_on_delete=raise_on_delete),
+        )
+
+        out = await _reset(service, cfg, force=True)
+
+        assert out.last_build_state is BuildState.IDLE
+        assert repo.sets[-1]["state"] is BuildState.IDLE
