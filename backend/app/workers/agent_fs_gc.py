@@ -66,6 +66,7 @@ import sqlalchemy as sa
 
 from app.workers.tasks.retention import SOFT_DELETE_RETENTION_DAYS
 from contexts.agents.infrastructure import tables as t
+from contexts.conversation.infrastructure import tables as ct
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.observability.metrics import AGENT_FS_GC_ARTIFACTS
 
@@ -87,6 +88,10 @@ AGENT_FS_GC_TIMEOUT_S = 3600
 
 _GC_BATCH_SIZE = 500
 _VOLUME_PREFIX = "smap-agent-fs-"
+# Per-(agent, chatroom) session volumes ([R12.03b]). One is created per room the
+# agent serves, so unlike the per-agent volume these accumulate with use: a
+# deployment that never collected them would leak one volume per conversation.
+_SESSION_VOLUME_PREFIX = "smap-agent-session-"
 _ARMED_ENV = "SMAP_AGENT_FS_GC_ARMED"
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _RFC3339_FRACTION = re.compile(r"^(?P<head>[^.]*)\.(?P<fraction>\d+)(?P<rest>.*)$")
@@ -162,6 +167,32 @@ def _parse_agent_id(name: str) -> uuid.UUID | None:
     if not name.startswith(_VOLUME_PREFIX):
         return None
     return _parse_uuid_strict(name[len(_VOLUME_PREFIX) :])
+
+
+def _session_volume_name(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
+    """Must match ``docker_runsc._session_volume_name`` — see the note there."""
+    return f"{_SESSION_VOLUME_PREFIX}{agent_id}-{chatroom_id}"
+
+
+def _parse_session_ids(name: str) -> tuple[uuid.UUID, uuid.UUID] | None:
+    """Extract ``(agent_id, chatroom_id)`` from a session volume name.
+
+    Both halves are split at a fixed offset rather than by ``rsplit("-")``: a
+    canonical uuid contains hyphens, so splitting on the separator would silently
+    accept names that are not two whole uuids. Anything that does not parse
+    belongs to something else on this daemon and must never be touched.
+    """
+    if not name.startswith(_SESSION_VOLUME_PREFIX):
+        return None
+    body = name[len(_SESSION_VOLUME_PREFIX) :]
+    canonical_len = 36  # 8-4-4-4-12
+    if len(body) != canonical_len * 2 + 1 or body[canonical_len] != "-":
+        return None
+    agent_id = _parse_uuid_strict(body[:canonical_len])
+    chatroom_id = _parse_uuid_strict(body[canonical_len + 1 :])
+    if agent_id is None or chatroom_id is None:
+        return None
+    return agent_id, chatroom_id
 
 
 def _parse_prefix_agent_id(object_name: str) -> uuid.UUID | None:
@@ -267,6 +298,45 @@ async def _agent_deleted_at(ids: list[uuid.UUID]) -> dict[uuid.UUID, datetime | 
     return found
 
 
+async def _chatroom_deleted_at(ids: list[uuid.UUID]) -> dict[uuid.UUID, datetime | None]:
+    """Map ``{chatroom_id: deleted_at}`` for every id that HAS a row.
+
+    Mirrors :func:`_agent_deleted_at` exactly, and for the same reason: a session
+    volume outlives its room, and the same retention sweep hard-deletes chatrooms
+    and agents against the same cutoff (``retention._SOFT_DELETE_TABLES``), so
+    "no row" carries the identical meaning on both dimensions.
+    """
+    if not ids:
+        return {}
+    found: dict[uuid.UUID, datetime | None] = {}
+    maker = get_sessionmaker()
+    async with maker() as session:
+        for start in range(0, len(ids), _GC_BATCH_SIZE):
+            chunk = ids[start : start + _GC_BATCH_SIZE]
+            rows = (
+                await session.execute(
+                    sa.select(ct.chatrooms.c.id, ct.chatrooms.c.deleted_at).where(
+                        ct.chatrooms.c.id.in_(chunk)
+                    )
+                )
+            ).all()
+            for row in rows:
+                found[row[0]] = row[1]
+    return found
+
+
+async def _chatrooms_table_has_any() -> bool:
+    """The chatrooms half of the blast-radius probe (see :func:`_agents_table_has_any`).
+
+    Without it, a wrong DSN or a restoring replica reads as "every chatroom is
+    gone", and every session volume on the host classifies as garbage.
+    """
+    maker = get_sessionmaker()
+    async with maker() as session:
+        found = (await session.execute(sa.select(ct.chatrooms.c.id).limit(1))).first()
+    return found is not None
+
+
 async def _agents_table_has_any() -> bool:
     """Is there ANY agents row at all? Distinguishes 'this host's agents are all
     gone' (orphans — purge them) from 'this is not the right database' (refuse).
@@ -295,6 +365,98 @@ def _enumerate_volumes() -> list[tuple[uuid.UUID, Any]]:
         if agent_id is not None:
             found.append((agent_id, volume))
     return found
+
+
+def _enumerate_session_volumes() -> list[tuple[uuid.UUID, uuid.UUID, Any]]:
+    """Every ``smap-agent-session-{agent}-{room}`` volume, as (agent, room, volume).
+
+    Separate pass over the same listing as :func:`_enumerate_volumes` rather than
+    one loop returning both shapes: the two are classified against different
+    tables and guarded separately, and fusing them would couple those.
+    """
+    try:
+        client = _docker_client()
+        volumes = client.volumes.list()
+    except Exception as exc:
+        _log.warning("agent_fs_gc: session volume enumeration failed, skipping that half: %s", exc)
+        return []
+    found: list[tuple[uuid.UUID, uuid.UUID, Any]] = []
+    for volume in volumes:
+        ids = _parse_session_ids(getattr(volume, "name", "") or "")
+        if ids is not None:
+            found.append((ids[0], ids[1], volume))
+    return found
+
+
+def _sweep_session_volumes(
+    volumes: list[tuple[uuid.UUID, uuid.UUID, Any]],
+    agent_rows: dict[uuid.UUID, datetime | None],
+    room_rows: dict[uuid.UUID, datetime | None],
+    cutoff: datetime,
+    armed: bool,
+) -> SweepReport:
+    """Collect a session volume once EITHER its agent or its chatroom is gone.
+
+    Both dimensions run through :func:`_classify`, so a soft-deleted room keeps
+    its volume for the same recovery window a soft-deleted agent does, and the
+    `orphan_young` floor still protects a volume Docker auto-created moments ago.
+    """
+    live = retained = purged = would = declined = 0
+    for agent_id, chatroom_id, volume in volumes:
+        name = _session_volume_name(agent_id, chatroom_id)
+        age = partial(_volume_created_at, volume)
+        try:
+            agent_purge, agent_reason = _classify(agent_id, agent_rows, cutoff, age)
+            room_purge, room_reason = _classify(chatroom_id, room_rows, cutoff, age)
+        except Exception as exc:
+            declined += 1
+            _log.warning("agent_fs_gc: failed to age session volume %s: %s", name, exc)
+            continue
+        should_purge = agent_purge or room_purge
+        # Name the dimension that decided, so an operator reading the log knows
+        # whether the agent or the room went away.
+        reason = f"agent:{agent_reason}" if agent_purge else f"room:{room_reason}"
+        if not should_purge:
+            if agent_reason == "live" and room_reason == "live":
+                live += 1
+            elif agent_reason in _EXPECTED_KEEPS or room_reason in _EXPECTED_KEEPS:
+                retained += 1
+                _log.debug("agent_fs_gc: keeping session volume %s (%s/%s)", name, agent_reason, room_reason)
+            else:
+                declined += 1
+                _log.warning(
+                    "agent_fs_gc: declining to purge session volume %s (%s/%s)",
+                    name,
+                    agent_reason,
+                    room_reason,
+                )
+            continue
+        would += 1
+        if not armed:
+            _log.warning(
+                "agent_fs_gc: DRY RUN would purge session volume %s (%s) — set %s to arm",
+                name,
+                reason,
+                _ARMED_ENV,
+            )
+            continue
+        try:
+            volume.remove(force=False)
+        except Exception as exc:
+            declined += 1
+            _log.warning("agent_fs_gc: failed to remove %s: %s", name, exc)
+            continue
+        purged += 1
+        _log.info("agent_fs_gc: removed session volume %s (%s)", name, reason)
+    return SweepReport(
+        seen=len(volumes),
+        live=live,
+        retained=retained,
+        purged=purged,
+        would_purge=would,
+        declined=declined,
+        dry_run=not armed,
+    )
 
 
 def _enumerate_workspace_prefixes(client: Any) -> list[uuid.UUID]:
@@ -500,6 +662,7 @@ async def sweep_once(*, now: datetime | None = None) -> SweepReport:
     armed = _is_armed()
 
     volumes = await asyncio.to_thread(_enumerate_volumes)
+    session_volumes = await asyncio.to_thread(_enumerate_session_volumes)
     # Each half is isolated: a Docker hiccup must not strand the workspace
     # objects for another day, and vice versa.
     try:
@@ -509,8 +672,15 @@ async def sweep_once(*, now: datetime | None = None) -> SweepReport:
         _log.warning("agent_fs_gc: MinIO unavailable, skipping workspace half: %s", exc)
         minio, prefixes = None, []
 
-    ids = sorted({agent_id for agent_id, _ in volumes} | set(prefixes), key=str)
+    ids = sorted(
+        {agent_id for agent_id, _ in volumes}
+        | {agent_id for agent_id, _, _ in session_volumes}
+        | set(prefixes),
+        key=str,
+    )
     rows = await _agent_deleted_at(ids)
+    room_ids = sorted({chatroom_id for _, chatroom_id, _ in session_volumes}, key=str)
+    room_rows = await _chatroom_deleted_at(room_ids)
 
     # Blast-radius guard. Refusing to infer "no row" from an *exception* is not
     # enough: a query that succeeds and returns nothing carries the same meaning
@@ -536,6 +706,25 @@ async def sweep_once(*, now: datetime | None = None) -> SweepReport:
         _publish("volume", report)
         return report
 
+    # Same guard, chatrooms dimension. A session volume is judged on two tables,
+    # so an empty `chatrooms` would classify every one of them as garbage on its
+    # own — the agents probe above cannot see that, because the agents table may
+    # be perfectly healthy while the conversation half is not.
+    if room_ids and not room_rows and not await _chatrooms_table_has_any():
+        _log.error(
+            "agent_fs_gc: %d session volumes exist on this host but the chatrooms table is empty — "
+            "refusing to sweep them. Nothing was removed.",
+            len(room_ids),
+        )
+        session_report = SweepReport(
+            seen=len(session_volumes), declined=len(session_volumes), dry_run=not armed
+        )
+    else:
+        session_report = await asyncio.to_thread(
+            _sweep_session_volumes, session_volumes, rows, room_rows, cutoff, armed
+        )
+    _publish("session_volume", session_report)
+
     vol_report = await asyncio.to_thread(_sweep_volumes, volumes, rows, cutoff, armed)
     _publish("volume", vol_report)
 
@@ -547,12 +736,12 @@ async def sweep_once(*, now: datetime | None = None) -> SweepReport:
     # stamping zeros — a half that could not run must not read as "nothing to do".
 
     combined = SweepReport(
-        seen=vol_report.seen + obj_report.seen,
-        live=vol_report.live + obj_report.live,
-        retained=vol_report.retained + obj_report.retained,
-        purged=vol_report.purged + obj_report.purged,
-        would_purge=vol_report.would_purge + obj_report.would_purge,
-        declined=vol_report.declined + obj_report.declined,
+        seen=vol_report.seen + obj_report.seen + session_report.seen,
+        live=vol_report.live + obj_report.live + session_report.live,
+        retained=vol_report.retained + obj_report.retained + session_report.retained,
+        purged=vol_report.purged + obj_report.purged + session_report.purged,
+        would_purge=vol_report.would_purge + obj_report.would_purge + session_report.would_purge,
+        declined=vol_report.declined + obj_report.declined + session_report.declined,
         objects_removed=obj_report.objects_removed,
         dry_run=not armed,
     )
