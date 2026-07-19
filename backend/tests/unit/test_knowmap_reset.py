@@ -21,7 +21,7 @@ from contexts.knowledge.domain.errors import (
     GraphRagBuildBusy,
     KnowmapResetCompensationFailed,
 )
-from contexts.knowledge.domain.graphrag import BuildState
+from contexts.knowledge.domain.graphrag import IN_FLIGHT_BUILD_STATES, BuildState
 from contexts.knowledge.domain.knowmap import ChunkStrategy, KnowmapConfig
 from tests.unit.graph_reset_fakes import (
     FakeLockStore,
@@ -161,6 +161,30 @@ async def test_reset_of_an_irrecoverable_config_keeps_it_read_blocked() -> None:
 
     assert out.last_build_state is BuildState.RECOVERY_UNAVAILABLE
     assert repo.sets[-1]["error"] is not None  # honest residue flag
+
+
+@pytest.mark.asyncio
+async def test_forced_reset_over_a_failed_rollback_stays_read_blocked() -> None:
+    """The Concept Map contract at test_graphrag_reset.py, asserted for Knowledge Map.
+
+    Having the recovery material present does not make an unfinished rollback safe to
+    read: delete_by_build already ran, so forcing IDLE would publish a subgraph missing
+    what the restore owed it.
+    """
+    cfg = _cfg(BuildState.FAILED_COMPENSATING)
+    build_id = uuid.uuid4()
+    locks = FakeLockStore()
+    snaps = FakeSnapshotStore(current=build_id, snapshot={"nodes": [{"name": "A"}]})
+    neo4j = FakeNeo4j(raise_on_restore=True)
+    service, repo = _service(RecordingDb(), cfg, locks=locks, snaps=snaps, neo4j=neo4j)
+
+    out = await _reset(service, cfg, force=True)
+
+    assert out.last_build_state is BuildState.RECOVERY_UNAVAILABLE
+    assert out.last_build_state in IN_FLIGHT_BUILD_STATES
+    assert repo.sets[-1]["error"] is not None
+    assert snaps.deleted == []
+    assert snaps.cleared is False
 
 
 @pytest.mark.asyncio
