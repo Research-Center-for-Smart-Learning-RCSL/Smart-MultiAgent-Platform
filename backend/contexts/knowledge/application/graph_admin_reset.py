@@ -19,6 +19,7 @@ from __future__ import annotations
 import enum
 import logging
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +45,23 @@ _log = logging.getLogger(__name__)
 # from the reconciler because the reconciler imports this context's services --
 # importing back would cycle (F-26).
 BUILD_LOCK_TTL_S = 10 * 60
+
+
+@dataclass(frozen=True, slots=True)
+class GraphResetBinding:
+    """Everything that differs between the two graph products' resets.
+
+    Bundled rather than passed as four loose parameters so "which product" is one
+    named thing: a third graph product becomes one more binding constant, not four
+    more arguments threaded through the signature. Mirrors
+    :class:`~contexts.knowledge.application.graphrag_reconciler.GraphConsumer`,
+    which bundles the same axis for the reconciler.
+    """
+
+    configs: GraphRagConfigRepositoryPort
+    audit_action: str
+    resource_type: str
+    compensation_error: type[KnowledgeError]
 
 
 class DiscardPlan(enum.Enum):
@@ -140,7 +158,7 @@ async def perform_admin_reset(
     config_id: uuid.UUID,
     project_id: uuid.UUID,
     prev: BuildState,
-    configs: GraphRagConfigRepositoryPort,
+    binding: GraphResetBinding,
     snapshots: SnapshotStore,
     locks: BuildLockStore,
     neo4j: Neo4jDriver | None,
@@ -148,9 +166,6 @@ async def perform_admin_reset(
     actor_ip: str | None,
     force: bool,
     request_id: uuid.UUID | None,
-    audit_action: str,
-    resource_type: str,
-    compensation_error: type[KnowledgeError],
 ) -> None:
     """R11a.02 -- reset a stuck config to ``idle`` after compensating 2PC state (F-26).
 
@@ -160,7 +175,7 @@ async def perform_admin_reset(
     deleted, current pointer cleared -- then forces ``idle``.
 
     ``force=false`` (default): a held lock raises ``GraphRagBuildBusy`` (409); a
-    compensation that fails *or was never possible* raises ``compensation_error`` (503)
+    compensation that fails *or was never possible* raises ``binding.compensation_error``
     without forcing idle or destroying recovery material, so the config never advertises
     inconsistent state as healthy (R11.04). "Never possible" is :func:`plan_discard`'s
     ``UNAVAILABLE`` -- an in-flight build whose pointer or snapshot has expired past the
@@ -258,16 +273,16 @@ async def perform_admin_reset(
                     actor_user_id=actor_user_id,
                     actor_ip=actor_ip,
                     request_id=request_id,
-                    audit_action=audit_action,
-                    resource_type=resource_type,
+                    audit_action=binding.audit_action,
+                    resource_type=binding.resource_type,
                 )
                 await db.commit()
-                raise compensation_error(str(config_id))
+                raise binding.compensation_error(str(config_id))
 
             # Clean discard, no-op, or force=true override. ``comp_error`` is non-null
             # only on a force=true failed/unavailable compensation -- recorded as a
             # non-null last_build_error so the state is honest.
-            await configs.set_state(
+            await binding.configs.set_state(
                 config_id=config_id,
                 state=BuildState.IDLE,
                 error=comp_error,
@@ -283,8 +298,8 @@ async def perform_admin_reset(
                 actor_user_id=actor_user_id,
                 actor_ip=actor_ip,
                 request_id=request_id,
-                audit_action=audit_action,
-                resource_type=resource_type,
+                audit_action=binding.audit_action,
+                resource_type=binding.resource_type,
             )
         finally:
             await locks.release(config_id)

@@ -1,9 +1,10 @@
 """SQLAlchemy Core tables for the Knowledge Map (knowmap) subsystem.
 
-DDL is owned by ``alembic/versions/0048_knowmap.py``. This module exists so the
-shared_kernel db registry can import the table bindings. Column types mirror the
-migration exactly (ORM enum-match rule): the shared PG ENUMs are referenced with
-``create_type=False`` since they are minted by the rag/graphrag migrations.
+DDL is owned by ``alembic/versions/0048_knowmap.py``, amended by ``0058`` (which
+moved ``last_build_state`` off the shared PG ENUM onto Text + CHECK). This module
+exists so the shared_kernel db registry can import the table bindings. Column types
+mirror the migration exactly (ORM enum-match rule): the remaining shared PG ENUMs
+are referenced with ``create_type=False`` since they are minted by the rag migrations.
 """
 
 from __future__ import annotations

@@ -10,6 +10,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared_kernel.auth.permissions import Principal
 
+# Both graph products expose an identical admin reset (R11a.02). The prose is shared so
+# the two Query descriptions cannot drift into describing different contracts.
+ADMIN_RESET_FORCE_DESCRIPTION = (
+    "Override lock contention and, when 2PC compensation cannot complete, still force "
+    "idle while recording the incomplete outcome (R11a.02). Accepts data loss: forcing "
+    "idle also makes the graph readable again, including a partially applied build that "
+    "can never be rolled back, so those facts re-enter agent context and the graph view. "
+    "Rebuilding from recovery_unavailable does not require this flag."
+)
+
 
 @dataclass(frozen=True, slots=True)
 class PaginationParams:

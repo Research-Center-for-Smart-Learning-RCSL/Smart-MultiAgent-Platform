@@ -30,7 +30,11 @@ from fastapi import (
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import PaginationParams, assert_project_membership
+from app.api.v1.deps import (
+    ADMIN_RESET_FORCE_DESCRIPTION,
+    PaginationParams,
+    assert_project_membership,
+)
 from app.api.v1.deps import validate_agent_allowlist as _validate_agent_allowlist_generic
 from contexts.knowledge.application.knowmap_config_service import (
     KnowmapConfigService,
@@ -691,13 +695,7 @@ admin_router = APIRouter(
 @admin_router.post("/{config_id}/reset")
 async def admin_reset(
     config_id: uuid.UUID = Path(...),
-    force: bool = Query(
-        default=False,
-        description=(
-            "Override lock contention and, when 2PC compensation cannot complete, "
-            "still force idle while recording the incomplete outcome (R11a.02)."
-        ),
-    ),
+    force: bool = Query(default=False, description=ADMIN_RESET_FORCE_DESCRIPTION),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
