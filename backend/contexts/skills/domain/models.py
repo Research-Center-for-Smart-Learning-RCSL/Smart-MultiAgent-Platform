@@ -81,6 +81,14 @@ MAX_NAME_CHARS = 64
 # decorative. Far above any real tool name -- `Bash(git:*)` is 11 characters.
 MAX_TOOL_NAME_CHARS = 200
 
+# How many entries `requires` / `allowed_tools` may hold. Bounded for a different reason
+# than the per-item cap: neither list reaches the index, so this is load rather than
+# injection. A bundle declaring 100k `requires:` entries fits well inside the archive
+# limits, persists to an array column, and is re-walked on every turn by the required-tool
+# check. The API has always capped the count; the bundle parser never did, which is the
+# same one-writer-remembered gap as the char caps, one field over.
+MAX_LIST_ITEMS = 64
+
 
 @dataclass(frozen=True, slots=True)
 class Skill:
@@ -210,6 +218,7 @@ class SkillScopeCounts:
 
 __all__ = [
     "MAX_DESCRIPTION_CHARS",
+    "MAX_LIST_ITEMS",
     "MAX_NAME_CHARS",
     "MAX_TOOL_NAME_CHARS",
     "SKILL_NAME_RE",

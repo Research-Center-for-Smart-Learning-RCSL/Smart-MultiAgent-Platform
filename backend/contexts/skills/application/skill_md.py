@@ -44,6 +44,7 @@ from typing import Any
 from contexts.skills.domain.errors import BundleInvalid
 from contexts.skills.domain.models import (
     MAX_DESCRIPTION_CHARS,
+    MAX_LIST_ITEMS,
     MAX_TOOL_NAME_CHARS,
     SKILL_NAME_RE,
 )
@@ -368,6 +369,21 @@ def _reject(value: str, *, key: str, max_chars: int) -> None:
         raise BundleInvalid(f"frontmatter key {key!r} {reason}", key=key)
 
 
+def _reject_list_length(values: tuple[str, ...], *, key: str) -> None:
+    """Cap the entry *count*, which the per-item charset rule says nothing about.
+
+    Neither list reaches the index, so an oversized one is load rather than injection —
+    but it persists to an array column and is re-walked every turn by the required-tool
+    check, and a bundle declaring tens of thousands of entries fits easily inside the
+    archive limits. The API has capped this from the start; the parser had not.
+    """
+    if len(values) > MAX_LIST_ITEMS:
+        raise BundleInvalid(
+            f"frontmatter key {key!r} exceeds {MAX_LIST_ITEMS} entries",
+            key=key,
+        )
+
+
 def split_frontmatter(text: str) -> tuple[list[str], str]:
     """Split a `SKILL.md` into its frontmatter lines and its verbatim body.
 
@@ -450,10 +466,12 @@ def parse_skill_md(text: str) -> SkillManifest:
     allowed_tools = (
         _as_list(raw[KEY_ALLOWED_TOOLS], key=KEY_ALLOWED_TOOLS) if KEY_ALLOWED_TOOLS in raw else ()
     )
+    _reject_list_length(allowed_tools, key=KEY_ALLOWED_TOOLS)
     for tool in allowed_tools:
         _reject(tool, key=KEY_ALLOWED_TOOLS, max_chars=MAX_TOOL_NAME_CHARS)
 
     requires = _as_list(raw[KEY_REQUIRES], key=KEY_REQUIRES) if KEY_REQUIRES in raw else ()
+    _reject_list_length(requires, key=KEY_REQUIRES)
     for req in requires:
         _reject(req, key=KEY_REQUIRES, max_chars=MAX_TOOL_NAME_CHARS)
 

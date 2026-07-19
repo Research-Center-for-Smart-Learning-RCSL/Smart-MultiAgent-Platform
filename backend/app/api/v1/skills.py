@@ -36,6 +36,7 @@ from app.api.v1.admin_deps import require_admin
 from app.api.v1.deps import PaginationParams, assert_project_membership, parse_if_match
 from contexts.skills.domain.models import (
     MAX_DESCRIPTION_CHARS,
+    MAX_LIST_ITEMS,
     MAX_NAME_CHARS,
     MAX_TOOL_NAME_CHARS,
     SKILL_NAME_RE,
@@ -72,7 +73,6 @@ from shared_kernel.storage.minio_client import skill_import_staging_key
 # the SKILL.md the model reads; 256 KiB is far above any real skill and far below a
 # denial-of-service.
 _MAX_BODY = 256 * 1024
-_MAX_LIST_ITEMS = 64
 
 # A declared mime type, not a tool name. It borrowed the tool-name cap until that cap moved
 # to the domain, which made the coincidence visible: the two have no reason to agree, and a
@@ -104,8 +104,8 @@ def _validate_text(field: str, value: str, *, max_chars: int) -> str:
 
 
 def _validate_names(field: str, values: list[str]) -> list[str]:
-    if len(values) > _MAX_LIST_ITEMS:
-        raise ValueError(f"{field} exceeds {_MAX_LIST_ITEMS} entries")
+    if len(values) > MAX_LIST_ITEMS:
+        raise ValueError(f"{field} exceeds {MAX_LIST_ITEMS} entries")
     for v in values:
         _validate_text(field, v, max_chars=MAX_TOOL_NAME_CHARS)
     return values

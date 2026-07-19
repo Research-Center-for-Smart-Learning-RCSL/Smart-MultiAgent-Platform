@@ -155,9 +155,9 @@ def assert_text_ok(field: str, value: str, *, max_chars: int) -> None:
 
     The raising idiom, for callers that are not parsing a document and have no key or
     `loc` to attach. `SkillService` uses it as the gate every write crosses, which is what
-    makes the module docstring's "the same three entry points" true of the code rather
-    than of a convention each writer had to remember: `copy` moves text between scopes
-    without it ever passing a request model, and the importer's own checks are its own.
+    turns this module's rule from a convention each writer had to remember into one the
+    data cannot get around: `copy` moves text between scopes without it ever passing a
+    request model, and the importer's own checks protect only the importer.
 
     The reason wording stays in `text_rejection_reason` and is not restated here. A caller
     that formats its own message would drift from the API's, and the whole point of the
