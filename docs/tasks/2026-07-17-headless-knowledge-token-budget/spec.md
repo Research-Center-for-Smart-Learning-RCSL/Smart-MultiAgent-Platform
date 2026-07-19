@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-17
 requirements: [R9.10, R11.19]
 ---
@@ -128,18 +128,20 @@ migration is required; code rollback restores the overflow risk.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The headless budget regressions fail before the fix and pass after.
-- [ ] AC-2: Every production knowledge assembly receives a finite `KnowledgeBudget`; no
-  uncapped `budget=None` path remains.
-- [ ] AC-3: Headless fixed-context accounting includes base prompt, skills, notifications,
+- [x] AC-1: The headless budget regressions fail before the fix and pass after. Verified red
+  first: `None == 700` (no grant issued) and `completed` where `skipped` is required.
+- [x] AC-2: Every production knowledge assembly receives a finite `KnowledgeBudget`; no
+  uncapped `budget=None` path remains. `budget` is now a required parameter.
+- [x] AC-3: Headless fixed-context accounting includes base prompt, skills, notifications,
   serialized tools, input, response reserve, and the same mode ceiling/safety margin as room.
-- [ ] AC-4: Combined knowledge is bounded with Concept Map > Knowledge Map > File RAG
+- [x] AC-4: Combined knowledge is bounded with Concept Map > Knowledge Map > File RAG
   precedence, and zero-grant sources are not queried.
-- [ ] AC-5: Oversized initial A2A/approval payloads never reach the provider; authorized
+- [x] AC-5: Oversized initial A2A/approval payloads never reach the provider; authorized
   knowledge starvation is audited and drained notifications are requeued.
-- [ ] AC-6: The approval/non-member room gate, tenant scoping, block order, and normal room
-  budgeting remain unchanged.
-- [ ] AC-7: Focused tests, backend lint, format, and type checks pass.
+- [x] AC-6: The approval/non-member room gate, tenant scoping, and block order are unchanged.
+  Room budgeting is unchanged except for the ceiling clamp recorded as D-3.
+- [x] AC-7: Focused tests, backend lint, format, and type checks pass. Full unit tier green
+  (5434 passed); the wiring/integration tiers could not run — see D-4.
 
 ## 11. SRS Delta
 
@@ -147,9 +149,48 @@ None. This restores [R9.10] and [R11.19].
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+- **D-1: Starvation semantics are a subset of the room path's, not a mirror.** §7.6 and Q-2 say
+  "mirror room behavior". Three of the room path's six starvation steps are room-only and have
+  no headless counterpart: the WS `emit_agent_finished_error`, the observer `observation.failed`
+  event, and `_compact_forced_rooms.discard`. Headless does the other three (audit, commit,
+  requeue) and returns `skipped`. The room verdict is also deferred past a recompaction pass;
+  headless decides immediately, because it has no history to shed and therefore no second pass
+  that could change the answer.
+- **D-2: The overflow guard covers both context modes, diverging from the room path.** The room
+  path guards only in `compact` mode and deliberately lets `general` mode surface the provider's
+  own context error to the room UI (`turn_engine.py:1849-1851`). Headless has no UI to surface it
+  to and no history to recompact, so both modes stop pre-dispatch with
+  `reason="context_overflow"`. This follows Q-3 but is a real behavioral divergence between the
+  two paths, not a mirror.
+- **D-3: `_request_ceiling` clamps the ceiling to the provider limit, which changes room
+  behavior in one edge case.** AC-6 asked that room budgeting stay unchanged. The quality audit
+  found that `context_token_cap` is bounded at the DB by `MAX_CONTEXT_TOKEN_CAP`, which is the
+  *widest* provider window (gemini's 1M, `contexts/agents/domain/models.py:91`) rather than the
+  agent's own — so a claude (200k) or openai (128k) agent can legally carry a cap above what its
+  provider accepts. Unclamped, the new headless overflow guard would then hard-skip *every* turn
+  for such an agent, which is worse than the uncapped behavior being replaced. The clamp lives in
+  the shared helper, so the room path also stops granting knowledge above the provider window.
+  For every agent whose cap is within its provider's window (the normal case) nothing changes.
+- **D-4: Behavioral verification against a running stack was not performed.** The compose stack
+  (Postgres/Redis/Vault) is unavailable in this environment; the wiring tier fails with
+  `socket.gaierror` on a clean checkout too. `tests/wiring/test_wiring.py::test_a2a_call_round_trip`
+  covers exactly this path and could not be exercised. Verification rests on the unit tier.
+- **D-5: `_context_limit_for` was extracted and the two pre-existing copies collapsed onto it.**
+  Not in the Fix Design, which only said headless should resolve the limit "exactly as room turns".
+  Agreed with the user before implementation rather than duplicating the lookup a third time.
 
 ## 13. Follow-ups
 
-- FU-1: Re-budget or cap tool-result growth across later tool rounds.
+- FU-1: Re-budget or cap tool-result growth across later tool rounds. The security audit
+  confirmed this is now the direct residual of the vulnerability fixed here: the pre-dispatch
+  guard bounds only the first request, while `_stream_with_tools` appends up to `MAX_TOOL_ROUNDS`
+  rounds of tool results with no aggregate cap and no re-check against `context_limit`.
 - FU-2: Define an explicit maximum A2A payload size at the orchestration boundary.
+  `A2AEnvelope.payload` is `dict[str, Any]` with no length validation
+  (`contexts/orchestration/domain/models.py:51`), so an unbounded string is accepted into the
+  Redis stream and worker memory before any guard can fire.
+- FU-3: `_context_limit_for` falls back to `128_000` for an unrecognised `model_hint`. Behavior
+  is unchanged by this task, but a provider with a smaller real window would pass the overflow
+  guard and then be rejected. Now has one place to fix instead of three.
+- FU-4: `turn_engine.py` is ~2650 lines mixing room orchestration, headless orchestration,
+  knowledge assembly, system-block modelling, and token estimation. Pre-existing.
