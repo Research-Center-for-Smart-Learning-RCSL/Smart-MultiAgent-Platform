@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import posixpath
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 # Exit codes the host (docker_runsc.py) interprets. 0 = ok, 42 = egress denied
@@ -97,6 +98,19 @@ def safe_workspace_path(raw: str) -> str:
     if not (normed == WORKSPACE_ROOT or normed.startswith(WORKSPACE_ROOT + "/")):
         raise ValueError(f"path escapes sandbox: {raw!r}")
     return normed
+
+
+def format_listing(base: str, entries: Sequence[str]) -> str:
+    """Render a directory listing as absolute paths, one per line.
+
+    Bare names would be resolvable only against an implied root, and the caller
+    is a language model whose *other* file-bearing tool (``code_exec``) runs with
+    its cwd in the per-room session directory, not ``/workspace``. A name handed
+    over bare is therefore a path the model cannot reopen. Every emitted line is
+    routed through :func:`safe_workspace_path`, so a listing can never advertise
+    a path the read guard would refuse.
+    """
+    return "\n".join(safe_workspace_path(posixpath.join(base, entry)) for entry in entries)
 
 
 def egress_headers(
