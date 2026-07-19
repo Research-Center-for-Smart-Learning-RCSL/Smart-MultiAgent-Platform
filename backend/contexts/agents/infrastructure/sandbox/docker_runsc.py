@@ -78,6 +78,10 @@ _SESSION_ROOT = "/session"
 # the host refuses a stamp it does not recognise rather than reading the wrong
 # paths (2026-07-19-session-dir-room-isolation Q-7).
 _KERNEL_PROTOCOL_VERSION = 2
+# Where per-room session state used to live on the per-agent volume, before
+# [R12.03b] moved it to its own mount. Nothing writes here any more; the name
+# survives only so the one-shot repair knows what to clear.
+_LEGACY_SESSIONS_SUBDIR = "sessions"
 _MEMORY = "512m"
 _CPUS = 0.5
 _PIDS_LIMIT = 128
@@ -1359,6 +1363,60 @@ class DockerRunscSandbox:
                 await self._remove_quietly(container)
 
         return [_workspace_abspath(p) for p in raw_staged]
+
+    async def purge_legacy_session_dirs(self, *, agent_id: uuid.UUID) -> None:
+        """Empty ``/workspace/sessions/`` on one agent's volume.
+
+        One-shot repair for data written before session state moved to its own
+        per-room volume ([R12.03b]). Nothing writes there any more, which is
+        exactly why nothing will clean it up: the tree would otherwise stay
+        readable from every room the agent serves, for as long as the agent
+        lives. See `docs/tasks/2026-07-19-session-dir-room-isolation`.
+
+        Deliberately reuses ``_RECONCILE`` with an **empty manifest** rather than
+        introducing a second deletion path. "Make this subtree equal the empty
+        set" is precisely a reconcile, and that script is already audited for the
+        one danger here — escaping the subtree via a symlinked root, a symlinked
+        subdir, or a ``..`` member (see its comment block, and AC-6 of
+        `2026-07-16-agent-workspace-volume-reconcile`). A fresh `rm -rf` aimed at
+        agent-authored data would have to re-earn that scrutiny.
+
+        Idempotent: a volume with no ``sessions/`` reconciles an empty subtree to
+        empty and exits 0. Raises ``SandboxReconcileError`` on timeout or
+        non-zero exit, so a caller sweeping many volumes can count failures
+        rather than assume success.
+        """
+        await self._ensure_runtime_ready()
+        client = self._client()
+        volume = _agent_volume_name(agent_id)
+        manifest_name = f"{_RECONCILE_MANIFEST_PREFIX}{uuid.uuid4().hex}.manifest"
+        # An empty manifest: nothing under `sessions/` is desired. The script
+        # reads a blank line as no entry, so a bare newline is the empty set.
+        manifest_tar = _tar_single_file(manifest_name, b"\n")
+
+        host_config = self._base_host_config()
+        host_config["network_mode"] = "none"
+        host_config["volumes"] = {volume: {"bind": _VOLUME_ROOT, "mode": "rw"}}
+        async with _get_semaphore():
+            container = await self._create_verified(
+                client,
+                image=self.code_exec_image,
+                command=["python", "-c", _RECONCILE],
+                environment={
+                    "SMAP_RECONCILE_ROOT": _VOLUME_ROOT,
+                    "SMAP_RECONCILE_SUBDIR": _LEGACY_SESSIONS_SUBDIR,
+                    "SMAP_RECONCILE_MANIFEST": f"{_VOLUME_ROOT}/{manifest_name}",
+                },
+                user=_SANDBOX_UID,
+                tmpfs={"/tmp": f"size={_TMP_TMPFS_BYTES}"},  # noqa: S108 — in-container tmpfs
+                **host_config,
+            )
+            try:
+                await asyncio.to_thread(container.put_archive, _VOLUME_ROOT, manifest_tar)
+                await asyncio.to_thread(container.start)
+                await self._await_reconcile(container, _LEGACY_SESSIONS_SUBDIR)
+            finally:
+                await self._remove_quietly(container)
 
     async def _await_reconcile(self, container: Any, rel_dir: str) -> None:
         """Wait on the reconcile container; raise on timeout or non-zero exit.
