@@ -27,7 +27,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from app.workers.agent_fs_gc import _docker_client, _parse_agent_id
+from app.workers.agent_fs_gc import docker_client, parse_agent_id
 from contexts.agents.infrastructure.sandbox.docker_runsc import DockerRunscSandbox
 
 _log = logging.getLogger(__name__)
@@ -64,13 +64,13 @@ def _enumerate_agent_volumes() -> list[uuid.UUID]:
     tomorrow to correct it.
     """
     try:
-        client = _docker_client()
+        client = docker_client()
         volumes = client.volumes.list()
     except Exception as exc:
         raise PurgeUnavailable(f"could not enumerate Docker volumes: {exc}") from exc
     found: list[uuid.UUID] = []
     for volume in volumes:
-        agent_id = _parse_agent_id(getattr(volume, "name", "") or "")
+        agent_id = parse_agent_id(getattr(volume, "name", "") or "")
         if agent_id is not None:
             found.append(agent_id)
     return sorted(found, key=str)
