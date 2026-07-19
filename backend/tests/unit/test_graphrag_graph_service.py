@@ -14,11 +14,16 @@ import pytest
 
 import contexts.knowledge.application.graphrag_graph_service as gr_mod
 from contexts.knowledge.domain.errors import GraphRagConfigNotFound
+from contexts.knowledge.domain.graphrag import BuildState
 
 
 class _FakeCfg:
-    def __init__(self, project_id: uuid.UUID) -> None:
+    def __init__(self, project_id: uuid.UUID, state: BuildState = BuildState.IDLE) -> None:
         self.project_id = project_id
+        # Real configs always carry a build state, and get_graph gates on it. Defaults
+        # to a readable state so these assembly tests exercise the store path; the gate
+        # itself is covered by test_graph_read_gate.py.
+        self.last_build_state = state
 
 
 class _FakeRepo:

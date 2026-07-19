@@ -22,33 +22,17 @@ from contexts.knowledge.domain.errors import (
     GraphRagBuildBusy,
     GraphRagResetCompensationFailed,
 )
-from contexts.knowledge.domain.graphrag import BuildState, GraphRagConfig
-
-
-class RecordingDb:
-    """Minimal AsyncSession double — records commits; no real audit write."""
-
-    def __init__(self) -> None:
-        self.calls: list[Any] = []
-        self.committed = False
-
-    async def execute(self, stmt: Any, *a: Any, **kw: Any) -> Any:
-        self.calls.append(stmt)
-
-        class _R:
-            def one(_self) -> Any:  # noqa: N805
-                return None
-
-            def first(_self) -> Any:  # noqa: N805
-                return None
-
-            def all(_self) -> list[Any]:  # noqa: N805
-                return []
-
-        return _R()
-
-    async def commit(self) -> None:
-        self.committed = True
+from contexts.knowledge.domain.graphrag import (
+    IN_FLIGHT_BUILD_STATES,
+    BuildState,
+    GraphRagConfig,
+)
+from tests.unit.graph_reset_fakes import (
+    FakeLockStore,
+    FakeNeo4j,
+    FakeSnapshotStore,
+    RecordingDb,
+)
 
 
 class FakeRepo:
@@ -75,67 +59,10 @@ class FakeRepo:
         )
 
 
-class FakeLockStore:
-    def __init__(self, *, held: bool = False) -> None:
-        self.held = held
-        self.acquired = False
-        self.released = False
-        self.force_released = False
+def _replace_state(cfg: GraphRagConfig, state: BuildState) -> GraphRagConfig:
+    import dataclasses
 
-    async def acquire(self, config_id: uuid.UUID, *, ttl_s: int) -> bool:
-        if self.held:
-            return False
-        self.acquired = True
-        return True
-
-    async def release(self, config_id: uuid.UUID) -> None:
-        self.released = True
-
-    async def force_release(self, config_id: uuid.UUID) -> None:
-        self.force_released = True
-        self.held = False  # after breaking the lock, re-acquire succeeds
-
-
-class FakeSnapshotStore:
-    def __init__(self, *, current: uuid.UUID | None = None, snapshot: dict[str, Any] | None = None) -> None:
-        self.current = current
-        self.snapshot = snapshot
-        self.deleted: list[uuid.UUID] = []
-        self.cleared = False
-
-    async def get_current(self, *, config_id: uuid.UUID) -> uuid.UUID | None:
-        return self.current
-
-    async def get(self, *, config_id: uuid.UUID, build_id: uuid.UUID) -> dict[str, Any] | None:
-        return self.snapshot
-
-    async def delete(self, *, config_id: uuid.UUID, build_id: uuid.UUID) -> None:
-        self.deleted.append(build_id)
-
-    async def clear_current(self, *, config_id: uuid.UUID) -> None:
-        self.cleared = True
-
-
-class FakeNeo4j:
-    def __init__(self, *, raise_on_restore: bool = False, raise_on_delete: bool = False) -> None:
-        self.raise_on_restore = raise_on_restore
-        self.raise_on_delete = raise_on_delete
-        self.deleted: list[uuid.UUID] = []
-        self.restored: list[dict[str, Any]] = []
-        self.closed = False
-
-    async def delete_by_build(self, *, config_id: uuid.UUID, build_id: uuid.UUID) -> None:
-        if self.raise_on_delete:
-            raise RuntimeError("neo4j delete down")
-        self.deleted.append(build_id)
-
-    async def restore_from_snapshot(self, *, config_id: uuid.UUID, snapshot: dict[str, Any]) -> None:
-        if self.raise_on_restore:
-            raise RuntimeError("neo4j restore down")
-        self.restored.append(snapshot)
-
-    async def close(self) -> None:
-        self.closed = True
+    return dataclasses.replace(cfg, last_build_state=state)
 
 
 def _cfg(state: BuildState) -> GraphRagConfig:
@@ -315,8 +242,10 @@ async def test_force_true_held_lock_force_releases_and_proceeds() -> None:
     out = await _reset(service, cfg, force=True)
 
     assert locks.force_released is True
-    assert repo.sets[-1]["state"] is BuildState.IDLE
-    assert out.last_build_state is BuildState.IDLE
+    # RUNNING with no pointer is an unresolvable in-flight build, so the forced reset
+    # lands read-blocked rather than idle (see the force-semantics test above).
+    assert repo.sets[-1]["state"] is BuildState.RECOVERY_UNAVAILABLE
+    assert out.last_build_state is BuildState.RECOVERY_UNAVAILABLE
 
 
 # ===========================================================================
@@ -410,6 +339,45 @@ async def test_missing_pointer_on_in_flight_state_refuses(state: BuildState) -> 
 
 
 @pytest.mark.asyncio
+async def test_state_is_re_read_under_the_lock_not_taken_from_the_caller() -> None:
+    """The compensation decision must use the state as of lock acquisition.
+
+    The caller fetches the config before taking the lock (to raise its own not-found),
+    and that read races the builder: a build can start, crash, and leave a current-build
+    pointer in the gap. Deciding on the pre-lock state would classify that crashed build
+    as a settled config and take the delete-without-restore path -- reporting a clean
+    discard over a graph that just lost its pre-build state.
+    """
+    cfg = _cfg(BuildState.IDLE)  # what the caller sees before the lock
+    build_id = uuid.uuid4()
+    locks = FakeLockStore()
+    snaps = FakeSnapshotStore(current=build_id, snapshot=None)
+    neo4j = FakeNeo4j()
+    db = RecordingDb()
+    service, repo = _service(db, cfg, locks=locks, snaps=snaps, neo4j=neo4j)
+
+    # First get (the caller's pre-lock read) sees the settled config; every later get
+    # sees the crashed build the builder left behind while the lock was being taken.
+    reads = {"n": 0}
+    settled, crashed = cfg, _replace_state(cfg, BuildState.RUNNING)
+
+    async def _racing_get(_id: uuid.UUID, *, include_deleted: bool = False) -> GraphRagConfig:
+        reads["n"] += 1
+        return settled if reads["n"] == 1 else crashed
+
+    repo.get = _racing_get  # type: ignore[assignment]  # simulates the pre-lock/post-lock race
+
+    with pytest.raises(GraphRagResetCompensationFailed):
+        await _reset(service, cfg, force=False)
+
+    assert reads["n"] >= 2, "the reset must re-read the config after taking the lock"
+
+    assert neo4j.deleted == [], "must not delete against a stale settled-state decision"
+    assert snaps.cleared is False
+    assert repo.sets == []
+
+
+@pytest.mark.asyncio
 async def test_unavailable_audit_metadata_is_distinct_and_carries_no_secrets() -> None:
     cfg = _cfg(BuildState.NEO4J_COMMITTED)
     build_id = uuid.uuid4()
@@ -459,8 +427,14 @@ async def test_missing_pointer_audit_records_null_build_id() -> None:
 
 
 @pytest.mark.asyncio
-async def test_force_true_still_overrides_missing_material() -> None:
-    """The documented escape hatch is unchanged: force accepts the loss."""
+async def test_force_true_clears_the_stuck_state_but_stays_read_blocked() -> None:
+    """force accepts the loss and unsticks the config -- but not by advertising it healthy.
+
+    Forcing IDLE here would re-open reads on a partially applied build that no rollback
+    can undo, which is exactly what RECOVERY_UNAVAILABLE exists to prevent. It also buys
+    nothing: that state is already accepted by the manual build endpoint and the engine,
+    so a rebuild is available either way.
+    """
     cfg = _cfg(BuildState.NEO4J_COMMITTED)
     build_id = uuid.uuid4()
     locks = FakeLockStore()
@@ -474,8 +448,25 @@ async def test_force_true_still_overrides_missing_material() -> None:
     ) as emit:
         out = await _reset(service, cfg, force=True)
 
-    assert out.last_build_state is BuildState.IDLE
+    assert out.last_build_state is BuildState.RECOVERY_UNAVAILABLE
+    assert out.last_build_state in IN_FLIGHT_BUILD_STATES  # still unreadable
     assert repo.sets[-1]["error"] is not None  # honest residue flag
     meta = emit.await_args.args[1].metadata
     assert meta["outcome"] == "compensation_unavailable"
     assert meta["forced"] is True
+
+
+@pytest.mark.asyncio
+async def test_force_true_on_a_recoverable_failure_still_lands_idle() -> None:
+    """The IDLE landing is unchanged when the recovery material was actually present."""
+    cfg = _cfg(BuildState.FAILED_COMPENSATING)
+    build_id = uuid.uuid4()
+    locks = FakeLockStore()
+    snaps = FakeSnapshotStore(current=build_id, snapshot={"nodes": [{"name": "A"}]})
+    neo4j = FakeNeo4j(raise_on_restore=True)
+    service, repo = _service(RecordingDb(), cfg, locks=locks, snaps=snaps, neo4j=neo4j)
+
+    out = await _reset(service, cfg, force=True)
+
+    assert out.last_build_state is BuildState.IDLE
+    assert repo.sets[-1]["error"] is not None

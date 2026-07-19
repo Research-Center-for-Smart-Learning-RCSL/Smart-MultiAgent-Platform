@@ -185,23 +185,25 @@ class KnowmapConfigService:
         Map had no reset at all, which would have left ``recovery_unavailable`` (outside
         the reconciler's sweep set) with no admin escape.
         """
+        from contexts.knowledge.infrastructure.channels import knowmap_channel
         from contexts.knowledge.infrastructure.redis_lock import (
             RedisBuildLockStore,
             RedisSnapshotStore,
         )
 
-        cfg = await self.get(config_id)
+        # Raise this product's not-found before taking a lock; the state the reset acts
+        # on is re-read inside, under the lock.
+        await self.get(config_id)
 
         await perform_admin_reset(
             self._db,
             config_id=config_id,
-            project_id=cfg.project_id,
-            prev=cfg.last_build_state,
             binding=GraphResetBinding(
                 configs=self._configs,
                 audit_action="admin.knowmap_reset",
                 resource_type="knowmap_config",
                 compensation_error=KnowmapResetCompensationFailed,
+                channel_fn=knowmap_channel,
             ),
             snapshots=self._snapshots or RedisSnapshotStore(),
             locks=self._locks or RedisBuildLockStore(),

@@ -22,7 +22,7 @@ from contexts.knowledge.application.knowmap_graph_service import (
     KnowmapGraphView,
 )
 from contexts.knowledge.domain.errors import KnowmapConfigNotFound
-from contexts.knowledge.domain.graphrag import IN_FLIGHT_BUILD_STATES, BuildState
+from contexts.knowledge.domain.graphrag import BuildState
 
 _PROJECT_ID = uuid.uuid4()
 
@@ -74,47 +74,22 @@ async def test_read_knowmap_graph_returns_bounded_view() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("state", sorted(IN_FLIGHT_BUILD_STATES, key=lambda s: s.value))
-async def test_read_knowmap_graph_gated_in_unreadable_states(state: BuildState) -> None:
-    """The visualizer honours the same read gate as turn-context retrieval.
-
-    2026-07-17-graphrag-reset-expired-recovery AC-4: a mid-2PC or irrecoverable graph
-    must not reach a viewer through this route either. The Neo4j read is skipped
-    entirely, so a blocked view costs nothing.
+@pytest.mark.parametrize("blocked", [False, True])
+async def test_read_knowmap_graph_passes_the_gate_flag_through(blocked: bool) -> None:
+    """The route must surface build_state_blocked, or the client cannot explain an
+    empty graph. The gate itself is tested at the service level
+    (test_graph_read_gate.py), which is where it lives.
     """
-    config_id = uuid.uuid4()
-    facade = _fake_facade(cfg=_cfg(state), view=None)
-
-    with (
-        patch("app.api.v1.knowmap.KnowledgeFacade", facade),
-        patch("app.api.v1.knowmap.assert_project_membership", AsyncMock()),
-    ):
-        out = await read_knowmap_graph(
-            config_id=config_id,
-            limit=500,
-            principal=_principal(),
-            db=AsyncMock(),
-        )
-
-    assert out.nodes == []
-    assert out.edges == []
-    assert out.truncated is False
-    facade.return_value.get_knowmap_graph.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("state", [BuildState.IDLE, BuildState.QDRANT_COMMITTED, BuildState.FAILED])
-async def test_read_knowmap_graph_served_in_readable_states(state: BuildState) -> None:
-    """Ordinary FAILED stays readable: the last good graph is intact (AC-4 guard)."""
     config_id = uuid.uuid4()
     view = KnowmapGraphView(
         config_id=config_id,
         project_id=_PROJECT_ID,
-        nodes=(KnowmapGraphNode(name="alice", degree=1, build_id="b1", type="person"),),
+        nodes=() if blocked else (KnowmapGraphNode(name="alice", degree=1, build_id="b1", type="person"),),
         edges=(),
         truncated=False,
+        build_state_blocked=blocked,
     )
-    facade = _fake_facade(cfg=_cfg(state), view=view)
+    facade = _fake_facade(cfg=_cfg(), view=view)
 
     with (
         patch("app.api.v1.knowmap.KnowledgeFacade", facade),
@@ -127,7 +102,7 @@ async def test_read_knowmap_graph_served_in_readable_states(state: BuildState) -
             db=AsyncMock(),
         )
 
-    assert [n.id for n in out.nodes] == ["alice"]
+    assert out.build_state_blocked is blocked
     facade.return_value.get_knowmap_graph.assert_awaited_once()
 
 

@@ -20,7 +20,7 @@ discard and publishes readable `IDLE`
   graph state explicit and unreadable for both Concept and Knowledge Maps.
 - **Non-goals:** extend Redis retention, persist snapshots in Postgres, or remove the
   documented explicit `force=true` admin override. Adding project/config scoping to admin
-  reset authorization is also out of scope (FU-2) — this task preserves the current
+  reset authorization is also out of scope (FU-2) -- this task preserves the current
   platform-admin check without widening or narrowing it.
 
 ## 2. Observed vs Expected
@@ -31,7 +31,7 @@ discard and publishes readable `IDLE`
   `comp_error` stays `None`. The build's nodes are removed while the pre-build subgraph is
   never restored: the graph loses pre-build state. Reset then deletes the (absent) snapshot
   and clears the pointer (`:564-565`), destroying the evidence that material was missing,
-  sets `IDLE` with `error=None` (`:592-596`), and audits `outcome="discarded"` (`:599-600`) —
+  sets `IDLE` with `error=None` (`:592-596`), and audits `outcome="discarded"` (`:599-600`) --
   indistinguishable from a real rollback. With no pointer it clears the absent pointer and
   audits `outcome="noop"` (`:566-568`, `:601-602`). The same function *does* refuse when the
   Neo4j driver is unavailable (`:549-553`), so stores-down and material-missing are handled
@@ -52,7 +52,7 @@ discard and publishes readable `IDLE`
 | Q-2 | Gate every `FAILED` graph? | No. | Phase-1 rollback/no-op failures and successful compensation can safely serve the last good graph; only provably irrecoverable partial state needs the new gate. |
 | Q-3 | What does `force=true` do? | Preserve [R11a.02]: it may force `IDLE` with non-null error and `compensation_failed`/`compensation_unavailable` audit after explicit admin acceptance. | The task closes the default false-success path without silently changing the documented escape hatch. |
 | Q-4 | Native PG enum `ALTER TYPE ... ADD VALUE`, or `sa.Text` + CHECK? | Convert `last_build_state` on both `graphrag_configs` and `knowmap_configs` to `sa.Text` + CHECK and drop the `graphrag_build_state` type. | `0056_skills.py:12-15` records that this backend has **no** `ALTER TYPE ... ADD VALUE` precedent and that growing value sets use Text + CHECK, citing `project_embedding_pins.kind` (0052). Build state is such a growing set. PostgreSQL cannot remove an enum value, so the additive route's downgrade would require rebuilding the shared type and remapping both tables anyway. |
-| Q-5 | The new state is in no retry set and in no buildable whitelist — how does a config escape it? | Both: (a) admit the state to the manual-build and engine whitelists but **not** the auto-trigger whitelist or the reconciler sweep; (b) add a Knowledge Map `admin_reset` mirroring the Concept Map one. | Without (a) the state is a permanent wedge: `graphrag_triggers.py:23`, `app/api/v1/graphrag.py:524`, and `graphrag_builder.py:216-222` all whitelist `{IDLE, FAILED}` only, and the reconciler selects by exact state equality (`graphrag_repositories.py:756-770`), so nothing would ever pick it up. Manual rebuild is a deliberate human act and is the right escape; auto-triggers must not silently rebuild over known-inconsistent data. Without (b) the wedge is unrecoverable for Knowledge Maps specifically, because `admin_reset` exists only on `GraphRagConfigService` — `knowmap_config_service.py` has no equivalent and there is no knowmap reset route. |
+| Q-5 | The new state is in no retry set and in no buildable whitelist -- how does a config escape it? | Both: (a) admit the state to the manual-build and engine whitelists but **not** the auto-trigger whitelist or the reconciler sweep; (b) add a Knowledge Map `admin_reset` mirroring the Concept Map one. | Without (a) the state is a permanent wedge: `graphrag_triggers.py:23`, `app/api/v1/graphrag.py:524`, and `graphrag_builder.py:216-222` all whitelist `{IDLE, FAILED}` only, and the reconciler selects by exact state equality (`graphrag_repositories.py:756-770`), so nothing would ever pick it up. Manual rebuild is a deliberate human act and is the right escape; auto-triggers must not silently rebuild over known-inconsistent data. Without (b) the wedge is unrecoverable for Knowledge Maps specifically, because `admin_reset` exists only on `GraphRagConfigService` -- `knowmap_config_service.py` has no equivalent and there is no knowmap reset route. |
 | Q-6 | Does "unreadable" cover graph visualization, or only turn-context retrieval? | Both. | The single existing gate (`graphrag_retrieve.py:112-113`) covers only turn-context retrieval. `read_graph` (`app/api/v1/graphrag.py`) and `read_knowmap_graph` (`app/api/v1/knowmap.py:427-449`) have no build-state check, and a visualization consumer seeing rollback-intended facts is exactly what §7's security rationale forbids. |
 
 ## 4. Reproduction
@@ -100,7 +100,7 @@ classification and read gating.
   default would silently report an unrecoverable config as healthy), the frontend socket
   whitelist (`frontend/src/slices/agents/composables/useBuildStateSocket.ts:19-20`, which
   would drop `build.state` events for the new state), and the two exhaustive `Record` maps
-  in `frontend/src/slices/agents/lib/graphragBuildState.ts:10-26` (these *do* fail loudly —
+  in `frontend/src/slices/agents/lib/graphragBuildState.ts:10-26` (these *do* fail loudly --
   omission is a typecheck error).
 
 ## 7. Fix Design
@@ -117,7 +117,7 @@ classification and read gating.
 2. Add the state to `IN_FLIGHT_BUILD_STATES` but not to `_STUCK_STATES`. Both constants carry
    reciprocal comments asserting they are "the in-flight/uncommitted trio"
    (`graphrag.py:88-90`, `graphrag_reconciler.py:62-67`); this is the deliberate divergence
-   those comments anticipate, so update both comment blocks — they become factually wrong
+   those comments anticipate, so update both comment blocks -- they become factually wrong
    otherwise. Ordinary `FAILED` remains readable.
 3. Per Q-6, apply the same gate to the graph visualization reads `read_graph`
    (`backend/app/api/v1/graphrag.py`) and `read_knowmap_graph`
@@ -137,7 +137,7 @@ classification and read gating.
    the websocket (`:519-521`), so the new state reaches the UI live.
 7. Per Q-5, admit the state to the manual-build gate (`app/api/v1/graphrag.py:524`) and the
    engine gate (`graphrag_builder.py:216-222`) but **not** to `_BUILDABLE_STATES`
-   (`graphrag_triggers.py:23`) — an explicit human rebuild is the escape; automatic triggers
+   (`graphrag_triggers.py:23`) -- an explicit human rebuild is the escape; automatic triggers
    must not rebuild over known-inconsistent data. Note `graphrag_build_job_id`
    (`graphrag_triggers.py:26-44`) embeds `last_build_state.value` in the arq dedup nonce.
 8. Per Q-5, add `admin_reset` to `KnowmapConfigService`
@@ -145,9 +145,9 @@ classification and read gating.
    mirroring `app/api/v1/graphrag.py:626-652`, reusing the same platform-admin check, the
    same audit shape, and the same 503 error. This restores the documented `force=true`
    escape for Knowledge Maps, which have none today.
-9. Add the state to the Prometheus label map (`app/workers/tasks/graphrag.py:367-377`) — its
+9. Add the state to the Prometheus label map (`app/workers/tasks/graphrag.py:367-377`) -- its
    `.get(..., "idle")` default would otherwise report an unrecoverable config as healthy,
-   the exact class of bug the audit-M2 comment at `:355-358` exists to prevent — and to the
+   the exact class of bug the audit-M2 comment at `:355-358` exists to prevent -- and to the
    frontend socket whitelist (`useBuildStateSocket.ts:19-20`), which would otherwise drop
    `build.state` events for it.
 10. Preserve clean `IDLE` idempotence, lock serialization, successful discard, transient
@@ -185,7 +185,7 @@ not include snapshot contents, graph facts, Redis values, or secrets.
    `backend/tests/unit/test_knowmap_context_provider.py:117,199,216`.
 4. Cover the visualization read block for `read_graph` and `read_knowmap_graph` (Q-6).
 5. Cover the escape hatch (Q-5): the new state is rejected by auto-triggers, accepted by
-   manual rebuild and the engine, and reset-able on both products — including the new
+   manual rebuild and the engine, and reset-able on both products -- including the new
    Knowledge Map `admin_reset` route's platform-admin authorization.
 6. Cover the migration (both tables, CHECK accepts the new value, downgrade path), API
    serialization/generated types, the Prometheus label map, the frontend socket whitelist,
@@ -208,7 +208,7 @@ type. This is a one-way concern in practice: after downgrade those configs retur
 reconciler-visible, which is the safe direction.
 
 **Behavior.** Existing unavailable configs become visibly blocked rather than falsely
-healthy — an intended, user-visible change. Because the state is deliberately outside both
+healthy -- an intended, user-visible change. Because the state is deliberately outside both
 the reconciler sweep and the auto-trigger whitelist, the manual rebuild and the (new, for
 Knowledge Map) admin reset are the only ways out; Q-5 exists so that this is a designed
 property rather than a wedge. Verify both escapes before closing AC-6.
@@ -259,7 +259,7 @@ platform-admin check, OpenAPI regeneration, and client regeneration as the exist
   `ruff check`, `ruff format --check`, `mypy` 480 files clean. Frontend: `pnpm test` 733
   passed / 148 files, `pnpm lint` (all 12 gates), `pnpm typecheck`, `pnpm build` clean.
   `pnpm run check:openapi-drift` could not run here (its bash shell has no `python` on
-  PATH — an environment limitation, not drift); equivalence was established instead by
+  PATH -- an environment limitation, not drift); equivalence was established instead by
   regenerating `openapi.json` in-container and confirming `gen:api` is idempotent against
   it. New i18n key present in both locale files and asserted by a test.
 - [x] AC-8: `last_build_state` is `Text` + CHECK on both config tables, the
@@ -304,7 +304,7 @@ None. This restores the existing [R11.04] and [R11a.02] contract.
 - D-1: Made `backend/alembic.ini` ASCII-only (commit `4178661`), which the spec did not
   call for. Alembic reads that file with `encoding="locale"`
   (`alembic/util/compat.py:87`), so the em-dash on line 1 and the section sign on line 14
-  raised `UnicodeDecodeError` on any non-UTF-8 locale — `alembic` would not start at all on
+  raised `UnicodeDecodeError` on any non-UTF-8 locale -- `alembic` would not start at all on
   the zh-TW Windows (cp950) machine this was built on, and neither `PYTHONUTF8=1` nor
   `-X utf8` helps because `locale.getencoding()` ignores UTF-8 mode. This blocked AC-8's
   contract gate outright, so it was fixed here rather than deferred. Agreed with the user
@@ -320,17 +320,56 @@ None. This restores the existing [R11.04] and [R11a.02] contract.
   would be a one-line change if the mid-build view turns out to be wanted.
 - D-2 (superseded by M6): `plan_discard` initially lived in `graphrag_config_service.py`
   beside its only caller. Adding the Knowledge Map reset gave it a second caller, so the
-  whole reset — `plan_discard`, the lock/compensation/audit body, and the lazy Neo4j driver
-  — moved to `contexts/knowledge/application/graph_admin_reset.py` and both services became
+  whole reset -- `plan_discard`, the lock/compensation/audit body, and the lazy Neo4j driver
+  -- moved to `contexts/knowledge/application/graph_admin_reset.py` and both services became
   thin bindings. §7.8 said the knowmap route should "mirror" the graphrag one; extracting
   rather than mirroring is what makes AC-10's "same behavior" structural instead of a
   claim two copies could quietly break.
+- D-7: A code review after the Definition of Done found that `plan_discard`'s `prev` was
+  read by the caller *before* the build lock was acquired, so the refuse-or-compensate
+  decision ran on a stale state. Before this task `prev` fed only the audit metadata, so
+  the staleness was harmless; making it safety-critical without moving the read was the
+  defect. `perform_admin_reset` now re-reads the config under the lock and derives both
+  `prev` and `project_id` there, and its `prev`/`project_id` parameters are gone.
+  Regression test: `test_state_is_re_read_under_the_lock_not_taken_from_the_caller`.
+- D-8: **Reverses Q-3 for one path, at the user's instruction after the review.** A forced
+  reset on the `UNAVAILABLE` plan now lands on `recovery_unavailable` instead of `idle`
+  (FU-7's finding). Q-3 had approved forcing `idle` there, and §1 listed removing the
+  escape hatch as a non-goal — this keeps the hatch (the config leaves its stuck state,
+  the 503 stops, the audit records the acceptance) but stops it re-opening reads on a
+  graph no rollback can undo. Forcing `idle` bought no recovery capability, because
+  `recovery_unavailable` is already accepted by the manual build endpoint and the engine.
+  A forced reset whose recovery material *was* present still lands on `idle`.
+- D-9: The build-state read gate moved out of the two route handlers into
+  `GraphRagGraphService.get_graph` / `KnowmapGraphService.get_graph` (the review's
+  altitude finding, previously recorded as FU-11 and now closed). Every caller of
+  `KnowledgeFacade.get_*_graph` inherits it rather than only the two routes, and the gate
+  tests moved to `test_graph_read_gate.py`, which drives the services directly — a route
+  test that mocks the facade cannot prove a service-level gate.
+- D-10: `GraphView` / `KnowmapGraphView` and their API models gained a required
+  `build_state_blocked` flag. §7.3 asked only that the visualization reads be gated, but a
+  gated response was byte-identical to a genuinely empty graph, so the client could only
+  say "no graph yet" while the data was intact and merely mid-build. `GraphragGraphView`
+  now renders a distinct message, with keys in both locales.
+- D-11: `perform_admin_reset` now calls `publish_build_state` (closing FU-17) and the
+  binding carries the product's `channel_fn`. Without it a socket-connected list view kept
+  the pre-reset badge, and `useBuildStateSocket` stops polling a config it believes is
+  terminal, so the badge could stay stale indefinitely rather than for one poll interval.
+- D-12: The compensation `except Exception` now re-raises `TypeError`, `AttributeError`,
+  `NameError` and `ImportError` (closing FU-13). Folding a programming error into
+  `comp_error` surfaced it as a 503 the error class documents as transient, so an operator
+  would retry a code defect forever.
+- D-13: The shared reset store doubles moved to `tests/unit/graph_reset_fakes.py`
+  (closing FU-14). They had lived in `test_graphrag_reset.py`, a pytest collection target,
+  so the Knowledge Map suite depended on a module whose contract is "runs tests".
+- D-14: The dossier's em-dashes were replaced with `--`, per the user-level CLAUDE.md rule
+  for document content. Flagged by the review's conventions angle.
 - D-5: §7.9 asked only that the new state be added to the frontend socket whitelist.
   Instead the whitelist was deleted: `GRAPHRAG_BUILD_STATES` is now a `const` array in
   `slices/agents/api/index.ts` with `GraphragBuildState` derived from it, and
   `useBuildStateSocket`'s `isBuildState` tests membership against that array. The
   hand-listed whitelist was a second copy of the state set that the type system could not
-  keep honest — the exact mechanism by which this task's new state would have been dropped
+  keep honest -- the exact mechanism by which this task's new state would have been dropped
   from live `build.state` events. Adding one string would have left the trap armed for the
   next state. The two socket test files also stopped hand-mocking the state set and now
   spread the real module.
@@ -354,13 +393,13 @@ None. This restores the existing [R11.04] and [R11a.02] contract.
   admin can reset any config in any project. Pre-existing and out of scope here; the new
   Knowledge Map route deliberately mirrors the existing check rather than diverging, so both
   can be tightened together.
-- FU-3: Deduplicate the frontend build-state union — slice code uses the hand-maintained
+- FU-3: Deduplicate the frontend build-state union -- slice code uses the hand-maintained
   `GraphragBuildState` (`frontend/src/slices/agents/api/index.ts:94-108`) rather than the
   generated `BuildState` (`frontend/src/shared/api-client/models/BuildState.ts:5`), so every
   state change must be made twice.
 - FU-4: Reset and reconciler still duplicate discard logic even after the shared primitive in
   §7.4; the reconciler's `_finalize_failed` and the reset path remain separate call graphs.
-- FU-7: `force=true` on an `UNAVAILABLE` outcome sets `IDLE`, which is readable — so an
+- FU-7 (CLOSED by D-8): `force=true` on an `UNAVAILABLE` outcome sets `IDLE`, which is readable -- so an
   irrecoverable graph's partially applied, never-withdrawable triples re-enter agent
   context and both graph views. Found by the security audit; confirmed by tracing
   `graph_admin_reset.py`'s `UNAVAILABLE` + `force` path into `IN_FLIGHT_BUILD_STATES`.
@@ -369,7 +408,7 @@ None. This restores the existing [R11.04] and [R11a.02] contract.
   task (the reconciler used to leave the same config in readable ordinary `FAILED` with no
   admin action at all). The `force` parameter's API description now says plainly that it
   re-opens reads. Worth revisiting because `recovery_unavailable` is already rebuildable
-  (AC-9), so forcing `IDLE` buys no recovery capability that the state model lacks — its
+  (AC-9), so forcing `IDLE` buys no recovery capability that the state model lacks -- its
   only effect is un-gating.
 - FU-8: `force=true` force-releases the build lock and, if a concurrent worker re-grabs it
   in the window, proceeds to compensate *without holding the lock*
@@ -379,33 +418,33 @@ None. This restores the existing [R11.04] and [R11a.02] contract.
   with FU-7. There is also no dedicated rate limit on the admin routers (they fall into
   the generic 300/min/user bucket).
 - FU-9: `_log.exception` in the compensation-failure path logs the Neo4j driver's
-  traceback, which for some error classes echoes offending property values — i.e. graph
-  facts — into application logs. Plausible rather than confirmed (no constraint that would
+  traceback, which for some error classes echoes offending property values -- i.e. graph
+  facts -- into application logs. Plausible rather than confirmed (no constraint that would
   produce such an error was found). Two siblings in `graphrag_reconciler.py`. The repo
   already has the opposite convention at `knowmap_config_service.py:471`
   (`type(exc).__name__`, because "qdrant-client errors carry response content"). Kept as
   is here because the traceback is genuinely useful for diagnosing a failed compensation.
 - FU-10: `read_graph` and `read_knowmap_graph` raise `*ConfigNotFound` (404) before the
-  authorization check, so a non-member gets 404 for an unknown id and 403 for a real one —
+  authorization check, so a non-member gets 404 for an unknown id and 403 for a real one --
   a cross-tenant existence oracle. The same module deliberately masks this for document
   routes ("DOM-7"); the config routes never adopted it. Pre-existing.
-- FU-11: The build-state read gate is now duplicated in the two route handlers. Both
+- FU-11 (CLOSED by D-9): The build-state read gate is now duplicated in the two route handlers. Both
   `get_graph` services already load the config and hold `last_build_state`, so the gate
-  belongs there — co-located with store access, the way `graphrag_retrieve.py` does it.
+  belongs there -- co-located with store access, the way `graphrag_retrieve.py` does it.
   As written, a future caller reaching the facade directly bypasses it.
 - FU-12: Both admin reset routes instantiate their config service directly instead of going
   through `KnowledgeFacade`, against the "routes call only the facade" rule. The new
   Knowledge Map route is a fresh instance of the violation, so the quality audit classed it
-  Introduced — but the facade exposes no reset for either product, and fixing only the new
+  Introduced -- but the facade exposes no reset for either product, and fixing only the new
   route would re-create the divergence this task worked to remove. Deferred with the user's
   agreement: add `admin_reset_*` to the facade and move both handlers in one change.
-- FU-13: `except Exception` around the Neo4j compensation maps *any* failure — including a
-  `TypeError` from a port call — to `comp_error`, i.e. a 503 documented as transient and
+- FU-13 (CLOSED by D-12): `except Exception` around the Neo4j compensation maps *any* failure -- including a
+  `TypeError` from a port call -- to `comp_error`, i.e. a 503 documented as transient and
   worth retrying. An operator would retry a programming error forever. Narrow it to the
   driver's exception hierarchy, or re-raise non-store exceptions as a 500.
-- FU-14: `test_knowmap_reset.py` imports its fakes from `test_graphrag_reset.py`. Sharing
+- FU-14 (CLOSED by D-13): `test_knowmap_reset.py` imports its fakes from `test_graphrag_reset.py`. Sharing
   them is right; sourcing them from a `test_`-prefixed module is not, since pytest collects
-  it — an edit to a Concept Map fake silently changes Knowledge Map assertions. Move the
+  it -- an edit to a Concept Map fake silently changes Knowledge Map assertions. Move the
   four fakes to `conftest.py` or a non-collected helper module.
 - FU-15: `graphragBuildState.test.ts`'s dotted-path locale walker duplicates the one in
   `conversation/__tests__/agentErrors.test.ts`, and is weaker (optional-chaining only
@@ -415,7 +454,7 @@ None. This restores the existing [R11.04] and [R11a.02] contract.
   the pre-existing duplication to a third member and updated both sites, but drift would let
   the route reject a build the engine accepts. Hoist to a named frozenset in the domain
   beside the other three state sets.
-- FU-17: `perform_admin_reset` never calls `publish_build_state`, while every terminal
+- FU-17 (CLOSED by D-11): `perform_admin_reset` never calls `publish_build_state`, while every terminal
   reconciler path does, so a socket-connected UI shows a stale badge after an admin reset
   until the 15s poll fallback. Pre-existing on the Concept Map path, now on both.
 - FU-18: The refuse path commits the audit row and then raises, so `db_session`'s success-path
@@ -433,5 +472,5 @@ None. This restores the existing [R11.04] and [R11a.02] contract.
   a stale current-build pointer with no snapshot therefore keeps the historical behaviour:
   `delete_by_build` runs with no restore. That shape is only reachable after a crash between
   the build's completion and its pointer clear, and closing it means deciding whether a
-  pointer on a settled config is evidence of live data at all — out of scope here, but it is
+  pointer on a settled config is evidence of live data at all -- out of scope here, but it is
   the same destructive primitive this task fixed for the in-flight case.

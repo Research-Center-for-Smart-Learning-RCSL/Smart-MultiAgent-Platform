@@ -38,6 +38,18 @@ describe('graphrag build-state presentation', () => {
     expect(graphragBuildStateVariant('recovery_unavailable')).toBe('danger')
   })
 
+  it('has the withheld-graph strings in both locales', () => {
+    // The graph view distinguishes "withheld because of build state" from "empty";
+    // a key missing in one locale would silently render the key path to those users.
+    for (const key of [
+      'agents.graphragGraph.blockedTitle',
+      'agents.graphragGraph.blockedDescription',
+    ]) {
+      expect(resolve(en, key), `en is missing ${key}`).toBeTypeOf('string')
+      expect(resolve(zhTW, key), `zh-TW is missing ${key}`).toBeTypeOf('string')
+    }
+  })
+
   it('falls back rather than rendering blank for an unknown state', () => {
     expect(graphragBuildStateVariant('nonsense')).toBe('neutral')
     expect(graphragBuildStateLabelKey('nonsense')).toBe('nonsense')

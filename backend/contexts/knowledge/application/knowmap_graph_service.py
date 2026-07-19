@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.domain.errors import KnowmapConfigNotFound
 from contexts.knowledge.domain.graph_view_assembly import assemble_graph_view
+from contexts.knowledge.domain.graphrag import IN_FLIGHT_BUILD_STATES
 from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapConfigRepository,
 )
@@ -48,6 +49,8 @@ class KnowmapGraphView:
     nodes: tuple[KnowmapGraphNode, ...]
     edges: tuple[KnowmapGraphEdge, ...]
     truncated: bool
+    # See GraphView.build_state_blocked -- the build state, not the data, made this empty.
+    build_state_blocked: bool = False
 
 
 class KnowmapGraphService:
@@ -66,6 +69,17 @@ class KnowmapGraphService:
         cfg = await self._configs.get(config_id)
         if cfg is None:
             raise KnowmapConfigNotFound(str(config_id))
+
+        if cfg.last_build_state in IN_FLIGHT_BUILD_STATES:
+            # Mirrors GraphRagGraphService.get_graph and the shared retrieval gate.
+            return KnowmapGraphView(
+                config_id=config_id,
+                project_id=cfg.project_id,
+                nodes=(),
+                edges=(),
+                truncated=False,
+                build_state_blocked=True,
+            )
 
         bounded = max(1, min(limit, MAX_GRAPH_LIMIT))
 

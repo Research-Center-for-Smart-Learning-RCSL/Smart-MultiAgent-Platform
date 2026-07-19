@@ -208,6 +208,11 @@ export interface GraphView {
   nodes: GraphNode[]
   edges: GraphEdge[]
   truncated: boolean
+  // The backend withheld the graph because the build state makes it unsafe to read
+  // (mid-2PC, or a build whose rollback material expired) -- not because it is empty.
+  // Without this the two cases are indistinguishable and the view can only say
+  // "no data" while the graph is actually fine and just mid-build.
+  build_state_blocked: boolean
 }
 
 // Mirrors backend `GraphRagBuildOut` (202 on build accept).

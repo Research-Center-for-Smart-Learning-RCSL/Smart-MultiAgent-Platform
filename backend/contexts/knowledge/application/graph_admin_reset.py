@@ -19,11 +19,13 @@ from __future__ import annotations
 import enum
 import logging
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.graphrag_events import publish_build_state
 from contexts.knowledge.domain.errors import (
     GraphRagBuildBusy,
     KnowledgeError,
@@ -62,6 +64,10 @@ class GraphResetBinding:
     audit_action: str
     resource_type: str
     compensation_error: type[KnowledgeError]
+    # Per-product websocket channel, same contract as the builder's and the
+    # reconciler's ``channel_fn``. No default: naming the wrong channel would
+    # publish a Concept Map's state onto a Knowledge Map's socket.
+    channel_fn: Callable[[uuid.UUID], str]
 
 
 class DiscardPlan(enum.Enum):
@@ -156,8 +162,6 @@ async def perform_admin_reset(
     db: AsyncSession,
     *,
     config_id: uuid.UUID,
-    project_id: uuid.UUID,
-    prev: BuildState,
     binding: GraphResetBinding,
     snapshots: SnapshotStore,
     locks: BuildLockStore,
@@ -179,11 +183,21 @@ async def perform_admin_reset(
     without forcing idle or destroying recovery material, so the config never advertises
     inconsistent state as healthy (R11.04). "Never possible" is :func:`plan_discard`'s
     ``UNAVAILABLE`` -- an in-flight build whose pointer or snapshot has expired past the
-    24-hour window; that path touches no store at all. ``force=true``: overrides a held
-    lock (force-release + re-acquire) and still forces ``idle``, recording the incomplete
-    outcome (non-null ``last_build_error``, audit ``outcome=compensation_failed`` or
-    ``compensation_unavailable``). The reconciler is not touched. Every reset is
-    audit-logged. The caller re-reads the config afterwards.
+    24-hour window; that path touches no store at all.
+
+    ``force=true`` overrides a held lock (force-release + re-acquire) and clears the
+    stuck state, recording the incomplete outcome (non-null ``last_build_error``, audit
+    ``outcome=compensation_failed`` or ``compensation_unavailable``). It lands on
+    ``idle`` **except** on the ``UNAVAILABLE`` path, which lands on
+    ``recovery_unavailable``: forcing ``idle`` there would re-open reads on a partially
+    applied build that can never be rolled back, and it buys nothing, because
+    ``recovery_unavailable`` is already rebuildable. The reconciler is not touched.
+
+    The state driving all of this is re-read **after** the lock is held, not taken from
+    the caller's pre-lock fetch -- serialising against the builder is the whole point of
+    the lock, and a stale state would let a crashed build be misclassified as a settled
+    one. Every reset is audit-logged and publishes the new state. The caller re-reads the
+    config afterwards.
     """
     # Build the compensation Neo4j driver lazily, only when an in-flight build must
     # actually be rolled back -- so the 409 fast-fail and clean/idle resets construct
@@ -209,6 +223,20 @@ async def perform_admin_reset(
                     config_id,
                 )
         try:
+            # Re-read under the lock. The caller fetched the config first (to raise its
+            # own not-found before taking a lock), but that read races the builder: a
+            # build can start, crash, and leave a current-build pointer between the two.
+            # Deciding on the stale state would classify that crashed build as a settled
+            # config and take the delete-without-restore path this function exists to
+            # refuse.
+            cfg = await binding.configs.get(config_id)
+            if cfg is None:
+                # Deleted between the caller's read and the lock. Nothing to compensate;
+                # the caller's trailing re-read raises its own not-found.
+                return
+            prev = cfg.last_build_state
+            project_id = cfg.project_id
+
             build_id = await snapshots.get_current(config_id=config_id)
             snapshot = (
                 await snapshots.get(config_id=config_id, build_id=build_id) if build_id is not None else None
@@ -242,6 +270,11 @@ async def perform_admin_reset(
                     await neo4j.delete_by_build(config_id=config_id, build_id=build_id)
                     if snapshot is not None:
                         await neo4j.restore_from_snapshot(config_id=config_id, snapshot=snapshot)
+                except (TypeError, AttributeError, NameError, ImportError):
+                    # Programming errors, not store failures. Folding them into
+                    # comp_error would surface a code defect as a 503 the error class
+                    # documents as transient -- an operator would retry it forever.
+                    raise
                 except Exception:
                     _log.exception("admin reset: neo4j compensation failed for config %s", config_id)
                     comp_error = "admin reset: compensation incomplete"
@@ -282,10 +315,28 @@ async def perform_admin_reset(
             # Clean discard, no-op, or force=true override. ``comp_error`` is non-null
             # only on a force=true failed/unavailable compensation -- recorded as a
             # non-null last_build_error so the state is honest.
+            #
+            # A forced UNAVAILABLE lands on RECOVERY_UNAVAILABLE rather than IDLE: the
+            # graph holds a partially applied build no rollback can undo, so advertising
+            # it as readable would re-expose exactly what that state exists to hide.
+            # Forcing IDLE would not help either way -- RECOVERY_UNAVAILABLE is already
+            # accepted by the manual build endpoint and the builder engine.
+            new_state = (
+                BuildState.RECOVERY_UNAVAILABLE if plan is DiscardPlan.UNAVAILABLE else BuildState.IDLE
+            )
             await binding.configs.set_state(
                 config_id=config_id,
-                state=BuildState.IDLE,
+                state=new_state,
                 error=comp_error,
+            )
+            # Terminal state change: tell live subscribers, or a list view keeps the
+            # pre-reset badge until its next refetch (useBuildStateSocket stops polling
+            # a config once it believes the state is terminal).
+            await publish_build_state(
+                config_id,
+                new_state.value,
+                build_id=build_id,
+                channel=binding.channel_fn(config_id),
             )
             await _emit_reset_audit(
                 db,

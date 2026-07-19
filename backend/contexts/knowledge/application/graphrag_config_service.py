@@ -492,23 +492,25 @@ class GraphRagConfigService:
         Knowledge Map binds the same implementation, so the two products' resets cannot
         drift apart.
         """
+        from contexts.knowledge.infrastructure.channels import graphrag_channel
         from contexts.knowledge.infrastructure.redis_lock import (
             RedisBuildLockStore,
             RedisSnapshotStore,
         )
 
-        cfg = await self.get(config_id)
+        # Raise this product's not-found before taking a lock; the state the reset acts
+        # on is re-read inside, under the lock.
+        await self.get(config_id)
 
         await perform_admin_reset(
             self._db,
             config_id=config_id,
-            project_id=cfg.project_id,
-            prev=cfg.last_build_state,
             binding=GraphResetBinding(
                 configs=self._configs,
                 audit_action="admin.graphrag_reset",
                 resource_type="graphrag_config",
                 compensation_error=GraphRagResetCompensationFailed,
+                channel_fn=graphrag_channel,
             ),
             snapshots=self._snapshots or RedisSnapshotStore(),
             locks=self._locks or RedisBuildLockStore(),

@@ -13,11 +13,14 @@ import pytest
 
 import contexts.knowledge.application.knowmap_graph_service as km_mod
 from contexts.knowledge.domain.errors import KnowmapConfigNotFound
+from contexts.knowledge.domain.graphrag import BuildState
 
 
 class _FakeCfg:
-    def __init__(self, project_id: uuid.UUID) -> None:
+    def __init__(self, project_id: uuid.UUID, state: BuildState = BuildState.IDLE) -> None:
         self.project_id = project_id
+        # See test_graphrag_graph_service._FakeCfg -- get_graph gates on build state.
+        self.last_build_state = state
 
 
 class _FakeRepo:

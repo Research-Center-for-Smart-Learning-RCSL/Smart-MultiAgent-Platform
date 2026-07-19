@@ -3732,6 +3732,10 @@
       "GraphOut": {
         "description": "Bounded node/edge view for the knowledge-graph visualizer (viz P0).",
         "properties": {
+          "build_state_blocked": {
+            "title": "Build State Blocked",
+            "type": "boolean"
+          },
           "config_id": {
             "format": "uuid",
             "title": "Config Id",
@@ -3760,7 +3764,8 @@
           "config_id",
           "nodes",
           "edges",
-          "truncated"
+          "truncated",
+          "build_state_blocked"
         ],
         "title": "GraphOut",
         "type": "object"
@@ -5109,6 +5114,10 @@
       },
       "KnowmapGraphOut": {
         "properties": {
+          "build_state_blocked": {
+            "title": "Build State Blocked",
+            "type": "boolean"
+          },
           "config_id": {
             "format": "uuid",
             "title": "Config Id",
@@ -5137,7 +5146,8 @@
           "config_id",
           "nodes",
           "edges",
-          "truncated"
+          "truncated",
+          "build_state_blocked"
         ],
         "title": "KnowmapGraphOut",
         "type": "object"

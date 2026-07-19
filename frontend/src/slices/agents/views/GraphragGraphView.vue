@@ -83,6 +83,12 @@ const positions = computed(() => {
 
 const nodeCount = computed(() => graphQuery.data.value?.nodes.length ?? 0)
 const edgeCount = computed(() => graphQuery.data.value?.edges.length ?? 0)
+// The graph is withheld because the build state makes it unsafe to read, not because
+// it has no data. Checked before isEmpty so a mid-build or irrecoverable map explains
+// itself instead of claiming the graph is empty.
+const isBlocked = computed(
+  () => !graphQuery.isLoading.value && graphQuery.data.value?.build_state_blocked === true,
+)
 const isEmpty = computed(() => !graphQuery.isLoading.value && nodeCount.value === 0)
 
 const matches = (id: string): boolean => {
@@ -205,6 +211,14 @@ const flowEdges = computed(() => {
     >
       {{ t('agents.graphragGraph.loadFailed') }}
     </SAlert>
+
+    <SEmptyState
+      v-else-if="isBlocked"
+      :icon="ShareIcon"
+      :title="t('agents.graphragGraph.blockedTitle')"
+      :text="t('agents.graphragGraph.blockedDescription')"
+      class="flex-1"
+    />
 
     <SEmptyState
       v-else-if="isEmpty"

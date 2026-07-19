@@ -239,6 +239,8 @@
       "loadFailed": "載入知識圖譜失敗。",
       "emptyTitle": "尚無圖譜",
       "emptyDescription": "為此設定執行一次建置以產生知識圖譜。",
+      "blockedTitle": "目前無法顯示圖譜",
+      "blockedDescription": "建置進行中或狀態不一致時，系統會暫不提供此圖譜。請查看此設定的建置狀態。",
       "legendHint": "節點大小＝關係數量。拖曳可重新排列，捲動可縮放。",
       "types": {
         "person": "人物",
