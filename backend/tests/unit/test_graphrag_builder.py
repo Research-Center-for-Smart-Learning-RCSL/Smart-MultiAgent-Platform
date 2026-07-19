@@ -233,6 +233,7 @@ class FakeNeo4j:
         self,
         *,
         raise_on_apply: Exception | None = None,
+        raise_on_replace: Exception | None = None,
         raise_on_restore: Exception | None = None,
         config_ids: list[tuple[uuid.UUID, uuid.UUID | None]] | None = None,
         triples_for_build: list[dict[str, str]] | None = None,
@@ -245,6 +246,7 @@ class FakeNeo4j:
         self.deleted_all: list[uuid.UUID] = []
         self.restored: list[dict[str, Any]] = []
         self.raise_on_apply = raise_on_apply
+        self.raise_on_replace = raise_on_replace
         self.raise_on_restore = raise_on_restore
         self.config_ids = config_ids or []
         self.triples_for_build = triples_for_build or []
@@ -252,16 +254,27 @@ class FakeNeo4j:
     async def snapshot_subgraph(self, *, config_id, build_id):
         return {"edges": []}
 
-    async def apply_triples(self, *, config_id, project_id, build_id, triples, replace=False):
+    async def apply_triples(self, *, config_id, project_id, build_id, triples):
         if self.raise_on_apply is not None:
             raise self.raise_on_apply
         self.applied.append(list(triples))
         self.applied_project_ids.append(project_id)
-        self.applied_replace.append(replace)
+        self.applied_replace.append(False)
         return len(triples)
 
-    async def remove_stale_for_build(self, *, config_id, build_id) -> None:
+    async def replace_triples(self, *, config_id, project_id, build_id, triples):
+        # Atomic in the adapter: raising here must leave `applied` untouched, the
+        # way a rolled-back transaction leaves the graph untouched. A fake that
+        # recorded the upsert before raising would let a builder regression pass.
+        if self.raise_on_replace is not None:
+            raise self.raise_on_replace
+        if self.raise_on_apply is not None:
+            raise self.raise_on_apply
+        self.applied.append(list(triples))
+        self.applied_project_ids.append(project_id)
+        self.applied_replace.append(True)
         self.remove_stale_calls.append(build_id)
+        return len(triples)
 
     async def delete_by_build(self, *, config_id, build_id) -> None:
         self.deleted.append(build_id)

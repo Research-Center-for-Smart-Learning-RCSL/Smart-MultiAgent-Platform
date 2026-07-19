@@ -122,17 +122,37 @@ class Neo4jDriver(Protocol):
         project_id: uuid.UUID,
         build_id: uuid.UUID,
         triples: list[Triple],
-        replace: bool = False,
     ) -> int:
-        """Upsert ``triples`` tagged with ``build_id``; returns count.
+        """Delta-upsert ``triples`` tagged with ``build_id``; returns count.
 
         ``project_id`` is stamped on every ``:Entity`` node so an orphaned
         subgraph (no surviving Postgres row) stays self-describing for the
         reconciler's Qdrant sweep (R11.04 backstop).
 
-        ``replace`` (F-6) switches evidence/member provenance from cross-build
-        union (Concept Map delta) to current-build reset (full-corpus Knowledge
-        Map replacement); paired with :meth:`remove_stale_for_build`.
+        Evidence and member provenance accumulate across builds (Concept Map
+        delta semantics). Full-corpus replacement is :meth:`replace_triples`.
+        """
+
+    async def replace_triples(
+        self,
+        *,
+        config_id: uuid.UUID,
+        project_id: uuid.UUID,
+        build_id: uuid.UUID,
+        triples: list[Triple],
+    ) -> int:
+        """Atomically make the subgraph equal ``triples``; returns count.
+
+        One operation rather than an upsert plus a separate prune, because
+        [R11.04] and REQUIREMENTS.md 11.2a step 4 define Phase 1 as a single
+        Neo4j transaction in which a failure commits nothing. Splitting it across
+        two calls let a prune failure leave a readable half-replaced graph, so the
+        invariant is kept inside the adapter where orchestration cannot divide it.
+
+        Upserts the current triples with per-build evidence/member reset (F-6),
+        then drops every relation this build did not touch and every entity that
+        leaves isolated. An empty ``triples`` still prunes, so emptying the corpus
+        empties the subgraph.
         """
 
     async def delete_by_build(
@@ -142,17 +162,6 @@ class Neo4jDriver(Protocol):
         build_id: uuid.UUID,
     ) -> None:
         """Drop all entities/edges tagged with ``build_id``."""
-
-    async def remove_stale_for_build(
-        self,
-        *,
-        config_id: uuid.UUID,
-        build_id: uuid.UUID,
-    ) -> None:
-        """F-6: drop relations the current build did not touch (``build_id`` != the
-        current one) and any config entity left isolated. Paired with a full-corpus
-        ``apply_triples(replace=True)`` to give the graph true replacement
-        semantics."""
 
     async def delete_all(self, *, config_id: uuid.UUID) -> None:
         """Drop the entire subgraph for a config (delete cascade, §22.8)."""
