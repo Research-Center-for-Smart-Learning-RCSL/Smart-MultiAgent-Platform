@@ -146,12 +146,18 @@ skill_scan_file.max_tries = 3  # type: ignore[attr-defined]
 def _client_reason(exc: Exception) -> str:
     """The RFC 7807 title a skills error maps to, for the status endpoint.
 
-    A `BundleInvalid`/`BundleQuarantined` carries a reason written for the author; anything
-    else gets a generic line so a worker-side stack trace never reaches the client.
-    """
-    from contexts.skills.domain.errors import BundleInvalid, BundleQuarantined
+    A `BundleInvalid`/`BundleQuarantined`/`SkillTextRejected` carries a reason written for
+    the author; anything else gets a generic line so a worker-side stack trace never
+    reaches the client.
 
-    if isinstance(exc, BundleInvalid | BundleQuarantined):
+    `SkillTextRejected` is the service-layer charset gate, which exists precisely to catch
+    what a writer's own checks missed — so the one case where it fires on the import path
+    is the one where the parser let something through, and discarding its reason would
+    leave the author with "import failed" and no field to look at.
+    """
+    from contexts.skills.domain.errors import BundleInvalid, BundleQuarantined, SkillTextRejected
+
+    if isinstance(exc, BundleInvalid | BundleQuarantined | SkillTextRejected):
         return str(exc)
     return "import failed"
 
@@ -218,7 +224,7 @@ async def skill_import_bundle(
     """
     _ = ctx
     from contexts.skills.application import bundle_jobs
-    from contexts.skills.domain.errors import BundleInvalid, BundleQuarantined
+    from contexts.skills.domain.errors import BundleInvalid, BundleQuarantined, SkillTextRejected
     from contexts.skills.domain.models import SkillScope
     from contexts.skills.interfaces.facade import SkillsFacade
     from shared_kernel.storage import get_minio_client
@@ -250,7 +256,9 @@ async def skill_import_bundle(
             sm, result=result, actor_user_id=actor_user_id, actor_ip=actor_ip, request_id=request_id
         )
         return "imported"
-    except (BundleInvalid, BundleQuarantined) as exc:
+    except (BundleInvalid, BundleQuarantined, SkillTextRejected) as exc:
+        # A rejection, not a fault: it belongs here rather than in the `Exception` arm,
+        # which logs a full stack trace for what is routine validation.
         _log.warning("skill_import_bundle: job %s rejected — %s", job_id, exc)
         await bundle_jobs.mark_import_failed(job_id=jid, error=_client_reason(exc))
         return "rejected"

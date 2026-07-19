@@ -385,6 +385,28 @@ sequences behind this task (§7).
   `/workspace/skills/` and the charset rule alone admits `../evil`. Neither is reachable
   through a real writer today, which is precisely the argument Q-1 makes for the charset
   rule itself. Both caps live in `domain/models.py` with the others.
+  **(a) was subsequently narrowed to the entry points only — see D-7.**
+- **D-7: `MAX_LIST_ITEMS` is enforced at the entry points only, not at the gate — reversing
+  half of D-5.** A code-review pass caught that D-5 made the count cap retroactive without
+  re-checking §7's "Data repair: none. No stored row can currently fail the rule". That
+  claim was verified for the charset rule and inherited untested by the new cap, and it is
+  false there: `git show origin/main` confirms `parse_skill_md` carried no entry-count check
+  before this task, and the importer is live, so rows above 64 are legal history. Gating on
+  the count would have made them uncopyable — a skill imported with 100 tools could never be
+  promoted to another scope, punishing an author for a gap on our side. The cap now lives in
+  `parse_skill_md` and `SkillCreateIn`, which bound what new text may introduce, and the
+  gate ignores the count. The charset rules keep their retroactive gate deliberately (Q-4):
+  a bidi override in a stored description is an active attack whatever wrote it, whereas an
+  over-long list is only load and its one possible writer is now closed. Residual gap in
+  FU-6.
+- **D-8: two further code-review fixes.** (a) `SkillTextRejected`'s mapped title was "Skill
+  text contains rejected characters", which the `name`-pattern arm added in D-5 makes false
+  — `../evil` contains no rejected character. Retitled "Skill text was rejected" so it does
+  not contradict the `reason` in its own body. (b) `skill_import_bundle` caught only
+  `BundleInvalid`/`BundleQuarantined` as author-facing rejections, so a `SkillTextRejected`
+  from the gate fell to the generic `except Exception`, logging a stack trace and returning
+  the opaque "import failed". The gate exists to catch what a writer's own checks missed, so
+  that was the one case on the import path where its reason mattered most and was discarded.
 - **D-6: the service-layer tests were rebuilt on `tests/unit/skill_fakes.py`.** They were
   first written against a local `_FakeSkillRepo` and a `monkeypatch`ed constructor. The
   quality audit was right that this was a real defect and not a style point: the local
@@ -413,6 +435,19 @@ sequences behind this task (§7).
   wrapper rather than `str` — which is a larger refactor and a real design decision. The importer's
   arrival is the argument for it: that writer was added *after* the rule was written and had to
   re-derive it by hand, which is exactly the failure a type would have prevented.
+- **FU-6 *(added 2026-07-19, from code review)*: a stored row above `MAX_LIST_ITEMS`
+  cannot round-trip through export/import, which `[R31.21]` requires.** `render_skill_md`
+  applies no entry-count cap, so a legacy skill with 100 `allowed_tools` exports all 100;
+  `parse_skill_md` now rejects it on the way back in. `[R31.21]` (`REQUIREMENTS.md:2170`)
+  states export → import → export is byte-identical over an authored byte set that
+  explicitly includes "requirements, declared tools", so for those rows it is not.
+  **Deliberately left open**, because every way of closing it is worse than the gap: capping
+  export strands the row's contents entirely; letting import accept over-cap lists reopens
+  the load issue for new bundles; and rewriting stored rows to fit is the silent mutation
+  Q-4 rejects. The affected rows are those the parser's own missing cap allowed, they remain
+  fully usable, bindable, copyable, and editable after D-7, and only the export→import path
+  is affected. Worth a decision if such a row is ever found in production — the query is
+  `cardinality(allowed_tools) > 64 OR cardinality(requires) > 64`.
 - **FU-4 *(added 2026-07-19, from the quality audit)*: the field-to-cap *mapping* is still
   spelled three times, though the numbers are now spelled once.** `_assert_text_fields_ok`
   (`skill_service.py`), `_validate_text`'s call sites (`app/api/v1/skills.py`), and
