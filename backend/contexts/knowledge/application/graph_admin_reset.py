@@ -316,14 +316,17 @@ async def perform_admin_reset(
             # only on a force=true failed/unavailable compensation -- recorded as a
             # non-null last_build_error so the state is honest.
             #
-            # A forced UNAVAILABLE lands on RECOVERY_UNAVAILABLE rather than IDLE: the
-            # graph holds a partially applied build no rollback can undo, so advertising
-            # it as readable would re-expose exactly what that state exists to hide.
-            # Forcing IDLE would not help either way -- RECOVERY_UNAVAILABLE is already
-            # accepted by the manual build endpoint and the builder engine.
-            new_state = (
-                BuildState.RECOVERY_UNAVAILABLE if plan is DiscardPlan.UNAVAILABLE else BuildState.IDLE
-            )
+            # The landing state follows the compensation OUTCOME, not the plan (R11a.02).
+            # Any unfinished rollback lands on RECOVERY_UNAVAILABLE rather than IDLE:
+            # UNAVAILABLE leaves a partially applied build nothing can undo, and a failed
+            # COMPENSATE leaves a subgraph missing the rows delete_by_build already took,
+            # so publishing either as readable re-exposes exactly what the state exists to
+            # hide -- and IDLE is outside the reconciler sweep set, so nothing would ever
+            # revisit it. Forcing IDLE buys no recovery capability: RECOVERY_UNAVAILABLE
+            # is already accepted by the manual build endpoint and the builder engine, so
+            # force still unsticks the config. The retained snapshot and pointer let a
+            # later reset retry compensation.
+            new_state = BuildState.IDLE if comp_error is None else BuildState.RECOVERY_UNAVAILABLE
             await binding.configs.set_state(
                 config_id=config_id,
                 state=new_state,

@@ -181,12 +181,20 @@ async def test_force_false_compensation_failure_refuses_and_keeps_material() -> 
 
 
 # ===========================================================================
-# 4. force=true compensation failure forces idle honestly (AC-5)
+# 4. force=true compensation failure unsticks honestly, without re-opening reads
 # ===========================================================================
 
 
 @pytest.mark.asyncio
-async def test_force_true_compensation_failure_forces_idle_with_error() -> None:
+async def test_force_true_compensation_failure_stays_read_blocked() -> None:
+    """Having the recovery material does not make an unfinished rollback readable.
+
+    delete_by_build has already removed the failed build's rows by the time the restore
+    raises, so the subgraph is missing what the rollback owed it. Landing on IDLE would
+    publish that as healthy, and IDLE is outside the reconciler sweep set, so nothing
+    would ever revisit it. force still unsticks: RECOVERY_UNAVAILABLE is manually
+    rebuildable. The material is retained so a later reset can retry compensation.
+    """
     cfg = _cfg(BuildState.FAILED_COMPENSATING)
     build_id = uuid.uuid4()
     locks = FakeLockStore()
@@ -200,8 +208,9 @@ async def test_force_true_compensation_failure_forces_idle_with_error() -> None:
     ) as emit:
         out = await _reset(service, cfg, force=True)
 
-    assert out.last_build_state is BuildState.IDLE
-    assert repo.sets[-1]["state"] is BuildState.IDLE
+    assert out.last_build_state is BuildState.RECOVERY_UNAVAILABLE
+    assert out.last_build_state in IN_FLIGHT_BUILD_STATES  # never served
+    assert repo.sets[-1]["state"] is BuildState.RECOVERY_UNAVAILABLE
     assert repo.sets[-1]["error"] is not None  # honest, non-null residue flag
     assert snaps.deleted == []  # residue preserved (FU-5)
     assert snaps.cleared is False
@@ -457,16 +466,29 @@ async def test_force_true_clears_the_stuck_state_but_stays_read_blocked() -> Non
 
 
 @pytest.mark.asyncio
-async def test_force_true_on_a_recoverable_failure_still_lands_idle() -> None:
-    """The IDLE landing is unchanged when the recovery material was actually present."""
-    cfg = _cfg(BuildState.FAILED_COMPENSATING)
-    build_id = uuid.uuid4()
-    locks = FakeLockStore()
-    snaps = FakeSnapshotStore(current=build_id, snapshot={"nodes": [{"name": "A"}]})
-    neo4j = FakeNeo4j(raise_on_restore=True)
-    service, repo = _service(RecordingDb(), cfg, locks=locks, snaps=snaps, neo4j=neo4j)
+async def test_force_true_landing_states_converge_on_any_unfinished_rollback() -> None:
+    """The two forced-failure paths are one rule now: outcome, not plan.
 
-    out = await _reset(service, cfg, force=True)
+    Section 4 covers a failed COMPENSATE and the test above covers UNAVAILABLE; this
+    pins the property they share, so a future change that re-splits them by plan fails
+    here rather than only in whichever path it broke.
+    """
+    for prev, snapshot in (
+        (BuildState.FAILED_COMPENSATING, {"nodes": [{"name": "A"}]}),
+        (BuildState.NEO4J_COMMITTED, None),
+    ):
+        cfg = _cfg(prev)
+        snaps = FakeSnapshotStore(current=uuid.uuid4(), snapshot=snapshot)
+        service, repo = _service(
+            RecordingDb(),
+            cfg,
+            locks=FakeLockStore(),
+            snaps=snaps,
+            neo4j=FakeNeo4j(raise_on_restore=True),
+        )
 
-    assert out.last_build_state is BuildState.IDLE
-    assert repo.sets[-1]["error"] is not None
+        out = await _reset(service, cfg, force=True)
+
+        assert out.last_build_state is BuildState.RECOVERY_UNAVAILABLE
+        assert out.last_build_state in IN_FLIGHT_BUILD_STATES
+        assert repo.sets[-1]["error"] is not None
