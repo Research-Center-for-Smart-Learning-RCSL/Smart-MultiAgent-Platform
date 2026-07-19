@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-07-19
 requirements: [R12.03, R12.03a, R12.05, R31.22]
 ---
@@ -57,6 +57,8 @@ gate surfaced it. That entry named only the `file` tool; the analysis below esta
 | Q-2 | Scope: fix both channels, or the mount channel first and the `file` tool separately? | **Both, here.** | Fixing only the `file` tool would be security theater — `code_exec` is the wider channel and needs no cleverness to exploit. Fixing only the mount happens to close both, but that is a consequence worth asserting with a test rather than inheriting by luck (AC-3). |
 | Q-3 | Where does the per-room volume mount: nested at `/workspace/sessions/{room}`, or at a separate root? | **A separate root, `/session`.** | Nesting preserves every existing path shape and needs no test changes, but its failure mode is fail-open: if the nested mount is missing — a code path that forgets it, a create that half-fails, a legacy tree left behind — the agent volume's own `sessions/{otherRoom}` shows through at exactly the path the agent is already looking at, silently and with no error. A separate root fails closed: no mount means no directory, and the failure is immediate and loud. For a fix whose entire purpose is a containment boundary, the fail-closed shape is worth the visible path change. |
 | Q-4 | Data repair for session trees already on existing agent volumes? | **Required — a one-shot purge (§7.6).** | Without it the fix is prospective only: every volume in production keeps its accumulated `sessions/` tree, still readable via both channels, for data going back to the agent's creation. The new mount point means nothing *writes* there any more, which is precisely why the leftovers will never be cleaned up by normal operation. |
+| Q-6 | §7.7 says GC must collect a session volume when its chatroom is gone. How does the worker learn that, given it currently reads only the agents context's tables? Options weighed: (a) agent-only classification, chatroom half deferred; (b) import the conversation context's tables; (c) route through a conversation facade; (d) event-driven teardown on room deletion. | **(b)**, reusing the existing absence-of-row inference rather than adding a rule. | (d) was the preferred shape and is **not available**: there is no domain-event bus — `shared_kernel/events/` does not exist, Redis pub/sub is WebSocket fan-out with no replay (`pubsub.py:3-16`), and the `chatroom.deleted` audit row (`chatroom_service.py:209`) has no consumer anywhere in the backend. Building one is far outside this task. (c) would be inconsistent: the worker reads `t.agents` directly (`agent_fs_gc.py:262`) and uses no facades. (a) leaves a disk leak and fails AC-8. (b) is not the compromise it first looks like — `agent_fs_gc` already infers "this artifact's window has closed" from the *absence* of an `agents` row, valid only because `retention_sweep` is the sole remover of such rows at the 60-day cutoff (the "load-bearing invariant", `agent_fs_gc.py:22-32`, `retention.py:51-56`). Chatrooms are hard-deleted by the *same* sweep against the *same* cutoff (`retention.py:59-65`, `:149-155`), so the identical inference carries over with no second rule to reason about. Cross-context table imports in workers are routine, not exceptional: `retention.py` imports five contexts (`:24-39`) and joins across three (`:176-192`), and `backend/CLAUDE.md` scopes the facade-only rule to `app/api/v1/`, not `app/workers/`. **Constraint:** the empty-table blast-radius guard (`agent_fs_gc.py:527-537`) must be extended to chatrooms — an empty or unreachable `chatrooms` table must refuse the sweep, never read as "every room is gone". |
+| Q-7 | The backend and the `smap/code-exec` image must deploy together (§9); neither ordering degrades safely. Document it, or enforce it? | **Enforce it** — a kernel/backend protocol stamp, checked at session start, failing loudly on mismatch. | Documentation does not survive a stale pinned tag, and this task's mismatch modes are both silent: new backend + old image stages to `/session` while the kernel reads `/workspace/sessions/{room}`, so attachments vanish with no error; old backend + new image leaves `/session` unmounted, and `kernel.py:122-123` suppresses the failed `chdir`, so the kernel runs in `/` and artifacts are silently never collected. Both present as "the agent ignored my file". This is the same root cause as `2026-07-16-workspace-path-convention` FU-2 and `2026-07-17-agent-files-path-resolution` FU-4 — nothing in CI runs a container — but scoped to one cheap assertion rather than a test tier. Agreed as a scope addition at build time; see AC-10. |
 | Q-5 | Does the model-facing absolute path change? | **Yes** — `/workspace/sessions/{room}/inputs/x` becomes `/session/inputs/x`. | Follows from Q-3. Note the tool descriptions shipped by `2026-07-16-workspace-path-convention` remain true unmodified: `code_exec`'s says the cwd is "this chat's own session directory" without naming the path, and `inputs/`/`outputs/` stay relative to the cwd. |
 
 ## 4. Reproduction
@@ -279,6 +281,12 @@ room A's data.
       collects them when either is gone, and still never touches a name it cannot parse (T-7).
 - [ ] AC-9: No unbounded growth — after an agent is collected, no volume bearing its id in either
       name shape remains.
+- [ ] AC-10 (added at build time, Q-7): the kernel and the backend carry a shared protocol stamp,
+      and a mismatch fails loudly at session start instead of degrading into a silent wrong-path.
+      Both mismatch directions are covered by test.
+- [ ] AC-11 (added at build time, Q-6): an empty or unreachable `chatrooms` table causes the GC
+      sweep to refuse rather than to classify every session volume as garbage, matching the
+      existing agents-table guard (`agent_fs_gc.py:527-537`).
 
 ## 11. SRS Delta
 
