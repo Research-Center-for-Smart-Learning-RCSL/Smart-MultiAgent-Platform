@@ -105,7 +105,11 @@ _FILE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "op": {"enum": ["list", "read", "write"]},
-        "path": {"type": "string", "description": "Path under /workspace."},
+        "path": {
+            "type": "string",
+            "description": "Path under /workspace. Bare names are resolved against /workspace, "
+            "not against code_exec's working directory.",
+        },
         "content": {"type": "string", "description": "UTF-8 content for write."},
     },
     "required": ["op", "path"],
@@ -192,8 +196,16 @@ def _build_code_exec_tool(
 
     return Tool(
         name="code_exec",
+        # The working directory is the whole contract between this tool and `file`:
+        # both mount one volume at /workspace, but the kernel chdirs into the
+        # per-chat session dir, so a bare name means different files in each tool.
+        # The description is the only place the model can learn that.
         description="Run a Python snippet in a gVisor sandbox (30s cap). State persists across "
-        "calls in a chat; loaded data and saved files survive. Returns stdout/stderr.",
+        "calls in a chat; loaded data and saved files survive. Your working directory is this "
+        "chat's own session directory: `inputs/` holds files from the conversation, and anything "
+        "you save to `outputs/` is returned as an artifact. The agent's persistent volume - the "
+        "same files the `file` tool sees - is at /workspace; refer to it by absolute path "
+        "(e.g. /workspace/notes.md). Returns stdout/stderr.",
         input_schema=_CODE_EXEC_SCHEMA,
         invoke=_invoke,
     )
@@ -223,7 +235,9 @@ def _build_file_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps) -
 
     return Tool(
         name="file",
-        description="Read/list/write files in the agent's /workspace volume.",
+        description="Read/list/write files in the agent's /workspace volume. Paths are rooted at "
+        "/workspace and `list` returns absolute paths; pass those to `code_exec` verbatim, since "
+        "its working directory is elsewhere and a bare name will not resolve there.",
         input_schema=_FILE_SCHEMA,
         invoke=_invoke,
     )
