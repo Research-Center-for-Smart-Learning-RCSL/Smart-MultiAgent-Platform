@@ -448,15 +448,15 @@ Nothing writes there any more — the harness assertion added in D-4 fails the r
   skipped in v1"). So an artifact over 8 MiB is silently lost. Found while confirming that no
   host path depends on the session directory's location (§6). Type: `bugfix`.
 - **FU-8: `_sweep_session_volumes` and `_sweep_volumes` are ~40 near-identical lines.**
-  (`agent_fs_gc.py`.) Same counters, same arm/dry-run/remove/log tail, differing only in the
-  two-dimension classify and the log wording. Raised by this task's `check-quality` gate as an
-  Introduced-Warning and **deliberately deferred**: the two genuinely diverge in classification, and
-  a parameterised merge may well read worse than the copy. Worth a considered call rather than a
-  reflex extraction. Type: `refactor`.
-- **FU-9: `purge_session_dirs` imports two module-private names from `agent_fs_gc`**
-  (`_docker_client`, `_parse_agent_id`). The alternative — a second uuid parser — is worse, and
-  `smap/` importing from `app/` is established (`rotate_transit.py:30`). Cross-module use has made
-  them public in practice; the names should say so. Type: `refactor`.
+  **DONE 2026-07-19 (`80b78b7`).** The considered call this entry asked for: only the *destructive
+  tail* was extracted into `_remove_or_report`, not the whole sweep. The decisive argument was not
+  DRY but that `force=False` — the one guard that does not depend on the DB join being right — sat
+  in two places that could drift apart. Classification stayed in the callers, which genuinely differ
+  (one table vs two) and would read worse merged.
+- **FU-9: `purge_session_dirs` imports two module-private names from `agent_fs_gc`.**
+  **DONE 2026-07-19 (`80b78b7`).** `parse_agent_id` and `docker_client` are now public, with the
+  reason recorded on the parser's docstring: the purge enumerates the same volumes and must apply
+  the same strictness, so a second parser there would be exactly the laxity it exists to prevent.
 - **FU-7: the shared agent volume is a residual cross-room channel, and [R12.03b] overclaims
   against it.** Found by this task's own `check-security` gate. The mount split removes room A's
   session state from room B's execution context — that holds. But `/workspace` remains mounted
@@ -478,10 +478,11 @@ Nothing writes there any more — the harness assertion added in D-4 fails the r
   behaviour change that needs its own analysis, including whether any agent legitimately writes to
   `/workspace` from `code_exec` today (the tool description invites reading it by absolute path but
   never promises writing).
-  **SRS half: DONE 2026-07-19** — [R12.03b] amended in place (see §11) to state the presence
-  guarantee rather than an information-flow one, and to name the shared volume as a residual
-  channel. **The `ro`-mount half remains open**, and is the only part that would actually close it.
-  Type: `feature`/security.
+  **CLOSED 2026-07-19 by `docs/tasks/2026-07-19-workspace-readonly-in-kernel/`** (`06798c9`). The
+  SRS half landed first as a stopgap; the `ro` mount then removed the channel itself, so
+  [R12.03b]'s residual-channel caveat was rolled back in the same task. The kernel writes nothing to
+  `/workspace`, so the write bind served agent-authored code alone. Its AC-3 (a live container
+  proving `ro` is enforced) carries the same `/verify` blocker as this dossier's.
 - **FU-6: the `smap` CLI's `--help` is broken in this environment.** `python -m smap.rotation --help`
   and `python -m smap.maintenance --help` both die with
   `TypeError: Parameter.make_metavar() missing 1 required positional argument` — typer 0.12.5
