@@ -920,6 +920,23 @@ async def test_no_files_stages_nothing_and_spawns_no_container(sandbox) -> None:
     assert sandbox.container.started is False
 
 
+async def test_headless_code_exec_mounts_no_named_volume(sandbox, monkeypatch) -> None:
+    """AC-6. The run-and-burn path (no chatroom) stays on a tmpfs.
+
+    Cleared in the dossier's sibling sweep rather than changed, so it is pinned:
+    a future change that gave the headless path a volume for convenience would
+    hand a roomless turn the agent's persistent state, and if it reached for a
+    session volume, another room's attachments.
+    """
+    monkeypatch.setattr(sandbox.ds.DockerRunscSandbox, "_assert_runsc", _async_return(None))
+
+    await sandbox.box.run_code_exec(agent_id=uuid.uuid4(), source="pass", timeout_s=1.0)
+
+    kwargs = sandbox.client.create_kwargs
+    assert not kwargs.get("volumes")
+    assert "/workspace" in kwargs["tmpfs"]
+
+
 async def test_kernel_inputs_mount_only_this_rooms_session_volume(sandbox) -> None:
     """T-1/AC-3. The inputs stager must not mount the agent's shared volume.
 
