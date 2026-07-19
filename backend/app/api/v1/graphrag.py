@@ -31,6 +31,7 @@ from contexts.knowledge.application.graphrag_graph_service import (
 )
 from contexts.knowledge.domain.embedding_pin import TeardownOutcome
 from contexts.knowledge.domain.graphrag import (
+    IN_FLIGHT_BUILD_STATES,
     BuildState,
     GraphRagConfig,
     GraphRagConfigDraft,
@@ -383,6 +384,13 @@ async def read_graph(
 
         raise GraphRagConfigNotFound(str(config_id))
     await _assert_config_read(db=db, principal=principal, cfg=cfg)
+    if cfg.last_build_state in IN_FLIGHT_BUILD_STATES:
+        # Same read gate as turn-context retrieval (graphrag_retrieve.py): a graph
+        # that is mid-2PC or provably irrecoverable must not be shown either. The
+        # client already renders the build state beside this view, so an empty graph
+        # reads as "not readable right now", not as "no data". Returns before the
+        # Neo4j read, like the retrieval gate.
+        return GraphOut(config_id=config_id, nodes=[], edges=[], truncated=False)
     view = await facade.get_graphrag_graph(config_id, limit=limit)
     return GraphOut(
         config_id=view.config_id,
