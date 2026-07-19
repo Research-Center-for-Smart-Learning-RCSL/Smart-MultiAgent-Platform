@@ -1338,9 +1338,12 @@ async def test_successful_compensation_finalizes_and_audits_rolled_back(monkeypa
 
 @pytest.mark.asyncio
 async def test_no_snapshot_compensation_audits_unavailable_not_rolled_back(monkeypatch: Any) -> None:
-    # F-7 §8 / AC-5: the no-snapshot compensation path marks terminal FAILED but must
-    # emit a distinct compensation_unavailable outcome — never rolled_back, so dashboards
-    # never count it as a clean rollback.
+    # F-7 §8 / AC-5: the no-snapshot compensation path must emit a distinct
+    # compensation_unavailable outcome — never rolled_back, so dashboards never count it
+    # as a clean rollback — and must land in RECOVERY_UNAVAILABLE, not ordinary FAILED
+    # (2026-07-17-graphrag-reset-expired-recovery AC-5). Ordinary FAILED is readable and
+    # re-swept; this config's partial Neo4j state can never be rolled back, so serving it
+    # or retrying compensation would both be wrong.
     from contexts.knowledge.application import graphrag_reconciler as recon_mod
 
     events: list[Any] = []
@@ -1361,10 +1364,90 @@ async def test_no_snapshot_compensation_audits_unavailable_not_rolled_back(monke
     recon = _recon_over(store=store, neo4j=neo4j, vectors=vectors, snaps=snaps, phase2=_always_fails_phase2)
     await recon.run_once()
 
-    assert store.cfg.last_build_state is BuildState.FAILED
+    assert store.cfg.last_build_state is BuildState.RECOVERY_UNAVAILABLE
     outcomes = [e.metadata.get("outcome") for e in events]
     assert "compensation_unavailable" in outcomes
     assert "rolled_back" not in outcomes
+
+    # Terminal: a second sweep must not pick it up again. _STUCK_STATES is matched by
+    # exact equality, so the new state is simply never selected.
+    events.clear()
+    await recon.run_once()
+    assert store.cfg.last_build_state is BuildState.RECOVERY_UNAVAILABLE
+    assert events == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("state", "accepted"),
+    [
+        (BuildState.IDLE, True),
+        (BuildState.FAILED, True),
+        # AC-9: the manual/engine escape from an irrecoverable config.
+        (BuildState.RECOVERY_UNAVAILABLE, True),
+        (BuildState.RUNNING, False),
+        (BuildState.NEO4J_COMMITTED, False),
+        (BuildState.FAILED_COMPENSATING, False),
+    ],
+)
+async def test_engine_gate_admits_recovery_unavailable(state: BuildState, accepted: bool) -> None:
+    """A rebuild is the only way out of RECOVERY_UNAVAILABLE, so the engine must take it.
+
+    The state is outside the reconciler's sweep set and outside the auto-trigger
+    whitelist by design, so if this gate refused it too the config would be wedged with
+    no escape at all (2026-07-17-graphrag-reset-expired-recovery Q-5).
+    """
+    import dataclasses
+
+    from contexts.knowledge.domain.errors import GraphRagBuildBusy
+
+    cfg = dataclasses.replace(_make_cfg(), last_build_state=state)
+    builder, store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=FakeNeo4j(),
+        vectors=FakeVectorStore(),
+        lock=FakeLock(),
+        snapshots=FakeSnapshots(),
+        extractor=FakeExtractor(_make_triples()),
+    )
+
+    if accepted:
+        await builder.run(config_id=cfg.id)
+        # A completed build settles back on IDLE; the point for RECOVERY_UNAVAILABLE is
+        # that the config is no longer stuck there.
+        assert store.cfg.last_build_state is BuildState.IDLE
+    else:
+        with pytest.raises(GraphRagBuildBusy):
+            await builder.run(config_id=cfg.id)
+        assert store.cfg.last_build_state is state, "a refused build must not touch the state"
+
+
+def test_auto_triggers_refuse_recovery_unavailable() -> None:
+    """Automatic triggers must never rebuild over known-inconsistent data (AC-9).
+
+    Deliberately narrower than the engine gate above: a message-count or silence timer
+    firing a rebuild would paper over the inconsistency without anyone deciding to.
+    """
+    from contexts.knowledge.application.graphrag_triggers import _BUILDABLE_STATES
+
+    assert BuildState.RECOVERY_UNAVAILABLE not in _BUILDABLE_STATES
+    assert frozenset({BuildState.IDLE, BuildState.FAILED}) == _BUILDABLE_STATES
+
+
+def test_recovery_unavailable_is_read_blocked_but_not_swept() -> None:
+    """The two membership sets have deliberately diverged (AC-4 / AC-9).
+
+    They were identical before this change and both carry comments saying so; this
+    pins the divergence so a future edit to one cannot silently restore the coupling.
+    """
+    from contexts.knowledge.application.graphrag_reconciler import _STUCK_STATES
+    from contexts.knowledge.domain.graphrag import IN_FLIGHT_BUILD_STATES
+
+    assert BuildState.RECOVERY_UNAVAILABLE in IN_FLIGHT_BUILD_STATES
+    assert BuildState.RECOVERY_UNAVAILABLE not in _STUCK_STATES
+    assert set(_STUCK_STATES) < IN_FLIGHT_BUILD_STATES  # strict subset
+    # Ordinary FAILED stays readable and rebuildable.
+    assert BuildState.FAILED not in IN_FLIGHT_BUILD_STATES
 
 
 @pytest.mark.asyncio

@@ -212,10 +212,19 @@ class GraphRagBuilder:
         build_started_at: datetime,
         replace: bool = False,
     ) -> BuildResult:
-        # idle/failed → running. Anything else is a refusal.
+        # idle/failed/recovery_unavailable → running. Anything else is a refusal.
+        #
+        # RECOVERY_UNAVAILABLE is accepted here even though it is read-blocked and
+        # outside the reconciler's sweep set: a fresh build is the only thing that can
+        # ever make such a config readable again, since its partial Neo4j state can
+        # never be rolled back. Automatic triggers deliberately do NOT admit it (see
+        # _BUILDABLE_STATES in graphrag_triggers.py) — rebuilding over known-inconsistent
+        # data must be a human decision, and this gate is also reached by the manual
+        # endpoint and by admin reset's aftermath.
         if cfg.last_build_state not in {
             BuildState.IDLE,
             BuildState.FAILED,
+            BuildState.RECOVERY_UNAVAILABLE,
         }:
             raise GraphRagBuildBusy(
                 f"config {cfg.id} in non-resumable state " f"{cfg.last_build_state.value}"

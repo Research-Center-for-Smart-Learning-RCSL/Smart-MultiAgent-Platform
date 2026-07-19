@@ -521,7 +521,14 @@ async def trigger_build(
     # this guard each duplicate POST still enqueues a job that spins up a worker
     # only to fail acquiring the lock — a member with edit rights could flood
     # the queue. An in-progress build returns accepted=False with its state.
-    if cfg.last_build_state not in {BuildState.IDLE, BuildState.FAILED}:
+    # RECOVERY_UNAVAILABLE is resumable here on purpose: a manual rebuild is the
+    # documented escape from a config whose in-flight build can never be rolled back
+    # (automatic triggers still refuse it). Mirrors the builder engine's gate.
+    if cfg.last_build_state not in {
+        BuildState.IDLE,
+        BuildState.FAILED,
+        BuildState.RECOVERY_UNAVAILABLE,
+    }:
         return GraphRagBuildOut(
             accepted=False,
             build_id=None,

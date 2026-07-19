@@ -8,6 +8,10 @@ Behaviour:
   stamps ``last_build_at``.
 - If retries are exhausted, rolls Neo4j back from the Redis snapshot and
   finalises as ``failed`` — preserving the previous active build intact.
+- If the recovery material is gone (no pointer, or no snapshot), no rollback is
+  possible, so it finalises as ``recovery_unavailable`` instead: read-blocked and
+  outside this loop's sweep set, because retrying could only re-derive the same
+  verdict. See docs/tasks/2026-07-17-graphrag-reset-expired-recovery/.
 
 The service does not own the clock or sleep calls directly: a
 ``sleeper`` and ``clock`` are injected so unit tests can drive
@@ -54,17 +58,24 @@ LOCK_TTL_S = 10 * 60
 # - NEO4J_COMMITTED: durably committed Neo4j but crashed before Phase-2 (audit C2).
 # - RUNNING: crashed during Phase-1 (audit review #1) — without this, making
 #   RUNNING durable (C1) would wedge the config forever, since trigger_build and
-#   the builder both refuse any state outside {IDLE, FAILED}. A live build holds
+#   the builder both refuse it (their whitelists are {IDLE, FAILED} and
+#   {IDLE, FAILED, RECOVERY_UNAVAILABLE} respectively). A live build holds
 #   the per-config lock, so the lock acquire in run_once skips it; only a dead
 #   RUNNING (lock expired/released) is reclaimed, and it rolls straight back
 #   (Phase-1 never finished, so there is no Phase-2 to retry).
 #
-# This membership coincides with the domain's ``IN_FLIGHT_BUILD_STATES`` (the
-# states the read gate refuses to serve, F-10) — both are the in-flight/
-# uncommitted trio — but the two are semantically distinct (heal-selection here,
-# read-safety there) and kept as separate definitions; an ordered tuple matters
-# here for sweep priority. A divergence between them must be a deliberate edit to
-# each (folding them into one source is FU-2 on the F-10 dossier).
+# This membership is a strict SUBSET of the domain's ``IN_FLIGHT_BUILD_STATES``
+# (the states the read gate refuses to serve, F-10). They used to coincide; they
+# no longer do. RECOVERY_UNAVAILABLE is read-blocked but deliberately absent here:
+# it means compensation was proven impossible (the recovery material expired), so
+# sweeping it again could only burn cycles re-deriving the same verdict, and the
+# state is terminal by design. Selection is by exact state equality, so leaving it
+# out really does mean "never picked up again" — a manual rebuild or an admin
+# reset is the intended escape.
+#
+# The two definitions stay separate (heal-selection here, read-safety there) and
+# an ordered tuple matters here for sweep priority. Folding them into one source
+# is no longer possible now that they differ.
 _STUCK_STATES: tuple[BuildState, ...] = (
     BuildState.FAILED_COMPENSATING,
     BuildState.NEO4J_COMMITTED,
@@ -317,16 +328,17 @@ class ReconciliationLoop:
     ) -> None:
         build_id = await self._resolve_build_id(cfg)
         if build_id is None:
-            # No build id to resolve → nothing to compensate; mark failed outright.
-            # Audit a distinct compensation_unavailable outcome (F-7) so this is never
-            # counted as a clean rollback — it is a terminal failure with partial data
-            # left in place, not a healed graph.
+            # No build id to resolve → nothing to compensate. This is a terminal
+            # failure with partial data left in place, not a healed graph (F-7), so
+            # it lands in RECOVERY_UNAVAILABLE rather than the readable ordinary
+            # FAILED, and audits a distinct outcome.
             await self._finalize_failed(
                 db,
                 cfg=cfg,
                 build_id=None,
                 error="no snapshot available for compensation",
                 outcome="compensation_unavailable",
+                state=BuildState.RECOVERY_UNAVAILABLE,
             )
             return
 
@@ -428,13 +440,16 @@ class ReconciliationLoop:
             # A build id resolved but its snapshot is gone (expired past the 24h TTL or
             # never taken) — compensation is impossible, so fail terminally with an
             # honest, non-rolled_back outcome (F-7) rather than claiming a rollback that
-            # never ran. Retrying could not succeed: the recovery material is gone.
+            # never ran. Retrying could not succeed: the recovery material is gone,
+            # so this lands in RECOVERY_UNAVAILABLE (read-blocked, outside the sweep)
+            # rather than the readable, re-swept ordinary FAILED.
             await self._finalize_failed(
                 db,
                 cfg=cfg,
                 build_id=build_id,
                 error="no snapshot available for compensation",
                 outcome="compensation_unavailable",
+                state=BuildState.RECOVERY_UNAVAILABLE,
             )
             return
         try:
@@ -485,14 +500,16 @@ class ReconciliationLoop:
                 ),
             )
             return
-        # Compensation succeeded → terminal FAILED; the previous active build is intact,
-        # so drop the recovery material and record the clean rollback.
+        # Compensation succeeded → ordinary terminal FAILED; the previous active build
+        # is intact and readable, so drop the recovery material and record the clean
+        # rollback. This is the one _finalize_failed path that stays on FAILED.
         await self._finalize_failed(
             db,
             cfg=cfg,
             build_id=build_id,
             error="phase2 retries exhausted; rolled back",
             outcome="rolled_back",
+            state=BuildState.FAILED,
         )
 
     async def _finalize_failed(
@@ -503,22 +520,29 @@ class ReconciliationLoop:
         build_id: uuid.UUID | None,
         error: str,
         outcome: str,
+        state: BuildState,
     ) -> None:
-        """Terminal-FAILED finalization shared by the three genuinely-terminal paths:
-        a successful rollback, a resolved build whose snapshot is gone, and a stuck
-        config with no build id to resolve at all. Marks FAILED, publishes, drops the
-        current pointer (and the snapshot when there is a ``build_id`` to key it by),
-        and audits ``outcome``. Only called once compensation has either succeeded or
-        is provably impossible — never while a retryable compensation is still owed
-        (that path retains the recovery material)."""
+        """Terminal finalization shared by the three genuinely-terminal paths: a
+        successful rollback, a resolved build whose snapshot is gone, and a stuck
+        config with no build id to resolve at all. Publishes, drops the current
+        pointer (and the snapshot when there is a ``build_id`` to key it by), and
+        audits ``outcome``. Only called once compensation has either succeeded or is
+        provably impossible — never while a retryable compensation is still owed
+        (that path retains the recovery material).
+
+        ``state`` is explicit because the three paths are not equally safe. A
+        successful rollback leaves the last good graph intact and lands in ordinary
+        ``FAILED`` (readable, rebuildable, and reconciler-visible). The two
+        no-compensation-possible paths leave a partially-applied build in Neo4j that
+        nothing will ever undo, and land in ``RECOVERY_UNAVAILABLE`` — read-blocked
+        and outside the sweep set.
+        """
         await self._repo_factory(db).set_state(
             config_id=cfg.id,
-            state=BuildState.FAILED,
+            state=state,
             error=error,
         )
-        await publish_build_state(
-            cfg.id, BuildState.FAILED.value, build_id=build_id, channel=self._channel_fn(cfg.id)
-        )
+        await publish_build_state(cfg.id, state.value, build_id=build_id, channel=self._channel_fn(cfg.id))
         if build_id is not None:
             await self._snapshots.delete(
                 config_id=cfg.id,
