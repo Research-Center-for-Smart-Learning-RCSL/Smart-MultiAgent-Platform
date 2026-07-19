@@ -718,6 +718,22 @@ class TestSessionVolumeNameParsing:
         agent_id, room_id = uuid.uuid4(), uuid.uuid4()
         assert gc._parse_session_ids(gc._session_volume_name(agent_id, room_id)) == (agent_id, room_id)
 
+    def test_agrees_with_the_name_the_sandbox_actually_creates(self) -> None:
+        """The GC and the sandbox each build these names, coupled only by a comment.
+
+        Drift is silent and permanent: an unparseable name is dropped by design, so
+        the GC would simply stop seeing session volumes and leak one per
+        conversation, with nothing to notice. Same for the per-agent volume.
+        """
+        from contexts.agents.infrastructure.sandbox import docker_runsc as ds
+
+        agent_id, room_id = uuid.uuid4(), uuid.uuid4()
+        assert gc._session_volume_name(agent_id, room_id) == ds._session_volume_name(agent_id, room_id)
+        assert gc._volume_name(agent_id) == ds._agent_volume_name(agent_id)
+        # And the GC can parse what the sandbox creates, not merely match its string.
+        assert gc._parse_session_ids(ds._session_volume_name(agent_id, room_id)) == (agent_id, room_id)
+        assert gc._parse_agent_id(ds._agent_volume_name(agent_id)) == agent_id
+
     def test_agent_volume_is_not_mistaken_for_a_session_volume(self) -> None:
         """The two prefixes must not overlap in either direction."""
         agent_id = uuid.uuid4()

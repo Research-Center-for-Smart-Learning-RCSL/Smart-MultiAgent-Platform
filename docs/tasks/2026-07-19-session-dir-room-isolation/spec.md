@@ -395,6 +395,14 @@ level and, once the purge has been armed on a deployment, in the data — but th
 against a live sandbox has not been run. That step also exercises the two-volume mount, the change
 most likely to fail only at runtime (§9), and the operator-facing purge command end to end.
 
+**Definition of Done.** Gates 1 (mechanical) and 3 (AC verification) pass; gate 2 (contract) is N/A
+— no migration, no API contract change, no new i18n keys. Gate 5 (`check-quality`) found two
+Introduced-Warnings: the duplicated `_session_volume_name` was fixed here (a test now pins the GC's
+name against the sandbox's, since drift would silently leak one volume per conversation), the
+sweep-duplication is deferred as FU-8 and the private-import as FU-9. Gate 6 (`check-security`) found
+one HIGH, pre-existing, recorded as FU-7 — **read it before treating this task as closing the
+leak**. Gate 4 (behavioural `/verify`) is the outstanding AC-3 work.
+
 **Deployment order matters.** The backend and the `smap/code-exec` image must ship together (Q-7,
 now enforced by the protocol stamp), and the purge should be armed *after* that deploy: running it
 before would clear trees the still-running old kernels are actively reading.
@@ -429,6 +437,36 @@ Nothing writes there any more — the harness assertion added in D-4 fails the r
   `turn_engine.py:1135-1136` explicitly drops them ("Large artifact not inlined by the kernel —
   skipped in v1"). So an artifact over 8 MiB is silently lost. Found while confirming that no
   host path depends on the session directory's location (§6). Type: `bugfix`.
+- **FU-8: `_sweep_session_volumes` and `_sweep_volumes` are ~40 near-identical lines.**
+  (`agent_fs_gc.py`.) Same counters, same arm/dry-run/remove/log tail, differing only in the
+  two-dimension classify and the log wording. Raised by this task's `check-quality` gate as an
+  Introduced-Warning and **deliberately deferred**: the two genuinely diverge in classification, and
+  a parameterised merge may well read worse than the copy. Worth a considered call rather than a
+  reflex extraction. Type: `refactor`.
+- **FU-9: `purge_session_dirs` imports two module-private names from `agent_fs_gc`**
+  (`_docker_client`, `_parse_agent_id`). The alternative — a second uuid parser — is worse, and
+  `smap/` importing from `app/` is established (`rotate_transit.py:30`). Cross-module use has made
+  them public in practice; the names should say so. Type: `refactor`.
+- **FU-7: the shared agent volume is a residual cross-room channel, and [R12.03b] overclaims
+  against it.** Found by this task's own `check-security` gate. The mount split removes room A's
+  session state from room B's execution context — that holds. But `/workspace` remains mounted
+  **read-write in every room's kernel** and shared across the agent's rooms by design (Q-1,
+  [R12.03]). An injection landing in room B can write instructions into the agent's own shared
+  state (`file` `op=write`, or `open('/workspace/notes.md','w')`); when the agent later runs in
+  room A and consults its own notes, it copies room A's attachment to `/workspace`, where room B
+  reads it. Data crosses the boundary laundered by the agent.
+  **The severity did drop.** Pre-fix the attacker needed an injection in *their own room only* and
+  the read was passive and immediate. Now they need the agent to act on attacker-influenced
+  instructions *while in the room holding the data*. Substantial reduction; not containment.
+  **The defect is the requirement text.** [R12.03b] says "one chatroom's attachments and artifacts
+  are not reachable from another" without qualification, and an unqualified requirement is what the
+  next change gets checked against. It should state what the mount split actually guarantees and
+  name the shared volume as a known residual channel.
+  **Candidate fix:** mount the agent volume `ro` in the kernel while the `file` tool keeps `rw`.
+  `kernel.py` never writes `/workspace` (only `/session`), and the shipped `code_exec` description
+  promises the volume is *visible*, not writable — so this may be nearly free. It is still a
+  behaviour change that needs its own analysis. Type: `bugfix` (SRS correction) + `feature` (the
+  `ro` mount). **Do the SRS half first** — it is a documentation defect that exists right now.
 - **FU-6: the `smap` CLI's `--help` is broken in this environment.** `python -m smap.rotation --help`
   and `python -m smap.maintenance --help` both die with
   `TypeError: Parameter.make_metavar() missing 1 required positional argument` — typer 0.12.5
