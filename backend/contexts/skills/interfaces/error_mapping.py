@@ -40,6 +40,11 @@ _MAP: ErrorMap = {
     # refused to make that distinction from the start; this is the same rule reaching the
     # one endpoint whose shape hid it.
     errors.SkillScopeMismatch: ("skills/not-found", 404, "Skill not found"),
+    errors.SkillTextRejected: (
+        "skills/text-rejected",
+        422,
+        "Skill text contains rejected characters",
+    ),
     errors.BundleInvalid: ("skills/bundle-invalid", 422, "Skill bundle is invalid"),
     errors.BundleQuarantined: ("skills/bundle-quarantined", 422, "Skill bundle failed the malware scan"),
     errors.SkillUnreadable: ("skills/unreadable", 422, "Skill has a file that is not scan-clean"),
@@ -89,6 +94,10 @@ def _extras(exc: Exception) -> dict[str, Any]:
         return {"path": exc.path, "kind": exc.kind}
     if isinstance(exc, errors.SkillFileLimitExceeded):
         return {"limit": exc.limit}
+    if isinstance(exc, errors.SkillTextRejected):
+        # `field` alone is not actionable: the offending character is invisible in whatever
+        # produced it, so `reason` carrying the codepoint is the only handle the author has.
+        return {"field": exc.field, "reason": exc.reason}
     if isinstance(exc, errors.SkillScopeMismatch):
         # Before the base class, and empty: a 404 whose body names the scope that owns the
         # skill is the same oracle the status code just closed, one field down.

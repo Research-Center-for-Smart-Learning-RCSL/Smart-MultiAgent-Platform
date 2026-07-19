@@ -36,6 +36,8 @@ from app.api.v1.admin_deps import require_admin
 from app.api.v1.deps import PaginationParams, assert_project_membership, parse_if_match
 from contexts.skills.domain.models import (
     MAX_DESCRIPTION_CHARS,
+    MAX_NAME_CHARS,
+    MAX_TOOL_NAME_CHARS,
     SKILL_NAME_RE,
     Skill,
     SkillDraft,
@@ -71,7 +73,11 @@ from shared_kernel.storage.minio_client import skill_import_staging_key
 # denial-of-service.
 _MAX_BODY = 256 * 1024
 _MAX_LIST_ITEMS = 64
-_MAX_TOOL_NAME = 200
+
+# A declared mime type, not a tool name. It borrowed the tool-name cap until that cap moved
+# to the domain, which made the coincidence visible: the two have no reason to agree, and a
+# shared constant would have tied a bundle's tool names to a file upload's content type.
+_MAX_MIME = 200
 
 agent_router = APIRouter(prefix="/api/agents/{agent_id}/skills", tags=["skills"])
 project_router = APIRouter(prefix="/api/projects/{project_id}/skills", tags=["skills"])
@@ -101,7 +107,7 @@ def _validate_names(field: str, values: list[str]) -> list[str]:
     if len(values) > _MAX_LIST_ITEMS:
         raise ValueError(f"{field} exceeds {_MAX_LIST_ITEMS} entries")
     for v in values:
-        _validate_text(field, v, max_chars=_MAX_TOOL_NAME)
+        _validate_text(field, v, max_chars=MAX_TOOL_NAME_CHARS)
     return values
 
 
@@ -120,7 +126,7 @@ class SkillCreateIn(BaseModel):
         # The charset rules run first so an over-length or delimiter-bearing name gets a
         # reason rather than a bare pattern mismatch; the pattern is what actually
         # constrains it, since `name` is also the directory under /workspace/skills/.
-        _validate_text("name", v, max_chars=64)
+        _validate_text("name", v, max_chars=MAX_NAME_CHARS)
         if not SKILL_NAME_RE.match(v):
             raise ValueError("name must be lowercase alphanumeric with hyphens, 1-64 chars")
         return v
@@ -174,7 +180,7 @@ class SkillCopyIn(BaseModel):
     @field_validator("name")
     @classmethod
     def _check_name(cls, v: str) -> str:
-        _validate_text("name", v, max_chars=64)
+        _validate_text("name", v, max_chars=MAX_NAME_CHARS)
         if not SKILL_NAME_RE.match(v):
             raise ValueError("name must be lowercase alphanumeric with hyphens, 1-64 chars")
         return v
@@ -276,7 +282,7 @@ class SkillFileCreateIn(BaseModel):
 
     path: str = Field(min_length=1, max_length=MAX_FILE_PATH_CHARS)
     content: str = Field(max_length=_MAX_BODY)
-    mime: str = Field(default="text/plain", max_length=_MAX_TOOL_NAME)
+    mime: str = Field(default="text/plain", max_length=_MAX_MIME)
 
     @field_validator("path")
     @classmethod

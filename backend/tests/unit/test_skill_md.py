@@ -21,7 +21,7 @@ from contexts.skills.application.skill_md import (
     split_frontmatter,
 )
 from contexts.skills.domain.errors import BundleInvalid
-from contexts.skills.domain.models import MAX_DESCRIPTION_CHARS
+from contexts.skills.domain.models import MAX_DESCRIPTION_CHARS, MAX_TOOL_NAME_CHARS
 from contexts.skills.domain.text_rules import INDEX_DELIMITER_MARKER
 
 
@@ -333,6 +333,36 @@ class TestTheCharsetRuleReachesImport:
         with pytest.raises(BundleInvalid) as exc:
             parse_skill_md(doc(f"name: t\ndescription: d\n{key}: [ok, bad{chr(0x202E)}]"))
         assert exc.value.key == key
+
+    def test_a_tool_name_is_capped_at_the_tool_name_cap_not_the_description_cap(self) -> None:
+        """The parser capped a tool name at 1024 while the API capped it at 200, so the
+        same skill was legal through one entry point and not the other. Both now read
+        `MAX_TOOL_NAME_CHARS`.
+
+        The parser keeps raising `BundleInvalid` rather than deferring to the service-layer
+        gate, and that is the point of it still running the rule: only the parser knows
+        which frontmatter key is at fault, and a rejection the author cannot locate in
+        their own file is a dead end.
+        """
+        over = "x" * (MAX_TOOL_NAME_CHARS + 1)
+
+        with pytest.raises(BundleInvalid) as exc:
+            parse_skill_md(doc(f"name: t\ndescription: d\nallowed-tools: [{over}]"))
+
+        assert exc.value.key == "allowed-tools"
+        assert f"exceeds {MAX_TOOL_NAME_CHARS}" in exc.value.reason
+
+    def test_a_tool_name_at_the_cap_is_still_accepted(self) -> None:
+        """The boundary itself, so a future edit cannot quietly tighten it by one."""
+        m = parse_skill_md(doc(f"name: t\ndescription: d\nallowed-tools: [{'x' * MAX_TOOL_NAME_CHARS}]"))
+        assert len(m.allowed_tools[0]) == MAX_TOOL_NAME_CHARS
+
+    def test_the_description_cap_did_not_move_with_the_tool_name_cap(self) -> None:
+        """The two are separate numbers and conflating them is the likeliest way to break
+        this: a description is a sentence, a tool name is `Bash(git:*)`."""
+        assert MAX_DESCRIPTION_CHARS != MAX_TOOL_NAME_CHARS
+        m = parse_skill_md(doc(f"name: t\ndescription: {'x' * MAX_DESCRIPTION_CHARS}"))
+        assert len(m.description) == MAX_DESCRIPTION_CHARS
 
     def test_the_rule_covers_license(self) -> None:
         with pytest.raises(BundleInvalid) as exc:

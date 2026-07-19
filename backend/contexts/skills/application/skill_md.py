@@ -42,7 +42,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from contexts.skills.domain.errors import BundleInvalid
-from contexts.skills.domain.models import MAX_DESCRIPTION_CHARS, SKILL_NAME_RE
+from contexts.skills.domain.models import (
+    MAX_DESCRIPTION_CHARS,
+    MAX_TOOL_NAME_CHARS,
+    SKILL_NAME_RE,
+)
 from contexts.skills.domain.text_rules import text_rejection_reason
 
 KEY_NAME = "name"
@@ -447,11 +451,11 @@ def parse_skill_md(text: str) -> SkillManifest:
         _as_list(raw[KEY_ALLOWED_TOOLS], key=KEY_ALLOWED_TOOLS) if KEY_ALLOWED_TOOLS in raw else ()
     )
     for tool in allowed_tools:
-        _reject(tool, key=KEY_ALLOWED_TOOLS, max_chars=MAX_DESCRIPTION_CHARS)
+        _reject(tool, key=KEY_ALLOWED_TOOLS, max_chars=MAX_TOOL_NAME_CHARS)
 
     requires = _as_list(raw[KEY_REQUIRES], key=KEY_REQUIRES) if KEY_REQUIRES in raw else ()
     for req in requires:
-        _reject(req, key=KEY_REQUIRES, max_chars=MAX_DESCRIPTION_CHARS)
+        _reject(req, key=KEY_REQUIRES, max_chars=MAX_TOOL_NAME_CHARS)
 
     license_value: str | None = None
     if KEY_LICENSE in raw:

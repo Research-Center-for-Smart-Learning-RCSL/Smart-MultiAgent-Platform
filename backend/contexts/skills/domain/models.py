@@ -65,6 +65,22 @@ SKILL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 # tighter cap would reject the corpus this format claims interchangeability with.
 MAX_DESCRIPTION_CHARS = 1024
 
+# The caps below live here, beside the rule they bound, because **every writer must read
+# the same number**. They did not: the API capped a tool name at 200 while the bundle
+# parser capped it at 1024, so the same skill was legal through one entry point and not
+# the other. A cap spelled twice is a cap that will diverge; the fix is that there is
+# nowhere else to spell it. Adding a numeric text cap anywhere in this context is a defect.
+#
+# `MAX_NAME_CHARS` is `SKILL_NAME_RE`'s own bound restated for the length arm of the
+# charset rule, which reports "exceeds N characters" and cannot read a regex. The two must
+# agree, and the test suite pins that they do.
+MAX_NAME_CHARS = 64
+
+# 200 is the stricter of the two numbers that were in use, and strictness is the right
+# tiebreak for a backstop: a service-layer gate looser than the boundary it backs is
+# decorative. Far above any real tool name -- `Bash(git:*)` is 11 characters.
+MAX_TOOL_NAME_CHARS = 200
+
 
 @dataclass(frozen=True, slots=True)
 class Skill:
@@ -194,6 +210,8 @@ class SkillScopeCounts:
 
 __all__ = [
     "MAX_DESCRIPTION_CHARS",
+    "MAX_NAME_CHARS",
+    "MAX_TOOL_NAME_CHARS",
     "SKILL_NAME_RE",
     "Skill",
     "SkillBinding",
