@@ -160,6 +160,41 @@ def _upsert_cypher(*, replace: bool) -> str:
     )
 
 
+# Restore nodes (with their type, audit L1) first so isolated nodes come back and
+# edge-restore's ON CREATE never overwrites a type. Older snapshots taken before
+# node capture have no "nodes" key — edge restore alone still rebuilds the
+# connected subgraph.
+_RESTORE_NODES_CYPHER = (
+    "UNWIND $rows AS row "
+    "MERGE (n:Entity {graphrag_config_id: $cid, name: row.name}) "
+    "SET n.build_id = row.build_id, n.type = coalesce(row.type, ''), "
+    # coalesce so an older snapshot (captured before project_id was
+    # self-describing) does not null out a value a later build set.
+    "    n.project_id = coalesce(row.project_id, n.project_id)"
+)
+
+_RESTORE_EDGES_CYPHER = (
+    "UNWIND $rows AS row "
+    "MERGE (s:Entity {graphrag_config_id: $cid, name: row.subject}) "
+    "  ON CREATE SET s.build_id = row.build_id "
+    "MERGE (o:Entity {graphrag_config_id: $cid, name: row.object}) "
+    "  ON CREATE SET o.build_id = row.build_id "
+    "MERGE (s)-[r:REL {graphrag_config_id: $cid, "
+    "                  relation: row.relation}]->(o) "
+    "SET r.build_id = row.build_id, "
+    "    r.confidence = row.confidence, "
+    "    r.evidence_msg_ids = row.evidence_msg_ids, "
+    # coalesce so an older snapshot (taken before member provenance existed)
+    # restores to [] rather than nulling the property.
+    "    r.source_member_ids = coalesce(row.source_member_ids, []), "
+    # WS5: restore the timestamps verbatim. An older snapshot has no such keys, so
+    # row.first_seen_at/last_seen_at are NULL — a timeless edge, which retrieval
+    # treats as pure-confidence (no decay).
+    "    r.first_seen_at = row.first_seen_at, "
+    "    r.last_seen_at = row.last_seen_at"
+)
+
+
 def _triple_rows(triples: list[Triple]) -> list[dict[str, Any]]:
     """Flatten domain triples into the UNWIND row payload."""
     return [
@@ -360,43 +395,23 @@ class Neo4jAsyncDriver:
         nodes = list(snapshot.get("nodes") or [])
         if not edges and not nodes:
             return
-        # Restore nodes (with their type, audit L1) first so isolated nodes come
-        # back and edge-restore's ON CREATE never overwrites a type. Older
-        # snapshots taken before node capture have no "nodes" key — edge restore
-        # alone still rebuilds the connected subgraph.
-        node_cypher = (
-            "UNWIND $rows AS row "
-            "MERGE (n:Entity {graphrag_config_id: $cid, name: row.name}) "
-            "SET n.build_id = row.build_id, n.type = coalesce(row.type, ''), "
-            # coalesce so an older snapshot (captured before project_id was
-            # self-describing) does not null out a value a later build set.
-            "    n.project_id = coalesce(row.project_id, n.project_id)"
-        )
-        edge_cypher = (
-            "UNWIND $rows AS row "
-            "MERGE (s:Entity {graphrag_config_id: $cid, name: row.subject}) "
-            "  ON CREATE SET s.build_id = row.build_id "
-            "MERGE (o:Entity {graphrag_config_id: $cid, name: row.object}) "
-            "  ON CREATE SET o.build_id = row.build_id "
-            "MERGE (s)-[r:REL {graphrag_config_id: $cid, "
-            "                  relation: row.relation}]->(o) "
-            "SET r.build_id = row.build_id, "
-            "    r.confidence = row.confidence, "
-            "    r.evidence_msg_ids = row.evidence_msg_ids, "
-            # coalesce so an older snapshot (taken before member provenance
-            # existed) restores to [] rather than nulling the property.
-            "    r.source_member_ids = coalesce(row.source_member_ids, []), "
-            # WS5: restore the timestamps verbatim. An older snapshot has no such
-            # keys, so row.first_seen_at/last_seen_at are NULL — a timeless edge,
-            # which retrieval treats as pure-confidence (no decay).
-            "    r.first_seen_at = row.first_seen_at, "
-            "    r.last_seen_at = row.last_seen_at"
-        )
-        async with driver.session() as session:
+        cid = str(config_id)
+
+        # One transaction so a restore is all-or-nothing. A failure between the two
+        # legs would otherwise leave the entities back without their relations. The
+        # reconciler does retry (it keeps the snapshot and preserves the stuck state,
+        # which stays read-blocked), so that skeleton is not normally served — but an
+        # admin reset with force=true lands a failed compensation on IDLE, where it
+        # would be. Restoring nothing is a strictly better starting point for the
+        # retry either way.
+        async def _restore(tx: Any) -> None:
             if nodes:
-                await session.run(node_cypher, rows=nodes, cid=str(config_id))
+                await tx.run(_RESTORE_NODES_CYPHER, rows=nodes, cid=cid)
             if edges:
-                await session.run(edge_cypher, rows=edges, cid=str(config_id))
+                await tx.run(_RESTORE_EDGES_CYPHER, rows=edges, cid=cid)
+
+        async with driver.session() as session:
+            await session.execute_write(_restore)
 
     async def traverse(
         self,

@@ -144,6 +144,47 @@ async def test_replacement_failure_leaves_the_pre_build_graph(
     await driver.delete_all(config_id=config_id)
 
 
+async def test_failed_snapshot_restore_leaves_no_partial_subgraph(
+    driver: Neo4jAsyncDriver,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A compensation restore that fails part-way must restore nothing.
+
+    The node leg and the edge leg were two auto-commit statements, so a failure
+    between them left the entities back without their relations. The reconciler
+    keeps that behind a read-blocked stuck state and retries, but an admin reset
+    with force=true lands a failed compensation on IDLE, where the skeleton reads
+    as a healthy graph.
+    """
+    config_id = uuid.uuid4()
+    await driver.delete_all(config_id=config_id)
+
+    await _apply(
+        driver,
+        config_id,
+        uuid.uuid4(),
+        [
+            Triple("alice", "knows", "bob", 0.9, ("docA",)),
+            Triple("xthing", "mentions", "ything", 0.7, ("docA",)),
+        ],
+    )
+    snapshot = await driver.snapshot_subgraph(config_id=config_id, build_id=None)
+    assert snapshot["nodes"]
+    assert snapshot["edges"]
+
+    # Compensation starts from an emptied subgraph, as delete_by_build leaves it.
+    await driver.delete_all(config_id=config_id)
+
+    monkeypatch.setattr(neo4j_driver_mod, "_RESTORE_EDGES_CYPHER", "MATCH (n) RETURN n.no_such(")
+    with pytest.raises(CypherSyntaxError):
+        await driver.restore_from_snapshot(config_id=config_id, snapshot=snapshot)
+
+    # The node leg must have rolled back with the edge leg — no orphan skeleton.
+    after = await driver.snapshot_subgraph(config_id=config_id, build_id=None)
+    assert after["nodes"] == []
+    assert after["edges"] == []
+
+
 async def test_empty_corpus_replacement_empties_the_subgraph(driver: Neo4jAsyncDriver) -> None:
     """A corpus emptied to zero triples must leave no relation and no entity.
 
