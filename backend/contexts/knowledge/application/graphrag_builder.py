@@ -356,24 +356,28 @@ class GraphRagBuilder:
                 triples = [attach_temporal_provenance(tr, msg_created_at) for tr in triples]
             if msg_member:
                 triples = [attach_member_provenance(tr, msg_member) for tr in triples]
-            n_triples = await self._neo4j.apply_triples(
-                config_id=cfg.id,
-                project_id=cfg.project_id,
-                build_id=build_id,
-                triples=triples,
-                replace=replace,
-            )
             if replace:
-                # F-6: differential replacement — drop relations this build did not
-                # touch and any entity left isolated. This is a second Neo4j
-                # transaction after apply_triples, so a failure here can leave the
-                # new triples committed with the stale prune incomplete; the build
-                # is then marked FAILED (Phase-1 failures are not snapshot-restored
-                # here). That partial state is safe because both apply and prune are
-                # build_id-scoped: the next successful replace build re-applies with a
-                # fresh build_id and re-sweeps everything the current build_id did not
-                # touch, so the half-pruned graph self-heals rather than compounding.
-                await self._neo4j.remove_stale_for_build(config_id=cfg.id, build_id=build_id)
+                # F-6: full-corpus replacement. Upsert and stale-prune are ONE Neo4j
+                # transaction inside the adapter, so a prune failure rolls the upsert
+                # back too and Phase 1 commits nothing — [R11.04] and REQUIREMENTS.md
+                # 11.2a step 4. Do not split this back into two port calls: a `FAILED`
+                # config stays readable (graphrag_retrieve skips only in-flight
+                # states), so a half-replaced graph would keep serving relations
+                # sourced from deleted or quarantined documents until some later build
+                # happened to run.
+                n_triples = await self._neo4j.replace_triples(
+                    config_id=cfg.id,
+                    project_id=cfg.project_id,
+                    build_id=build_id,
+                    triples=triples,
+                )
+            else:
+                n_triples = await self._neo4j.apply_triples(
+                    config_id=cfg.id,
+                    project_id=cfg.project_id,
+                    build_id=build_id,
+                    triples=triples,
+                )
         except Exception as exc:
             await self._fail_phase1(cfg.id, build_id, str(exc))
             return BuildResult(

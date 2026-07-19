@@ -40,10 +40,9 @@ def _edges_by_key(snapshot: dict) -> dict[tuple[str, str, str], dict]:
 
 
 async def _apply(driver: Neo4jAsyncDriver, config_id, build_id, triples) -> None:
-    await driver.apply_triples(
-        config_id=config_id, project_id=_PROJECT_ID, build_id=build_id, triples=triples, replace=True
+    await driver.replace_triples(
+        config_id=config_id, project_id=_PROJECT_ID, build_id=build_id, triples=triples
     )
-    await driver.remove_stale_for_build(config_id=config_id, build_id=build_id)
 
 
 async def test_replacement_removes_absent_and_recomputes_evidence(driver: Neo4jAsyncDriver) -> None:
