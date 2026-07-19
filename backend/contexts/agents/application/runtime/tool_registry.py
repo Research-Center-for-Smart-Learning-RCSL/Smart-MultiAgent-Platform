@@ -37,6 +37,13 @@ ToolInvoke = Callable[[dict[str, Any]], Awaitable["ToolResult"]]
 # its own span against it (see :func:`_fit_skill_body`).
 _MAX_TOOL_OUTPUT = 16_000
 
+# Largest code_exec artifact the platform will carry into a room. Matches the
+# single-shot attachment limit (`app/api/v1/attachments.py`). It lives here, not
+# beside either user, because two of them need it: `turn_engine` enforces it when
+# fetching, and `builtin_tools` quotes it to the model. Declared twice, the two
+# drift and the model is told a limit that is not the one applied.
+MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
+
 
 def clip_tool_output(text: str) -> str:
     """The byte-level backstop every tool's output passes through."""

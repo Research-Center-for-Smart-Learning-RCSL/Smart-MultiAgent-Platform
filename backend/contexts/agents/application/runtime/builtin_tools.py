@@ -25,7 +25,12 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.agents.application.runtime.tool_registry import Tool, ToolResult, clip_tool_output
+from contexts.agents.application.runtime.tool_registry import (
+    MAX_ARTIFACT_BYTES,
+    Tool,
+    ToolResult,
+    clip_tool_output,
+)
 from contexts.agents.domain.mcp import SearchResult
 from contexts.agents.domain.models import Agent, AgentTool, AgentToolType
 
@@ -216,39 +221,42 @@ def _build_code_exec_tool(
     )
 
 
-_ARTIFACT_LIMIT_BYTES = 32 * 1024 * 1024
-
-
 def _artifact_note(produced: Any) -> str:
-    """One line naming the files this call produced, and any that are too large.
+    """One line naming the files this call wrote, and any that exceed the limit.
 
-    The model was previously told nothing about artifacts at all -- not even on
-    success -- while the tool description promised unconditionally that anything
-    saved to `outputs/` comes back. A model that cannot tell a delivered chart
-    from a dropped one will assert it delivered the chart. Naming the oversized
-    ones also gives it something to do about them (downsample, split, summarise)
-    instead of repeating the same write.
+    Deliberately says *written*, never *returned* or *attached*. This runs at
+    tool-call time; delivery happens later in `TurnEngine._persist_artifacts`
+    and can still fail — the kernel can be evicted between the two, an upload
+    can fail. Claiming delivery here would hand the model platform text backing
+    the exact confabulation the note exists to prevent ("I've attached the
+    chart") for a file that never arrived.
+
+    What this layer does know for certain is what the kernel reported writing,
+    and which of those are over the size limit. Naming the oversized ones gives
+    the model something to do about them (downsample, split, summarise) rather
+    than repeating the same write.
     """
     if not isinstance(produced, list):
         return ""
-    delivered: list[str] = []
+    written: list[str] = []
     too_large: list[str] = []
     for art in produced:
         if not isinstance(art, dict):
             continue
         name = str(art.get("filename") or "artifact")
         size = int(art.get("size_bytes") or 0)
-        if size > _ARTIFACT_LIMIT_BYTES:
+        if size > MAX_ARTIFACT_BYTES:
             too_large.append(f"{name} ({size} bytes)")
         else:
-            delivered.append(name)
+            written.append(name)
     parts = []
-    if delivered:
-        parts.append(f"[artifacts returned: {', '.join(delivered)}]")
+    if written:
+        parts.append(f"[wrote to outputs/: {', '.join(written)}]")
     if too_large:
         parts.append(
-            f"[NOT returned, over the {_ARTIFACT_LIMIT_BYTES} byte limit: {', '.join(too_large)}. "
-            "The file is still in outputs/ inside the sandbox; write a smaller one to deliver it.]"
+            f"[too large to return, over the {MAX_ARTIFACT_BYTES} byte limit: "
+            f"{', '.join(too_large)}. The file is still in outputs/ inside the sandbox; "
+            "write a smaller one if the user needs it.]"
         )
     return "\n".join(parts)
 

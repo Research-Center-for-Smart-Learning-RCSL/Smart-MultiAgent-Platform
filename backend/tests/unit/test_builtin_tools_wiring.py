@@ -187,24 +187,36 @@ def test_code_exec_description_states_both_roots() -> None:
     assert "/workspace" in desc
 
 
-def test_artifact_note_names_what_came_back_and_what_did_not() -> None:
+def test_artifact_note_names_what_was_written_and_what_is_too_large() -> None:
     """T-5/AC-3. The model was told nothing about artifacts at all -- not even on
-    success -- while the description promised unconditional return. A model that
-    cannot distinguish a delivered chart from a destroyed one will tell the user
-    it delivered the chart."""
+    success -- while the description promised unconditional return."""
     note = bt._artifact_note(
         [
             {"filename": "chart.png", "size_bytes": 1024},
-            {"filename": "huge.csv", "size_bytes": bt._ARTIFACT_LIMIT_BYTES + 1},
+            {"filename": "huge.csv", "size_bytes": bt.MAX_ARTIFACT_BYTES + 1},
         ]
     )
 
     assert "chart.png" in note
     assert "huge.csv" in note
-    assert "NOT returned" in note
+    assert "too large to return" in note
     # It must be actionable, not just an apology: the file is still on disk in
     # the sandbox, so the model can write a smaller one instead of retrying.
     assert "outputs/" in note
+
+
+def test_artifact_note_never_claims_a_file_was_delivered() -> None:
+    """This runs at tool-call time; delivery happens later in `_persist_artifacts`
+    and can still fail (kernel evicted between the two, upload error). Claiming
+    delivery here would give the model platform text backing exactly the
+    confabulation the note exists to prevent -- "I've attached the chart" for a
+    file that never arrived. The note may only state what the kernel wrote."""
+    note = bt._artifact_note([{"filename": "chart.png", "size_bytes": 1024}])
+
+    lowered = note.lower()
+    assert "wrote to outputs/" in lowered
+    for claim in ("returned:", "attached", "delivered"):
+        assert claim not in lowered, f"note asserts delivery it cannot know: {note!r}"
 
 
 def test_artifact_note_is_empty_when_nothing_was_produced() -> None:
@@ -219,6 +231,19 @@ def test_code_exec_description_states_the_artifact_limit() -> None:
     returned' with no caveat, which was false above 8 MiB."""
     desc = _tool_by_name("code_exec").description
     assert "32 MB" in desc
+
+
+def test_the_artifact_limit_has_exactly_one_definition() -> None:
+    """The note quotes this limit to the model and the turn engine enforces it.
+    Declared separately, the two drift and the model is told a limit that is not
+    the one applied -- the same defect class as the duplicated volume-name helper
+    fixed in d370320."""
+    from contexts.agents.application.runtime import tool_registry, turn_engine
+
+    assert bt.MAX_ARTIFACT_BYTES is tool_registry.MAX_ARTIFACT_BYTES
+    assert turn_engine.MAX_ARTIFACT_BYTES is tool_registry.MAX_ARTIFACT_BYTES
+    # And the number the description quotes is that same limit, not a literal.
+    assert f"{tool_registry.MAX_ARTIFACT_BYTES // (1024 * 1024)} MB" in _tool_by_name("code_exec").description
 
 
 def test_code_exec_description_states_the_workspace_is_read_only() -> None:

@@ -29,10 +29,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.application.activity_context_provider import ActivityContextProvider
 from contexts.agents.application import context as ctxmod
+from contexts.agents.application.mcp_ports import SandboxRunner
 from contexts.agents.application.runtime import model_attachments as mattach
 from contexts.agents.application.runtime import transcript as tx
 from contexts.agents.application.runtime.summariser import RouterSummariser
 from contexts.agents.application.runtime.tool_registry import (
+    MAX_ARTIFACT_BYTES,
     Tool,
     build_cast_approval_vote_tool,
     build_registry,
@@ -88,14 +90,6 @@ _log = logging.getLogger(__name__)
 CancelCheck = Callable[[], Awaitable[bool]]
 
 MAX_TOOL_ROUNDS = 8
-
-# Ceiling for a code_exec artifact delivered into the room. Matches the
-# single-shot attachment limit (`app/api/v1/attachments.py`): a user can upload
-# 32 MB in one request, so an agent producing that much is within what the
-# platform already treats as ordinary. Above it the artifact stays on the session
-# volume and the loss is reported rather than silent — see
-# docs/tasks/2026-07-19-large-artifacts-silently-dropped.
-_MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 _DEFAULT_MAX_TOKENS = 4096
 # F-16: token budget the allocator reserves for each of the two small graph
 # blocks (Concept Map, Knowledge Map) before File RAG takes the remainder. Sized
@@ -1109,9 +1103,17 @@ class TurnEngine:
         return dropped
 
     async def _fetch_large_artifact(
-        self, agent: Agent, chatroom_id: uuid.UUID, art: dict[str, Any]
+        self,
+        runner: SandboxRunner,
+        agent: Agent,
+        chatroom_id: uuid.UUID,
+        art: dict[str, Any],
     ) -> bytes | None:
         """Retrieve an artifact the kernel could not inline. ``None`` if it cannot be.
+
+        Takes *runner* rather than building one: a turn can produce several
+        oversized artifacts, and constructing a sandbox per file re-reads
+        settings on the turn's critical path for no gain.
 
         Never raises: an artifact is one output of a turn whose text response has
         already been committed, so a failure here costs the file, not the reply.
@@ -1120,25 +1122,20 @@ class TurnEngine:
         size = int(art.get("size_bytes") or 0)
         if not path:
             return None
-        if size > _MAX_ARTIFACT_BYTES:
+        if size > MAX_ARTIFACT_BYTES:
             _log.warning(
                 "artifact %s is %d bytes, above the %d limit — not delivered",
                 art.get("filename"),
                 size,
-                _MAX_ARTIFACT_BYTES,
+                MAX_ARTIFACT_BYTES,
             )
             return None
         try:
-            from contexts.agents.infrastructure.sandbox.docker_runsc import (
-                docker_runsc_sandbox_from_settings,
-            )
-
-            runner = docker_runsc_sandbox_from_settings()
             return await runner.fetch_kernel_artifact(
                 agent_id=agent.id,
                 chatroom_id=chatroom_id,
                 path=path,
-                max_bytes=_MAX_ARTIFACT_BYTES,
+                max_bytes=MAX_ARTIFACT_BYTES,
             )
         except Exception:
             _log.warning("artifact fetch raised for %s", path, exc_info=True)
@@ -1166,6 +1163,13 @@ class TurnEngine:
             seen: set[str] = set()
             prepared: list[tuple[str, str, bytes]] = []
             dropped: list[tuple[str, int]] = []
+            # Candidates after dedup, so the shortfall log below compares like
+            # with like: `len(artifacts)` counts duplicates the dedup already
+            # discarded, which would report a loss that never happened.
+            candidates = 0
+            # Built once per turn, not per artifact, and lazily: most turns
+            # produce nothing oversized and must not pay for a sandbox at all.
+            runner: SandboxRunner | None = None
             for art in artifacts:
                 rel = str(art.get("rel_path") or art.get("filename") or "")
                 # Only dedup *named* artifacts. A blank key would otherwise make
@@ -1175,6 +1179,7 @@ class TurnEngine:
                     if rel in seen:
                         continue
                     seen.add(rel)
+                candidates += 1
                 name = str(art.get("filename") or "artifact")
                 size = int(art.get("size_bytes") or 0)
                 b64 = art.get("b64")
@@ -1182,7 +1187,21 @@ class TurnEngine:
                     # Too large for the exec reply, so fetch it off the live
                     # kernel instead. Until 2026-07-19 this was a bare `continue`
                     # and the file was destroyed with no trace anywhere.
-                    data = await self._fetch_large_artifact(agent, chatroom_id, art)
+                    try:
+                        if runner is None:
+                            from contexts.agents.infrastructure.sandbox.docker_runsc import (
+                                docker_runsc_sandbox_from_settings,
+                            )
+
+                            runner = docker_runsc_sandbox_from_settings()
+                        data = await self._fetch_large_artifact(runner, agent, chatroom_id, art)
+                    except Exception:
+                        # Per-artifact, not per-batch. The outer handler covers the
+                        # DB and upload work below; letting one malformed descriptor
+                        # reach it would discard every artifact that decoded fine,
+                        # which is a worse outcome than the loss being fixed here.
+                        _log.warning("artifact fetch raised for %s", name, exc_info=True)
+                        data = None
                     if data is None:
                         dropped.append((name, size))
                         continue
@@ -1208,7 +1227,7 @@ class TurnEngine:
                     "agent %s: %d of %d artifacts could not be delivered: %s",
                     agent.id,
                     len(dropped),
-                    len(artifacts),
+                    candidates,
                     ", ".join(f"{n} ({s} bytes)" for n, s in dropped),
                 )
             if not prepared:
