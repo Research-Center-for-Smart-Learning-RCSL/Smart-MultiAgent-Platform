@@ -19,7 +19,10 @@ from contexts.agent_groups.infrastructure import tables as ag
 from contexts.conversation.infrastructure import tables as conv_t
 from contexts.keys.interfaces.facade import KeysFacade
 from contexts.knowledge.application.embed_resolution import resolve_embed_key
-from contexts.knowledge.application.graph_admin_reset import perform_admin_reset
+from contexts.knowledge.application.graph_admin_reset import (
+    GraphResetBinding,
+    perform_admin_reset,
+)
 from contexts.knowledge.domain.embedding_pin import PinKind, TeardownOutcome
 from contexts.knowledge.domain.errors import (
     GraphRagBuilderKeyGroupProjectMismatch,
@@ -501,7 +504,12 @@ class GraphRagConfigService:
             config_id=config_id,
             project_id=cfg.project_id,
             prev=cfg.last_build_state,
-            configs=self._configs,
+            binding=GraphResetBinding(
+                configs=self._configs,
+                audit_action="admin.graphrag_reset",
+                resource_type="graphrag_config",
+                compensation_error=GraphRagResetCompensationFailed,
+            ),
             snapshots=self._snapshots or RedisSnapshotStore(),
             locks=self._locks or RedisBuildLockStore(),
             neo4j=self._neo4j,
@@ -509,9 +517,6 @@ class GraphRagConfigService:
             actor_ip=actor_ip,
             force=force,
             request_id=request_id,
-            audit_action="admin.graphrag_reset",
-            resource_type="graphrag_config",
-            compensation_error=GraphRagResetCompensationFailed,
         )
 
         refreshed = await self._configs.get(config_id)

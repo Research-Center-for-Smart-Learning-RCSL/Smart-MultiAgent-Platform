@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-17
 requirements: [R11.04, R11a.02]
 ---
@@ -247,10 +247,21 @@ platform-admin check, OpenAPI regeneration, and client regeneration as the exist
   `test_successful_compensation_finalizes_and_audits_rolled_back`, which still asserts
   `FAILED`. `_finalize_failed` takes an explicit `state` so the three terminal paths can
   no longer share one verdict by accident.
-- [ ] AC-6: Clean/reset-success idempotence, build-lock behavior, transient compensation
-  retry, and documented `force=true` behavior remain unchanged.
-- [ ] AC-7: Migration, API/client generation, UI/i18n, focused tests, lint, format,
-  typecheck, and frontend build pass.
+- [x] AC-6: Clean/reset-success idempotence, build-lock behavior, transient compensation
+  retry, and documented `force=true` behavior remain unchanged. Verified by the seven
+  pre-existing `test_graphrag_reset.py` tests, which were not modified except to retarget
+  the audit patch at the extracted module, plus
+  `test_failed_compensation_of_running_crash_stays_running` and
+  `test_successful_compensation_finalizes_and_audits_rolled_back` on the reconciler side.
+  Both escapes from the new state were exercised (AC-9, AC-10).
+- [x] AC-7: Migration, API/client generation, UI/i18n, focused tests, lint, format,
+  typecheck, and frontend build pass. Backend: `pytest -q` 5423 passed / 6 skipped,
+  `ruff check`, `ruff format --check`, `mypy` 480 files clean. Frontend: `pnpm test` 733
+  passed / 148 files, `pnpm lint` (all 12 gates), `pnpm typecheck`, `pnpm build` clean.
+  `pnpm run check:openapi-drift` could not run here (its bash shell has no `python` on
+  PATH — an environment limitation, not drift); equivalence was established instead by
+  regenerating `openapi.json` in-container and confirming `gen:api` is idempotent against
+  it. New i18n key present in both locale files and asserted by a test.
 - [x] AC-8: `last_build_state` is `Text` + CHECK on both config tables, the
   `graphrag_build_state` type is gone, the CHECK accepts exactly the seven states, and the
   downgrade remaps `recovery_unavailable` rows to `failed_compensating` before re-minting
@@ -349,6 +360,67 @@ None. This restores the existing [R11.04] and [R11a.02] contract.
   state change must be made twice.
 - FU-4: Reset and reconciler still duplicate discard logic even after the shared primitive in
   §7.4; the reconciler's `_finalize_failed` and the reset path remain separate call graphs.
+- FU-7: `force=true` on an `UNAVAILABLE` outcome sets `IDLE`, which is readable — so an
+  irrecoverable graph's partially applied, never-withdrawable triples re-enter agent
+  context and both graph views. Found by the security audit; confirmed by tracing
+  `graph_admin_reset.py`'s `UNAVAILABLE` + `force` path into `IN_FLIGHT_BUILD_STATES`.
+  Deliberately not changed here: Q-3 approved exactly this semantics and §1 lists removing
+  the escape hatch as a non-goal, and the behaviour is strictly better than before this
+  task (the reconciler used to leave the same config in readable ordinary `FAILED` with no
+  admin action at all). The `force` parameter's API description now says plainly that it
+  re-opens reads. Worth revisiting because `recovery_unavailable` is already rebuildable
+  (AC-9), so forcing `IDLE` buys no recovery capability that the state model lacks — its
+  only effect is un-gating.
+- FU-8: `force=true` force-releases the build lock and, if a concurrent worker re-grabs it
+  in the window, proceeds to compensate *without holding the lock*
+  (`graph_admin_reset.py`, the re-acquire warning path). It can then delete a live
+  builder's snapshot and pointer. Pre-existing on the Concept Map path and moved verbatim
+  into the shared function; fixing it means changing `force`'s contract, so it belongs
+  with FU-7. There is also no dedicated rate limit on the admin routers (they fall into
+  the generic 300/min/user bucket).
+- FU-9: `_log.exception` in the compensation-failure path logs the Neo4j driver's
+  traceback, which for some error classes echoes offending property values — i.e. graph
+  facts — into application logs. Plausible rather than confirmed (no constraint that would
+  produce such an error was found). Two siblings in `graphrag_reconciler.py`. The repo
+  already has the opposite convention at `knowmap_config_service.py:471`
+  (`type(exc).__name__`, because "qdrant-client errors carry response content"). Kept as
+  is here because the traceback is genuinely useful for diagnosing a failed compensation.
+- FU-10: `read_graph` and `read_knowmap_graph` raise `*ConfigNotFound` (404) before the
+  authorization check, so a non-member gets 404 for an unknown id and 403 for a real one —
+  a cross-tenant existence oracle. The same module deliberately masks this for document
+  routes ("DOM-7"); the config routes never adopted it. Pre-existing.
+- FU-11: The build-state read gate is now duplicated in the two route handlers. Both
+  `get_graph` services already load the config and hold `last_build_state`, so the gate
+  belongs there — co-located with store access, the way `graphrag_retrieve.py` does it.
+  As written, a future caller reaching the facade directly bypasses it.
+- FU-12: Both admin reset routes instantiate their config service directly instead of going
+  through `KnowledgeFacade`, against the "routes call only the facade" rule. The new
+  Knowledge Map route is a fresh instance of the violation, so the quality audit classed it
+  Introduced — but the facade exposes no reset for either product, and fixing only the new
+  route would re-create the divergence this task worked to remove. Deferred with the user's
+  agreement: add `admin_reset_*` to the facade and move both handlers in one change.
+- FU-13: `except Exception` around the Neo4j compensation maps *any* failure — including a
+  `TypeError` from a port call — to `comp_error`, i.e. a 503 documented as transient and
+  worth retrying. An operator would retry a programming error forever. Narrow it to the
+  driver's exception hierarchy, or re-raise non-store exceptions as a 500.
+- FU-14: `test_knowmap_reset.py` imports its fakes from `test_graphrag_reset.py`. Sharing
+  them is right; sourcing them from a `test_`-prefixed module is not, since pytest collects
+  it — an edit to a Concept Map fake silently changes Knowledge Map assertions. Move the
+  four fakes to `conftest.py` or a non-collected helper module.
+- FU-15: `graphragBuildState.test.ts`'s dotted-path locale walker duplicates the one in
+  `conversation/__tests__/agentErrors.test.ts`, and is weaker (optional-chaining only
+  guards null/undefined, so a primitive mid-path throws). Extract one shared test helper.
+- FU-16: The manual-buildable set `{IDLE, FAILED, RECOVERY_UNAVAILABLE}` is spelled out in
+  both the route's pre-enqueue guard and the engine's authoritative gate. This task extended
+  the pre-existing duplication to a third member and updated both sites, but drift would let
+  the route reject a build the engine accepts. Hoist to a named frozenset in the domain
+  beside the other three state sets.
+- FU-17: `perform_admin_reset` never calls `publish_build_state`, while every terminal
+  reconciler path does, so a socket-connected UI shows a stale badge after an admin reset
+  until the 15s poll fallback. Pre-existing on the Concept Map path, now on both.
+- FU-18: The refuse path commits the audit row and then raises, so `db_session`'s success-path
+  `flush_tail_events` never runs and the live audit-tail subscriber misses the event while the
+  durable trail has it. Repo-wide `commit(); raise` pattern, widened here by a second cause.
 - FU-6: `project_embedding_pins`' CHECK carries a name mismatch: migration 0052 created
   `ck_project_embedding_pins_kind`, but `embedding_pin_tables.py:37-40` passes that same
   string as `sa.CheckConstraint(name=...)` on metadata that applies the

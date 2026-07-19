@@ -1,7 +1,8 @@
 """SQLAlchemy Core tables for the GraphRAG context.
 
-DDL is owned by ``alembic/versions/0013_graphrag.py``. This module exists
-so the shared_kernel db registry can import the table binding.
+DDL is owned by ``alembic/versions/0013_graphrag.py``, amended by ``0058`` (which
+moved ``last_build_state`` off the shared PG ENUM onto Text + CHECK). This module
+exists so the shared_kernel db registry can import the table binding.
 """
 
 from __future__ import annotations
