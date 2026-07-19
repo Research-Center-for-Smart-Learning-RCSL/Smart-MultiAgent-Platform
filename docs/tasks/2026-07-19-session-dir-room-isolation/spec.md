@@ -262,31 +262,44 @@ room A's data.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: T-1 through T-7 fail against current code where marked and pass after the fix.
-- [ ] AC-2: Chat attachments stage to the per-room session volume and are readable from their own
+- [x] AC-1: T-1 through T-7 fail against current code where marked and pass after the fix.
+      **Partial — T-6 not written (see AC-7).** T-1..T-5 and T-7 done. T-3 and the description
+      tests were observed red for the documented reason before the fix; the T-7 family is
+      structurally red pre-fix (`_parse_session_ids` and `_sweep_session_volumes` did not exist),
+      which was not separately demonstrated by running it.
+- [x] AC-2: Chat attachments stage to the per-room session volume and are readable from their own
       room's `code_exec` by the documented relative form (`open('inputs/x')`), unchanged from
-      today.
+      today. (`test_kernel_inputs_mount_only_this_rooms_session_volume`; the relative form is
+      preserved by the cwd, `test_session_dir_comes_from_its_own_mount_not_the_workspace`.)
 - [ ] AC-3: **The containment property, asserted directly.** From room B, neither `code_exec` nor
-      the `file` tool can reach room A's `inputs/` or `outputs/` — verified by T-5 at the wiring
-      level and by the §4 reproduction under `/verify`.
-- [ ] AC-4: `agent-files/`, `skills/`, and the `file` tool's own root-level state remain visible
-      across all of the agent's rooms (Q-1 keeps these shared; a fix that isolates them is wrong).
-- [ ] AC-5: `outputs/` artifacts are still collected and returned — `kernel.py:64-94` addresses
-      the new location, and artifact persistence (`turn_engine.py:1103-1171`) is unaffected.
-- [ ] AC-6: The headless / run-and-burn path still gets a tmpfs and mounts no named volume
-      (`docker_runsc.py:921`) — cleared in §6 and pinned so it stays that way.
+      the `file` tool can reach room A's `inputs/` or `outputs/`. **Partial:** T-5
+      (`test_two_rooms_of_one_agent_get_different_session_volumes`) holds at the wiring level, but
+      the §4 reproduction under `/verify` has not run, and **AC-7 is outstanding, so the property
+      is false for pre-existing volumes** — see the build state below.
+- [x] AC-4: `agent-files/`, `skills/`, and the `file` tool's own root-level state remain visible
+      across all of the agent's rooms. (`test_the_three_stagers_disagree_on_prefix_by_design`,
+      rewritten to assert the volume split rather than a subtree split.)
+- [x] AC-5: `outputs/` artifacts are still collected and returned — `kernel.py` addresses the new
+      location and `test_new_output_files_become_artifacts` passes against it; artifact
+      persistence (`turn_engine.py:1103-1171`) is untouched.
+- [x] AC-6: The headless / run-and-burn path still gets a tmpfs and mounts no named volume —
+      cleared in §6 and now pinned (`test_headless_code_exec_mounts_no_named_volume`).
 - [ ] AC-7: The purge removes `sessions/` and nothing else from an agent volume, including when
-      `sessions` is a symlink (T-6), and is dry-run unless explicitly armed.
-- [ ] AC-8: `agent_fs_gc` recognises session volumes, retains them while agent and chatroom live,
+      `sessions` is a symlink (T-6), and is dry-run unless explicitly armed. **NOT STARTED.**
+- [x] AC-8: `agent_fs_gc` recognises session volumes, retains them while agent and chatroom live,
       collects them when either is gone, and still never touches a name it cannot parse (T-7).
-- [ ] AC-9: No unbounded growth — after an agent is collected, no volume bearing its id in either
-      name shape remains.
+- [x] AC-9: No unbounded growth — after an agent is collected, no volume bearing its id in either
+      name shape remains. (`test_both_volume_shapes_sweep_in_one_pass`.)
 - [ ] AC-10 (added at build time, Q-7): the kernel and the backend carry a shared protocol stamp,
       and a mismatch fails loudly at session start instead of degrading into a silent wrong-path.
       Both mismatch directions are covered by test.
-- [ ] AC-11 (added at build time, Q-6): an empty or unreachable `chatrooms` table causes the GC
+      Done: `kernel.PROTOCOL_VERSION` / `docker_runsc._KERNEL_PROTOCOL_VERSION`, refused in
+      `_reply_to_result`, pinned by `test_kernel_and_backend_agree_on_the_protocol_version` and
+      `test_reply_to_result_refuses_a_mismatched_kernel` (older, newer, and absent stamps).
+- [x] AC-11 (added at build time, Q-6): an empty or unreachable `chatrooms` table causes the GC
       sweep to refuse rather than to classify every session volume as garbage, matching the
-      existing agents-table guard (`agent_fs_gc.py:527-537`).
+      existing agents-table guard. (`test_empty_chatrooms_table_refuses_to_sweep_session_volumes`,
+      and `test_session_volumes_are_not_swept_when_the_agents_guard_fires` for the other half.)
 
 ## 11. SRS Delta
 
@@ -329,7 +342,46 @@ draft (the drift is a consequence of §7.3 that the first pass missed):
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+- **D-1.** §7.1 scoped the new helper to the *session* volume name, leaving FU-2's consolidation of
+  the existing five inline `smap-agent-fs-{agent_id}` sites for later. Adding `_session_volume_name`
+  alongside three inline agent-name f-strings in the same module left it visibly half-applied, so
+  `_agent_volume_name` was added and used at all three `docker_runsc.py` sites. FU-2 narrows
+  accordingly to the cross-file part (`file_tool.py`, `agent_fs_gc.py`), which is untouched.
+- **D-2.** `_create_kernel` no longer passes `SMAP_KERNEL_ROOM`, and the kernel no longer reads it.
+  Not in the spec, but the variable became dead the moment the session dir stopped being derived
+  from a room id; leaving it would have left a second, unenforced notion of which room a kernel
+  serves. `SMAP_KERNEL_WORKSPACE` is likewise no longer read by the kernel.
+- **D-3.** AC-10 and AC-11 were added at build time per Q-6/Q-7. The spec as approved documented
+  the lockstep deploy in §9 rather than enforcing it; the user chose enforcement.
+- **D-4.** `test_code_exec_kernel._load_kernel` gained an assertion that the loaded module's
+  `_SESSION_DIR` is the tmp dir the harness set. Found the hard way: the first cut of the kernel
+  change left the helper setting an env var the kernel had stopped reading, so all 31 tests in that
+  module silently ran against the real `/session` on the host (creating `C:\session\outputs\` on the
+  developer machine) **and still passed**. A harness that can point at nothing must say so.
+- **D-5.** `_VOLUME_ROOT`'s comment claimed the constant must equal "the kernel's
+  SMAP_KERNEL_WORKSPACE default". False after D-2 — corrected rather than left as a trap for the
+  next reader.
+
+**Build state (2026-07-19, paused — NOT complete).** Landed in `f7c4ea6` (mount split + protocol
+stamp), `929f2d1` (GC), `fa4c35e` (headless pin). Gates on what landed: `pytest tests/unit` 5326
+passed / 4 skipped (pre-existing host-symlink skips), `ruff check`, `ruff format --check`, `mypy .`
+(787 files) all clean. Integration and wiring tiers were not run (no local Postgres/Redis) and are
+untouched by this diff.
+
+**Outstanding, in priority order:**
+
+1. **AC-7 — the legacy purge (§7.6) is not written.** This is the one that matters: until it runs,
+   **every existing agent volume still carries its accumulated `/workspace/sessions/` tree, and
+   both channels still reach it.** The fix is prospective only. New rooms are isolated; every room
+   that ran before this deploy is not. Deliberately left rather than rushed — it is the only
+   destructive component in the task, and the spec requires dry-run-by-default posture.
+2. **AC-3 — `/verify` against a live sandbox** (§4 reproduction), which also exercises the two-volume
+   mount, the one change most likely to fail only at runtime (§9).
+3. Definition-of-Done gates 5 and 6 (`check-quality`, `check-security`) have not been run on this
+   diff.
+
+**Housekeeping:** `C:\session\` on the developer machine is debris from the D-4 bug and should be
+deleted manually; the sandbox refuses drive-root removals.
 
 ## 13. Follow-ups
 
