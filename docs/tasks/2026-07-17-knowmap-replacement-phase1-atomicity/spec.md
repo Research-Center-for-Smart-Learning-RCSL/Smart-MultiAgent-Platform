@@ -237,10 +237,25 @@ None. This restores [R11.04] and [R11.12].
   deploy runs (`deploy/compose/docker-compose.yml:254`). On Enterprise the indexes would be
   built in one database and the data written to another. Out of scope here; no behavior in this
   task depends on it.
-- FU-3: `Neo4jAsyncDriver.restore_from_snapshot` has the same defect class this task fixed —
-  the node restore and the edge restore are two auto-commit statements
-  (`backend/contexts/knowledge/infrastructure/neo4j_driver.py:395-399`), so a failure between
-  them leaves entities restored without their relations while the reconciler treats the
-  rollback as complete. Found by the sibling sweep. Left alone because it is the Phase-2
-  compensation path, not Phase-1 replacement, and it carries its own reconciler test surface.
-  The `execute_write` pattern introduced here is directly reusable.
+- FU-3 (DONE — see the correction below): `Neo4jAsyncDriver.restore_from_snapshot` split the
+  node restore and the edge restore across two auto-commit statements, so a failure between
+  them left entities restored without their relations. Found by the sibling sweep. Fixed as a
+  hardening in a follow-up commit, using the `execute_write` pattern introduced here.
+
+  **Correction.** This entry originally claimed "the reconciler treats the rollback as
+  complete". That is false, and the severity was overstated on the strength of it.
+  `graphrag_reconciler.py:464-502` catches the failure, keeps the snapshot and the
+  current-build pointer, preserves the stuck state, and retries; the restore is MERGE-based and
+  idempotent, so the retry completes it. Every stuck state (`RUNNING`, `NEO4J_COMMITTED`,
+  `FAILED_COMPENSATING`, `RECOVERY_UNAVAILABLE`) is read-blocked by `IN_FLIGHT_BUILD_STATES`
+  (`domain/graphrag.py:118-125`), so no automatic path ever serves the partial restore — unlike
+  the Phase-1 defect, where `FAILED` reads normally and healing depended on someone happening
+  to trigger another build. The one genuine exposure is `graph_admin_reset.py:324-326`: an
+  admin reset with `force=true` lands a failed compensation on `IDLE`, where a nodes-only
+  skeleton reads as healthy.
+- FU-4: `graph_admin_reset` sets `IDLE` when a `force=true` reset's compensation fails
+  (`backend/contexts/knowledge/application/graph_admin_reset.py:324-326`); only a
+  `DiscardPlan.UNAVAILABLE` reaches `RECOVERY_UNAVAILABLE`. A forced reset over a failed
+  compensation therefore advertises a graph the rollback did not finish as readable and
+  healthy, with only a non-null `last_build_error` to signal otherwise. This is the behavior
+  [R11a.02] currently documents, so changing it needs an SRS delta rather than a bugfix.
