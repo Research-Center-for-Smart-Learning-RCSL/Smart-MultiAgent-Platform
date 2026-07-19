@@ -38,7 +38,13 @@ dependencies = [
   "neo4j==5.24.*",
   "qdrant-client==1.12.*",
   "prometheus-client==0.21.*",
-  "typer==0.12.*",
+  # >=0.16 for click 8.2+ support. 0.12.x mis-converts option defaults against
+  # modern click: a bool flag arrives as the string "False" when absent and None
+  # when passed, silently inverting every flag, and --help crashes outright.
+  # click is transitive and unpinned here, so this broke on a click release with
+  # no change on our side -- pin the consumer, not the dependency, since typer
+  # 0.15.x "fixes" it by holding click below 8.2 for everything that shares it.
+  "typer==0.19.*",
   "docker==7.1.*",
 ]
 

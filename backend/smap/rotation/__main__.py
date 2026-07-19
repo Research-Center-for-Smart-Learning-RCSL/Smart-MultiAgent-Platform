@@ -13,6 +13,17 @@ app = typer.Typer(
 )
 
 
+@app.callback()
+def _main() -> None:
+    """Force group mode.
+
+    Typer collapses a single-command app into the root, which makes the
+    documented `python -m smap.rotation rotate-transit` fail with "Got
+    unexpected extra argument" (docs/implement/D-keys.md, release-checklist.md).
+    A callback keeps the group even with one command.
+    """
+
+
 @app.command("rotate-transit")
 def rotate_transit_cmd() -> None:
     """Rotate `smap-provider-secret` and rewrap every DEK.
