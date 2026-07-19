@@ -20,6 +20,7 @@ import contexts.agents.application.runtime.tool_registry as tr
 import contexts.agents.application.runtime.turn_engine as te
 import contexts.orchestration.application.a2a_handler as h
 import contexts.orchestration.infrastructure.pending_notify as pn
+from contexts.agents.application.context import KnowledgeBudget
 from contexts.orchestration.domain.models import A2AEnvelope, A2AMessageType
 from contexts.skills.application.binding_service import BoundSet
 from tests.unit.skill_fakes import make_skill
@@ -53,6 +54,8 @@ def _agent():
         model_id=None,
         rag_config_id=None,
         knowmap_config_id=None,
+        context_mode=SimpleNamespace(value="general"),
+        context_token_cap=None,
     )
 
 
@@ -61,24 +64,32 @@ class _RagCtx:
         self.block = block
 
 
-def _wire_knowledge(engine, *, rag=None, graphrag=None, knowmap=None, graphrag_calls=None):
+def _wire_knowledge(engine, *, rag=None, graphrag=None, knowmap=None, graphrag_calls=None, budgets=None):
     """Stub the three per-provider context methods on a bare engine instance.
 
     ``rag`` is the File RAG block body (wrapped in a RagContext-like object);
     ``graphrag`` / ``knowmap`` are the Concept Map / Knowledge Map block strings.
     ``graphrag_calls`` records the ``chatroom_id`` each Concept Map query runs
-    against so tests can assert room-scoping.
+    against so tests can assert room-scoping. ``budgets`` records the
+    ``token_budget`` each source was granted, so a test can assert the grant is
+    finite rather than merely that a block arrived.
     """
 
     async def _rag(agent, queries, *, token_budget=None):
+        if budgets is not None:
+            budgets["rag"] = token_budget
         return _RagCtx(rag) if rag is not None else None
 
     async def _graph(agent, chatroom_id, queries, *, token_budget=None):
         if graphrag_calls is not None:
             graphrag_calls.append(chatroom_id)
+        if budgets is not None:
+            budgets["concept"] = token_budget
         return graphrag
 
     async def _km(agent, queries, *, token_budget=None):
+        if budgets is not None:
+            budgets["knowmap"] = token_budget
         return knowmap
 
     engine._rag_context = _rag  # type: ignore[attr-defined]
@@ -86,10 +97,10 @@ def _wire_knowledge(engine, *, rag=None, graphrag=None, knowmap=None, graphrag_c
     engine._knowmap_context = _km  # type: ignore[attr-defined]
 
 
-def _headless_engine(monkeypatch, agent, *, member=True):
+def _headless_engine(monkeypatch, agent, *, member=True, drain=None):
     """Bare engine wired for a headless ``run_input_turn`` that captures the
     kwargs handed to ``_stream_with_tools`` (notably ``system_text``)."""
-    _wire_engine(monkeypatch, agent, member=member)
+    _wire_engine(monkeypatch, agent, member=member, drain=drain)
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = _FakeDB()  # type: ignore[attr-defined]
     engine._router = object()  # type: ignore[attr-defined]
@@ -160,7 +171,13 @@ def _wire_engine(monkeypatch, agent, *, drain=None, member=True, group="match"):
         _async_return(drain if drain is not None else []),
     )
     _stub_skills(monkeypatch)
-    monkeypatch.setattr(te, "build_registry", lambda *a, **k: SimpleNamespace())
+    monkeypatch.setattr(te, "build_registry", lambda *a, **k: _fake_registry())
+
+
+def _fake_registry(specs=None):
+    """The turn measures the serialized tool schemas against the context budget,
+    so the registry double has to answer ``specs()``."""
+    return SimpleNamespace(specs=lambda: list(specs or []))
 
 
 def _stub_skills(monkeypatch, *, bound=None):
@@ -243,7 +260,7 @@ async def test_run_input_turn_passes_the_snapshot_to_the_registry(monkeypatch) -
     _stub_skills(monkeypatch, bound=BoundSet(skills=(skill,)))
     _wire_knowledge(engine)
     built: dict = {}
-    monkeypatch.setattr(te, "build_registry", lambda *a, **k: built.update(k) or SimpleNamespace())
+    monkeypatch.setattr(te, "build_registry", lambda *a, **k: built.update(k) or _fake_registry())
 
     await engine.run_input_turn(agent_id=agent.id, input_text="hi")
 
@@ -350,13 +367,15 @@ async def test_run_input_turn_non_member_room_skips_concept_maps(monkeypatch) ->
 async def test_assemble_agent_knowledge_order_and_empty_handling(monkeypatch) -> None:
     # Characterization of the room-path block sequence now living in the shared
     # helper: File RAG, then Concept Map (room only), then Knowledge Map; empty
-    # blocks dropped.
+    # blocks dropped. The budget is generous here so this pins *ordering* alone —
+    # allocation arithmetic is pinned in test_turn_context_budget.py.
     engine = te.TurnEngine.__new__(te.TurnEngine)
     graphrag_calls: list = []
     _wire_knowledge(engine, rag="RAG", graphrag="CONCEPT", knowmap="KNOWMAP", graphrag_calls=graphrag_calls)
     room = uuid.uuid4()
+    budget = KnowledgeBudget(total=100_000, graph_source_cap=700)
 
-    blocks, rag_ctx = await engine._assemble_agent_knowledge(_agent(), ["q"], chatroom_id=room)
+    blocks, rag_ctx = await engine._assemble_agent_knowledge(_agent(), ["q"], chatroom_id=room, budget=budget)
 
     assert blocks == ["RAG", "CONCEPT", "KNOWMAP"]
     assert graphrag_calls == [room]
@@ -367,9 +386,151 @@ async def test_assemble_agent_knowledge_order_and_empty_handling(monkeypatch) ->
     # No room drops the Concept Map; a None File RAG block is omitted, not empty.
     engine2 = te.TurnEngine.__new__(te.TurnEngine)
     _wire_knowledge(engine2, rag=None, graphrag="CONCEPT", knowmap="KNOWMAP")
-    blocks2, rag_ctx2 = await engine2._assemble_agent_knowledge(_agent(), ["q"], chatroom_id=None)
+    blocks2, rag_ctx2 = await engine2._assemble_agent_knowledge(
+        _agent(), ["q"], chatroom_id=None, budget=budget
+    )
     assert blocks2 == ["KNOWMAP"]
     assert rag_ctx2 is None
+
+
+# --------------------------------------------------------------------------- #
+# Headless knowledge token budget (R9.10 / R11.19)
+# --------------------------------------------------------------------------- #
+
+
+def _spy_requeue(engine) -> list:
+    """Capture what the turn hands back to the notification queue."""
+    requeued: list = []
+
+    async def _requeue(agent, notes):
+        requeued.append(notes)
+
+    engine._requeue_notifications = _requeue  # type: ignore[attr-defined]
+    return requeued
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_grants_every_source_a_finite_budget(monkeypatch) -> None:
+    # The defect: headless assembly ran uncapped, so a large payload reached the
+    # provider regardless of the context limit. Every source must now be granted
+    # a finite budget, in Concept Map > Knowledge Map > File RAG precedence.
+    agent = _agent()
+    agent.rag_config_id = uuid.uuid4()
+    agent.knowmap_config_id = uuid.uuid4()
+    room = uuid.uuid4()
+    engine, captured = _headless_engine(monkeypatch, agent)
+    budgets: dict = {}
+    _wire_knowledge(engine, rag="RAG", graphrag="CONCEPT", knowmap="KNOWMAP", budgets=budgets)
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="hi", chatroom_id=room)
+
+    assert result.status == "completed"
+    # The graph sources draw first, each capped; File RAG takes the measured
+    # remainder. None of the three may be handed an unbounded grant.
+    assert budgets["concept"] == te._GRAPH_BLOCK_TOKEN_BUDGET
+    assert budgets["knowmap"] == te._GRAPH_BLOCK_TOKEN_BUDGET
+    assert budgets["rag"] is not None
+    assert 0 < budgets["rag"] < te._CONTEXT_LIMITS["claude"]
+    assert "CONCEPT" in captured["system_text"]
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_compact_mode_budgets_against_the_cap(monkeypatch) -> None:
+    # Compact mode bounds the request at the agent's own cap, not the provider
+    # limit — the same ceiling rule the room path applies.
+    agent = _agent()
+    agent.rag_config_id = uuid.uuid4()
+    agent.context_mode = SimpleNamespace(value="compact")
+    agent.context_token_cap = 20_000
+    engine, _captured = _headless_engine(monkeypatch, agent)
+    budgets: dict = {}
+    _wire_knowledge(engine, rag="RAG", budgets=budgets)
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    assert result.status == "completed"
+    # Bounded by the cap minus the response reserve and fixed context, then the
+    # safety margin — well under the provider's 128k limit.
+    assert 0 < budgets["rag"] <= 20_000
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_knowledge_starved_skips_before_the_provider(monkeypatch) -> None:
+    # A cap too small to leave any knowledge room drops every configured source.
+    # Answering from nothing while the config says otherwise reads as
+    # confabulation, so the turn fails loudly instead — and the notifications it
+    # drained but never acted on go back on the queue.
+    agent = _agent()
+    agent.rag_config_id = uuid.uuid4()
+    agent.context_mode = SimpleNamespace(value="compact")
+    agent.context_token_cap = 100
+    engine, captured = _headless_engine(monkeypatch, agent, drain=[{"id": "n1"}])
+    requeued = _spy_requeue(engine)
+    audits: list = []
+
+    async def _audit(agent_, room_, action, extra):
+        audits.append((action, extra))
+
+    engine._audit = _audit  # type: ignore[attr-defined]
+    _wire_knowledge(engine, rag="RAG")
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    assert result.status == "skipped"
+    assert result.reason == "knowledge_starved"
+    assert captured == {}  # the provider was never called
+    assert requeued == [[{"id": "n1"}]]
+    skip = next(extra for action, extra in audits if extra.get("reason") == "knowledge_starved")
+    assert skip["context_token_cap"] == 100
+    assert skip["fixed_context_tokens"] > 0
+    assert skip["ceiling_tokens"] == 100
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_without_a_source_runs_under_any_cap(monkeypatch) -> None:
+    # Nothing to drop means nothing to complain about: an agent with no bound
+    # knowledge source must keep working however tight the cap.
+    agent = _agent()
+    agent.context_mode = SimpleNamespace(value="compact")
+    agent.context_token_cap = 100
+    engine, captured = _headless_engine(monkeypatch, agent)
+    _wire_knowledge(engine)
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    assert result.status == "completed"
+    assert captured["system_text"] == "prompt"
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_oversized_payload_never_reaches_the_provider(monkeypatch) -> None:
+    # Fixed context alone can exceed the provider limit — an unconstrained A2A
+    # input is the obvious vector. Headless has no history to shed and no room UI
+    # to surface a provider context error, so it skips deterministically rather
+    # than issuing a request that is guaranteed to be rejected.
+    monkeypatch.setitem(te._CONTEXT_LIMITS, "claude", 5_000)
+    agent = _agent()
+    engine, captured = _headless_engine(monkeypatch, agent, drain=[{"id": "n1"}])
+    requeued = _spy_requeue(engine)
+    audits: list = []
+
+    async def _audit(agent_, room_, action, extra):
+        audits.append((action, extra))
+
+    engine._audit = _audit  # type: ignore[attr-defined]
+    _wire_knowledge(engine)
+
+    # ~2500 tokens of input on top of the 4096-token response reserve.
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="x" * 10_000)
+
+    assert result.status == "skipped"
+    assert result.reason == "context_overflow"
+    assert captured == {}
+    assert requeued == [[{"id": "n1"}]]
+    overflow = next(extra for action, extra in audits if extra.get("reason") == "context_overflow")
+    assert overflow["payload_tokens"] > overflow["context_limit_tokens"] == 5_000
+    # The audit must carry the arithmetic, never the prompt that produced it.
+    assert not any("x" * 100 in str(v) for v in overflow.values())
 
 
 @pytest.mark.asyncio
