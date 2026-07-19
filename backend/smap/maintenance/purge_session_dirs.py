@@ -23,14 +23,28 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from app.workers.agent_fs_gc import docker_client, parse_agent_id
+from app.workers.agent_fs_gc import _TRUTHY, docker_client, parse_agent_id
 from contexts.agents.infrastructure.sandbox.docker_runsc import DockerRunscSandbox
 
 _log = logging.getLogger(__name__)
+
+# Arming is an environment variable, not a CLI flag, and that is deliberate.
+# typer 0.12.5 against the installed click mis-converts option defaults: a bool
+# flag arrives as the *string* "False" when absent (truthy) and as None when
+# passed (falsy), which inverts exactly this decision -- an unarmed run would
+# have deleted. Reading the environment directly depends on no such conversion,
+# and matches how `agent_fs_gc` arms its own destructive sweep.
+_ARMED_ENV = "SMAP_PURGE_SESSION_DIRS_ARMED"
+
+
+def is_armed() -> bool:
+    """True only for an explicit, recognised truthy value. Anything else is a dry run."""
+    return os.environ.get(_ARMED_ENV, "").strip().lower() in _TRUTHY
 
 
 @dataclass(frozen=True)
@@ -103,12 +117,19 @@ async def _purge_all(agent_ids: list[uuid.UUID], *, armed: bool, sandbox: Any = 
     )
 
 
-def run(*, armed: bool = False) -> PurgeReport:
+def run(*, armed: bool | None = None) -> PurgeReport:
     """Enumerate agent volumes and clear each one's legacy session tree.
+
+    *armed* defaults to reading :func:`is_armed`. It is `bool | None` rather than
+    `bool = False` so that a caller passing nothing gets the environment's
+    answer, while tests can force either value explicitly. A non-bool is treated
+    as not armed: this function deletes data, so it must never infer consent from
+    a value it does not recognise.
 
     Idempotent: a volume with no `sessions/` reconciles empty to empty. Safe to
     re-run after a partial failure, and cheap once the deployment is clean.
     """
+    armed = is_armed() if armed is None else armed is True
     agent_ids = _enumerate_agent_volumes()
     if not agent_ids:
         _log.info("purge_session_dirs: no agent volumes on this host")
