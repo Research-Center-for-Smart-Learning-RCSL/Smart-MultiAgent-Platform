@@ -356,28 +356,16 @@ class GraphRagBuilder:
                 triples = [attach_temporal_provenance(tr, msg_created_at) for tr in triples]
             if msg_member:
                 triples = [attach_member_provenance(tr, msg_member) for tr in triples]
-            if replace:
-                # F-6: full-corpus replacement. Upsert and stale-prune are ONE Neo4j
-                # transaction inside the adapter, so a prune failure rolls the upsert
-                # back too and Phase 1 commits nothing — [R11.04] and REQUIREMENTS.md
-                # 11.2a step 4. Do not split this back into two port calls: a `FAILED`
-                # config stays readable (graphrag_retrieve skips only in-flight
-                # states), so a half-replaced graph would keep serving relations
-                # sourced from deleted or quarantined documents until some later build
-                # happened to run.
-                n_triples = await self._neo4j.replace_triples(
-                    config_id=cfg.id,
-                    project_id=cfg.project_id,
-                    build_id=build_id,
-                    triples=triples,
-                )
-            else:
-                n_triples = await self._neo4j.apply_triples(
-                    config_id=cfg.id,
-                    project_id=cfg.project_id,
-                    build_id=build_id,
-                    triples=triples,
-                )
+            # F-6: replacement upserts and prunes in one Neo4j transaction; never
+            # split it back into two port calls. Rationale on
+            # ``Neo4jDriver.replace_triples``.
+            write_triples = self._neo4j.replace_triples if replace else self._neo4j.apply_triples
+            n_triples = await write_triples(
+                config_id=cfg.id,
+                project_id=cfg.project_id,
+                build_id=build_id,
+                triples=triples,
+            )
         except Exception as exc:
             await self._fail_phase1(cfg.id, build_id, str(exc))
             return BuildResult(
