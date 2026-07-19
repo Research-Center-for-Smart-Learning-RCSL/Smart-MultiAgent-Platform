@@ -198,7 +198,11 @@ class _NoteRunner:
         return [f"/workspace/agent-files/{f.filename}" for f in files]
 
     async def stage_kernel_inputs(self, *, agent_id, chatroom_id, files):
-        return [f"/workspace/sessions/{chatroom_id}/inputs/{f.filename}" for f in files]
+        # Mirrors the real method (docker_runsc.stage_kernel_inputs): this room's
+        # own session volume at /session, not a subtree of the agent volume. A
+        # fake that keeps the old shape would let the suite stay green over a
+        # regression -- exactly how the agent-files bug survived (see above).
+        return [f"/session/inputs/{f.filename}" for f in files]
 
     async def stage_skill_files(self, *, agent_id, files, manifest_sha):
         if self._skills_raise:
@@ -277,9 +281,9 @@ async def _note(monkeypatch, ws_files, attachments, bound=None, read_bytes=None)
 async def test_the_note_the_model_reads_carries_only_absolute_paths(monkeypatch) -> None:
     """AC-5. The note is the whole user-visible surface of this bug: the model is
     told where its files are, and until 2026-07-17 it was told `agent-files/x`,
-    which resolves under the kernel's cwd (`/workspace/sessions/{room}`) where
-    nothing is. Two staging trees at different depths feed one sentence, so the
-    only form that can be true for both is absolute.
+    which resolves under the kernel's cwd (`/session` since 2026-07-19) where
+    nothing is. Two staging trees on two different volumes feed one sentence, so
+    the only form that can be true for both is absolute.
     """
     note = await _note(
         monkeypatch,
@@ -289,7 +293,7 @@ async def test_the_note_the_model_reads_carries_only_absolute_paths(monkeypatch)
 
     assert note is not None
     assert "/workspace/agent-files/reports/q1.csv" in note
-    assert "/workspace/sessions/" in note
+    assert "/session/inputs/upload.csv" in note
     # No bare relative form survives. Asserted by scanning for the old prefix
     # rather than by splitting the note on "," — a filename may contain a comma,
     # so comma-splitting is not a real invariant of this format (FU-7).
@@ -916,6 +920,41 @@ async def test_no_files_stages_nothing_and_spawns_no_container(sandbox) -> None:
     assert sandbox.container.started is False
 
 
+async def test_kernel_inputs_mount_only_this_rooms_session_volume(sandbox) -> None:
+    """T-1/AC-3. The inputs stager must not mount the agent's shared volume.
+
+    Mounting it would put every other room's session tree inside a container
+    holding this room's attachments, which is the containment failure this task
+    exists to close ([R12.03b]).
+    """
+    agent_id, room = uuid.uuid4(), uuid.uuid4()
+    await sandbox.box.stage_kernel_inputs(agent_id=agent_id, chatroom_id=room, files=[_staged("x.py")])
+
+    volumes = sandbox.client.create_kwargs["volumes"]
+    assert volumes == {f"smap-agent-session-{agent_id}-{room}": {"bind": "/session", "mode": "rw"}}
+    # Named explicitly: the agent volume must appear nowhere in this container.
+    assert f"smap-agent-fs-{agent_id}" not in volumes
+    # And the archive extracts at the session root, not the workspace root.
+    assert [target for target, _ in sandbox.container.archives] == ["/session"]
+
+
+@pytest.mark.asyncio
+async def test_two_rooms_of_one_agent_get_different_session_volumes(sandbox) -> None:
+    """T-5/AC-3. The room boundary, stated as directly as a unit test can.
+
+    Two rooms of the same agent must never resolve to one another's storage.
+    """
+    agent_id, room_a, room_b = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+    await sandbox.box.stage_kernel_inputs(agent_id=agent_id, chatroom_id=room_a, files=[_staged("x.py")])
+    vol_a = set(sandbox.client.create_kwargs["volumes"])
+    await sandbox.box.stage_kernel_inputs(agent_id=agent_id, chatroom_id=room_b, files=[_staged("x.py")])
+    vol_b = set(sandbox.client.create_kwargs["volumes"])
+
+    assert vol_a.isdisjoint(vol_b)
+
+
+@pytest.mark.asyncio
 async def test_the_three_stagers_disagree_on_prefix_by_design(sandbox) -> None:
     """AC-40, rewritten — see D-37.
 
@@ -946,7 +985,11 @@ async def test_the_three_stagers_disagree_on_prefix_by_design(sandbox) -> None:
 
     assert skills == ["/workspace/skills/s/scripts/x.py"]
     assert files == ["/workspace/agent-files/x.py"]
-    assert inputs == [f"/workspace/sessions/{room}/inputs/x.py"]
+    # Since 2026-07-19-session-dir-room-isolation the inputs stager does not merely
+    # write a disjoint subtree — it writes a different volume, mounted at its own
+    # root. The separation is no longer a naming convention the code must keep.
+    assert inputs == ["/session/inputs/x.py"]
     # Same basename, three destinations, no overlap: none is a prefix of another.
-    roots = {p.split("/")[2] for p in skills + files + inputs}
-    assert roots == {"skills", "agent-files", "sessions"}
+    roots = {p.split("/")[1] for p in skills + files} | {p.split("/")[1] for p in inputs}
+    assert roots == {"workspace", "session"}
+    assert {p.split("/")[2] for p in skills + files} == {"skills", "agent-files"}

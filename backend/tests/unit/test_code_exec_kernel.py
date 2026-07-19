@@ -18,6 +18,10 @@ from typing import Any
 
 import pytest
 
+# Read from the backend, not hardcoded: a bump on one side of the contract must
+# not be able to leave these tests asserting the other side's old value.
+from contexts.agents.infrastructure.sandbox.docker_runsc import _KERNEL_PROTOCOL_VERSION as _PROTOCOL
+
 _KERNEL_PY = pathlib.Path(__file__).parents[3] / "deploy" / "sandbox" / "code-exec" / "kernel" / "kernel.py"
 
 
@@ -33,15 +37,80 @@ def _restore_cwd() -> Any:
 
 
 def _load_kernel(workspace: pathlib.Path, room: str, monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Import a fresh copy of the in-image kernel module pointed at *workspace*."""
-    monkeypatch.setenv("SMAP_KERNEL_WORKSPACE", str(workspace))
-    monkeypatch.setenv("SMAP_KERNEL_ROOM", room)
+    """Import a fresh copy of the in-image kernel module with its own session dir.
+
+    *room* only keeps the module name and the session dir distinct per test; the
+    kernel no longer derives either from a room id, since isolation now comes
+    from the mount rather than from a path segment ([R12.03b]).
+    """
+    session = workspace / room
+    monkeypatch.setenv("SMAP_KERNEL_SESSION", str(session))
     spec = importlib.util.spec_from_file_location(f"smap_kernel_{room}", _KERNEL_PY)
     assert spec is not None
     assert spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    # Harness guard: an env var the kernel stopped reading would silently send
+    # every one of these tests to the real "/session" on the host, where they
+    # would still pass. Caught exactly that way once.
+    assert session == mod._SESSION_DIR
     return mod
+
+
+def test_session_dir_comes_from_its_own_mount_not_the_workspace(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T-3. The session dir is a mount of its own, not a subdirectory of /workspace.
+
+    Room isolation is established by what the container mounts
+    (2026-07-19-session-dir-room-isolation): the per-agent volume carries no
+    room-scoped data, so deriving the session dir from it would re-open the
+    channel the mount split closes.
+    """
+    workspace = tmp_path / "workspace"
+    session = tmp_path / "session"
+    monkeypatch.setenv("SMAP_KERNEL_WORKSPACE", str(workspace))
+    monkeypatch.setenv("SMAP_KERNEL_SESSION", str(session))
+    spec = importlib.util.spec_from_file_location("smap_kernel_session_root", _KERNEL_PY)
+    assert spec is not None
+    assert spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    assert session / "inputs" == mod._INPUTS
+    assert session / "outputs" == mod._OUTPUTS
+    assert workspace not in mod._INPUTS.parents
+    assert workspace not in mod._OUTPUTS.parents
+
+
+def test_session_dir_defaults_to_the_session_mount_point(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The default must match what `_create_kernel` binds, or nothing resolves."""
+    monkeypatch.delenv("SMAP_KERNEL_SESSION", raising=False)
+    monkeypatch.delenv("SMAP_KERNEL_WORKSPACE", raising=False)
+    spec = importlib.util.spec_from_file_location("smap_kernel_default_session", _KERNEL_PY)
+    assert spec is not None
+    assert spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # Compare Path to Path: on a Windows host str() yields "\\session" for the
+    # same posix path the Linux image will see.
+    assert pathlib.Path("/session") == mod._SESSION_DIR
+
+
+def test_kernel_and_backend_agree_on_the_protocol_version(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-10. The two halves of the contract are versioned together.
+
+    This is the assertion the stamp exists for: the image and the backend ship
+    separately, and nothing in CI runs a container, so the repo itself is the
+    only place the two can be compared. Bumping one side alone fails here.
+    """
+    kernel = _load_kernel(tmp_path, "protocol", monkeypatch)
+    assert kernel.PROTOCOL_VERSION == _PROTOCOL
+    # And the stamp is actually on the wire, not merely declared.
+    assert kernel._run("pass", "", 5.0)["protocol"] == _PROTOCOL
 
 
 def test_namespace_persists_across_calls(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -101,7 +170,7 @@ def test_reply_to_result_parses_artifacts() -> None:
     from contexts.agents.infrastructure.sandbox.docker_runsc import DockerRunscSandbox
 
     art = {"filename": "f.png", "mime": "image/png", "size_bytes": 3, "rel_path": "/w/f.png", "b64": "AAA"}
-    reply = {"ok": True, "stdout": "hi", "stderr": "", "artifacts": [art]}
+    reply = {"protocol": _PROTOCOL, "ok": True, "stdout": "hi", "stderr": "", "artifacts": [art]}
     out = (0, json.dumps(reply).encode("utf-8"), b"")
     res = DockerRunscSandbox()._reply_to_result(out, restarted=False, start=0.0, session="a:b")
     assert res.ok is True
@@ -114,12 +183,43 @@ def test_reply_to_result_parses_artifacts() -> None:
 def test_reply_to_result_flags_restart_in_metadata() -> None:
     from contexts.agents.infrastructure.sandbox.docker_runsc import DockerRunscSandbox
 
-    reply = {"ok": True, "stdout": "v", "stderr": "", "artifacts": []}
+    reply = {"protocol": _PROTOCOL, "ok": True, "stdout": "v", "stderr": "", "artifacts": []}
     out = (0, json.dumps(reply).encode("utf-8"), b"")
     res = DockerRunscSandbox()._reply_to_result(out, restarted=True, start=0.0, session="x")
     # The restart rides in metadata; stdout stays the kernel's clean output.
     assert res.stdout == "v"
     assert res.metadata["restarted"] is True
+
+
+@pytest.mark.parametrize(
+    ("stamp", "case"),
+    [
+        (None, "old image: predates the stamp entirely"),
+        (_PROTOCOL - 1, "old image: stages inputs where this kernel does not look"),
+        (_PROTOCOL + 1, "new image: expects a mount this backend does not bind"),
+    ],
+)
+def test_reply_to_result_refuses_a_mismatched_kernel(stamp: int | None, case: str) -> None:
+    """AC-10. A backend/image mismatch fails loudly instead of reading wrong paths.
+
+    Both directions are silent without this: attachments staged where the kernel
+    never looks, or a session mount that was never bound. Both reach the user as
+    "the agent ignored my file", which is indistinguishable from a model failure.
+    """
+    from contexts.agents.infrastructure.sandbox.docker_runsc import DockerRunscSandbox
+
+    reply: dict[str, Any] = {"ok": True, "stdout": "leaked", "stderr": "", "artifacts": []}
+    if stamp is not None:
+        reply["protocol"] = stamp
+    out = (0, json.dumps(reply).encode("utf-8"), b"")
+    res = DockerRunscSandbox()._reply_to_result(out, restarted=False, start=0.0, session="x")
+
+    assert res.ok is False, case
+    assert res.metadata["protocol_mismatch"] is True
+    # The kernel's output must not be passed off as a successful result.
+    assert "leaked" not in res.stdout
+    # The message has to point at the deployment, or the operator debugs the model.
+    assert "image" in res.stderr
 
 
 def test_reply_to_result_handles_non_json() -> None:
