@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-07-19
 requirements: [R12.03, R12.03a, R12.03b, R31.22]
 ---
@@ -167,18 +167,23 @@ read-only filesystem error and step 2 to find nothing.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: T-1 and T-2 fail against current code and pass after the fix.
-- [ ] AC-2: `code_exec` can still **read** `/workspace` — `agent-files/`, `skills/`, and the `file`
-      tool's own state remain reachable by absolute path, which is what [R12.03] shares them for.
+- [x] AC-1: T-1 and T-2 fail against current code and pass after the fix. T-1 observed red as
+      `AssertionError: assert 'rw' == 'ro'`; T-2 red on the absent substring.
+- [x] AC-2: `code_exec` can still **read** `/workspace` — the mount is present, only its mode
+      changed, so `agent-files/`, `skills/` and the `file` tool's state stay reachable by absolute
+      path. (T-1 asserts the bind still exists; a `ro` bind is a readable one.)
 - [ ] AC-3: `code_exec` **cannot write** anywhere under `/workspace`; the §4 reproduction's step 1
-      fails (`/verify`).
-- [ ] AC-4: The `file` tool can still read *and write* — its container keeps `rw` (T-3), and
-      `op=write` still lands bytes on the volume.
-- [ ] AC-5: Artifacts still work — the agent writes `/session/outputs/...`, which is unaffected.
-- [ ] AC-6: The staging and purge containers keep `rw` (T-3); staging and the legacy purge still
-      function.
-- [ ] AC-7: `code_exec`'s description states the read-only rule and names the `file` tool as the
-      write path. Asserted by test.
+      fails. **Outstanding — needs `/verify`.** The wiring is pinned by T-1, but only a live
+      container proves the kernel enforces `ro`. Blocked on this host: gVisor is Linux-only and
+      `docker_runsc.py:620` rejects any runtime that is not `runsc`.
+- [x] AC-4: The `file` tool can still read *and write* — its container keeps `rw`
+      (`test_the_writing_containers_keep_read_write`).
+- [x] AC-5: Artifacts still work — `/session` stays `rw` (asserted in T-1 alongside the `ro`
+      assertion), and nothing in the artifact path touches `/workspace`.
+- [x] AC-6: The staging and purge containers keep `rw` (T-3 drives `run_file_op`,
+      `stage_agent_workspace_files` and `purge_legacy_session_dirs` for real and checks each).
+- [x] AC-7: `code_exec`'s description states the read-only rule and names the `file` tool as the
+      write path (`test_code_exec_description_states_the_workspace_is_read_only`).
 
 ## 11. SRS Delta
 
@@ -203,7 +208,21 @@ volume is writable from every chatroom's execution context…" with:
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+- **D-1.** §7.3 said the stale `Dockerfile` comments would be "corrected". They were rewritten
+  rather than patched: the original single claim ("writes land in /workspace (tmpfs) or /tmp only")
+  cannot be made true, because where writes land now depends on which of the two invocation paths
+  the host uses — run-and-burn gets a tmpfs `/workspace`, the live kernel gets a read-only
+  `/workspace` plus a writable `/session`. The `WORKDIR` was kept, not dropped as FU-3 suggested:
+  it is still correct for the run-and-burn path, and the comment now says so.
+
+**Build state (2026-07-19).** Landed in `<this commit>`. Gates: `pytest tests/unit` 5341 passed /
+6 skipped (pre-existing), `ruff check`, `ruff format --check`, `mypy .` (791 files) clean.
+Integration and wiring tiers not run (no local Postgres/Redis) and untouched by this diff.
+
+All ACs met except **AC-3**, which needs `/verify` on a Linux host with gVisor — the same blocker
+as the two other outstanding verifications. The diff is one bind mode, one description string, and
+one Dockerfile comment block; no image rebuild and no lockstep deploy, since `kernel.py` is
+untouched.
 
 ## 13. Follow-ups
 

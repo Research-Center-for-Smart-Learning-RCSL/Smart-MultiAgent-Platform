@@ -41,14 +41,18 @@ ENV PYTHONPATH=/opt/driver
 # path is unaffected — these files are inert unless the kernel command is used.
 COPY code-exec/kernel/ /opt/kernel/
 
-# Non-root (uid matches docker_runsc._SANDBOX_UID); read-only-rootfs compatible
-# — writes land in /workspace (tmpfs) or /tmp only.
+# Non-root (uid matches docker_runsc._SANDBOX_UID); read-only-rootfs compatible.
+# Where writes land depends on how the host invokes this image:
+#   - run-and-burn (`python -c`): /workspace is a tmpfs, plus /tmp.
+#   - live kernel: /session is this chatroom's own volume and is the only
+#     writable mount; /workspace is the agent volume, bound READ-ONLY ([R12.03]),
+#     and /tmp.
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin sandbox \
     && mkdir -p /workspace && chown 10001:10001 /workspace
 USER 10001
 
-# Run user code from the writable tmpfs so relative file writes land somewhere
-# the read-only root FS allows (the rest of the FS is mounted read-only).
+# Only the run-and-burn path uses this: the kernel chdirs to its session dir at
+# startup (kernel.py), where /workspace is read-only and would be the wrong cwd.
 WORKDIR /workspace
 
 # No ENTRYPOINT: the host supplies `python -c <source>` as the full command.

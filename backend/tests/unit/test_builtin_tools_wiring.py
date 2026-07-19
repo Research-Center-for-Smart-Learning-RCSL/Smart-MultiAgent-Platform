@@ -187,6 +187,16 @@ def test_code_exec_description_states_both_roots() -> None:
     assert "/workspace" in desc
 
 
+def test_code_exec_description_states_the_workspace_is_read_only() -> None:
+    """T-2/AC-7. The model must learn the restriction from the contract, not from
+    an OSError mid-task -- a discovered restriction costs a tool round against
+    MAX_TOOL_ROUNDS and invites the model to confabulate around it."""
+    desc = _tool_by_name("code_exec").description
+    assert "read-only" in desc.lower()
+    # And it must name where writes DO go, or the capability reads as lost.
+    assert "`file`" in desc or "file tool" in desc
+
+
 def test_file_description_states_its_workspace_root() -> None:
     """T-4, reciprocal half: `file`'s own root, plus the absolute form code_exec needs."""
     desc = _tool_by_name("file").description

@@ -1186,9 +1186,17 @@ class DockerRunscSandbox:
         # across its rooms, and THIS room's session at /session. The split is the
         # room boundary -- this container runs arbitrary code, so no path check
         # inside a single shared mount could hold ([R12.03b]).
+        #
+        # The agent volume is READ-ONLY here and nowhere else. This kernel writes
+        # nothing to it (kernel.py addresses only /session and /tmp), so the write
+        # bind served agent-authored code alone -- and that is precisely what let
+        # an agent copy room-scoped data onto agent-scoped storage and read it back
+        # in another room. Writes to agent state go through the `file` tool, which
+        # owns that region ([R12.03a]) and whose staged os.replace cannot plant the
+        # symlink that path-based guards here would then have to survive.
         host_config["network_mode"] = "none"
         host_config["volumes"] = {
-            _agent_volume_name(agent_id): {"bind": _VOLUME_ROOT, "mode": "rw"},
+            _agent_volume_name(agent_id): {"bind": _VOLUME_ROOT, "mode": "ro"},
             _session_volume_name(agent_id, chatroom_id): {"bind": _SESSION_ROOT, "mode": "rw"},
         }
         host_config["labels"] = {
