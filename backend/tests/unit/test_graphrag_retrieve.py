@@ -155,7 +155,15 @@ class _Hit:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "state",
-    [BuildState.RUNNING, BuildState.NEO4J_COMMITTED, BuildState.FAILED_COMPENSATING],
+    [
+        BuildState.RUNNING,
+        BuildState.NEO4J_COMMITTED,
+        BuildState.FAILED_COMPENSATING,
+        # Not mid-2PC but permanently inconsistent: compensation was impossible, so a
+        # partially-applied build sits in Neo4j forever
+        # (2026-07-17-graphrag-reset-expired-recovery AC-4).
+        BuildState.RECOVERY_UNAVAILABLE,
+    ],
 )
 async def test_query_gated_in_transient_build_states(state: BuildState) -> None:
     # F-10 §8.1 / AC-1, AC-2 (primary red-first): a config mid-2PC must yield an empty

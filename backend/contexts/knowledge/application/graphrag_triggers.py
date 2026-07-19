@@ -20,6 +20,11 @@ _COUNTER_TTL: Final = 86400 * 7
 _SILENCE_TS_TTL: Final = 86400 * 7
 _TRIGGERED_BY_EVERY_N: Final = "every_n_messages"
 _TRIGGERED_BY_SILENCE: Final = "silence_minutes"
+# Automatic triggers only. RECOVERY_UNAVAILABLE is deliberately excluded even though
+# the builder engine and the manual endpoint accept it: that state means a partially
+# applied build sits in Neo4j with no possible rollback, and silently rebuilding over
+# it on a message-count or silence timer would hide the inconsistency instead of
+# surfacing it. Recovery from that state must be a deliberate human action.
 _BUILDABLE_STATES: Final = frozenset({BuildState.IDLE, BuildState.FAILED})
 
 

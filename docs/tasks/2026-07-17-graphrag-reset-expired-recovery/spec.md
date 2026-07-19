@@ -235,8 +235,13 @@ platform-admin check, OpenAPI regeneration, and client regeneration as the exist
 - [ ] AC-4: `recovery_unavailable` is terminal, not endlessly retried, and blocks both the
   turn-context retrieval path and the graph visualization reads for Concept and Knowledge
   Maps; ordinary safe `FAILED` remains readable on both.
-- [ ] AC-5: Reconciler missing-pointer/snapshot outcomes use the new state, while the
-  successful-rollback path still lands in ordinary `FAILED`.
+- [x] AC-5: Reconciler missing-pointer/snapshot outcomes use the new state, while the
+  successful-rollback path still lands in ordinary `FAILED`. Verified by
+  `test_no_snapshot_compensation_audits_unavailable_not_rolled_back` (now asserts
+  `RECOVERY_UNAVAILABLE` and that a second sweep emits nothing) and the unchanged
+  `test_successful_compensation_finalizes_and_audits_rolled_back`, which still asserts
+  `FAILED`. `_finalize_failed` takes an explicit `state` so the three terminal paths can
+  no longer share one verdict by accident.
 - [ ] AC-6: Clean/reset-success idempotence, build-lock behavior, transient compensation
   retry, and documented `force=true` behavior remain unchanged.
 - [ ] AC-7: Migration, API/client generation, UI/i18n, focused tests, lint, format,
@@ -251,8 +256,13 @@ platform-admin check, OpenAPI regeneration, and client regeneration as the exist
   6-value enum, and left no orphan CHECK. `alembic check` reports zero drift for
   `last_build_state` and `build_state_valid` (the report's other entries are pre-existing
   partition/index noise unrelated to this change).
-- [ ] AC-9: A config in `recovery_unavailable` is not selected by the reconciler sweep and
+- [x] AC-9: A config in `recovery_unavailable` is not selected by the reconciler sweep and
   not auto-built by triggers, but IS accepted by manual rebuild and by the build engine.
+  Verified by `test_engine_gate_admits_recovery_unavailable` (parametrised over all six
+  states, asserting refused states are left untouched), `test_auto_triggers_refuse_recovery_unavailable`,
+  and `test_recovery_unavailable_is_read_blocked_but_not_swept`, which pins
+  `_STUCK_STATES` as a strict subset of `IN_FLIGHT_BUILD_STATES` so a future edit cannot
+  silently re-couple them.
 - [ ] AC-10: Knowledge Map exposes an `admin_reset` with the same platform-admin
   authorization, audit shape, 503 semantics, and `force=true` behavior as the Concept Map
   one; a Knowledge Map config can be driven out of `recovery_unavailable` by it.

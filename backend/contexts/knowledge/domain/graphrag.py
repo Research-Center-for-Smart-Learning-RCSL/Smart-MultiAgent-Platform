@@ -96,20 +96,31 @@ def build_state_check_sql(column: str = "last_build_state") -> str:
     return f"{column} IN (" + ", ".join(f"'{s.value}'" for s in BuildState) + ")"
 
 
-# The build states in which the graph is mid-2PC and therefore MUST NOT be read
-# (F-10): Phase-1 is committed to Neo4j but Phase-2 (Qdrant) is not yet durable,
-# or a Phase-2 failure is still owed compensation. A retrieval landing here could
-# surface edges from a build that later rolls back — exactly the non-atomic
-# intermediate state the 2PC exists to hide — so the read path returns an empty
-# bundle for these states and reads normally in steady idle/terminal states.
-# This coincides today with the reconciler's heal set (``_STUCK_STATES``) — both
-# are the in-flight/uncommitted trio — but is a distinct concept (read-safety,
-# not heal-selection); a future divergence must be a deliberate edit to each.
+# The build states whose graph MUST NOT be read. Two different reasons land here:
+#
+# - Mid-2PC (F-10): Phase-1 is committed to Neo4j but Phase-2 (Qdrant) is not yet
+#   durable, or a Phase-2 failure is still owed compensation. A retrieval landing
+#   here could surface edges from a build that later rolls back — exactly the
+#   non-atomic intermediate state the 2PC exists to hide.
+# - Irrecoverable (RECOVERY_UNAVAILABLE): compensation was never possible, so the
+#   graph holds a partially-applied build that no rollback will ever undo. Those
+#   facts were never meant to be visible and now never can be withdrawn.
+#
+# The read path returns an empty bundle for these and reads normally in steady
+# idle/terminal states — including ordinary FAILED, where the last good graph is
+# intact.
+#
+# This set NO LONGER coincides with the reconciler's heal set (``_STUCK_STATES``):
+# RECOVERY_UNAVAILABLE is read-blocked but deliberately not swept, because
+# retrying compensation without recovery material cannot succeed. That divergence
+# is the whole point of the two definitions being separate (read-safety here,
+# heal-selection there) — keep editing them independently.
 IN_FLIGHT_BUILD_STATES: frozenset[BuildState] = frozenset(
     {
         BuildState.RUNNING,
         BuildState.NEO4J_COMMITTED,
         BuildState.FAILED_COMPENSATING,
+        BuildState.RECOVERY_UNAVAILABLE,
     }
 )
 

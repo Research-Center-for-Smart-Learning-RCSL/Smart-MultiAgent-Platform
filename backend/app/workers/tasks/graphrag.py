@@ -357,7 +357,7 @@ async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
             # both reported "idle" and operators got no "stuck compensating"
             # signal. These labels mirror the real terminal states.
             def _set_state(active: str) -> None:
-                for s in ("idle", "running", "failed", "compensating"):
+                for s in ("idle", "running", "failed", "compensating", "recovery_unavailable"):
                     GRAPHRAG_BUILD_STATE.labels(
                         config_id=cfg_id_str,
                         state=s,
@@ -368,13 +368,33 @@ async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
                 "idle": "idle",
                 "failed": "failed",
                 "failed_compensating": "compensating",
+                # Its own label, never folded into "failed": this config's graph is
+                # irrecoverable and unreadable, which is an operator-actionable state.
+                "recovery_unavailable": "recovery_unavailable",
             }
+
+            def _metric_label(state_value: str) -> str:
+                """Metric label for a terminal state, loudly rather than silently.
+
+                The old `.get(..., "idle")` default reported any unmapped state as
+                healthy — the same class of bug audit M2 fixed. An unmapped state is
+                now logged and reported as "failed" so it can never read as healthy.
+                """
+                label = metric_state.get(state_value)
+                if label is None:
+                    _log.error(
+                        "graphrag_build: no metric label for terminal state %s; "
+                        "reporting as failed. Add it to metric_state.",
+                        state_value,
+                    )
+                    return "failed"
+                return label
 
             _set_state("running")
             try:
                 result = await builder.run(config_id=cfg_id, triggered_by=triggered_by)
                 await db.commit()
-                _set_state(metric_state.get(result.state.value, "idle"))
+                _set_state(_metric_label(result.state.value))
                 _log.info(
                     "graphrag_build done config=%s state=%s triples=%d entities=%d",
                     config_id,
