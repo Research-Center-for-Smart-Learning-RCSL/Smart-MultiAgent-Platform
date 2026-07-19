@@ -1,8 +1,16 @@
 """Charset rules for every author-controlled string a model or the UI will see (AC-30).
 
-Pure rules, and the same three entry points for each: create, update, and — when bundles
-land — import. A rule enforced at only some entry points is not a rule, and import is
-precisely the entry point whose author is a stranger (Q-2).
+Pure rules. A rule enforced at only some entry points is not a rule, so the enforcement
+point is `SkillService._insert`/`update` via :func:`assert_text_ok` — the layer create,
+copy, and bundle import all converge on. That is deliberate and was not always true: the
+rule used to be copied by hand into each writer, which held only for as long as every
+writer's author remembered, and the API and the bundle parser had already drifted to
+different length caps by the time it was fixed. The caps now live in `domain.models`
+for the same reason.
+
+The API's Pydantic validators and the bundle parser still call the rule themselves, and
+should: they can attach a field `loc` or a frontmatter key that the service-layer gate
+cannot. They are the good error; the gate is the guarantee.
 
 Two rule families, because two things reach the model:
   * :func:`text_rejection_reason` — `description`, `requires[]`, `allowed_tools[]`,
@@ -23,6 +31,8 @@ decision.
 from __future__ import annotations
 
 import unicodedata
+
+from contexts.skills.domain.errors import SkillTextRejected
 
 # Both index-frame delimiters share this prefix, so one check covers them and any future
 # variant. Defined here rather than in `index_builder` because the *rejection* is a
@@ -140,6 +150,24 @@ def text_rejection_reason(value: str, *, max_chars: int) -> str | None:
     return None
 
 
+def assert_text_ok(field: str, value: str, *, max_chars: int) -> None:
+    """Raise `SkillTextRejected` if `value` is unacceptable in `field`.
+
+    The raising idiom, for callers that are not parsing a document and have no key or
+    `loc` to attach. `SkillService` uses it as the gate every write crosses, which is what
+    makes the module docstring's "the same three entry points" true of the code rather
+    than of a convention each writer had to remember: `copy` moves text between scopes
+    without it ever passing a request model, and the importer's own checks are its own.
+
+    The reason wording stays in `text_rejection_reason` and is not restated here. A caller
+    that formats its own message would drift from the API's, and the whole point of the
+    codepoint in the reason is that it is identical wherever the rejection surfaces.
+    """
+    reason = text_rejection_reason(value, max_chars=max_chars)
+    if reason is not None:
+        raise SkillTextRejected(field, reason)
+
+
 # --------------------------------------------------------------------------- #
 # File paths (AC-18 / AC-30 / R31.19)                                          #
 # --------------------------------------------------------------------------- #
@@ -235,6 +263,7 @@ __all__ = [
     "INDEX_DELIMITER_MARKER",
     "MAX_FILE_PATH_CHARS",
     "SKILL_BODY_PATH",
+    "assert_text_ok",
     "contains_delimiter",
     "path_collision_key",
     "skill_file_path_reason",

@@ -42,6 +42,9 @@ _SKILL_ID = uuid.uuid4()
         (errors.SkillScopeMismatch("project_scope_mismatch"), 404),
         (errors.SkillScopeMismatch("org_scope_mismatch"), 404),
         (errors.SkillScopeMismatch("agent_scope_mismatch"), 404),
+        # 422 matches what the Pydantic path already returns for the same rejection, so
+        # the request boundary and the service-layer gate agree on the answer.
+        (errors.SkillTextRejected("description", "contains a zero-width character (U+200B)"), 422),
     ],
 )
 def test_skill_errors_map_to_intended_status(exc: Exception, expected_status: int) -> None:
@@ -76,6 +79,34 @@ def test_the_arms_that_describe_the_callers_own_project_still_explain_themselves
     exc = errors.SkillContainmentFailed("project_individually_owned")
 
     assert _extras(exc) == {"reason": "project_individually_owned"}
+
+
+def test_a_rejected_text_field_carries_both_the_field_and_the_codepoint() -> None:
+    """`field` alone would not be actionable. Every character this rule rejects is
+    invisible in whatever produced it, so the codepoint in `reason` is the only handle the
+    author has for finding it -- which is why both travel to the client."""
+    exc = errors.SkillTextRejected("description", "contains a zero-width character (U+200B)")
+
+    assert _extras(exc) == {
+        "field": "description",
+        "reason": "contains a zero-width character (U+200B)",
+    }
+    slug, status, _title = resolve_spec(exc, _MAP)
+    assert (slug, status) == ("skills/text-rejected", 422)
+
+
+def test_text_rejection_does_not_disturb_the_mro_arms_it_sits_beside() -> None:
+    """`SkillTextRejected` is a direct `SkillError` subclass, so it shares no ancestor with
+    the `SkillScopeMismatch`/`SkillContainmentFailed` pair whose dispatch order is
+    load-bearing. Pinned because a future edit making it a subclass of either -- to reuse
+    `reason` -- would silently re-point those arms."""
+    assert not issubclass(errors.SkillTextRejected, errors.SkillContainmentFailed)
+    assert not issubclass(errors.SkillContainmentFailed, errors.SkillTextRejected)
+
+    # The neighbours still resolve as before.
+    assert resolve_spec(errors.SkillScopeMismatch("org_scope_mismatch"), _MAP)[1] == 404
+    assert resolve_spec(errors.SkillContainmentFailed("agent_gone"), _MAP)[1] == 403
+    assert _extras(errors.SkillScopeMismatch("org_scope_mismatch")) == {}
 
 
 def test_a_scope_mismatch_is_still_caught_as_a_containment_failure() -> None:

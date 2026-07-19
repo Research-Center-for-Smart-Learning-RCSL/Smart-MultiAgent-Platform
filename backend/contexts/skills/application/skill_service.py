@@ -24,7 +24,16 @@ from contexts.skills.domain.errors import (
     SkillRestoreConflict,
     SkillVersionMismatch,
 )
-from contexts.skills.domain.models import Skill, SkillDraft, SkillScope, SkillSource
+from contexts.skills.domain.models import (
+    MAX_DESCRIPTION_CHARS,
+    MAX_NAME_CHARS,
+    MAX_TOOL_NAME_CHARS,
+    Skill,
+    SkillDraft,
+    SkillScope,
+    SkillSource,
+)
+from contexts.skills.domain.text_rules import assert_text_ok
 from contexts.skills.infrastructure.repositories import (
     SkillBindingRepository,
     SkillRepository,
@@ -40,6 +49,34 @@ def body_sha256(body: str) -> str:
     read at T and updated at T±1, never which bytes ran.
     """
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def _assert_text_fields_ok(
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    requires: tuple[str, ...] | None = None,
+    allowed_tools: tuple[str, ...] | None = None,
+) -> None:
+    """Run the charset rule over every model-facing field of a write.
+
+    **This is the gate the rule's coverage depends on** (`text_rules`). The API's Pydantic
+    validators cover text arriving in a request body, but `copy`'s text comes from a stored
+    row and the importer's from a stranger's file — neither crosses a request model, and
+    the rule used to hold only where each writer's author remembered to call it.
+
+    `None` means "not part of this write" and is skipped, so a patch touching one field
+    does not fail on the fields it omits. `body` is deliberately absent: it is multi-line
+    markdown and the rule rejects newlines, so applying it here would reject every real
+    skill (Q-1). `body` is capped at the API instead and never enters the index.
+    """
+    if name is not None:
+        assert_text_ok("name", name, max_chars=MAX_NAME_CHARS)
+    if description is not None:
+        assert_text_ok("description", description, max_chars=MAX_DESCRIPTION_CHARS)
+    for field, values in (("requires", requires), ("allowed_tools", allowed_tools)):
+        for value in values or ():
+            assert_text_ok(field, value, max_chars=MAX_TOOL_NAME_CHARS)
 
 
 class SkillService:
@@ -135,6 +172,13 @@ class SkillService:
         `create` and `copy` share this so a copy records exactly one event
         (`skill.copied`) rather than a `skill.created` immediately shadowed by it.
         """
+        _assert_text_fields_ok(
+            name=name,
+            description=description,
+            requires=requires,
+            allowed_tools=allowed_tools,
+        )
+
         if await self._skills.get_by_name(scope=scope, owner_id=owner_id, name=name) is not None:
             raise SkillNameTaken(name)
 
@@ -170,6 +214,14 @@ class SkillService:
         request_id: uuid.UUID | None = None,
     ) -> Skill:
         """Patch a skill. `name` is not patchable — see `SkillDraft`."""
+        # Only what the draft carries: every field is optional on a patch, so validating
+        # an absent one would fail on `None` rather than on any rule.
+        _assert_text_fields_ok(
+            description=draft.description,
+            requires=draft.requires,
+            allowed_tools=draft.allowed_tools,
+        )
+
         current = await self._assert_owned(skill_id, scope, owner_id=owner_id)
         self._assert_version(current, expected_version)
 

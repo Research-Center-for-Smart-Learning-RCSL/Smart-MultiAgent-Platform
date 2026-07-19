@@ -118,6 +118,24 @@ class SkillVersionMismatch(SkillError):
         self.current = current
 
 
+class SkillTextRejected(SkillError):
+    """A model-or-UI-facing string failed the charset rule at the write. 422.
+
+    Raised by `text_rules.assert_text_ok`, which is the service-layer gate every write
+    crosses — not the API's Pydantic validators, which produce their own per-field 422
+    with a `loc` and are kept for that reason. Reaching this class means the write came
+    from somewhere other than a request body: a `copy` carrying a source row's text, or
+    an importer. `field` and `reason` both travel because the offending character is by
+    definition invisible in whatever produced it, so the codepoint in `reason` is the
+    only actionable handle a caller has.
+    """
+
+    def __init__(self, field: str, reason: str) -> None:
+        super().__init__(f"{field} {reason}")
+        self.field = field
+        self.reason = reason
+
+
 class BundleInvalid(SkillError):
     """A bundle violated the layout, limits, or frontmatter rules ([R31.19]/[R31.29])."""
 
@@ -218,6 +236,7 @@ __all__ = [
     "SkillNotFound",
     "SkillRequiresToolMissing",
     "SkillRestoreConflict",
+    "SkillTextRejected",
     "SkillUnreadable",
     "SkillVersionMismatch",
 ]
