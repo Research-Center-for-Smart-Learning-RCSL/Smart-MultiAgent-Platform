@@ -66,6 +66,17 @@ _SANDBOX_UID = 10001
 # three (see 2026-07-17-sandbox-guest-container-tests). Other `/workspace`
 # literals in this module predate the constant and are not in this fix's scope.
 _VOLUME_ROOT = "/workspace"
+# Where a chatroom's own session volume is mounted. Deliberately NOT under
+# `_VOLUME_ROOT`: the kernel runs arbitrary code, so a room boundary inside a
+# shared mount is unenforceable ([R12.03b]). A separate root also fails closed --
+# an unmounted session is an absent directory, where a nested one would silently
+# expose whatever the per-agent volume happens to hold at that path.
+_SESSION_ROOT = "/session"
+# Host/kernel contract version; must equal `kernel.PROTOCOL_VERSION` in the
+# code-exec image. Neither direction of a mismatched deploy degrades safely, so
+# the host refuses a stamp it does not recognise rather than reading the wrong
+# paths (2026-07-19-session-dir-room-isolation Q-7).
+_KERNEL_PROTOCOL_VERSION = 2
 _MEMORY = "512m"
 _CPUS = 0.5
 _PIDS_LIMIT = 128
@@ -248,6 +259,28 @@ def _tar_staged_inputs(
             tar.addfile(info, io.BytesIO(f.data))
             staged.append(member)
     return buf.getvalue(), staged
+
+
+def _agent_volume_name(agent_id: uuid.UUID) -> str:
+    """The per-agent volume: `file`-tool state, `agent-files/`, `skills/` ([R12.03])."""
+    return f"smap-agent-fs-{agent_id}"
+
+
+def _session_volume_name(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
+    """The per-(agent, chatroom) volume: staged `inputs/`, generated `outputs/`.
+
+    Separate from the agent volume so that one chatroom's attachments and
+    artifacts are not reachable from another ([R12.03b]). Note `agent_fs_gc`
+    parses both names — a change here needs a change there, or the volumes leak.
+    """
+    return f"smap-agent-session-{agent_id}-{chatroom_id}"
+
+
+def _session_abspath(member: str) -> str:
+    """Absolute form of a session-relative tar member, for the model's note."""
+    import posixpath
+
+    return posixpath.join(_SESSION_ROOT, member)
 
 
 def _workspace_abspath(member: str) -> str:
@@ -804,7 +837,7 @@ class DockerRunscSandbox:
         await self._ensure_runtime_ready()
         async with _get_semaphore():
             client = self._client()
-            volume = f"smap-agent-fs-{agent_id}"
+            volume = _agent_volume_name(agent_id)
             host_config = self._base_host_config()
             # M19: file_op needs no network — isolate completely.
             host_config["network_mode"] = "none"
@@ -1063,6 +1096,32 @@ class DockerRunscSandbox:
                 duration_ms=_ms_since(start),
                 metadata={"session": session, "restarted": restarted},
             )
+        protocol = reply.get("protocol")
+        if protocol != _KERNEL_PROTOCOL_VERSION:
+            # A stale image on either side is otherwise silent: the host stages
+            # inputs where the kernel does not look, or the kernel looks at a
+            # mount the host did not bind, and both present to the user as "the
+            # agent ignored my file". Refuse instead of answering from the wrong
+            # paths (Q-7). Nothing in CI runs a container, so this assertion is
+            # the only thing standing between a tag drift and silent data loss.
+            _log.error(
+                "code-exec kernel protocol mismatch: image reports %r, backend expects %r",
+                protocol,
+                _KERNEL_PROTOCOL_VERSION,
+            )
+            return ToolCallResult(
+                ok=False,
+                stdout="",
+                stderr=(
+                    "code_exec is unavailable: the sandbox image and the server disagree "
+                    "on their interface. This is a deployment fault, not a problem with "
+                    "your code; the administrator needs to align the smap/code-exec image "
+                    "with the running server."
+                ),
+                exit_code=1,
+                duration_ms=_ms_since(start),
+                metadata={"session": session, "restarted": restarted, "protocol_mismatch": True},
+            )
         ok = bool(reply.get("ok"))
         # The restart signal rides in metadata (not concatenated into stdout) so
         # the kernel's own output stays clean; the tool layer surfaces it.
@@ -1116,12 +1175,17 @@ class DockerRunscSandbox:
     async def _create_kernel(
         self, client: Any, *, agent_id: uuid.UUID, chatroom_id: uuid.UUID, name: str
     ) -> Any:
-        volume = f"smap-agent-fs-{agent_id}"
         host_config = self._base_host_config()
-        # No network, persistent per-agent volume at /workspace, kernel label so
-        # the smap.sandbox orphan sweep never reaps a live kernel.
+        # No network, kernel label so the smap.sandbox orphan sweep never reaps a
+        # live kernel. Two volumes: the agent's own state at /workspace, shared
+        # across its rooms, and THIS room's session at /session. The split is the
+        # room boundary -- this container runs arbitrary code, so no path check
+        # inside a single shared mount could hold ([R12.03b]).
         host_config["network_mode"] = "none"
-        host_config["volumes"] = {volume: {"bind": "/workspace", "mode": "rw"}}
+        host_config["volumes"] = {
+            _agent_volume_name(agent_id): {"bind": _VOLUME_ROOT, "mode": "rw"},
+            _session_volume_name(agent_id, chatroom_id): {"bind": _SESSION_ROOT, "mode": "rw"},
+        }
         host_config["labels"] = {
             _KERNEL_LABEL: "1",
             "smap.kernel.session": _session_key(agent_id, chatroom_id),
@@ -1130,7 +1194,9 @@ class DockerRunscSandbox:
             client,
             image=self.code_exec_image,
             command=["python", "/opt/kernel/kernel.py"],
-            environment={"SMAP_AGENT_ID": str(agent_id), "SMAP_KERNEL_ROOM": str(chatroom_id)},
+            # No room id: the kernel no longer derives a path from one, so passing
+            # it would only invite a second, unenforced notion of which room this is.
+            environment={"SMAP_AGENT_ID": str(agent_id)},
             user=_SANDBOX_UID,
             tmpfs={"/tmp": f"size={_TMP_TMPFS_BYTES}"},  # noqa: S108 — in-container tmpfs
             name=name,
@@ -1178,27 +1244,30 @@ class DockerRunscSandbox:
         chatroom_id: uuid.UUID,
         files: Sequence[StagedFile],
     ) -> list[str]:
-        """Copy user-uploaded files into the session's kernel inputs dir.
+        """Copy user-uploaded files into this chatroom's own session volume.
 
-        Writes ``/workspace/sessions/{room}/inputs/{file}`` on the per-agent
-        volume via a short-lived (no-network) container's ``put_archive`` — the
-        same volume the live kernel mounts, so ``code_exec`` can read them.
+        Writes ``/session/inputs/{file}`` via a short-lived (no-network)
+        container's ``put_archive`` — the same volume the live kernel binds at
+        ``/session``, so ``code_exec`` can read them.
 
-        Returns absolute paths (``/workspace/sessions/{room}/inputs/x``). They go
-        into a note the model reads, and the kernel runs with its cwd set to the
-        session dir (``kernel.py``) while the ``file`` tool roots relative paths
-        at ``/workspace`` — so only an absolute path means the same file to both.
+        Mounts only the session volume, never the per-agent one: an attachment
+        belongs to the room it was uploaded in, and the room's members are not
+        the agent's other rooms' members ([R12.03b]).
+
+        Returns absolute paths (``/session/inputs/x``). They go into a note the
+        model reads, and the kernel runs with its cwd at ``/session`` while the
+        ``file`` tool roots relative paths at ``/workspace`` — so only an
+        absolute path means the same file to both.
         """
         if not files:
             return []
         await self._ensure_runtime_ready()
         client = self._client()
-        volume = f"smap-agent-fs-{agent_id}"
-        rel_dir = f"sessions/{chatroom_id}/inputs"
-        archive, staged = _tar_staged_inputs(rel_dir, files)
+        volume = _session_volume_name(agent_id, chatroom_id)
+        archive, staged = _tar_staged_inputs("inputs", files)
         host_config = self._base_host_config()
         host_config["network_mode"] = "none"
-        host_config["volumes"] = {volume: {"bind": _VOLUME_ROOT, "mode": "rw"}}
+        host_config["volumes"] = {volume: {"bind": _SESSION_ROOT, "mode": "rw"}}
         async with _get_semaphore():
             container = await asyncio.to_thread(
                 client.containers.create,
@@ -1211,10 +1280,10 @@ class DockerRunscSandbox:
             try:
                 await self._assert_runsc(container)
                 # put_archive extracts into the mounted volume; no need to run.
-                await asyncio.to_thread(container.put_archive, _VOLUME_ROOT, archive)
+                await asyncio.to_thread(container.put_archive, _SESSION_ROOT, archive)
             finally:
                 await self._remove_quietly(container)
-        return [_workspace_abspath(p) for p in staged]
+        return [_session_abspath(p) for p in staged]
 
     async def _stage_tree(
         self,
@@ -1252,7 +1321,7 @@ class DockerRunscSandbox:
 
         await self._ensure_runtime_ready()
         client = self._client()
-        volume = f"smap-agent-fs-{agent_id}"
+        volume = _agent_volume_name(agent_id)
         archive, raw_staged = _tar_staged_inputs(rel_dir=rel_dir, files=files, preserve_tree=True)
         # The prune needs the desired-path set. Carry it in a tiny manifest (KBs, not the
         # 128 MiB archive) put beside the files; a per-call uuid name keeps concurrent

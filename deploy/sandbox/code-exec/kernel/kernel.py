@@ -12,8 +12,10 @@ network (the container runs ``network_mode=none``); matplotlib is forced to the
 headless ``Agg`` backend and open figures are captured as PNG artifacts after
 each call.
 
-Paths are env-overridable (``SMAP_KERNEL_WORKSPACE`` / ``SMAP_KERNEL_ROOM``) so
-the pure ``_run`` helper is unit-testable off a real container.
+The session directory is env-overridable (``SMAP_KERNEL_SESSION``) so the pure
+``_run`` helper is unit-testable off a real container. It is a mount of its own,
+not a path under the agent volume: this module executes arbitrary code, so a room
+boundary expressed as a subdirectory of a shared mount could not hold ([R12.03b]).
 """
 
 from __future__ import annotations
@@ -34,11 +36,18 @@ import uuid
 from typing import Any
 
 _SOCK = os.environ.get("SMAP_KERNEL_SOCK", "/tmp/smap-kernel.sock")  # noqa: S108 — in-container tmpfs
-_WORKSPACE = pathlib.Path(os.environ.get("SMAP_KERNEL_WORKSPACE", "/workspace"))
-_ROOM = os.environ.get("SMAP_KERNEL_ROOM", "default")
-_SESSION_DIR = _WORKSPACE / "sessions" / _ROOM
+# The session dir is its own mount, not a subdirectory of the agent volume: room
+# isolation is established by what the container mounts, since this kernel runs
+# arbitrary code and cannot be confined by a path check ([R12.03b]).
+_SESSION_DIR = pathlib.Path(os.environ.get("SMAP_KERNEL_SESSION", "/session"))
 _OUTPUTS = _SESSION_DIR / "outputs"
 _INPUTS = _SESSION_DIR / "inputs"
+
+# Bumped whenever the host/kernel contract changes shape. The host refuses a
+# kernel whose stamp it does not know, because both directions of a mismatched
+# deploy are otherwise silent: a host writing inputs where this kernel does not
+# look, or this kernel looking at a mount the host did not bind.
+PROTOCOL_VERSION = 2
 
 # Inline small artifacts as base64 in the reply; larger ones are read from the
 # volume host-side. Keeps the exec reply bounded.
@@ -148,6 +157,7 @@ def _run(code: str, stdin: str, timeout_s: float) -> dict[str, Any]:
         sys.stdin = real_stdin
     _capture_figures()
     return {
+        "protocol": PROTOCOL_VERSION,
         "ok": ok,
         "stdout": out.getvalue(),
         "stderr": err.getvalue(),
