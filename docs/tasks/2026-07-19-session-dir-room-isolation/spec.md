@@ -380,8 +380,8 @@ untouched by this diff.
 3. Definition-of-Done gates 5 and 6 (`check-quality`, `check-security`) have not been run on this
    diff.
 
-**Housekeeping:** `C:\session\` on the developer machine is debris from the D-4 bug and should be
-deleted manually; the sandbox refuses drive-root removals.
+**Housekeeping:** the `C:\session\` debris from the D-4 bug was removed by the user on 2026-07-19.
+Nothing writes there any more — the harness assertion added in D-4 fails the run instead.
 
 ## 13. Follow-ups
 
