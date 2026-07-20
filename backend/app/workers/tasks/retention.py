@@ -20,7 +20,7 @@ from typing import Any
 
 import sqlalchemy as sa
 from loguru import logger
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from contexts.agents.infrastructure.tables import agents as agents_tbl
 from contexts.conversation.application.retention_service import RetentionService
@@ -214,22 +214,39 @@ async def _purge_soft_deleted_tenancy(session: AsyncSession) -> int:
     sm = get_sessionmaker()
     committed_project_ids: set[uuid.UUID] = set()
     total = 0
+    # `session` is deliberately unused for the destructive work: it belongs to
+    # `retention_sweep`'s transaction, which must not stay open across the
+    # MinIO/Qdrant calls below. The parameter stays because `_POLICIES` calls
+    # every policy the same way.
     async with sm() as del_session, del_session.begin():
+        # Read the doomed org ids ONCE and reuse this literal list for both the
+        # membership capture and the delete. Re-running the predicate would be a
+        # second READ COMMITTED snapshot: an org that became eligible in between
+        # would be deleted without appearing in the mapping, and its
+        # cascade-deleted projects would never be torn down. (An org *restored*
+        # in between is still safe — the delete re-checks `conds` and simply
+        # returns fewer rows than were mapped.)
+        org_ids = list(
+            (
+                await del_session.execute(
+                    sa.select(orgs_tbl.c.id).where(org_conds).order_by(orgs_tbl.c.id).limit(200)
+                )
+            )
+            .scalars()
+            .all()
+        )
         # Capture org -> project membership BEFORE the org delete: an org-owned
         # project vanishes by FK cascade, so after the delete there is no row
         # left to attribute to the returned org id.
         org_projects: dict[uuid.UUID, set[uuid.UUID]] = {}
-        # Ordered so this batch and the org delete below pick the *same* 200 rows:
-        # an unordered LIMIT may return a different subset per evaluation, which
-        # would leave a returned org with no captured projects to tear down.
-        org_batch = sa.select(orgs_tbl.c.id).where(org_conds).order_by(orgs_tbl.c.id).limit(200)
-        rows = await del_session.execute(
-            sa.select(projects_tbl.c.id, projects_tbl.c.owner_org_id).where(
-                projects_tbl.c.owner_org_id.in_(org_batch)
+        if org_ids:
+            rows = await del_session.execute(
+                sa.select(projects_tbl.c.id, projects_tbl.c.owner_org_id).where(
+                    projects_tbl.c.owner_org_id.in_(org_ids)
+                )
             )
-        )
-        for pid, oid in rows.all():
-            org_projects.setdefault(oid, set()).add(pid)
+            for pid, oid in rows.all():
+                org_projects.setdefault(oid, set()).add(pid)
 
         for tbl in _SOFT_DELETE_TABLES:
             conds = [tbl.c.deleted_at.is_not(None), tbl.c.deleted_at < cutoff]
@@ -239,8 +256,13 @@ async def _purge_soft_deleted_tenancy(session: AsyncSession) -> int:
                 conds.append(~project_retained)
             elif tbl is orgs_tbl:
                 conds.append(~org_retained)
-            batch = sa.select(tbl.c.id).where(sa.and_(*conds)).order_by(tbl.c.id).limit(200)
-            stmt = sa.delete(tbl).where(sa.and_(*conds, tbl.c.id.in_(batch)))
+            if tbl is orgs_tbl:
+                # The same ids the mapping was built from, not a re-evaluation.
+                stmt = sa.delete(tbl).where(sa.and_(*conds, tbl.c.id.in_(org_ids)))
+            else:
+                # A subquery is safe here: one statement, one snapshot.
+                batch = sa.select(tbl.c.id).where(sa.and_(*conds)).order_by(tbl.c.id).limit(200)
+                stmt = sa.delete(tbl).where(sa.and_(*conds, tbl.c.id.in_(batch)))
             # Only the two tables that own external data need their ids back.
             if tbl is orgs_tbl or tbl is projects_tbl:
                 deleted = (await del_session.execute(stmt.returning(tbl.c.id))).scalars().all()
@@ -253,27 +275,24 @@ async def _purge_soft_deleted_tenancy(session: AsyncSession) -> int:
             else:
                 result = await del_session.execute(stmt)
                 total += result.rowcount or 0
+        # Same transaction as the deletes it counts, per `audit.emit`'s contract:
+        # the trail must never omit an erasure the database kept.
+        await _emit_summary(del_session, "retention.soft_deleted.swept", total)
+    # `emit` queues its realtime tail event on the session that wrote the row, and
+    # `retention_sweep` only flushes the policy session — publish this one's here
+    # or the audit stream silently loses every event this policy emitted. Safe
+    # after close: the flush reads `session.info` and talks to Redis, not the DB.
+    await audit.flush_tail_events(del_session)
 
     # Past this point the deletes are committed and no restore can revive them.
     if committed_project_ids:
-        purged = await _teardown_committed_projects(sm, committed_project_ids)
-        await audit.emit(
-            session,
-            audit.AuditEvent(
-                action="retention.rag_source_infra.torn_down",
-                metadata={
-                    "projects_committed": len(committed_project_ids),
-                    "projects_purged": purged,
-                    # Non-zero means the backstop sweep still owes this pass.
-                    "projects_owed": len(committed_project_ids) - purged,
-                },
-            ),
-        )
-    await _emit_summary(session, "retention.soft_deleted.swept", total)
+        await _teardown_committed_projects(sm, committed_project_ids)
     return total
 
 
-async def _teardown_committed_projects(sm: Any, project_ids: set[uuid.UUID]) -> int:
+async def _teardown_committed_projects(
+    sm: async_sessionmaker[AsyncSession], project_ids: set[uuid.UUID]
+) -> int:
     """Erase source infra for projects whose hard delete already committed (F-7).
 
     Runs in its own transaction, opened after the delete committed, so the
@@ -285,20 +304,44 @@ async def _teardown_committed_projects(sm: Any, project_ids: set[uuid.UUID]) -> 
     """
     from contexts.knowledge.interfaces.facade import KnowledgeFacade
 
+    purged = 0
+    td_session = None
     try:
         async with sm() as td_session, td_session.begin():
-            return await KnowledgeFacade(td_session).purge_project_source_infra_batch(
+            purged = await KnowledgeFacade(td_session).purge_project_source_infra_batch(
                 project_ids, source="retention"
+            )
+            # In the same transaction as the per-project purge audits it summarises.
+            await audit.emit(
+                td_session,
+                audit.AuditEvent(
+                    action="retention.rag_source_infra.torn_down",
+                    metadata={
+                        "projects_committed": len(project_ids),
+                        "projects_purged": purged,
+                        # Non-zero means the backstop sweep still owes this pass.
+                        "projects_owed": len(project_ids) - purged,
+                    },
+                ),
             )
     except Exception:
         # The batch isolates per-project failures internally (and reports the
         # partial verdict itself); this only covers a catastrophic failure, e.g.
-        # Qdrant client construction.
+        # Qdrant client construction. `purged` is already set when the external
+        # work succeeded and only the commit failed — report what was actually
+        # destroyed rather than claiming it is all still owed, because those
+        # blobs are gone whether or not the audit row survived.
         logger.bind(
             event="retention_rag_source_teardown_failed",
             projects_committed=len(project_ids),
-        ).opt(exception=True).warning("rag source teardown batch failed; orphan sweep will reclaim")
-        return 0
+            projects_purged=purged,
+        ).opt(exception=True).warning(
+            "rag source teardown batch failed; orphan sweep will reclaim the remainder"
+        )
+    if td_session is not None:
+        # Same reason as the delete session: nobody else flushes this one's queue.
+        await audit.flush_tail_events(td_session)
+    return purged
 
 
 _TEARDOWN_RETRY_BATCH = 50

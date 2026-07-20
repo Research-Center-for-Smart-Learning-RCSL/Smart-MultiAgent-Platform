@@ -191,10 +191,38 @@ None. This restores [R8.12], [R8.13], [R10.06], and [R11.12].
   (`backend/contexts/knowledge/interfaces/facade.py:460-518`), so the two paths cannot drift.
   The orphan sweep gains the same partial warning. Callers keep only their catastrophic-failure
   handling, which genuinely differs (own transaction vs. request session rollback).
-- D-4: not in the spec. The retention delete batches evaluated unordered `LIMIT 200` twice —
-  once for the org-to-project mapping read, once for the org delete — and Postgres may answer
-  the two with different subsets. Past 200 eligible orgs a returned org could carry no captured
-  projects. Both batches now `ORDER BY id`.
+- D-4: not in the spec. The org-to-project mapping read and the org delete each evaluated the
+  same eligibility predicate, so they were two READ COMMITTED snapshots: an org that became
+  eligible in between would be deleted without appearing in the mapping, and its
+  cascade-deleted projects would never be torn down. Both sites now read the doomed org ids
+  once and reuse that literal list, re-checking the conditions inside the delete so a restore
+  in between is still honoured. Applies to retention and to admin GDPR deletion.
+- D-6: not in the spec, found in review. `prepare_hard_delete` set `owner_user_id = NULL` on
+  every surviving project of the deleted user, which violates the `projects_owner_xor` check
+  constraint (migration 0002) for a project with no `owner_org_id`. Admin GDPR hard-delete
+  therefore aborted with `CheckViolationError`, a 500, for exactly the "cascade was incomplete"
+  case the method's docstring says it handles. Reassigning the owner alone would have traded
+  that for a `uq_projects_user_name` violation whenever the admin already owned a same-named
+  live project, so the statement now reassigns *and* soft-deletes: the XOR is satisfied and the
+  row leaves that partial unique index, which covers only live rows. Agreed with the user, who
+  chose this over renaming on collision. It is also the more honest outcome, since the owner
+  has been erased and the project should enter the normal recovery window rather than silently
+  become the admin's.
+- D-7: not in the spec, found in review. The sweep-count audit was written on the policy
+  session while the deletes had moved to their own transaction, so a failure of the outer
+  transaction would keep the deletions but lose the record of them. `audit.emit`'s contract
+  (`backend/shared_kernel/audit.py:116-122`) is that the audit write shares the unit of work
+  with the domain change; the summary now commits with the deletes, and the teardown summary
+  with the per-project purge audits it describes.
+- D-8: not in the spec, found in review. `_teardown_committed_projects` returned 0 when only
+  the commit failed, so the audit claimed every project was still owed after its blobs had
+  already been destroyed. It now reports the count actually purged.
+- D-9: consequence of D-7, caught in self-audit. `audit.emit` queues a realtime tail event on
+  whichever session wrote the row (`backend/shared_kernel/audit.py:137`), and `retention_sweep`
+  flushes only the policy session it passed in. Moving the audits onto the sessions this policy
+  opens for itself therefore dropped them from the audit stream while still writing the rows.
+  Both sessions are now flushed explicitly, pinned by
+  `TestTenancySweepFlushesItsAuditTail`. See FU-11 for the same latent gap elsewhere.
 - D-5: not in the spec. A catastrophic teardown on the admin path left its partial audit writes
   on the request session and swallowed the error, so `db_session`'s trailing commit raised and
   turned an already-committed GDPR purge into a 500. The handler now rolls back first.
@@ -226,15 +254,17 @@ None. This restores [R8.12], [R8.13], [R10.06], and [R11.12].
   table loop inside a transaction block; extracting
   `_delete_expired_tenancy_rows(sm, ...) -> tuple[int, set[uuid.UUID]]` would leave the policy
   as guards, delete, teardown, audit. Relates to D-1.
-- FU-9: `AccountDeletionService.prepare_hard_delete` nulls `owner_user_id` on every surviving
-  project of the deleted user
-  (`backend/contexts/tenancy/application/account_deletion_service.py:222-224`), which violates
-  the `ck_projects_projects_owner_xor` check constraint for a project with no `owner_org_id`.
-  Admin GDPR hard-delete therefore raises `IntegrityError` whenever the target still owns a
-  live individually-owned project — the exact "cascade was incomplete" edge case the method's
-  docstring says it handles. Pre-existing and unrelated to the ordering fix; found by the
-  integration tests written for this task, which work around it by using org-owned projects.
-  A fix needs a product decision: reassign the project to the admin, or soft-delete it.
+- FU-11: the audit-tail gap D-9 fixed is latent in two sibling policies that predate this task.
+  `_purge_messages` (`backend/app/workers/tasks/retention.py:90-99`) runs
+  `RetentionService.purge_once` on chunk sessions it opens itself, and that emits
+  `message.purged_by_retention`; `_retry_pending_collection_teardowns` does the same with its
+  per-pin sessions. Neither is flushed, so those rows are written but never published. A shared
+  helper that opens a short-lived session and flushes it on exit would close all three.
+- FU-10: D-6 soft-deletes a surviving personal project as part of reassigning it, so it now
+  enters the 60-day window and retention will eventually hard-delete it and tear down its
+  sources. That is the intended outcome, but nothing notifies the admin that it happened. If
+  admin GDPR deletion becomes routine, the response should report the reassigned-and-deleted
+  project ids so an operator can restore any that mattered.
 
 ## 14. Verification Status
 
@@ -243,16 +273,17 @@ plus the full backend unit suite (5486 passed, 6 skipped). No migration, no API 
 change, no frontend change, so those gates are N/A.
 
 The whole Regression Test Plan is covered. §8.1 at the deterministic unit seam; §8.2-§8.5 in
-`tests/integration/test_retention_restore_barrier.py` (11 tests) against a real Postgres 16,
+`tests/integration/test_retention_restore_barrier.py` (12 tests) against a real Postgres 16,
 run repeatedly to confirm they leave no rows behind and do not depend on a fresh database.
 
-Two tests were checked against the pre-fix `retention.py` to confirm they are regression tests
-rather than characterization tests: `test_restore_landing_mid_pass_cancels_the_teardown` and
-`test_partial_teardown_failure_does_not_affect_other_projects` both fail on the old ordering
-and pass on the new one. The remaining barrier tests pass either way by design — they pin the
-Postgres property and the cascade bookkeeping the fix relies on, not the ordering itself.
+Several tests were checked against the pre-fix code to confirm they are regression tests
+rather than characterization tests. `test_restore_landing_mid_pass_cancels_the_teardown` and
+`test_partial_teardown_failure_does_not_affect_other_projects` fail on the old ordering;
+the three `admin_gdpr` tests fail with `CheckViolationError` when D-6's line is put back. The
+remaining barrier tests pass either way by design: they pin the Postgres property and the
+cascade bookkeeping the fix relies on, not the ordering itself.
 
 Note on the probe: `_run_retention` patches the teardown with a callable whose `source`
-keyword is optional. That is deliberate — with a required keyword the probe fails to bind
+keyword is optional. That is deliberate. With a required keyword the probe fails to bind
 against the pre-fix call shape, the old code's blanket `except Exception` swallows the
 TypeError, and the suite goes green against the very bug it exists to catch.

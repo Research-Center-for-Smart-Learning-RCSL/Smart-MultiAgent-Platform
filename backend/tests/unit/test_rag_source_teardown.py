@@ -451,6 +451,35 @@ async def test_admin_gdpr_hard_delete_skips_restored_project() -> None:
 
 
 @pytest.mark.asyncio
+async def test_admin_gdpr_teardown_purges_the_committed_projects() -> None:
+    """The happy path: the committed ids reach the facade and the count comes back.
+
+    Without this, a change that dropped the ids or returned a constant would
+    leave every other test in this file green while admin GDPR purges silently
+    stopped erasing source infra.
+    """
+    from contexts.tenancy.application.account_deletion_service import AccountDeletionService
+
+    db = AsyncMock()
+    doomed = {uuid.uuid4(), uuid.uuid4()}
+
+    with patch(
+        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra_batch",
+        new_callable=AsyncMock,
+        return_value=2,
+    ) as purge_batch:
+        purged = await AccountDeletionService(db).purge_hard_deleted_project_sources(doomed)
+
+    assert purged == 2
+    purge_batch.assert_awaited_once()
+    assert set(purge_batch.await_args.args[0]) == doomed
+    assert purge_batch.await_args.kwargs["source"] == "admin_gdpr"
+    # The audit rows the batch wrote have to be durable before the request ends.
+    db.commit.assert_awaited_once()
+    db.rollback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_admin_gdpr_teardown_failure_leaves_session_usable() -> None:
     """A catastrophic teardown must not fail an already-committed GDPR purge.
 

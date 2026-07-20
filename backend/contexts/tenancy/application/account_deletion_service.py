@@ -163,7 +163,9 @@ class AccountDeletionService:
         Soft-deleted orgs/projects are hard-deleted outright (GDPR purge);
         their FK CASCADE constraints clean up child rows automatically.
         Active rows that still reference the user (edge case if cascade was
-        incomplete) are reassigned to *reassign_to_user_id*.
+        incomplete) are reassigned to *reassign_to_user_id*; an active project
+        the user personally owned is also soft-deleted, so it enters the normal
+        recovery window instead of silently becoming the admin's.
 
         Returns the ids of the projects this call erased. The caller must commit
         before passing them to ``purge_hard_deleted_project_sources`` — this
@@ -177,22 +179,28 @@ class AccountDeletionService:
         # F-7: which projects die is decided by deleting them with RETURNING, not
         # by reading candidates first. A restore racing that read would otherwise
         # leave a live project stripped of sources it can never rebuild.
-        doomed_orgs = sa.select(t.orgs.c.id).where(
-            sa.and_(
-                t.orgs.c.creator_user_id == user_id,
-                t.orgs.c.deleted_at.isnot(None),
-            )
+        org_conds = sa.and_(
+            t.orgs.c.creator_user_id == user_id,
+            t.orgs.c.deleted_at.isnot(None),
+        )
+        # Read once and reuse the literal ids below. Re-evaluating the predicate
+        # inside the delete would be a second READ COMMITTED snapshot: an org
+        # soft-deleted in between would be erased without appearing in the
+        # mapping, and its cascade-deleted projects would never be torn down.
+        doomed_org_ids = list(
+            (await self._db.execute(sa.select(t.orgs.c.id).where(org_conds))).scalars().all()
         )
         # Captured before the org delete: an org-owned project vanishes by FK
         # cascade, leaving no row to attribute to the returned org id.
         org_projects: dict[uuid.UUID, set[uuid.UUID]] = {}
-        rows = await self._db.execute(
-            sa.select(t.projects.c.id, t.projects.c.owner_org_id).where(
-                t.projects.c.owner_org_id.in_(doomed_orgs)
+        if doomed_org_ids:
+            rows = await self._db.execute(
+                sa.select(t.projects.c.id, t.projects.c.owner_org_id).where(
+                    t.projects.c.owner_org_id.in_(doomed_org_ids)
+                )
             )
-        )
-        for pid, oid in rows.all():
-            org_projects.setdefault(oid, set()).add(pid)
+            for pid, oid in rows.all():
+                org_projects.setdefault(oid, set()).add(pid)
 
         await self._db.execute(
             t.original_creator_transfers.delete().where(
@@ -223,8 +231,24 @@ class AccountDeletionService:
         )
         committed: set[uuid.UUID] = set(deleted_projects)
 
+        # Only live personal projects reach this point (the soft-deleted ones were
+        # just hard-deleted), and both of their remaining problems are solved by
+        # the same statement:
+        #
+        #   * NULLing the owner would leave zero owners and violate
+        #     `projects_owner_xor` (migration 0002), aborting the whole purge;
+        #   * reassigning alone would collide with `uq_projects_user_name` when the
+        #     admin already owns a live project of the same name.
+        #
+        # Soft-deleting alongside the reassignment satisfies the XOR and takes the
+        # row out of that partial unique index, which only covers live rows. It is
+        # also the honest outcome: the owner has been erased, so the project enters
+        # the normal 60-day recovery window rather than silently becoming the
+        # admin's. Org-owned projects carry a NULL owner_user_id and never match.
         await self._db.execute(
-            t.projects.update().where(t.projects.c.owner_user_id == user_id).values(owner_user_id=None)
+            t.projects.update()
+            .where(t.projects.c.owner_user_id == user_id)
+            .values(owner_user_id=reassign_to_user_id, deleted_at=sa.func.now())
         )
         await self._db.execute(
             t.projects.update()
@@ -234,13 +258,10 @@ class AccountDeletionService:
         deleted_orgs = (
             (
                 await self._db.execute(
+                    # The same ids the mapping was built from, re-checked against
+                    # `org_conds` so an org restored in between survives.
                     t.orgs.delete()
-                    .where(
-                        sa.and_(
-                            t.orgs.c.creator_user_id == user_id,
-                            t.orgs.c.deleted_at.isnot(None),
-                        )
-                    )
+                    .where(sa.and_(org_conds, t.orgs.c.id.in_(doomed_org_ids)))
                     .returning(t.orgs.c.id)
                 )
             )
