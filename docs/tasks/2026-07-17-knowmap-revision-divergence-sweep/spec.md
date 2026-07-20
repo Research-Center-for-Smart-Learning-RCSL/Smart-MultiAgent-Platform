@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-17
 requirements: [R11.12]
 ---
@@ -198,10 +198,11 @@ lost-change window returns.
   page, and logs when the cap truncated the tick.
 - [x] AC-9: `build_started_at` is stamped durably at the `RUNNING` transition for both
   `knowmap_configs` and `graphrag_configs`, in the same commit as the state change.
-- [ ] AC-10: Migration `0059` applies and downgrades cleanly against both tables. **Not met.**
-  No Postgres or Docker was reachable in the build environment. Both directions were rendered
-  and inspected via `alembic --sql` (D-7), but no live round-trip ran. Needs
-  `alembic upgrade head` then `alembic downgrade -1` against a real database.
+- [x] AC-10: Migration `0059` applies and downgrades cleanly against both tables. Verified
+  against a real PostgreSQL 16: the full chain from an empty database to head, then
+  `downgrade -1`, then upgrade again. The column and both partial indexes were confirmed
+  present after upgrade and absent after downgrade, leaving only `0048`'s
+  `ix_knowmap_configs_project`.
 - [x] AC-11: A config in `RUNNING` past the 60-minute threshold produces exactly one warning
   per tick and is never enqueued; one within the threshold, or with a `NULL`
   `build_started_at`, produces neither.
@@ -253,39 +254,56 @@ are operational observability, not user-visible behavior, so they define no new 
   `backend/tests/unit/test_knowmap_revision_sweep.py`.** §8.1's regression stayed in
   `test_knowmap_build_dedup.py` as specified; the query and orchestration coverage went into a
   dedicated file following the `test_graphrag_silence_sweep.py` precedent.
-- **D-7: AC-10 is verified by rendered SQL, not a live round-trip.** No Postgres or Docker was
-  reachable in the build environment, so `alembic upgrade head` could not run. Both directions
-  were rendered with `alembic --sql` and inspected. The DDL is additive nullable columns plus
-  two `CREATE INDEX`/`DROP INDEX IF EXISTS` statements with no data migration, but the gate is
-  recorded as partially met rather than passed.
+- **D-7: AC-10 was first verified by rendered SQL only, then completed.** The build
+  environment had no reachable database, so the gate was initially recorded as unmet with
+  `alembic --sql` inspection standing in. It was afterwards verified properly against a real
+  PostgreSQL 16 (full chain, downgrade, re-upgrade), and AC-10 is now genuinely checked.
+- **D-8: FU-2, FU-3, FU-5 and FU-7 were implemented in this task rather than deferred**, at
+  the user's direction after the audits reported them. See the Follow-ups section, where each
+  is marked done with the commit's reasoning. FU-2 in particular grew beyond its original
+  description: cascade *restore* had to come with cascade delete, or project restore would
+  have silently destroyed a project's Knowledge Maps, which it does not do today.
+- **D-9: `_STALE_RUNNING_AFTER_S` reporting reads one row past the page.** The count is
+  page-capped, so reporting it as exact was the same class of dishonest counter as D-2.
+  `list_stale_running` also orders by `build_started_at` rather than `id`, so the sampled
+  "oldest" offender is genuinely the oldest, and the order comes from the D-5 index.
 
 ## 13. Follow-ups
 
 - FU-1: Consider a shared transactional outbox only if other post-commit workers show the
   same level-triggered convergence gap and justify a platform-wide abstraction.
-- FU-2: Cascade `deleted_at` onto `knowmap_configs` (and `graphrag_configs`) in
-  `ProjectService.soft_delete`. D-3 filters at the consumer, which fixes this sweep but leaves
-  the root cause: project deletion does not mean deletion for these rows, so every present and
-  future consumer must remember to check. Needs a backfill for already-deleted projects.
-- FU-3: The sweep restarts at the lowest config ids every tick, so a tenant holding more than
-  `_SWEEP_MAX_PER_TICK` persistently divergent configs could keep the window pinned and starve
-  configs sorting above it. No per-project config quota exists to bound this. Consider
-  persisting the cursor across ticks or selecting round-robin per project.
+- FU-2: **Done in this task.** Cascade `deleted_at` onto `knowmap_configs` and
+  `graphrag_configs` in `ProjectService.soft_delete`, with the matching cascade on both
+  restore paths, plus migration `0060` to backfill projects deleted before it existed. Configs
+  are stamped with the *project's* `deleted_at`, and restore matches on that exact instant, so
+  a restore takes back only what the deletion took. The graphrag cascade preserves the owner
+  columns that the individual `soft_delete` clears, since clearing is irreversible and would
+  defeat restore. Verified against a real database in both directions.
+- FU-3: **Done in this task.** The resume point persists in Redis and wraps to the beginning
+  once a pass reaches the end, so coverage rotates instead of pinning the lowest ids. Losing
+  the key degrades to one non-rotating tick.
 - FU-4: The sweep enqueues into the default arq queue with no per-tenant cap, and `max_jobs`
   is shared with workflow execution, notifications, and retention. One tenant's backlog can
   degrade every tenant's background work. Consider a dedicated queue or a per-project cap.
-- FU-5: A config whose divergence never resolves is re-offered forever with no attempt
-  counter, backoff, or alert. Each cycle past `keep_result` is a full-corpus rebuild on the
-  tenant's provider key. Consider stopping and alerting after N consecutive re-offers.
+- FU-5: **Done in this task.** Offers for one `(config, revision)` stop after six hours and
+  warn. The window sits comfortably past `keep_result`, so the legitimate slow case (a build
+  that finished but failed to stamp its revision) still resolves on its own. The Redis
+  bookkeeping fails open: losing recovery because the store blinked is the worse failure.
 - FU-6: `graphrag_configs.build_started_at` is write-only. The column exists for port symmetry
   (Q-6) and is stamped, but `GraphRagConfig` has no field for it and nothing reads it. Add the
   reader if the stuck-build check is ever generalized to Concept Maps.
-- FU-7: The stuck-`RUNNING` warning re-emits every tick with no suppression, so a persistent
-  reconciler outage produces up to 50 lines a minute indefinitely, and `stale_running` is a
-  capped floor presented as an exact count. Consider a sample-plus-count log and a cooldown.
+- FU-7: **Done in this task.** One line per tick with the oldest offender as a sample, and
+  "at least" when the page was full, so a capped count no longer reads as a measurement. A
+  cross-tick cooldown was not added: the line is one per tick, which is the same cadence as
+  the rest of the tick summary.
 - FU-8: The `built_at` / `stamp_built_at` precedence block is duplicated between the two
   `set_state` implementations, and this task appended an identical third branch to both.
   Pre-existing duplication, now slightly wider; extract a shared helper.
+- FU-10: `ProjectService.soft_delete` cascades to skills but neither `restore` nor
+  `admin_restore` restores them, so restoring a project today leaves its skills deleted.
+  Found while implementing FU-2, which deliberately did *not* copy that asymmetry. Skills
+  should probably gain the same instant-matched restore; left alone here because it is
+  another context's behaviour and no part of this task depends on it.
 - FU-9: Deploy ordering is now load-bearing. New code on a pre-0059 schema fails on *every*
   knowmap config read, not just the sweep, because `_row_to_config` reads `build_started_at`
   and all config reads select the full row. `alembic upgrade head` must precede app rollout.
