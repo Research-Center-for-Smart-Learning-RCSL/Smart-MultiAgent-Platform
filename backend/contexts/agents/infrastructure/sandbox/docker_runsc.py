@@ -95,9 +95,33 @@ _WORKSPACE_TMPFS_BYTES = 100 * 1024 * 1024
 _TMP_TMPFS_BYTES = 64 * 1024 * 1024
 
 
-def _sandbox_tmpfs() -> dict[str, str]:
+def _sandbox_tmpfs(*, workspace_owner: int | None = None) -> dict[str, str]:
+    """Scratch mounts for the containers that get no named volume.
+
+    With *workspace_owner*, ``/workspace`` is owned by that uid. Docker gives a
+    tmpfs the *mode* of the image directory it covers but not its ownership, so
+    ``/workspace`` (0755, sandbox-owned in both images) otherwise becomes a
+    root-owned 0755 tmpfs that uid 10001 cannot write, while ``/tmp`` happens to
+    work only because its image mode is 1777. ``WORKDIR`` is ``/workspace``, so
+    without an owner the run-and-burn path starts in a directory it cannot write
+    and the whole ``_WORKSPACE_TMPFS_BYTES`` budget is unreachable.
+
+    It is opt-in rather than the default because the other callers are the MCP
+    probe/invoke containers, which run **user-supplied** servers. Their scratch
+    has always been unwritable, nothing has asked for it to change, and widening
+    what third-party code may write is not a side effect a ``code_exec`` cwd fix
+    gets to have ([R12.03] already withholds the named volume from them).
+
+    NOTE: tmpfs mount options are honoured by the *runtime*, and production runs
+    gVisor. This has been verified under runc only; see
+    ``2026-07-19-session-dir-room-isolation`` FU-10 for the outstanding runsc
+    check before relying on it.
+    """
+    workspace = f"size={_WORKSPACE_TMPFS_BYTES}"
+    if workspace_owner is not None:
+        workspace += f",uid={workspace_owner},gid={workspace_owner}"
     return {
-        "/workspace": f"size={_WORKSPACE_TMPFS_BYTES}",
+        "/workspace": workspace,
         "/tmp": f"size={_TMP_TMPFS_BYTES}",  # noqa: S108 — in-container tmpfs, not a host path
     }
 
@@ -1004,7 +1028,8 @@ class DockerRunscSandbox:
                 command=command,
                 environment=env,
                 user=_SANDBOX_UID,
-                tmpfs=_sandbox_tmpfs(),
+                # Agent code runs with its cwd here and is expected to write.
+                tmpfs=_sandbox_tmpfs(workspace_owner=_SANDBOX_UID),
                 **host_config,
             )
             try:

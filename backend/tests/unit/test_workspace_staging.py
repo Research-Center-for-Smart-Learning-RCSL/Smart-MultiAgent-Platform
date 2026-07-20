@@ -17,6 +17,7 @@ method unbound over stubs — the house pattern (see test_turn_engine_observer_a
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import uuid
@@ -978,6 +979,110 @@ async def test_headless_code_exec_mounts_no_named_volume(sandbox, monkeypatch) -
     kwargs = sandbox.client.create_kwargs
     assert not kwargs.get("volumes")
     assert "/workspace" in kwargs["tmpfs"]
+
+
+def _tmpfs_opts(spec: str) -> set[str]:
+    """Split a tmpfs option string into tokens.
+
+    Substring checks on the raw string are what let ``uid=1`` satisfy an
+    assertion about ``uid=10001``; tokenise so each option is matched whole.
+    """
+    return {tok for tok in spec.split(",") if tok}
+
+
+async def _drive_mcp(sandbox, command: str) -> None:
+    """Run the real probe or invoke path so create_kwargs holds their host config.
+
+    Both fail downstream here -- the fake container yields no logs to parse -- but
+    the host config is captured at ``create``, well before that. Suppressing the
+    tail is therefore sound only if the call really reached ``create``, so the
+    slot is cleared first and asserted after; otherwise a probe that started
+    failing earlier would leave the caller asserting on another test's kwargs.
+    """
+    sandbox.client.create_kwargs = None
+    with contextlib.suppress(RuntimeError, ValueError):
+        if command == "probe":
+            await sandbox.box.probe(
+                agent_id=uuid.uuid4(),
+                source="package",
+                reference="npx:@scope/pkg",
+                allowed_tools=[],
+                auth=None,
+                project_id=uuid.uuid4(),
+                timeout_s=1.0,
+            )
+        else:
+            await sandbox.box.invoke_mcp_tool(
+                agent_id=uuid.uuid4(),
+                binding_id=uuid.uuid4(),
+                tool_name="t",
+                arguments={},
+                project_id=uuid.uuid4(),
+                source="package",
+                reference="npx:@scope/pkg",
+                timeout_s=1.0,
+            )
+    assert sandbox.client.create_kwargs is not None, f"{command} never reached container create"
+
+
+async def test_headless_code_exec_scratch_is_owned_by_the_sandbox_user(sandbox, monkeypatch) -> None:
+    """The run-and-burn cwd must be writable by the uid the container runs as.
+
+    Docker applies the covered image directory's *mode* to a tmpfs but not its
+    ownership. /workspace is 0755 in both images, so without an explicit owner
+    the tmpfs is root-owned 0755 and uid 10001 cannot write it -- and WORKDIR is
+    /workspace, so agent code started in a directory it could not write to while
+    the 100 MB budget sat unreachable. Driven through run_code_exec rather than
+    the helper, so a change that stops the call site opting in is caught here.
+    """
+    monkeypatch.setattr(sandbox.ds.DockerRunscSandbox, "_assert_runsc", _async_return(None))
+
+    await sandbox.box.run_code_exec(agent_id=uuid.uuid4(), source="pass", timeout_s=1.0)
+
+    opts = _tmpfs_opts(sandbox.client.create_kwargs["tmpfs"]["/workspace"])
+    uid = sandbox.ds._SANDBOX_UID
+    assert f"uid={uid}" in opts
+    assert f"gid={uid}" in opts
+    # The size cap is the other half of the contract; a rewrite that adds the
+    # owner while dropping the bound would trade one defect for a worse one.
+    assert any(o.startswith("size=") for o in opts)
+
+
+@pytest.mark.parametrize("command", ["probe", "invoke"])
+async def test_the_mcp_scratch_stays_unowned(sandbox, monkeypatch, command: str) -> None:
+    """The MCP containers run user-supplied servers and must NOT gain a writable scratch.
+
+    The workspace-owner option is opt-in precisely so that a fix aimed at
+    code_exec's cwd cannot widen what third-party MCP code may write. Driven
+    through the real probe/invoke paths -- asserting on the shared helper instead
+    would stay green if a future change gave these call sites their own tmpfs
+    dict, which is the regression this exists to catch.
+    """
+    monkeypatch.setattr(sandbox.ds.DockerRunscSandbox, "_assert_runsc", _async_return(None))
+
+    await _drive_mcp(sandbox, command)
+
+    opts = _tmpfs_opts(sandbox.client.create_kwargs["tmpfs"]["/workspace"])
+    uid = sandbox.ds._SANDBOX_UID
+    assert f"uid={uid}" not in opts
+    assert f"gid={uid}" not in opts
+    assert any(o.startswith("size=") for o in opts)
+
+
+async def test_the_image_and_the_tmpfs_agree_on_who_owns_a_scratch_workspace(sandbox) -> None:
+    """Ties the two halves of one invariant together in a single assertion.
+
+    Sandbox-writable roots must belong to _SANDBOX_UID, but that is enforced by
+    two unrelated mechanisms: the Dockerfile's mkdir/chown for named volumes, and
+    these tmpfs options for scratch mounts. Nothing couples them, so a mount
+    added to one path and forgotten in the other reintroduces the same defect
+    class. tests/unit/test_sandbox_image_mountpoints.py owns the image half; this
+    pins the host half to the same uid so the two cannot drift apart silently.
+    """
+    owned = _tmpfs_opts(sandbox.ds._sandbox_tmpfs(workspace_owner=sandbox.ds._SANDBOX_UID)["/workspace"])
+
+    assert f"uid={sandbox.ds._SANDBOX_UID}" in owned
+    assert f"gid={sandbox.ds._SANDBOX_UID}" in owned
 
 
 async def test_kernel_inputs_mount_only_this_rooms_session_volume(sandbox) -> None:
