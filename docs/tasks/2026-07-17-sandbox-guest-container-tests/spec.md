@@ -1,14 +1,26 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-07-17
-requirements: [R24.15, R12.03]
-depends_on: [2026-07-16-workspace-path-convention]
+requirements: [R24.15, R12.03, R12.03b]
+depends_on:
+  - 2026-07-16-workspace-path-convention
+  - 2026-07-19-session-dir-room-isolation
+  - 2026-07-19-workspace-readonly-in-kernel
 ---
 
 # Test the sandbox images' guest side in CI, and stamp them so a stale one is visible
 
 ## 1. Summary
+
+> **Revised 2026-07-20 before approval.** Three dossiers landed between drafting and this
+> revision and two of them changed the ground this spec stands on. `2026-07-16-workspace-path-convention`
+> changed `list`'s output shape (AC-4, AC-5). `2026-07-19-session-dir-room-isolation` and
+> `2026-07-19-workspace-readonly-in-kernel` moved the kernel off the agent volume entirely and
+> made `/workspace` read-only there, which **falsified §4's "all three share one volume" claim
+> and inverted AC-7** — see Q-7. OQ-1 and OQ-2 are settled and closed. Everything else in this
+> dossier re-verified against the tree on 2026-07-20 and stands, including the `ci.yml:185-217`
+> citations and the required-gate lines.
 
 Derived from `2026-07-16-code-execution`' FU-4 ("no Docker/gVisor test tier") and
 `2026-07-16-workspace-path-convention`' FU-2 (a stale sandbox image is undetectable). Both were
@@ -25,9 +37,9 @@ tiers (`pyproject.toml:353-358`); it is false of CI.
 
 So the real gap is not Docker. It is three specific things:
 
-1. **The `file` driver is never executed anywhere.** `cmd_file` (`deploy/sandbox/driver/driver.py:237`)
+1. **The `file` driver is never executed anywhere.** `cmd_file` (`deploy/sandbox/driver/driver.py:239`)
    implements `list`/`read`/`write` and no test — unit or container — ever runs it. This is where the
-   workspace-path FU-3 bug lives: `:243` is `sorted(os.listdir(path))`, flat and single-level, so a
+   workspace-path FU-3 bug lives: `:245` is `sorted(os.listdir(path))`, flat and single-level, so a
    nested workspace lists as though it were empty of subtree content.
 2. **Nothing detects a stale image.** Verified: `deploy/sandbox` contains **no `LABEL` and no `ARG`**
    — the whole directory is two Dockerfiles, `driver/{driver,protocol}.py`,
@@ -73,10 +85,13 @@ as its first acceptance criterion.
 |---|---|---|---|
 | Q-1 | Where does the tier live — a new job, or an existing one? | **Extend `sandbox-images`.** | It already builds both images and already `docker run`s them (`ci.yml:191-209`), so a test that needs "run the image with a command" is a step addition, not a new job. It is already a required gate. A new job would rebuild the same images for no gain. Timeout may need lifting from 15 (`:187`). |
 | Q-2 | Where does the stale-image check hook? FU-2 proposes `_ensure_runtime_ready`. | **In CI, not at runtime. Reject the readiness-gate hook.** | Three reasons, all structural. (a) **Wrong posture:** that gate's documented contract (`docker_runsc.py:286-291`) is advisory — unreachable supervisor *fails open*, only an explicit 503 fails closed. A stale-image check that fails open detects nothing when it matters; one that fails closed contradicts the documented posture and turns image drift into a hard outage of every agent tool call, which is worse than the drift. (b) **Wrong process:** the supervisor probes the host *runtime* and has no notion of `mcp_image`; teaching it the pins adds config surface to a service whose virtue is doing one stdlib-only thing. (c) **Wrong cache:** the gate's 10 s TTL (`:166`) is sized for a burst of spawns sharing a round-trip; an image-inspect is once-per-process. And the drift FU-2 describes is a *CI* gap — CI is where it belongs. |
-| Q-3 | Does this dossier fix FU-3's non-recursive `list`? | **No — it writes the test that exposes it and leaves the fix to the convention's owner.** | `driver.py:243` is flat by construction. Whether `list` should recurse, and what shape it returns if it does, is a *convention* decision (`2026-07-16-workspace-path-convention` owns it), not a test-tier decision. Fixing it here would mean this dossier silently authoring an API contract. AC-4 asserts the *current* flat behaviour so the fix has a green baseline to flip; the flip is the other dossier's AC. |
+| Q-3 | Does this dossier fix FU-3's non-recursive `list`? | **No — it writes the test that exposes it and leaves the fix to the convention's owner.** | `driver.py:245` is flat by construction. Whether `list` should recurse, and what shape it returns if it does, is a *convention* decision (`2026-07-16-workspace-path-convention` owns it), not a test-tier decision. Fixing it here would mean this dossier silently authoring an API contract. AC-4 asserts the *current* flat behaviour so the fix has a green baseline to flip; the flip is the other dossier's AC. **Note (2026-07-20):** that dossier has since landed and changed the entry *shape* to absolute paths without touching flatness, so FU-3 remains open and AC-4 still has a bug to pin — only its expected strings changed. |
 | Q-4 | Bundle the gVisor tier in, as `code-execution` FU-4 asks? | **No. Split it, with a prototype as its first AC.** | The two halves share nothing. The guest-side work is cheap, certain, and needs no runsc. The gVisor half is gated on a question the repo cannot answer: **there is zero gVisor provisioning automation anywhere** — every reference (`deploy/README.md:143-160`, `docker-compose.yml:358-360`) delegates to upstream's install guide, `preflight.sh:207-217` only *warns* if `runsc` is absent, and `ci.yml:182-184`'s own comment says runsc is "exercised on the staging box, not here". A CI tier would be the first place in the repo to provision it. Bundling would hold two shippable fixes hostage to that. §16 FU-1 states the prototype. |
 | Q-5 | Run the tier on the runner, or inside compose like `backend-wiring`? | **On the runner directly, as `sandbox-images` already does.** | The two precedents pull opposite ways and this must be decided explicitly. `backend-wiring` runs pytest *inside* a container (`ci.yml:141-154`); a container tier must *spawn* containers, so mirroring that shape needs docker-in-docker. `sandbox-images` runs `docker run` from the runner, which is exactly the shape needed. **Gotcha:** the wiring tier bind-mounts only `backend/` (`ci.yml:147`), which is why `test_sandbox_driver_protocol.py:25-29` skips itself there — `deploy/` is absent. `frontend-e2e` hits the same wall and mounts `deploy/` explicitly (`ci.yml:483`). Running on the runner sidesteps both. |
 | Q-6 | What feeds the stamp — git SHA or a content hash? | **A hash of `deploy/sandbox/**`.** | The git SHA changes on every commit, so it would mark the image stale on commits that did not touch it — a gate that cries wolf gets disabled. A content hash of the build context is what actually determines whether a rebuild is needed, and it is what the drift check wants to compare. |
+| Q-7 | §4's "three roots share one volume" is now false ([R12.03b]). What does AC-7 become? | **Invert it: assert the isolation boundary, not the agreement.** | `f7c4ea6` moved the kernel to `/session` on a per-`(agent, chatroom)` volume and `06798c9` made `/workspace` read-only there, precisely so the roots would *not* share a volume. An AC asserting they agree would now assert the vulnerability those two fixed. The replacement asserts what [R12.03b] actually promises — a property **of the mounts**, which is exactly what a container tier can prove and a unit test cannot. This is currently the only part of those two dossiers with no real-container verification. **Constraint that shapes the test:** no root is expected to pre-exist — `kernel.py:132-133` creates `/session` with `parents=True` and the chdir at `:137-138` is wrapped in `contextlib.suppress`, so a mis-bound mount yields a silently-empty directory on the container layer. Absence proves nothing; the test must assert mount properties and content, not `os.path.exists`. |
+| Q-8 | Add the kernel protocol stamp to scope? | **Yes — new AC-12.** | `kernel.py:50` `PROTOCOL_VERSION = 2` must equal `docker_runsc.py:81` `_KERNEL_PROTOCOL_VERSION`. `f7c4ea6`'s message states the pin is a constant-to-constant unit test "since nothing in CI runs a container" — this dossier is the thing that runs a container in CI, so it closes that gap for ~3 lines. Both mismatch directions are silent in production (inputs staged where the kernel does not look, or `/session` unbound), which is the failure class the whole dossier exists to make visible. |
+| Q-9 | The two 07-19 dossiers' code has landed but their `status` is `in-progress`. Add them to `depends_on`? | **Yes, both.** | Contract §"Dependencies and sequencing": AC-7's rewritten form asserts behaviour those two dossiers introduce, which is a logical prerequisite regardless of the code already being in the tree. Recording it honestly costs a `/build` gate wait until they close out; omitting it would leave `BOARD.md` claiming this is unblocked when its central AC depends on unfinished work. The frontmatter is the source of truth, so it must say the true thing. |
 
 ## 4. Current State
 
@@ -92,20 +107,38 @@ as its first acceptance criterion.
 | `python -c` in code-exec | `ci.yml:205-209` | asserts `42` |
 
 **What is not covered — this dossier's payload:**
-- **`cmd_file`** (`driver.py:237-271`). Never run. All three ops are reachable with
-  `-e SMAP_FILE_OP=… -e SMAP_FILE_PATH=… -v vol:/workspace`. `:243`'s flat `sorted(os.listdir(path))`
-  is FU-3.
-- **`cmd_exec`** (`driver.py:274`). Dead on the default path, never exercised.
+- **`cmd_file`** (`driver.py:239-274`). Never run. All three ops are reachable with
+  `-e SMAP_FILE_OP=… -e SMAP_FILE_PATH=… -v vol:/workspace`. `:245`'s flat `sorted(os.listdir(path))`
+  is FU-3 — still flat, but both branches now render through `format_listing`
+  (`protocol.py:103-113`), which emits **absolute paths one per line** and routes every emitted
+  line back through `safe_workspace_path`. That is what AC-4/AC-5 assert against.
+- **`cmd_exec`** (`driver.py:277`). Dead on the default path, never exercised.
 - **The kernel as a live process** (`kernel.py:180-209`) — the AF_UNIX server loop and its framing
   (`_recv_framed`/`_send_framed`, `:158-177`) plus the `client.py` relay. Only the pure `_run` helper
   is tested. `docker run -d` + `docker exec client.py` reproduces the host's exact call shape
   (`docker_runsc.py:831-836`) with no backend.
-- **The three workspace roots, which are inconsistent by design and asserted nowhere:**
-  - `file` tool → `/workspace` (`file_tool.py:23` `_ROOT = "/workspace"`; `driver.py:239`)
-  - kernel → `/workspace/sessions/{room}` (`kernel.py:37-41`), and `_run` **chdirs into it**
-    (`:122-123`), so agent-facing relative paths are `inputs/…` / `outputs/…`
-  - staging → `/workspace/agent-files/` (`docker_runsc.py:1015`)
-  All three share one volume, `smap-agent-fs-{agent_id}`.
+- **The three roots — corrected 2026-07-20, they no longer share a volume (Q-7):**
+  - `file` tool → `/workspace` on `smap-agent-fs-{agent_id}` (`file_tool.py:23` `_ROOT`;
+    guest side `protocol.py:29` `WORKSPACE_ROOT`; `driver.py:241`)
+  - kernel → **`/session`** on its own per-`(agent, chatroom)` volume
+    `smap-agent-session-{agent_id}-{chatroom_id}` (`kernel.py:42`; host `docker_runsc.py:76`
+    `_SESSION_ROOT`), and `_run` **chdirs into it** (`:137-138`), so agent-facing relative paths
+    are `inputs/…` / `outputs/…`. The agent volume is mounted **read-only** in this container
+    (`docker_runsc.py:1247` vs `:1248`).
+  - staging → `/workspace/agent-files/` on the agent volume (`docker_runsc.py:1571`, joined onto
+    `_VOLUME_ROOT` at `:70`)
+
+  The old `/workspace/sessions/{room}` survives only as `_LEGACY_SESSIONS_SUBDIR`
+  (`docker_runsc.py:85`), commented "Nothing writes here any more."
+
+  **What is still unasserted, and is AC-7's target:** the separation is a property of the mounts
+  ([R12.03b]) and nothing executes a check of it. The three `/workspace` literals are also still
+  independently hardcoded three times — `file_tool.py:23`, `protocol.py:29`,
+  `docker_runsc.py:70` — and `docker_runsc.py:65-69` says so outright: they "must equal ... 
+  **nothing enforces that agreement**."
+- **The host/kernel protocol stamp** (`kernel.py:50` `PROTOCOL_VERSION = 2` against
+  `docker_runsc.py:81` `_KERNEL_PROTOCOL_VERSION`) is pinned only constant-to-constant in a unit
+  test, because nothing in CI runs a container. AC-12 (Q-8).
 - **matplotlib figure capture** (`kernel.py:97-112`) — needs the real image; matplotlib is installed
   only there (`code-exec/Dockerfile:23-28`).
 
@@ -166,26 +199,50 @@ commits: **the stamp** (Q-6) and **the `cmd_file` + path-convention tests** (Q-3
    the build cache on every source change.
 
 2. **`ci.yml` `sandbox-images`** — compute the stamp once (a hash over `deploy/sandbox/**` per Q-6),
-   pass it via `--build-arg` to both builds (`:191`, `:193`), then assert it round-trips:
+   using the command settled in OQ-2:
+   ```
+   git ls-files -s deploy/sandbox | git hash-object --stdin
+   ```
+   Pass it via `--build-arg` to both builds (`:191`, `:193`), then assert it round-trips:
    `docker image inspect --format '{{index .Config.Labels "smap.sandbox.stamp"}}'` equals the
    expected hash. ~15 lines. This is the whole of FU-2's closure.
 
 3. **`ci.yml` `sandbox-images`** — new steps exercising `cmd_file` against `smap/mcp-runtime:ci` with
    a scratch named volume:
    - `write` → `read` round-trip, asserting the payload survives.
-   - `list` on a directory containing a nested subtree, asserting the **current flat** output
-     (Q-3/AC-4) — the assertion the fix will flip.
-   - `list` on a single file, asserting `[basename]` (`driver.py:245`).
+   - `list` on a directory containing a nested subtree, asserting the **current flat** output in
+     its **post-`format_listing` shape** — absolute paths, one per line, single level (Q-3/AC-4).
+   - `list` on a single file, asserting the absolute path of that file, not its basename
+     (`driver.py:249` → `format_listing(dirname, [basename])`).
    - A path-traversal case: `SMAP_FILE_PATH=/workspace/../etc/passwd` must be rejected by
      `safe_workspace_path` (`:239`), not served. This is a security assertion and is the reason
      `cmd_file` being untested matters beyond FU-3.
    - **Cleanup:** `docker volume rm` in an `if: always()` step. Named volumes are auto-created on
      `create` (`docker_runsc.py:600`, `:912`, `:986`, `:1036`) and will otherwise leak one per test.
 
-4. **`ci.yml` `sandbox-images`** — a path-convention step asserting the three roots agree (§4): write
-   via the `file` driver at `/workspace`, and assert the kernel's session dir
-   (`/workspace/sessions/{room}`) and the staging root (`/workspace/agent-files/`) resolve as the
-   host expects on the same volume.
+4. **`ci.yml` `sandbox-images`** — a mount-isolation step asserting [R12.03b] (rewritten per Q-7;
+   the old "three roots agree on one volume" step would assert the vulnerability `f7c4ea6` fixed).
+   Needs **both images** (OQ-1): the `file` root is only reachable through mcp-runtime's
+   ENTRYPOINT, the kernel only exists in code-exec. Three assertions, all against real mounts:
+   - **`/session` is not under `/workspace`.** Run the kernel image with an agent volume at
+     `/workspace` and a session volume at `/session`; write to `/session/outputs/x`; assert it is
+     **absent** from the agent volume when that volume is re-listed through the `file` driver.
+   - **`/workspace` is read-only in the kernel** (`docker_runsc.py:1247` `"mode": "ro"`). A write
+     attempt inside the code-exec container fails with `EROFS`. Assert the errno, not just
+     non-zero exit — a write that fails because the path was wrong would pass a weaker check.
+   - **Cross-room absence.** Two session volumes, room A and room B. Content written under room
+     A's mount is not present in a container mounting room B's. This is [R12.03b]'s guarantee
+     stated as a test.
+
+   **Do not test by absence alone** (Q-7): `kernel.py:132-133` creates `/session` with
+   `parents=True` and `:137-138` suppresses a failed chdir, so an unbound mount looks like an
+   empty directory rather than an error. Every assertion above is content- or errno-based.
+
+4b. **`ci.yml` `sandbox-images`** — protocol stamp (Q-8/AC-12): read `PROTOCOL_VERSION` out of the
+   built code-exec image (`docker run --rm smap/code-exec:ci python -c "…"` importing
+   `/opt/kernel/kernel.py`) and assert it equals `_KERNEL_PROTOCOL_VERSION` parsed from
+   `docker_runsc.py:81`. This is the first check of that pin against a real image rather than
+   against the source file the unit test already reads.
 
 5. **Timeout** — `sandbox-images` is `timeout-minutes: 15` (`ci.yml:187`). Several `docker run`s are
    seconds each, but the two image builds dominate; raise it if the tier lands near the ceiling
@@ -219,6 +276,13 @@ commits: **the stamp** (Q-6) and **the `cmd_file` + path-convention tests** (Q-3
   `test_sandbox_driver_protocol.py`, which **skips itself whenever `deploy/` is absent** (`:25-29`) —
   including inside the wiring tier's container (`ci.yml:147`). A containment control whose test
   silently skips is a coverage finding in its own right.
+- **AC-7 is now a security assertion, not a consistency one (Q-7).** [R12.03b] states the room
+  boundary is "a property of the mount, which holds whatever code the Agent runs" — the guarantee
+  exists precisely because `code_exec` executes arbitrary code and cannot be confined by a path
+  check. Nothing currently executes a check of that mount property; `f7c4ea6` and `06798c9` are
+  verified by unit tests over host-side config only. AC-7 is the first real-container evidence that
+  the boundary those two dossiers assert actually holds. Its false-green mode is documented in Q-7
+  and probed in §12.
 - **The `runtime` field temptation (§5.2) must not be taken quietly.** `_assert_runsc` (`:364`) is
   not negotiable by design; making it configurable to enable a test inverts the control. If FU-1 ever
   needs it, it requires a security review and must be unreachable from settings.
@@ -253,10 +317,16 @@ teardown discipline (`:168-174`).
   will not be noticed.
 - **The stamp cries wolf if Q-6 is ignored** and a git SHA is used: the gate reddens on commits that
   did not touch `deploy/sandbox`, and a noisy gate gets disabled. The content hash is the design.
-- **AC-4 asserts a bug.** Locking in `driver.py:243`'s flat behaviour is deliberate (Q-3) and will
-  look wrong to a reviewer who does not read the AC's justification. The workspace-path dossier flips
-  it; if that dossier lands first, this AC must be written in its post-fix shape instead — check
-  before building.
+- **AC-4 asserts a bug.** Locking in `driver.py:245`'s flat behaviour is deliberate (Q-3) and will
+  look wrong to a reviewer who does not read the AC's justification. **This risk's own contingency
+  fired:** the workspace-path dossier landed first, so AC-4 and AC-5 were rewritten in their
+  post-fix shape on 2026-07-20 before approval. The flatness survives (FU-3 is still open); only the
+  entry shape changed.
+- **A second, larger contingency also fired.** Two dossiers this spec never anticipated
+  (`2026-07-19-session-dir-room-isolation`, `2026-07-19-workspace-readonly-in-kernel`) invalidated
+  §4's shared-volume model outright. AC-7 was inverted rather than patched (Q-7). The lesson for
+  whoever builds this: **this dossier sits downstream of an area under active change** — re-verify
+  §4 against the tree before writing the first step, exactly as this revision did.
 - **Rollback:** every piece is additive CI config plus two Dockerfile lines. Reverting the workflow
   steps restores the previous gate exactly; the `LABEL`/`ARG` are inert if nothing inspects them.
   No runtime code, no migration, no data.
@@ -269,12 +339,20 @@ teardown discipline (`:168-174`).
       nothing under `deploy/sandbox/` does **not** redden the gate (Q-6).
 - [ ] AC-3: `cmd_file` `write` → `read` round-trips in CI against the real image, on a named volume.
 - [ ] AC-4: `cmd_file` `list` is asserted at its **current** flat, single-level behaviour
-      (`driver.py:243`) on a nested tree, with a comment naming workspace-path FU-3 as the entry that
-      flips it. Asserting the bug is the point (Q-3): the fix needs a green baseline to invert.
-- [ ] AC-5: `cmd_file` `list` on a single file returns `[basename]` (`driver.py:245`).
+      (`driver.py:245`) on a nested tree, in its post-`format_listing` shape — **absolute paths,
+      one per line** (`protocol.py:103-113`), not bare names. Listing `/workspace` when
+      `/workspace/sub/x.csv` exists yields `/workspace/sub` and not `/workspace/sub/x.csv`. Comment
+      must name workspace-path FU-3 as the entry that flips the flatness. Asserting the bug is the
+      point (Q-3): the fix needs a green baseline to invert.
+- [ ] AC-5: `cmd_file` `list` on a single file returns that file's **absolute path**
+      (`driver.py:249` via `format_listing(dirname, [basename])`) — not `[basename]`, which is the
+      pre-`2026-07-16-workspace-path-convention` behaviour.
 - [ ] AC-6: a traversal attempt (`/workspace/../etc/passwd`) is rejected by `safe_workspace_path`,
       executed in the image — the first non-skippable test of that control (§8).
-- [ ] AC-7: the three workspace roots are asserted to agree on one volume (§6.4).
+- [ ] AC-7: [R12.03b]'s mount isolation is asserted against real containers (§6.4, Q-7): `/session`
+      content is absent from the agent volume; a write to `/workspace` in the code-exec container
+      fails with `EROFS`; room A's session content is absent from a room-B container. Assertions
+      are content- or errno-based, never `exists()`-based.
 - [ ] AC-8: the scratch volume is removed in an `if: always()` step; a run leaves no `docker volume ls`
       residue.
 - [ ] AC-9: `sandbox-images` stays green and inside its timeout (`ci.yml:187`), and remains in the
@@ -283,6 +361,9 @@ teardown discipline (`:168-174`).
       `DockerRunscSandbox` (§5.2, §8).
 - [ ] AC-11: nothing is added to the `vue/no-v-html` allowlist, no gVisor is provisioned, and no
       pytest marker is added — this tier is CI steps and two Dockerfile lines (§2).
+- [ ] AC-12: the kernel protocol stamp is asserted against the **built image** (Q-8):
+      `PROTOCOL_VERSION` read out of `smap/code-exec:ci` equals `_KERNEL_PROTOCOL_VERSION`
+      (`docker_runsc.py:81`). A deliberate mismatch is seen red before the AC is checked off.
 
 ## 12. Test Plan
 
@@ -294,6 +375,12 @@ they assert.
   FU-3 premise is wrong and that is a finding, not a test failure. AC-6: temporarily bypass
   `safe_workspace_path` and confirm red; a traversal test that passes because the path never resolved
   is worthless. A tier whose assertions have never been seen red is not a tier.
+- **AC-7's negative cases are the ones that matter**, because Q-7's constraint makes a false green
+  easy: `/session` auto-creates. Run each assertion with the mount **deliberately omitted** and
+  confirm it still goes red. If omitting the `/session` bind leaves the test green, the test is
+  reading a directory on the container layer and proving nothing. Likewise, drop the `ro` flag and
+  confirm the `EROFS` assertion reddens.
+- **AC-12's negative case**: bump `PROTOCOL_VERSION` in a scratch build and confirm the step fails.
 - **AC-1's negative case must be exercised**: build with a mismatched `--build-arg` and confirm the
   step fails. A drift check that has only ever been seen green is the failure mode FU-2 is about.
 - **AC-2's negative case**: a commit touching only `backend/` must not redden the gate.
@@ -302,7 +389,12 @@ they assert.
 
 ## 13. SRS Delta
 
-**None.** `[R24.15]` (CI gates) and `[R12.03]` (sandbox isolation) already govern this; the tier adds
+**None** — reconfirmed 2026-07-20 after the AC-7 rewrite. `[R12.03b]` already states the mount
+isolation property verbatim, including the read-only agent volume and the per-`(agent, chatroom)`
+session volume, so AC-7 asserts an existing requirement rather than introducing one. AC-12's
+protocol stamp is a build-coupling mechanism, not a product constraint, exactly like the §6.1 stamp.
+
+`[R24.15]` (CI gates) and `[R12.03]` (sandbox isolation) already govern this; the tier adds
 coverage of behaviour they already require, and modifies neither. No new platform capability, no new
 user-visible surface, no new constraint on the product — the stamp is a build-hygiene mechanism, not
 a requirement. If §16 FU-1's gVisor tier ever lands it may need one, because provisioning runsc in CI
@@ -310,14 +402,25 @@ is a statement about where the isolation guarantee is verified; that is FU-1's p
 
 ## 14. Open Questions
 
-- **OQ-1: does asserting the three roots agree (AC-7) require the code-exec image, the mcp-runtime
-  image, or both?** The `file` driver lives in mcp-runtime; the kernel lives in code-exec; staging is
-  host-side. The assertion may need a step per image plus a shared volume. It does not change the
-  design, but it changes how many steps §6.4 is.
-- **OQ-2: is a hash over `deploy/sandbox/**` stable across runners?** File ordering and line endings
-  must be normalised or the stamp differs between a Windows dev box and the Linux runner and the gate
-  reddens for everyone. `git hash-object`/`git ls-files` over the directory is the obvious answer;
-  confirm before building.
+**Both closed 2026-07-20. None remain open.**
+
+- **OQ-1 — CLOSED: both images.** `mcp-runtime/Dockerfile:44` copies in the driver only;
+  `code-exec/Dockerfile:34`/`:42` copies in **both** the driver and the kernel. But image contents
+  are not what decides it — reachability is. The `file` root is only exercised through
+  mcp-runtime's ENTRYPOINT (`mcp-runtime/Dockerfile:62`; host `docker_runsc.py:911-912`, `:927-928`),
+  while the kernel is only launched from code-exec (`docker_runsc.py:1256-1257`). code-exec carries
+  the driver "only for the optional `exec` subcommand / parity" (`code-exec/Dockerfile:5-6`), so it
+  cannot stand in. §6.4 is therefore a step per image over shared volumes.
+- **OQ-2 — CLOSED: stable, via the git index.** Use
+  `git ls-files -s deploy/sandbox | git hash-object --stdin`. Stability holds for three reasons,
+  each verified: (a) `git ls-files -s` emits mode, **blob SHA**, stage and path in a deterministic
+  sort, and the blob SHA comes from the index, so it is content-addressed and independent of the
+  working tree's line endings; (b) `.gitattributes:2` sets `* text=auto eol=lf` globally, and the
+  only `eol=crlf` exceptions are `*.bat`/`*.ps1` (`:24-25`), **neither of which exists under
+  `deploy/sandbox`** — the tracked set is 7 files (2 Dockerfiles, 4 `.py`, 1 `.dockerignore`);
+  (c) every CI job runs `ubuntu-latest` and no workflow sets `core.autocrlf`. Verified on a Windows
+  working tree: `d1d7b201e4d34ba4f835af5ad73ca34eb5c7f93c`. A Linux runner on the same commit
+  produces the same value because the input is the index, not the checkout.
 
 ## 15. Deviation Log
 
