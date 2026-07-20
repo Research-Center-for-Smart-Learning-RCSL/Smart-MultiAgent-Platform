@@ -13,7 +13,11 @@ everything this skill reads and writes — read it first.
 
 **Given a dossier** (path or slug under `docs/tasks/`): load `spec.md` and check status.
 
-- `approved` — proceed.
+- `approved` — check `depends_on` first: every listed slug must be `status: implemented`
+  in its own `spec.md` (don't trust `BOARD.md` alone for this gate — it's a cache; read
+  the dependency's frontmatter directly). If any dependency isn't implemented yet, refuse
+  and name the blocker instead of proceeding — starting anyway risks building on code or
+  assumptions that don't exist yet. Otherwise proceed.
 - `in-progress` — this is a resume: unchecked ACs and the Deviation Log tell you where
   the previous session stopped. Verify the working tree state against checked ACs before
   continuing; a checked AC whose test now fails means the checkpoint is stale.
@@ -51,7 +55,13 @@ contract change, cross-context changes, or auth/keys/tenant surfaces. Present th
 breakdown and wait. Everything else: proceed directly — spec approval already authorized
 the what, and the how is this skill's job.
 
-Set the dossier `status: in-progress` when implementation starts.
+Set the dossier `status: in-progress` when implementation starts, and move its row in
+`docs/tasks/BOARD.md` to In progress.
+
+**Record the base commit** — `git rev-parse HEAD` before the first edit — and keep it for
+Step 5. This skill commits at milestones, so by the time the audit gates run the working
+tree is clean and `HEAD~1` covers only the last milestone. Without the base ref, every
+gate in Step 5 silently audits a fraction of the task's diff.
 
 ## Step 4 — Implement
 
@@ -89,6 +99,11 @@ The failure path is where discipline matters most:
 All gates, in order. A gate that doesn't apply gets stated as N/A with a reason, not
 silently skipped.
 
+Gates 5-7 audit **the whole task diff**, not the last commit: pass the Step 3 base commit
+to each of them (`git diff --name-only <base>...HEAD` plus anything still uncommitted).
+Both audit skills accept an explicit scope; give it to them rather than letting their
+default scope detection run.
+
 1. **Mechanical gates** — backend: `pytest -q`, `ruff check . && ruff format --check .`,
    `mypy .`; frontend: `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` —
    for whichever sides the diff touches.
@@ -97,16 +112,21 @@ silently skipped.
    keys present in all locale files.
 3. **AC verification** — check off each AC in the dossier only when its mapped test (or
    documented manual check) passes. Unchecked ACs block Step 6.
-4. **Behavioral verification** — if user-visible behavior changed, use the `verify`
-   skill to run the app and observe the behavior; unit tests passing is not the same as
-   the feature working.
-5. **Quality audit** — run the `check-quality` skill on the diff. Introduced-Critical
+4. **Behavioral verification** — if user-visible behavior changed, use the `run` skill to
+   launch the app and observe the behavior; unit tests passing is not the same as the
+   feature working.
+5. **Quality audit** — run the `check-quality` skill on the task diff. Introduced-Critical
    findings must be fixed; Introduced-Warning findings fixed or explicitly deferred as
    FU-n with the user's knowledge; Pre-existing findings route to FU-n and never block.
-6. **Security audit (conditional)** — run `check-security` when the diff touches auth,
-   provider keys, tenant boundaries, WebSocket, file upload, user-input processing,
-   agent/LLM prompt or tool surfaces, dependency manifests, or deploy configs.
-7. **Self-audit** — re-read the complete diff end-to-end with fresh eyes, hunting for
+6. **Security audit (conditional)** — run `check-security` on the task diff when it
+   touches auth, provider keys, tenant boundaries, WebSocket, file upload, user-input
+   processing, agent/LLM prompt or tool surfaces, dependency manifests, or deploy
+   configs. Its verdict rules differ from quality's — do not carry gate 5's policy over:
+   **CRITICAL blocks regardless of Introduced or Pre-existing** (a vulnerability does not
+   age into acceptability); HIGH is fixed or deferred as FU-n only with the user's
+   explicit agreement; MEDIUM and Hardening route to FU-n. A `plausible` verdict is
+   treated at its stated severity, not discounted for being unconfirmed.
+7. **Self-audit** — re-read the complete task diff end-to-end with fresh eyes, hunting for
    your own bugs: unhandled error paths, reactivity pitfalls, boundary conditions,
    leftover debug code. You are the last reviewer before the user.
 
@@ -119,8 +139,14 @@ silently skipped.
 2. Append **FU-n** entries for out-of-scope discoveries. Do not fix them in this task
    unless they block an AC.
 3. Set `status: implemented`.
-4. Commit following the CLAUDE.md commit discipline: commit at each completed milestone
+4. Remove this dossier's row from `docs/tasks/BOARD.md`'s active sections (it's no longer
+   Ready/Blocked/In progress), then check whether any Blocked row listed this slug in its
+   `depends_on` — if so and all of *that* row's other dependencies are also implemented,
+   move it to Ready and tell the user it just became unblocked. This is the moment a
+   sequencing change would otherwise go unnoticed.
+5. Commit following the CLAUDE.md commit discipline: commit at each completed milestone
    rather than one lump at the end (a fix and its test as separate commits, each
    migration, each refactor stage), English messages, no co-author trailer, and stage
-   only the files this task changed — never `git add -A`/`.`/`-a`, since the tree may
-   hold unrelated in-progress work. Do not push without explicit user confirmation.
+   only the files this task changed plus `BOARD.md` — never `git add -A`/`.`/`-a`, since
+   the tree may hold unrelated in-progress work. Do not push without explicit user
+   confirmation.

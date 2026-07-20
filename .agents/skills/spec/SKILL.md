@@ -27,6 +27,13 @@ If the user's request doesn't clearly fit one, ask — the templates diverge eno
 guessing wrong wastes the whole analysis. Requests to "find bugs" in an area belong to
 `/audit`, not here; a single already-observed bug belongs here as a bugfix.
 
+Check whether this task continues a multi-step initiative already present in
+`docs/tasks/` (grep slugs for a shared feature name). If it does, name the new slug
+`<initiative>-phase<N>-<detail>` (or `-step<N>-`, matching whatever word the initiative
+already uses) continuing the existing numbering, per the contract's Sequential naming
+rule — this is what lets a later reader sort `docs/tasks/` and see build order for that
+initiative without opening any file.
+
 ## Step 2 — Clarify requirements
 
 Use structured multiple-choice questions with trade-offs stated per option
@@ -58,11 +65,24 @@ speculative, citations instead of pasted code. Also check intent sources — doe
 `REQUIREMENTS.md` already constrain this area? List the relevant `[Rxx.yy]` IDs in the
 frontmatter.
 
+**Scan for dependencies.** List every dossier under `docs/tasks/` whose `status` is not
+`implemented`/`superseded`/`abandoned` (check `BOARD.md` first — it already tracks this
+set — falling back to a frontmatter grep if `BOARD.md` looks stale) and check each
+against this task's touched files/areas for either kind of dependency the contract
+defines: a logical prerequisite (this task references code the other introduces) or an
+overlap prerequisite (both would edit the same files/lines). For every match, propose it
+to the user as a Clarifications question — "should this depend on `<slug>` because
+`<reason>`?" — with the reason as the answer's Rationale. Do not guess silently: an
+overlap that turns out to be two unrelated functions in the same file is not a
+dependency, and only the user's call on intent settles the ambiguous cases.
+
 ## Step 4 — Quality and security lens
 
 The spec must set up the implementation to leave the codebase better, not just bigger.
-Using the dimensions from the `check-quality` skill as a checklist against the touched
-area, write three things into the spec:
+Run the 12 dimensions in the `check-quality` skill's `references/dimensions.md` as a
+checklist against the touched area — the headings alone are usually enough at spec time;
+read a Part in full when the change lands squarely in it. Then write three things into
+the spec:
 
 1. **Existing debt** — quality problems already present in the files this task touches,
    so the implementer knows what not to imitate (and what not to silently "fix" —
@@ -75,14 +95,16 @@ area, write three things into the spec:
 
 If the task touches auth, provider keys, tenant boundaries, WebSocket, file upload,
 any user-input processing, or agent/LLM prompt and tool surfaces, add a Security
-Considerations section informed by the `check-security` dimensions for that surface.
+Considerations section informed by the matching Part of the `check-security` skill's
+`references/dimensions.md`.
 
 ## Step 5 — Write the dossier
 
 Create `docs/tasks/YYYY-MM-DD-<slug>/spec.md` from the matching template with
 `status: draft`. Fill every section; if a section is genuinely empty (e.g., SRS Delta for
 a bugfix), say "None" rather than deleting it — an absent section is ambiguous, an
-explicit "None" is a statement.
+explicit "None" is a statement. Set `depends_on` from Step 3's dependency scan — `[]` if
+none were found or confirmed, never left as a placeholder.
 
 ## Step 6 — Approval gate
 
@@ -97,11 +119,17 @@ If the user requests changes, revise and re-present. Never flip the status yours
 without the user's explicit approval — `/build` refuses draft dossiers by design, and
 that gate only means something if this skill honors it.
 
-## Step 7 — Commit
+## Step 7 — Update the board and commit
+
+Add a row for this dossier to `docs/tasks/BOARD.md` (create the file from the contract's
+description if it doesn't exist yet): Ready now if `depends_on` is empty or every entry
+is already `implemented`, Blocked (with the unmet slugs) otherwise. If this dossier's
+`depends_on` list turned out to reference something not yet in `BOARD.md`, that's a sign
+the scan in Step 3 missed a dossier — double check before proceeding.
 
 Commit the dossier following the CLAUDE.md commit discipline: English message, no
-co-author trailer, and stage only the files this task produced — the dossier folder and,
-if the SRS Delta was applied, `REQUIREMENTS.md`. Never `git add -A`/`.`/`-a`; the tree
-may hold unrelated in-progress work. Commit the draft when it's written and again after
-approval flips the status (two milestones), or once at approval if the user reviewed
-before you wrote. Do not push without explicit user confirmation.
+co-author trailer, and stage only the files this task produced — the dossier folder,
+`BOARD.md`, and, if the SRS Delta was applied, `REQUIREMENTS.md`. Never `git add -A`/`.`/
+`-a`; the tree may hold unrelated in-progress work. Commit the draft when it's written
+and again after approval flips the status (two milestones), or once at approval if the
+user reviewed before you wrote. Do not push without explicit user confirmation.

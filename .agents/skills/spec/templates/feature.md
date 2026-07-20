@@ -3,6 +3,7 @@ type: feature
 status: draft
 created: YYYY-MM-DD
 requirements: []
+depends_on: []
 ---
 
 # <Title>
@@ -89,7 +90,7 @@ the rollback path?
 ## 12. Test Plan
 
 How each AC gets verified: which test level (unit / component / integration / manual
-via `verify`), and where the tests live.
+via the `run` skill), and where the tests live.
 
 ## 13. SRS Delta
 

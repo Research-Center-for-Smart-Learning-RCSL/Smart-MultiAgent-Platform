@@ -79,8 +79,10 @@ dependency, and only the user's call on intent settles the ambiguous cases.
 ## Step 4 — Quality and security lens
 
 The spec must set up the implementation to leave the codebase better, not just bigger.
-Using the dimensions from the `check-quality` skill as a checklist against the touched
-area, write three things into the spec:
+Run the 12 dimensions in the `check-quality` skill's `references/dimensions.md` as a
+checklist against the touched area — the headings alone are usually enough at spec time;
+read a Part in full when the change lands squarely in it. Then write three things into
+the spec:
 
 1. **Existing debt** — quality problems already present in the files this task touches,
    so the implementer knows what not to imitate (and what not to silently "fix" —
@@ -93,7 +95,8 @@ area, write three things into the spec:
 
 If the task touches auth, provider keys, tenant boundaries, WebSocket, file upload,
 any user-input processing, or agent/LLM prompt and tool surfaces, add a Security
-Considerations section informed by the `check-security` dimensions for that surface.
+Considerations section informed by the matching Part of the `check-security` skill's
+`references/dimensions.md`.
 
 ## Step 5 — Write the dossier
 
