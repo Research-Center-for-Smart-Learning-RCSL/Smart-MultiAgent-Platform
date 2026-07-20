@@ -9,6 +9,7 @@ GDPR hard-delete wiring (``AccountDeletionService.prepare_hard_delete``).
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -353,42 +354,131 @@ async def test_sweep_reuses_client_for_enumeration_and_teardown() -> None:
 # ===========================================================================
 
 
-@pytest.mark.asyncio
-async def test_admin_gdpr_hard_delete_purges_source_infra() -> None:
-    from contexts.tenancy.application.account_deletion_service import AccountDeletionService
+class _GdprResult:
+    """Result stub answering both the row-tuple and the RETURNING-scalar shape."""
 
-    user_id = uuid.uuid4()
-    admin_id = uuid.uuid4()
-    doomed_direct = uuid.uuid4()
-    doomed_via_org = uuid.uuid4()
+    def __init__(self, rows: list) -> None:
+        self._rows = rows
+
+    def scalars(self) -> MagicMock:
+        m = MagicMock()
+        m.all.return_value = [r[0] if isinstance(r, tuple) else r for r in self._rows]
+        return m
+
+    def all(self) -> list:
+        return list(self._rows)
+
+
+def _gdpr_db(*, org_rows: list, deleted_projects: list, deleted_orgs: list) -> AsyncMock:
+    """DB stub dispatching on statement type and target table, not call order."""
+    import sqlalchemy as sa
+
+    from contexts.tenancy.infrastructure import tables as t
 
     db = AsyncMock()
 
-    def _scalar_result(ids: list[uuid.UUID]) -> MagicMock:
-        r = MagicMock()
-        r.scalars.return_value.all.return_value = ids
-        return r
+    async def _execute(stmt: Any, *_a: Any, **_kw: Any) -> Any:
+        if isinstance(stmt, sa.Delete):
+            if stmt.table is t.projects:
+                return _GdprResult(deleted_projects)
+            if stmt.table is t.orgs:
+                return _GdprResult(deleted_orgs)
+            return _GdprResult([])
+        if isinstance(stmt, sa.Update):
+            return _GdprResult([])
+        # The org->project mapping read, captured before the cascade.
+        return _GdprResult(org_rows)
 
-    # First two executes are the teardown enumeration SELECTs (direct, via-org);
-    # the rest are the delete/update statements.
-    db.execute.side_effect = [
-        _scalar_result([doomed_direct]),
-        _scalar_result([doomed_via_org]),
-        MagicMock(),  # OC transfers delete
-        MagicMock(),  # projects delete
-        MagicMock(),  # projects update owner_user_id
-        MagicMock(),  # projects update created_by_user_id
-        MagicMock(),  # orgs delete
-        MagicMock(),  # orgs update creator_user_id
-    ]
+    db.execute.side_effect = _execute
+    return db
 
-    svc = AccountDeletionService(db)
+
+@pytest.mark.asyncio
+async def test_admin_gdpr_hard_delete_returns_committed_projects() -> None:
+    """The erased set covers both direct and org-cascade projects (AC-2/AC-4).
+
+    `prepare_hard_delete` itself must do no external work — the teardown is the
+    caller's job, after the commit (F-7).
+    """
+    from contexts.tenancy.application.account_deletion_service import AccountDeletionService
+
+    doomed_direct = uuid.uuid4()
+    doomed_via_org = uuid.uuid4()
+    doomed_org = uuid.uuid4()
+
+    db = _gdpr_db(
+        org_rows=[(doomed_via_org, doomed_org)],
+        deleted_projects=[doomed_direct],
+        deleted_orgs=[doomed_org],
+    )
 
     with patch(
         "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra_batch",
         new_callable=AsyncMock,
     ) as purge_batch:
-        await svc.prepare_hard_delete(user_id=user_id, reassign_to_user_id=admin_id)
+        committed = await AccountDeletionService(db).prepare_hard_delete(
+            user_id=uuid.uuid4(), reassign_to_user_id=uuid.uuid4()
+        )
 
-    purge_batch.assert_awaited_once()
-    assert set(purge_batch.await_args.args[0]) == {doomed_direct, doomed_via_org}
+    assert committed == {doomed_direct, doomed_via_org}
+    purge_batch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_admin_gdpr_hard_delete_skips_restored_project() -> None:
+    """A restore winning the race must leave the project's sources intact (AC-3).
+
+    The deletes are guarded by `deleted_at IS NOT NULL`, so a restore landing
+    first makes them return no rows — and nothing may then be torn down.
+    """
+    from contexts.tenancy.application.account_deletion_service import AccountDeletionService
+
+    restored = uuid.uuid4()
+    db = _gdpr_db(org_rows=[(restored, uuid.uuid4())], deleted_projects=[], deleted_orgs=[])
+
+    svc = AccountDeletionService(db)
+    committed = await svc.prepare_hard_delete(user_id=uuid.uuid4(), reassign_to_user_id=uuid.uuid4())
+
+    assert committed == set()
+
+    with patch(
+        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra_batch",
+        new_callable=AsyncMock,
+    ) as purge_batch:
+        assert await svc.purge_hard_deleted_project_sources(committed) == 0
+
+    purge_batch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_admin_hard_delete_commits_before_teardown() -> None:
+    """AC-6: no transaction spans the MinIO/Qdrant calls on the admin path."""
+    from contexts.identity.application.admin_service import AdminService
+
+    target = uuid.uuid4()
+    doomed = uuid.uuid4()
+    order: list[str] = []
+
+    db = AsyncMock()
+    db.commit.side_effect = lambda: order.append("commit")
+
+    svc = AdminService(db)
+    user = MagicMock(deleted_at=datetime(2020, 1, 1, tzinfo=UTC))
+    tenancy = AsyncMock()
+    tenancy.orgs_blocking_self_delete.return_value = []
+    tenancy.prepare_hard_delete.return_value = {doomed}
+
+    async def _purge(ids: set[uuid.UUID]) -> int:
+        order.append("teardown")
+        return len(ids)
+
+    tenancy.purge_hard_deleted_project_sources.side_effect = _purge
+
+    with (
+        patch.object(svc._users, "get_by_id", new=AsyncMock(return_value=user)),
+        patch("contexts.tenancy.interfaces.facade.TenancyFacade", return_value=tenancy),
+        patch("contexts.identity.application.admin_service.audit.emit", new_callable=AsyncMock),
+    ):
+        await svc.hard_delete_user(target_user_id=target, admin_user_id=uuid.uuid4(), actor_ip=None)
+
+    assert order == ["commit", "teardown"], "teardown must follow the durable commit"

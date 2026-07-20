@@ -157,60 +157,42 @@ class AccountDeletionService:
         *,
         user_id: uuid.UUID,
         reassign_to_user_id: uuid.UUID,
-    ) -> None:
+    ) -> set[uuid.UUID]:
         """Remove all FK RESTRICT references to the user before hard-delete.
 
         Soft-deleted orgs/projects are hard-deleted outright (GDPR purge);
         their FK CASCADE constraints clean up child rows automatically.
         Active rows that still reference the user (edge case if cascade was
         incomplete) are reassigned to *reassign_to_user_id*.
+
+        Returns the ids of the projects this call erased. The caller must commit
+        before passing them to ``purge_hard_deleted_project_sources`` — this
+        method performs no external work of its own (F-7).
         """
         # F-24 (C1): this is the immediate admin GDPR hard-delete — it bypasses
-        # the retention worker, so wire the same project-scoped source-infra
-        # teardown here or admin purges would leak File RAG / Knowledge Map source
-        # blobs and the rag_{project_id} collection until the next backstop sweep.
-        # Enumerate the projects this call will erase — those deleted directly
-        # (below) plus those cascade-deleted via the orgs it deletes — BEFORE the
-        # rows (and their blob-key-carrying rag_* rows) cascade away, then erase
-        # each project's source infra keyed on project_id alone.
-        deleted_projects_cond = sa.and_(
-            sa.or_(
-                t.projects.c.owner_user_id == user_id,
-                t.projects.c.created_by_user_id == user_id,
-            ),
-            t.projects.c.deleted_at.isnot(None),
-        )
-        deleted_orgs = sa.select(t.orgs.c.id).where(
+        # the retention worker, so its projects need the same source-infra
+        # teardown or admin purges leak File RAG / Knowledge Map source blobs and
+        # the rag_{project_id} collection until the next backstop sweep.
+        #
+        # F-7: which projects die is decided by deleting them with RETURNING, not
+        # by reading candidates first. A restore racing that read would otherwise
+        # leave a live project stripped of sources it can never rebuild.
+        doomed_orgs = sa.select(t.orgs.c.id).where(
             sa.and_(
                 t.orgs.c.creator_user_id == user_id,
                 t.orgs.c.deleted_at.isnot(None),
             )
         )
-        teardown_ids = set(
-            (await self._db.execute(sa.select(t.projects.c.id).where(deleted_projects_cond))).scalars().all()
-        ) | set(
-            (
-                await self._db.execute(
-                    sa.select(t.projects.c.id).where(t.projects.c.owner_org_id.in_(deleted_orgs))
-                )
+        # Captured before the org delete: an org-owned project vanishes by FK
+        # cascade, leaving no row to attribute to the returned org id.
+        org_projects: dict[uuid.UUID, set[uuid.UUID]] = {}
+        rows = await self._db.execute(
+            sa.select(t.projects.c.id, t.projects.c.owner_org_id).where(
+                t.projects.c.owner_org_id.in_(doomed_orgs)
             )
-            .scalars()
-            .all()
         )
-        if teardown_ids:
-            from loguru import logger
-
-            from contexts.knowledge.interfaces.facade import KnowledgeFacade
-
-            try:
-                await KnowledgeFacade(self._db).purge_project_source_infra_batch(teardown_ids)
-            except Exception:
-                # Best-effort (spec §7.2): a teardown failure must never abort the
-                # GDPR purge — the batch isolates per-project failures internally, and
-                # the backstop sweep reclaims anything a catastrophic failure misses.
-                logger.bind(event="admin_gdpr_rag_source_teardown_failed").opt(exception=True).warning(
-                    "rag source teardown batch failed during admin hard-delete"
-                )
+        for pid, oid in rows.all():
+            org_projects.setdefault(oid, set()).add(pid)
 
         await self._db.execute(
             t.original_creator_transfers.delete().where(
@@ -220,17 +202,27 @@ class AccountDeletionService:
                 )
             )
         )
-        await self._db.execute(
-            t.projects.delete().where(
-                sa.and_(
-                    sa.or_(
-                        t.projects.c.owner_user_id == user_id,
-                        t.projects.c.created_by_user_id == user_id,
-                    ),
-                    t.projects.c.deleted_at.isnot(None),
+        deleted_projects = (
+            (
+                await self._db.execute(
+                    t.projects.delete()
+                    .where(
+                        sa.and_(
+                            sa.or_(
+                                t.projects.c.owner_user_id == user_id,
+                                t.projects.c.created_by_user_id == user_id,
+                            ),
+                            t.projects.c.deleted_at.isnot(None),
+                        )
+                    )
+                    .returning(t.projects.c.id)
                 )
             )
+            .scalars()
+            .all()
         )
+        committed: set[uuid.UUID] = set(deleted_projects)
+
         await self._db.execute(
             t.projects.update().where(t.projects.c.owner_user_id == user_id).values(owner_user_id=None)
         )
@@ -239,19 +231,67 @@ class AccountDeletionService:
             .where(t.projects.c.created_by_user_id == user_id)
             .values(created_by_user_id=reassign_to_user_id)
         )
-        await self._db.execute(
-            t.orgs.delete().where(
-                sa.and_(
-                    t.orgs.c.creator_user_id == user_id,
-                    t.orgs.c.deleted_at.isnot(None),
+        deleted_orgs = (
+            (
+                await self._db.execute(
+                    t.orgs.delete()
+                    .where(
+                        sa.and_(
+                            t.orgs.c.creator_user_id == user_id,
+                            t.orgs.c.deleted_at.isnot(None),
+                        )
+                    )
+                    .returning(t.orgs.c.id)
                 )
             )
+            .scalars()
+            .all()
         )
+        for oid in deleted_orgs:
+            committed |= org_projects.get(oid, set())
+
         await self._db.execute(
             t.orgs.update()
             .where(t.orgs.c.creator_user_id == user_id)
             .values(creator_user_id=reassign_to_user_id)
         )
+        return committed
+
+    async def purge_hard_deleted_project_sources(self, project_ids: set[uuid.UUID]) -> int:
+        """Erase source infra for projects whose hard delete already committed (F-7).
+
+        Best-effort by design: the committed row absence is the durable retry
+        signal, so anything failing here stays discoverable by the retention
+        orphan sweep. A teardown failure must never fail an already-committed
+        GDPR purge. Returns the count purged without error.
+        """
+        if not project_ids:
+            return 0
+
+        from loguru import logger
+
+        from contexts.knowledge.interfaces.facade import KnowledgeFacade
+
+        try:
+            purged: int = await KnowledgeFacade(self._db).purge_project_source_infra_batch(project_ids)
+            await self._db.commit()
+        except Exception:
+            # The batch isolates per-project failures internally; this only
+            # covers a catastrophic one (e.g. Qdrant client construction).
+            logger.bind(
+                event="admin_gdpr_rag_source_teardown_failed",
+                projects_committed=len(project_ids),
+            ).opt(exception=True).warning(
+                "rag source teardown batch failed during admin hard-delete; " "orphan sweep will reclaim"
+            )
+            return 0
+        if purged < len(project_ids):
+            logger.bind(
+                event="admin_gdpr_rag_source_teardown_partial",
+                projects_committed=len(project_ids),
+                projects_purged=purged,
+            ).warning("rag source teardown partially failed; orphan sweep will reclaim the remainder")
+        return purged
 
 
 __all__ = ["AccountDeletionService"]
