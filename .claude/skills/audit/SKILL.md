@@ -59,30 +59,24 @@ already pin the behavior, trace the alleged failure scenario step by step.
 
 ## Step 4 — Write findings.md
 
-Create `docs/audits/YYYY-MM-DD-<slug>/findings.md` with `type: audit`, `status: draft`.
-Order findings by severity. Each entry:
+Create `docs/audits/YYYY-MM-DD-<slug>/findings.md` from `templates/findings.md`. Fill
+every section; a section with nothing in it says "None" rather than being deleted, same
+rule as the spec templates. Order findings by severity within §3.
 
-```markdown
-## F-1: <one-line defect statement>
-
-- **Severity**: critical | major | minor
-- **Verdict**: confirmed | plausible
-- **Evidence**: path:line, ...
-- **Failure scenario**: concrete inputs/state → wrong outcome
-- **Blast radius**: what/who is affected
-- **Intent source**: [Rxx.yy] or spec dossier the behavior violates
-```
-
-Also state what was covered and what was not (areas skipped, depth limits) — a findings
-list without coverage boundaries reads as "everything else is clean" when it isn't.
+The Coverage section (§2) is not optional garnish — a findings list without stated
+boundaries reads as "everything else is clean" when it isn't. The Hand-off table (§5)
+starts empty and is filled in Step 5.
 
 ## Step 5 — Hand off
 
 Present the findings summary. For each finding the user selects for fixing, create a
 bugfix dossier via `/spec` (bugfix mode) — the finding pre-fills Observed vs Expected,
-evidence, and reproduction, so the spec step is fast. Set `findings.md` to
-`status: reviewed` once the user has triaged, and `closed` when every selected finding
-has a linked dossier.
+evidence, and reproduction, so the spec step is fast.
+
+Record every finding's disposition in the Hand-off table (§5), including the ones the
+user declines — "won't fix" with a date is a decision; a blank row is an oversight. Set
+`findings.md` to `status: reviewed` once the user has triaged, and `closed` when every
+selected finding has a linked dossier.
 
 ## Step 6 — Commit
 
