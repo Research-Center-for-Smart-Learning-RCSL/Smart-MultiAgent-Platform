@@ -25,24 +25,18 @@ parallel.
 
 ## Blocked
 
-- `2026-07-17-sandbox-guest-container-tests` (feature, approved) — **waiting on
-  `2026-07-19-session-dir-room-isolation` and `2026-07-19-workspace-readonly-in-kernel`,
-  both `in-progress`.** Approved 2026-07-20 after a revision that closed OQ-1/OQ-2 and
-  rewrote three ACs. It briefly looked Ready when `2026-07-16-workspace-path-convention`
-  landed, but the approval review found the two 07-19 dossiers had falsified its §4 model:
-  the kernel moved to `/session` on its own per-room volume and `/workspace` became
-  read-only there, so its AC-7 was inverted to assert [R12.03b]'s mount isolation instead
-  of the old "three roots share one volume". That rewrite is what added the two
-  dependencies (its Q-9). **Note:** their *code* has already landed (`f7c4ea6`, `06798c9`)
-  — what is outstanding is those two dossiers' own close-out, not the implementation.
+Nothing blocked.
 
 ## In progress
 
-- `2026-07-19-session-dir-room-isolation` (bugfix) — `depends_on: []`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
-- `2026-07-19-workspace-readonly-in-kernel` (bugfix) — `depends_on:
-  [2026-07-19-session-dir-room-isolation]`. **Note:** that dependency is not yet
-  `implemented` (it's `in-progress` too) — this dossier's fix cites code
-  (`docker_runsc.py:1190-1193`) that the dependency introduced, so verify that code has
-  actually landed on the working tree before resuming this one; if it hasn't, finish the
-  dependency first per the `depends_on` gate in `/build`'s contract.
+
+- `2026-07-17-sandbox-guest-container-tests` (feature) - **unblocked 2026-07-20** when both
+  07-19 dependencies reached `implemented`; started 2026-07-21. Approved after a revision
+  that closed OQ-1/OQ-2 and rewrote three ACs: the two 07-19 dossiers had falsified its §4
+  model (the kernel moved to `/session` on its own per-room volume and `/workspace` became
+  read-only there), so its AC-7 was inverted to assert [R12.03b]'s mount isolation instead
+  of the old "three roots share one volume". Carries a new AC-13 added after
+  `session-dir-room-isolation` D-10 shipped a defect that broke `code_exec` in every
+  chatroom and that only a real container could catch - which is this dossier's whole
+  premise, now with a concrete incident behind it.
