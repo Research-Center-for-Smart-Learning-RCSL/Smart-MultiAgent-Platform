@@ -587,15 +587,32 @@ class TestTheInvariantTheSweepRestsOn:
     @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
     @patch("app.workers.tasks.retention.now", return_value=_NOW)
     async def test_retention_only_deletes_agent_rows_past_the_cutoff(self, _now, _audit) -> None:
-        from app.workers.tasks.retention import _purge_soft_deleted_tenancy
+        from app.workers.tasks import retention as ret
 
         session = AsyncMock()
         result = MagicMock()
         result.rowcount = 0
-        result.scalars.return_value.all.return_value = []  # no doomed projects (F-24 teardown)
+        result.scalars.return_value.all.return_value = []  # nothing deleted (F-24 teardown)
+        result.all.return_value = []  # no org-owned projects to map (F-7)
         session.execute.return_value = result
 
-        await _purge_soft_deleted_tenancy(session)
+        # F-7: the destructive phase runs in its own short transaction so no
+        # MinIO/Qdrant call is made holding a lock on a tenancy row. Point that
+        # sessionmaker at the same mock so every statement is still recorded here.
+        class _CM:
+            async def __aenter__(self):
+                return session
+
+            async def __aexit__(self, *_a):
+                return None
+
+            def begin(self):
+                return _CM()
+
+        session.begin = lambda: _CM()
+
+        with patch.object(ret, "get_sessionmaker", return_value=lambda: _CM()):
+            await ret._purge_soft_deleted_tenancy(session)
 
         deletes = [
             call.args[0]

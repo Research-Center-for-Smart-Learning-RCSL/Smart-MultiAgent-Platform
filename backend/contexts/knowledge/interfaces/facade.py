@@ -342,6 +342,7 @@ class KnowledgeFacade:
         self,
         project_ids: Iterable[uuid.UUID],
         *,
+        source: str,
         audit_action: str = "rag.source_infra_purged",
     ) -> int:
         """Erase source infra for many projects, sharing one Qdrant client (F-24).
@@ -368,7 +369,7 @@ class KnowledgeFacade:
         qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
         try:
             return await self._purge_source_infra_with_store(
-                ids, store=QdrantStore(qclient), audit_action=audit_action
+                ids, store=QdrantStore(qclient), audit_action=audit_action, source=source
             )
         finally:
             await qclient.close()
@@ -396,7 +397,7 @@ class KnowledgeFacade:
                 live_project_ids=live_project_ids, qdrant_store=store
             )
             return await self._purge_source_infra_with_store(
-                orphans, store=store, audit_action="rag.source_orphan_swept"
+                orphans, store=store, audit_action="rag.source_orphan_swept", source="orphan_sweep"
             )
         finally:
             await qclient.close()
@@ -463,17 +464,24 @@ class KnowledgeFacade:
         *,
         store: object,
         audit_action: str,
+        source: str,
     ) -> int:
         """Erase + audit source infra for each id, reusing ``store`` (F-24).
 
         Per-project isolation: a project whose teardown raises is logged and
         skipped so it never aborts the batch/sweep. Audit metadata carries only
         ``project_id`` + counts, never a blob key.
+
+        Owns the partial-failure verdict for every caller (F-7). Each one erases
+        by project id and recovers the same way — through the row-absence orphan
+        sweep — so stating that policy once here is what keeps the two hard-delete
+        paths from drifting apart. ``source`` attributes the warning to the caller.
         """
         from contexts.knowledge.application.config_service import RagConfigService
 
+        ids = list(project_ids)
         swept = 0
-        for pid in project_ids:
+        for pid in ids:
             try:
                 summary = await RagConfigService.purge_project_source_infra(
                     project_id=pid, qdrant_store=store
@@ -496,6 +504,18 @@ class KnowledgeFacade:
                 ),
             )
             swept += 1
+        if swept < len(ids):
+            # loguru directly rather than this module's stdlib `_log`: the stdlib
+            # bridge forwards only the message and drops `extra`, and these counts
+            # are the whole point of the warning.
+            from loguru import logger
+
+            logger.bind(
+                event="rag_source_teardown_partial",
+                source=source,
+                projects_requested=len(ids),
+                projects_purged=swept,
+            ).warning("rag source teardown partially failed; orphan sweep will reclaim the remainder")
         return swept
 
 

@@ -273,7 +273,9 @@ class AccountDeletionService:
         from contexts.knowledge.interfaces.facade import KnowledgeFacade
 
         try:
-            purged: int = await KnowledgeFacade(self._db).purge_project_source_infra_batch(project_ids)
+            purged: int = await KnowledgeFacade(self._db).purge_project_source_infra_batch(
+                project_ids, source="admin_gdpr"
+            )
             await self._db.commit()
         except Exception:
             # Discard the partial audit writes: the hard delete is already
@@ -281,8 +283,9 @@ class AccountDeletionService:
             # make `db_session`'s trailing commit raise and turn a successful
             # GDPR purge into a 500.
             await self._db.rollback()
-            # The batch isolates per-project failures internally; this only
-            # covers a catastrophic one (e.g. Qdrant client construction).
+            # The batch isolates per-project failures internally (and reports the
+            # partial verdict itself); this only covers a catastrophic failure,
+            # e.g. Qdrant client construction.
             logger.bind(
                 event="admin_gdpr_rag_source_teardown_failed",
                 projects_committed=len(project_ids),
@@ -290,12 +293,6 @@ class AccountDeletionService:
                 "rag source teardown batch failed during admin hard-delete; orphan sweep will reclaim"
             )
             return 0
-        if purged < len(project_ids):
-            logger.bind(
-                event="admin_gdpr_rag_source_teardown_partial",
-                projects_committed=len(project_ids),
-                projects_purged=purged,
-            ).warning("rag source teardown partially failed; orphan sweep will reclaim the remainder")
         return purged
 
 
