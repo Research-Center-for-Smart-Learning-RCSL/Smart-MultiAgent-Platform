@@ -13,10 +13,12 @@ orchestration (paging, per-tick cap, failure isolation).
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, ClassVar
 
 import pytest
 
+import app.workers.tasks.knowmap as knowmap_task
 from contexts.knowledge.infrastructure.knowmap_repositories import KnowmapConfigRepository
 
 
@@ -77,3 +79,176 @@ async def test_divergence_query_does_not_filter_on_other_build_states() -> None:
     sql = _sql(db.statements[0])
     assert "'running'" not in sql
     assert "'failed'" not in sql
+
+
+# ---------------------------------------------------------------------------
+# Sweep orchestration (AC-5, AC-8)
+# ---------------------------------------------------------------------------
+
+
+class _FakeDb:
+    def __init__(self) -> None:
+        self.rollbacks = 0
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+class _Session:
+    def __init__(self, db: _FakeDb) -> None:
+        self._db = db
+
+    async def __aenter__(self) -> _FakeDb:
+        return self._db
+
+    async def __aexit__(self, *exc: object) -> bool:
+        return False
+
+
+def _cfg(revision: int = 2) -> Any:
+    return SimpleNamespace(id=uuid.uuid4(), corpus_revision=revision, built_corpus_revision=revision - 1)
+
+
+class _PagingRepo:
+    """Serves a fixed backlog through whatever limit/offset the sweep asks for."""
+
+    backlog: ClassVar[list[Any]] = []
+    calls: ClassVar[list[tuple[int, int]]] = []
+
+    def __init__(self, _db: Any) -> None:
+        pass
+
+    async def list_revision_divergent(self, *, limit: int, offset: int) -> list[Any]:
+        type(self).calls.append((limit, offset))
+        return list(type(self).backlog[offset : offset + limit])
+
+    async def list_stale_running(self, *, started_before: Any, limit: int, offset: int) -> list[Any]:
+        return []
+
+
+def _install(monkeypatch: Any, db: _FakeDb, enqueue: Any) -> None:
+    monkeypatch.setattr(knowmap_task, "get_sessionmaker", lambda: (lambda: _Session(db)))
+    monkeypatch.setattr(knowmap_task, "KnowmapConfigRepository", _PagingRepo)
+    monkeypatch.setattr(knowmap_task, "enqueue_knowmap_build", enqueue)
+
+
+@pytest.mark.asyncio
+async def test_sweep_pages_and_stops_on_a_short_page(monkeypatch: Any) -> None:
+    _PagingRepo.backlog = [_cfg() for _ in range(70)]
+    _PagingRepo.calls = []
+    seen: list[uuid.UUID] = []
+
+    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> None:
+        seen.append(config_id)
+
+    db = _FakeDb()
+    _install(monkeypatch, db, _enqueue)
+    result = await knowmap_task.knowmap_revision_sweep({})
+
+    # 70 rows over a page size of 50: a full page, then a short one that ends it.
+    assert _PagingRepo.calls == [(50, 0), (50, 50)]
+    assert len(seen) == 70
+    assert result == "enqueued=70 failed=0"
+
+
+@pytest.mark.asyncio
+async def test_sweep_truncates_at_the_per_tick_cap(monkeypatch: Any) -> None:
+    # AC-8: a large backlog must drain over several ticks, not arrive as one herd.
+    _PagingRepo.backlog = [_cfg() for _ in range(250)]
+    _PagingRepo.calls = []
+    seen: list[uuid.UUID] = []
+
+    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> None:
+        seen.append(config_id)
+
+    db = _FakeDb()
+    _install(monkeypatch, db, _enqueue)
+    result = await knowmap_task.knowmap_revision_sweep({})
+
+    assert len(seen) == 200
+    assert result == "enqueued=200 failed=0"
+    # The last page is trimmed to the remaining budget rather than overshooting.
+    assert sum(limit for limit, _ in _PagingRepo.calls) == 200
+
+
+@pytest.mark.asyncio
+async def test_sweep_targets_each_configs_own_latest_revision(monkeypatch: Any) -> None:
+    # AC-3: the target is the config's committed revision, not a shared value.
+    a, b = _cfg(revision=3), _cfg(revision=9)
+    _PagingRepo.backlog = [a, b]
+    _PagingRepo.calls = []
+    targets: dict[uuid.UUID, int] = {}
+
+    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> None:
+        targets[config_id] = target_revision
+
+    db = _FakeDb()
+    _install(monkeypatch, db, _enqueue)
+    await knowmap_task.knowmap_revision_sweep({})
+
+    assert targets == {a.id: 3, b.id: 9}
+
+
+@pytest.mark.asyncio
+async def test_sweep_isolates_one_config_failure(monkeypatch: Any) -> None:
+    # AC-5. enqueue_knowmap_build swallows its own queue errors today, so this
+    # pins the sweep's own isolation independently of that helper's behaviour.
+    boom, ok = _cfg(), _cfg()
+    _PagingRepo.backlog = [boom, ok]
+    _PagingRepo.calls = []
+    seen: list[uuid.UUID] = []
+
+    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> None:
+        if config_id == boom.id:
+            raise RuntimeError("redis down")
+        seen.append(config_id)
+
+    db = _FakeDb()
+    _install(monkeypatch, db, _enqueue)
+    result = await knowmap_task.knowmap_revision_sweep({})
+
+    assert seen == [ok.id]
+    assert result == "enqueued=1 failed=1"
+    assert db.rollbacks == 1
+
+
+@pytest.mark.asyncio
+async def test_sweep_on_an_empty_backlog_is_a_no_op(monkeypatch: Any) -> None:
+    _PagingRepo.backlog = []
+    _PagingRepo.calls = []
+    calls = 0
+
+    async def _enqueue(**_k: Any) -> None:
+        nonlocal calls
+        calls += 1
+
+    db = _FakeDb()
+    _install(monkeypatch, db, _enqueue)
+    result = await knowmap_task.knowmap_revision_sweep({})
+
+    assert result == "enqueued=0 failed=0"
+    assert calls == 0
+    assert db.rollbacks == 0
+
+
+# ---------------------------------------------------------------------------
+# Worker registration and cadence (AC-5)
+# ---------------------------------------------------------------------------
+
+
+def test_sweep_is_registered_as_a_worker_function() -> None:
+    # A task nobody registers never runs.
+    from app.workers.main import WorkerSettings
+
+    assert knowmap_task.knowmap_revision_sweep in WorkerSettings.functions
+
+
+def test_sweep_runs_every_minute() -> None:
+    # No other sweep asserts its cadence; recovery latency is the whole point
+    # here, so pin it.
+    from app.workers.main import WorkerSettings
+
+    jobs = [c for c in WorkerSettings.cron_jobs if c.coroutine is knowmap_task.knowmap_revision_sweep]
+    assert len(jobs) == 1
+    assert jobs[0].minute == set(range(60))
+    assert jobs[0].run_at_startup is False

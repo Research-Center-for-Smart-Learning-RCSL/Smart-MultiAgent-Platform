@@ -5,6 +5,8 @@
   enqueues the graph build so the committed corpus change is reflected.
 - ``knowmap_scan_document`` — ClamAV malware scan flipping ``scan_status``; a
   quarantine verdict triggers a rebuild so the graph drops the tainted document.
+- ``knowmap_revision_sweep`` — minute cron reconciling committed corpus revisions
+  that the best-effort finalize/enqueue path never turned into a queued build.
 
 Mirrors ``app/workers/tasks/rag.py`` over the ``knowmap_*`` repositories.
 """
@@ -51,6 +53,69 @@ KNOWMAP_BUILD_TIMEOUT_S = LOCK_TTL_S * 3
 # can enqueue a rebuild only once retries are exhausted (a document mid-retry might
 # still come back CLEAN), and so the `.max_tries` assignment stays in sync.
 _SCAN_MAX_TRIES = 3
+
+
+# F-4: deliberately tighter than the 500-per-page used by cheaper sweeps
+# (``graphrag_silence_sweep``). Every config this sweep enqueues drives Neo4j,
+# Qdrant and LLM extraction, so a large backlog must drain over several ticks
+# instead of arriving as one herd.
+_SWEEP_PAGE_SIZE = 50
+_SWEEP_MAX_PER_TICK = 200
+
+
+async def knowmap_revision_sweep(ctx: dict[str, Any]) -> str:
+    """Enqueue builds for committed corpus revisions that were never queued (F-4).
+
+    The level-triggered backstop for edge-triggered finalization. Both
+    ``_finalize_build_revision`` (swallowed by ``knowmap_build`` so a bookkeeping
+    error cannot make arq re-run a committed build) and ``enqueue_knowmap_build``
+    are best-effort, so a durable ``corpus_revision`` can end up with no queued
+    build and no further trigger to produce one. This reads that gap directly.
+
+    Repeated ticks are idempotent: the revision-keyed job id means re-offering the
+    same gap collapses onto the job already queued or running.
+    """
+    _ = ctx
+    sm = get_sessionmaker()
+    enqueued = 0
+    failed = 0
+    seen = 0
+    async with sm() as db:
+        configs = KnowmapConfigRepository(db)
+        offset = 0
+        exhausted = False
+        while seen < _SWEEP_MAX_PER_TICK:
+            page_limit = min(_SWEEP_PAGE_SIZE, _SWEEP_MAX_PER_TICK - seen)
+            # Offset paging is stable enough here: a config stays divergent until
+            # its build finishes, and one completing mid-tick only defers a row to
+            # the next tick rather than losing it.
+            page = await configs.list_revision_divergent(limit=page_limit, offset=offset)
+            for cfg in page:
+                seen += 1
+                try:
+                    await enqueue_knowmap_build(config_id=cfg.id, target_revision=cfg.corpus_revision)
+                    enqueued += 1
+                except Exception:
+                    # enqueue_knowmap_build swallows its own queue errors today;
+                    # this keeps one config's failure from aborting the page if it
+                    # ever stops doing so.
+                    failed += 1
+                    await db.rollback()
+                    _log.warning(
+                        "knowmap revision sweep: enqueue failed for config %s", cfg.id, exc_info=True
+                    )
+            if len(page) < page_limit:
+                exhausted = True
+                break
+            offset += len(page)
+        if not exhausted:
+            # A capped tick must not read as full coverage in the logs.
+            _log.info(
+                "knowmap revision sweep: reached the per-tick cap of %d configs",
+                _SWEEP_MAX_PER_TICK,
+            )
+    _log.info("knowmap revision sweep: enqueued=%d failed=%d seen=%d", enqueued, failed, seen)
+    return f"enqueued={enqueued} failed={failed}"
 
 
 async def _bump_and_enqueue_build(sm: Any, knowmap_config_id: uuid.UUID) -> None:
@@ -468,4 +533,9 @@ async def _finalize_build_revision(
     return None
 
 
-__all__ = ["knowmap_build", "knowmap_ingest_document", "knowmap_scan_document"]
+__all__ = [
+    "knowmap_build",
+    "knowmap_ingest_document",
+    "knowmap_revision_sweep",
+    "knowmap_scan_document",
+]

@@ -52,6 +52,7 @@ from app.workers.tasks.knowmap import (
     KNOWMAP_BUILD_TIMEOUT_S,
     knowmap_build,
     knowmap_ingest_document,
+    knowmap_revision_sweep,
     knowmap_scan_document,
 )
 from app.workers.tasks.orchestration import (
@@ -289,6 +290,7 @@ class WorkerSettings:
         rag_scan_document,
         knowmap_ingest_document,
         knowmap_scan_document,
+        knowmap_revision_sweep,
         skill_scan_file,
         skill_import_bundle,
         skill_export_bundle,
@@ -337,6 +339,11 @@ class WorkerSettings:
         # Every minute — heal GraphRAG 2PC drift (M.5.4 / R11.04): configs stuck
         # in FAILED_COMPENSATING. arq's cron lock keeps it singleton across replicas.
         cron(graphrag_reconcile, minute=set(range(60)), run_at_startup=False),
+        # Every minute — Knowledge Map revision divergence sweep (F-4 / R11.12):
+        # re-offer builds for committed corpus revisions that the best-effort
+        # finalize/enqueue path dropped. arq's cron lock keeps it singleton across
+        # replicas; the revision-keyed job id makes a repeated offer a no-op.
+        cron(knowmap_revision_sweep, minute=set(range(60)), run_at_startup=False),
         # Every minute — Concept Map silence-trigger sweep (F-4 / R11.02): fire a
         # graphrag_build for maps whose coverage has been idle for silence_minutes.
         # arq's cron lock keeps it singleton; keep_result backs the _job_id dedup.
