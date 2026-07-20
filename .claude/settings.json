@@ -12,7 +12,7 @@
               "-NoProfile",
               "-NonInteractive",
               "-File",
-              ".claude\\hooks\\mirror-skills.ps1"
+              "${CLAUDE_PROJECT_DIR}\\.claude\\hooks\\mirror-skills.ps1"
             ],
             "timeout": 30,
             "statusMessage": "Mirroring skills to .agents"
