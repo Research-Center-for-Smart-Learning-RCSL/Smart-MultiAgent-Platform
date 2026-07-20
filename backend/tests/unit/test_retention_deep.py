@@ -225,12 +225,14 @@ class _RaceResult:
         return iter(self._rows)
 
 
-def _race_session(*, select_rows: list, delete_rows: list):
-    """Session dispatching on statement type rather than call order.
+def _race_session(*, select_rows: list, delete_rows: list, org_ids: list | None = None):
+    """Session dispatching on statement shape rather than call order.
 
     Order-independence is deliberate: these tests pin the invariant (teardown
     follows a committed delete) rather than a particular ``execute`` sequence,
     so restructuring the DB phase cannot make them pass for the wrong reason.
+    The two SELECTs are told apart by width — the doomed-org read projects one
+    column, the org->project mapping two.
     """
     import sqlalchemy as sa
 
@@ -239,6 +241,8 @@ def _race_session(*, select_rows: list, delete_rows: list):
     async def _execute(stmt, *_a, **_kw):
         if isinstance(stmt, sa.Delete):
             return _RaceResult(delete_rows, rowcount=len(delete_rows))
+        if len(stmt.selected_columns) == 1:
+            return _RaceResult(org_ids or [])
         return _RaceResult(select_rows)
 
     session.execute.side_effect = _execute
@@ -281,7 +285,8 @@ class TestPurgeSoftDeletedTenancy:
             count = await ret._purge_soft_deleted_tenancy(session)
 
         assert count == 3 * len(ret._SOFT_DELETE_TABLES)
-        # One org->project mapping SELECT precedes the per-table deletes.
+        # The doomed-org read precedes the per-table deletes; with no doomed orgs
+        # the mapping read is skipped entirely.
         assert session.execute.await_count == 1 + len(ret._SOFT_DELETE_TABLES)
 
     @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
@@ -349,6 +354,8 @@ class TestRagSourceTeardownWiring:
                 if stmt.table is projects_tbl:
                     return _RaceResult([direct_pid], rowcount=1)
                 return _RaceResult([], rowcount=0)
+            if len(stmt.selected_columns) == 1:
+                return _RaceResult([doomed_org])  # the doomed-org read
             # The org->project mapping read, captured before the cascade.
             return _RaceResult([(via_org_pid, doomed_org)])
 
@@ -384,7 +391,7 @@ class TestRestoreRaceOrdering:
         org_id = uuid.uuid4()
         # Eligibility reads still see the project; every delete affects zero rows
         # because the restore cleared `deleted_at` first.
-        session = _race_session(select_rows=[(restored_pid, org_id)], delete_rows=[])
+        session = _race_session(select_rows=[(restored_pid, org_id)], delete_rows=[], org_ids=[org_id])
 
         with patch.object(ret, "get_sessionmaker", return_value=_session_maker(session)):
             await ret._purge_soft_deleted_tenancy(session)
@@ -392,7 +399,35 @@ class TestRestoreRaceOrdering:
         purge_batch.assert_not_awaited()
 
 
-class TestPurgeRagSourceOrphans:
+class TestTenancySweepFlushesItsAuditTail:
+    """The destructive phase writes its audits on sessions it opens itself.
+
+    `audit.emit` queues a realtime tail event on whichever session wrote the row,
+    and `retention_sweep` only flushes the policy session it passed in. Whoever
+    opens a session here therefore has to flush it, or `retention.soft_deleted.swept`
+    never reaches the audit stream even though the row is in the table.
+    """
+
+    @patch(
+        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra_batch",
+        new_callable=AsyncMock,
+    )
+    @patch("app.workers.tasks.retention.audit.flush_tail_events", new_callable=AsyncMock)
+    @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
+    @patch("app.workers.tasks.retention.now", return_value=_NOW)
+    async def test_flushes_every_session_it_opened(self, _now, _emit, flush, purge) -> None:
+        from app.workers.tasks import retention as ret
+
+        pid = uuid.uuid4()
+        purge.return_value = 1
+        session = _race_session(select_rows=[], delete_rows=[pid])
+
+        with patch.object(ret, "get_sessionmaker", return_value=_session_maker(session)):
+            await ret._purge_soft_deleted_tenancy(session)
+
+        # One for the delete session, one for the teardown session.
+        assert flush.await_count == 2, "an unflushed session drops its audit tail silently"
+
     """F-24: the backstop sweep delegates to the facade sweep and audits the count."""
 
     @patch(

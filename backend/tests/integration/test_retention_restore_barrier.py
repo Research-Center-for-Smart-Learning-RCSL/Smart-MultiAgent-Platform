@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
@@ -77,7 +77,9 @@ class _Tenancy:
             await s.execute(
                 projects_t.insert().values(
                     id=pid,
-                    name="barrier",
+                    # Unique per project: `uq_projects_user_name` is a partial
+                    # unique index over (owner_user_id, name) for live rows.
+                    name=f"barrier-{pid}",
                     owner_user_id=None if org_id else self.owner_id,
                     owner_org_id=org_id,
                     created_by_user_id=self.owner_id,
@@ -119,6 +121,18 @@ class _Tenancy:
             await s.execute(orgs_t.delete().where(orgs_t.c.id.in_(self._orgs)))
             await s.execute(users_t.delete().where(users_t.c.id.in_(self._users)))
             await s.commit()
+
+
+@pytest.fixture(autouse=True)
+def _no_redis() -> Iterator[None]:
+    """Stub the audit tail publish: these tests need Postgres, not Redis.
+
+    The policy flushes its own sessions' tail queues (D-9). Without Redis each
+    flush burns a connection timeout, which pushes the concurrent barrier test
+    past its wait_for budget and turns a green run red for an unrelated reason.
+    """
+    with patch("shared_kernel.audit.flush_tail_events", new_callable=AsyncMock):
+        yield
 
 
 @pytest.fixture
@@ -436,12 +450,11 @@ async def test_admin_gdpr_returns_only_projects_whose_delete_committed(
     live_org = await tenancy.org(deleted_at=None)
     via_org = await tenancy.project(deleted_at=None, org_id=doomed_org)
     direct = await tenancy.project(deleted_at=_LONG_AGO)
-    # Org-owned rather than individually owned, to dodge FU-9: this method nulls
-    # `owner_user_id` on every surviving project of the deleted user, which
-    # violates `ck_projects_projects_owner_xor` for an org-less project. That is
-    # a pre-existing defect on a path this task does not touch; an org-owned
-    # project keeps the restore invariant under test either way.
-    live = await tenancy.project(deleted_at=None, org_id=live_org)
+    live_in_org = await tenancy.project(deleted_at=None, org_id=live_org)
+    # Individually owned and still live: the "cascade was incomplete" case the
+    # docstring names, and the one that used to abort the purge on
+    # `projects_owner_xor`.
+    live_personal = await tenancy.project(deleted_at=None)
 
     async with sessionmaker() as s, s.begin():
         committed = await AccountDeletionService(s).prepare_hard_delete(
@@ -450,9 +463,77 @@ async def test_admin_gdpr_returns_only_projects_whose_delete_committed(
 
     assert direct in committed
     assert via_org in committed, "org-cascade children must be captured before the cascade"
-    assert live not in committed, "a live project must never enter teardown"
+    assert live_in_org not in committed, "a live project must never enter teardown"
+    assert live_personal not in committed
     assert not await tenancy.exists(via_org)
-    assert await tenancy.exists(live)
+    assert await tenancy.exists(live_in_org)
+    assert await tenancy.exists(live_personal)
+
+    async with sessionmaker() as s:
+        owner_now, deleted_now = (
+            await s.execute(
+                sa.select(projects_t.c.owner_user_id, projects_t.c.deleted_at).where(
+                    projects_t.c.id == live_personal
+                )
+            )
+        ).one()
+    assert owner_now == admin_id, "the surviving personal project must be reassigned, not orphaned"
+    assert deleted_now is not None, "and soft-deleted, so it leaves the live unique index"
+
+
+async def test_admin_gdpr_survives_a_user_who_still_owns_live_projects(
+    sessionmaker: async_sessionmaker[AsyncSession], tenancy: _Tenancy
+) -> None:
+    """Both constraints that made this path fatal, in one test.
+
+    `projects_owner_xor` (migration 0002) requires exactly one of owner_user_id /
+    owner_org_id, so nulling the owner of an org-less project left zero and
+    aborted the purge with CheckViolationError. Reassigning instead then risked
+    `uq_projects_user_name`, the partial unique index over (owner_user_id, name)
+    for live rows, whenever the admin already owned a same-named live project.
+    Soft-deleting as part of the reassignment satisfies the XOR and leaves that
+    index, which covers only live rows. Neither constraint exists outside a real
+    Postgres, so this cannot be unit-tested.
+    """
+    from contexts.tenancy.application.account_deletion_service import AccountDeletionService
+
+    admin_id = await tenancy.user()
+    personal = [await tenancy.project(deleted_at=None) for _ in range(3)]
+
+    # A live project the admin already owns, named exactly like one of the
+    # victim's: the collision the reassignment would otherwise hit.
+    async with sessionmaker() as s:
+        clash_name = (
+            await s.execute(sa.select(projects_t.c.name).where(projects_t.c.id == personal[0]))
+        ).scalar_one()
+        admin_project = uuid.uuid4()
+        await s.execute(
+            projects_t.insert().values(
+                id=admin_project,
+                name=clash_name,
+                owner_user_id=admin_id,
+                created_by_user_id=admin_id,
+            )
+        )
+        await s.commit()
+    tenancy._projects.append(admin_project)
+
+    async with sessionmaker() as s, s.begin():
+        committed = await AccountDeletionService(s).prepare_hard_delete(
+            user_id=tenancy.owner_id, reassign_to_user_id=admin_id
+        )
+
+    assert committed == set(), "no project was eligible for hard deletion"
+    async with sessionmaker() as s:
+        rows = (
+            await s.execute(
+                sa.select(projects_t.c.owner_user_id, projects_t.c.deleted_at).where(
+                    projects_t.c.id.in_(personal)
+                )
+            )
+        ).all()
+    assert {r[0] for r in rows} == {admin_id}, "every surviving personal project keeps one owner"
+    assert all(r[1] is not None for r in rows), "and is soft-deleted, clearing the live unique index"
 
 
 async def test_admin_gdpr_skips_a_project_restored_before_the_delete(
@@ -461,10 +542,7 @@ async def test_admin_gdpr_skips_a_project_restored_before_the_delete(
     from contexts.tenancy.application.account_deletion_service import AccountDeletionService
 
     admin_id = await tenancy.user()
-    # Org-owned for the FU-9 reason documented in the sibling test; the project
-    # is still a candidate for the direct delete via `created_by_user_id`.
-    org_id = await tenancy.org(deleted_at=None)
-    pid = await tenancy.project(deleted_at=_LONG_AGO, org_id=org_id)
+    pid = await tenancy.project(deleted_at=_LONG_AGO)
     await tenancy.restore_project(pid)
 
     async with sessionmaker() as s, s.begin():
