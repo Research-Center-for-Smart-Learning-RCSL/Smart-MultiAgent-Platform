@@ -129,7 +129,13 @@ async def test_set_state_writes_build_started_at_only_when_asked(repo_cls: Any) 
 
 
 class _FakeDb:
-    """Stand-in session handle. The sweep only reads, so nothing is recorded."""
+    """Stand-in session handle; counts the rollbacks that clear aborted reads."""
+
+    def __init__(self) -> None:
+        self.rollbacks = 0
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1
 
 
 class _Session:
@@ -143,14 +149,29 @@ class _Session:
         return False
 
 
-def _cfg(index: int, revision: int = 2) -> Any:
+_LIVE_PROJECT = uuid.UUID(int=900001)
+_DEAD_PROJECT = uuid.UUID(int=900002)
+
+
+def _cfg(index: int, revision: int = 2, project_id: uuid.UUID | None = None) -> Any:
     # Ordered ids: keyset paging is defined by `id >`, so the fixture has to have
     # a deterministic order for the assertions to mean anything.
     return SimpleNamespace(
         id=uuid.UUID(int=index + 1),
+        project_id=project_id or _LIVE_PROJECT,
         corpus_revision=revision,
         built_corpus_revision=revision - 1,
     )
+
+
+class _FakeTenancy:
+    """Stands in for the tenancy facade: only _LIVE_PROJECT still exists."""
+
+    def __init__(self, _db: Any) -> None:
+        pass
+
+    async def get_projects(self, project_ids: Any) -> dict[uuid.UUID, Any]:
+        return {p: object() for p in project_ids if p != _DEAD_PROJECT}
 
 
 class _PagingRepo:
@@ -183,10 +204,13 @@ class _PagingRepo:
         return []
 
 
-def _install(monkeypatch: Any, db: _FakeDb, enqueue: Any) -> None:
+def _install(monkeypatch: Any, db: _FakeDb, enqueue: Any, repo: Any = None) -> None:
+    import contexts.tenancy.interfaces.facade as tenancy_facade
+
     monkeypatch.setattr(knowmap_task, "get_sessionmaker", lambda: (lambda: _Session(db)))
-    monkeypatch.setattr(knowmap_task, "KnowmapConfigRepository", _PagingRepo)
+    monkeypatch.setattr(knowmap_task, "KnowmapConfigRepository", repo or _PagingRepo)
     monkeypatch.setattr(knowmap_task, "enqueue_knowmap_build", enqueue)
+    monkeypatch.setattr(tenancy_facade, "TenancyFacade", _FakeTenancy)
 
 
 def _reset(backlog: list[Any], *, vanish: bool = False) -> None:
@@ -196,11 +220,55 @@ def _reset(backlog: list[Any], *, vanish: bool = False) -> None:
 
 
 def _collector(seen: list[uuid.UUID]) -> Any:
-    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> EnqueueOutcome:
+    async def _enqueue(*, config_id: uuid.UUID, target_revision: int, pool: Any = None) -> EnqueueOutcome:
         seen.append(config_id)
         return EnqueueOutcome.QUEUED
 
     return _enqueue
+
+
+@pytest.mark.asyncio
+async def test_sweep_skips_configs_whose_project_was_deleted(monkeypatch: Any) -> None:
+    # Deleting a project does not cascade deleted_at onto its knowmap configs, and
+    # this cron has no membership check in front of it the way every other build
+    # trigger does. Without the liveness gate it would re-read a deleted project's
+    # documents, spend the tenant's provider key, and rebuild the graph they asked
+    # to be rid of.
+    live = _cfg(0, project_id=_LIVE_PROJECT)
+    dead = _cfg(1, project_id=_DEAD_PROJECT)
+    _reset([live, dead])
+    seen: list[uuid.UUID] = []
+
+    db = _FakeDb()
+    _install(monkeypatch, db, _collector(seen))
+    result = await knowmap_task.knowmap_revision_sweep({})
+
+    assert seen == [live.id]
+    assert result == "enqueued=1 deduped=0 failed=0 stale_running=0"
+
+
+@pytest.mark.asyncio
+async def test_sweep_enqueues_nothing_when_liveness_cannot_be_checked(monkeypatch: Any) -> None:
+    # Fail closed: an unavailable tenancy read must not be treated as "all live".
+    import contexts.tenancy.interfaces.facade as tenancy_facade
+
+    class _BrokenTenancy:
+        def __init__(self, _db: Any) -> None:
+            pass
+
+        async def get_projects(self, project_ids: Any) -> dict[uuid.UUID, Any]:
+            raise RuntimeError("tenancy read failed")
+
+    _reset([_cfg(0)])
+    seen: list[uuid.UUID] = []
+    db = _FakeDb()
+    _install(monkeypatch, db, _collector(seen))
+    monkeypatch.setattr(tenancy_facade, "TenancyFacade", _BrokenTenancy)
+
+    result = await knowmap_task.knowmap_revision_sweep({})
+
+    assert seen == []
+    assert result == "enqueued=0 deduped=0 failed=0 stale_running=0"
 
 
 @pytest.mark.asyncio
@@ -258,7 +326,7 @@ async def test_sweep_targets_each_configs_own_latest_revision(monkeypatch: Any) 
     _reset([a, b])
     targets: dict[uuid.UUID, int] = {}
 
-    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> EnqueueOutcome:
+    async def _enqueue(*, config_id: uuid.UUID, target_revision: int, pool: Any = None) -> EnqueueOutcome:
         targets[config_id] = target_revision
         return EnqueueOutcome.QUEUED
 
@@ -282,7 +350,7 @@ async def test_sweep_counts_each_outcome_separately(monkeypatch: Any) -> None:
         failed.id: EnqueueOutcome.FAILED,
     }
 
-    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> EnqueueOutcome:
+    async def _enqueue(*, config_id: uuid.UUID, target_revision: int, pool: Any = None) -> EnqueueOutcome:
         return outcomes[config_id]
 
     db = _FakeDb()
@@ -307,14 +375,14 @@ async def test_sweep_keeps_the_work_it_did_when_a_page_read_fails(monkeypatch: A
     _reset([_cfg(i) for i in range(70)])
     seen: list[uuid.UUID] = []
     db = _FakeDb()
-    monkeypatch.setattr(knowmap_task, "get_sessionmaker", lambda: (lambda: _Session(db)))
-    monkeypatch.setattr(knowmap_task, "KnowmapConfigRepository", _FlakyRepo)
-    monkeypatch.setattr(knowmap_task, "enqueue_knowmap_build", _collector(seen))
+    _install(monkeypatch, db, _collector(seen), repo=_FlakyRepo)
 
     result = await knowmap_task.knowmap_revision_sweep({})
 
     assert len(seen) == 50
     assert result == "enqueued=50 deduped=0 failed=0 stale_running=0"
+    # The aborted transaction is cleared, or the reads after it fail as collateral.
+    assert db.rollbacks == 1
 
 
 @pytest.mark.asyncio
@@ -330,9 +398,7 @@ async def test_sweep_still_reports_its_enqueues_when_the_stale_probe_fails(
     _reset([_cfg(0)])
     seen: list[uuid.UUID] = []
     db = _FakeDb()
-    monkeypatch.setattr(knowmap_task, "get_sessionmaker", lambda: (lambda: _Session(db)))
-    monkeypatch.setattr(knowmap_task, "KnowmapConfigRepository", _BrokenProbeRepo)
-    monkeypatch.setattr(knowmap_task, "enqueue_knowmap_build", _collector(seen))
+    _install(monkeypatch, db, _collector(seen), repo=_BrokenProbeRepo)
 
     result = await knowmap_task.knowmap_revision_sweep({})
 
@@ -398,9 +464,7 @@ async def test_sweep_reports_stale_running_but_never_enqueues_it(monkeypatch: An
     enqueued: list[uuid.UUID] = []
 
     db = _FakeDb()
-    monkeypatch.setattr(knowmap_task, "get_sessionmaker", lambda: (lambda: _Session(db)))
-    monkeypatch.setattr(knowmap_task, "KnowmapConfigRepository", _StaleRepo)
-    monkeypatch.setattr(knowmap_task, "enqueue_knowmap_build", _collector(enqueued))
+    _install(monkeypatch, db, _collector(enqueued), repo=_StaleRepo)
     result = await knowmap_task.knowmap_revision_sweep({})
 
     assert enqueued == []

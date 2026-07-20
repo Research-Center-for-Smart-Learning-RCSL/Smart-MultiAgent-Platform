@@ -99,14 +99,17 @@ async def _report_stale_running(configs: KnowmapConfigRepository) -> int:
     return len(stale)
 
 
-async def _collect_divergent(configs: KnowmapConfigRepository) -> tuple[list[tuple[uuid.UUID, int]], bool]:
+async def _collect_divergent(
+    db: AsyncSession, configs: KnowmapConfigRepository
+) -> tuple[list[tuple[uuid.UUID, uuid.UUID, int]], bool]:
     """Page the divergence query up to the per-tick cap (F-4).
 
-    Returns the work list and whether the backlog was drained. A read failure
-    part-way through returns what was gathered instead of discarding it: half a
-    tick of recovery beats none, and the next tick re-reads from the start.
+    Returns ``(config_id, project_id, target_revision)`` triples and whether the
+    backlog was drained. A read failure part-way through returns what was gathered
+    instead of discarding it: half a tick of recovery beats none, and the next tick
+    re-reads from the start.
     """
-    pending: list[tuple[uuid.UUID, int]] = []
+    pending: list[tuple[uuid.UUID, uuid.UUID, int]] = []
     after_id: uuid.UUID | None = None
     while len(pending) < _SWEEP_MAX_PER_TICK:
         page_limit = min(_SWEEP_PAGE_SIZE, _SWEEP_MAX_PER_TICK - len(pending))
@@ -114,12 +117,47 @@ async def _collect_divergent(configs: KnowmapConfigRepository) -> tuple[list[tup
             page = await configs.list_revision_divergent(limit=page_limit, after_id=after_id)
         except Exception:
             _log.warning("knowmap revision sweep: divergence page read failed", exc_info=True)
+            # Clear the aborted transaction, or every later read on this session
+            # fails too and the tick loses its stale-build alarm as collateral.
+            await db.rollback()
             return pending, False
-        pending.extend((cfg.id, cfg.corpus_revision) for cfg in page)
+        pending.extend((cfg.id, cfg.project_id, cfg.corpus_revision) for cfg in page)
         if len(page) < page_limit:
             return pending, True
         after_id = page[-1].id
     return pending, False
+
+
+async def _drop_dead_projects(
+    db: AsyncSession, pending: list[tuple[uuid.UUID, uuid.UUID, int]]
+) -> list[tuple[uuid.UUID, uuid.UUID, int]]:
+    """Keep only configs whose project is still live (F-4 security review).
+
+    Deleting a project does not cascade ``deleted_at`` onto its knowmap configs
+    (``ProjectService.soft_delete`` cascades to skills only), so config-level
+    liveness alone does not make deletion mean deletion here. Every other build
+    trigger is request-scoped behind a membership check, which a deleted project
+    already fails; this cron has no request behind it and would otherwise re-read
+    a deleted project's documents, spend the tenant's provider key on extraction,
+    and rewrite the graph a customer asked to be rid of.
+
+    Checking projects is sufficient: deleting an org soft-deletes each of its
+    projects in turn (``OrgService.soft_delete``). Done through the tenancy facade
+    rather than a join, since these repositories hold no cross-context joins.
+    """
+    if not pending:
+        return pending
+    from contexts.tenancy.interfaces.facade import TenancyFacade
+
+    project_ids = {project_id for _, project_id, _ in pending}
+    live = set(await TenancyFacade(db).get_projects(list(project_ids)))
+    dropped = len(project_ids - live)
+    if dropped:
+        _log.info(
+            "knowmap revision sweep: skipped configs in %d deleted project(s)",
+            dropped,
+        )
+    return [entry for entry in pending if entry[1] in live]
 
 
 async def knowmap_revision_sweep(ctx: dict[str, Any]) -> str:
@@ -143,7 +181,9 @@ async def knowmap_revision_sweep(ctx: dict[str, Any]) -> str:
     completed job's retained result until ``keep_result`` lapses. That shows up
     as ``deduped`` in the tick summary rather than silence.
     """
-    _ = ctx
+    # The worker already holds an ArqRedis; the shared enqueue helper would open
+    # and close one pool per config, up to _SWEEP_MAX_PER_TICK of them per tick.
+    pool = ctx.get("redis")
     sm = get_sessionmaker()
     stale_running = 0
     # Read everything first, then enqueue: shared_kernel.queue.enqueue opens and
@@ -152,15 +192,24 @@ async def knowmap_revision_sweep(ctx: dict[str, Any]) -> str:
     # idle-in-transaction for no reason.
     async with sm() as db:
         configs = KnowmapConfigRepository(db)
-        pending, drained = await _collect_divergent(configs)
+        pending, drained = await _collect_divergent(db, configs)
+        try:
+            pending = await _drop_dead_projects(db, pending)
+        except Exception:
+            # Fail closed: liveness is unproven, and re-materializing a deleted
+            # project's graph is worse than deferring recovery by one tick.
+            _log.warning("knowmap revision sweep: project liveness check failed", exc_info=True)
+            await db.rollback()
+            pending = []
         try:
             stale_running = await _report_stale_running(configs)
         except Exception:
+            # Observability only: it must never erase the enqueues below.
             _log.warning("knowmap revision sweep: stale-RUNNING report failed", exc_info=True)
 
     counts = dict.fromkeys(EnqueueOutcome, 0)
-    for config_id, target_revision in pending:
-        outcome = await enqueue_knowmap_build(config_id=config_id, target_revision=target_revision)
+    for config_id, _project_id, target_revision in pending:
+        outcome = await enqueue_knowmap_build(config_id=config_id, target_revision=target_revision, pool=pool)
         counts[outcome] += 1
 
     if not drained:
