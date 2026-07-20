@@ -187,10 +187,62 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+      - name: Compute sandbox build stamp
+        id: stamp
+        run: |
+          # A content hash of the build context, NOT the commit SHA. A SHA would
+          # mark the images stale on every commit that did not touch them, and a
+          # gate that cries wolf gets switched off. Hashed from the git INDEX
+          # (`ls-files -s` emits mode + blob SHA + stage + path in a deterministic
+          # order), so the value is a function of tracked content alone and is
+          # independent of the checkout's line endings.
+          #
+          # Guard the empty case explicitly. `git ls-files` on a path that
+          # matches nothing prints nothing and exits 0, and `git hash-object`
+          # then happily returns the empty-blob SHA -- a non-empty, plausible
+          # stamp that is constant forever. Were deploy/sandbox renamed, this
+          # gate would stay green while detecting nothing, which is the exact
+          # failure it exists to prevent.
+          tracked="$(git ls-files deploy/sandbox | wc -l)"
+          if [ "$tracked" -eq 0 ]; then
+            echo "no tracked files under deploy/sandbox — has it moved? the stamp would be meaningless"
+            exit 1
+          fi
+          stamp="$(git ls-files -s deploy/sandbox | git hash-object --stdin)"
+          test -n "$stamp"
+          echo "value=$stamp" >> "$GITHUB_OUTPUT"
+          echo "sandbox build stamp: $stamp"
       - name: Build mcp-runtime image
-        run: docker build -t smap/mcp-runtime:ci -f deploy/sandbox/mcp-runtime/Dockerfile deploy/sandbox
+        env:
+          STAMP: ${{ steps.stamp.outputs.value }}
+        run: |
+          docker build -t smap/mcp-runtime:ci \
+            --build-arg "SMAP_SANDBOX_STAMP=$STAMP" \
+            -f deploy/sandbox/mcp-runtime/Dockerfile deploy/sandbox
       - name: Build code-exec image
-        run: docker build -t smap/code-exec:ci -f deploy/sandbox/code-exec/Dockerfile deploy/sandbox
+        env:
+          STAMP: ${{ steps.stamp.outputs.value }}
+        run: |
+          docker build -t smap/code-exec:ci \
+            --build-arg "SMAP_SANDBOX_STAMP=$STAMP" \
+            -f deploy/sandbox/code-exec/Dockerfile deploy/sandbox
+      - name: Verify the build stamp round-trips into both images
+        env:
+          STAMP: ${{ steps.stamp.outputs.value }}
+        run: |
+          # Closes 2026-07-16-workspace-path-convention FU-2. Asserts the
+          # ARG -> LABEL wiring in both Dockerfiles: it reddens if either drops
+          # the ARG, renames the label, or stops being passed the build-arg,
+          # which is what would otherwise leave an image with no usable record
+          # of the sources it was built from.
+          for image in smap/mcp-runtime:ci smap/code-exec:ci; do
+            got="$(docker image inspect --format '{{index .Config.Labels "smap.sandbox.stamp"}}' "$image")"
+            echo "$image stamp: $got"
+            if [ "$got" != "$STAMP" ]; then
+              echo "stamp mismatch on $image: got '$got', want '$STAMP'"
+              exit 1
+            fi
+          done
       - name: Driver smoke — probe the baked stdio MCP server
         run: |
           out="$(docker run --rm \

@@ -60,3 +60,14 @@ RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin sandbox \
 USER 10001
 
 ENTRYPOINT ["python3", "/opt/driver/driver.py"]
+
+# Build stamp: a content hash of deploy/sandbox/**, injected by CI (ci.yml
+# sandbox-images) and asserted to round-trip there. Answers "was this image
+# built from these sources", which is otherwise unanswerable -- an image carries
+# no record of its context. NOT a security control: anyone who can build the
+# image can set the label, so it detects drift, not tampering.
+#
+# Kept LAST on purpose. An ARG invalidates every layer below it, so placing this
+# higher would rebuild the whole image on any source change.
+ARG SMAP_SANDBOX_STAMP=dev
+LABEL smap.sandbox.stamp="${SMAP_SANDBOX_STAMP}"
