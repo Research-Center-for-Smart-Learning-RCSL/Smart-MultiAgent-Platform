@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-07-17
 requirements: [R24.15, R12.03, R12.03b]
 depends_on:
@@ -238,6 +238,13 @@ commits: **the stamp** (Q-6) and **the `cmd_file` + path-convention tests** (Q-3
    `parents=True` and `:137-138` suppresses a failed chdir, so an unbound mount looks like an
    empty directory rather than an error. Every assertion above is content- or errno-based.
 
+4c. **`ci.yml` `sandbox-images`** - fresh-volume writability (AC-13). `docker volume create` a new
+   volume, mount it at `/session`, and run the kernel's startup mkdir as the image's own user
+   (no `--user` override - the `USER 10001` directive is part of what is under test). Assert it
+   succeeds. Reuses the §6.3 `if: always()` volume cleanup. **This step must create its own
+   volume**, not reuse one an earlier step already wrote to; ownership is the property under test
+   and a warm volume already has it.
+
 4b. **`ci.yml` `sandbox-images`** — protocol stamp (Q-8/AC-12): read `PROTOCOL_VERSION` out of the
    built code-exec image (`docker run --rm smap/code-exec:ci python -c "…"` importing
    `/opt/kernel/kernel.py`) and assert it equals `_KERNEL_PROTOCOL_VERSION` parsed from
@@ -361,6 +368,15 @@ teardown discipline (`:168-174`).
       `DockerRunscSandbox` (§5.2, §8).
 - [ ] AC-11: nothing is added to the `vue/no-v-html` allowlist, no gVisor is provisioned, and no
       pytest marker is added — this tier is CI steps and two Dockerfile lines (§2).
+- [ ] AC-13: a **fresh** session volume is writable by the sandbox uid in a real container - mount
+      a newly created named volume at `/session` and assert the kernel's own startup sequence
+      (`_OUTPUTS`/`_INPUTS` `mkdir`, `kernel.py:132-133`) succeeds. Added 2026-07-20 after this
+      exact defect shipped and broke `code_exec` in every chatroom
+      (`2026-07-19-session-dir-room-isolation` D-10). **The volume must be created fresh in the
+      step**, since a volume left over from an earlier assertion is already owned correctly and
+      would pass while testing nothing - the same false-green shape Q-7 warns about. The cheap
+      half of this cover already exists as `tests/unit/test_sandbox_image_mountpoints.py`, which
+      pins the Dockerfile without a daemon; this AC is the half that pins the *behaviour*.
 - [ ] AC-12: the kernel protocol stamp is asserted against the **built image** (Q-8):
       `PROTOCOL_VERSION` read out of `smap/code-exec:ci` equals `_KERNEL_PROTOCOL_VERSION`
       (`docker_runsc.py:81`). A deliberate mismatch is seen red before the AC is checked off.
@@ -440,6 +456,13 @@ _None yet._
   install plus `docker run --runtime=runsc alpine true` before specing anything.** If it fails, the
   only remaining roads are a self-hosted runner or §5.2's `runtime` field, and that field needs a
   security review (§8).
+  **A concrete first customer, added 2026-07-20:** `2026-07-19-session-dir-room-isolation` FU-10
+  fixed the headless scratch mount by passing `uid`/`gid` tmpfs options, verified under runc only.
+  tmpfs options are honoured by the runtime, and gVisor implements its own tmpfs in the Sentry, so
+  whether that fix takes effect in production is unconfirmed, with both failure modes silent
+  (ignored options leave the defect behind a green test; rejected options break every `code_exec`).
+  Whatever shape this FU takes, `docker run --runtime=runsc --tmpfs /w:size=1m,uid=10001` plus a
+  `stat` is a two-line addition that settles it.
 - **FU-2: a runtime stamp check, if still wanted after AC-1.** Q-2 rejects the `_ensure_runtime_ready`
   hook on posture/process/cache grounds. A one-shot at **worker startup** — log-and-warn, never raise
   — has none of those problems and answers "is this deployment running the image it thinks it is".

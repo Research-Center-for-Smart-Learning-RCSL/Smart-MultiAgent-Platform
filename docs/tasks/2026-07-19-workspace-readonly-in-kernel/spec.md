@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-19
 requirements: [R12.03, R12.03a, R12.03b, R31.22]
 depends_on: [2026-07-19-session-dir-room-isolation]
@@ -173,10 +173,21 @@ read-only filesystem error and step 2 to find nothing.
 - [x] AC-2: `code_exec` can still **read** `/workspace` - the mount is present, only its mode
       changed, so `agent-files/`, `skills/` and the `file` tool's state stay reachable by absolute
       path. (T-1 asserts the bind still exists; a `ro` bind is a readable one.)
-- [ ] AC-3: `code_exec` **cannot write** anywhere under `/workspace`; the §4 reproduction's step 1
-      fails. **Outstanding - needs `/verify`.** The wiring is pinned by T-1, but only a live
-      container proves the kernel enforces `ro`. Blocked on this host: gVisor is Linux-only and
-      `docker_runsc.py:620` rejects any runtime that is not `runsc`.
+- [x] AC-3: `code_exec` **cannot write** anywhere under `/workspace`; the §4 reproduction's step 1
+      fails.
+      **Verified 2026-07-20 against a live container.** The blocker recorded here was wrong on one
+      point, and §9 of this very dossier says why: "Docker `ro` binds are enforced by the kernel,
+      not by gVisor policy." runsc is therefore not required to prove this AC - only to run the
+      production runtime. With a Docker daemon available, the mount dict captured from the real
+      `_create_kernel` was replayed onto a live container:
+      `open('/workspace/leak.pdf','w')` → `OSError: [Errno 30] Read-only file system`, and
+      `os.makedirs('/workspace/sub')` → the same, so the refusal is the mount and not a
+      per-file quirk. `/workspace` stays **readable** (an absent file raises `FileNotFoundError`,
+      not a mount error), which is AC-2 re-confirmed in the same run, and `/session` stays
+      writable (AC-5).
+      **Note:** the same verification run surfaced a defect in the dependency that had made
+      `/session` unwritable for every room - see `2026-07-19-session-dir-room-isolation` D-10. This
+      AC's assertions were re-run against the corrected image.
 - [x] AC-4: The `file` tool can still read *and write* - its container keeps `rw`
       (`test_the_writing_containers_keep_read_write`).
 - [x] AC-5: Artifacts still work - `/session` stays `rw` (asserted in T-1 alongside the `ro`
@@ -220,10 +231,21 @@ volume is writable from every chatroom's execution context…" with:
 6 skipped (pre-existing), `ruff check`, `ruff format --check`, `mypy .` (791 files) clean.
 Integration and wiring tiers not run (no local Postgres/Redis) and untouched by this diff.
 
-All ACs met except **AC-3**, which needs `/verify` on a Linux host with gVisor - the same blocker
-as the two other outstanding verifications. The diff is one bind mode, one description string, and
-one Dockerfile comment block; no image rebuild and no lockstep deploy, since `kernel.py` is
-untouched.
+All ACs were met except **AC-3**, which this dossier believed needed `/verify` on a Linux host with
+gVisor. The diff is one bind mode, one description string, and one Dockerfile comment block; no
+image rebuild and no lockstep deploy, since `kernel.py` is untouched.
+
+**Closed out 2026-07-20.** The recorded blocker was wrong, and this dossier's own §9 said so:
+Docker `ro` binds are enforced by the Linux kernel, not by gVisor policy, so runsc was never
+needed to prove AC-3 - only to run the production runtime. With a daemon available, the mount dict
+captured from the real `_create_kernel` was replayed onto a live container and the read-only
+property held (`EROFS` on both a file create and a mkdir, reads still working). The lesson worth
+keeping: an AC was left outstanding for a day against a blocker the dossier had already refuted
+one section earlier. Re-read your own risk analysis before deferring on it.
+
+The same run surfaced `2026-07-19-session-dir-room-isolation` D-10 - a defect in the dependency
+that made `/session` unwritable for every chatroom - so AC-3's assertions were re-run against the
+corrected image. `implemented`.
 
 ## 13. Follow-ups
 

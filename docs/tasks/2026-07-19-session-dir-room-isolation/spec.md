@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-19
 requirements: [R12.03, R12.03a, R12.05, R31.22]
 depends_on: []
@@ -272,11 +272,24 @@ room A's data.
       room's `code_exec` by the documented relative form (`open('inputs/x')`), unchanged from
       today. (`test_kernel_inputs_mount_only_this_rooms_session_volume`; the relative form is
       preserved by the cwd, `test_session_dir_comes_from_its_own_mount_not_the_workspace`.)
-- [ ] AC-3: **The containment property, asserted directly.** From room B, neither `code_exec` nor
-      the `file` tool can reach room A's `inputs/` or `outputs/`. **Partial:** T-5
-      (`test_two_rooms_of_one_agent_get_different_session_volumes`) holds at the wiring level, but
-      the §4 reproduction under `/verify` has not run, and **AC-7 is outstanding, so the property
-      is false for pre-existing volumes** - see the build state below.
+- [x] AC-3: **The containment property, asserted directly.** From room B, neither `code_exec` nor
+      the `file` tool can reach room A's `inputs/` or `outputs/`.
+      **Verified 2026-07-20 against live containers.** A Docker daemon became available on the
+      build host (it was absent when this task was built - see D-8), so the deferred verification
+      ran. The mount config was **not hand-written**: it was captured out of the real
+      `_create_kernel` by a recording client and replayed onto live `docker run` invocations, so
+      what was proven is the wiring the backend actually emits. Results: a secret staged into room
+      A's session volume is **absent** from a room-B container, and room B's `/session` does not
+      enumerate it. A **negative control** - room A still reads its own secret - passed, which is
+      load-bearing: on the first run it *failed*, revealing that "absent" merely meant the write
+      had never happened. That is what surfaced D-10.
+      **Scope of the claim.** This proves the mount boundary, which is what [R12.03b] specifies
+      ("a property of the mount"). It does not exercise the full §4 reproduction through the app
+      (turn engine, attachment upload, tool dispatch); those layers are covered by T-1..T-5 at the
+      wiring level. runsc was not required - volume scoping is enforced by the Linux kernel, not
+      by gVisor policy.
+      **AC-7's caveat is discharged separately:** the purge closes the pre-existing-volume half
+      and is already checked off below.
 - [x] AC-4: `agent-files/`, `skills/`, and the `file` tool's own root-level state remain visible
       across all of the agent's rooms. (`test_the_three_stagers_disagree_on_prefix_by_design`,
       rewritten to assert the volume split rather than a subtree split.)
@@ -405,10 +418,65 @@ draft (the drift is a consequence of §7.3 that the first pass missed):
 `ruff format --check`, `mypy .` (791 files) all clean. Integration and wiring tiers were not run
 (no local Postgres/Redis) and are untouched by this diff.
 
-Every AC is met except **AC-3, which is partial**: the containment property holds at the wiring
+Every AC was met except **AC-3, which was partial**: the containment property held at the wiring
 level and, once the purge has been armed on a deployment, in the data - but the §4 reproduction
-against a live sandbox has not been run. That step also exercises the two-volume mount, the change
-most likely to fail only at runtime (§9), and the operator-facing purge command end to end.
+against a live sandbox had not been run. That step also exercises the two-volume mount, the change
+most likely to fail only at runtime (§9).
+
+**Closed out 2026-07-20.** A Docker daemon became available on the build host, so AC-3's deferred
+verification ran and **found the mount broken** - D-10, `code_exec` failing in every chatroom. The
+deferred gate was the only thing that could have caught it: every host-config unit test passed
+throughout, because the defect was in the image, not the wiring. Fix, regression cover and a
+live-container re-verification are recorded in D-10; the self-audit of that fix then surfaced
+FU-10, a pre-existing defect in the headless path, addressed in the same pass at the user's
+direction.
+
+AC-3 is met and this dossier is `implemented`. **FU-10 is deliberately left open**: its fix ships,
+but it rests on tmpfs mount options being honoured under gVisor, which was verified only under runc
+on this host. That caveat does not touch AC-3 or D-10 - named-volume seeding is daemon-level and
+runtime-independent - so it gates nothing here, but it must be checked on staging before the
+headless-scratch fix is relied on. Gates on the close-out diff: full unit suite, `ruff check`,
+`ruff format --check`, `mypy .` clean.
+
+- **D-10 (2026-07-20, found by AC-3's deferred `/verify`).** §7.2 mounted the session volume at
+  `/session` without adding that path to the code-exec image, and **that broke `code_exec` in every
+  chatroom**. Docker seeds a fresh named volume from the image's directory at the bind path,
+  ownership included; `/session` did not exist in the image, so the mountpoint was created
+  root-owned while the container runs as `_SANDBOX_UID` 10001 - and `kernel.py:132`'s
+  `_OUTPUTS.mkdir(parents=True, exist_ok=True)` is **not** inside the `contextlib.suppress` that
+  guards the chdir two lines below. `main()` catches it (`kernel.py:215`), so the kernel survives
+  and every `code_exec` call returns `PermissionError` instead.
+
+  **Staging did not rescue it, which is why no smoke test would have caught it either.**
+  `_tar_staged_inputs` emits DIRTYPE members owned by 10001 for `inputs/` and its parents
+  (`docker_runsc.py:238-253`), so `/session/inputs` was correctly owned - but the volume *root*
+  stayed root-owned, and `_OUTPUTS` is `/session/outputs`, a sibling. Verified: a room with a
+  staged attachment failed identically to one without.
+
+  **Why the old shape worked**, confirmed by controlled comparison rather than assumed:
+  `code-exec/Dockerfile:50-51` already did `mkdir -p /workspace && chown 10001:10001 /workspace`,
+  so the pre-split session dir inherited a 10001-owned volume root. The split added a second mount
+  point and did not extend that line. The Dockerfile comment block at `:45-49` already *described*
+  `/session` as "the only writable mount" - the intent was recorded, the `mkdir`/`chown` was not.
+
+  **Fix:** `/session` joins `/workspace` on the existing `mkdir`/`chown` line, with the reason
+  recorded above it. Regression cover is deliberately split, since neither half is sufficient
+  alone: `tests/unit/test_sandbox_image_mountpoints.py` pins the Dockerfile on every PR without a
+  daemon (confirmed red pre-fix on the `/session` parametrisations only, green on `/workspace` -
+  it discriminates), and `2026-07-17-sandbox-guest-container-tests` AC-13 asserts the real
+  behaviour in a real container once that tier lands.
+
+  **Deployment: this fix is image-only, and the image must be rebuilt.** No backend code changed,
+  so `PROTOCOL_VERSION` is untouched and the stamp will not flag it - a deployment that pulls the
+  new backend but keeps the old `smap/code-exec` tag stays broken, silently, with the stamp
+  reporting agreement. That is a limitation of the stamp worth knowing (it pins the host/kernel
+  *protocol*, not the image's filesystem), not a fault in it.
+
+  **This is the defect §9 predicted** - "the change most likely to fail only at runtime, which no
+  CI tier exercises" - and it went unnoticed for a day precisely because AC-3's `/verify` was the
+  gate deferred. The lesson is recorded rather than just the fix: a mount added to a container is
+  a change to the *image*, not only to the host config, and the unit tests that pinned the host
+  config all passed throughout.
 
 - **D-9.** AC-7's command arms via `SMAP_PURGE_SESSION_DIRS_ARMED`, not the `--arm` flag §7.6
   described. The flag shipped inverted (FU-6): typer handed it the string `"False"` when absent, so
@@ -508,6 +576,61 @@ Nothing writes there any more - the harness assertion added in D-4 fails the run
   test coverage at all, which is why the inversion was invisible. Those tests were confirmed red on
   0.12.5 and green on 0.19.2. Also fixed the single-command collapse that made the documented
   `python -m smap.rotation rotate-transit` fail with "Got unexpected extra argument".
+- **FU-10: the headless / run-and-burn `code_exec` cannot write to its own cwd.** Found during
+  D-10's verification, while self-auditing whether the `/session` fix disturbed that path. It does
+  not - but the path was already broken, independently and for a *different* reason, so this is
+  pre-existing and out of scope here. `_sandbox_tmpfs()` (`docker_runsc.py:98-102`) passes only
+  `size=` for `/workspace`, and a tmpfs - unlike a named volume - never inherits the image
+  directory's ownership; it is always a fresh root-owned filesystem. With `WORKDIR /workspace`
+  (`code-exec/Dockerfile:56`) and `USER 10001`, agent code in the headless path starts in a
+  directory it cannot write. Verified with the exact production options
+  (`--tmpfs /workspace:size=104857600`): `/workspace` is owned by uid 0 mode 0755, a write to the
+  cwd raises `EACCES`, and `/tmp` is writable only because `HOME=/tmp` and matplotlib need it.
+  So `_WORKSPACE_TMPFS_BYTES`'s 100 MB budget is unusable, and `Dockerfile:46`'s claim that
+  run-and-burn writes "land in /workspace (tmpfs)" is false.
+  **The fix is not the D-10 one** - the image-side `mkdir`/`chown` cannot affect a tmpfs.
+
+  **PARTIALLY DONE 2026-07-20, at the user's direction. Do not treat this as closed - see the
+  runsc caveat below.**
+
+  The mechanism turned out to be sharper than the entry first described, and naming it is what
+  made the fix obvious: Docker applies the covered image directory's **mode** to a tmpfs but not
+  its **ownership**. `/proc/mounts` inside the container shows `mode=755` on `/workspace` and no
+  `mode` on `/tmp`, so `/tmp` worked only because its image mode is the standard `1777`, and
+  `/workspace` failed only because ours is `0755`. Two mounts, one helper, opposite outcomes, for
+  a reason neither had recorded.
+
+  The product question the entry raised (whether a discarded filesystem *should* be writable) was
+  already answered in the tree twice over: `code-exec/Dockerfile:45-49` documents run-and-burn
+  writes as landing in `/workspace`, and `_WORKSPACE_TMPFS_BYTES` budgets 100 MB for exactly that.
+  The defect was that neither was true.
+
+  Fixed in `_sandbox_tmpfs` (`docker_runsc.py:98-125`) by naming the owner rather than widening
+  the mode to `1777`, which would have made the scratch world-writable to buy nothing.
+
+  **Scoped opt-in, not a default.** The first cut applied the owner unconditionally, which would
+  also have handed a writable scratch to the MCP **probe/invoke** containers
+  (`docker_runsc.py:799`, `:861`) - containers running *user-supplied* servers, whose `/workspace`
+  has never been writable and for which nobody requested it. A `code_exec` cwd fix does not get to
+  widen what third-party code may write as a side effect, so `workspace_owner` is a keyword
+  argument and only the `code_exec` call site passes it. Caught in review.
+
+  **Outstanding: verify under runsc.** tmpfs mount options are honoured by the *runtime*, and
+  production asserts gVisor (`_assert_runsc`). The verification ran under **runc**, because that is
+  what this host has. gVisor implements its own tmpfs in the Sentry, and whether it honours
+  `uid=`/`gid=` is unconfirmed. Two failure modes, neither loud: if the options are ignored,
+  `/workspace` stays root-owned and the defect persists behind a green test; if they are rejected,
+  container creation fails and every `code_exec` breaks. This is the same shape of mistake as D-10
+  itself - verifying a mount property on a runtime production does not use - so it is recorded
+  rather than glossed. **Check it on the staging box before relying on this fix**, and note that
+  the D-10 fix is unaffected: named-volume seeding is daemon-level and runtime-independent.
+
+  Regression cover, all confirmed red under mutation: `test_headless_code_exec_scratch_is_owned_by_the_sandbox_user`
+  (drives `run_code_exec`, so a call site that stops opting in is caught),
+  `test_the_mcp_scratch_stays_unowned[probe|invoke]` (drives the real probe/invoke paths - an
+  assertion on the shared helper would stay green if those sites grew their own tmpfs dict), and
+  `test_the_image_and_the_tmpfs_agree_on_who_owns_a_scratch_workspace`, which ties this half to the
+  Dockerfile half so the two mechanisms cannot drift apart unnoticed.
 - **FU-5: `kernel.py:122-123` swallows a failed `chdir`.** `with contextlib.suppress(Exception)`
   means a session directory that cannot be entered leaves the cwd wherever it was - after this
   change, `/`, with `inputs/` and `outputs/` silently resolving nowhere useful and artifacts never
