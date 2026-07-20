@@ -47,8 +47,18 @@ COPY code-exec/kernel/ /opt/kernel/
 #   - live kernel: /session is this chatroom's own volume and is the only
 #     writable mount; /workspace is the agent volume, bound READ-ONLY ([R12.03]),
 #     and /tmp.
+# Both mount points must exist here owned by the sandbox uid. Docker seeds a
+# fresh named volume from the image directory at that path, ownership included;
+# a path absent from the image gets a mountpoint created root-owned, which the
+# kernel (uid 10001) then cannot mkdir into. /session is created empty for every
+# new chatroom, so it hits that path on the first code_exec of every room.
+#
+# The MODE below also leaks into the run-and-burn path, invisibly: a tmpfs
+# inherits the covered directory's mode (but NOT its ownership), so 0755 here
+# means a 0755 tmpfs at /workspace there. That is why docker_runsc._sandbox_tmpfs
+# has to name uid/gid explicitly. Change this mode and read that function first.
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin sandbox \
-    && mkdir -p /workspace && chown 10001:10001 /workspace
+    && mkdir -p /workspace /session && chown 10001:10001 /workspace /session
 USER 10001
 
 # Only the run-and-burn path uses this: the kernel chdirs to its session dir at
@@ -56,3 +66,14 @@ USER 10001
 WORKDIR /workspace
 
 # No ENTRYPOINT: the host supplies `python -c <source>` as the full command.
+
+# Build stamp: a content hash of deploy/sandbox/**, injected by CI (ci.yml
+# sandbox-images) and asserted to round-trip there. Answers "was this image
+# built from these sources", which is otherwise unanswerable -- an image carries
+# no record of its context. NOT a security control: anyone who can build the
+# image can set the label, so it detects drift, not tampering.
+#
+# Kept LAST on purpose. An ARG invalidates every layer below it, so placing this
+# higher would rebuild the whole image on any source change.
+ARG SMAP_SANDBOX_STAMP=dev
+LABEL smap.sandbox.stamp="${SMAP_SANDBOX_STAMP}"
