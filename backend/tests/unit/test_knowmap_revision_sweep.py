@@ -13,12 +13,16 @@ orchestration (paging, per-tick cap, failure isolation).
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import pytest
 
 import app.workers.tasks.knowmap as knowmap_task
+from contexts.knowledge.application.graphrag_builder import LOCK_TTL_S
+from contexts.knowledge.domain.graphrag import BuildState
+from contexts.knowledge.infrastructure.graphrag_repositories import GraphRagConfigRepository
 from contexts.knowledge.infrastructure.knowmap_repositories import KnowmapConfigRepository
 
 
@@ -79,6 +83,27 @@ async def test_divergence_query_does_not_filter_on_other_build_states() -> None:
     sql = _sql(db.statements[0])
     assert "'running'" not in sql
     assert "'failed'" not in sql
+
+
+# ---------------------------------------------------------------------------
+# build_started_at stamping (AC-9)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("repo_cls", [KnowmapConfigRepository, GraphRagConfigRepository])
+@pytest.mark.asyncio
+async def test_set_state_writes_build_started_at_only_when_asked(repo_cls: Any) -> None:
+    # Both repositories implement the shared set_state port and the RUNNING
+    # transition lives in the shared builder, so the stamp has to work on either.
+    db = _CaptureSession()
+    await repo_cls(db).set_state(config_id=uuid.uuid4(), state=BuildState.RUNNING, stamp_started_at=True)
+    assert "build_started_at" in db.statements[0].compile().params
+
+    other = _CaptureSession()
+    await repo_cls(other).set_state(config_id=uuid.uuid4(), state=BuildState.IDLE)
+    # Untouched on every other transition: overwriting it on a terminal state
+    # would make a settled config look freshly started.
+    assert "build_started_at" not in other.statements[0].compile().params
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +173,7 @@ async def test_sweep_pages_and_stops_on_a_short_page(monkeypatch: Any) -> None:
     # 70 rows over a page size of 50: a full page, then a short one that ends it.
     assert _PagingRepo.calls == [(50, 0), (50, 50)]
     assert len(seen) == 70
-    assert result == "enqueued=70 failed=0"
+    assert result == "enqueued=70 failed=0 stale_running=0"
 
 
 @pytest.mark.asyncio
@@ -166,7 +191,7 @@ async def test_sweep_truncates_at_the_per_tick_cap(monkeypatch: Any) -> None:
     result = await knowmap_task.knowmap_revision_sweep({})
 
     assert len(seen) == 200
-    assert result == "enqueued=200 failed=0"
+    assert result == "enqueued=200 failed=0 stale_running=0"
     # The last page is trimmed to the remaining budget rather than overshooting.
     assert sum(limit for limit, _ in _PagingRepo.calls) == 200
 
@@ -208,7 +233,7 @@ async def test_sweep_isolates_one_config_failure(monkeypatch: Any) -> None:
     result = await knowmap_task.knowmap_revision_sweep({})
 
     assert seen == [ok.id]
-    assert result == "enqueued=1 failed=1"
+    assert result == "enqueued=1 failed=1 stale_running=0"
     assert db.rollbacks == 1
 
 
@@ -226,9 +251,65 @@ async def test_sweep_on_an_empty_backlog_is_a_no_op(monkeypatch: Any) -> None:
     _install(monkeypatch, db, _enqueue)
     result = await knowmap_task.knowmap_revision_sweep({})
 
-    assert result == "enqueued=0 failed=0"
+    assert result == "enqueued=0 failed=0 stale_running=0"
     assert calls == 0
     assert db.rollbacks == 0
+
+
+# ---------------------------------------------------------------------------
+# Stuck-RUNNING observation (AC-11)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stale_running_query_predicates() -> None:
+    db = _CaptureSession()
+    repo = KnowmapConfigRepository(db)  # type: ignore[arg-type]
+    await repo.list_stale_running(started_before=datetime(2026, 7, 20, tzinfo=UTC), limit=50, offset=0)
+
+    sql = _sql(db.statements[0])
+    assert "deleted_atisnull" in sql
+    assert "last_build_state='running'" in sql
+    # A pre-0059 config has no readable age; reporting it would be a guess.
+    assert "build_started_atisnotnull" in sql
+    assert "build_started_at<'2026-07-20" in sql
+
+
+@pytest.mark.asyncio
+async def test_sweep_reports_stale_running_but_never_enqueues_it(monkeypatch: Any) -> None:
+    # AC-11: a RUNNING config is rejected by the builder's state whitelist anyway,
+    # so offering it work would be noise. The sweep observes; the reconciler acts.
+    stuck = SimpleNamespace(
+        id=uuid.uuid4(), corpus_revision=4, built_corpus_revision=1, build_started_at=None
+    )
+
+    class _StaleRepo(_PagingRepo):
+        async def list_stale_running(self, *, started_before: Any, limit: int, offset: int) -> list[Any]:
+            return [stuck]
+
+    _PagingRepo.backlog = []
+    _PagingRepo.calls = []
+    enqueued: list[uuid.UUID] = []
+
+    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> None:
+        enqueued.append(config_id)
+
+    db = _FakeDb()
+    monkeypatch.setattr(knowmap_task, "get_sessionmaker", lambda: (lambda: _Session(db)))
+    monkeypatch.setattr(knowmap_task, "KnowmapConfigRepository", _StaleRepo)
+    monkeypatch.setattr(knowmap_task, "enqueue_knowmap_build", _enqueue)
+    result = await knowmap_task.knowmap_revision_sweep({})
+
+    assert enqueued == []
+    assert result == "enqueued=0 failed=0 stale_running=1"
+
+
+@pytest.mark.asyncio
+async def test_stale_threshold_clears_both_the_build_timeout_and_recovery_latency() -> None:
+    # The threshold has to sit past every legitimate cause of a long RUNNING:
+    # the build's own timeout, then the reconciler's worst case (residual lock
+    # TTL + one cron minute). Otherwise the warning fires on healthy builds.
+    assert knowmap_task._STALE_RUNNING_AFTER_S > knowmap_task.KNOWMAP_BUILD_TIMEOUT_S + LOCK_TTL_S + 60
 
 
 # ---------------------------------------------------------------------------

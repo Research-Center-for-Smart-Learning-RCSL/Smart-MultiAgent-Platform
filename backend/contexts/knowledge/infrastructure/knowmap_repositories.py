@@ -53,6 +53,7 @@ def _row_to_config(row: Any) -> KnowmapConfig:
         deleted_at=row.deleted_at,
         corpus_revision=row.corpus_revision,
         built_corpus_revision=row.built_corpus_revision,
+        build_started_at=row.build_started_at,
     )
 
 
@@ -194,6 +195,7 @@ class KnowmapConfigRepository(GraphRagConfigRepositoryPort):
         error: str | None = None,
         stamp_built_at: bool = False,
         built_at: datetime | None = None,
+        stamp_started_at: bool = False,
     ) -> None:
         values: dict[str, Any] = {"last_build_state": state.value, "last_build_error": error}
         # An explicit built_at (the build's started-at watermark) takes precedence;
@@ -202,6 +204,10 @@ class KnowmapConfigRepository(GraphRagConfigRepositoryPort):
             values["last_build_at"] = built_at
         elif stamp_built_at:
             values["last_build_at"] = now()
+        # F-4: separate from the two above, which only move on a terminal outcome.
+        # Set by the RUNNING transition so a stuck build has a readable age.
+        if stamp_started_at:
+            values["build_started_at"] = now()
         await self._db.execute(
             t.knowmap_configs.update().where(t.knowmap_configs.c.id == config_id).values(**values)
         )
@@ -238,6 +244,38 @@ class KnowmapConfigRepository(GraphRagConfigRepositoryPort):
                         t.knowmap_configs.c.last_build_state == BuildState.IDLE.value,
                         t.knowmap_configs.c.corpus_revision
                         > sa.func.coalesce(t.knowmap_configs.c.built_corpus_revision, 0),
+                    )
+                )
+                .order_by(t.knowmap_configs.c.id)
+                .limit(limit)
+                .offset(offset)
+            )
+        ).all()
+        return [_row_to_config(r) for r in rows]
+
+    async def list_stale_running(
+        self, *, started_before: datetime, limit: int, offset: int
+    ) -> Sequence[KnowmapConfig]:
+        """Live configs stuck in RUNNING since before ``started_before`` (F-4).
+
+        Observation only. Recovering a stuck RUNNING config is the reconciler's
+        job -- it already carries RUNNING in its stuck-state set -- so this exists
+        purely to make a reconciler that is *not* doing that job visible, rather
+        than letting it strand builds silently.
+
+        A NULL ``build_started_at`` is excluded rather than read as infinitely
+        stale: a config that entered RUNNING before migration 0059 has no readable
+        age, and reporting it would be a guess.
+        """
+        rows = (
+            await self._db.execute(
+                t.knowmap_configs.select()
+                .where(
+                    sa.and_(
+                        t.knowmap_configs.c.deleted_at.is_(None),
+                        t.knowmap_configs.c.last_build_state == BuildState.RUNNING.value,
+                        t.knowmap_configs.c.build_started_at.is_not(None),
+                        t.knowmap_configs.c.build_started_at < started_before,
                     )
                 )
                 .order_by(t.knowmap_configs.c.id)

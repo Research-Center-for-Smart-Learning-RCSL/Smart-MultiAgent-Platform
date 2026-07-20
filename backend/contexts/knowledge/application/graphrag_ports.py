@@ -282,6 +282,7 @@ class GraphRagConfigRepositoryPort(Protocol):
         error: str | None = None,
         stamp_built_at: bool = False,
         built_at: datetime | None = None,
+        stamp_started_at: bool = False,
     ) -> None: ...
 
     async def set_embed_pin(
