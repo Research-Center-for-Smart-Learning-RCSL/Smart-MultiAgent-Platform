@@ -46,7 +46,30 @@ depends_on: []                    # slugs that must be `implemented` before this
 ---
 ```
 
-`findings.md` uses `type: audit` and `status: draft | reviewed | closed`.
+## findings.md frontmatter
+
+```yaml
+---
+type: audit
+status: draft | reviewed | closed
+created: YYYY-MM-DD
+requirements: [R12.03, R07.10]    # SRS IDs that served as intent sources; empty if none
+---
+```
+
+`requirements` here means something different from its meaning in a spec: it lists the
+intent sources the audit judged behavior *against*, not requirements the work implements.
+An empty list is a statement that the audit had no documented intent to check against —
+which bounds what its findings can mean, so it belongs in the Scope section too.
+
+There is deliberately no `depends_on` and no `supersedes`. An audit produces knowledge,
+not a change; nothing sequences against it, and a later audit of the same area does not
+invalidate an earlier one's findings — it is simply a second observation.
+
+The section structure `/audit` writes is fixed by its `templates/findings.md`. Two parts
+of it are load-bearing for this contract: the Coverage section (findings without stated
+boundaries read as "everything else is clean") and the Hand-off table, which is where the
+task slugs an audit spawns get linked, including the findings the user declined.
 
 ## Dependencies and sequencing
 
@@ -86,9 +109,11 @@ and renaming breaks them.
 
 ## Status lifecycle
 
+**spec.md**
+
 | Transition | Performed by |
 |---|---|
-| (new) → `draft` | `/spec` (or `/audit` for findings) on creation |
+| (new) → `draft` | `/spec` on creation |
 | `draft` → `approved` | The user, explicitly. `/spec` applies the SRS Delta to `REQUIREMENTS.md` at this moment, never before. |
 | `approved` → `in-progress` | `/build` when implementation starts |
 | `in-progress` → `implemented` | `/build` only after the full Definition of Done passes |
@@ -97,6 +122,18 @@ and renaming breaks them.
 
 `/build` must refuse to implement a `draft` dossier — the approval gate is the whole
 point of having one.
+
+**findings.md**
+
+| Transition | Performed by |
+|---|---|
+| (new) → `draft` | `/audit` on creation |
+| `draft` → `reviewed` | `/audit` once the user has triaged every finding |
+| `reviewed` → `closed` | `/audit` once every finding selected for fixing has a linked task dossier in the Hand-off table |
+
+`closed` says the hand-off is complete, not that the defects are fixed — the linked
+dossiers own that. An audit whose findings were all declined still reaches `closed`, with
+the declines recorded.
 
 ## Numbering conventions
 
@@ -136,8 +173,13 @@ preserve documented behavior rather than define new behavior.
 
 ## docs/tasks/BOARD.md — the sequencing index
 
-`BOARD.md` is a derived view over every non-`implemented`/`superseded`/`abandoned`
-dossier's `depends_on` and `status`, grouped into:
+`BOARD.md` is a derived view over `docs/tasks/` only — every non-`implemented`/
+`superseded`/`abandoned` `spec.md`, grouped by its `depends_on` and `status`. Audits never
+appear on it: the board answers "what can I build next", and an audit is not buildable
+work. A finding reaches the board only once it becomes a task dossier, at which point it
+is that dossier's row like any other.
+
+The groups:
 
 - **Ready now** — `approved` or `draft` dossiers whose every `depends_on` entry is
   already `implemented` (or the list is empty). These can start in any order relative to
