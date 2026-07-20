@@ -451,6 +451,30 @@ async def test_admin_gdpr_hard_delete_skips_restored_project() -> None:
 
 
 @pytest.mark.asyncio
+async def test_admin_gdpr_teardown_failure_leaves_session_usable() -> None:
+    """A catastrophic teardown must not fail an already-committed GDPR purge.
+
+    The partial audit writes have to be rolled back: leaving a failed
+    transaction on the request session would make `db_session`'s trailing
+    commit raise and turn a successful delete into a 500.
+    """
+    from contexts.tenancy.application.account_deletion_service import AccountDeletionService
+
+    db = AsyncMock()
+    svc = AccountDeletionService(db)
+
+    with patch(
+        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra_batch",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("qdrant client construction failed"),
+    ):
+        purged = await svc.purge_hard_deleted_project_sources({uuid.uuid4()})
+
+    assert purged == 0
+    db.rollback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_admin_hard_delete_commits_before_teardown() -> None:
     """AC-6: no transaction spans the MinIO/Qdrant calls on the admin path."""
     from contexts.identity.application.admin_service import AdminService

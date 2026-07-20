@@ -219,7 +219,10 @@ async def _purge_soft_deleted_tenancy(session: AsyncSession) -> int:
         # project vanishes by FK cascade, so after the delete there is no row
         # left to attribute to the returned org id.
         org_projects: dict[uuid.UUID, set[uuid.UUID]] = {}
-        org_batch = sa.select(orgs_tbl.c.id).where(org_conds).limit(200)
+        # Ordered so this batch and the org delete below pick the *same* 200 rows:
+        # an unordered LIMIT may return a different subset per evaluation, which
+        # would leave a returned org with no captured projects to tear down.
+        org_batch = sa.select(orgs_tbl.c.id).where(org_conds).order_by(orgs_tbl.c.id).limit(200)
         rows = await del_session.execute(
             sa.select(projects_tbl.c.id, projects_tbl.c.owner_org_id).where(
                 projects_tbl.c.owner_org_id.in_(org_batch)
@@ -236,7 +239,7 @@ async def _purge_soft_deleted_tenancy(session: AsyncSession) -> int:
                 conds.append(~project_retained)
             elif tbl is orgs_tbl:
                 conds.append(~org_retained)
-            batch = sa.select(tbl.c.id).where(sa.and_(*conds)).limit(200)
+            batch = sa.select(tbl.c.id).where(sa.and_(*conds)).order_by(tbl.c.id).limit(200)
             stmt = sa.delete(tbl).where(sa.and_(*conds, tbl.c.id.in_(batch)))
             # Only the two tables that own external data need their ids back.
             if tbl is orgs_tbl or tbl is projects_tbl:
