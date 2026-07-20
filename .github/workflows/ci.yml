@@ -519,8 +519,27 @@ jobs:
           docker volume ls --format '{{.Name}}' | grep '^smap-ci-' || true
       - name: Record image digests
         run: |
-          docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' \
-            smap/mcp-runtime:ci smap/code-exec:ci | tee sandbox-image-digests.txt
+          # One image per invocation: `docker images` takes at most one
+          # [REPOSITORY[:TAG]] and exits 1 on two. Until 2026-07-21 this passed
+          # both, and `| tee` without pipefail made the step's exit status tee's,
+          # so it stayed green while uploading an empty artifact on every run --
+          # and the pins it exists to feed could never be read off it.
+          #
+          # Each image is checked on its own rather than the file being tested
+          # for emptiness at the end: an unknown image prints nothing and exits
+          # 0, so a single missing one would otherwise ship a half-complete
+          # artifact, just as silently. No pipeline either -- a `for | tee` puts
+          # the loop in a subshell, where `exit 1` leaves the step green.
+          : > sandbox-image-digests.txt
+          for image in smap/mcp-runtime:ci smap/code-exec:ci; do
+            line="$(docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' "$image")"
+            if [ -z "$line" ]; then
+              echo "no digest recorded for $image — was it built?"
+              exit 1
+            fi
+            echo "$line" >> sandbox-image-digests.txt
+          done
+          cat sandbox-image-digests.txt
       - uses: actions/upload-artifact@v7
         with:
           name: sandbox-image-digests
