@@ -23,19 +23,18 @@ parallel.
   worth confirming with the user whether this blueprint's remaining scope is still live or
   its status is simply stale, before treating it as unblocked work.
 
-- `2026-07-17-sandbox-guest-container-tests` (feature, draft) — unblocked 2026-07-20 when
-  `2026-07-16-workspace-path-convention` reached `implemented`. Still `draft`, so it needs
-  approval before `/build` will touch it. **Two of its ACs are now stale and must be
-  rewritten first** — its own §10 anticipated exactly this ("if that dossier lands first,
-  this AC must be written in its post-fix shape instead — check before building"). AC-5
-  asserts `list` on a single file returns `[basename]` at `driver.py:245`; that branch is
-  now `driver.py:249` and returns an absolute path. AC-4 asserts the "current flat"
-  listing: recursion is indeed still flat (its FU-3 is open), but the entry *shape* is now
-  absolute, so the assertion needs rewriting even though the flatness claim survives.
-
 ## Blocked
 
-Nothing blocked.
+- `2026-07-17-sandbox-guest-container-tests` (feature, approved) — **waiting on
+  `2026-07-19-session-dir-room-isolation` and `2026-07-19-workspace-readonly-in-kernel`,
+  both `in-progress`.** Approved 2026-07-20 after a revision that closed OQ-1/OQ-2 and
+  rewrote three ACs. It briefly looked Ready when `2026-07-16-workspace-path-convention`
+  landed, but the approval review found the two 07-19 dossiers had falsified its §4 model:
+  the kernel moved to `/session` on its own per-room volume and `/workspace` became
+  read-only there, so its AC-7 was inverted to assert [R12.03b]'s mount isolation instead
+  of the old "three roots share one volume". That rewrite is what added the two
+  dependencies (its Q-9). **Note:** their *code* has already landed (`f7c4ea6`, `06798c9`)
+  — what is outstanding is those two dossiers' own close-out, not the implementation.
 
 ## In progress
 
