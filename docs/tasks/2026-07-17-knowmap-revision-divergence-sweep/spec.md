@@ -263,6 +263,16 @@ are operational observability, not user-visible behavior, so they define no new 
   is marked done with the commit's reasoning. FU-2 in particular grew beyond its original
   description: cascade *restore* had to come with cascade delete, or project restore would
   have silently destroyed a project's Knowledge Maps, which it does not do today.
+- **D-10: A code review after close-out found ten further defects, all fixed.** The two that
+  mattered: the resume cursor could advance over configs the tick never offered (a failed page
+  read, an unproven liveness check, or a wholesale enqueue failure), hiding them until the
+  cursor wrapped the whole table; and migration `0060`'s downgrade could not distinguish its
+  own backfill from the application cascade that ships with it, so rolling back would have
+  handed deleted projects live graph configs again. `0060` adds no schema and is now
+  forward-only on data. The rest were a batched `MGET` for the give-up stamps, a stable audit
+  metadata shape, `datetime` instead of `Any` on the graphrag cascade pair, the `monkeypatch`
+  fixture in the cascade test, and two comments describing superseded behaviour -- including,
+  with some irony, one asserting the FU-2 cascade did not exist.
 - **D-9: `_STALE_RUNNING_AFTER_S` reporting reads one row past the page.** The count is
   page-capped, so reporting it as exact was the same class of dishonest counter as D-2.
   `list_stale_running` also orders by `build_started_at` rather than `id`, so the sampled
