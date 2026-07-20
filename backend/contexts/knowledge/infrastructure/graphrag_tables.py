@@ -28,6 +28,10 @@ graphrag_configs = sa.Table(
     ),
     sa.Column("trigger_config", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("last_build_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    # F-4 (migration 0059): started-at watermark for the *current* build. Distinct
+    # from last_build_at, which is only written on a terminal outcome and so still
+    # holds the previous build's time while this one runs. Observability only.
+    sa.Column("build_started_at", sa.TIMESTAMP(timezone=True), nullable=True),
     # Text + CHECK, not a PG ENUM (migration 0058): the state set grows, and this
     # backend has no ALTER TYPE ... ADD VALUE precedent. The CHECK is named with the
     # short form so shared_kernel/db's ck_%(table_name)s_%(constraint_name)s

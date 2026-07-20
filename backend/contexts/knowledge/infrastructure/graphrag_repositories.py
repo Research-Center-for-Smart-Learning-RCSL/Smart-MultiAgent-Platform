@@ -784,6 +784,7 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         error: str | None = None,
         stamp_built_at: bool = False,
         built_at: Any = None,
+        stamp_started_at: bool = False,
     ) -> None:
         values: dict[str, Any] = {
             "last_build_state": state.value,
@@ -796,6 +797,10 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
             values["last_build_at"] = built_at
         elif stamp_built_at:
             values["last_build_at"] = now()
+        # F-4: separate from the two above, which only move on a terminal outcome.
+        # Set by the RUNNING transition so a stuck build has a readable age.
+        if stamp_started_at:
+            values["build_started_at"] = now()
         await self._db.execute(
             t.graphrag_configs.update().where(t.graphrag_configs.c.id == config_id).values(**values)
         )

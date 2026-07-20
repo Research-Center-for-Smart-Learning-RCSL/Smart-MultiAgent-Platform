@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +42,7 @@ from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapDocumentRepository,
 )
 from contexts.knowledge.infrastructure.knowmap_triple_extractor import DocTripleExtractor
+from shared_kernel.auth.clients import now
 from shared_kernel.db.session import get_sessionmaker
 
 _log = logging.getLogger(__name__)
@@ -61,6 +63,35 @@ _SCAN_MAX_TRIES = 3
 # instead of arriving as one herd.
 _SWEEP_PAGE_SIZE = 50
 _SWEEP_MAX_PER_TICK = 200
+
+# F-4: a config still RUNNING past this had every legitimate chance to settle --
+# the build's own timeout (KNOWMAP_BUILD_TIMEOUT_S), plus the reconciler's
+# worst-case recovery latency (the residual LOCK_TTL_S before the lock frees, then
+# one cron minute). Past it the reconciler itself is not working, which is the only
+# thing this threshold is meant to surface. Generous on purpose: the check is a net
+# for a broken recovery path, so a false silence costs less than a false alarm.
+_STALE_RUNNING_AFTER_S = 60 * 60
+
+
+async def _report_stale_running(configs: KnowmapConfigRepository) -> int:
+    """Warn about builds the reconciler should have reclaimed and has not (F-4).
+
+    Never enqueues: a RUNNING config is rejected by the builder's state whitelist
+    anyway, so offering it work would produce noise, not recovery.
+    """
+    started_before = now() - timedelta(seconds=_STALE_RUNNING_AFTER_S)
+    # A single page is enough signal: more than this many stuck builds is one
+    # incident, not fifty, and fifty warning lines already say so.
+    stale = await configs.list_stale_running(started_before=started_before, limit=_SWEEP_PAGE_SIZE, offset=0)
+    for cfg in stale:
+        _log.warning(
+            "knowmap revision sweep: config %s has been RUNNING since %s, past the %ds "
+            "threshold; the reconciler should have reclaimed it",
+            cfg.id,
+            cfg.build_started_at,
+            _STALE_RUNNING_AFTER_S,
+        )
+    return len(stale)
 
 
 async def knowmap_revision_sweep(ctx: dict[str, Any]) -> str:
@@ -114,8 +145,15 @@ async def knowmap_revision_sweep(ctx: dict[str, Any]) -> str:
                 "knowmap revision sweep: reached the per-tick cap of %d configs",
                 _SWEEP_MAX_PER_TICK,
             )
-    _log.info("knowmap revision sweep: enqueued=%d failed=%d seen=%d", enqueued, failed, seen)
-    return f"enqueued={enqueued} failed={failed}"
+        stale_running = await _report_stale_running(configs)
+    _log.info(
+        "knowmap revision sweep: enqueued=%d failed=%d seen=%d stale_running=%d",
+        enqueued,
+        failed,
+        seen,
+        stale_running,
+    )
+    return f"enqueued={enqueued} failed={failed} stale_running={stale_running}"
 
 
 async def _bump_and_enqueue_build(sm: Any, knowmap_config_id: uuid.UUID) -> None:

@@ -256,6 +256,10 @@ class GraphRagBuilder:
             config_id=cfg.id,
             state=BuildState.RUNNING,
             error=None,
+            # F-4: the only place that knows a build just started. last_build_at is
+            # written on terminal outcomes only, so without this a RUNNING config
+            # has no readable age and a stuck build cannot be told from a fresh one.
+            stamp_started_at=True,
         )
         await publish_build_state(
             cfg.id, BuildState.RUNNING.value, build_id=build_id, channel=self._channel_fn(cfg.id)

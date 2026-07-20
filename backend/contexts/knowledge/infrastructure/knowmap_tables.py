@@ -42,6 +42,10 @@ knowmap_configs = sa.Table(
     sa.Column("embed_model", sa.Text, nullable=True),
     sa.Column("embed_dim", sa.Integer, nullable=True),
     sa.Column("last_build_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    # F-4 (migration 0059): started-at watermark for the *current* build. Distinct
+    # from last_build_at, which is only written on a terminal outcome and so still
+    # holds the previous build's time while this one runs. Observability only.
+    sa.Column("build_started_at", sa.TIMESTAMP(timezone=True), nullable=True),
     # Text + CHECK since 0058 — see graphrag_tables.py for why the ENUM was retired.
     sa.Column(
         "last_build_state",

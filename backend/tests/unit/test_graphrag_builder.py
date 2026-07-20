@@ -54,6 +54,9 @@ class FakeConfigStore:
         self.executed: list[Any] = []
         self.list_all_ids_calls: list[bool] = []
         self.embed_pins: list[tuple[str, str, int]] = []
+        # F-4: which transitions asked for a started-at stamp. Kept apart from
+        # `transitions` so the existing tuple shape stays stable.
+        self.started_at_stamps: list[tuple[BuildState, bool]] = []
 
     async def execute(self, stmt: Any, *a: Any, **kw: Any) -> Any:
         self.executed.append(stmt)
@@ -88,8 +91,10 @@ class FakeConfigStore:
         error: str | None = None,
         stamp_built_at: bool = False,
         built_at: datetime | None = None,
+        stamp_started_at: bool = False,
     ) -> None:
         self.transitions.append((state, error, stamp_built_at))
+        self.started_at_stamps.append((state, stamp_started_at))
         if built_at is not None:
             new_built_at = built_at
         elif stamp_built_at:
@@ -484,6 +489,10 @@ async def test_happy_path_transitions_to_idle() -> None:
     # AC-7: :Entity nodes are stamped with the config's project_id so an
     # orphaned subgraph stays self-describing for the reconciler sweep.
     assert neo4j.applied_project_ids == [cfg.project_id]
+    # F-4 / AC-9: RUNNING is the one transition that stamps the started-at
+    # watermark. If a terminal transition stamped it too, a settled config would
+    # look like a build that just began and the staleness check would go blind.
+    assert [s for s, stamped in store.started_at_stamps if stamped] == [BuildState.RUNNING]
     assert lock.released == [cfg.id]
     assert not snaps.store  # cleaned on success
 

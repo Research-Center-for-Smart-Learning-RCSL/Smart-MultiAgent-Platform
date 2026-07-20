@@ -44,6 +44,10 @@ class KnowmapConfig:
     # processed for the completion re-check.
     corpus_revision: int = 0
     built_corpus_revision: int | None = None
+    # F-4: when the current build entered RUNNING. Unlike ``last_build_at``, which
+    # only moves on a terminal outcome, this makes a stuck build's age readable.
+    # ``None`` for a config that has not built since migration 0059.
+    build_started_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
