@@ -42,10 +42,47 @@ status: draft | approved | in-progress | implemented | superseded | abandoned
 created: YYYY-MM-DD
 requirements: [R12.03, R07.10]    # related SRS IDs; empty list if none
 supersedes: 2026-06-01-old-slug   # optional, only when replacing a dossier
+depends_on: []                    # slugs that must be `implemented` before this starts
 ---
 ```
 
 `findings.md` uses `type: audit` and `status: draft | reviewed | closed`.
+
+## Dependencies and sequencing
+
+A pile of dossiers with only a filename each does not tell a reader which to build first
+or which can run side by side. Two mechanisms close that gap; neither requires opening
+every `spec.md` to find out.
+
+**`depends_on`** is a list of task slugs (folder names under `docs/tasks/`) that must
+reach `status: implemented` before this dossier may move `approved` → `in-progress`.
+`/build` enforces this as a hard gate (see its Step 1). A slug belongs in `depends_on`
+for either reason:
+
+- **Logical prerequisite** — this task's fix or feature only makes sense once the other
+  lands (e.g. it references code the other dossier introduces).
+- **Overlap prerequisite** — no logical ordering requirement, but both dossiers touch the
+  same files/lines closely enough that building them concurrently would produce
+  conflicting diffs. Building them serially avoids the conflict even though either could
+  technically go first.
+
+Either reason is valid; `/spec` proposes each dependency as a Clarifications entry (Q-n)
+so the reason lives in that row's Rationale column, the same place every other spec
+decision already gets recorded — no separate mechanism needed. An empty `depends_on` is
+a positive claim — "nothing known blocks this" — not an unfilled field.
+
+**Sequential naming.** When a new dossier continues a multi-step initiative that already
+has dossiers in `docs/tasks/` (compare `graphrag-phase0-engine-cleanup`,
+`-phase1-decouple-owner`, `-phase2a-builder-hardening`, `-phase2b-...`, `-phase3-...`,
+`-phase4a-...`, `-phase4b-...`), `/spec` names the new slug
+`<initiative>-phase<N>-<detail>` (or `-step<N>-` if the initiative already uses that
+word) so that lexical sort of `docs/tasks/` — which is also chronological sort, since the
+date prefix comes first — matches build order within that initiative. This only encodes
+order *inside one initiative's naming family*; it says nothing about cross-initiative
+dependencies or which initiatives can run in parallel — that is what `depends_on` and
+`BOARD.md` are for. Existing dossiers are never renamed retroactively: citations
+elsewhere (`supersedes`, other dossiers' prose, code comments) point at the folder name,
+and renaming breaks them.
 
 ## Status lifecycle
 
@@ -96,6 +133,28 @@ beside it. A feature spec drafts its new or amended `[Rxx.yy]` entries verbatim 
 `REQUIREMENTS.md` in the same step, so the SRS is already current when implementation
 begins. Bugfix and refactor dossiers usually carry an empty delta — they restore or
 preserve documented behavior rather than define new behavior.
+
+## docs/tasks/BOARD.md — the sequencing index
+
+`BOARD.md` is a derived view over every non-`implemented`/`superseded`/`abandoned`
+dossier's `depends_on` and `status`, grouped into:
+
+- **Ready now** — `approved` or `draft` dossiers whose every `depends_on` entry is
+  already `implemented` (or the list is empty). These can start in any order relative to
+  each other, including in parallel.
+- **Blocked** — dossiers with at least one unmet `depends_on` entry, listed with what
+  they are waiting on.
+- **In progress** — `status: in-progress`.
+
+It exists so a reader can answer "what can I pick up right now, and what can run
+alongside it" from one file instead of opening every `spec.md`. If `BOARD.md` and a
+dossier's own frontmatter ever disagree, the frontmatter wins — `BOARD.md` is a cache,
+not a second source of truth.
+
+`/spec` adds a row when it writes a new dossier (its Step 7). `/build` moves a task
+between sections whenever it changes `status` (its Step 3 and Step 6) — most notably,
+finishing a task can move other dossiers from Blocked to Ready, which `/build` calls out
+to the user rather than leaving for them to notice on the next read.
 
 ## Write-back rule
 
