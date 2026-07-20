@@ -43,7 +43,23 @@ def upgrade() -> None:
     for table in _TABLES:
         op.add_column(table, sa.Column("build_started_at", sa.TIMESTAMP(timezone=True), nullable=True))
 
+    # Partial indexes for the two sweep queries. Both run once a minute over the
+    # whole cross-tenant table and match very few rows, which is the shape a
+    # partial index serves best; without them each tick is a seq scan that grows
+    # with total config count rather than with the backlog it is there to drain.
+    op.execute(
+        "CREATE INDEX ix_knowmap_configs_revision_divergent ON knowmap_configs (id) "
+        "WHERE deleted_at IS NULL AND last_build_state = 'idle' "
+        "AND corpus_revision > COALESCE(built_corpus_revision, 0)"
+    )
+    op.execute(
+        "CREATE INDEX ix_knowmap_configs_stale_running ON knowmap_configs (build_started_at) "
+        "WHERE deleted_at IS NULL AND last_build_state = 'running' AND build_started_at IS NOT NULL"
+    )
+
 
 def downgrade() -> None:
+    op.execute("DROP INDEX IF EXISTS ix_knowmap_configs_stale_running")
+    op.execute("DROP INDEX IF EXISTS ix_knowmap_configs_revision_divergent")
     for table in _TABLES:
         op.drop_column(table, "build_started_at")
