@@ -75,6 +75,84 @@ _SWEEP_MAX_PER_TICK = 200
 # for a broken recovery path, so a false silence costs less than a false alarm.
 _STALE_RUNNING_AFTER_S = 60 * 60
 
+# F-4 FU-3: where the next tick resumes. Without it every tick restarts at the
+# lowest config ids, so a tenant holding more than a capped tick's worth of
+# persistently divergent configs pins the window and configs sorting above it are
+# never reached. Best-effort state: losing the key costs one non-rotating tick.
+_SWEEP_CURSOR_KEY = "knowmap:sweep:cursor"
+
+# F-4 FU-5: how long one (config, revision) may keep being re-offered before the
+# sweep stops and asks for a human. Comfortably past ``keep_result`` (one hour),
+# so the legitimate slow case -- a build that finished but failed to stamp its
+# revision, whose re-offers dedup onto the retained result until that lapses --
+# resolves long before this trips. Past it, re-offering is not recovering
+# anything and every cycle is another full-corpus rebuild on the tenant's key.
+_REOFFER_GIVE_UP_S = 6 * 60 * 60
+_REOFFER_KEY_TTL_S = 7 * 24 * 60 * 60
+
+
+async def _read_cursor(pool: Any) -> uuid.UUID | None:
+    """Where the last tick stopped, or ``None`` to start from the beginning."""
+    if pool is None:
+        return None
+    try:
+        raw = await pool.get(_SWEEP_CURSOR_KEY)
+    except Exception:
+        _log.warning("knowmap revision sweep: cursor read failed", exc_info=True)
+        return None
+    if not raw:
+        return None
+    try:
+        return uuid.UUID(raw.decode() if isinstance(raw, bytes) else str(raw))
+    except ValueError:
+        # A corrupt cursor must not wedge the sweep; restart from the beginning.
+        return None
+
+
+async def _write_cursor(pool: Any, after_id: uuid.UUID | None) -> None:
+    """Persist the resume point, or clear it once a pass reaches the end."""
+    if pool is None:
+        return
+    try:
+        if after_id is None:
+            await pool.delete(_SWEEP_CURSOR_KEY)
+        else:
+            await pool.set(_SWEEP_CURSOR_KEY, str(after_id))
+    except Exception:
+        _log.warning("knowmap revision sweep: cursor write failed", exc_info=True)
+
+
+async def _exhausted_reoffers(pool: Any, config_id: uuid.UUID, revision: int) -> bool:
+    """True once this (config, revision) has been re-offered past the give-up window.
+
+    Divergence that survives repeated offers is not being recovered by them, and
+    each cycle past ``keep_result`` costs the tenant another full-corpus rebuild.
+    Fails open on a Redis error: dropping recovery because the bookkeeping store
+    blinked would be the worse failure.
+    """
+    if pool is None:
+        return False
+    key = f"knowmap:sweep:firstoffer:{config_id}:{revision}"
+    try:
+        first = await pool.get(key)
+        if not first:
+            await pool.set(key, str(int(now().timestamp())), ex=_REOFFER_KEY_TTL_S)
+            return False
+        age = int(now().timestamp()) - int(first.decode() if isinstance(first, bytes) else first)
+    except Exception:
+        _log.warning("knowmap revision sweep: re-offer bookkeeping failed", exc_info=True)
+        return False
+    if age < _REOFFER_GIVE_UP_S:
+        return False
+    _log.warning(
+        "knowmap revision sweep: config %s revision %d has been re-offered for %ds "
+        "without converging; giving up on it and leaving it for a human",
+        config_id,
+        revision,
+        age,
+    )
+    return True
+
 
 async def _report_stale_running(configs: KnowmapConfigRepository) -> int:
     """Warn about builds the reconciler should have reclaimed and has not (F-4).
@@ -87,30 +165,42 @@ async def _report_stale_running(configs: KnowmapConfigRepository) -> int:
     started_before = now() - timedelta(seconds=_STALE_RUNNING_AFTER_S)
     # A single page is enough signal: more than this many stuck builds is one
     # incident, not fifty, and fifty warning lines already say so.
-    stale = await configs.list_stale_running(started_before=started_before, limit=_SWEEP_PAGE_SIZE)
-    for cfg in stale:
+    # Read one past the page so a full page can be reported as a floor rather than
+    # an exact count (FU-7) -- "50" from a capped query is not a measurement.
+    stale = await configs.list_stale_running(started_before=started_before, limit=_SWEEP_PAGE_SIZE + 1)
+    capped = len(stale) > _SWEEP_PAGE_SIZE
+    stale = stale[:_SWEEP_PAGE_SIZE]
+    if stale:
+        # One line with a sample, not one line per config: a broken reconciler is a
+        # single incident, and this repeats every tick until someone fixes it.
         _log.warning(
-            "knowmap revision sweep: config %s has been RUNNING since %s, past the %ds "
-            "threshold; the reconciler should have reclaimed it",
-            cfg.id,
-            cfg.build_started_at,
+            "knowmap revision sweep: %s%d config(s) stuck in RUNNING past the %ds threshold; "
+            "the reconciler should have reclaimed them. Oldest: %s (since %s)",
+            "at least " if capped else "",
+            len(stale),
             _STALE_RUNNING_AFTER_S,
+            stale[0].id,
+            stale[0].build_started_at,
         )
     return len(stale)
 
 
 async def _collect_divergent(
-    db: AsyncSession, configs: KnowmapConfigRepository
-) -> tuple[list[tuple[uuid.UUID, uuid.UUID, int]], bool]:
-    """Page the divergence query up to the per-tick cap (F-4).
+    db: AsyncSession, configs: KnowmapConfigRepository, after_id: uuid.UUID | None
+) -> tuple[list[tuple[uuid.UUID, uuid.UUID, int]], uuid.UUID | None]:
+    """Page the divergence query from ``after_id`` up to the per-tick cap (F-4).
 
-    Returns ``(config_id, project_id, target_revision)`` triples and whether the
-    backlog was drained. A read failure part-way through returns what was gathered
-    instead of discarding it: half a tick of recovery beats none, and the next tick
-    re-reads from the start.
+    Returns ``(config_id, project_id, target_revision)`` triples and where the next
+    tick should resume: the last id read when the cap cut the pass short, or
+    ``None`` when the pass reached the end and the next one should wrap to the
+    beginning. Wrapping is what stops a large tenant low in the id order from
+    pinning the window forever (FU-3).
+
+    A read failure part-way through keeps what was gathered rather than discarding
+    it -- half a tick of recovery beats none -- and resumes from the start next
+    time, since the cursor cannot be trusted after a partial read.
     """
     pending: list[tuple[uuid.UUID, uuid.UUID, int]] = []
-    after_id: uuid.UUID | None = None
     while len(pending) < _SWEEP_MAX_PER_TICK:
         page_limit = min(_SWEEP_PAGE_SIZE, _SWEEP_MAX_PER_TICK - len(pending))
         try:
@@ -120,12 +210,12 @@ async def _collect_divergent(
             # Clear the aborted transaction, or every later read on this session
             # fails too and the tick loses its stale-build alarm as collateral.
             await db.rollback()
-            return pending, False
+            return pending, None
         pending.extend((cfg.id, cfg.project_id, cfg.corpus_revision) for cfg in page)
         if len(page) < page_limit:
-            return pending, True
+            return pending, None
         after_id = page[-1].id
-    return pending, False
+    return pending, after_id
 
 
 async def _drop_dead_projects(
@@ -190,9 +280,10 @@ async def knowmap_revision_sweep(ctx: dict[str, Any]) -> str:
     # closes a Redis pool per call, and holding a Postgres transaction open across
     # up to _SWEEP_MAX_PER_TICK of those round trips would pin a connection
     # idle-in-transaction for no reason.
+    resume_from = await _read_cursor(pool)
     async with sm() as db:
         configs = KnowmapConfigRepository(db)
-        pending, drained = await _collect_divergent(db, configs)
+        pending, next_cursor = await _collect_divergent(db, configs, resume_from)
         try:
             pending = await _drop_dead_projects(db, pending)
         except Exception:
@@ -207,21 +298,29 @@ async def knowmap_revision_sweep(ctx: dict[str, Any]) -> str:
             # Observability only: it must never erase the enqueues below.
             _log.warning("knowmap revision sweep: stale-RUNNING report failed", exc_info=True)
 
+    await _write_cursor(pool, next_cursor)
+
     counts = dict.fromkeys(EnqueueOutcome, 0)
+    abandoned = 0
     for config_id, _project_id, target_revision in pending:
+        if await _exhausted_reoffers(pool, config_id, target_revision):
+            abandoned += 1
+            continue
         outcome = await enqueue_knowmap_build(config_id=config_id, target_revision=target_revision, pool=pool)
         counts[outcome] += 1
 
-    if not drained:
-        # A capped or truncated tick must not read as full coverage in the logs.
+    if next_cursor is not None:
+        # A capped tick must not read as full coverage in the logs.
         _log.info(
-            "knowmap revision sweep: stopped at %d configs without draining the backlog",
+            "knowmap revision sweep: capped at %d configs; the next tick resumes from %s",
             len(pending),
+            next_cursor,
         )
     summary = (
         f"enqueued={counts[EnqueueOutcome.QUEUED]} "
         f"deduped={counts[EnqueueOutcome.DEDUPED]} "
         f"failed={counts[EnqueueOutcome.FAILED]} "
+        f"abandoned={abandoned} "
         f"stale_running={stale_running}"
     )
     _log.info("knowmap revision sweep: %s", summary)

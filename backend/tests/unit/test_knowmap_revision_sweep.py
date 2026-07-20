@@ -244,7 +244,7 @@ async def test_sweep_skips_configs_whose_project_was_deleted(monkeypatch: Any) -
     result = await knowmap_task.knowmap_revision_sweep({})
 
     assert seen == [live.id]
-    assert result == "enqueued=1 deduped=0 failed=0 stale_running=0"
+    assert result == "enqueued=1 deduped=0 failed=0 abandoned=0 stale_running=0"
 
 
 @pytest.mark.asyncio
@@ -268,7 +268,7 @@ async def test_sweep_enqueues_nothing_when_liveness_cannot_be_checked(monkeypatc
     result = await knowmap_task.knowmap_revision_sweep({})
 
     assert seen == []
-    assert result == "enqueued=0 deduped=0 failed=0 stale_running=0"
+    assert result == "enqueued=0 deduped=0 failed=0 abandoned=0 stale_running=0"
 
 
 @pytest.mark.asyncio
@@ -284,7 +284,7 @@ async def test_sweep_pages_and_stops_on_a_short_page(monkeypatch: Any) -> None:
     # The second page resumes from the last id served, not from an offset.
     assert _PagingRepo.calls == [(50, None), (50, uuid.UUID(int=50))]
     assert len(seen) == 70
-    assert result == "enqueued=70 deduped=0 failed=0 stale_running=0"
+    assert result == "enqueued=70 deduped=0 failed=0 abandoned=0 stale_running=0"
 
 
 @pytest.mark.asyncio
@@ -300,7 +300,7 @@ async def test_sweep_skips_nothing_when_rows_leave_the_set_mid_tick(monkeypatch:
     result = await knowmap_task.knowmap_revision_sweep({})
 
     assert len(seen) == 70
-    assert result == "enqueued=70 deduped=0 failed=0 stale_running=0"
+    assert result == "enqueued=70 deduped=0 failed=0 abandoned=0 stale_running=0"
 
 
 @pytest.mark.asyncio
@@ -314,7 +314,7 @@ async def test_sweep_truncates_at_the_per_tick_cap(monkeypatch: Any) -> None:
     result = await knowmap_task.knowmap_revision_sweep({})
 
     assert len(seen) == 200
-    assert result == "enqueued=200 deduped=0 failed=0 stale_running=0"
+    assert result == "enqueued=200 deduped=0 failed=0 abandoned=0 stale_running=0"
     # The last page is trimmed to the remaining budget rather than overshooting.
     assert sum(limit for limit, _ in _PagingRepo.calls) == 200
 
@@ -357,7 +357,7 @@ async def test_sweep_counts_each_outcome_separately(monkeypatch: Any) -> None:
     _install(monkeypatch, db, _enqueue)
     result = await knowmap_task.knowmap_revision_sweep({})
 
-    assert result == "enqueued=1 deduped=1 failed=1 stale_running=0"
+    assert result == "enqueued=1 deduped=1 failed=1 abandoned=0 stale_running=0"
 
 
 @pytest.mark.asyncio
@@ -380,7 +380,7 @@ async def test_sweep_keeps_the_work_it_did_when_a_page_read_fails(monkeypatch: A
     result = await knowmap_task.knowmap_revision_sweep({})
 
     assert len(seen) == 50
-    assert result == "enqueued=50 deduped=0 failed=0 stale_running=0"
+    assert result == "enqueued=50 deduped=0 failed=0 abandoned=0 stale_running=0"
     # The aborted transaction is cleared, or the reads after it fail as collateral.
     assert db.rollbacks == 1
 
@@ -403,7 +403,7 @@ async def test_sweep_still_reports_its_enqueues_when_the_stale_probe_fails(
     result = await knowmap_task.knowmap_revision_sweep({})
 
     assert seen == [uuid.UUID(int=1)]
-    assert result == "enqueued=1 deduped=0 failed=0 stale_running=0"
+    assert result == "enqueued=1 deduped=0 failed=0 abandoned=0 stale_running=0"
 
 
 @pytest.mark.asyncio
@@ -420,7 +420,7 @@ async def test_sweep_on_an_empty_backlog_is_a_no_op(monkeypatch: Any) -> None:
     _install(monkeypatch, db, _enqueue)
     result = await knowmap_task.knowmap_revision_sweep({})
 
-    assert result == "enqueued=0 deduped=0 failed=0 stale_running=0"
+    assert result == "enqueued=0 deduped=0 failed=0 abandoned=0 stale_running=0"
     assert calls == 0
 
 
@@ -468,7 +468,7 @@ async def test_sweep_reports_stale_running_but_never_enqueues_it(monkeypatch: An
     result = await knowmap_task.knowmap_revision_sweep({})
 
     assert enqueued == []
-    assert result == "enqueued=0 deduped=0 failed=0 stale_running=1"
+    assert result == "enqueued=0 deduped=0 failed=0 abandoned=0 stale_running=1"
 
 
 @pytest.mark.asyncio
@@ -477,6 +477,122 @@ async def test_stale_threshold_clears_both_the_build_timeout_and_recovery_latenc
     # the build's own timeout, then the reconciler's worst case (residual lock
     # TTL + one cron minute). Otherwise the warning fires on healthy builds.
     assert knowmap_task._STALE_RUNNING_AFTER_S > knowmap_task.KNOWMAP_BUILD_TIMEOUT_S + LOCK_TTL_S + 60
+
+
+# ---------------------------------------------------------------------------
+# Cursor rotation (FU-3), re-offer give-up (FU-5)
+# ---------------------------------------------------------------------------
+
+
+class _FakeRedis:
+    """Minimal Redis surface: the cursor key and the re-offer timestamps."""
+
+    def __init__(self, initial: dict[str, str] | None = None) -> None:
+        self.store: dict[str, str] = dict(initial or {})
+
+    async def get(self, key: str) -> str | None:
+        return self.store.get(key)
+
+    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+        self.store[key] = value
+
+    async def delete(self, key: str) -> None:
+        self.store.pop(key, None)
+
+    async def enqueue_job(self, *_a: Any, **_k: Any) -> Any:
+        return object()
+
+
+@pytest.mark.asyncio
+async def test_capped_tick_saves_a_cursor_and_the_next_one_resumes(monkeypatch: Any) -> None:
+    # FU-3: without this every tick restarts at the lowest ids, so a tenant with
+    # more than a tick's worth of divergent configs pins the window and configs
+    # sorting above theirs are never reached.
+    _reset([_cfg(i) for i in range(250)])
+    seen: list[uuid.UUID] = []
+    redis = _FakeRedis()
+    db = _FakeDb()
+    _install(monkeypatch, db, _collector(seen))
+
+    await knowmap_task.knowmap_revision_sweep({"redis": redis})
+
+    # Stopped on the cap, so the resume point is the last id it read.
+    assert redis.store[knowmap_task._SWEEP_CURSOR_KEY] == str(uuid.UUID(int=200))
+
+    seen.clear()
+    _PagingRepo.calls = []
+    await knowmap_task.knowmap_revision_sweep({"redis": redis})
+    assert _PagingRepo.calls[0] == (50, uuid.UUID(int=200))
+
+
+@pytest.mark.asyncio
+async def test_a_tick_that_reaches_the_end_clears_the_cursor(monkeypatch: Any) -> None:
+    # Wrapping is the other half of rotation: having walked to the end, the next
+    # pass must go back to the beginning rather than sit past the last id.
+    _reset([_cfg(i) for i in range(3)])
+    redis = _FakeRedis({knowmap_task._SWEEP_CURSOR_KEY: str(uuid.UUID(int=1))})
+    db = _FakeDb()
+    _install(monkeypatch, db, _collector([]))
+
+    await knowmap_task.knowmap_revision_sweep({"redis": redis})
+
+    assert knowmap_task._SWEEP_CURSOR_KEY not in redis.store
+
+
+@pytest.mark.asyncio
+async def test_sweep_gives_up_on_a_config_that_never_converges(monkeypatch: Any) -> None:
+    # FU-5: re-offering something that is not converging does not recover it, and
+    # every cycle past keep_result is another full-corpus rebuild on the tenant's
+    # own provider key.
+    cfg = _cfg(0)
+    _reset([cfg])
+    seen: list[uuid.UUID] = []
+    stale_ts = int(datetime.now(UTC).timestamp()) - knowmap_task._REOFFER_GIVE_UP_S - 60
+    redis = _FakeRedis({f"knowmap:sweep:firstoffer:{cfg.id}:2": str(stale_ts)})
+    db = _FakeDb()
+    _install(monkeypatch, db, _collector(seen))
+
+    result = await knowmap_task.knowmap_revision_sweep({"redis": redis})
+
+    assert seen == []
+    assert result == "enqueued=0 deduped=0 failed=0 abandoned=1 stale_running=0"
+
+
+@pytest.mark.asyncio
+async def test_sweep_keeps_offering_inside_the_give_up_window(monkeypatch: Any) -> None:
+    cfg = _cfg(0)
+    _reset([cfg])
+    seen: list[uuid.UUID] = []
+    recent = int(datetime.now(UTC).timestamp()) - 60
+    redis = _FakeRedis({f"knowmap:sweep:firstoffer:{cfg.id}:2": str(recent)})
+    db = _FakeDb()
+    _install(monkeypatch, db, _collector(seen))
+
+    result = await knowmap_task.knowmap_revision_sweep({"redis": redis})
+
+    assert seen == [cfg.id]
+    assert result == "enqueued=1 deduped=0 failed=0 abandoned=0 stale_running=0"
+
+
+@pytest.mark.asyncio
+async def test_give_up_bookkeeping_fails_open(monkeypatch: Any) -> None:
+    # Losing recovery because the bookkeeping store blinked is the worse failure.
+    class _BrokenRedis(_FakeRedis):
+        async def get(self, key: str) -> str | None:
+            if "firstoffer" in key:
+                raise RuntimeError("redis down")
+            return self.store.get(key)
+
+    cfg = _cfg(0)
+    _reset([cfg])
+    seen: list[uuid.UUID] = []
+    db = _FakeDb()
+    _install(monkeypatch, db, _collector(seen))
+
+    result = await knowmap_task.knowmap_revision_sweep({"redis": _BrokenRedis()})
+
+    assert seen == [cfg.id]
+    assert "abandoned=0" in result
 
 
 # ---------------------------------------------------------------------------
