@@ -172,6 +172,43 @@ async def test_finalize_noop_without_target_revision() -> None:
 
 
 # ---------------------------------------------------------------------------
+# F-4 §8.1 / AC-1, AC-2 — the sweep recovers what a failed finalizer dropped
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sweep_enqueues_the_revision_a_failed_finalizer_dropped() -> None:
+    # AC-1/AC-2: build A committed for revision 1 while a mutation advanced the
+    # corpus to 2, then _finalize_build_revision raised and was swallowed, so
+    # nothing was ever queued for revision 2. With no further mutation and no
+    # manual rebuild, the sweep must still deliver it.
+    from app.workers.tasks import knowmap as kmod
+
+    cfg = SimpleNamespace(id=uuid.uuid4(), corpus_revision=2, built_corpus_revision=1)
+
+    class _Repo:
+        def __init__(self, _db: Any) -> None:
+            pass
+
+        async def list_revision_divergent(self, *, limit: int, offset: int) -> list[Any]:
+            return [cfg] if offset == 0 else []
+
+        async def list_stale_running(self, *, started_before: Any, limit: int, offset: int) -> list[Any]:
+            return []
+
+    enq = AsyncMock()
+    with (
+        patch.object(kmod, "get_sessionmaker", _sm),
+        patch.object(kmod, "KnowmapConfigRepository", _Repo),
+        patch.object(kmod, "enqueue_knowmap_build", enq),
+    ):
+        result = await kmod.knowmap_revision_sweep({})
+
+    enq.assert_awaited_once_with(config_id=cfg.id, target_revision=2)
+    assert "enqueued=1" in result
+
+
+# ---------------------------------------------------------------------------
 # Transactional corpus-revision bump (§8.5 / AC-3)
 # ---------------------------------------------------------------------------
 
