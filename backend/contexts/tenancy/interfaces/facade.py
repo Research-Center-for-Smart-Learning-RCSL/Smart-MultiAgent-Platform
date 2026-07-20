@@ -103,12 +103,20 @@ class TenancyFacade:
         *,
         user_id: uuid.UUID,
         reassign_to_user_id: uuid.UUID,
-    ) -> None:
-        """Remove FK RESTRICT references before hard-deleting a user row."""
-        await self._account_deletion.prepare_hard_delete(
+    ) -> set[uuid.UUID]:
+        """Remove FK RESTRICT references before hard-deleting a user row.
+
+        Returns the erased project ids; the caller commits, then hands them to
+        ``purge_hard_deleted_project_sources`` (F-7).
+        """
+        return await self._account_deletion.prepare_hard_delete(
             user_id=user_id,
             reassign_to_user_id=reassign_to_user_id,
         )
+
+    async def purge_hard_deleted_project_sources(self, project_ids: set[uuid.UUID]) -> int:
+        """Erase source infra for projects whose hard delete already committed (F-7)."""
+        return await self._account_deletion.purge_hard_deleted_project_sources(project_ids)
 
     # ----- admin restore (R8.13) ------------------------------------------
 

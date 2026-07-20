@@ -245,7 +245,7 @@ class AdminService:
                 f"user is Original Creator of org(s) with active members: "
                 f"{', '.join(str(o) for o in blocked)}; transfer OC first"
             )
-        await tenancy.prepare_hard_delete(
+        doomed_projects = await tenancy.prepare_hard_delete(
             user_id=target_user_id,
             reassign_to_user_id=admin_user_id,
         )
@@ -268,6 +268,13 @@ class AdminService:
                 request_id=request_id,
             ),
         )
+        # F-7: commit the deletion decision before any external erasure. Until
+        # this commit the rows can still roll back or be restored, and purging a
+        # project's sources for a deletion that never lands destroys data the
+        # tenant can never rebuild. `db_session` supports the mid-request commit;
+        # its trailing one is then a no-op.
+        await self._db.commit()
+        await tenancy.purge_hard_deleted_project_sources(doomed_projects)
 
     async def list_admins(self) -> list[AdminEntry]:
         rows = (
