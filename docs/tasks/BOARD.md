@@ -30,13 +30,3 @@ Nothing blocked.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
-
-- `2026-07-17-sandbox-guest-container-tests` (feature) - **unblocked 2026-07-20** when both
-  07-19 dependencies reached `implemented`; started 2026-07-21. Approved after a revision
-  that closed OQ-1/OQ-2 and rewrote three ACs: the two 07-19 dossiers had falsified its §4
-  model (the kernel moved to `/session` on its own per-room volume and `/workspace` became
-  read-only there), so its AC-7 was inverted to assert [R12.03b]'s mount isolation instead
-  of the old "three roots share one volume". Carries a new AC-13 added after
-  `session-dir-room-isolation` D-10 shipped a defect that broke `code_exec` in every
-  chatroom and that only a real container could catch - which is this dossier's whole
-  premise, now with a concrete incident behind it.
