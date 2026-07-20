@@ -11,7 +11,7 @@ import hashlib
 import secrets
 import uuid
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
@@ -379,10 +379,23 @@ class ProjectRepository:
             raise VersionMismatch(f"project {project_id} version mismatch or missing")
         return _row_to_project(row)
 
-    async def soft_delete(self, project_id: uuid.UUID) -> None:
-        await self._db.execute(
-            t.projects.update().where(t.projects.c.id == project_id).values(deleted_at=now())
-        )
+    async def soft_delete(self, project_id: uuid.UUID) -> datetime | None:
+        """Soft-delete and return the stamped ``deleted_at``.
+
+        The timestamp is returned because cascades reuse it verbatim: stamping a
+        dependent row with the same instant is what later lets a restore tell the
+        rows this deletion took from rows the user had already deleted on their
+        own, without a `deleted_by_cascade` flag column.
+        """
+        row = (
+            await self._db.execute(
+                t.projects.update()
+                .where(t.projects.c.id == project_id)
+                .values(deleted_at=now())
+                .returning(t.projects.c.deleted_at)
+            )
+        ).first()
+        return row.deleted_at if row else None
 
     async def restore(self, project_id: uuid.UUID) -> bool:
         result = await self._db.execute(

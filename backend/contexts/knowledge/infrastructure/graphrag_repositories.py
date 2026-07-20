@@ -825,6 +825,48 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
             .values(embed_provider=provider, embed_model=model, embed_dim=dim)
         )
 
+    async def soft_delete_for_project(self, project_id: uuid.UUID, deleted_at: Any) -> int:
+        """Soft-delete a deleted project's live configs, stamped with its instant.
+
+        Unlike :meth:`soft_delete` this leaves the owner columns populated. That
+        method clears them so the owner-scoped partial unique indexes do not
+        block a future create for the same owner, but clearing is irreversible
+        and would make the project restore below unable to bring the config back
+        intact. Keeping them is safe here precisely because the whole project is
+        gone: no live chatroom, agent group, or workspace remains to want that
+        owner slot, and a restore returns the config exactly as it was.
+        """
+        result = await self._db.execute(
+            t.graphrag_configs.update()
+            .where(
+                sa.and_(
+                    t.graphrag_configs.c.project_id == project_id,
+                    t.graphrag_configs.c.deleted_at.is_(None),
+                )
+            )
+            .values(deleted_at=deleted_at)
+        )
+        return int(result.rowcount or 0)
+
+    async def restore_for_project(self, project_id: uuid.UUID, deleted_at: Any) -> int:
+        """Restore only the configs that project's deletion took.
+
+        Matching on the exact instant is deliberate: a config deleted on its own
+        beforehand carries a different timestamp (and cleared owners) and must
+        stay deleted, or a project restore would resurrect discarded work.
+        """
+        result = await self._db.execute(
+            t.graphrag_configs.update()
+            .where(
+                sa.and_(
+                    t.graphrag_configs.c.project_id == project_id,
+                    t.graphrag_configs.c.deleted_at == deleted_at,
+                )
+            )
+            .values(deleted_at=None)
+        )
+        return int(result.rowcount or 0)
+
     async def soft_delete(self, config_id: uuid.UUID) -> None:
         # Clear all three owner columns, not just deleted_at: the partial
         # unique indexes on owner_chatroom_id/owner_agent_group_id/

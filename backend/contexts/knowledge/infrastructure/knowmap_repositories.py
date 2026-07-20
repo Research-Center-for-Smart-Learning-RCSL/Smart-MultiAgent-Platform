@@ -282,7 +282,9 @@ class KnowmapConfigRepository(GraphRagConfigRepositoryPort):
                         t.knowmap_configs.c.build_started_at < started_before,
                     )
                 )
-                .order_by(t.knowmap_configs.c.id)
+                # Oldest first: the report names the worst offender, and this is
+                # the order ix_knowmap_configs_stale_running already provides.
+                .order_by(t.knowmap_configs.c.build_started_at)
                 .limit(limit)
             )
         ).all()
@@ -299,6 +301,44 @@ class KnowmapConfigRepository(GraphRagConfigRepositoryPort):
         await self._db.execute(
             t.knowmap_configs.update().where(t.knowmap_configs.c.id == config_id).values(deleted_at=now())
         )
+
+    async def soft_delete_for_project(self, project_id: uuid.UUID, deleted_at: datetime) -> int:
+        """Soft-delete a deleted project's live configs, stamped with its instant.
+
+        Deleting a project used to leave these rows live, so "deleted" meant
+        nothing to any consumer that only checked ``knowmap_configs.deleted_at``.
+        The shared timestamp is what ``restore_for_project`` matches on.
+        """
+        result = await self._db.execute(
+            t.knowmap_configs.update()
+            .where(
+                sa.and_(
+                    t.knowmap_configs.c.project_id == project_id,
+                    t.knowmap_configs.c.deleted_at.is_(None),
+                )
+            )
+            .values(deleted_at=deleted_at)
+        )
+        return int(result.rowcount or 0)
+
+    async def restore_for_project(self, project_id: uuid.UUID, deleted_at: datetime) -> int:
+        """Restore only the configs that project's deletion took.
+
+        Matching on the exact instant is deliberate: a config the user deleted
+        before the project carries a different timestamp and must stay deleted,
+        or restoring a project would resurrect work someone chose to discard.
+        """
+        result = await self._db.execute(
+            t.knowmap_configs.update()
+            .where(
+                sa.and_(
+                    t.knowmap_configs.c.project_id == project_id,
+                    t.knowmap_configs.c.deleted_at == deleted_at,
+                )
+            )
+            .values(deleted_at=None)
+        )
+        return int(result.rowcount or 0)
 
     async def bump_corpus_revision(self, config_id: uuid.UUID) -> int:
         """Atomically increment ``corpus_revision`` and return the new value (F-12).

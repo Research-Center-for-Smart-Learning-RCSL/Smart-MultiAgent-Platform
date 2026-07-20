@@ -39,6 +39,7 @@ class ProjectService:
         # a module-level import here would close a cycle. Held as an attribute rather than
         # constructed at the call site so it can be substituted in tests, like the
         # KeysFacade/KnowledgeFacade collaborators on AgentService.
+        from contexts.knowledge.interfaces.facade import KnowledgeFacade
         from contexts.skills.interfaces.facade import SkillsFacade
 
         self._db = db
@@ -46,6 +47,7 @@ class ProjectService:
         self._members = ProjectMemberRepository(db)
         self._org_members = OrgMemberRepository(db)
         self._skills = SkillsFacade(db)
+        self._knowledge = KnowledgeFacade(db)
 
     async def create(
         self,
@@ -158,11 +160,20 @@ class ProjectService:
     ) -> None:
         from contexts.skills.domain.models import SkillScope
 
-        await self._projects.soft_delete(project_id)
+        deleted_at = await self._projects.soft_delete(project_id)
         # AC-38's project arm, in this transaction. The FK CASCADE in 0056 never fires on
         # the soft-delete UPDATE above, so without this the project's skills stay live and
         # keep resolving into any agent still pointing at the project (F-18).
         deleted = await self._skills.cascade_owner_deleted(scope=SkillScope.PROJECT, owner_id=project_id)
+        # Same reasoning for the graph configs (F-4 FU-2): they were left live, so a
+        # background sweep with no membership check in front of it would keep rebuilding
+        # a deleted project's graph on the tenant's own provider key. Stamped with the
+        # project's instant so `restore` can take back exactly these rows.
+        graphs = (
+            await self._knowledge.cascade_project_deleted(project_id=project_id, deleted_at=deleted_at)
+            if deleted_at is not None
+            else {}
+        )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -171,7 +182,7 @@ class ProjectService:
                 actor_ip=actor_ip,
                 resource_type="project",
                 resource_id=project_id,
-                metadata={"deleted_skill_ids": [str(s) for s in deleted]},
+                metadata={"deleted_skill_ids": [str(s) for s in deleted], **graphs},
                 request_id=request_id,
             ),
         )
@@ -184,7 +195,15 @@ class ProjectService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
+        # Read the deletion instant before clearing it: it is the key that tells the
+        # cascade which configs this project's deletion took (F-4 FU-2).
+        prior = await self._projects.get(project_id, include_deleted=True)
         await self._projects.restore(project_id)
+        graphs = (
+            await self._knowledge.cascade_project_restored(project_id=project_id, deleted_at=prior.deleted_at)
+            if prior is not None and prior.deleted_at is not None
+            else {}
+        )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -193,6 +212,7 @@ class ProjectService:
                 actor_ip=actor_ip,
                 resource_type="project",
                 resource_id=project_id,
+                metadata=dict(graphs),
                 request_id=request_id,
             ),
         )
@@ -209,6 +229,8 @@ class ProjectService:
         admin.restore_resource. Distinct from `restore` which emits
         project.restored. Restoring into an (owner, name) a live project has since
         taken raises RestoreConflict (route maps to 409)."""
+        # Captured before the clear, for the same reason as in `restore` (F-4 FU-2).
+        prior = await self._projects.get(project_id, include_deleted=True)
         try:
             restored = await self._projects.restore(project_id)
         except IntegrityError as exc:
@@ -219,6 +241,11 @@ class ProjectService:
             )
         if not restored:
             return False
+        graphs = (
+            await self._knowledge.cascade_project_restored(project_id=project_id, deleted_at=prior.deleted_at)
+            if prior is not None and prior.deleted_at is not None
+            else {}
+        )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -227,6 +254,7 @@ class ProjectService:
                 actor_ip=actor_ip,
                 resource_type="project",
                 resource_id=project_id,
+                metadata=dict(graphs),
                 request_id=request_id,
             ),
         )
