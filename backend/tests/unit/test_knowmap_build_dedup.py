@@ -190,7 +190,9 @@ async def test_sweep_enqueues_the_revision_a_failed_finalizer_dropped() -> None:
     # scenario, which is precisely why the sweep recovers it promptly.
     from app.workers.tasks import knowmap as kmod
 
-    cfg = SimpleNamespace(id=uuid.uuid4(), corpus_revision=2, built_corpus_revision=1)
+    cfg = SimpleNamespace(
+        id=uuid.uuid4(), project_id=uuid.uuid4(), corpus_revision=2, built_corpus_revision=1
+    )
 
     class _Repo:
         def __init__(self, _db: Any) -> None:
@@ -204,15 +206,23 @@ async def test_sweep_enqueues_the_revision_a_failed_finalizer_dropped() -> None:
         async def list_stale_running(self, *, started_before: Any, limit: int) -> list[Any]:
             return []
 
+    class _Tenancy:
+        def __init__(self, _db: Any) -> None:
+            pass
+
+        async def get_projects(self, project_ids: Any) -> dict[uuid.UUID, Any]:
+            return dict.fromkeys(project_ids, object())
+
     enq = AsyncMock(return_value=EnqueueOutcome.QUEUED)
     with (
         patch.object(kmod, "get_sessionmaker", _sm),
         patch.object(kmod, "KnowmapConfigRepository", _Repo),
         patch.object(kmod, "enqueue_knowmap_build", enq),
+        patch("contexts.tenancy.interfaces.facade.TenancyFacade", _Tenancy),
     ):
         result = await kmod.knowmap_revision_sweep({})
 
-    enq.assert_awaited_once_with(config_id=cfg.id, target_revision=2)
+    enq.assert_awaited_once_with(config_id=cfg.id, target_revision=2, pool=None)
     assert result == "enqueued=1 deduped=0 failed=0 stale_running=0"
 
 

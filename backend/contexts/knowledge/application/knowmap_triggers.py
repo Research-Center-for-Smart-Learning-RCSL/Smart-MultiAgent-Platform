@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import uuid
 from enum import StrEnum
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -44,12 +45,19 @@ class EnqueueOutcome(StrEnum):
     FAILED = "failed"
 
 
-async def enqueue_knowmap_build(*, config_id: uuid.UUID, target_revision: int) -> EnqueueOutcome:
+async def enqueue_knowmap_build(
+    *, config_id: uuid.UUID, target_revision: int, pool: Any = None
+) -> EnqueueOutcome:
     """Enqueue a ``knowmap_build`` for ``config_id`` targeting ``target_revision``.
 
     ``target_revision`` is the config's current ``corpus_revision`` at enqueue
     time — passed both as the job-id discriminator and as a build argument so the
     worker can re-check whether the corpus advanced during the build.
+
+    ``pool`` is an existing ``ArqRedis``. Request-scoped callers omit it and get
+    the shared helper's short-lived pool; a worker passes ``ctx["redis"]``, which
+    matters for the revision sweep — it can enqueue hundreds per tick, and the
+    helper opens and closes a pool per call.
 
     Best-effort: a failed enqueue is logged, not raised — a missed build is
     recoverable via the explicit rebuild endpoint, the next document change, or
@@ -60,15 +68,18 @@ async def enqueue_knowmap_build(*, config_id: uuid.UUID, target_revision: int) -
 
     Trigger callers ignore the return; the sweep uses it to count honestly.
     """
+    kwargs: dict[str, Any] = {
+        "config_id": str(config_id),
+        "target_revision": target_revision,
+        "_job_id": knowmap_build_job_id(config_id, target_revision=target_revision),
+    }
     try:
-        from shared_kernel.queue import enqueue
+        if pool is not None:
+            job = await pool.enqueue_job("knowmap_build", **kwargs)
+        else:
+            from shared_kernel.queue import enqueue
 
-        job = await enqueue(
-            "knowmap_build",
-            config_id=str(config_id),
-            target_revision=target_revision,
-            _job_id=knowmap_build_job_id(config_id, target_revision=target_revision),
-        )
+            job = await enqueue("knowmap_build", **kwargs)
     except Exception:
         _log.warning("knowmap build enqueue failed for config %s", config_id, exc_info=True)
         return EnqueueOutcome.FAILED
