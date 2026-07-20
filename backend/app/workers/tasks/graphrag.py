@@ -429,10 +429,17 @@ async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
 
 
 async def graphrag_reconcile(ctx: dict[str, Any]) -> int:
-    """arq cron tick (M.5.4): heal GraphRAG configs stuck in FAILED_COMPENSATING
-    (R11.04 / 2PC drift). Without this scheduled task the reconciler loop was
-    never run in production and drift was never repaired. Runs once per minute;
-    arq's cron lock keeps it a singleton across worker replicas.
+    """arq cron tick (M.5.4): heal 2PC drift (R11.04). Without this scheduled task
+    the reconciler loop was never run in production and drift was never repaired.
+    Runs once per minute; arq's cron lock keeps it a singleton across replicas.
+
+    Covers more than the name and the original wording suggest, and callers rely
+    on it: ``reconcile_once`` runs the Concept Map heal *and* a Knowledge Map heal
+    over the shared 2PC engine, and the stuck-state set is FAILED_COMPENSATING,
+    NEO4J_COMMITTED and RUNNING -- not FAILED_COMPENSATING alone. RUNNING matters
+    most: a hard-killed worker leaves a durably committed RUNNING row that both
+    ``trigger_build`` and the builder refuse, so this tick is the only thing that
+    unwedges it.
     """
     from app.workers.graphrag_reconciler import reconcile_once
 
