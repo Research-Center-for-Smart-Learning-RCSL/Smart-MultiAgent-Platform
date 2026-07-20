@@ -3,6 +3,7 @@ type: feature
 status: draft
 created: 2026-07-17
 requirements: [R24.15, R12.03]
+depends_on: [2026-07-16-workspace-path-convention]
 ---
 
 # Test the sandbox images' guest side in CI, and stamp them so a stale one is visible

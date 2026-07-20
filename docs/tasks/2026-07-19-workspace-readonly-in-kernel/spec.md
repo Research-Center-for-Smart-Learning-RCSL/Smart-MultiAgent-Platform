@@ -3,6 +3,7 @@ type: bugfix
 status: in-progress
 created: 2026-07-19
 requirements: [R12.03, R12.03a, R12.03b, R31.22]
+depends_on: [2026-07-19-session-dir-room-isolation]
 ---
 
 # The shared agent volume is writable from `code_exec`, which reopens the cross-room channel

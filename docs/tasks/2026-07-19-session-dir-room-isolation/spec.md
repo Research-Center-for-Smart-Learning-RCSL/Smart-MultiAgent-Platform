@@ -3,6 +3,7 @@ type: bugfix
 status: in-progress
 created: 2026-07-19
 requirements: [R12.03, R12.03a, R12.05, R31.22]
+depends_on: []
 ---
 
 # One room's attachments and artifacts are readable from every other room the agent serves
