@@ -23,14 +23,22 @@ parallel.
   worth confirming with the user whether this blueprint's remaining scope is still live or
   its status is simply stale, before treating it as unblocked work.
 
+- `2026-07-17-sandbox-guest-container-tests` (feature, draft) — unblocked 2026-07-20 when
+  `2026-07-16-workspace-path-convention` reached `implemented`. Still `draft`, so it needs
+  approval before `/build` will touch it. **Two of its ACs are now stale and must be
+  rewritten first** — its own §10 anticipated exactly this ("if that dossier lands first,
+  this AC must be written in its post-fix shape instead — check before building"). AC-5
+  asserts `list` on a single file returns `[basename]` at `driver.py:245`; that branch is
+  now `driver.py:249` and returns an absolute path. AC-4 asserts the "current flat"
+  listing: recursion is indeed still flat (its FU-3 is open), but the entry *shape* is now
+  absolute, so the assertion needs rewriting even though the flatness claim survives.
+
 ## Blocked
 
-- `2026-07-17-sandbox-guest-container-tests` (feature, draft) — waiting on
-  `2026-07-16-workspace-path-convention` (currently `in-progress`).
+Nothing blocked.
 
 ## In progress
 
-- `2026-07-16-workspace-path-convention` (bugfix) — `depends_on: []`.
 - `2026-07-19-session-dir-room-isolation` (bugfix) — `depends_on: []`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 - `2026-07-19-workspace-readonly-in-kernel` (bugfix) — `depends_on:
