@@ -184,7 +184,16 @@ jobs:
   # SANDBOX_*_IMAGE pins can be updated from a reviewed build.
   sandbox-images:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    # Scratch volumes are named per run+attempt so two concurrent runs cannot
+    # collide, and so the cleanup step can only ever remove its own. A hosted
+    # runner discards the VM anyway; this is for self-hosted runners, where a
+    # leaked or shared volume is both persistent and unnoticed.
+    env:
+      AGENT_VOL: smap-ci-agent-${{ github.run_id }}-${{ github.run_attempt }}
+      SESSION_A_VOL: smap-ci-session-a-${{ github.run_id }}-${{ github.run_attempt }}
+      SESSION_B_VOL: smap-ci-session-b-${{ github.run_id }}-${{ github.run_attempt }}
+      SESSION_FRESH_VOL: smap-ci-session-fresh-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v6
       - name: Compute sandbox build stamp
@@ -259,6 +268,255 @@ jobs:
           out="$(docker run --rm smap/code-exec:ci python -c "print(6*7)")"
           echo "code-exec output: $out"
           test "$out" = "42"
+
+      # ── Guest-side `file` driver (2026-07-17-sandbox-guest-container-tests) ──
+      # cmd_file was reachable only through a real image and was therefore run by
+      # nothing: not by a unit test, not by CI. That includes safe_workspace_path,
+      # the containment guard for every `file` tool call, whose only other cover
+      # (tests/unit/test_sandbox_driver_protocol.py) skips itself wherever deploy/
+      # is not mounted. These steps are the first execution of any of it.
+      - name: File driver — seed a scratch agent volume
+        run: |
+          # rm before create: the cleanup step below disposes of these, but a
+          # cancelled run never reaches it, and on a self-hosted runner the
+          # leftover would make the seed below fail on an existing sub/.
+          docker volume rm -f "$AGENT_VOL" >/dev/null 2>&1 || true
+          docker volume create "$AGENT_VOL" >/dev/null
+          # The image owns /workspace as uid 10001, so Docker seeds the fresh
+          # volume with that ownership and the sandbox user can write it.
+          # .staged stands in for the host's put_archive of the payload, which
+          # cmd_file expects to already be on the volume before it starts.
+          docker run --rm --network none -v "$AGENT_VOL":/workspace --entrypoint python3 smap/mcp-runtime:ci -c '
+          import pathlib
+          pathlib.Path("/workspace/.staged").write_text("hello-from-ci")
+          sub = pathlib.Path("/workspace/sub")
+          sub.mkdir()
+          (sub / "x.csv").write_text("a,b\n1,2\n")
+          print("seeded")
+          '
+      - name: File driver — write then read round-trips (AC-3)
+        run: |
+          out="$(docker run --rm --network none -v "$AGENT_VOL":/workspace \
+            -e SMAP_FILE_OP=write \
+            -e SMAP_FILE_PATH=/workspace/hello.txt \
+            -e SMAP_FILE_STAGING=/workspace/.staged \
+            smap/mcp-runtime:ci file)"
+          echo "write result: $out"
+          # 13 == len("hello-from-ci"), the payload the seed step staged.
+          echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['path'] == '/workspace/hello.txt', d; assert d['written'] == 13, d"
+          back="$(docker run --rm --network none -v "$AGENT_VOL":/workspace \
+            -e SMAP_FILE_OP=read \
+            -e SMAP_FILE_PATH=/workspace/hello.txt \
+            smap/mcp-runtime:ci file)"
+          echo "read result: $back"
+          test "$back" = "hello-from-ci"
+      - name: File driver — list is flat and absolute (AC-4, AC-5)
+        run: |
+          # Asserts the CURRENT behaviour on purpose. driver.py's os.listdir is
+          # single-level, so a nested tree lists as its top level only; that is
+          # 2026-07-16-workspace-path-convention FU-3, still open, and this
+          # assertion is the green baseline that FU-3's fix has to invert. The
+          # shape (absolute paths, one per line) comes from protocol.format_listing
+          # and is NOT the pre-convention bare-basename output.
+          #
+          # Depends on the write step above having consumed .staged via
+          # os.replace: that is why only hello.txt and sub/ are expected here.
+          out="$(docker run --rm --network none -v "$AGENT_VOL":/workspace \
+            -e SMAP_FILE_OP=list -e SMAP_FILE_PATH=/workspace \
+            smap/mcp-runtime:ci file)"
+          echo "list /workspace:"; echo "$out"
+          test "$out" = "$(printf '/workspace/hello.txt\n/workspace/sub')"
+          if echo "$out" | grep -q '/workspace/sub/x.csv'; then
+            echo "list recursed into sub/ — FU-3's premise no longer holds; this is a finding, not a flake"
+            exit 1
+          fi
+          # AC-5: a single file lists as its own absolute path, not its basename.
+          one="$(docker run --rm --network none -v "$AGENT_VOL":/workspace \
+            -e SMAP_FILE_OP=list -e SMAP_FILE_PATH=/workspace/hello.txt \
+            smap/mcp-runtime:ci file)"
+          echo "list of a single file: $one"
+          test "$one" = "/workspace/hello.txt"
+      - name: File driver — path traversal is refused (AC-6)
+        run: |
+          # `read`, not `list`: if the guard ever regressed, this is the request
+          # that would actually hand /etc/passwd back, so a green here means the
+          # guard ran rather than the path merely failing to resolve.
+          set +e
+          out="$(docker run --rm --network none -v "$AGENT_VOL":/workspace \
+            -e SMAP_FILE_OP=read -e SMAP_FILE_PATH=/workspace/../etc/passwd \
+            smap/mcp-runtime:ci file 2>&1)"
+          rc=$?
+          set -e
+          echo "traversal rc=$rc output: $out"
+          test "$rc" -ne 0
+          echo "$out" | grep -q 'path escapes sandbox'
+          if echo "$out" | grep -q 'root:x:0:0'; then
+            echo "traversal SERVED /etc/passwd"
+            exit 1
+          fi
+      # ── Mount isolation ([R12.03b], AC-7) ───────────────────────────────────
+      # The room boundary is a property of the MOUNTS, not of any path check --
+      # this container runs arbitrary agent code, so nothing inside it can be
+      # trusted to stay in its lane. 2026-07-19-session-dir-room-isolation and
+      # -workspace-readonly-in-kernel are verified only by unit tests over the
+      # host-side config; these steps are the first evidence that the boundary
+      # they describe actually holds in a real container.
+      #
+      # Every assertion below is content- or errno-based, never exists()-based.
+      # kernel.py mkdirs /session with parents=True and suppresses a failed
+      # chdir, so an UNBOUND mount looks exactly like an empty directory: a test
+      # phrased as "the other room's file is not here" passes just as happily
+      # when nothing is mounted at all. Each step therefore also asserts a
+      # positive marker, which is what proves the mount it is reading is live.
+      - name: Mounts — seed two rooms' session volumes through the kernel
+        run: |
+          docker volume rm -f "$SESSION_A_VOL" "$SESSION_B_VOL" >/dev/null 2>&1 || true
+          docker volume create "$SESSION_A_VOL" >/dev/null
+          docker volume create "$SESSION_B_VOL" >/dev/null
+          for pair in "$SESSION_A_VOL:room-a-secret.txt" "$SESSION_B_VOL:room-b-marker.txt"; do
+            vol="${pair%%:*}"; marker="${pair##*:}"
+            docker run --rm --network none \
+              -v "$AGENT_VOL":/workspace:ro \
+              -v "$vol":/session \
+              -e SMAP_CI_MARKER="$marker" \
+              smap/code-exec:ci python -c '
+          import importlib.util as u, os
+          spec = u.spec_from_file_location("k", "/opt/kernel/kernel.py")
+          k = u.module_from_spec(spec)
+          spec.loader.exec_module(k)
+          k._OUTPUTS.mkdir(parents=True, exist_ok=True)
+          (k._OUTPUTS / os.environ["SMAP_CI_MARKER"]).write_text("written-by-this-room-only")
+          print("wrote", k._OUTPUTS / os.environ["SMAP_CI_MARKER"])
+          '
+          done
+      - name: Mounts — /session content never lands on the agent volume (AC-7)
+        run: |
+          # The persistence check is what gives this step its teeth. Asserting
+          # only "room-a-secret is not on the agent volume" would stay green with
+          # the /session mount removed entirely -- the kernel would create
+          # /session on the container layer, write there, and the file would be
+          # just as absent from the agent volume for the wrong reason. Reading
+          # the marker back from the session VOLUME, in a container other than
+          # the one that wrote it, is what proves the mount was live.
+          persisted="$(docker run --rm --network none -v "$SESSION_A_VOL":/session \
+            smap/code-exec:ci python -c '
+          import pathlib
+          print(sorted(p.name for p in pathlib.Path("/session/outputs").iterdir()))
+          ')"
+          echo "room A session volume: $persisted"
+          echo "$persisted" | grep -q 'room-a-secret.txt'
+          out="$(docker run --rm --network none -v "$AGENT_VOL":/workspace \
+            -e SMAP_FILE_OP=list -e SMAP_FILE_PATH=/workspace \
+            smap/mcp-runtime:ci file)"
+          echo "agent volume after the kernel wrote to /session:"; echo "$out"
+          # Positive marker: proves this listing really read the agent volume.
+          echo "$out" | grep -q '/workspace/hello.txt'
+          if echo "$out" | grep -q 'room-a-secret'; then
+            echo "session content reached the agent volume — [R12.03b] violated"
+            exit 1
+          fi
+      - name: Mounts — /workspace is read-only to the kernel, EROFS (AC-7)
+        run: |
+          # The errno matters: a write that failed because the path was wrong
+          # (ENOENT) would satisfy a mere non-zero-exit check while proving the
+          # opposite of what this asserts.
+          #
+          # The errno is reported and compared in the shell rather than checked
+          # with `assert` in-image, because `python -O` strips asserts -- which
+          # would leave this step printing its success token no matter which
+          # error the write raised. Nothing sets PYTHONOPTIMIZE today; not
+          # depending on that is free.
+          out="$(docker run --rm --network none \
+            -v "$AGENT_VOL":/workspace:ro \
+            -v "$SESSION_A_VOL":/session \
+            smap/code-exec:ci python -c '
+          import errno
+          try:
+              open("/workspace/planted.txt", "w").write("x")
+          except OSError as exc:
+              print("errno", exc.errno, errno.errorcode.get(exc.errno, "?"))
+          else:
+              raise SystemExit("write to the read-only agent volume SUCCEEDED")
+          ')"
+          echo "kernel write to /workspace: $out"
+          test "$out" = "errno 30 EROFS"
+      - name: Mounts — room A content is absent from a room B container (AC-7)
+        run: |
+          # Read in a container other than the one that seeded room B, for the
+          # same reason as the step above: a marker written and read back inside
+          # one container proves nothing about what the mount is attached to.
+          out="$(docker run --rm --network none \
+            -v "$AGENT_VOL":/workspace:ro \
+            -v "$SESSION_B_VOL":/session \
+            smap/code-exec:ci python -c '
+          import pathlib
+          print(sorted(p.name for p in pathlib.Path("/session/outputs").iterdir()))
+          ')"
+          echo "room B outputs: $out"
+          # Positive marker: proves room B's volume is the thing being read.
+          echo "$out" | grep -q 'room-b-marker.txt'
+          if echo "$out" | grep -q 'room-a-secret'; then
+            echo "room A content visible from room B — [R12.03b] violated"
+            exit 1
+          fi
+      - name: Mounts — a fresh session volume is writable by the sandbox uid (AC-13)
+        run: |
+          # Regression cover for 2026-07-19-session-dir-room-isolation D-10,
+          # which broke code_exec in EVERY chatroom: Docker seeds a fresh named
+          # volume from the image's directory at the mount path, so a /session
+          # that the image never created arrives root-owned and uid 10001 cannot
+          # mkdir into it. The volume MUST be created here rather than reused --
+          # one an earlier step already wrote to is already owned correctly and
+          # would pass while testing nothing. No --user override either: the
+          # image's own USER 10001 is part of what is under test.
+          docker volume rm -f "$SESSION_FRESH_VOL" >/dev/null 2>&1 || true
+          docker volume create "$SESSION_FRESH_VOL" >/dev/null
+          out="$(docker run --rm --network none -v "$SESSION_FRESH_VOL":/session smap/code-exec:ci python -c '
+          import importlib.util as u
+          spec = u.spec_from_file_location("k", "/opt/kernel/kernel.py")
+          k = u.module_from_spec(spec)
+          spec.loader.exec_module(k)
+          k._OUTPUTS.mkdir(parents=True, exist_ok=True)
+          k._INPUTS.mkdir(parents=True, exist_ok=True)
+          print("startup-ok", k._OUTPUTS.stat().st_uid, k._INPUTS.stat().st_uid)
+          ')"
+          echo "fresh-volume kernel startup: $out"
+          test "$out" = "startup-ok 10001 10001"
+      - name: Kernel protocol stamp matches the host constant (AC-12)
+        run: |
+          # kernel.PROTOCOL_VERSION and docker_runsc._KERNEL_PROTOCOL_VERSION are
+          # pinned to each other only constant-to-constant in a unit test, which
+          # reads the same source file the image is built from rather than the
+          # image. This is the first check against what actually shipped. Both
+          # mismatch directions are silent in production: a host staging inputs
+          # where the kernel does not look, or a kernel addressing a mount the
+          # host did not bind.
+          host="$(python3 - <<'PY'
+          import pathlib, re
+          src = pathlib.Path("backend/contexts/agents/infrastructure/sandbox/docker_runsc.py").read_text(encoding="utf-8")
+          m = re.search(r"^_KERNEL_PROTOCOL_VERSION\s*=\s*(\d+)", src, re.M)
+          if not m:
+              raise SystemExit("_KERNEL_PROTOCOL_VERSION not found in docker_runsc.py")
+          print(m.group(1))
+          PY
+          )"
+          guest="$(docker run --rm --network none smap/code-exec:ci python -c '
+          import importlib.util as u
+          spec = u.spec_from_file_location("k", "/opt/kernel/kernel.py")
+          k = u.module_from_spec(spec)
+          spec.loader.exec_module(k)
+          print(k.PROTOCOL_VERSION)
+          ')"
+          echo "host=_KERNEL_PROTOCOL_VERSION=$host  image=PROTOCOL_VERSION=$guest"
+          test -n "$host"
+          test "$host" = "$guest"
+      - name: Remove scratch volumes
+        if: always()
+        run: |
+          docker volume rm -f \
+            "$AGENT_VOL" "$SESSION_A_VOL" "$SESSION_B_VOL" "$SESSION_FRESH_VOL" >/dev/null 2>&1 || true
+          echo "remaining smap-ci volumes (expect none):"
+          docker volume ls --format '{{.Name}}' | grep '^smap-ci-' || true
       - name: Record image digests
         run: |
           docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' \

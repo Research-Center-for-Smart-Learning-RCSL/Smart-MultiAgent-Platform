@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-07-17
 requirements: [R24.15, R12.03, R12.03b]
 depends_on:
@@ -340,35 +340,35 @@ teardown discipline (`:168-174`).
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: both images carry `smap.sandbox.stamp`, and `sandbox-images` fails when the label does
+- [x] AC-1: both images carry `smap.sandbox.stamp`, and `sandbox-images` fails when the label does
       not match the hash of `deploy/sandbox/**` — closing workspace-path FU-2.
-- [ ] AC-2: the stamp is a content hash of the build context, not a git SHA, and a commit touching
+- [x] AC-2: the stamp is a content hash of the build context, not a git SHA, and a commit touching
       nothing under `deploy/sandbox/` does **not** redden the gate (Q-6).
-- [ ] AC-3: `cmd_file` `write` → `read` round-trips in CI against the real image, on a named volume.
-- [ ] AC-4: `cmd_file` `list` is asserted at its **current** flat, single-level behaviour
+- [x] AC-3: `cmd_file` `write` → `read` round-trips in CI against the real image, on a named volume.
+- [x] AC-4: `cmd_file` `list` is asserted at its **current** flat, single-level behaviour
       (`driver.py:245`) on a nested tree, in its post-`format_listing` shape — **absolute paths,
       one per line** (`protocol.py:103-113`), not bare names. Listing `/workspace` when
       `/workspace/sub/x.csv` exists yields `/workspace/sub` and not `/workspace/sub/x.csv`. Comment
       must name workspace-path FU-3 as the entry that flips the flatness. Asserting the bug is the
       point (Q-3): the fix needs a green baseline to invert.
-- [ ] AC-5: `cmd_file` `list` on a single file returns that file's **absolute path**
+- [x] AC-5: `cmd_file` `list` on a single file returns that file's **absolute path**
       (`driver.py:249` via `format_listing(dirname, [basename])`) — not `[basename]`, which is the
       pre-`2026-07-16-workspace-path-convention` behaviour.
-- [ ] AC-6: a traversal attempt (`/workspace/../etc/passwd`) is rejected by `safe_workspace_path`,
+- [x] AC-6: a traversal attempt (`/workspace/../etc/passwd`) is rejected by `safe_workspace_path`,
       executed in the image — the first non-skippable test of that control (§8).
-- [ ] AC-7: [R12.03b]'s mount isolation is asserted against real containers (§6.4, Q-7): `/session`
+- [x] AC-7: [R12.03b]'s mount isolation is asserted against real containers (§6.4, Q-7): `/session`
       content is absent from the agent volume; a write to `/workspace` in the code-exec container
       fails with `EROFS`; room A's session content is absent from a room-B container. Assertions
       are content- or errno-based, never `exists()`-based.
-- [ ] AC-8: the scratch volume is removed in an `if: always()` step; a run leaves no `docker volume ls`
+- [x] AC-8: the scratch volume is removed in an `if: always()` step; a run leaves no `docker volume ls`
       residue.
-- [ ] AC-9: `sandbox-images` stays green and inside its timeout (`ci.yml:187`), and remains in the
+- [x] AC-9: `sandbox-images` stays green and inside its timeout (`ci.yml:187`), and remains in the
       required-gate list (`ci.yml:772`, `:817`).
-- [ ] AC-10: no change to `docker_runsc.py`, and in particular **no `runtime` field** on
+- [x] AC-10: no change to `docker_runsc.py`, and in particular **no `runtime` field** on
       `DockerRunscSandbox` (§5.2, §8).
-- [ ] AC-11: nothing is added to the `vue/no-v-html` allowlist, no gVisor is provisioned, and no
+- [x] AC-11: nothing is added to the `vue/no-v-html` allowlist, no gVisor is provisioned, and no
       pytest marker is added — this tier is CI steps and two Dockerfile lines (§2).
-- [ ] AC-13: a **fresh** session volume is writable by the sandbox uid in a real container - mount
+- [x] AC-13: a **fresh** session volume is writable by the sandbox uid in a real container - mount
       a newly created named volume at `/session` and assert the kernel's own startup sequence
       (`_OUTPUTS`/`_INPUTS` `mkdir`, `kernel.py:132-133`) succeeds. Added 2026-07-20 after this
       exact defect shipped and broke `code_exec` in every chatroom
@@ -377,7 +377,7 @@ teardown discipline (`:168-174`).
       would pass while testing nothing - the same false-green shape Q-7 warns about. The cheap
       half of this cover already exists as `tests/unit/test_sandbox_image_mountpoints.py`, which
       pins the Dockerfile without a daemon; this AC is the half that pins the *behaviour*.
-- [ ] AC-12: the kernel protocol stamp is asserted against the **built image** (Q-8):
+- [x] AC-12: the kernel protocol stamp is asserted against the **built image** (Q-8):
       `PROTOCOL_VERSION` read out of `smap/code-exec:ci` equals `_KERNEL_PROTOCOL_VERSION`
       (`docker_runsc.py:81`). A deliberate mismatch is seen red before the AC is checked off.
 
@@ -440,7 +440,48 @@ is a statement about where the isolation guarantee is verified; that is FU-1's p
 
 ## 15. Deviation Log
 
-_None yet._
+- **D-1 — OQ-2's quoted stamp value is wrong, and its stated reason for stability is not the
+  whole reason.** OQ-2 records `d1d7b201e4d34ba4f835af5ad73ca34eb5c7f93c` as "verified on a Windows
+  working tree". That value was produced through a **PowerShell** pipeline, which re-encodes the
+  byte stream between `git ls-files -s` and `git hash-object`. Run through `bash` on the same
+  index, the command yields `7cd968a3394e7f107bf4b844070e53a11608f9e5` — reproducibly, twice.
+  The design is unaffected and OQ-2's conclusion still holds (CI computes and compares within one
+  bash run on `ubuntu-latest`), but the stability argument needs a fourth clause: the value is
+  stable given a *byte-exact pipe*, which is a property of the shell, not only of the index.
+  Anyone re-deriving the number on Windows to check a CI failure would otherwise chase a ghost.
+- **D-2 — §6.4's AC-7 steps, written as specified, would have passed with the `/session` mount
+  removed.** The spec's Q-7 warns that `/session` auto-creates and instructs "content- or
+  errno-based, never `exists()`-based", which the first implementation followed. It was still not
+  enough: asserting only "room A's marker is absent from the agent volume" stays green when nothing
+  is mounted at all, because the kernel then writes to the container layer and the marker is just as
+  absent, for the wrong reason. §12's "run each assertion with the mount deliberately omitted"
+  probe caught it. Each AC-7 step now also reads its marker back **from the session volume, in a
+  different container than the one that wrote it**; omitting the bind reddens that read. The
+  positive-marker rule in the step comments is the generalised form.
+- **D-3 — timeout raised 15 → 20 minutes.** §6.5 authorises this ("raise it if the tier lands near
+  the ceiling"). Raised pre-emptively rather than after a flake: the added steps are ~14 short
+  container runs on top of two builds that already dominated the budget, and a timeout flake in a
+  required gate costs more than five minutes of headroom.
+- **D-4 — the stamp step gained an empty-set guard not called for in §6.2.** `git ls-files` on a
+  path matching nothing exits 0 with no output, and `git hash-object --stdin` then returns the
+  empty-blob SHA `e69de29b…` — a plausible, non-empty, permanently constant stamp. Verified by
+  running it. Were `deploy/sandbox` ever renamed, the gate would stay green while detecting
+  nothing, which is precisely FU-2's failure mode reappearing inside FU-2's own fix. The step now
+  fails if no tracked files are found.
+- **D-5 — the guest-side containers run `--network none`.** §6 does not specify it; §8 describes
+  the tier as having "no new network path" and §7 attributes its low flake surface to
+  `network_mode="none"`. Neither was true of the implementation, which used Docker's default
+  bridge. Added for production fidelity (the containers under test now match how the host runs
+  them) rather than to close an attack path — the workflow triggers on `pull_request`, not
+  `pull_request_target`, and references no `secrets.*`, so there was nothing on the runner to
+  reach. The two pre-existing smoke steps were left untouched.
+- **D-6 — this task's diff is split across commits it does not own.** While implementation was in
+  progress, the working tree's pre-existing changes (the two 07-19 dossiers' close-out) were
+  committed by the user, sweeping in this task's `deploy/sandbox/code-exec/Dockerfile` stamp lines
+  (into `f6f0fb6`, whose subject is "create /session in the code-exec image") and its `status:
+  in-progress` / `BOARD.md` move (into `6dac997`). History was left as-is rather than rewritten.
+  Consequence for a future reader: `f6f0fb6` contains two unrelated changes, and the stamp lines'
+  rationale lives here, not in that commit's message.
 
 ## 16. Follow-ups
 
@@ -484,3 +525,33 @@ _None yet._
 - **FU-6: `egress-proxy-smoke` (`compose.test.yml:170-182`) is wired to no CI job.** A
   container-test shape designed in this repo and never used. Either adopt it (§6's steps could live
   there instead of inline `run:` blocks) or delete it.
+- **FU-7: the operator half of FU-2 is still open.** §6's reuse inventory notes that
+  `deploy/scripts/preflight.sh:220-227` already inspects for the two `:pinned` images and that
+  extending it to read `smap.sandbox.stamp` would "come free". It was left out deliberately: AC-11
+  bounds this task to CI steps plus two Dockerfile lines, and no AC covers preflight. The label now
+  exists, so the extension is a few lines whenever someone wants the deployed-image drift answer
+  rather than the per-PR one. Note the honest limit first — an operator comparing the label against
+  a hash of their checkout only learns whether the *sources* match, and the stamp is drift
+  detection, not tamper detection (§8).
+- **FU-8: the inline kernel-import preamble is repeated three times in `ci.yml`.** Four lines
+  (`spec_from_file_location` → `exec_module`) in the room-seeding, AC-13, and AC-12 steps. Tolerable
+  at three copies and not worth a shared file today; if a fourth appears, that is the signal to
+  adopt FU-6's scripted-container shape rather than keep copying.
+- **FU-10 (pre-existing, found while running the job): `Record image digests` has never recorded
+  anything, and is green.** The step runs
+  `docker images --no-trunc --format '…' smap/mcp-runtime:ci smap/code-exec:ci`, but `docker images`
+  accepts **at most one** `[REPOSITORY[:TAG]]` argument and exits 1 on two — verified against
+  Docker 28.4.0: two args gives "requires at most 1 argument", one arg prints the digest. The
+  failure is masked because the command is piped into `tee` and the step sets no `pipefail`, so the
+  step's exit status is `tee`'s. `sandbox-image-digests.txt` is therefore uploaded empty on every
+  run, and the job header's stated purpose — "Digests are recorded as a build artifact so the
+  `SANDBOX_*_IMAGE` pins can be updated from a reviewed build" — has never been served. Not fixed
+  here: it predates this dossier and blocks no AC, and AC-11 bounds this task to the tier plus the
+  stamp. Fix is one loop or two invocations, plus `set -o pipefail` so the next such breakage is
+  not silent. Worth noting that this is exactly the failure class the dossier was written about,
+  found in the job it was written for.
+- **FU-9: `sandbox-images` now runs ~14 containers whose failure output is only what the step
+  echoes.** §6's reuse inventory suggested `backend-wiring`'s log-dump-on-failure +
+  `upload-artifact` pattern (`ci.yml:155-167`). Not adopted: every step here captures container
+  stdout/stderr into the step log already, and there is no compose stack whose logs live elsewhere.
+  Revisit if a failure ever proves undiagnosable from the step log alone.
