@@ -361,6 +361,96 @@ async def test_sweep_counts_each_outcome_separately(monkeypatch: Any) -> None:
 
 
 @pytest.mark.asyncio
+async def test_sweep_reads_the_give_up_stamps_in_one_round_trip(monkeypatch: Any) -> None:
+    # A per-config GET would be 200 sequential round trips a minute at full tick.
+    _reset([_cfg(i) for i in range(70)])
+    seen: list[uuid.UUID] = []
+
+    class _CountingRedis(_FakeRedis):
+        def __init__(self) -> None:
+            super().__init__()
+            self.mgets = 0
+
+        async def mget(self, keys: list[str]) -> list[str | None]:
+            self.mgets += 1
+            return await super().mget(keys)
+
+    redis = _CountingRedis()
+    db = _FakeDb()
+    _install(monkeypatch, db, _collector(seen))
+    await knowmap_task.knowmap_revision_sweep({"redis": redis})
+
+    assert len(seen) == 70
+    assert redis.mgets == 1
+
+
+@pytest.mark.asyncio
+async def test_cursor_is_held_when_the_liveness_check_fails(monkeypatch: Any) -> None:
+    # The tick reads a full capped page, then cannot prove project liveness and
+    # offers nothing. Advancing the cursor here would hide those configs until it
+    # wrapped the whole table, so the stored resume point must not move.
+    import contexts.tenancy.interfaces.facade as tenancy_facade
+
+    class _BrokenTenancy:
+        def __init__(self, _db: Any) -> None:
+            pass
+
+        async def get_projects(self, project_ids: Any) -> dict[uuid.UUID, Any]:
+            raise RuntimeError("tenancy read failed")
+
+    _reset([_cfg(i) for i in range(250)])
+    seen: list[uuid.UUID] = []
+    redis = _FakeRedis({knowmap_task._SWEEP_CURSOR_KEY: str(uuid.UUID(int=7))})
+    db = _FakeDb()
+    _install(monkeypatch, db, _collector(seen))
+    monkeypatch.setattr(tenancy_facade, "TenancyFacade", _BrokenTenancy)
+
+    await knowmap_task.knowmap_revision_sweep({"redis": redis})
+
+    assert seen == []
+    assert redis.store[knowmap_task._SWEEP_CURSOR_KEY] == str(uuid.UUID(int=7))
+
+
+@pytest.mark.asyncio
+async def test_cursor_is_held_when_a_page_read_fails(monkeypatch: Any) -> None:
+    # Clearing the cursor on a read error restarts every later tick at the lowest
+    # ids, silently undoing the rotation FU-3 exists to provide.
+    class _FlakyRepo(_PagingRepo):
+        async def list_revision_divergent(
+            self, *, limit: int, after_id: uuid.UUID | None = None
+        ) -> list[Any]:
+            raise RuntimeError("connection reset")
+
+    _reset([_cfg(i) for i in range(70)])
+    redis = _FakeRedis({knowmap_task._SWEEP_CURSOR_KEY: str(uuid.UUID(int=7))})
+    db = _FakeDb()
+    _install(monkeypatch, db, _collector([]), repo=_FlakyRepo)
+
+    await knowmap_task.knowmap_revision_sweep({"redis": redis})
+
+    assert redis.store[knowmap_task._SWEEP_CURSOR_KEY] == str(uuid.UUID(int=7))
+
+
+@pytest.mark.asyncio
+async def test_cursor_is_held_when_every_enqueue_fails(monkeypatch: Any) -> None:
+    # Work that was identified but never queued must be revisited next tick.
+    _reset([_cfg(i) for i in range(250)])
+    redis = _FakeRedis({knowmap_task._SWEEP_CURSOR_KEY: str(uuid.UUID(int=7))})
+
+    async def _always_fails(
+        *, config_id: uuid.UUID, target_revision: int, pool: Any = None
+    ) -> EnqueueOutcome:
+        return EnqueueOutcome.FAILED
+
+    db = _FakeDb()
+    _install(monkeypatch, db, _always_fails)
+    result = await knowmap_task.knowmap_revision_sweep({"redis": redis})
+
+    assert "failed=200" in result
+    assert redis.store[knowmap_task._SWEEP_CURSOR_KEY] == str(uuid.UUID(int=7))
+
+
+@pytest.mark.asyncio
 async def test_sweep_keeps_the_work_it_did_when_a_page_read_fails(monkeypatch: Any) -> None:
     # Half a tick of recovery beats none: a read failure on page 2 must not
     # discard the 50 configs page 1 already found.
@@ -493,6 +583,9 @@ class _FakeRedis:
     async def get(self, key: str) -> str | None:
         return self.store.get(key)
 
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        return [self.store.get(k) for k in keys]
+
     async def set(self, key: str, value: str, ex: int | None = None) -> None:
         self.store[key] = value
 
@@ -578,10 +671,8 @@ async def test_sweep_keeps_offering_inside_the_give_up_window(monkeypatch: Any) 
 async def test_give_up_bookkeeping_fails_open(monkeypatch: Any) -> None:
     # Losing recovery because the bookkeeping store blinked is the worse failure.
     class _BrokenRedis(_FakeRedis):
-        async def get(self, key: str) -> str | None:
-            if "firstoffer" in key:
-                raise RuntimeError("redis down")
-            return self.store.get(key)
+        async def mget(self, keys: list[str]) -> list[str | None]:
+            raise RuntimeError("redis down")
 
     cfg = _cfg(0)
     _reset([cfg])

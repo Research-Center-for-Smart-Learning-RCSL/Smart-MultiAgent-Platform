@@ -95,7 +95,7 @@ async def test_graphrag_cascade_preserves_owner_columns() -> None:
 
 
 @pytest.mark.asyncio
-async def test_project_soft_delete_drives_the_knowledge_cascade() -> None:
+async def test_project_soft_delete_drives_the_knowledge_cascade(monkeypatch: Any) -> None:
     from contexts.tenancy.application.project_service import ProjectService
 
     project_id = uuid.uuid4()
@@ -131,14 +131,8 @@ async def test_project_soft_delete_drives_the_knowledge_cascade() -> None:
 
     import contexts.tenancy.application.project_service as mod
 
-    original = mod.audit.emit
-    mod.audit.emit = _emit  # type: ignore[assignment]
-    try:
-        await svc.soft_delete(
-            project_id=project_id, actor_user_id=uuid.uuid4(), actor_ip=None, request_id=None
-        )
-    finally:
-        mod.audit.emit = original  # type: ignore[assignment]
+    monkeypatch.setattr(mod.audit, "emit", _emit)
+    await svc.soft_delete(project_id=project_id, actor_user_id=uuid.uuid4(), actor_ip=None, request_id=None)
 
     # The cascade runs with the project's own timestamp, not a fresh one.
     assert calls["cascade"] == (project_id, when)
