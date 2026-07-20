@@ -169,11 +169,14 @@ class ProjectService:
         # background sweep with no membership check in front of it would keep rebuilding
         # a deleted project's graph on the tenant's own provider key. Stamped with the
         # project's instant so `restore` can take back exactly these rows.
-        graphs = (
-            await self._knowledge.cascade_project_deleted(project_id=project_id, deleted_at=deleted_at)
-            if deleted_at is not None
-            else {}
-        )
+        # Counts default to zero rather than being omitted, so project.deleted has one
+        # metadata shape whether or not a row matched -- a consumer reading
+        # metadata["knowmap_configs"] must not have to guard for its absence.
+        graphs = {"knowmap_configs": 0, "graphrag_configs": 0}
+        if deleted_at is not None:
+            graphs |= await self._knowledge.cascade_project_deleted(
+                project_id=project_id, deleted_at=deleted_at
+            )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -199,11 +202,11 @@ class ProjectService:
         # cascade which configs this project's deletion took (F-4 FU-2).
         prior = await self._projects.get(project_id, include_deleted=True)
         await self._projects.restore(project_id)
-        graphs = (
-            await self._knowledge.cascade_project_restored(project_id=project_id, deleted_at=prior.deleted_at)
-            if prior is not None and prior.deleted_at is not None
-            else {}
-        )
+        graphs = {"knowmap_configs": 0, "graphrag_configs": 0}
+        if prior is not None and prior.deleted_at is not None:
+            graphs |= await self._knowledge.cascade_project_restored(
+                project_id=project_id, deleted_at=prior.deleted_at
+            )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -241,11 +244,11 @@ class ProjectService:
             )
         if not restored:
             return False
-        graphs = (
-            await self._knowledge.cascade_project_restored(project_id=project_id, deleted_at=prior.deleted_at)
-            if prior is not None and prior.deleted_at is not None
-            else {}
-        )
+        graphs = {"knowmap_configs": 0, "graphrag_configs": 0}
+        if prior is not None and prior.deleted_at is not None:
+            graphs |= await self._knowledge.cascade_project_restored(
+                project_id=project_id, deleted_at=prior.deleted_at
+            )
         await audit.emit(
             self._db,
             audit.AuditEvent(

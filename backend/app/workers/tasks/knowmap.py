@@ -122,36 +122,77 @@ async def _write_cursor(pool: Any, after_id: uuid.UUID | None) -> None:
         _log.warning("knowmap revision sweep: cursor write failed", exc_info=True)
 
 
-async def _exhausted_reoffers(pool: Any, config_id: uuid.UUID, revision: int) -> bool:
-    """True once this (config, revision) has been re-offered past the give-up window.
+def _reoffer_key(config_id: uuid.UUID, revision: int) -> str:
+    return f"knowmap:sweep:firstoffer:{config_id}:{revision}"
+
+
+def _parse_epoch(raw: Any) -> int | None:
+    if not raw:
+        return None
+    try:
+        return int(raw.decode() if isinstance(raw, bytes) else raw)
+    except (ValueError, AttributeError):
+        # A corrupt stamp must not abandon a config that may still be recoverable.
+        return None
+
+
+async def _partition_by_reoffer(
+    pool: Any, pending: list[tuple[uuid.UUID, uuid.UUID, int]]
+) -> tuple[list[tuple[uuid.UUID, int]], int]:
+    """Split the work list into what to offer and what to give up on (F-4 FU-5).
 
     Divergence that survives repeated offers is not being recovered by them, and
     each cycle past ``keep_result`` costs the tenant another full-corpus rebuild.
-    Fails open on a Redis error: dropping recovery because the bookkeeping store
-    blinked would be the worse failure.
+
+    The stamps are read in one ``MGET`` rather than a round trip per config: a
+    full tick is ``_SWEEP_MAX_PER_TICK`` configs and this runs every minute. Only
+    first-time stamps are written, which is rare per tick since a revision is
+    stamped once and never revisited.
+
+    Fails open on any Redis error: dropping recovery because the bookkeeping
+    store blinked would be the worse failure.
     """
-    if pool is None:
-        return False
-    key = f"knowmap:sweep:firstoffer:{config_id}:{revision}"
+    work = [(config_id, revision) for config_id, _project_id, revision in pending]
+    if pool is None or not work:
+        return work, 0
+    keys = [_reoffer_key(config_id, revision) for config_id, revision in work]
     try:
-        first = await pool.get(key)
-        if not first:
-            await pool.set(key, str(int(now().timestamp())), ex=_REOFFER_KEY_TTL_S)
-            return False
-        age = int(now().timestamp()) - int(first.decode() if isinstance(first, bytes) else first)
+        stamps = await pool.mget(keys)
     except Exception:
-        _log.warning("knowmap revision sweep: re-offer bookkeeping failed", exc_info=True)
-        return False
-    if age < _REOFFER_GIVE_UP_S:
-        return False
-    _log.warning(
-        "knowmap revision sweep: config %s revision %d has been re-offered for %ds "
-        "without converging; giving up on it and leaving it for a human",
-        config_id,
-        revision,
-        age,
-    )
-    return True
+        _log.warning("knowmap revision sweep: re-offer bookkeeping read failed", exc_info=True)
+        return work, 0
+
+    now_epoch = int(now().timestamp())
+    offerable: list[tuple[uuid.UUID, int]] = []
+    unstamped: list[str] = []
+    abandoned = 0
+    for (config_id, revision), key, raw in zip(work, keys, stamps, strict=True):
+        first = _parse_epoch(raw)
+        if first is None:
+            unstamped.append(key)
+            offerable.append((config_id, revision))
+            continue
+        age = now_epoch - first
+        if age < _REOFFER_GIVE_UP_S:
+            offerable.append((config_id, revision))
+            continue
+        abandoned += 1
+        _log.warning(
+            "knowmap revision sweep: config %s revision %d has been re-offered for %ds "
+            "without converging; giving up on it and leaving it for a human",
+            config_id,
+            revision,
+            age,
+        )
+
+    for key in unstamped:
+        try:
+            await pool.set(key, str(now_epoch), ex=_REOFFER_KEY_TTL_S)
+        except Exception:
+            # A missed stamp only restarts this config's give-up window.
+            _log.warning("knowmap revision sweep: re-offer stamp failed", exc_info=True)
+            break
+    return offerable, abandoned
 
 
 async def _report_stale_running(configs: KnowmapConfigRepository) -> int:
@@ -163,10 +204,9 @@ async def _report_stale_running(configs: KnowmapConfigRepository) -> int:
     the report of the enqueues the tick already made.
     """
     started_before = now() - timedelta(seconds=_STALE_RUNNING_AFTER_S)
-    # A single page is enough signal: more than this many stuck builds is one
-    # incident, not fifty, and fifty warning lines already say so.
-    # Read one past the page so a full page can be reported as a floor rather than
-    # an exact count (FU-7) -- "50" from a capped query is not a measurement.
+    # One bounded page is enough signal: a broken reconciler is a single incident
+    # however many configs it stranded. Read one row past the page so a full page
+    # can be reported as a floor (FU-7) -- a capped count is not a measurement.
     stale = await configs.list_stale_running(started_before=started_before, limit=_SWEEP_PAGE_SIZE + 1)
     capped = len(stale) > _SWEEP_PAGE_SIZE
     stale = stale[:_SWEEP_PAGE_SIZE]
@@ -187,18 +227,21 @@ async def _report_stale_running(configs: KnowmapConfigRepository) -> int:
 
 async def _collect_divergent(
     db: AsyncSession, configs: KnowmapConfigRepository, after_id: uuid.UUID | None
-) -> tuple[list[tuple[uuid.UUID, uuid.UUID, int]], uuid.UUID | None]:
+) -> tuple[list[tuple[uuid.UUID, uuid.UUID, int]], uuid.UUID | None, bool]:
     """Page the divergence query from ``after_id`` up to the per-tick cap (F-4).
 
-    Returns ``(config_id, project_id, target_revision)`` triples and where the next
-    tick should resume: the last id read when the cap cut the pass short, or
+    Returns ``(config_id, project_id, target_revision)`` triples, where the next
+    tick should resume, and whether a read failed part-way.
+
+    The resume point is the last id read when the cap cut the pass short, or
     ``None`` when the pass reached the end and the next one should wrap to the
     beginning. Wrapping is what stops a large tenant low in the id order from
     pinning the window forever (FU-3).
 
-    A read failure part-way through keeps what was gathered rather than discarding
-    it -- half a tick of recovery beats none -- and resumes from the start next
-    time, since the cursor cannot be trusted after a partial read.
+    A read failure keeps what was gathered rather than discarding it -- half a
+    tick of recovery beats none -- and reports itself so the caller leaves the
+    stored cursor alone. Clearing it there would restart every subsequent tick at
+    the beginning, quietly undoing the rotation FU-3 exists to provide.
     """
     pending: list[tuple[uuid.UUID, uuid.UUID, int]] = []
     while len(pending) < _SWEEP_MAX_PER_TICK:
@@ -210,12 +253,12 @@ async def _collect_divergent(
             # Clear the aborted transaction, or every later read on this session
             # fails too and the tick loses its stale-build alarm as collateral.
             await db.rollback()
-            return pending, None
+            return pending, None, True
         pending.extend((cfg.id, cfg.project_id, cfg.corpus_revision) for cfg in page)
         if len(page) < page_limit:
-            return pending, None
+            return pending, None, False
         after_id = page[-1].id
-    return pending, after_id
+    return pending, after_id, False
 
 
 async def _drop_dead_projects(
@@ -223,13 +266,16 @@ async def _drop_dead_projects(
 ) -> list[tuple[uuid.UUID, uuid.UUID, int]]:
     """Keep only configs whose project is still live (F-4 security review).
 
-    Deleting a project does not cascade ``deleted_at`` onto its knowmap configs
-    (``ProjectService.soft_delete`` cascades to skills only), so config-level
-    liveness alone does not make deletion mean deletion here. Every other build
-    trigger is request-scoped behind a membership check, which a deleted project
-    already fails; this cron has no request behind it and would otherwise re-read
-    a deleted project's documents, spend the tenant's provider key on extraction,
-    and rewrite the graph a customer asked to be rid of.
+    ``ProjectService.soft_delete`` now cascades ``deleted_at`` onto these configs,
+    so the divergence query's own ``deleted_at IS NULL`` filter usually settles
+    this. This stays as the independent check for the cases that cascade cannot
+    cover: projects deleted before migration ``0060`` backfilled them on a
+    deployment that has not run it yet, and any future deletion path that forgets
+    to cascade. The cost of being wrong is asymmetric -- every other build trigger
+    is request-scoped behind a membership check that a deleted project already
+    fails, while this cron has no request behind it, so a miss here re-reads a
+    deleted project's documents, spends the tenant's provider key on extraction,
+    and rewrites a graph a customer asked to be rid of.
 
     Checking projects is sufficient: deleting an org soft-deletes each of its
     projects in turn (``OrgService.soft_delete``). Done through the tenancy facade
@@ -281,9 +327,10 @@ async def knowmap_revision_sweep(ctx: dict[str, Any]) -> str:
     # up to _SWEEP_MAX_PER_TICK of those round trips would pin a connection
     # idle-in-transaction for no reason.
     resume_from = await _read_cursor(pool)
+    liveness_proven = True
     async with sm() as db:
         configs = KnowmapConfigRepository(db)
-        pending, next_cursor = await _collect_divergent(db, configs, resume_from)
+        pending, next_cursor, read_failed = await _collect_divergent(db, configs, resume_from)
         try:
             pending = await _drop_dead_projects(db, pending)
         except Exception:
@@ -292,30 +339,41 @@ async def knowmap_revision_sweep(ctx: dict[str, Any]) -> str:
             _log.warning("knowmap revision sweep: project liveness check failed", exc_info=True)
             await db.rollback()
             pending = []
+            liveness_proven = False
         try:
             stale_running = await _report_stale_running(configs)
         except Exception:
             # Observability only: it must never erase the enqueues below.
             _log.warning("knowmap revision sweep: stale-RUNNING report failed", exc_info=True)
 
-    await _write_cursor(pool, next_cursor)
+    offerable, abandoned = await _partition_by_reoffer(pool, pending)
 
     counts = dict.fromkeys(EnqueueOutcome, 0)
-    abandoned = 0
-    for config_id, _project_id, target_revision in pending:
-        if await _exhausted_reoffers(pool, config_id, target_revision):
-            abandoned += 1
-            continue
+    for config_id, target_revision in offerable:
         outcome = await enqueue_knowmap_build(config_id=config_id, target_revision=target_revision, pool=pool)
-        counts[outcome] += 1
+        counts[outcome] = counts.get(outcome, 0) + 1
 
-    if next_cursor is not None:
-        # A capped tick must not read as full coverage in the logs.
+    # The cursor may only move over configs this tick actually accounted for.
+    # A partial page read, an unproven liveness check, or a wholesale enqueue
+    # failure all mean the work was identified but never offered, and advancing
+    # past it would hide those configs until the cursor wrapped the entire table.
+    every_offer_failed = bool(offerable) and counts[EnqueueOutcome.FAILED] == len(offerable)
+    if read_failed or not liveness_proven or every_offer_failed:
         _log.info(
-            "knowmap revision sweep: capped at %d configs; the next tick resumes from %s",
+            "knowmap revision sweep: holding the cursor at %s; this tick did not offer "
+            "the %d config(s) it read",
+            resume_from,
             len(pending),
-            next_cursor,
         )
+    else:
+        await _write_cursor(pool, next_cursor)
+        if next_cursor is not None:
+            # A capped tick must not read as full coverage in the logs.
+            _log.info(
+                "knowmap revision sweep: capped at %d configs; the next tick resumes from %s",
+                len(pending),
+                next_cursor,
+            )
     summary = (
         f"enqueued={counts[EnqueueOutcome.QUEUED]} "
         f"deduped={counts[EnqueueOutcome.DEDUPED]} "

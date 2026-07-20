@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
@@ -825,7 +826,7 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
             .values(embed_provider=provider, embed_model=model, embed_dim=dim)
         )
 
-    async def soft_delete_for_project(self, project_id: uuid.UUID, deleted_at: Any) -> int:
+    async def soft_delete_for_project(self, project_id: uuid.UUID, deleted_at: datetime) -> int:
         """Soft-delete a deleted project's live configs, stamped with its instant.
 
         Unlike :meth:`soft_delete` this leaves the owner columns populated. That
@@ -848,7 +849,7 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         )
         return int(result.rowcount or 0)
 
-    async def restore_for_project(self, project_id: uuid.UUID, deleted_at: Any) -> int:
+    async def restore_for_project(self, project_id: uuid.UUID, deleted_at: datetime) -> int:
         """Restore only the configs that project's deletion took.
 
         Matching on the exact instant is deliberate: a config deleted on its own

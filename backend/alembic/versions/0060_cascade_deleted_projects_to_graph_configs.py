@@ -15,9 +15,16 @@ Each row is stamped with its *project's* ``deleted_at``, not ``now()``. That is 
 exactly the configs its own deletion accounted for, and leaves configs the user had
 deleted separately alone.
 
-The downgrade reverses only what this migration can prove it did: rows whose
-``deleted_at`` still equals their project's. A config deleted on its own beforehand has a
-different timestamp and is untouched in both directions.
+The downgrade is deliberately a no-op on data. It cannot reverse the backfill safely: the
+application cascade that ships with this migration stamps configs with their project's
+``deleted_at`` too -- that shared timestamp is the whole design -- so no predicate can tell
+a row this migration backfilled from one the running application deleted afterwards.
+Un-deleting by that predicate would leave deleted projects holding live configs, which is
+precisely the defect being fixed, and would do so for every project deleted since deploy.
+
+Being forward-only costs nothing structural: this migration adds no schema, so downgrading
+past it needs no DDL undone. A deployment that genuinely wants the old behaviour back must
+also roll back the application code, and can then clear the rows deliberately.
 """
 
 from __future__ import annotations
@@ -62,19 +69,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    for table in _TABLES:
-        # Only rows this migration could have stamped: deleted_at still identical to
-        # the project's. Anything else was deleted on its own and must stay deleted.
-        result = bind.execute(
-            sa.text(
-                f"UPDATE {table} AS c "  # noqa: S608 - fixed table list
-                "SET deleted_at = NULL "
-                "FROM projects AS p "
-                "WHERE c.project_id = p.id "
-                "AND p.deleted_at IS NOT NULL "
-                "AND c.deleted_at = p.deleted_at"
-            )
-        )
-        if result.rowcount:
-            _log.warning("0060 downgrade: restored %d %s row(s)", result.rowcount, table)
+    # Forward-only by design -- see the module docstring. The rows this migration
+    # stamped are indistinguishable from the ones the application cascade stamped
+    # afterwards, and un-deleting the second group would hand deleted projects
+    # live graph configs again.
+    _log.warning(
+        "0060 downgrade: leaving backfilled deleted_at values in place. They cannot be "
+        "told apart from configs the application cascade soft-deleted since deploy, and "
+        "clearing those would leave deleted projects holding live graph configs. Roll "
+        "back the application code and clear them deliberately if that is really wanted."
+    )
