@@ -287,22 +287,18 @@ async def _teardown_committed_projects(sm: Any, project_ids: set[uuid.UUID]) -> 
 
     try:
         async with sm() as td_session, td_session.begin():
-            purged: int = await KnowledgeFacade(td_session).purge_project_source_infra_batch(project_ids)
+            return await KnowledgeFacade(td_session).purge_project_source_infra_batch(
+                project_ids, source="retention"
+            )
     except Exception:
-        # The batch isolates per-project failures internally; this only covers a
-        # catastrophic one (e.g. Qdrant client construction).
+        # The batch isolates per-project failures internally (and reports the
+        # partial verdict itself); this only covers a catastrophic failure, e.g.
+        # Qdrant client construction.
         logger.bind(
             event="retention_rag_source_teardown_failed",
             projects_committed=len(project_ids),
         ).opt(exception=True).warning("rag source teardown batch failed; orphan sweep will reclaim")
         return 0
-    if purged < len(project_ids):
-        logger.bind(
-            event="retention_rag_source_teardown_partial",
-            projects_committed=len(project_ids),
-            projects_purged=purged,
-        ).warning("rag source teardown partially failed; orphan sweep will reclaim the remainder")
-    return purged
 
 
 _TEARDOWN_RETRY_BATCH = 50

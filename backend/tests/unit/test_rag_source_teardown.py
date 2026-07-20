@@ -311,7 +311,7 @@ async def test_batch_shares_one_client_isolates_and_audits() -> None:
         ),
         patch("contexts.knowledge.interfaces.facade.audit.emit", new_callable=AsyncMock) as emit,
     ):
-        swept = await KnowledgeFacade(db).purge_project_source_infra_batch([good, bad])
+        swept = await KnowledgeFacade(db).purge_project_source_infra_batch([good, bad], source="test")
 
     assert swept == 1  # bad isolated, good swept
     assert qdrant.closed is True  # single shared client closed once
