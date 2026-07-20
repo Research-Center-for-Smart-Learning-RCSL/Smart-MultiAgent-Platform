@@ -21,6 +21,7 @@ import pytest
 
 import app.workers.tasks.knowmap as knowmap_task
 from contexts.knowledge.application.graphrag_builder import LOCK_TTL_S
+from contexts.knowledge.application.knowmap_triggers import EnqueueOutcome
 from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.infrastructure.graphrag_repositories import GraphRagConfigRepository
 from contexts.knowledge.infrastructure.knowmap_repositories import KnowmapConfigRepository
@@ -56,7 +57,7 @@ class _CaptureSession:
 async def test_divergence_query_selects_only_live_idle_divergent_configs() -> None:
     db = _CaptureSession()
     repo = KnowmapConfigRepository(db)  # type: ignore[arg-type]
-    await repo.list_revision_divergent(limit=50, offset=100)
+    await repo.list_revision_divergent(limit=50)
 
     sql = _sql(db.statements[0])
     # Deleted configs are excluded (AC-4): their graph is being torn down anyway.
@@ -69,7 +70,23 @@ async def test_divergence_query_selects_only_live_idle_divergent_configs() -> No
     # Stable ordering, or successive pages of one tick would overlap or skip rows.
     assert "orderbyknowmap_configs.id" in sql
     assert "limit50" in sql
-    assert "offset100" in sql
+
+
+@pytest.mark.asyncio
+async def test_divergence_query_pages_by_keyset_not_offset() -> None:
+    # The builder commits RUNNING when a build *starts*, so every config the sweep
+    # hands to a worker stops matching the IDLE predicate. An OFFSET computed
+    # against the earlier, larger set would then skip the rows that shifted past
+    # it; `id >` is stable no matter how the set shrinks underneath.
+    db = _CaptureSession()
+    repo = KnowmapConfigRepository(db)  # type: ignore[arg-type]
+    marker = uuid.UUID("00000000-0000-0000-0000-0000000000ff")
+    await repo.list_revision_divergent(limit=50, after_id=marker)
+
+    sql = _sql(db.statements[0])
+    assert "offset" not in sql
+    # literal_binds renders a UUID without its dashes.
+    assert f"id>'{marker.hex}'" in sql
 
 
 @pytest.mark.asyncio
@@ -78,7 +95,7 @@ async def test_divergence_query_does_not_filter_on_other_build_states() -> None:
     # must never appear, or the sweep would fight the reconciler / retry a stop.
     db = _CaptureSession()
     repo = KnowmapConfigRepository(db)  # type: ignore[arg-type]
-    await repo.list_revision_divergent(limit=1, offset=0)
+    await repo.list_revision_divergent(limit=1)
 
     sql = _sql(db.statements[0])
     assert "'running'" not in sql
@@ -112,11 +129,7 @@ async def test_set_state_writes_build_started_at_only_when_asked(repo_cls: Any) 
 
 
 class _FakeDb:
-    def __init__(self) -> None:
-        self.rollbacks = 0
-
-    async def rollback(self) -> None:
-        self.rollbacks += 1
+    """Stand-in session handle. The sweep only reads, so nothing is recorded."""
 
 
 class _Session:
@@ -130,24 +143,43 @@ class _Session:
         return False
 
 
-def _cfg(revision: int = 2) -> Any:
-    return SimpleNamespace(id=uuid.uuid4(), corpus_revision=revision, built_corpus_revision=revision - 1)
+def _cfg(index: int, revision: int = 2) -> Any:
+    # Ordered ids: keyset paging is defined by `id >`, so the fixture has to have
+    # a deterministic order for the assertions to mean anything.
+    return SimpleNamespace(
+        id=uuid.UUID(int=index + 1),
+        corpus_revision=revision,
+        built_corpus_revision=revision - 1,
+    )
 
 
 class _PagingRepo:
-    """Serves a fixed backlog through whatever limit/offset the sweep asks for."""
+    """Serves a backlog by keyset, and can drop served rows the way production does.
+
+    The real result set shrinks under the sweep: the builder commits RUNNING when
+    a build starts, so a config a worker picks up stops matching the IDLE
+    predicate. ``vanish_after_serving`` models that. A fixture that ignores it
+    (a static list sliced by offset) hides exactly the paging bug that behaviour
+    causes, which is how the first version of this sweep passed its tests.
+    """
 
     backlog: ClassVar[list[Any]] = []
-    calls: ClassVar[list[tuple[int, int]]] = []
+    calls: ClassVar[list[tuple[int, uuid.UUID | None]]] = []
+    vanish_after_serving: ClassVar[bool] = False
 
     def __init__(self, _db: Any) -> None:
         pass
 
-    async def list_revision_divergent(self, *, limit: int, offset: int) -> list[Any]:
-        type(self).calls.append((limit, offset))
-        return list(type(self).backlog[offset : offset + limit])
+    async def list_revision_divergent(self, *, limit: int, after_id: uuid.UUID | None = None) -> list[Any]:
+        type(self).calls.append((limit, after_id))
+        remaining = [c for c in type(self).backlog if after_id is None or c.id > after_id]
+        page = remaining[:limit]
+        if type(self).vanish_after_serving:
+            served = {c.id for c in page}
+            type(self).backlog = [c for c in type(self).backlog if c.id not in served]
+        return page
 
-    async def list_stale_running(self, *, started_before: Any, limit: int, offset: int) -> list[Any]:
+    async def list_stale_running(self, *, started_before: Any, limit: int) -> list[Any]:
         return []
 
 
@@ -157,41 +189,64 @@ def _install(monkeypatch: Any, db: _FakeDb, enqueue: Any) -> None:
     monkeypatch.setattr(knowmap_task, "enqueue_knowmap_build", enqueue)
 
 
+def _reset(backlog: list[Any], *, vanish: bool = False) -> None:
+    _PagingRepo.backlog = backlog
+    _PagingRepo.calls = []
+    _PagingRepo.vanish_after_serving = vanish
+
+
+def _collector(seen: list[uuid.UUID]) -> Any:
+    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> EnqueueOutcome:
+        seen.append(config_id)
+        return EnqueueOutcome.QUEUED
+
+    return _enqueue
+
+
 @pytest.mark.asyncio
 async def test_sweep_pages_and_stops_on_a_short_page(monkeypatch: Any) -> None:
-    _PagingRepo.backlog = [_cfg() for _ in range(70)]
-    _PagingRepo.calls = []
+    _reset([_cfg(i) for i in range(70)])
     seen: list[uuid.UUID] = []
 
-    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> None:
-        seen.append(config_id)
-
     db = _FakeDb()
-    _install(monkeypatch, db, _enqueue)
+    _install(monkeypatch, db, _collector(seen))
     result = await knowmap_task.knowmap_revision_sweep({})
 
     # 70 rows over a page size of 50: a full page, then a short one that ends it.
-    assert _PagingRepo.calls == [(50, 0), (50, 50)]
+    # The second page resumes from the last id served, not from an offset.
+    assert _PagingRepo.calls == [(50, None), (50, uuid.UUID(int=50))]
     assert len(seen) == 70
-    assert result == "enqueued=70 failed=0 stale_running=0"
+    assert result == "enqueued=70 deduped=0 failed=0 stale_running=0"
+
+
+@pytest.mark.asyncio
+async def test_sweep_skips_nothing_when_rows_leave_the_set_mid_tick(monkeypatch: Any) -> None:
+    # The regression for the offset-paging bug: with rows vanishing as they are
+    # served, OFFSET 50 would query past the survivors and silently drop configs
+    # 51-70 while reporting a fully drained backlog.
+    _reset([_cfg(i) for i in range(70)], vanish=True)
+    seen: list[uuid.UUID] = []
+
+    db = _FakeDb()
+    _install(monkeypatch, db, _collector(seen))
+    result = await knowmap_task.knowmap_revision_sweep({})
+
+    assert len(seen) == 70
+    assert result == "enqueued=70 deduped=0 failed=0 stale_running=0"
 
 
 @pytest.mark.asyncio
 async def test_sweep_truncates_at_the_per_tick_cap(monkeypatch: Any) -> None:
     # AC-8: a large backlog must drain over several ticks, not arrive as one herd.
-    _PagingRepo.backlog = [_cfg() for _ in range(250)]
-    _PagingRepo.calls = []
+    _reset([_cfg(i) for i in range(250)])
     seen: list[uuid.UUID] = []
 
-    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> None:
-        seen.append(config_id)
-
     db = _FakeDb()
-    _install(monkeypatch, db, _enqueue)
+    _install(monkeypatch, db, _collector(seen))
     result = await knowmap_task.knowmap_revision_sweep({})
 
     assert len(seen) == 200
-    assert result == "enqueued=200 failed=0 stale_running=0"
+    assert result == "enqueued=200 deduped=0 failed=0 stale_running=0"
     # The last page is trimmed to the remaining budget rather than overshooting.
     assert sum(limit for limit, _ in _PagingRepo.calls) == 200
 
@@ -199,13 +254,13 @@ async def test_sweep_truncates_at_the_per_tick_cap(monkeypatch: Any) -> None:
 @pytest.mark.asyncio
 async def test_sweep_targets_each_configs_own_latest_revision(monkeypatch: Any) -> None:
     # AC-3: the target is the config's committed revision, not a shared value.
-    a, b = _cfg(revision=3), _cfg(revision=9)
-    _PagingRepo.backlog = [a, b]
-    _PagingRepo.calls = []
+    a, b = _cfg(0, revision=3), _cfg(1, revision=9)
+    _reset([a, b])
     targets: dict[uuid.UUID, int] = {}
 
-    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> None:
+    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> EnqueueOutcome:
         targets[config_id] = target_revision
+        return EnqueueOutcome.QUEUED
 
     db = _FakeDb()
     _install(monkeypatch, db, _enqueue)
@@ -215,45 +270,92 @@ async def test_sweep_targets_each_configs_own_latest_revision(monkeypatch: Any) 
 
 
 @pytest.mark.asyncio
-async def test_sweep_isolates_one_config_failure(monkeypatch: Any) -> None:
-    # AC-5. enqueue_knowmap_build swallows its own queue errors today, so this
-    # pins the sweep's own isolation independently of that helper's behaviour.
-    boom, ok = _cfg(), _cfg()
-    _PagingRepo.backlog = [boom, ok]
-    _PagingRepo.calls = []
-    seen: list[uuid.UUID] = []
+async def test_sweep_counts_each_outcome_separately(monkeypatch: Any) -> None:
+    # AC-5. enqueue_knowmap_build never raises, so a sweep that only counted
+    # attempts reported "enqueued=N failed=0" through a total Redis outage. The
+    # tick summary has to distinguish work queued from work suppressed or lost.
+    queued, deduped, failed = _cfg(0), _cfg(1), _cfg(2)
+    _reset([queued, deduped, failed])
+    outcomes = {
+        queued.id: EnqueueOutcome.QUEUED,
+        deduped.id: EnqueueOutcome.DEDUPED,
+        failed.id: EnqueueOutcome.FAILED,
+    }
 
-    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> None:
-        if config_id == boom.id:
-            raise RuntimeError("redis down")
-        seen.append(config_id)
+    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> EnqueueOutcome:
+        return outcomes[config_id]
 
     db = _FakeDb()
     _install(monkeypatch, db, _enqueue)
     result = await knowmap_task.knowmap_revision_sweep({})
 
-    assert seen == [ok.id]
-    assert result == "enqueued=1 failed=1 stale_running=0"
-    assert db.rollbacks == 1
+    assert result == "enqueued=1 deduped=1 failed=1 stale_running=0"
+
+
+@pytest.mark.asyncio
+async def test_sweep_keeps_the_work_it_did_when_a_page_read_fails(monkeypatch: Any) -> None:
+    # Half a tick of recovery beats none: a read failure on page 2 must not
+    # discard the 50 configs page 1 already found.
+    class _FlakyRepo(_PagingRepo):
+        async def list_revision_divergent(
+            self, *, limit: int, after_id: uuid.UUID | None = None
+        ) -> list[Any]:
+            if after_id is not None:
+                raise RuntimeError("connection reset")
+            return await super().list_revision_divergent(limit=limit, after_id=after_id)
+
+    _reset([_cfg(i) for i in range(70)])
+    seen: list[uuid.UUID] = []
+    db = _FakeDb()
+    monkeypatch.setattr(knowmap_task, "get_sessionmaker", lambda: (lambda: _Session(db)))
+    monkeypatch.setattr(knowmap_task, "KnowmapConfigRepository", _FlakyRepo)
+    monkeypatch.setattr(knowmap_task, "enqueue_knowmap_build", _collector(seen))
+
+    result = await knowmap_task.knowmap_revision_sweep({})
+
+    assert len(seen) == 50
+    assert result == "enqueued=50 deduped=0 failed=0 stale_running=0"
+
+
+@pytest.mark.asyncio
+async def test_sweep_still_reports_its_enqueues_when_the_stale_probe_fails(
+    monkeypatch: Any,
+) -> None:
+    # The stuck-RUNNING check is observability only. It must never be able to
+    # erase the report of builds the tick already queued.
+    class _BrokenProbeRepo(_PagingRepo):
+        async def list_stale_running(self, *, started_before: Any, limit: int) -> list[Any]:
+            raise RuntimeError("query failed")
+
+    _reset([_cfg(0)])
+    seen: list[uuid.UUID] = []
+    db = _FakeDb()
+    monkeypatch.setattr(knowmap_task, "get_sessionmaker", lambda: (lambda: _Session(db)))
+    monkeypatch.setattr(knowmap_task, "KnowmapConfigRepository", _BrokenProbeRepo)
+    monkeypatch.setattr(knowmap_task, "enqueue_knowmap_build", _collector(seen))
+
+    result = await knowmap_task.knowmap_revision_sweep({})
+
+    assert seen == [uuid.UUID(int=1)]
+    assert result == "enqueued=1 deduped=0 failed=0 stale_running=0"
 
 
 @pytest.mark.asyncio
 async def test_sweep_on_an_empty_backlog_is_a_no_op(monkeypatch: Any) -> None:
-    _PagingRepo.backlog = []
-    _PagingRepo.calls = []
+    _reset([])
     calls = 0
 
-    async def _enqueue(**_k: Any) -> None:
+    async def _enqueue(**_k: Any) -> EnqueueOutcome:
         nonlocal calls
         calls += 1
+        return EnqueueOutcome.QUEUED
 
     db = _FakeDb()
     _install(monkeypatch, db, _enqueue)
     result = await knowmap_task.knowmap_revision_sweep({})
 
-    assert result == "enqueued=0 failed=0 stale_running=0"
+    assert result == "enqueued=0 deduped=0 failed=0 stale_running=0"
     assert calls == 0
-    assert db.rollbacks == 0
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +367,7 @@ async def test_sweep_on_an_empty_backlog_is_a_no_op(monkeypatch: Any) -> None:
 async def test_stale_running_query_predicates() -> None:
     db = _CaptureSession()
     repo = KnowmapConfigRepository(db)  # type: ignore[arg-type]
-    await repo.list_stale_running(started_before=datetime(2026, 7, 20, tzinfo=UTC), limit=50, offset=0)
+    await repo.list_stale_running(started_before=datetime(2026, 7, 20, tzinfo=UTC), limit=50)
 
     sql = _sql(db.statements[0])
     assert "deleted_atisnull" in sql
@@ -279,29 +381,30 @@ async def test_stale_running_query_predicates() -> None:
 async def test_sweep_reports_stale_running_but_never_enqueues_it(monkeypatch: Any) -> None:
     # AC-11: a RUNNING config is rejected by the builder's state whitelist anyway,
     # so offering it work would be noise. The sweep observes; the reconciler acts.
+    # build_started_at is set: list_stale_running excludes NULL outright, so a
+    # fixture with None would stand in for a row the real query cannot return.
     stuck = SimpleNamespace(
-        id=uuid.uuid4(), corpus_revision=4, built_corpus_revision=1, build_started_at=None
+        id=uuid.uuid4(),
+        corpus_revision=4,
+        built_corpus_revision=1,
+        build_started_at=datetime(2026, 7, 19, tzinfo=UTC),
     )
 
     class _StaleRepo(_PagingRepo):
-        async def list_stale_running(self, *, started_before: Any, limit: int, offset: int) -> list[Any]:
+        async def list_stale_running(self, *, started_before: Any, limit: int) -> list[Any]:
             return [stuck]
 
-    _PagingRepo.backlog = []
-    _PagingRepo.calls = []
+    _reset([])
     enqueued: list[uuid.UUID] = []
-
-    async def _enqueue(*, config_id: uuid.UUID, target_revision: int) -> None:
-        enqueued.append(config_id)
 
     db = _FakeDb()
     monkeypatch.setattr(knowmap_task, "get_sessionmaker", lambda: (lambda: _Session(db)))
     monkeypatch.setattr(knowmap_task, "KnowmapConfigRepository", _StaleRepo)
-    monkeypatch.setattr(knowmap_task, "enqueue_knowmap_build", _enqueue)
+    monkeypatch.setattr(knowmap_task, "enqueue_knowmap_build", _collector(enqueued))
     result = await knowmap_task.knowmap_revision_sweep({})
 
     assert enqueued == []
-    assert result == "enqueued=0 failed=0 stale_running=1"
+    assert result == "enqueued=0 deduped=0 failed=0 stale_running=1"
 
 
 @pytest.mark.asyncio
