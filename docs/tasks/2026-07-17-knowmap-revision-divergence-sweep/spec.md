@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-07-17
 requirements: [R11.12]
 ---
@@ -177,29 +177,39 @@ lost-change window returns.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The finalizer-failure regression in section 8 fails before the fix and passes
-  after.
-- [ ] AC-2: A committed N+1 revision is enqueued within one sweep interval even when
-  `_finalize_build_revision` raises or the initial enqueue failed.
-- [ ] AC-3: The sweep selects only live, nonzero, `IDLE`, divergent configs and targets each
-  config's latest committed revision.
-- [ ] AC-4: Caught-up, deleted, revision-zero, in-flight, and FAILED configs are not enqueued.
-- [ ] AC-5: Repeated ticks remain idempotent through the existing revision-keyed job id; one
+- [x] AC-1: The finalizer-failure regression in section 8 fails before the fix and passes
+  after. Verified red (`AttributeError: no attribute 'knowmap_revision_sweep'`) then green.
+- [x] AC-2: A committed N+1 revision is enqueued within one sweep interval even when
+  `_finalize_build_revision` raises or the initial enqueue failed. Note the two sub-cases the
+  worker docstring now separates: a lost follow-up enqueue recovers within a minute, while a
+  build that finished and only failed to *stamp* the revision has already written that
+  revision's graph, and the re-offer collapses onto the completed job's retained result until
+  `keep_result` lapses. The tick reports that as `deduped`, not silence.
+- [x] AC-3: The sweep selects only live, nonzero, `IDLE`, divergent configs and targets each
+  config's latest committed revision. Live now also means a live project (D-3).
+- [x] AC-4: Caught-up, deleted, revision-zero, in-flight, and FAILED configs are not enqueued.
+- [x] AC-5: Repeated ticks remain idempotent through the existing revision-keyed job id; one
   config failure does not abort the page/sweep.
-- [ ] AC-6: Successful finalization still stamps the processed revision and immediately
-  enqueues a newer revision.
-- [ ] AC-7: Focused unit/repository/worker tests, backend lint, format, and type checks pass.
-- [ ] AC-8: Each tick processes at most 200 configs across pages of 50, stops on a short
+- [x] AC-6: Successful finalization still stamps the processed revision and immediately
+  enqueues a newer revision. The pre-existing finalize tests pass unchanged.
+- [x] AC-7: Focused unit/repository/worker tests, backend lint, format, and type checks pass.
+  5468 unit tests pass; `ruff check .`, `ruff format --check`, and `mypy .` are clean.
+- [x] AC-8: Each tick processes at most 200 configs across pages of 50, stops on a short
   page, and logs when the cap truncated the tick.
-- [ ] AC-9: `build_started_at` is stamped durably at the `RUNNING` transition for both
+- [x] AC-9: `build_started_at` is stamped durably at the `RUNNING` transition for both
   `knowmap_configs` and `graphrag_configs`, in the same commit as the state change.
-- [ ] AC-10: Migration `0059` applies and downgrades cleanly against both tables.
-- [ ] AC-11: A config in `RUNNING` past the 60-minute threshold produces exactly one warning
+- [ ] AC-10: Migration `0059` applies and downgrades cleanly against both tables. **Not met.**
+  No Postgres or Docker was reachable in the build environment. Both directions were rendered
+  and inspected via `alembic --sql` (D-7), but no live round-trip ran. Needs
+  `alembic upgrade head` then `alembic downgrade -1` against a real database.
+- [x] AC-11: A config in `RUNNING` past the 60-minute threshold produces exactly one warning
   per tick and is never enqueued; one within the threshold, or with a `NULL`
   `build_started_at`, produces neither.
-- [ ] AC-12: Tests assert that `reconcile_once` drives the knowmap loop and that a knowmap
-  config in `RUNNING` is reclaimed.
-- [ ] AC-13: The stale cron docstring at `backend/app/workers/tasks/graphrag.py:432-435`
+- [x] AC-12: Tests assert that `reconcile_once` drives the knowmap loop and that a knowmap
+  config in `RUNNING` is reclaimed. Scope: the new tests pin the wiring, the mandatory lock
+  store, and `RUNNING`'s membership in `_STUCK_STATES`. The reclaim mechanics themselves are
+  covered by the existing `ReconciliationLoop` tests, which are engine-level and shared.
+- [x] AC-13: The stale cron docstring at `backend/app/workers/tasks/graphrag.py:432-435`
   states the actual coverage (three states, both graphrag and knowmap).
 
 ## 11. SRS Delta
@@ -209,9 +219,73 @@ are operational observability, not user-visible behavior, so they define no new 
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+- **D-1: Keyset paging, not the offset paging §7.2 implied.** The first implementation used
+  `LIMIT/OFFSET` on the premise that a config stays divergent until its build finishes. That
+  premise is false: the builder commits the `RUNNING` transition when a build *starts*
+  (`backend/contexts/knowledge/application/graphrag_builder.py:255-280`), so every config a
+  worker picks up stops matching the `IDLE` predicate and an offset computed against the
+  earlier, larger set skips the rows that shifted past it. Caught in self-audit. Paging is now
+  keyed on `id >`, and the test fixture models rows leaving the set mid-tick, which the
+  original static-list fixture did not.
+- **D-2: `enqueue_knowmap_build` returns an `EnqueueOutcome`.** §8 asked the sweep to report
+  failures, but the helper never raises and returned `None` for both success and dedup
+  (`backend/contexts/knowledge/application/knowmap_triggers.py`), so the sweep reported
+  `enqueued=N failed=0` through a total Redis outage. The helper now reports queued / deduped
+  / failed and the tick summary separates them. Existing trigger callers ignore the return.
+- **D-3: The sweep filters on live *projects*, not only live configs.** §7's Security
+  Considerations required live-config *and* project scoping; the first implementation did only
+  the config half. `ProjectService.soft_delete` cascades to skills only
+  (`backend/contexts/tenancy/application/project_service.py:161-165`), so a deleted project's
+  knowmap configs keep `deleted_at IS NULL`. Since every other build trigger is request-scoped
+  behind a membership check that a deleted project already fails, this cron was a new path
+  that would rebuild a deleted project's graph on its owner's provider key. Filtered through
+  the tenancy facade rather than a join, because these repositories hold no cross-context
+  joins. Fails closed when the liveness read is unavailable.
+- **D-4: Enqueues use the worker's `ctx["redis"]`.** `shared_kernel/queue.py:34-38` opens and
+  closes a Redis pool per call and is documented for low-frequency dispatch from the web
+  process. Calling it up to 200 times a minute is a misuse; `graphrag_silence_sweep` already
+  sets the in-worker precedent (`backend/app/workers/tasks/graphrag.py:500`).
+- **D-5: Migration 0059 also adds two partial indexes.** Not in the plan, but both new queries
+  run every minute over the whole cross-tenant table and would otherwise seq-scan. Declared in
+  the migration only, matching this table's existing convention (`0048` likewise declares
+  `ix_knowmap_configs_project` with no `tables.py` counterpart).
+- **D-6: Sweep orchestration tests live in a new
+  `backend/tests/unit/test_knowmap_revision_sweep.py`.** §8.1's regression stayed in
+  `test_knowmap_build_dedup.py` as specified; the query and orchestration coverage went into a
+  dedicated file following the `test_graphrag_silence_sweep.py` precedent.
+- **D-7: AC-10 is verified by rendered SQL, not a live round-trip.** No Postgres or Docker was
+  reachable in the build environment, so `alembic upgrade head` could not run. Both directions
+  were rendered with `alembic --sql` and inspected. The DDL is additive nullable columns plus
+  two `CREATE INDEX`/`DROP INDEX IF EXISTS` statements with no data migration, but the gate is
+  recorded as partially met rather than passed.
 
 ## 13. Follow-ups
 
 - FU-1: Consider a shared transactional outbox only if other post-commit workers show the
   same level-triggered convergence gap and justify a platform-wide abstraction.
+- FU-2: Cascade `deleted_at` onto `knowmap_configs` (and `graphrag_configs`) in
+  `ProjectService.soft_delete`. D-3 filters at the consumer, which fixes this sweep but leaves
+  the root cause: project deletion does not mean deletion for these rows, so every present and
+  future consumer must remember to check. Needs a backfill for already-deleted projects.
+- FU-3: The sweep restarts at the lowest config ids every tick, so a tenant holding more than
+  `_SWEEP_MAX_PER_TICK` persistently divergent configs could keep the window pinned and starve
+  configs sorting above it. No per-project config quota exists to bound this. Consider
+  persisting the cursor across ticks or selecting round-robin per project.
+- FU-4: The sweep enqueues into the default arq queue with no per-tenant cap, and `max_jobs`
+  is shared with workflow execution, notifications, and retention. One tenant's backlog can
+  degrade every tenant's background work. Consider a dedicated queue or a per-project cap.
+- FU-5: A config whose divergence never resolves is re-offered forever with no attempt
+  counter, backoff, or alert. Each cycle past `keep_result` is a full-corpus rebuild on the
+  tenant's provider key. Consider stopping and alerting after N consecutive re-offers.
+- FU-6: `graphrag_configs.build_started_at` is write-only. The column exists for port symmetry
+  (Q-6) and is stamped, but `GraphRagConfig` has no field for it and nothing reads it. Add the
+  reader if the stuck-build check is ever generalized to Concept Maps.
+- FU-7: The stuck-`RUNNING` warning re-emits every tick with no suppression, so a persistent
+  reconciler outage produces up to 50 lines a minute indefinitely, and `stale_running` is a
+  capped floor presented as an exact count. Consider a sample-plus-count log and a cooldown.
+- FU-8: The `built_at` / `stamp_built_at` precedence block is duplicated between the two
+  `set_state` implementations, and this task appended an identical third branch to both.
+  Pre-existing duplication, now slightly wider; extract a shared helper.
+- FU-9: Deploy ordering is now load-bearing. New code on a pre-0059 schema fails on *every*
+  knowmap config read, not just the sweep, because `_row_to_config` reads `build_started_at`
+  and all config reads select the full row. `alembic upgrade head` must precede app rollout.
