@@ -440,16 +440,16 @@ is a statement about where the isolation guarantee is verified; that is FU-1's p
 
 ## 15. Deviation Log
 
-- **D-1 — OQ-2's quoted stamp value is wrong, and its stated reason for stability is not the
+- **D-1 - OQ-2's quoted stamp value is wrong, and its stated reason for stability is not the
   whole reason.** OQ-2 records `d1d7b201e4d34ba4f835af5ad73ca34eb5c7f93c` as "verified on a Windows
   working tree". That value was produced through a **PowerShell** pipeline, which re-encodes the
   byte stream between `git ls-files -s` and `git hash-object`. Run through `bash` on the same
-  index, the command yields `7cd968a3394e7f107bf4b844070e53a11608f9e5` — reproducibly, twice.
+  index, the command yields `7cd968a3394e7f107bf4b844070e53a11608f9e5` - reproducibly, twice.
   The design is unaffected and OQ-2's conclusion still holds (CI computes and compares within one
   bash run on `ubuntu-latest`), but the stability argument needs a fourth clause: the value is
   stable given a *byte-exact pipe*, which is a property of the shell, not only of the index.
   Anyone re-deriving the number on Windows to check a CI failure would otherwise chase a ghost.
-- **D-2 — §6.4's AC-7 steps, written as specified, would have passed with the `/session` mount
+- **D-2 - §6.4's AC-7 steps, written as specified, would have passed with the `/session` mount
   removed.** The spec's Q-7 warns that `/session` auto-creates and instructs "content- or
   errno-based, never `exists()`-based", which the first implementation followed. It was still not
   enough: asserting only "room A's marker is absent from the agent volume" stays green when nothing
@@ -458,33 +458,59 @@ is a statement about where the isolation guarantee is verified; that is FU-1's p
   probe caught it. Each AC-7 step now also reads its marker back **from the session volume, in a
   different container than the one that wrote it**; omitting the bind reddens that read. The
   positive-marker rule in the step comments is the generalised form.
-- **D-3 — timeout raised 15 → 20 minutes.** §6.5 authorises this ("raise it if the tier lands near
+- **D-3 - timeout raised 15 → 20 minutes.** §6.5 authorises this ("raise it if the tier lands near
   the ceiling"). Raised pre-emptively rather than after a flake: the added steps are ~14 short
   container runs on top of two builds that already dominated the budget, and a timeout flake in a
   required gate costs more than five minutes of headroom.
-- **D-4 — the stamp step gained an empty-set guard not called for in §6.2.** `git ls-files` on a
+- **D-4 - the stamp step gained an empty-set guard not called for in §6.2.** `git ls-files` on a
   path matching nothing exits 0 with no output, and `git hash-object --stdin` then returns the
-  empty-blob SHA `e69de29b…` — a plausible, non-empty, permanently constant stamp. Verified by
+  empty-blob SHA `e69de29b…` - a plausible, non-empty, permanently constant stamp. Verified by
   running it. Were `deploy/sandbox` ever renamed, the gate would stay green while detecting
   nothing, which is precisely FU-2's failure mode reappearing inside FU-2's own fix. The step now
   fails if no tracked files are found.
-- **D-5 — the guest-side containers run `--network none`.** §6 does not specify it; §8 describes
+- **D-5 - the guest-side containers run `--network none`.** §6 does not specify it; §8 describes
   the tier as having "no new network path" and §7 attributes its low flake surface to
   `network_mode="none"`. Neither was true of the implementation, which used Docker's default
   bridge. Added for production fidelity (the containers under test now match how the host runs
-  them) rather than to close an attack path — the workflow triggers on `pull_request`, not
+  them) rather than to close an attack path - the workflow triggers on `pull_request`, not
   `pull_request_target`, and references no `secrets.*`, so there was nothing on the runner to
   reach. The two pre-existing smoke steps were left untouched.
-- **D-7 — FU-10 was fixed in this task after all, at the user's explicit request.** Scope was
+- **D-7 - FU-10 was fixed in this task after all, at the user's explicit request.** Scope was
   widened by one step, deliberately: `Record image digests` had never recorded anything (see
   FU-10). The repair is not the obvious one. Looping the two images and testing the file for
   emptiness at the end still leaves a hole, because `docker images` on an *unknown* image prints
-  nothing and exits 0 — so one missing image ships a half-complete artifact just as silently as
+  nothing and exits 0 - so one missing image ships a half-complete artifact just as silently as
   two missing ones shipped an empty one. Probing confirmed it: that first shape stayed green with
   `code-exec` absent. Each image is therefore checked individually, and the pipeline was dropped
-  entirely — `for … done | tee` runs the loop in a subshell, where `exit 1` does not fail the step.
+  entirely - `for … done | tee` runs the loop in a subshell, where `exit 1` does not fail the step.
   Both failure modes were confirmed red, and the positive case confirmed to record both digests.
-- **D-6 — this task's diff is split across commits it does not own.** While implementation was in
+- **D-8 - a code review of the finished work found eight defects; all were fixed, and two of them
+  were overstated claims rather than broken code.** Recorded individually because three changed
+  what the task delivers, not just how:
+  - **AC-1 did not close FU-2, despite saying so.** The CI check builds the images with
+    `--build-arg <hash>` and then asserts the label equals that same hash, in the same run. It can
+    only fail if the ARG/LABEL wiring is broken; it can never see a *stale* image, because CI
+    always rebuilds from the checkout it just hashed. FU-2's actual complaint was about a deployed
+    image. Closed properly by implementing FU-7 (preflight compares the label against the
+    operator's own checkout), which is what makes the closure claim true.
+  - **`Record image digests` still could not feed a pin after D-7 repaired it.** `.ID` is the local
+    config digest; a `SANDBOX_*_IMAGE` pin is `repo@sha256:<manifest digest>`, which exists only
+    after a push, and this job pushes nothing. On a containerd image store `RepoDigests` happens to
+    equal `.ID`, which is what hid it during D-7's verification. The step now records `RepoDigests`
+    beside the id so an empty one is visible on the face of the artifact, and the job header no
+    longer claims the artifact is a pin source.
+  - **The tmpfs uid/gid options from `5cec9c4` were executed by nothing.** The unit tests assert on
+    the kwargs dict, so a runtime that ignored the options would leave every `code_exec` starting in
+    an unwritable cwd behind a green suite. A new step mounts the tmpfs with the options read out of
+    `docker_runsc.py` and asserts ownership and writability in a real container. This covers runc,
+    the runtime CI has; gVisor remains unverified and is called out in `_sandbox_tmpfs` and FU-1.
+  - The remaining five: the `/workspace` and `/session` literals now have the agreement test
+    `docker_runsc.py:65` said nothing enforced (`tests/unit/test_sandbox_root_agreement.py`, proven
+    red by mutating `_VOLUME_ROOT`); the listing assertions no longer depend on the write step
+    having consumed `.staged`, verified by running them without it; the seed step reports a
+    surviving volume instead of failing later inside a container; FU-8's duplication is gone; and
+    the em-dashes this task added to §15/§16 are removed per the global CLAUDE.md rule.
+- **D-6 - this task's diff is split across commits it does not own.** While implementation was in
   progress, the working tree's pre-existing changes (the two 07-19 dossiers' close-out) were
   committed by the user, sweeping in this task's `deploy/sandbox/code-exec/Dockerfile` stamp lines
   (into `f6f0fb6`, whose subject is "create /session in the code-exec image") and its `status:
@@ -534,32 +560,35 @@ is a statement about where the isolation guarantee is verified; that is FU-1's p
 - **FU-6: `egress-proxy-smoke` (`compose.test.yml:170-182`) is wired to no CI job.** A
   container-test shape designed in this repo and never used. Either adopt it (§6's steps could live
   there instead of inline `run:` blocks) or delete it.
-- **FU-7: the operator half of FU-2 is still open.** §6's reuse inventory notes that
-  `deploy/scripts/preflight.sh:220-227` already inspects for the two `:pinned` images and that
-  extending it to read `smap.sandbox.stamp` would "come free". It was left out deliberately: AC-11
-  bounds this task to CI steps plus two Dockerfile lines, and no AC covers preflight. The label now
-  exists, so the extension is a few lines whenever someone wants the deployed-image drift answer
-  rather than the per-PR one. Note the honest limit first — an operator comparing the label against
-  a hash of their checkout only learns whether the *sources* match, and the stamp is drift
-  detection, not tamper detection (§8).
-- **FU-8: the inline kernel-import preamble is repeated three times in `ci.yml`.** Four lines
-  (`spec_from_file_location` → `exec_module`) in the room-seeding, AC-13, and AC-12 steps. Tolerable
-  at three copies and not worth a shared file today; if a fourth appears, that is the signal to
-  adopt FU-6's scripted-container shape rather than keep copying.
+- **FU-7: the operator half of FU-2. CLOSED by D-8.** §6's reuse inventory said extending
+  `deploy/scripts/preflight.sh` to read `smap.sandbox.stamp` would "come free", and it did. It was
+  originally left out because AC-11 bounds this task to CI steps plus two Dockerfile lines; a code
+  review then established that without it AC-1's "closes FU-2" was not true, because the CI check
+  rebuilds the images it inspects and so can never observe a stale one. Preflight compares the
+  label against a hash of the operator's own checkout, which is the question FU-2 actually asked.
+  It warns rather than fails: an operator may be running a deliberately pinned older image. The
+  honest limit still stands - the comparison says whether the *sources* match, and the stamp is
+  drift detection, not tamper detection (§8).
+- **FU-8: the inline kernel-import preamble was repeated three times in `ci.yml`. CLOSED by D-8.**
+  The four-line `spec_from_file_location` dance existed only because `/opt/kernel` is absent from
+  the image's `PYTHONPATH`, which points at `/opt/driver`. Passing `-e PYTHONPATH=/opt/kernel` on
+  the three steps that need it reduces the preamble to `import kernel as k`. Safe because
+  `kernel.py` is stdlib-only and guards its server loop behind `__main__`, so importing it is inert,
+  and none of those three steps needs the driver on the path.
 - **FU-10 (pre-existing, found while running the job): `Record image digests` has never recorded
   anything, and is green.** The step runs
   `docker images --no-trunc --format '…' smap/mcp-runtime:ci smap/code-exec:ci`, but `docker images`
-  accepts **at most one** `[REPOSITORY[:TAG]]` argument and exits 1 on two — verified against
+  accepts **at most one** `[REPOSITORY[:TAG]]` argument and exits 1 on two - verified against
   Docker 28.4.0: two args gives "requires at most 1 argument", one arg prints the digest. The
   failure is masked because the command is piped into `tee` and the step sets no `pipefail`, so the
   step's exit status is `tee`'s. `sandbox-image-digests.txt` is therefore uploaded empty on every
-  run, and the job header's stated purpose — "Digests are recorded as a build artifact so the
-  `SANDBOX_*_IMAGE` pins can be updated from a reviewed build" — has never been served. Not fixed
+  run, and the job header's stated purpose - "Digests are recorded as a build artifact so the
+  `SANDBOX_*_IMAGE` pins can be updated from a reviewed build" - has never been served. Not fixed
   here: it predates this dossier and blocks no AC, and AC-11 bounds this task to the tier plus the
   stamp. Fix is one loop or two invocations, plus `set -o pipefail` so the next such breakage is
   not silent. Worth noting that this is exactly the failure class the dossier was written about,
   found in the job it was written for.
-  **Fixed 2026-07-21 at the user's request — see D-7.** Kept as an FU entry rather than renumbered,
+  **Fixed 2026-07-21 at the user's request - see D-7.** Kept as an FU entry rather than renumbered,
   since the identifier is already referenced by the commit that recorded it.
 - **FU-9: `sandbox-images` now runs ~14 containers whose failure output is only what the step
   echoes.** §6's reuse inventory suggested `backend-wiring`'s log-dump-on-failure +
