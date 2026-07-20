@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-16
 requirements: [R12.03]
 depends_on: []
@@ -226,10 +226,22 @@ End-to-end (`/verify`, live sandbox): the §4 reproduction, expecting step 2 to 
 - [x] AC-1: T-1 and T-4 fail against current code and pass after the fix. Both observed red for
       the documented reason (`AttributeError: no attribute 'format_listing'`; descriptions
       lacking the required substrings) before either fix, green after.
-- [ ] AC-2: `file(op="list")` returns absolute `/workspace/...` paths; feeding one verbatim to
-      `code_exec`'s `open()` succeeds (`/verify`, live sandbox). **Outstanding** — requires a
-      running Docker/gVisor tier and a rebuilt `smap/mcp-runtime`; not reachable from the unit
-      tier by construction (§4).
+- [x] AC-2: `file(op="list")` returns absolute `/workspace/...` paths; feeding one verbatim to
+      `code_exec`'s `open()` succeeds. **Verified 2026-07-20** against locally built
+      `smap/mcp-runtime` and `smap/code-exec` images sharing one named volume. `op=list` on
+      `/workspace` emitted `/workspace/notes.md` and `/workspace/sub`; on `/workspace/sub`,
+      `/workspace/sub/deep` and `/workspace/sub/x.csv` (AC-5's nesting, executed); on a single
+      file, `/workspace/notes.md` rather than `notes.md` (`driver.py:249`). That exact string,
+      piped verbatim into the code-exec image with cwd `/workspace/sessions/room1`, opened and
+      returned `'hello'`. The §4 step 3 control — `open('notes.md')` from the same cwd — still
+      raised `FileNotFoundError`, so the run reproduced the documented divergence rather than
+      sidestepping it. `op=read` round-tripped, and a traversal attempt
+      (`SMAP_FILE_PATH=/workspace/../etc/passwd`) was refused by `safe_workspace_path` with
+      `ValueError: path escapes sandbox` and exit 1.
+      **Correction to §4:** plain Docker sufficed. "Requires a Docker/gVisor tier" is true of the
+      host-side `docker_runsc.py` path, which pins `runtime: runsc`, but the driver is
+      runtime-agnostic and `docker run`s directly — the same conclusion
+      `2026-07-17-sandbox-guest-container-tests` reaches independently in its §1.
 - [x] AC-3: `code_exec`'s tool description states its working directory is the per-chat session
       directory and that the shared volume is at `/workspace`; `file`'s states its `/workspace`
       root. Asserted by test, not by inspection.
@@ -278,6 +290,31 @@ not run (no Postgres/Redis locally, `socket.gaierror`) and are untouched by this
 `6e38e5c`, `c81b54c`, `3e7edc9`. **Remaining to close out: AC-2 (`/verify` against a live
 sandbox with a rebuilt image), then `status: implemented`.** Paused by the user's decision to
 spec FU-4 first.
+
+**Resumed and closed 2026-07-20.** AC-2 verified against locally built images (see AC-2). No code
+changed on resume — the three commits above are the whole diff.
+
+79 commits had landed on `main` since `3e7edc9`, so the checkpoint was re-validated rather than
+trusted: `pytest tests/unit` 5489 passed / 6 skipped (the 4 host-symlink skips plus 2 others, all
+pre-existing), `ruff check`, `ruff format --check` (802 files) and `mypy .` (802 files) all clean
+against current `HEAD`. The re-run mattered: it confirmed AC-3 still holds even though
+`code_exec`'s description has since been **rewritten by two other in-progress dossiers**
+(`2026-07-19-workspace-readonly-in-kernel`, `2026-07-19-large-artifacts-silently-dropped`) — it
+now states `/workspace` is mounted read-only and names a 32 MB artifact cap. AC-3's test asserts
+the two roots are *disclosed*, not the exact wording, so it survived the rewrite; that is the
+calibration §8 T-4 intended.
+
+**Gate 5 (`check-quality`) was run on resume** — the 2026-07-19 record evidenced only the
+mechanical gates, plus gate 6 (`check-security`, which produced FU-4) and gate 7 (self-audit,
+which produced D-1), so it was re-run rather than assumed. Result: zero Introduced-Critical, zero
+Introduced-Warning over all 12 dimensions. Two Info items, neither taken: `format_listing`'s
+docstring states its invariant but not that an escaping entry *raises* and aborts the whole
+listing (unreachable from `os.listdir` output today, but FU-3's recursive walk will be the first
+caller supplying entries from elsewhere — worth a docstring line when that lands), and
+`test_builtin_tools_wiring.py:171`'s `_tool_by_name` lacks the return annotation its sibling
+helpers carry (permitted by `pyproject.toml:215-219`, which disables `disallow_untyped_defs` for
+`tests.*`). The audit also confirmed AC-7 one layer down and recorded one pre-existing finding,
+FU-5.
 
 ## 13. Follow-ups
 
@@ -347,3 +384,18 @@ spec FU-4 first.
   gap. But the fix touches `deploy/sandbox/driver/driver.py` and the in-image protocol, so it needs
   an image rebuild — which is exactly the drift FU-2 says CI cannot detect. Sequence it behind the
   test tier. Type: `feature`.
+- **FU-5: a newline in a filename splits one listing entry into two lines.** Surfaced by the
+  Step 7 self-audit on resume (2026-07-20); **pre-existing, not introduced here** — the code this
+  diff replaced was `"\n".join(sorted(os.listdir(path)))`, which had the identical property with
+  bare names. Executed in the image: `format_listing('/workspace', ['a', 'evil\nname', 'z'])`
+  returns four lines, of which `name` is bare. Newline is a legal POSIX filename character and
+  `safe_workspace_path` (`protocol.py:85-99`) normalises paths without rejecting it, so an agent
+  can create such a name through `code_exec` and it is therefore reachable.
+  **Not a containment break** — `op=read` re-guards every path, so a forged line buys no access
+  the agent did not already have. It is a listing-integrity defect: this dossier's whole point is
+  that every line of a listing is a path the model can reuse, and a crafted filename can both
+  break that invariant and forge a line that *looks* like a legitimate absolute path
+  (e.g. a file named `x\n/workspace/sessions/other-room/secret`), which is a deception surface
+  now that listings are meant to be pasted verbatim. The line-oriented format is the root cause,
+  so the fix is a format decision — escape, quote, or emit JSON — and it changes the model-facing
+  contract, which is why it is not a patch here. Type: `bugfix`, MEDIUM.
