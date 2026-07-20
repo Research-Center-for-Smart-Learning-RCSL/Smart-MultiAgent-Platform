@@ -223,7 +223,7 @@ async def test_sweep_enqueues_the_revision_a_failed_finalizer_dropped() -> None:
         result = await kmod.knowmap_revision_sweep({})
 
     enq.assert_awaited_once_with(config_id=cfg.id, target_revision=2, pool=None)
-    assert result == "enqueued=1 deduped=0 failed=0 stale_running=0"
+    assert result == "enqueued=1 deduped=0 failed=0 abandoned=0 stale_running=0"
 
 
 # ---------------------------------------------------------------------------
