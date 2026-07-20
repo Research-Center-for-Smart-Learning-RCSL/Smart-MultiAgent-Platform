@@ -219,6 +219,34 @@ class KnowmapConfigRepository(GraphRagConfigRepositoryPort):
         ).all()
         return [_row_to_config(r) for r in rows]
 
+    async def list_revision_divergent(self, *, limit: int, offset: int) -> Sequence[KnowmapConfig]:
+        """Live IDLE configs whose committed corpus outran their last build (F-4).
+
+        The durable statement of "a committed mutation was never built". Restricted
+        to IDLE because in-flight states already have a completion path and FAILED
+        is a deliberate stop (Q-2). Revision zero needs no explicit exclusion: a
+        config at ``corpus_revision = 0`` cannot satisfy ``> COALESCE(built, 0)``.
+
+        Ordered by id so successive pages of one sweep tick do not overlap or skip.
+        """
+        rows = (
+            await self._db.execute(
+                t.knowmap_configs.select()
+                .where(
+                    sa.and_(
+                        t.knowmap_configs.c.deleted_at.is_(None),
+                        t.knowmap_configs.c.last_build_state == BuildState.IDLE.value,
+                        t.knowmap_configs.c.corpus_revision
+                        > sa.func.coalesce(t.knowmap_configs.c.built_corpus_revision, 0),
+                    )
+                )
+                .order_by(t.knowmap_configs.c.id)
+                .limit(limit)
+                .offset(offset)
+            )
+        ).all()
+        return [_row_to_config(r) for r in rows]
+
     async def list_all_ids(self, *, include_deleted: bool = False) -> set[uuid.UUID]:
         stmt = sa.select(t.knowmap_configs.c.id)
         if not include_deleted:
