@@ -201,24 +201,88 @@ class TestPurgeMessages:
         assert count == 1000
 
 
+class _RaceResult:
+    """Result stub answering both the scalar and the row-tuple shape.
+
+    The DB phase reads ``(id, owner_org_id)`` tuples for the org mapping but
+    ``.scalars()`` for the ``DELETE ... RETURNING id`` results, so one stub has
+    to serve both without the test caring which call it is answering.
+    """
+
+    def __init__(self, rows: list, rowcount: int = 0) -> None:
+        self._rows = rows
+        self.rowcount = rowcount
+
+    def scalars(self):
+        m = MagicMock()
+        m.all.return_value = [r[0] if isinstance(r, tuple) else r for r in self._rows]
+        return m
+
+    def all(self):
+        return list(self._rows)
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
+def _race_session(*, select_rows: list, delete_rows: list):
+    """Session dispatching on statement type rather than call order.
+
+    Order-independence is deliberate: these tests pin the invariant (teardown
+    follows a committed delete) rather than a particular ``execute`` sequence,
+    so restructuring the DB phase cannot make them pass for the wrong reason.
+    """
+    import sqlalchemy as sa
+
+    session = AsyncMock()
+
+    async def _execute(stmt, *_a, **_kw):
+        if isinstance(stmt, sa.Delete):
+            return _RaceResult(delete_rows, rowcount=len(delete_rows))
+        return _RaceResult(select_rows)
+
+    session.execute.side_effect = _execute
+    return session
+
+
+def _session_maker(session):
+    """Stand in for ``get_sessionmaker()`` — the maker is called per session."""
+
+    class _CM:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, *_a):
+            return None
+
+        def begin(self):
+            return _CM()
+
+    session.begin = lambda: _CM()
+    return lambda: _CM()
+
+
 class TestPurgeSoftDeletedTenancy:
+    @patch(
+        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra_batch",
+        new_callable=AsyncMock,
+    )
     @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
     @patch("app.workers.tasks.retention.now", return_value=_NOW)
-    async def test_sweeps_all_tables(self, _now, _audit) -> None:
-        from app.workers.tasks.retention import _SOFT_DELETE_TABLES, _purge_soft_deleted_tenancy
+    async def test_sweeps_all_tables(self, _now, _audit, _purge) -> None:
+        from app.workers.tasks import retention as ret
 
-        session = AsyncMock()
-        result = MagicMock()
-        result.rowcount = 3
-        # F-24 teardown enumeration returns no doomed projects here.
-        result.scalars.return_value.all.return_value = []
-        session.execute.return_value = result
+        deleted = [uuid.uuid4() for _ in range(3)]
+        _purge.return_value = len(deleted)
+        # No org-owned projects, so the org mapping read yields nothing.
+        session = _race_session(select_rows=[], delete_rows=deleted)
 
-        count = await _purge_soft_deleted_tenancy(session)
+        with patch.object(ret, "get_sessionmaker", return_value=_session_maker(session)):
+            count = await ret._purge_soft_deleted_tenancy(session)
 
-        assert count == 3 * len(_SOFT_DELETE_TABLES)
-        # 2 teardown-enumeration SELECTs precede the per-table deletes.
-        assert session.execute.await_count == 2 + len(_SOFT_DELETE_TABLES)
+        assert count == 3 * len(ret._SOFT_DELETE_TABLES)
+        # One org->project mapping SELECT precedes the per-table deletes.
+        assert session.execute.await_count == 1 + len(ret._SOFT_DELETE_TABLES)
 
     @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
     @patch("app.workers.tasks.retention.now", return_value=_NOW)
@@ -230,21 +294,18 @@ class TestPurgeSoftDeletedTenancy:
         import sqlalchemy as sa
         from sqlalchemy.dialects import postgresql
 
-        from app.workers.tasks.retention import _purge_soft_deleted_tenancy
+        from app.workers.tasks import retention as ret
         from contexts.agents.infrastructure.tables import agents as agents_tbl
         from contexts.conversation.infrastructure.tables import chatrooms as chatrooms_tbl
         from contexts.tenancy.infrastructure.tables import orgs as orgs_tbl
         from contexts.tenancy.infrastructure.tables import projects as projects_tbl
 
-        session = AsyncMock()
-        result = MagicMock()
-        result.rowcount = 0
-        result.scalars.return_value.all.return_value = []
-        session.execute.return_value = result
+        session = _race_session(select_rows=[], delete_rows=[])
 
-        await _purge_soft_deleted_tenancy(session)
+        with patch.object(ret, "get_sessionmaker", return_value=_session_maker(session)):
+            await ret._purge_soft_deleted_tenancy(session)
 
-        # The teardown-enumeration SELECTs carry no `.table`; only the deletes do.
+        # The org->project mapping SELECT carries no `.table`; only the deletes do.
         compiled = {
             str(call.args[0].table.name): str(call.args[0].compile(dialect=postgresql.dialect()))
             for call in session.execute.await_args_list
@@ -266,31 +327,69 @@ class TestRagSourceTeardownWiring:
     @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
     @patch("app.workers.tasks.retention.now", return_value=_NOW)
     async def test_tears_down_direct_and_org_cascade_projects(self, _now, _audit, purge_batch) -> None:
-        from app.workers.tasks.retention import _purge_soft_deleted_tenancy
+        import sqlalchemy as sa
+
+        from app.workers.tasks import retention as ret
+        from contexts.tenancy.infrastructure.tables import orgs as orgs_tbl
+        from contexts.tenancy.infrastructure.tables import projects as projects_tbl
 
         direct_pid = uuid.uuid4()
         via_org_pid = uuid.uuid4()
+        doomed_org = uuid.uuid4()
+        purge_batch.return_value = 2
 
         session = AsyncMock()
 
-        def _scalars(ids):
-            r = MagicMock()
-            r.scalars.return_value.all.return_value = ids
-            r.rowcount = 0
-            return r
+        async def _execute(stmt, *_a, **_kw):
+            if isinstance(stmt, sa.Delete):
+                # Both hard deletes commit: orgs return the doomed parent, projects
+                # the directly doomed row. Other tables delete nothing here.
+                if stmt.table is orgs_tbl:
+                    return _RaceResult([doomed_org], rowcount=1)
+                if stmt.table is projects_tbl:
+                    return _RaceResult([direct_pid], rowcount=1)
+                return _RaceResult([], rowcount=0)
+            # The org->project mapping read, captured before the cascade.
+            return _RaceResult([(via_org_pid, doomed_org)])
 
-        # Two enumeration SELECTs (direct, via-org), then the per-table deletes.
-        session.execute.side_effect = [
-            _scalars([direct_pid]),
-            _scalars([via_org_pid]),
-            *[_scalars([]) for _ in range(5)],
-        ]
+        session.execute.side_effect = _execute
 
-        await _purge_soft_deleted_tenancy(session)
+        with patch.object(ret, "get_sessionmaker", return_value=_session_maker(session)):
+            await ret._purge_soft_deleted_tenancy(session)
 
         # One batch call carrying both the direct and org-cascade doomed projects.
         purge_batch.assert_awaited_once()
         assert set(purge_batch.await_args.args[0]) == {direct_pid, via_org_pid}
+
+
+class TestRestoreRaceOrdering:
+    """A restore that wins the race must leave every source blob/vector intact.
+
+    Retention used to purge the projects it *selected*, then issue a fresh
+    ``deleted_at IS NOT NULL`` delete. A restore landing in between made that
+    delete match nothing, so an active project lost data it could never rebuild.
+    Teardown must follow the committed delete, never the candidate read.
+    """
+
+    @patch(
+        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra_batch",
+        new_callable=AsyncMock,
+    )
+    @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
+    @patch("app.workers.tasks.retention.now", return_value=_NOW)
+    async def test_no_teardown_when_restore_wins(self, _now, _audit, purge_batch) -> None:
+        from app.workers.tasks import retention as ret
+
+        restored_pid = uuid.uuid4()
+        org_id = uuid.uuid4()
+        # Eligibility reads still see the project; every delete affects zero rows
+        # because the restore cleared `deleted_at` first.
+        session = _race_session(select_rows=[(restored_pid, org_id)], delete_rows=[])
+
+        with patch.object(ret, "get_sessionmaker", return_value=_session_maker(session)):
+            await ret._purge_soft_deleted_tenancy(session)
+
+        purge_batch.assert_not_awaited()
 
 
 class TestPurgeRagSourceOrphans:
