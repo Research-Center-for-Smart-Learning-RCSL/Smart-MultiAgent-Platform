@@ -3,6 +3,7 @@ type: bugfix
 status: in-progress
 created: 2026-07-16
 requirements: [R12.03]
+depends_on: []
 ---
 
 # `file` and `code_exec` disagree about what a relative path means

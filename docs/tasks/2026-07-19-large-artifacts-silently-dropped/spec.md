@@ -3,6 +3,7 @@ type: bugfix
 status: in-progress
 created: 2026-07-19
 requirements: [R12.03, R12.05, R13.10]
+depends_on: []
 ---
 
 # A `code_exec` artifact over 8 MiB is silently destroyed

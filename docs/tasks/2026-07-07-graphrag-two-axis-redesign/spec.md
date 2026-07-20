@@ -3,6 +3,7 @@ type: feature
 status: approved
 created: 2026-07-07
 requirements: [R09.17, R10.06, R10.10, R10.11, R11.01, R11.02, R11.03, R11.05, R11.06, R11.07, R11.08, R11.09, R11.10, R11.11, R11.12, R11.13, R11.14, R11.15, R11.16, R11.17, R11.18, R11.19, R11.20, R11.21, R11a.01]
+depends_on: []
 ---
 
 # GraphRAG Two-Axis Redesign — Decouple the Knowledge Graph from a Single Agent
