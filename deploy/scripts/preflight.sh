@@ -229,6 +229,33 @@ else
   warn "smap/code-exec:pinned image not found (build with: docker compose --profile sandbox-build build)"
 fi
 
+# Stale-image check. CI stamps both images with a hash of deploy/sandbox/** (see
+# .github/workflows/ci.yml sandbox-images); comparing that label against the same
+# hash of this checkout answers "was the image an operator is about to run built
+# from the sources they have". Without it a stale image is indistinguishable from
+# a fresh one, which is 2026-07-16-workspace-path-convention FU-2.
+#
+# Drift detection, NOT tamper detection: anyone who can build an image can set
+# the label. And a mismatch is a warning, not a failure -- an operator may be
+# running a deliberately pinned older image, so this reports rather than blocks.
+if command -v git &>/dev/null && git -C "$REPO_ROOT" rev-parse --git-dir &>/dev/null; then
+  EXPECTED_STAMP="$(git -C "$REPO_ROOT" ls-files -s deploy/sandbox | git hash-object --stdin)"
+  for img in smap/mcp-runtime:pinned smap/code-exec:pinned; do
+    if ! docker image inspect "$img" &>/dev/null; then
+      continue  # already reported above
+    fi
+    ACTUAL_STAMP="$(docker image inspect "$img" \
+      --format '{{index .Config.Labels "smap.sandbox.stamp"}}' 2>/dev/null)"
+    if [ -z "$ACTUAL_STAMP" ] || [ "$ACTUAL_STAMP" = "<no value>" ]; then
+      warn "$img carries no smap.sandbox.stamp label — built before stamping, or built outside CI"
+    elif [ "$ACTUAL_STAMP" != "$EXPECTED_STAMP" ]; then
+      warn "$img is STALE: built from sources hashing ${ACTUAL_STAMP:0:12}, this checkout is ${EXPECTED_STAMP:0:12}"
+    else
+      pass "$img matches this checkout's deploy/sandbox sources"
+    fi
+  done
+fi
+
 # ─── 7. Compose file validation ──────────────────────────
 echo ""
 echo "▸ Compose validation"

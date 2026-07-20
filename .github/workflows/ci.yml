@@ -180,8 +180,13 @@ jobs:
   # `probe` against the baked stdio MCP server. The driver itself is runtime-
   # agnostic, so this validates the build + protocol under plain Docker; the
   # gVisor (runsc) assertion is host-side (docker_runsc.py) and is exercised on
-  # the staging box, not here. Digests are recorded as a build artifact so the
-  # SANDBOX_*_IMAGE pins can be updated from a reviewed build.
+  # the staging box, not here. Image ids are recorded as a build artifact to
+  # identify which build CI reviewed; they are NOT SANDBOX_*_IMAGE pins, which
+  # need a registry manifest digest and therefore a push this job does not do.
+  #
+  # Also runs the guest side: the `file` driver's operations and the mount
+  # isolation [R12.03b] promises, both of which were previously executed by
+  # nothing (2026-07-17-sandbox-guest-container-tests).
   sandbox-images:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -277,21 +282,33 @@ jobs:
       # is not mounted. These steps are the first execution of any of it.
       - name: File driver — seed a scratch agent volume
         run: |
-          # rm before create: the cleanup step below disposes of these, but a
-          # cancelled run never reaches it, and on a self-hosted runner the
-          # leftover would make the seed below fail on an existing sub/.
-          docker volume rm -f "$AGENT_VOL" >/dev/null 2>&1 || true
+          # The cleanup step below disposes of these, but a cancelled run never
+          # reaches it. Report a survivor here rather than best-effort `|| true`:
+          # a leftover volume would otherwise reach the seed below and fail there
+          # with a FileExistsError from inside a container, pointing at the wrong
+          # thing entirely.
+          if docker volume inspect "$AGENT_VOL" >/dev/null 2>&1; then
+            if ! docker volume rm -f "$AGENT_VOL" >/dev/null; then
+              echo "scratch volume $AGENT_VOL survives and cannot be removed — a cancelled run may still hold it"
+              exit 1
+            fi
+          fi
           docker volume create "$AGENT_VOL" >/dev/null
           # The image owns /workspace as uid 10001, so Docker seeds the fresh
           # volume with that ownership and the sandbox user can write it.
-          # .staged stands in for the host's put_archive of the payload, which
-          # cmd_file expects to already be on the volume before it starts.
+          #
+          # Two independent fixtures. .staged stands in for the host's
+          # put_archive of the payload, which cmd_file expects to be on the
+          # volume before it starts. tree/ is the listing fixture, deliberately
+          # separate from the write target so the listing assertions do not
+          # depend on the write step having consumed .staged first.
           docker run --rm --network none -v "$AGENT_VOL":/workspace --entrypoint python3 smap/mcp-runtime:ci -c '
           import pathlib
           pathlib.Path("/workspace/.staged").write_text("hello-from-ci")
-          sub = pathlib.Path("/workspace/sub")
-          sub.mkdir()
-          (sub / "x.csv").write_text("a,b\n1,2\n")
+          tree = pathlib.Path("/workspace/tree")
+          (tree / "sub").mkdir(parents=True)
+          (tree / "a.txt").write_text("top-level")
+          (tree / "sub" / "x.csv").write_text("a,b\n1,2\n")
           print("seeded")
           '
       - name: File driver — write then read round-trips (AC-3)
@@ -319,23 +336,23 @@ jobs:
           # shape (absolute paths, one per line) comes from protocol.format_listing
           # and is NOT the pre-convention bare-basename output.
           #
-          # Depends on the write step above having consumed .staged via
-          # os.replace: that is why only hello.txt and sub/ are expected here.
+          # Runs against tree/, which the seed step creates, so this step holds
+          # whether or not the write step above ran or is reordered.
           out="$(docker run --rm --network none -v "$AGENT_VOL":/workspace \
-            -e SMAP_FILE_OP=list -e SMAP_FILE_PATH=/workspace \
+            -e SMAP_FILE_OP=list -e SMAP_FILE_PATH=/workspace/tree \
             smap/mcp-runtime:ci file)"
-          echo "list /workspace:"; echo "$out"
-          test "$out" = "$(printf '/workspace/hello.txt\n/workspace/sub')"
-          if echo "$out" | grep -q '/workspace/sub/x.csv'; then
+          echo "list /workspace/tree:"; echo "$out"
+          test "$out" = "$(printf '/workspace/tree/a.txt\n/workspace/tree/sub')"
+          if echo "$out" | grep -q '/workspace/tree/sub/x.csv'; then
             echo "list recursed into sub/ — FU-3's premise no longer holds; this is a finding, not a flake"
             exit 1
           fi
           # AC-5: a single file lists as its own absolute path, not its basename.
           one="$(docker run --rm --network none -v "$AGENT_VOL":/workspace \
-            -e SMAP_FILE_OP=list -e SMAP_FILE_PATH=/workspace/hello.txt \
+            -e SMAP_FILE_OP=list -e SMAP_FILE_PATH=/workspace/tree/a.txt \
             smap/mcp-runtime:ci file)"
           echo "list of a single file: $one"
-          test "$one" = "/workspace/hello.txt"
+          test "$one" = "/workspace/tree/a.txt"
       - name: File driver — path traversal is refused (AC-6)
         run: |
           # `read`, not `list`: if the guard ever regressed, this is the request
@@ -379,11 +396,11 @@ jobs:
               -v "$AGENT_VOL":/workspace:ro \
               -v "$vol":/session \
               -e SMAP_CI_MARKER="$marker" \
+              -e PYTHONPATH=/opt/kernel \
               smap/code-exec:ci python -c '
-          import importlib.util as u, os
-          spec = u.spec_from_file_location("k", "/opt/kernel/kernel.py")
-          k = u.module_from_spec(spec)
-          spec.loader.exec_module(k)
+          import os
+
+          import kernel as k
           k._OUTPUTS.mkdir(parents=True, exist_ok=True)
           (k._OUTPUTS / os.environ["SMAP_CI_MARKER"]).write_text("written-by-this-room-only")
           print("wrote", k._OUTPUTS / os.environ["SMAP_CI_MARKER"])
@@ -410,7 +427,9 @@ jobs:
             smap/mcp-runtime:ci file)"
           echo "agent volume after the kernel wrote to /session:"; echo "$out"
           # Positive marker: proves this listing really read the agent volume.
-          echo "$out" | grep -q '/workspace/hello.txt'
+          # tree/ comes from the seed step, so this does not depend on the write
+          # step above having run.
+          echo "$out" | grep -q '/workspace/tree'
           if echo "$out" | grep -q 'room-a-secret'; then
             echo "session content reached the agent volume — [R12.03b] violated"
             exit 1
@@ -471,17 +490,60 @@ jobs:
           # image's own USER 10001 is part of what is under test.
           docker volume rm -f "$SESSION_FRESH_VOL" >/dev/null 2>&1 || true
           docker volume create "$SESSION_FRESH_VOL" >/dev/null
-          out="$(docker run --rm --network none -v "$SESSION_FRESH_VOL":/session smap/code-exec:ci python -c '
-          import importlib.util as u
-          spec = u.spec_from_file_location("k", "/opt/kernel/kernel.py")
-          k = u.module_from_spec(spec)
-          spec.loader.exec_module(k)
+          out="$(docker run --rm --network none -v "$SESSION_FRESH_VOL":/session \
+            -e PYTHONPATH=/opt/kernel smap/code-exec:ci python -c '
+          import kernel as k
           k._OUTPUTS.mkdir(parents=True, exist_ok=True)
           k._INPUTS.mkdir(parents=True, exist_ok=True)
           print("startup-ok", k._OUTPUTS.stat().st_uid, k._INPUTS.stat().st_uid)
           ')"
           echo "fresh-volume kernel startup: $out"
           test "$out" = "startup-ok 10001 10001"
+      - name: Mounts — the run-and-burn scratch tmpfs is owned by the sandbox uid
+        run: |
+          # docker_runsc._sandbox_tmpfs passes uid=/gid= so code_exec's cwd is
+          # writable: a tmpfs inherits the covered image directory's MODE but not
+          # its ownership, so /workspace (0755) is otherwise a root-owned tmpfs
+          # that uid 10001 cannot write, with WORKDIR pointing straight at it.
+          # Nothing executed those options before -- the unit tests assert on the
+          # kwargs dict, not on a mount.
+          #
+          # The options are read out of docker_runsc.py rather than retyped, so
+          # this cannot drift from what the host actually sends.
+          #
+          # SCOPE: this proves the options are well-formed and honoured by runc,
+          # the runtime CI has. Production runs gVisor, which implements its own
+          # tmpfs in the Sentry, and that half stays unverified -- see the NOTE in
+          # _sandbox_tmpfs and FU-1 of
+          # docs/tasks/2026-07-17-sandbox-guest-container-tests.
+          eval "$(python3 - <<'PY'
+          import pathlib, re
+          src = pathlib.Path("backend/contexts/agents/infrastructure/sandbox/docker_runsc.py").read_text(encoding="utf-8")
+          def const(name):
+              m = re.search(rf"^{name}\s*=\s*(.+)$", src, re.M)
+              if not m:
+                  raise SystemExit(f"{name} not found in docker_runsc.py")
+              return eval(m.group(1).split("#")[0].strip())  # noqa: S307 — literal arithmetic
+          # SBX_UID, not UID: bash keeps UID readonly, so assigning it fails.
+          print(f"SBX_UID={const('_SANDBOX_UID')}")
+          print(f"SIZE={const('_WORKSPACE_TMPFS_BYTES')}")
+          PY
+          )"
+          test -n "$SBX_UID"
+          test -n "$SIZE"
+          echo "host constants: uid=$SBX_UID size=$SIZE"
+          out="$(docker run --rm --network none \
+            --user "$SBX_UID" \
+            --tmpfs "/workspace:size=$SIZE,uid=$SBX_UID,gid=$SBX_UID" \
+            --workdir /workspace \
+            smap/code-exec:ci python -c '
+          import os, pathlib
+          pathlib.Path("probe.txt").write_text("written")
+          st = os.stat("/workspace")
+          print("owner", st.st_uid, st.st_gid, "cwd", os.getcwd(), "read", pathlib.Path("probe.txt").read_text())
+          ')"
+          echo "$out"
+          test "$out" = "owner $SBX_UID $SBX_UID cwd /workspace read written"
       - name: Kernel protocol stamp matches the host constant (AC-12)
         run: |
           # kernel.PROTOCOL_VERSION and docker_runsc._KERNEL_PROTOCOL_VERSION are
@@ -500,11 +562,8 @@ jobs:
           print(m.group(1))
           PY
           )"
-          guest="$(docker run --rm --network none smap/code-exec:ci python -c '
-          import importlib.util as u
-          spec = u.spec_from_file_location("k", "/opt/kernel/kernel.py")
-          k = u.module_from_spec(spec)
-          spec.loader.exec_module(k)
+          guest="$(docker run --rm --network none -e PYTHONPATH=/opt/kernel smap/code-exec:ci python -c '
+          import kernel as k
           print(k.PROTOCOL_VERSION)
           ')"
           echo "host=_KERNEL_PROTOCOL_VERSION=$host  image=PROTOCOL_VERSION=$guest"
@@ -522,8 +581,14 @@ jobs:
           # One image per invocation: `docker images` takes at most one
           # [REPOSITORY[:TAG]] and exits 1 on two. Until 2026-07-21 this passed
           # both, and `| tee` without pipefail made the step's exit status tee's,
-          # so it stayed green while uploading an empty artifact on every run --
-          # and the pins it exists to feed could never be read off it.
+          # so it stayed green while uploading an empty artifact on every run.
+          #
+          # WHAT THIS IS AND IS NOT. `.ID` is the image's local config digest. A
+          # SANDBOX_*_IMAGE pin is `repo@sha256:<MANIFEST digest>`, which a build
+          # only acquires once pushed to a registry, and this job pushes nothing.
+          # So the artifact identifies WHICH BUILD CI reviewed; it is not itself
+          # a pin. RepoDigests is recorded beside the id precisely so an empty
+          # one says as much on the face of the artifact.
           #
           # Each image is checked on its own rather than the file being tested
           # for emptiness at the end: an unknown image prints nothing and exits
@@ -532,12 +597,15 @@ jobs:
           # the loop in a subshell, where `exit 1` leaves the step green.
           : > sandbox-image-digests.txt
           for image in smap/mcp-runtime:ci smap/code-exec:ci; do
-            line="$(docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' "$image")"
-            if [ -z "$line" ]; then
-              echo "no digest recorded for $image — was it built?"
+            id="$(docker images --no-trunc --format '{{.ID}}' "$image")"
+            if [ -z "$id" ]; then
+              echo "no image found for $image — was it built?"
               exit 1
             fi
-            echo "$line" >> sandbox-image-digests.txt
+            repo_digests="$(docker image inspect "$image" --format '{{join .RepoDigests ","}}')"
+            printf '%s id=%s repo_digests=%s\n' \
+              "$image" "$id" "${repo_digests:-<none: never pushed, not usable as a pin>}" \
+              >> sandbox-image-digests.txt
           done
           cat sandbox-image-digests.txt
       - uses: actions/upload-artifact@v7
