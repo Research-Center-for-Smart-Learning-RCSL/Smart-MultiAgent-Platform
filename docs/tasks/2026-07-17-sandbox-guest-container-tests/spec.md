@@ -475,6 +475,15 @@ is a statement about where the isolation guarantee is verified; that is FU-1's p
   them) rather than to close an attack path — the workflow triggers on `pull_request`, not
   `pull_request_target`, and references no `secrets.*`, so there was nothing on the runner to
   reach. The two pre-existing smoke steps were left untouched.
+- **D-7 — FU-10 was fixed in this task after all, at the user's explicit request.** Scope was
+  widened by one step, deliberately: `Record image digests` had never recorded anything (see
+  FU-10). The repair is not the obvious one. Looping the two images and testing the file for
+  emptiness at the end still leaves a hole, because `docker images` on an *unknown* image prints
+  nothing and exits 0 — so one missing image ships a half-complete artifact just as silently as
+  two missing ones shipped an empty one. Probing confirmed it: that first shape stayed green with
+  `code-exec` absent. Each image is therefore checked individually, and the pipeline was dropped
+  entirely — `for … done | tee` runs the loop in a subshell, where `exit 1` does not fail the step.
+  Both failure modes were confirmed red, and the positive case confirmed to record both digests.
 - **D-6 — this task's diff is split across commits it does not own.** While implementation was in
   progress, the working tree's pre-existing changes (the two 07-19 dossiers' close-out) were
   committed by the user, sweeping in this task's `deploy/sandbox/code-exec/Dockerfile` stamp lines
@@ -550,6 +559,8 @@ is a statement about where the isolation guarantee is verified; that is FU-1's p
   stamp. Fix is one loop or two invocations, plus `set -o pipefail` so the next such breakage is
   not silent. Worth noting that this is exactly the failure class the dossier was written about,
   found in the job it was written for.
+  **Fixed 2026-07-21 at the user's request — see D-7.** Kept as an FU entry rather than renumbered,
+  since the identifier is already referenced by the commit that recorded it.
 - **FU-9: `sandbox-images` now runs ~14 containers whose failure output is only what the step
   echoes.** §6's reuse inventory suggested `backend-wiring`'s log-dump-on-failure +
   `upload-artifact` pattern (`ci.yml:155-167`). Not adopted: every step here captures container
