@@ -13,7 +13,11 @@ everything this skill reads and writes — read it first.
 
 **Given a dossier** (path or slug under `docs/tasks/`): load `spec.md` and check status.
 
-- `approved` — proceed.
+- `approved` — check `depends_on` first: every listed slug must be `status: implemented`
+  in its own `spec.md` (don't trust `BOARD.md` alone for this gate — it's a cache; read
+  the dependency's frontmatter directly). If any dependency isn't implemented yet, refuse
+  and name the blocker instead of proceeding — starting anyway risks building on code or
+  assumptions that don't exist yet. Otherwise proceed.
 - `in-progress` — this is a resume: unchecked ACs and the Deviation Log tell you where
   the previous session stopped. Verify the working tree state against checked ACs before
   continuing; a checked AC whose test now fails means the checkpoint is stale.
@@ -51,7 +55,8 @@ contract change, cross-context changes, or auth/keys/tenant surfaces. Present th
 breakdown and wait. Everything else: proceed directly — spec approval already authorized
 the what, and the how is this skill's job.
 
-Set the dossier `status: in-progress` when implementation starts.
+Set the dossier `status: in-progress` when implementation starts, and move its row in
+`docs/tasks/BOARD.md` to In progress.
 
 ## Step 4 — Implement
 
@@ -119,8 +124,14 @@ silently skipped.
 2. Append **FU-n** entries for out-of-scope discoveries. Do not fix them in this task
    unless they block an AC.
 3. Set `status: implemented`.
-4. Commit following the CLAUDE.md commit discipline: commit at each completed milestone
+4. Remove this dossier's row from `docs/tasks/BOARD.md`'s active sections (it's no longer
+   Ready/Blocked/In progress), then check whether any Blocked row listed this slug in its
+   `depends_on` — if so and all of *that* row's other dependencies are also implemented,
+   move it to Ready and tell the user it just became unblocked. This is the moment a
+   sequencing change would otherwise go unnoticed.
+5. Commit following the CLAUDE.md commit discipline: commit at each completed milestone
    rather than one lump at the end (a fix and its test as separate commits, each
    migration, each refactor stage), English messages, no co-author trailer, and stage
-   only the files this task changed — never `git add -A`/`.`/`-a`, since the tree may
-   hold unrelated in-progress work. Do not push without explicit user confirmation.
+   only the files this task changed plus `BOARD.md` — never `git add -A`/`.`/`-a`, since
+   the tree may hold unrelated in-progress work. Do not push without explicit user
+   confirmation.
