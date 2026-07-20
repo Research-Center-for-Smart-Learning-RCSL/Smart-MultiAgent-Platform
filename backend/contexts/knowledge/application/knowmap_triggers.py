@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from enum import StrEnum
 
 _log = logging.getLogger(__name__)
 
@@ -30,7 +31,20 @@ def knowmap_build_job_id(config_id: uuid.UUID, *, target_revision: int) -> str:
     return f"knowmap:build:{config_id}:{target_revision}"
 
 
-async def enqueue_knowmap_build(*, config_id: uuid.UUID, target_revision: int) -> None:
+class EnqueueOutcome(StrEnum):
+    """What an enqueue attempt actually achieved (F-4).
+
+    The three cases are indistinguishable to a caller that only sees ``None``,
+    which made the revision sweep report every tick as a success even with Redis
+    down. Returned so a caller that reports counts can report true ones.
+    """
+
+    QUEUED = "queued"
+    DEDUPED = "deduped"
+    FAILED = "failed"
+
+
+async def enqueue_knowmap_build(*, config_id: uuid.UUID, target_revision: int) -> EnqueueOutcome:
     """Enqueue a ``knowmap_build`` for ``config_id`` targeting ``target_revision``.
 
     ``target_revision`` is the config's current ``corpus_revision`` at enqueue
@@ -38,11 +52,13 @@ async def enqueue_knowmap_build(*, config_id: uuid.UUID, target_revision: int) -
     worker can re-check whether the corpus advanced during the build.
 
     Best-effort: a failed enqueue is logged, not raised — a missed build is
-    recoverable via the explicit rebuild endpoint or the next document change,
-    and must never fail the triggering upload/delete request. A ``None`` return
-    from arq (an already-queued job for the same revision) is a *legitimate*
-    same-revision dedup, logged at debug so it is observable and not confused with
-    the pre-F-12 silent-suppression bug.
+    recoverable via the explicit rebuild endpoint, the next document change, or
+    the revision sweep, and must never fail the triggering upload/delete request.
+    A ``None`` return from arq (an already-queued job for the same revision) is a
+    *legitimate* same-revision dedup, logged at debug so it is observable and not
+    confused with the pre-F-12 silent-suppression bug.
+
+    Trigger callers ignore the return; the sweep uses it to count honestly.
     """
     try:
         from shared_kernel.queue import enqueue
@@ -53,14 +69,17 @@ async def enqueue_knowmap_build(*, config_id: uuid.UUID, target_revision: int) -
             target_revision=target_revision,
             _job_id=knowmap_build_job_id(config_id, target_revision=target_revision),
         )
-        if job is None:
-            _log.debug(
-                "knowmap build enqueue deduplicated for config %s revision %d (already queued)",
-                config_id,
-                target_revision,
-            )
     except Exception:
         _log.warning("knowmap build enqueue failed for config %s", config_id, exc_info=True)
+        return EnqueueOutcome.FAILED
+    if job is None:
+        _log.debug(
+            "knowmap build enqueue deduplicated for config %s revision %d (already queued)",
+            config_id,
+            target_revision,
+        )
+        return EnqueueOutcome.DEDUPED
+    return EnqueueOutcome.QUEUED
 
 
-__all__ = ["enqueue_knowmap_build", "knowmap_build_job_id"]
+__all__ = ["EnqueueOutcome", "enqueue_knowmap_build", "knowmap_build_job_id"]

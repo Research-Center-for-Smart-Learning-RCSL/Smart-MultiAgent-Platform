@@ -225,7 +225,9 @@ class KnowmapConfigRepository(GraphRagConfigRepositoryPort):
         ).all()
         return [_row_to_config(r) for r in rows]
 
-    async def list_revision_divergent(self, *, limit: int, offset: int) -> Sequence[KnowmapConfig]:
+    async def list_revision_divergent(
+        self, *, limit: int, after_id: uuid.UUID | None = None
+    ) -> Sequence[KnowmapConfig]:
         """Live IDLE configs whose committed corpus outran their last build (F-4).
 
         The durable statement of "a committed mutation was never built". Restricted
@@ -233,29 +235,31 @@ class KnowmapConfigRepository(GraphRagConfigRepositoryPort):
         is a deliberate stop (Q-2). Revision zero needs no explicit exclusion: a
         config at ``corpus_revision = 0`` cannot satisfy ``> COALESCE(built, 0)``.
 
-        Ordered by id so successive pages of one sweep tick do not overlap or skip.
+        Keyset paging, not OFFSET: rows leave this result set while a sweep pages
+        through it. The builder commits the RUNNING transition when a build
+        *starts*, so every config a worker picks up stops matching the IDLE
+        predicate, and an offset computed against the earlier, larger set would
+        skip the rows that shifted past it. ``after_id`` is stable regardless.
         """
+        conditions = [
+            t.knowmap_configs.c.deleted_at.is_(None),
+            t.knowmap_configs.c.last_build_state == BuildState.IDLE.value,
+            t.knowmap_configs.c.corpus_revision
+            > sa.func.coalesce(t.knowmap_configs.c.built_corpus_revision, 0),
+        ]
+        if after_id is not None:
+            conditions.append(t.knowmap_configs.c.id > after_id)
         rows = (
             await self._db.execute(
                 t.knowmap_configs.select()
-                .where(
-                    sa.and_(
-                        t.knowmap_configs.c.deleted_at.is_(None),
-                        t.knowmap_configs.c.last_build_state == BuildState.IDLE.value,
-                        t.knowmap_configs.c.corpus_revision
-                        > sa.func.coalesce(t.knowmap_configs.c.built_corpus_revision, 0),
-                    )
-                )
+                .where(sa.and_(*conditions))
                 .order_by(t.knowmap_configs.c.id)
                 .limit(limit)
-                .offset(offset)
             )
         ).all()
         return [_row_to_config(r) for r in rows]
 
-    async def list_stale_running(
-        self, *, started_before: datetime, limit: int, offset: int
-    ) -> Sequence[KnowmapConfig]:
+    async def list_stale_running(self, *, started_before: datetime, limit: int) -> Sequence[KnowmapConfig]:
         """Live configs stuck in RUNNING since before ``started_before`` (F-4).
 
         Observation only. Recovering a stuck RUNNING config is the reconciler's
@@ -280,7 +284,6 @@ class KnowmapConfigRepository(GraphRagConfigRepositoryPort):
                 )
                 .order_by(t.knowmap_configs.c.id)
                 .limit(limit)
-                .offset(offset)
             )
         ).all()
         return [_row_to_config(r) for r in rows]

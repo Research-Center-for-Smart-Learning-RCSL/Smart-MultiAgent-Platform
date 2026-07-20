@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from contexts.knowledge.application.knowmap_triggers import (
+    EnqueueOutcome,
     enqueue_knowmap_build,
     knowmap_build_job_id,
 )
@@ -179,9 +180,14 @@ async def test_finalize_noop_without_target_revision() -> None:
 @pytest.mark.asyncio
 async def test_sweep_enqueues_the_revision_a_failed_finalizer_dropped() -> None:
     # AC-1/AC-2: build A committed for revision 1 while a mutation advanced the
-    # corpus to 2, then _finalize_build_revision raised and was swallowed, so
-    # nothing was ever queued for revision 2. With no further mutation and no
-    # manual rebuild, the sweep must still deliver it.
+    # corpus to 2, then the follow-up enqueue was lost, so nothing was ever queued
+    # for revision 2. With no further mutation and no manual rebuild, the sweep
+    # must still deliver it, targeting 2 rather than the built 1.
+    #
+    # Scope: this pins what the sweep itself decides -- which config, which
+    # revision. Whether arq then runs the job is arq's dedup, exercised by the
+    # job-id tests above; revision 2 has never been used as a job id in this
+    # scenario, which is precisely why the sweep recovers it promptly.
     from app.workers.tasks import knowmap as kmod
 
     cfg = SimpleNamespace(id=uuid.uuid4(), corpus_revision=2, built_corpus_revision=1)
@@ -190,13 +196,15 @@ async def test_sweep_enqueues_the_revision_a_failed_finalizer_dropped() -> None:
         def __init__(self, _db: Any) -> None:
             pass
 
-        async def list_revision_divergent(self, *, limit: int, offset: int) -> list[Any]:
-            return [cfg] if offset == 0 else []
+        async def list_revision_divergent(
+            self, *, limit: int, after_id: uuid.UUID | None = None
+        ) -> list[Any]:
+            return [cfg] if after_id is None else []
 
-        async def list_stale_running(self, *, started_before: Any, limit: int, offset: int) -> list[Any]:
+        async def list_stale_running(self, *, started_before: Any, limit: int) -> list[Any]:
             return []
 
-    enq = AsyncMock()
+    enq = AsyncMock(return_value=EnqueueOutcome.QUEUED)
     with (
         patch.object(kmod, "get_sessionmaker", _sm),
         patch.object(kmod, "KnowmapConfigRepository", _Repo),
@@ -205,7 +213,7 @@ async def test_sweep_enqueues_the_revision_a_failed_finalizer_dropped() -> None:
         result = await kmod.knowmap_revision_sweep({})
 
     enq.assert_awaited_once_with(config_id=cfg.id, target_revision=2)
-    assert "enqueued=1" in result
+    assert result == "enqueued=1 deduped=0 failed=0 stale_running=0"
 
 
 # ---------------------------------------------------------------------------

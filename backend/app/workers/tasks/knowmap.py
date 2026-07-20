@@ -31,7 +31,10 @@ from contexts.knowledge.application.graphrag_builder import (
 from contexts.knowledge.application.graphrag_ports import ConfigLike
 from contexts.knowledge.application.knowmap_config_service import build_knowmap_embedder
 from contexts.knowledge.application.knowmap_ingest_service import KnowmapIngestService
-from contexts.knowledge.application.knowmap_triggers import enqueue_knowmap_build
+from contexts.knowledge.application.knowmap_triggers import (
+    EnqueueOutcome,
+    enqueue_knowmap_build,
+)
 from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.domain.models import DocumentStatus, ScanStatus
 from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
@@ -77,12 +80,14 @@ async def _report_stale_running(configs: KnowmapConfigRepository) -> int:
     """Warn about builds the reconciler should have reclaimed and has not (F-4).
 
     Never enqueues: a RUNNING config is rejected by the builder's state whitelist
-    anyway, so offering it work would produce noise, not recovery.
+    anyway, so offering it work would produce noise, not recovery. Failures are
+    contained by the caller — an observability probe must never be able to erase
+    the report of the enqueues the tick already made.
     """
     started_before = now() - timedelta(seconds=_STALE_RUNNING_AFTER_S)
     # A single page is enough signal: more than this many stuck builds is one
     # incident, not fifty, and fifty warning lines already say so.
-    stale = await configs.list_stale_running(started_before=started_before, limit=_SWEEP_PAGE_SIZE, offset=0)
+    stale = await configs.list_stale_running(started_before=started_before, limit=_SWEEP_PAGE_SIZE)
     for cfg in stale:
         _log.warning(
             "knowmap revision sweep: config %s has been RUNNING since %s, past the %ds "
@@ -92,6 +97,29 @@ async def _report_stale_running(configs: KnowmapConfigRepository) -> int:
             _STALE_RUNNING_AFTER_S,
         )
     return len(stale)
+
+
+async def _collect_divergent(configs: KnowmapConfigRepository) -> tuple[list[tuple[uuid.UUID, int]], bool]:
+    """Page the divergence query up to the per-tick cap (F-4).
+
+    Returns the work list and whether the backlog was drained. A read failure
+    part-way through returns what was gathered instead of discarding it: half a
+    tick of recovery beats none, and the next tick re-reads from the start.
+    """
+    pending: list[tuple[uuid.UUID, int]] = []
+    after_id: uuid.UUID | None = None
+    while len(pending) < _SWEEP_MAX_PER_TICK:
+        page_limit = min(_SWEEP_PAGE_SIZE, _SWEEP_MAX_PER_TICK - len(pending))
+        try:
+            page = await configs.list_revision_divergent(limit=page_limit, after_id=after_id)
+        except Exception:
+            _log.warning("knowmap revision sweep: divergence page read failed", exc_info=True)
+            return pending, False
+        pending.extend((cfg.id, cfg.corpus_revision) for cfg in page)
+        if len(page) < page_limit:
+            return pending, True
+        after_id = page[-1].id
+    return pending, False
 
 
 async def knowmap_revision_sweep(ctx: dict[str, Any]) -> str:
@@ -105,55 +133,50 @@ async def knowmap_revision_sweep(ctx: dict[str, Any]) -> str:
 
     Repeated ticks are idempotent: the revision-keyed job id means re-offering the
     same gap collapses onto the job already queued or running.
+
+    Recovery latency depends on which hop dropped, and the two are worth keeping
+    apart. If the *follow-up enqueue* was lost, the target revision was never
+    built and its job id has never been used, so the next tick queues it within a
+    minute. If instead a build finished and only the ``built_corpus_revision``
+    stamp failed, the graph already holds that revision -- the divergence is
+    stale bookkeeping, not missing content -- and the re-offer collapses onto the
+    completed job's retained result until ``keep_result`` lapses. That shows up
+    as ``deduped`` in the tick summary rather than silence.
     """
     _ = ctx
     sm = get_sessionmaker()
-    enqueued = 0
-    failed = 0
-    seen = 0
+    stale_running = 0
+    # Read everything first, then enqueue: shared_kernel.queue.enqueue opens and
+    # closes a Redis pool per call, and holding a Postgres transaction open across
+    # up to _SWEEP_MAX_PER_TICK of those round trips would pin a connection
+    # idle-in-transaction for no reason.
     async with sm() as db:
         configs = KnowmapConfigRepository(db)
-        offset = 0
-        exhausted = False
-        while seen < _SWEEP_MAX_PER_TICK:
-            page_limit = min(_SWEEP_PAGE_SIZE, _SWEEP_MAX_PER_TICK - seen)
-            # Offset paging is stable enough here: a config stays divergent until
-            # its build finishes, and one completing mid-tick only defers a row to
-            # the next tick rather than losing it.
-            page = await configs.list_revision_divergent(limit=page_limit, offset=offset)
-            for cfg in page:
-                seen += 1
-                try:
-                    await enqueue_knowmap_build(config_id=cfg.id, target_revision=cfg.corpus_revision)
-                    enqueued += 1
-                except Exception:
-                    # enqueue_knowmap_build swallows its own queue errors today;
-                    # this keeps one config's failure from aborting the page if it
-                    # ever stops doing so.
-                    failed += 1
-                    await db.rollback()
-                    _log.warning(
-                        "knowmap revision sweep: enqueue failed for config %s", cfg.id, exc_info=True
-                    )
-            if len(page) < page_limit:
-                exhausted = True
-                break
-            offset += len(page)
-        if not exhausted:
-            # A capped tick must not read as full coverage in the logs.
-            _log.info(
-                "knowmap revision sweep: reached the per-tick cap of %d configs",
-                _SWEEP_MAX_PER_TICK,
-            )
-        stale_running = await _report_stale_running(configs)
-    _log.info(
-        "knowmap revision sweep: enqueued=%d failed=%d seen=%d stale_running=%d",
-        enqueued,
-        failed,
-        seen,
-        stale_running,
+        pending, drained = await _collect_divergent(configs)
+        try:
+            stale_running = await _report_stale_running(configs)
+        except Exception:
+            _log.warning("knowmap revision sweep: stale-RUNNING report failed", exc_info=True)
+
+    counts = dict.fromkeys(EnqueueOutcome, 0)
+    for config_id, target_revision in pending:
+        outcome = await enqueue_knowmap_build(config_id=config_id, target_revision=target_revision)
+        counts[outcome] += 1
+
+    if not drained:
+        # A capped or truncated tick must not read as full coverage in the logs.
+        _log.info(
+            "knowmap revision sweep: stopped at %d configs without draining the backlog",
+            len(pending),
+        )
+    summary = (
+        f"enqueued={counts[EnqueueOutcome.QUEUED]} "
+        f"deduped={counts[EnqueueOutcome.DEDUPED]} "
+        f"failed={counts[EnqueueOutcome.FAILED]} "
+        f"stale_running={stale_running}"
     )
-    return f"enqueued={enqueued} failed={failed} stale_running={stale_running}"
+    _log.info("knowmap revision sweep: %s", summary)
+    return summary
 
 
 async def _bump_and_enqueue_build(sm: Any, knowmap_config_id: uuid.UUID) -> None:
