@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Iterable, Sequence
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +53,34 @@ class KnowledgeFacade:
     def embedding_catalog(self) -> tuple[EmbedCatalogEntry, ...]:
         """Per-provider whitelisted embedding models + dimensions for the RAG UI."""
         return embedding_catalog()
+
+    # -- project lifecycle cascade -------------------------------------------
+    #
+    # Deleting a project did not mark its graph configs deleted, so every
+    # consumer that checked only `<table>.deleted_at` still treated them as live.
+    # That was harmless while every build trigger sat behind a membership check a
+    # deleted project already fails, and stopped being harmless once a background
+    # sweep began enqueueing builds with no request behind it.
+
+    async def cascade_project_deleted(self, *, project_id: uuid.UUID, deleted_at: datetime) -> dict[str, int]:
+        """Soft-delete the project's graph configs inside the project's transaction."""
+        return {
+            "knowmap_configs": await self._knowmap.soft_delete_for_project(project_id, deleted_at),
+            "graphrag_configs": await self._graphrag.soft_delete_for_project(project_id, deleted_at),
+        }
+
+    async def cascade_project_restored(
+        self, *, project_id: uuid.UUID, deleted_at: datetime
+    ) -> dict[str, int]:
+        """Restore the graph configs that project's deletion took, and only those.
+
+        ``deleted_at`` is the project's own pre-restore timestamp; configs deleted
+        separately carry a different one and stay deleted.
+        """
+        return {
+            "knowmap_configs": await self._knowmap.restore_for_project(project_id, deleted_at),
+            "graphrag_configs": await self._graphrag.restore_for_project(project_id, deleted_at),
+        }
 
     async def get_rag_config(
         self, config_id: uuid.UUID, *, include_deleted: bool = False
