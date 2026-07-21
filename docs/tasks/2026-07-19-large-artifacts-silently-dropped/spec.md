@@ -367,6 +367,42 @@ tests you thought to run, and a targeted run passing is not evidence that a seam
 FU-1, FU-2 and FU-3 remain open: they are genuine product and lifecycle questions (SRS wording,
 retention, volume cleanup) rather than defects in this code path.
 
+## 16. Self-review of the session's own diff (2026-07-21)
+
+A `/code-review` pass over this session's five commits found ten issues, three of them real bugs
+introduced by the fixes above. All were fixed; the pattern in them is worth more than the list.
+
+- **The hardening created the leak it was hardening against.** `get_archive` hands back a generator
+  over the HTTP response body. The old unbounded `b"".join(stream)` drained it as an accident of
+  being wrong; bounding the read removed that accident, and D-5's three new rejection paths
+  (`linkTarget`, `mode`, non-dict stat) then abandoned the stream unread on more paths than before.
+  urllib3 holds the connection until GC. Now closed in a `finally`.
+- **The two enforcement points for one constant disagreed.** `_hydrate_oversized` tested
+  `fetched + size > MAX`; `_persist_artifacts` tested `budget > MAX`, admitting one whole artifact
+  past the ceiling (95 MB against a stated 64 MB). Exactly the drift the `MAX_ARTIFACT_BYTES`
+  consolidation in `1cb730d` existed to prevent, reintroduced two commits later.
+- **D-9 did not close what it claimed.** The overflow note counted *this call's* artifacts while the
+  cap is per *turn*, so five calls of ten artifacts each reported nothing while thirty were dropped.
+  Third occurrence in this task of a bound without a signal. The fix stops recomputing counts: each
+  refused descriptor now carries an `ARTIFACT_SKIP_KEY` reason that the note, the operator log and
+  `_artifact_bytes` all read, so the signal cannot be derived wrongly a fourth time.
+- **FU-6 was overclaimed in its own commit message.** "One construction seam" was untrue:
+  `_hydrate_oversized` used `deps.runner` from `default_builtin_deps()` while the fallback used
+  `_sandbox()`. Production built two runners per turn and an injected `sandbox_runner` reached only
+  one of them. `_builtin_tools` now passes `runner=self._sandbox()`.
+- **A test asserted source text.** `test_the_kernel_mounts_exactly_two_volumes` counted `"bind"`
+  occurrences via `inspect.getsource`, so it failed on reformatting and would have passed a mount
+  added through `host_config["mounts"]` -- failing in the wrong direction for a tripwire. It now
+  asserts the config handed to the daemon.
+- **The long docstrings were a CLAUDE.md violation** (long-form explanation belongs under `docs/`
+  with the docstring pointing at it). Moved to `docs/agent-tools/G-artifact-transport.md`, which is
+  also the right home for material that outlives this dossier.
+
+One design note the review surfaced: the per-turn budget now lives in the `code_exec` tool's
+closure, which is correct only because `_builtin_tools` runs once per turn, before the round loop.
+`_code_exec_tool` in the tests carries that coupling in its docstring, since a fixture that rebuilds
+the tool per call silently resets the ceilings.
+
 **Status stays `in-progress`.** AC-2 remains the only open criterion and still needs `/verify` on
 Linux + gVisor. The close-out review did not change that, but it did change what `/verify` is worth:
 a single-user reproduction on a quiet staging box exercises only the happy path, and D-4, D-5 and
