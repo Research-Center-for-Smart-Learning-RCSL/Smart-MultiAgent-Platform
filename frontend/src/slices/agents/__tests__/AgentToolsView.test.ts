@@ -166,6 +166,72 @@ describe('AgentToolsView — JSON field syntax highlighting (AC-1/AC-2/AC-3/AC-5
     expect(wrapper.text()).toContain('agents.tools.functions.invalidParamsJson')
   })
 
+  // Both of these used to leave the dialog open with nothing visible: the JSON
+  // error rendered inside an SAccordion panel that is collapsed by default (and
+  // hidden with CSS, so it is in the DOM but off-screen), and a server field
+  // error whose path has no SFormField was set invisibly while useServerErrors
+  // suppressed the toast.
+  it('surfaces the invalidJson error outside the collapsed advanced-config panel', async () => {
+    seed([])
+    const wrapper = await renderView(AgentToolsView, { routes, initialRoute: '/agents/agent_1/tools' })
+    await settle()
+
+    await clickByText(wrapper, 'agents.tools.mcp.add')
+    await waitForCodeMirror(() => wrapper.find('.cm-content'))
+
+    await wrapper.findAll('input.s-input__field')[0]!.setValue('https://mcp.example.com/sse')
+    await wrapper.vm.$nextTick()
+
+    const { EditorView } = await import('@codemirror/view')
+    const host = wrapper.find('.code-editor-cm-host').element as HTMLElement
+    const view = EditorView.findFromDOM(host)!
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '{not valid json' } })
+    await wrapper.vm.$nextTick()
+
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => {
+      if (!wrapper.find('.s-alert').exists()) throw new Error('form-level alert not rendered yet')
+    })
+    expect(wrapper.find('.s-alert').text()).toContain('agents.tools.mcp.invalidJson')
+    // The accordion panel must no longer be the only place it appears.
+    expect(wrapper.find('.s-accordion__panel').text()).not.toContain('agents.tools.mcp.invalidJson')
+  })
+
+  it('surfaces a server field error whose path has no form field of its own', async () => {
+    seed([])
+    server.use(
+      http.post('/api/agents/agent_1/tools', () =>
+        HttpResponse.json(
+          {
+            type: 'https://smap.local/problems/validation',
+            title: 'Validation Error',
+            status: 422,
+            detail: 'Invalid tool config',
+            field_errors: [{ path: 'config.allowed_tools', message: 'Unknown tool name.' }],
+          },
+          { status: 422, headers: { 'content-type': 'application/problem+json' } },
+        ),
+      ),
+    )
+    const wrapper = await renderView(AgentToolsView, { routes, initialRoute: '/agents/agent_1/tools' })
+    await settle()
+
+    await clickByText(wrapper, 'agents.tools.mcp.add')
+    await waitForCodeMirror(() => wrapper.find('.cm-content'))
+
+    await wrapper.findAll('input.s-input__field')[0]!.setValue('https://mcp.example.com/sse')
+    await wrapper.find('textarea.s-textarea').setValue('read_file')
+    await wrapper.vm.$nextTick()
+
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => {
+      if (!wrapper.find('.s-alert').exists()) throw new Error('server error not surfaced yet')
+    })
+    expect(wrapper.find('.s-alert').text()).toContain('Unknown tool name.')
+  })
+
   it('leaves the readonly MCP test-failure field on the plain textarea (unchanged, AC-5)', async () => {
     seed([MCP_TOOL])
     server.use(

@@ -33,6 +33,7 @@ import {
   SCodeEditor,
   SAccordion,
   SEmptyState,
+  SAlert,
 } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
@@ -281,6 +282,24 @@ function openEditModal(tool: AgentTool): void {
   allowedToolsError.value = null
   showModal.value = true
 }
+
+// The only error paths the form renders next to a control. Everything else is
+// invisible where it is set: useServerErrors suppresses the toast as soon as it
+// maps ANY field error, so a 422 naming config.allowed_tools, config, auth or
+// tool_type used to leave the dialog open with no feedback at all. The JSON
+// error had the same problem for a different reason — it lived inside an
+// SAccordion panel that is collapsed by default and hides its content with CSS.
+// Anything not in this list is surfaced by the form-level alert instead.
+const INLINE_ERROR_PATHS: readonly string[] = ['config.source', 'config.reference']
+
+const formLevelErrors = computed<string[]>(() => {
+  const messages: string[] = []
+  if (configJsonError.value) messages.push(configJsonError.value)
+  for (const [path, message] of Object.entries(errors.value)) {
+    if (message && !INLINE_ERROR_PATHS.includes(path)) messages.push(message)
+  }
+  return messages
+})
 
 function parseTools(raw: string): string[] {
   return raw
@@ -1048,6 +1067,23 @@ function fnLabel(tool: AgentTool): string {
       @close="showModal = false"
     >
       <form @submit.prevent="onSubmit">
+        <SAlert
+          v-if="formLevelErrors.length > 0"
+          variant="danger"
+          :title="t('agents.tools.mcp.submitBlocked')"
+          focus-on-mount
+          class="mb-4"
+        >
+          <ul class="list-disc ps-5">
+            <li
+              v-for="(message, index) in formLevelErrors"
+              :key="index"
+            >
+              {{ message }}
+            </li>
+          </ul>
+        </SAlert>
+
         <SFormField
           :label="t('agents.tools.mcp.source')"
           name="config.source"
@@ -1098,17 +1134,14 @@ function fnLabel(tool: AgentTool): string {
           class="mt-4"
         >
           <template #item-config>
+            <!-- The parse error is reported by the form-level alert, not here:
+                 this panel is collapsed by default, so an error rendered inside
+                 it is invisible at the moment the submit is refused. -->
             <SCodeEditor
               v-model="configJson"
               language="json"
               :rows="6"
             />
-            <p
-              v-if="configJsonError"
-              class="text-xs text-[var(--color-danger)] mt-1"
-            >
-              {{ configJsonError }}
-            </p>
           </template>
         </SAccordion>
       </form>

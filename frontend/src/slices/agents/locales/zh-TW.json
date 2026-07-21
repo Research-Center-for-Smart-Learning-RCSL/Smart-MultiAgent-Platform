@@ -448,6 +448,7 @@
         "allowedToolsRequired": "請至少列出一個工具名稱。",
         "advancedConfig": "進階設定",
         "invalidJson": "設定必須為有效的 JSON。",
+        "submitBlocked": "無法儲存此伺服器",
         "test": "測試",
         "testOk": "連線正常——發現 {count} 個工具（{ms} 毫秒）",
         "testBad": "失敗",
