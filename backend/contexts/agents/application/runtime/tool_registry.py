@@ -44,26 +44,23 @@ _MAX_TOOL_OUTPUT = 16_000
 # drift and the model is told a limit that is not the one applied.
 MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 
-# Per-turn ceilings, because the per-file limit above bounds one artifact and
-# nothing bounded the set. Before the host-side fetch tier existed, the kernel's
-# own 512 MB container budget capped the batch implicitly: everything had to fit
-# in the exec reply. Fetching deliberately routes around that budget, so the
-# ceiling it removed has to be re-imposed here or an agent can hardlink one 32 MB
-# file to a thousand names and make the shared worker hold 32 GB.
+# Per-turn ceilings; the per-file limit above bounds one artifact and nothing
+# bounded the set. Both are enforced twice, and both checks must read
+# `running + candidate > limit`. See docs/agent-tools/G-artifact-transport.md G.3.
 MAX_ARTIFACTS_PER_TURN = 20
 MAX_ARTIFACT_TOTAL_BYTES = 64 * 1024 * 1024
+
+# Marks a descriptor that will not be delivered, with the reason. Read by the
+# model-facing note, the operator log and the acquisition path, so that a bound
+# can never be added without a signal (G.4).
+ARTIFACT_SKIP_KEY = "_smap_skip"
 
 
 def artifact_size_bytes(art: Mapping[str, Any]) -> int:
     """``size_bytes`` off an artifact descriptor. Total, never raises.
 
-    Every field of the descriptor is agent-controlled: `code_exec` runs the
-    agent's code in the kernel's own process, so it can rebind the collector and
-    emit ``{"size_bytes": "big"}``. A bare ``int()`` on that raises past the
-    per-artifact guards into the batch-level handler and discards artifacts that
-    were perfectly fine -- the same silent-loss shape this whole path exists to
-    end. An unusable size reads as 0, which is safe: it only ever makes a file
-    look small, and the fetch is bounded by the archive reader regardless.
+    The field is agent-controlled, and a bare ``int()`` on it discards the whole
+    batch. See docs/agent-tools/G-artifact-transport.md G.6.
     """
     try:
         size = int(art.get("size_bytes") or 0)
@@ -72,17 +69,20 @@ def artifact_size_bytes(art: Mapping[str, Any]) -> int:
     return max(size, 0)
 
 
-def clip_tool_output(text: str, *, reserve: int = 0) -> str:
-    """The byte-level backstop every tool's output passes through.
+def clip_tool_output(text: str, *, suffix: str = "") -> str:
+    """The character-level backstop every tool's output passes through.
 
-    *reserve* holds back room for text the caller appends afterwards. Without it
-    a caller has two bad options: append after clipping, putting the suffix
-    outside the backstop entirely, or concatenate before clipping and let a
-    chatty stdout truncate the suffix away. `code_exec`'s artifact note needs
-    both properties -- bounded, and never silently dropped.
+    *suffix* is appended here rather than by the caller so that the bound stays
+    the function's own guarantee. Appending afterwards puts the suffix outside
+    the backstop; concatenating before it lets a chatty stdout truncate the
+    suffix away. Both matter for `code_exec`'s artifact note (G.4).
     """
-    budget = max(_MAX_TOOL_OUTPUT - reserve, 0)
-    return text if len(text) <= budget else text[:budget] + "\n…[truncated]"
+    # The suffix cannot outgrow the whole budget, or a caller could evict the
+    # output entirely and still exceed the cap this function exists to hold.
+    suffix = suffix[:_MAX_TOOL_OUTPUT]
+    budget = max(_MAX_TOOL_OUTPUT - len(suffix), 0)
+    clipped = text if len(text) <= budget else text[:budget] + "\n…[truncated]"
+    return clipped + suffix
 
 
 def _tool_error(content: str) -> ToolResult:

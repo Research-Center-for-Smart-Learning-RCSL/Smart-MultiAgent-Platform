@@ -374,13 +374,16 @@ async def test_code_exec_threads_chatroom_and_collects_artifacts() -> None:
     assert runner.run_code_exec.await_args.kwargs["chatroom_id"] == room
 
 
-async def _run_code_exec(runner, artifacts, *, room=None, sink=None):
-    """Drive code_exec once with a canned artifact list."""
-    runner.run_code_exec.return_value = ToolCallResult(
-        ok=True, stdout="done", stderr="", exit_code=0, duration_ms=1, metadata={"artifacts": artifacts}
-    )
-    tools = {
-        t.name: t
+def _code_exec_tool(runner, *, room=None, sink=None):
+    """Build `code_exec` once, as a turn does.
+
+    The per-turn artifact budget lives in the tool's closure, so a test that
+    rebuilds the tool between calls resets the ceilings and is not modelling a
+    turn. `TurnEngine._builtin_tools` is called once per turn, before the round
+    loop.
+    """
+    return next(
+        t
         for t in bt.build_agent_tools(
             AsyncMock(),
             agent=_agent(),
@@ -389,8 +392,21 @@ async def _run_code_exec(runner, artifacts, *, room=None, sink=None):
             chatroom_id=room if room is not None else uuid.uuid4(),
             artifact_sink=sink if sink is not None else [],
         )
-    }
-    return await tools["code_exec"].invoke({"source": "print('x')"})
+        if t.name == "code_exec"
+    )
+
+
+async def _invoke_with(tool, runner, artifacts):
+    """One `code_exec` call returning a canned artifact list."""
+    runner.run_code_exec.return_value = ToolCallResult(
+        ok=True, stdout="done", stderr="", exit_code=0, duration_ms=1, metadata={"artifacts": artifacts}
+    )
+    return await tool.invoke({"source": "print('x')"})
+
+
+async def _run_code_exec(runner, artifacts, *, room=None, sink=None):
+    """Drive a single-call turn."""
+    return await _invoke_with(_code_exec_tool(runner, room=room, sink=sink), runner, artifacts)
 
 
 def _oversized(name: str = "big.bin", size: int = 9 * 1024 * 1024) -> dict:
@@ -419,13 +435,14 @@ async def test_an_oversized_artifact_is_fetched_at_exec_time_not_at_turn_end() -
 
 async def test_a_repeated_artifact_is_not_fetched_twice() -> None:
     """`_persist_artifacts` dedups on rel_path and keeps the first, so a second
-    fetch would move up to 32 MB only to have it discarded on arrival."""
+    fetch would move up to 32 MB only to have it discarded on arrival. Dedup
+    spans the turn, so the second call must not re-fetch what the first got."""
     runner = AsyncMock()
     runner.fetch_kernel_artifact.return_value = b"payload"
     sink: list[dict] = []
-    room = uuid.uuid4()
-    await _run_code_exec(runner, [_oversized()], room=room, sink=sink)
-    await _run_code_exec(runner, [_oversized()], room=room, sink=sink)
+    tool = _code_exec_tool(runner, sink=sink)
+    await _invoke_with(tool, runner, [_oversized()])
+    await _invoke_with(tool, runner, [_oversized()])
 
     assert runner.fetch_kernel_artifact.await_count == 1
 
@@ -450,6 +467,43 @@ async def test_the_note_admits_what_the_per_turn_cap_held_back() -> None:
     note = bt._artifact_note([{"filename": f"f{i}.bin", "size_bytes": 1} for i in range(50)])
 
     assert "30 further artifact(s)" in note
+
+
+async def test_the_budget_is_disclosed_when_it_is_reached_across_calls() -> None:
+    """The cap is per turn; the note used to be computed per call.
+
+    Five calls of ten artifacts each never trip a per-call overflow check, so
+    the model was told nothing while twenty of the fifty were dropped. That is
+    the silence this whole path exists to end, rebuilt one level up.
+    """
+    runner = AsyncMock()
+    runner.fetch_kernel_artifact.return_value = b"x"
+    tool = _code_exec_tool(runner, sink=[])
+    notes = [
+        (await _invoke_with(tool, runner, [_oversized(f"c{c}f{i}.bin", size=1) for i in range(10)])).content
+        for c in range(5)
+    ]
+
+    assert runner.fetch_kernel_artifact.await_count == bt.MAX_ARTIFACTS_PER_TURN
+    # The early calls are delivered and say so; a later one must admit the cap.
+    assert "wrote to outputs/" in notes[0]
+    assert any("artifact budget is used up" in n for n in notes[2:]), notes[-1]
+
+
+async def test_a_budget_skipped_artifact_is_not_refetched_later() -> None:
+    """The skip mark travels with the descriptor into `_persist_artifacts`, so
+    the fallback there must not undo the budget decision made here."""
+    from contexts.agents.application.runtime.tool_registry import ARTIFACT_SKIP_KEY
+
+    runner = AsyncMock()
+    runner.fetch_kernel_artifact.return_value = b"x"
+    sink: list[dict] = []
+    tool = _code_exec_tool(runner, sink=sink)
+    await _invoke_with(tool, runner, [_oversized(f"f{i}.bin", size=1) for i in range(30)])
+
+    skipped = [a for a in sink if a.get(ARTIFACT_SKIP_KEY) == "budget"]
+    assert len(skipped) == 30 - bt.MAX_ARTIFACTS_PER_TURN
+    assert all("data" not in a for a in skipped)
 
 
 async def test_a_hostile_size_does_not_fail_the_whole_call() -> None:

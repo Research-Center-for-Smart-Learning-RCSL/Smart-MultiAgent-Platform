@@ -34,6 +34,7 @@ from contexts.agents.application.runtime import model_attachments as mattach
 from contexts.agents.application.runtime import transcript as tx
 from contexts.agents.application.runtime.summariser import RouterSummariser
 from contexts.agents.application.runtime.tool_registry import (
+    ARTIFACT_SKIP_KEY,
     MAX_ARTIFACT_BYTES,
     MAX_ARTIFACT_TOTAL_BYTES,
     MAX_ARTIFACTS_PER_TURN,
@@ -937,7 +938,16 @@ class TurnEngine:
                 default_builtin_deps,
             )
 
-            deps = _replace(default_builtin_deps(), rag_provider=self._rag_provider)
+            # `runner=self._sandbox()` so the tools and this engine share one
+            # sandbox: `_hydrate_oversized` fetches through `deps.runner` while
+            # `_persist_artifacts` falls back through `_sandbox()`, and an
+            # injected `sandbox_runner` has to reach both or it reaches neither
+            # usefully. Without it the turn also built two runners.
+            deps = _replace(
+                default_builtin_deps(),
+                rag_provider=self._rag_provider,
+                runner=self._sandbox(),
+            )
             return build_agent_tools(
                 self._db,
                 agent=agent,
@@ -1297,6 +1307,11 @@ class TurnEngine:
         import base64
 
         name = str(art.get("filename") or "artifact")
+        # Already refused upstream, with a reason the model has been told (G.4).
+        # Without this the fallback below would re-fetch exactly what the
+        # per-turn budget declined to move.
+        if art.get(ARTIFACT_SKIP_KEY):
+            return None
         # Already pulled off the kernel at exec time, which is where the fetch
         # belongs: the container was provably alive then, whereas this runs
         # after the whole turn and races LRU eviction
@@ -1428,7 +1443,9 @@ class TurnEngine:
                 size = artifact_size_bytes(art)
                 # The backstop behind `_hydrate_oversized`'s budget, covering
                 # inline artifacts and any producer that never passed through it.
-                if len(prepared) >= MAX_ARTIFACTS_PER_TURN or budget > MAX_ARTIFACT_TOTAL_BYTES:
+                # `budget + size`, not `budget`: testing the running total alone
+                # admits one more artifact past the ceiling (G.3).
+                if len(prepared) >= MAX_ARTIFACTS_PER_TURN or budget + size > MAX_ARTIFACT_TOTAL_BYTES:
                     dropped.append((name, size))
                     continue
                 data = await self._artifact_bytes(art, agent, chatroom_id, acquire)
