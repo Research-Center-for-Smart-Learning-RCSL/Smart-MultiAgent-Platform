@@ -1,4 +1,4 @@
-aiosmtplib==3.0.2
+aiosmtplib==5.1.2
     # via smap-backend (pyproject.toml)
 alembic==1.13.3
     # via smap-backend (pyproject.toml)
@@ -249,7 +249,7 @@ uvicorn==0.32.1
     # via smap-backend (pyproject.toml)
 watchfiles==1.2.0
     # via uvicorn
-weasyprint==63.1
+weasyprint==68.1
     # via smap-backend (pyproject.toml)
 webencodings==0.5.1
     # via
