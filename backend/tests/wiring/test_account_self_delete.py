@@ -96,6 +96,8 @@ async def test_self_delete_cascades_projects_and_memberships() -> None:
             "projects_left": 1,
             "orgs_left": 1,
             "solo_orgs_deleted": 0,
+            "invites_revoked": 0,
+            "transfers_cancelled": 0,
         }
 
         u2 = await UserRepository(db).get_by_id(user.id)
