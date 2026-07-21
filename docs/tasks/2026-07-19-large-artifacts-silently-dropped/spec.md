@@ -305,6 +305,9 @@ drafted speculatively.
   held back and why (`test_the_note_admits_what_the_per_turn_cap_held_back`). Recorded separately
   from D-6 because it is the second time in this task that a bound was added without a signal, which
   is the pattern §5 identified as the root cause rather than the cap itself.
+- **D-10.** FU-4 through FU-7 were fixed in this task rather than deferred, on the user's instruction.
+  They were recorded as follow-ups because they are not required by any AC; that is still true, so
+  they are logged here rather than retro-fitted into the spec's Fix Design. See §15.
 
 **Build state (2026-07-19).** Gates: `pytest tests/unit` 5370 passed / 6 skipped, `ruff check`,
 `ruff format --check`, `mypy .` (792 files) clean. Integration and wiring tiers not run (no local
@@ -339,6 +342,31 @@ the audits did not. What the gates found:
 `ruff format --check`, `mypy .` (804 files) clean. Integration and wiring tiers not run (no local
 Postgres/Redis) and untouched.
 
+## 15. Follow-up sweep (2026-07-21)
+
+FU-4 through FU-7 were fixed in the same session rather than deferred (D-10). Two of the four turned
+out to pay for themselves immediately rather than being tidying:
+
+- **FU-6 removed a hidden test dependency, not just a layering smell.** Introducing the `_sandbox()`
+  seam broke `test_turn_artifacts`, which is how it surfaced that those application-layer tests had
+  been constructing the real gVisor runner all along and passing only because
+  `docker_runsc_sandbox_from_settings()` happens not to need a daemon at construction time. Nothing
+  declared that dependency and nothing would have failed if it had changed.
+- **FU-5 covered a method that had never been executed by a test.** Eight cases now exercise
+  `fetch_kernel_artifact` directly, including the FU-4 checks added beside them. Before this, the one
+  method binding the confinement, the header checks and the bounded read together was verified only
+  by assertions that it was *not* called.
+
+FU-6 also cost a regression worth recording, because the way it was caught is the point. The three
+test modules this task touches passed throughout; the full unit suite then failed 7 tests in
+`test_workspace_staging.py`, which builds the engine with `TurnEngine.__new__` to skip the settings
+and router wiring and so never ran `__init__`. `_sandbox_runner` is now a class-level default rather
+than only an `__init__` assignment. A refactor's blast radius is not bounded by the modules whose
+tests you thought to run, and a targeted run passing is not evidence that a seam is safe.
+
+FU-1, FU-2 and FU-3 remain open: they are genuine product and lifecycle questions (SRS wording,
+retention, volume cleanup) rather than defects in this code path.
+
 **Status stays `in-progress`.** AC-2 remains the only open criterion and still needs `/verify` on
 Linux + gVisor. The close-out review did not change that, but it did change what `/verify` is worth:
 a single-user reproduction on a quiet staging box exercises only the happy path, and D-4, D-5 and
@@ -359,7 +387,10 @@ current image; the image rebuild only keeps the comment honest. No lockstep requ
   (`retention_service.py:27`). An agent artifact is uploaded via `upload_agent_artifact` and bound
   to a message, so it presumably inherits the message's - but nothing states it, and nothing tested
   it. Type: `bugfix` or `docs` depending on what is found.
-- **FU-4: `_safe_artifact_path` is lexical, and the daemon resolves symlinks.** `get_archive`
+**FU-4 through FU-7 were fixed in this task** (D-10), not deferred. They are kept below as written,
+with their resolutions, because the reasoning for each is what justifies the fix.
+
+- **FU-4 [FIXED]: `_safe_artifact_path` is lexical, and the daemon resolves symlinks.** `get_archive`
   resolves symlinked directory components inside the container rootfs, and the agent owns `/session`
   read-write, so `os.symlink("/workspace", "/session/w")` makes a lexically-clean path resolve
   elsewhere. Currently harmless -- `/session/outputs` is now required as the exact parent, and the
@@ -367,20 +398,36 @@ current image; the image rebuild only keeps the comment honest. No lockstep requ
   cap, so the symlink buys no read the agent did not have. It stops being harmless the moment a
   third mount appears or `/workspace` regains a write bind, and there is no second control behind
   it. Verify the resolved leaf rather than trusting normalisation. Type: `bugfix`.
-- **FU-5: `fetch_kernel_artifact` has no direct test coverage.** It appears in the suite only as a
-  stub asserting it is *not* called; its helpers are tested in isolation. The fail-closed header
+  **Resolved:** the archive header is now checked for `linkTarget` and for Go's `os.FileMode` type
+  bits, so a symlinked or non-regular leaf fails closed instead of resting on normalisation. A
+  symlinked *directory component* is still resolvable inside the container rootfs and cannot be
+  detected from outside, so the residual argument remains the mount set -- which
+  `test_the_kernel_mounts_exactly_two_volumes` now pins, failing if a third mount or a write bind on
+  `/workspace` ever removes the premise.
+- **FU-5 [FIXED]: `fetch_kernel_artifact` has no direct test coverage.** It appears in the suite only
+  as a stub asserting it is *not* called; its helpers are tested in isolation. The fail-closed header
   check, the "no live kernel" branch and the `get_archive` failure branch are all unexercised, which
   is the same shape of gap that let the missing second tier survive. Needs a fake Docker client.
-  Type: `test`.
-- **FU-6: `TurnEngine` constructs the sandbox from infrastructure in two places.** Function-local
-  imports of `docker_runsc_sandbox_from_settings` at the workspace-staging site and the artifact
-  fallback. The dependency itself is correctly inverted (`SandboxRunner` in `mcp_ports`); only
-  construction reaches down. An injection point already exists and is already used by this class --
-  `BuiltinToolDeps.runner` -- so both sites can be retired together. Type: `refactor`.
-- **FU-7: `_persist_artifacts` carries too many responsibilities.** Dedup, two acquisition
+  Type: `test`. **Resolved:** `TestFetchKernelArtifact`, eight cases against a fake Docker client,
+  covering the happy path, symlink and directory leaves, unreadable header, over-ceiling, a
+  `get_archive` failure, an absent kernel, and that a hostile path never reaches the daemon at all.
+- **FU-6 [FIXED]: `TurnEngine` constructs the sandbox from infrastructure in two places.**
+  Function-local imports of `docker_runsc_sandbox_from_settings` at the workspace-staging site and
+  the artifact fallback. The dependency itself is correctly inverted (`SandboxRunner` in
+  `mcp_ports`); only construction reaches down. An injection point already exists and is already used
+  by this class -- `BuiltinToolDeps.runner` -- so both sites can be retired together. Type:
+  `refactor`. **Resolved:** one `TurnEngine._sandbox()` seam, lazy and cached, with an optional
+  `sandbox_runner` constructor parameter. This also removed a hidden coupling the quality audit
+  flagged: `test_turn_artifacts` was reaching the real factory and passing only because it happens to
+  construct without a Docker daemon. It is now stubbed explicitly.
+- **FU-7 [FIXED]: `_persist_artifacts` carries too many responsibilities.** Dedup, two acquisition
   strategies, budget, drop accounting, shortfall logging, concurrent upload and transaction control
   in one ~120-line method. "Obtain bytes for a descriptor" is cleanly separable with two
-  interchangeable implementations. Type: `refactor`.
+  interchangeable implementations. Type: `refactor`. **Resolved:** extracted
+  `TurnEngine._artifact_bytes`, which owns all three acquisition paths (hydrated, inline b64,
+  fallback fetch) and returns `None` for "cannot be delivered"; the loop keeps only accounting and
+  persistence. The fallback's failure latch moved to an explicit `_Acquisition` so the per-artifact
+  helper carries no batch state.
 - **FU-3: `_OUTPUTS` is never cleaned.** `_collect_artifacts` diffs on mtime (`kernel.py:88-89`), so
   a file untouched by a later call is simply not re-reported - but it stays on the session volume
   forever, against a volume with no enforced quota (`2026-07-19-session-dir-room-isolation` FU-1).
