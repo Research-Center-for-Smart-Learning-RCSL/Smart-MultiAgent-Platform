@@ -340,6 +340,18 @@ class _TurnCancelled(Exception):
         super().__init__(f"turn cancelled after {rounds_completed} rounds")
 
 
+@dataclass(slots=True)
+class _Acquisition:
+    """Per-batch latch for the artifact fallback fetch.
+
+    Mutable and passed down rather than returned, because the flag has to
+    survive across artifacts within one `_persist_artifacts` call while the
+    per-artifact helper stays free of batch state.
+    """
+
+    failed: bool = False
+
+
 @dataclass(frozen=True, slots=True)
 class _Starvation:
     """The knowledge budget floored at 0 while the agent had a source bound.
@@ -501,6 +513,12 @@ class _SystemBlocks:
 
 
 class TurnEngine:
+    # Class-level default, not only an `__init__` assignment: several test
+    # fixtures build the engine with `TurnEngine.__new__` to skip the settings,
+    # router and qdrant wiring, so an instance attribute alone would leave the
+    # sandbox seam missing on exactly the paths those fixtures exercise.
+    _sandbox_runner: SandboxRunner | None = None
+
     def __init__(
         self,
         db: AsyncSession,
@@ -509,8 +527,15 @@ class TurnEngine:
         qdrant_url: str | None = None,
         qdrant_api_key: str | None = None,
         bge_reranker_url: str | None = None,
+        sandbox_runner: SandboxRunner | None = None,
     ) -> None:
         self._db = db
+        # The one construction seam for the gVisor runner. Lazy, because most
+        # turns never touch the sandbox; cached, because a turn that does can
+        # need it twice (staging inputs, then fetching an artifact); injectable,
+        # because the alternative was two function-local infrastructure imports
+        # that a unit test then depended on succeeding without a Docker daemon.
+        self._sandbox_runner = sandbox_runner
         self._router = router or build_router(db)
         self._qdrant_url = qdrant_url
         self._qdrant_api_key = qdrant_api_key
@@ -984,15 +1009,12 @@ class TurnEngine:
         the bind and the tap re-checks), so there is nothing to advertise unrunnable."""
         try:
             from contexts.agents.domain.mcp import StagedFile
-            from contexts.agents.infrastructure.sandbox.docker_runsc import (
-                docker_runsc_sandbox_from_settings,
-            )
 
             if AgentToolType.HOSTED_CODE_INTERPRETER not in _enabled_tool_types(agent_tools):
                 return None, []
 
             agents_facade = AgentsFacade(self._db)
-            runner = docker_runsc_sandbox_from_settings()
+            runner = self._sandbox()
             all_paths: list[str] = []
 
             # --- persisted agent workspace files (D.4) ---
@@ -1254,6 +1276,71 @@ class TurnEngine:
         out_paths.extend(paths)
         return dropped
 
+    async def _artifact_bytes(
+        self,
+        art: dict[str, Any],
+        agent: Agent,
+        chatroom_id: uuid.UUID,
+        acquire: _Acquisition,
+    ) -> bytes | None:
+        """The bytes behind one descriptor, however they have to be obtained.
+
+        Three sources, tried in the order they are cheap. Extracted from
+        `_persist_artifacts` because "obtain the bytes" and "account for what
+        was lost and persist the rest" are separable, and only the first has
+        interchangeable implementations.
+
+        ``None`` means this artifact cannot be delivered; the caller records it.
+        Never raises: the descriptor is agent-authored, and one malformed entry
+        must not reach the batch handler and discard the artifacts that were fine.
+        """
+        import base64
+
+        name = str(art.get("filename") or "artifact")
+        # Already pulled off the kernel at exec time, which is where the fetch
+        # belongs: the container was provably alive then, whereas this runs
+        # after the whole turn and races LRU eviction
+        # (`builtin_tools._hydrate_oversized` carries the reasoning).
+        hydrated = art.get("data")
+        if isinstance(hydrated, bytes | bytearray):
+            return bytes(hydrated)
+        b64 = art.get("b64")
+        if b64:
+            try:
+                return base64.b64decode(b64)
+            except Exception:
+                _log.warning("artifact %s has undecodable b64 - dropping", name, exc_info=True)
+                return None
+        # Not inlined and not hydrated: no chatroom to fetch against, or a
+        # producer that bypassed the tool. Until 2026-07-19 this was a bare
+        # `continue` and the file was destroyed with no trace anywhere.
+        if acquire.failed:
+            return None
+        try:
+            return await self._fetch_large_artifact(self._sandbox(), agent, chatroom_id, art)
+        except Exception:
+            _log.warning("sandbox runner unavailable for %s", name, exc_info=True)
+            acquire.failed = True
+            return None
+
+    def _sandbox(self) -> SandboxRunner:
+        """The gVisor runner, constructed at most once per engine.
+
+        The single place this application-layer class reaches into
+        infrastructure to *build* something. The dependency itself is already
+        inverted -- `SandboxRunner` is declared in `application.mcp_ports` and
+        every consumer types against it -- so what is centralised here is only
+        the construction, which has to happen somewhere. It was happening in two
+        function-local imports that had to be kept in step by hand.
+        """
+        if self._sandbox_runner is None:
+            from contexts.agents.infrastructure.sandbox.docker_runsc import (
+                docker_runsc_sandbox_from_settings,
+            )
+
+            self._sandbox_runner = docker_runsc_sandbox_from_settings()
+        return self._sandbox_runner
+
     async def _fetch_large_artifact(
         self,
         runner: SandboxRunner,
@@ -1306,7 +1393,6 @@ class TurnEngine:
         if not artifacts:
             return 0
         import asyncio
-        import base64
 
         from contexts.conversation.application.attachment_service import AttachmentService
 
@@ -1319,13 +1405,10 @@ class TurnEngine:
             # with like: `len(artifacts)` counts duplicates the dedup already
             # discarded, which would report a loss that never happened.
             candidates = 0
-            # Built once per turn, not per artifact, and lazily: most turns
-            # produce nothing oversized and must not pay for a sandbox at all.
-            # `runner_failed` latches, because without it a construction error
-            # is retried -- and re-logged with a full stack -- for every
+            # Latches after a construction or fetch fault so the fallback is not
+            # re-attempted -- and re-logged with a full stack -- for every
             # remaining artifact, exactly when it is already failing.
-            runner: SandboxRunner | None = None
-            runner_failed = False
+            acquire = _Acquisition()
             budget = 0
             for art in artifacts:
                 rel = str(art.get("rel_path") or art.get("filename") or "")
@@ -1343,60 +1426,15 @@ class TurnEngine:
                 # method-level handler, discarding the artifacts that were fine.
                 name = str(art.get("filename") or "artifact")
                 size = artifact_size_bytes(art)
-                b64 = art.get("b64")
                 # The backstop behind `_hydrate_oversized`'s budget, covering
                 # inline artifacts and any producer that never passed through it.
                 if len(prepared) >= MAX_ARTIFACTS_PER_TURN or budget > MAX_ARTIFACT_TOTAL_BYTES:
                     dropped.append((name, size))
                     continue
-                # Already pulled off the kernel at exec time, which is where the
-                # fetch belongs: the container was provably alive then, whereas
-                # this method runs after the whole turn and races LRU eviction
-                # (`builtin_tools._hydrate_oversized` carries the reasoning).
-                hydrated = art.get("data")
-                if isinstance(hydrated, bytes | bytearray):
-                    prepared.append(
-                        (
-                            name,
-                            str(art.get("mime") or "application/octet-stream"),
-                            bytes(hydrated),
-                        )
-                    )
-                    budget += len(hydrated)
+                data = await self._artifact_bytes(art, agent, chatroom_id, acquire)
+                if data is None:
+                    dropped.append((name, size))
                     continue
-                if not b64:
-                    # Too large for the exec reply and not hydrated -- no
-                    # chatroom to fetch against, or a producer that bypassed the
-                    # tool. Fetch it here as a fallback. Until 2026-07-19 this
-                    # was a bare `continue` and the file was destroyed silently.
-                    data = None
-                    if not runner_failed:
-                        try:
-                            if runner is None:
-                                from contexts.agents.infrastructure.sandbox.docker_runsc import (
-                                    docker_runsc_sandbox_from_settings,
-                                )
-
-                                runner = docker_runsc_sandbox_from_settings()
-                            data = await self._fetch_large_artifact(runner, agent, chatroom_id, art)
-                        except Exception:
-                            # Per-artifact, not per-batch. The outer handler covers the
-                            # DB and upload work below; letting one malformed descriptor
-                            # reach it would discard every artifact that decoded fine,
-                            # which is a worse outcome than the loss being fixed here.
-                            _log.warning("sandbox runner unavailable for %s", name, exc_info=True)
-                            runner_failed = True
-                            data = None
-                    if data is None:
-                        dropped.append((name, size))
-                        continue
-                else:
-                    try:
-                        data = base64.b64decode(b64)
-                    except Exception:
-                        _log.warning("artifact %s has undecodable b64 — dropping", name, exc_info=True)
-                        dropped.append((name, size))
-                        continue
                 prepared.append(
                     (
                         name,
