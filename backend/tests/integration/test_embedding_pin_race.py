@@ -29,6 +29,9 @@ from contexts.knowledge.domain.embedding_pin import PinKind, TeardownOutcome
 from contexts.knowledge.infrastructure.embedding_pin_repository import EmbeddingPinRepository
 from contexts.knowledge.infrastructure.embedding_pin_tables import project_embedding_pins as pins_t
 
+# Real Postgres required (see module docstring) -- routed to the backend-db CI job.
+pytestmark = pytest.mark.db
+
 # `sessionmaker` and `project_id` fixtures come from tests/integration/conftest.py.
 
 

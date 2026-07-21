@@ -309,6 +309,9 @@ module = [
   "contexts.conversation.infrastructure.repositories",
   "contexts.conversation.infrastructure.repositories.*",
   "contexts.conversation.interfaces.facade",
+  "contexts.skills.infrastructure.repositories",
+  "contexts.knowledge.infrastructure.knowmap_repositories",
+  "contexts.knowledge.infrastructure.graphrag_repositories",
   "contexts.identity.application.impersonation_service",
   "contexts.identity.application.admin_service",
   "app.workers.tasks.retention",
@@ -347,9 +350,24 @@ disable_error_code = ["attr-defined", "type-arg", "union-attr", "no-untyped-call
 # subclass Filter"). Runtime-correct; the subclass is exercised by the sanitize
 # tests. Scoped to this one module so the rest of the strict shared_kernel zone
 # keeps full `misc` checking.
+#
+# `attr-defined` rides along for the same class: newer types-bleach dropped
+# `Filter` from the `bleach.html5lib_shim` stub even though bleach 6.4 re-exports
+# it at runtime, so the import itself is flagged. That import is the module's
+# only attr-defined error.
 [[tool.mypy.overrides]]
 module = ["shared_kernel.markdown.sanitize"]
-disable_error_code = ["misc"]
+disable_error_code = ["misc", "attr-defined"]
+
+# redis-py's `Redis` is generic in the stubs but unparameterised in the library's
+# own examples and at runtime; these modules annotate it bare (`type-arg`). Kept
+# separate from the redis blocks above so only `type-arg` is relaxed here.
+[[tool.mypy.overrides]]
+module = [
+  "contexts.prompt_studio.infrastructure.session_store",
+  "contexts.prompt_studio.application.session_service",
+]
+disable_error_code = ["type-arg"]
 
 # ---------- Pytest ----------
 [tool.pytest.ini_options]
@@ -359,6 +377,7 @@ addopts = "-ra --strict-markers --strict-config"
 markers = [
   "unit: fast, isolated unit tests",
   "integration: requires infra (DB/Redis/Vault/etc.) — skipped in fmt/lint CI",
+  "db: needs a provisioned datastore (real Postgres or Neo4j), not a fake — advisory locks, cascade deletes, Cypher visibility. Run by the backend-db CI job inside the compose network; excluded from backend-integration, which provisions no live infra",
   "e2e: full-stack tests; Playwright or compose.test.yml",
   "wiring: cross-context tripwires (K.7) — real Postgres+Redis+MailHog from compose.test.yml, FakeAdapter LLM; run by the backend-wiring CI job",
 ]

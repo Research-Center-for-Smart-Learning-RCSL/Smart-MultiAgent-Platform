@@ -24,6 +24,9 @@ from contexts.keys.infrastructure import tables as t
 from contexts.keys.infrastructure.group_repository import KeyGroupMemberRepository
 from contexts.knowledge.application.embed_resolution import resolve_embed_key
 
+# Real Postgres required (see module docstring) -- routed to the backend-db CI job.
+pytestmark = pytest.mark.db
+
 # `sessionmaker` and `project` fixtures come from tests/integration/conftest.py.
 
 
