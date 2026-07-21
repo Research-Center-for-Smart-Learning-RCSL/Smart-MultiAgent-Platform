@@ -43,9 +43,24 @@ test.describe('Create Agent → attach RAG → ingest doc → grounded answer', 
     // 422s. The seeded group holds an OpenAI key only.
     await page.locator('#model_hint').selectOption('openai')
 
+    // The create POST is ground truth, the same way the login fixture treats the
+    // login response: a rejected create leaves the form in place with an inline
+    // field error and no navigation, so asserting only on the URL turns every
+    // backend rejection — and every request that never left the page — into an
+    // opaque 60s timeout that says nothing about which of the two happened.
+    const created = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'POST' &&
+        new URL(r.url()).pathname === `/api/projects/${projectId}/agents`,
+      { timeout: 20_000 },
+    )
+
     // agents.detail.save = "Save Changes" (page header; the duplicate in the
     // mobile bottom bar is v-if="isMobile" and absent at desktop viewports).
     await page.locator('.s-page-header').getByRole('button', { name: 'Save Changes' }).click()
+
+    const createResp = await created
+    expect(createResp.status(), await createResp.text()).toBe(201)
 
     // On success AgentDetailView replaces the route with the created agent's id.
     await page.waitForURL((url) => /^\/agents\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith('/new'))
