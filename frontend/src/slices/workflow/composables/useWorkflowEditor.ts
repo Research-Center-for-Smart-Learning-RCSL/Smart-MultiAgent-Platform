@@ -72,8 +72,14 @@ export function useWorkflowEditor(): WorkflowEditorApi {
     edges: [],
   })
 
-  const flowNodes = ref<FlowNode[]>([])
-  const flowEdges = ref<FlowEdge[]>([])
+  // Deliberately `ref([])` + cast rather than `ref<FlowNode[]>([])`: since
+  // @vue-flow/core 1.48 those types are deep enough that having TS compute
+  // UnwrapRef over them trips TS2589 ("type instantiation is excessively
+  // deep"). Passing the element type through the cast instead of the type
+  // argument skips that computation. Runtime is unchanged — still a deep
+  // reactive ref, which VueFlow's v-model:nodes binding relies on.
+  const flowNodes = ref([]) as Ref<FlowNode[]>
+  const flowEdges = ref([]) as Ref<FlowEdge[]>
   const selectedEdgeId = ref<string | null>(null)
   const paletteOpen = ref(false)
   let nodeCounter = 0
