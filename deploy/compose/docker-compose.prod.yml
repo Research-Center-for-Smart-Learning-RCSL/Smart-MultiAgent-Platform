@@ -217,6 +217,10 @@ services:
 
   neo4j:
     <<: *security-defaults
+    # The image entrypoint runs as root: it chowns /var/lib/neo4j and /data to
+    # the neo4j user, then drops privileges. Under a bare `cap_drop: ALL` every
+    # chown fails and the entrypoint exits 1 before the JVM starts.
+    cap_add: [CHOWN, SETUID, SETGID, FOWNER, DAC_OVERRIDE]
     restart: unless-stopped
     shm_size: 2g
     environment:
