@@ -1177,8 +1177,62 @@ jobs:
           docker compose \
             -f deploy/compose/docker-compose.yml \
             -f deploy/compose/docker-compose.prod.yml \
-            up -d --wait --wait-timeout 60 \
-            frontend egress-proxy mcp-sandbox-supervisor
+            up -d --wait --wait-timeout 90 \
+            frontend egress-proxy
+
+      # mcp-sandbox-supervisor is deliberately OUTSIDE the --wait set above.
+      # Its /healthz is a gVisor readiness gate: main.py shells out to
+      # `docker info` and returns 503 unless the `runsc` runtime is registered.
+      # Hosted runners have no gVisor, so waiting on it can only ever time out
+      # -- which is exactly what it did, taking the whole job down with it. The
+      # runsc assertion is host-side and belongs to the staging box, the same
+      # split the sandbox-images job documents.
+      #
+      # What IS checkable here is that the image boots and serves: the port
+      # answers, and the process is still up afterwards rather than crash-
+      # looping. A 503 body carrying the runsc complaint is the expected,
+      # correct response on a runner without gVisor.
+      - name: Start the sandbox supervisor (unwaited — runners have no gVisor)
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/docker-compose.prod.yml \
+            up -d mcp-sandbox-supervisor
+
+          # No published port and backend_net is not reachable from the runner,
+          # so the probe runs inside the container. HTTPError is caught rather
+          # than left to propagate: a non-2xx IS the answer being looked for
+          # here, and only a connection error means nothing is listening.
+          #
+          # The python body sits at the block scalar's own indentation, which
+          # YAML strips, so the interpreter receives it at column 0. Indenting
+          # it further would be an IndentationError; dedenting it past the
+          # block would end the scalar and break the workflow's YAML.
+          code=""
+          for i in $(seq 1 20); do
+            code="$(docker exec smap_mcp_sandbox python3 -c '
+          import urllib.error, urllib.request
+
+          try:
+              print(urllib.request.urlopen("http://127.0.0.1:9090/healthz", timeout=4).status)
+          except urllib.error.HTTPError as exc:
+              print(exc.code)
+          ' 2>/dev/null)" || true
+            if [ -n "$code" ]; then
+              echo "supervisor /healthz answered with HTTP $code"
+              break
+            fi
+            echo "waiting for the supervisor to bind ($i/20)…"
+            sleep 3
+          done
+          if [ -z "$code" ]; then
+            echo "FAIL: supervisor never served /healthz"
+            docker compose \
+              -f deploy/compose/docker-compose.yml \
+              -f deploy/compose/docker-compose.prod.yml \
+              logs --no-color --tail=50 mcp-sandbox-supervisor
+            exit 1
+          fi
 
       - name: Verify no crashed services
         run: |
