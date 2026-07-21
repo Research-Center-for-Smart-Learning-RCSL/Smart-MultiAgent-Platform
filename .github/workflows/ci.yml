@@ -700,9 +700,17 @@ jobs:
       - name: Install backend (+ pip-audit)
         working-directory: backend
         run: pip install -e '.[dev]'
+      # PYSEC-2026-3412 (WeasyPrint CSS injection via presentational hints) has no
+      # fixed release as of 68.1. It only bites callers that pass
+      # presentational_hints=True; our single call site
+      # (contexts/conversation/application/chat_export_service.py) leaves it at the
+      # default False, so the injection path is unreachable. Drop this ignore once
+      # upstream ships a fix.
       - name: "pip-audit (backend)"
         working-directory: backend
-        run: python -m pip_audit --desc on --progress-spinner off
+        run: >-
+          python -m pip_audit --desc on --progress-spinner off
+          --ignore-vuln PYSEC-2026-3412
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v6
@@ -1026,27 +1034,26 @@ jobs:
   compose-validate:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Every `${VAR:?}` in the prod/staging overlays must have a value here or
+    # `config` aborts. Job-level so a newly required var only has to be added once.
+    env:
+      SMAP_DB_PASSWORD: validate
+      SMAP_REDIS_PASSWORD: validate
+      SMAP_NEO4J_PASSWORD: validate
+      SMAP_MINIO_ROOT_USER: validate
+      SMAP_MINIO_ROOT_PASSWORD: validate
+      EGRESS_PROXY_SHARED_SECRET: validate
     steps:
       - uses: actions/checkout@v6
       - name: Validate dev compose
         run: docker compose -f deploy/compose/docker-compose.yml config > /dev/null
       - name: Validate prod overlay
-        env:
-          SMAP_DB_PASSWORD: validate
-          SMAP_REDIS_PASSWORD: validate
-          SMAP_MINIO_ROOT_USER: validate
-          SMAP_MINIO_ROOT_PASSWORD: validate
         run: |
           docker compose \
             -f deploy/compose/docker-compose.yml \
             -f deploy/compose/docker-compose.prod.yml \
             config > /dev/null
       - name: Validate staging overlay
-        env:
-          SMAP_DB_PASSWORD: validate
-          SMAP_REDIS_PASSWORD: validate
-          SMAP_MINIO_ROOT_USER: validate
-          SMAP_MINIO_ROOT_PASSWORD: validate
         run: |
           docker compose \
             -f deploy/compose/docker-compose.yml \
@@ -1074,6 +1081,7 @@ jobs:
     env:
       SMAP_DB_PASSWORD: ci_test_pwd
       SMAP_REDIS_PASSWORD: ci_test_pwd
+      SMAP_NEO4J_PASSWORD: ci_test_pwd
       SMAP_MINIO_ROOT_USER: ci_minio
       SMAP_MINIO_ROOT_PASSWORD: ci_minio_pwd
       EGRESS_PROXY_SHARED_SECRET: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
