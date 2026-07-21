@@ -448,6 +448,7 @@
         "allowedToolsRequired": "List at least one tool name.",
         "advancedConfig": "Advanced Configuration",
         "invalidJson": "Config must be valid JSON.",
+        "submitBlocked": "This server could not be saved",
         "test": "Test",
         "testOk": "Connection OK -- {count} tools discovered in {ms}ms",
         "testBad": "Failed",
