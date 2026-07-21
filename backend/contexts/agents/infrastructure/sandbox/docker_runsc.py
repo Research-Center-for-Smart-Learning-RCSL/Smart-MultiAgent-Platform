@@ -43,7 +43,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from hashlib import sha256
 from io import UnsupportedOperation
-from typing import Any, Literal
+from typing import IO, Any, Literal, cast
 
 from contexts.agents.domain.errors import (
     McpEgressDenied,
@@ -371,7 +371,10 @@ def _single_member_tar_bytes(stream: Any, max_bytes: int) -> bytes | None:
 
     try:
         reader = _CappedReader(stream, max_bytes + _TAR_FRAMING_SLACK)
-        with tarfile.open(fileobj=reader, mode="r|*") as tar:
+        # Older typeshed types the read-mode overload's `fileobj` as `IO[bytes]`
+        # rather than the structural `_Fileobj` protocol `_CappedReader` satisfies;
+        # stream mode ("r|*") only ever calls read/tell/close on it.
+        with tarfile.open(fileobj=cast(IO[bytes], reader), mode="r|*") as tar:
             for member in tar:
                 if not member.isfile():
                     continue

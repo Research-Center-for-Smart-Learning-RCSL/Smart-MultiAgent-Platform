@@ -22,6 +22,9 @@ from contexts.knowledge.domain.graphrag import Triple
 from contexts.knowledge.infrastructure import neo4j_driver as neo4j_driver_mod
 from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
 
+# Real Neo4j required (see module docstring) -- routed to the backend-db CI job.
+pytestmark = pytest.mark.db
+
 _PROJECT_ID = uuid.uuid4()
 
 

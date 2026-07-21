@@ -176,7 +176,8 @@ def _quoted_end(text: str, quote: str, start: int) -> int | None:
 
 
 def _flow_end(text: str, start: int) -> int | None:
-    i, quote = start, None
+    i = start
+    quote: str | None = None
     while i < len(text):
         ch = text[i]
         if quote is not None:

@@ -27,6 +27,9 @@ from contexts.identity.infrastructure.tables import users as users_t
 from contexts.tenancy.infrastructure.tables import orgs as orgs_t
 from contexts.tenancy.infrastructure.tables import projects as projects_t
 
+# Real Postgres required (see module docstring) -- routed to the backend-db CI job.
+pytestmark = pytest.mark.db
+
 # Comfortably past SOFT_DELETE_RETENTION_DAYS (60), so the real cutoff applies
 # and no test has to patch `now`.
 _LONG_AGO = datetime.now(UTC) - timedelta(days=100)

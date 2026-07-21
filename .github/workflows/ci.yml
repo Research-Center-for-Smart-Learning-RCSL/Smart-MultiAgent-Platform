@@ -80,7 +80,7 @@ jobs:
       # Unit tier only. The `integration` / `wiring` markers now genuinely
       # filter (K.7): integration tests run in backend-integration, the
       # cross-context wiring tier in backend-wiring.
-      - run: pytest -q --cov=app --cov=contexts --cov=shared_kernel -m "not integration and not e2e and not wiring"
+      - run: pytest -q --cov=app --cov=contexts --cov=shared_kernel -m "not integration and not e2e and not wiring and not db"
 
   # ──────────────────────────────────────────────
   # Integration tier — cross-boundary via TestClient + stubs (no live infra)
@@ -100,7 +100,75 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
       - run: pip install -e '.[dev]'
-      - run: pytest -q -m "integration and not wiring"
+      # `db`-marked tests live in this directory too but need a provisioned
+      # datastore, so they belong to backend-db, not here.
+      - run: pytest -q -m "integration and not wiring and not db"
+
+  # ──────────────────────────────────────────────
+  # Datastore tier — real Postgres + Neo4j
+  # ──────────────────────────────────────────────
+  # Tests whose subject IS a datastore property a fake cannot have: advisory-lock
+  # serialization, READ COMMITTED re-evaluation on a concurrent restore, cascade
+  # deletes, Neo4j UNWIND write visibility. Runs inside the compose network so the
+  # `postgres`/`neo4j` hostnames the settings default to resolve.
+  backend-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Start data services
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/compose.test.yml \
+            up -d --wait --wait-timeout 180 postgres redis vault neo4j
+      - name: Apply DB migrations
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/compose.test.yml \
+            run --rm --no-deps \
+            -e SMAP_APP_ENV=test \
+            -e SMAP_DB_DSN=postgresql+asyncpg://smap:smap@postgres:5432/smap_test \
+            -e VAULT_ADDR=http://vault:8200 \
+            -e VAULT_TOKEN=root \
+            backend-web python -m smap.bootstrap db-init
+      # Same bind-mount/root rationale as the wiring tier below: the runtime image
+      # ships without tests/ and appuser cannot write site-packages.
+      - name: Run datastore tier
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/compose.test.yml \
+            run --rm --no-deps \
+            --volume "${{ github.workspace }}/backend:/app" \
+            --user root \
+            -e SMAP_APP_ENV=test \
+            -e SMAP_DB_DSN=postgresql+asyncpg://smap:smap@postgres:5432/smap_test \
+            -e SMAP_REDIS_DSN=redis://redis:6379/1 \
+            -e VAULT_ADDR=http://vault:8200 \
+            -e VAULT_TOKEN=root \
+            backend-web sh -lc "pip install -e '.[dev]' && pytest -q -m db"
+      - name: Dump stack logs on failure
+        if: failure()
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/compose.test.yml \
+            logs --no-color postgres redis vault neo4j > db-stack.log || true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: db-stack-logs
+          path: db-stack.log
+          retention-days: 7
+      - name: Tear down
+        if: always()
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/compose.test.yml \
+            down -v
 
   # ──────────────────────────────────────────────
   # Wiring tier (K.7) — real Postgres + Redis + MailHog, FakeAdapter LLM
@@ -1165,6 +1233,7 @@ jobs:
       - backend-typecheck
       - backend-test
       - backend-integration
+      - backend-db
       - backend-wiring
       - sandbox-images
       - dependency-audit
@@ -1188,6 +1257,7 @@ jobs:
           echo "  backend-typecheck:          ${{ needs.backend-typecheck.result }}"
           echo "  backend-test:               ${{ needs.backend-test.result }}"
           echo "  backend-integration:        ${{ needs.backend-integration.result }}"
+          echo "  backend-db:                 ${{ needs.backend-db.result }}"
           echo "  backend-wiring:             ${{ needs.backend-wiring.result }}"
           echo "  sandbox-images:             ${{ needs.sandbox-images.result }}"
           echo "  dependency-audit:           ${{ needs.dependency-audit.result }}"
@@ -1210,6 +1280,7 @@ jobs:
             "${{ needs.backend-typecheck.result }}" \
             "${{ needs.backend-test.result }}" \
             "${{ needs.backend-integration.result }}" \
+            "${{ needs.backend-db.result }}" \
             "${{ needs.backend-wiring.result }}" \
             "${{ needs.sandbox-images.result }}" \
             "${{ needs.dependency-audit.result }}" \

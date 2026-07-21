@@ -61,7 +61,10 @@ def bounded_json(
     create and patch payloads.
     """
 
-    def _check(value: _T) -> _T:
+    # `_T | None`, not a bare `_T`: the guard below is real (an optional field
+    # annotated with one of the aliases hands the validator None), and a bare
+    # TypeVar leaves mypy reading that branch as dead.
+    def _check(value: _T | None) -> _T | None:
         if value is None:
             return value
         depth, nodes = _measure(value)
