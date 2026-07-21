@@ -216,6 +216,25 @@ to the room and a >32 MB variant to produce a warning and a model-visible note.
       (`test_an_unfetchable_artifact_is_reported_not_swallowed`). The sibling undecodable-b64 path
       was raised from debug to warning at the same time (§6).
 
+Added 2026-07-21 during close-out review, from the findings in §14. Same numbering rule: appended,
+never renumbered.
+
+- [x] AC-9: The fetch happens at the exec reply, not at the end of the turn
+      (`test_an_oversized_artifact_is_fetched_at_exec_time_not_at_turn_end`), and a repeat is not
+      re-fetched (`test_a_repeated_artifact_is_not_fetched_twice`).
+- [x] AC-10: The fetch path is confined to one regular file directly under `/session/outputs`, so a
+      directory cannot be archived (`test_refuses_a_directory`), and the archive read is bounded
+      while streaming rather than after buffering (`test_aborts_a_stream_that_outgrows_its_budget`,
+      `test_survives_a_stream_that_is_not_a_tar`).
+- [x] AC-11: A per-turn artifact count and byte budget bounds the batch, not just each file
+      (`test_the_per_turn_artifact_budget_stops_the_fetching`).
+- [x] AC-12: The model-visible note cannot forge a platform line
+      (`test_the_artifact_note_cannot_forge_a_platform_line`) and is bounded without being
+      truncated away (`test_the_artifact_note_is_bounded_but_survives_a_flooding_stdout`).
+- [x] AC-13: A hostile descriptor field costs one artifact, never the batch or the tool result
+      (`test_a_hostile_size_costs_one_artifact_not_the_batch`,
+      `test_a_hostile_size_does_not_fail_the_whole_call`).
+
 ## 11. SRS Delta
 
 **None, but the silence is itself notable.** `REQUIREMENTS.md` does not mention `code_exec`
@@ -245,12 +264,86 @@ drafted speculatively.
   controls, so trusting the header alone would let a grown file be silently truncated into a
   corrupt artifact - worse than the loss this task is fixing.
 
+- **D-4.** §7.1 said the fetch happens "after a reply arrives" and §9 was explicit that it should sit
+  "inside the same held handle lock" to minimise the eviction window. The first build put it in
+  `_persist_artifacts`, which runs after the whole turn has finished and committed, leaving a window
+  as long as the turn. `_MAX_LIVE_KERNELS` is 16 and `_evict_if_full` drops the LRU kernel whenever
+  *any* room starts one, so on a busy host another tenant's turn evicts this room's kernel before the
+  fetch. That fails safe (T-4) but presents as artifacts that land on a quiet box and vanish under
+  load, which is harder to diagnose than the silent loss this task set out to fix. Moved to
+  `builtin_tools._hydrate_oversized`, at the exec reply. `_persist_artifacts` keeps its fetch as a
+  fallback for descriptors that never passed through the tool.
+- **D-5.** `_safe_session_path` accepted any path under `/session`, including directories and the
+  mount itself. `get_archive` on a directory streams a tar of the whole tree while the stat header
+  reports the ~4 KiB directory inode, so the size ceiling waved it through and `b"".join(stream)`
+  buffered the lot -- and the session volume has no size option, so it is bounded only by host disk.
+  Replaced by `_safe_artifact_path`, which requires a basename directly under `/session/outputs`
+  (what `_collect_artifacts` can actually produce), and `b"".join` replaced by `_CappedReader`, which
+  aborts mid-stream. D-3 claimed the read was "bounded twice"; it was not, and that claim is now
+  true rather than aspirational.
+- **D-6.** Nothing bounded the artifact *set*. Before the host-side tier the kernel's own 512 MB
+  reply budget capped a batch implicitly; fetching deliberately routes around that budget, so one
+  32 MB file hardlinked to a thousand names -- each a distinct `rel_path`, so dedup passes -- made
+  the shared worker hold 32 GB. Added `MAX_ARTIFACTS_PER_TURN` and `MAX_ARTIFACT_TOTAL_BYTES`,
+  enforced before the fetch and again as a backstop at persist time.
+- **D-7.** The note interpolated `filename` raw and was appended *after* `clip_tool_output`. A POSIX
+  filename may contain newlines, so an agent could forge a line indistinguishable from the note's own
+  bracketed framing, outside the backstop every other tool output passes through. Names now go
+  through `safe_input_name` -- the control `shared_kernel.storage.sanitize` already applies for
+  exactly this reason -- and `clip_tool_output` gained a `reserve` parameter so the note is bounded
+  *and* cannot be truncated away by a chatty stdout. Both directions matter: a model told nothing
+  about its artifacts confabulates delivery.
+- **D-8.** `int(art.get("size_bytes") or 0)` was unguarded in three places. Every descriptor field is
+  agent-controlled, and `int("enormous")` raised past the per-artifact guards into the batch handler,
+  discarding artifacts that had decoded fine -- a milder rerun of the exact silent batch loss this
+  task exists to end -- and in `_artifact_note` it threw away the stdout of a run that had succeeded.
+  Replaced by `tool_registry.artifact_size_bytes`, which is total.
+
+- **D-9.** D-6's per-turn cap silently truncated the model's own note to the first
+  `MAX_ARTIFACTS_PER_TURN` names, which would have rebuilt this task's defect in miniature: the model
+  reads a complete-looking list and concludes everything landed. The note now states how many were
+  held back and why (`test_the_note_admits_what_the_per_turn_cap_held_back`). Recorded separately
+  from D-6 because it is the second time in this task that a bound was added without a signal, which
+  is the pattern §5 identified as the root cause rather than the cap itself.
+
 **Build state (2026-07-19).** Gates: `pytest tests/unit` 5370 passed / 6 skipped, `ruff check`,
 `ruff format --check`, `mypy .` (792 files) clean. Integration and wiring tiers not run (no local
 Postgres/Redis) and untouched.
 
 All ACs met except **AC-2**, which needs `/verify` on Linux + gVisor - only a live container
 exercises `get_archive`. This joins the four other verification items blocked on the same tier.
+
+## 14. Close-out review (2026-07-21)
+
+The task was reopened at close-out rather than marked implemented, because the checkpoint held but
+the audits did not. What the gates found:
+
+- **The eviction window (D-4)** was found by reading the fix against its own §9, not by a tool. No
+  test failed, because T-4 correctly covers the degradation - the defect was that the degradation
+  would fire routinely under load rather than rarely. Worth recording as a pattern: a risk section
+  that names a mitigation is a checkable claim, and this one had gone unimplemented and unnoticed
+  through a build and a code review.
+- **`check-security`**: no Critical. Two Introduced High (D-5, D-6), both variants of one root cause
+  - the fetch tier removed the kernel's implicit 512 MB ceiling and did not replace it with an
+  enforced one. One Medium confirmed (D-7) and one plausible (FU-4). Cross-room and cross-tenant
+  isolation verified clean: `_session_key` is built entirely from turn-supplied ids with no
+  agent-influenced component, so no path string can reach another room's mount.
+- **`check-quality`**: no Introduced Critical. Three Warnings, of which two were the same unguarded
+  `int()` (D-8), both confirmed by execution rather than inspection; the third was D-3's overstated
+  bound, fixed by D-5.
+- **Self-audit** caught one defect introduced *by this session's own fix*: clipping the note together
+  with the body let a flooding stdout truncate the note away. Fixed with `clip_tool_output(reserve=)`
+  before any gate ran.
+
+**Build state (2026-07-21).** `pytest tests/unit` 5516 passed / 6 skipped, `ruff check`,
+`ruff format --check`, `mypy .` (804 files) clean. Integration and wiring tiers not run (no local
+Postgres/Redis) and untouched.
+
+**Status stays `in-progress`.** AC-2 remains the only open criterion and still needs `/verify` on
+Linux + gVisor. The close-out review did not change that, but it did change what `/verify` is worth:
+a single-user reproduction on a quiet staging box exercises only the happy path, and D-4, D-5 and
+D-6 are all failures that appear under concurrency or under a hostile agent. `/verify` should
+therefore cover the §4 reproduction *and* a second room forcing an eviction mid-turn.
 
 **Deploy note.** `kernel.py` changes are comment-only, so the backend half works against the
 current image; the image rebuild only keeps the comment honest. No lockstep requirement.
@@ -266,6 +359,28 @@ current image; the image rebuild only keeps the comment honest. No lockstep requ
   (`retention_service.py:27`). An agent artifact is uploaded via `upload_agent_artifact` and bound
   to a message, so it presumably inherits the message's - but nothing states it, and nothing tested
   it. Type: `bugfix` or `docs` depending on what is found.
+- **FU-4: `_safe_artifact_path` is lexical, and the daemon resolves symlinks.** `get_archive`
+  resolves symlinked directory components inside the container rootfs, and the agent owns `/session`
+  read-write, so `os.symlink("/workspace", "/session/w")` makes a lexically-clean path resolve
+  elsewhere. Currently harmless -- `/session/outputs` is now required as the exact parent, and the
+  only other mount is `/workspace`, read-only and already readable by the kernel under the inline
+  cap, so the symlink buys no read the agent did not have. It stops being harmless the moment a
+  third mount appears or `/workspace` regains a write bind, and there is no second control behind
+  it. Verify the resolved leaf rather than trusting normalisation. Type: `bugfix`.
+- **FU-5: `fetch_kernel_artifact` has no direct test coverage.** It appears in the suite only as a
+  stub asserting it is *not* called; its helpers are tested in isolation. The fail-closed header
+  check, the "no live kernel" branch and the `get_archive` failure branch are all unexercised, which
+  is the same shape of gap that let the missing second tier survive. Needs a fake Docker client.
+  Type: `test`.
+- **FU-6: `TurnEngine` constructs the sandbox from infrastructure in two places.** Function-local
+  imports of `docker_runsc_sandbox_from_settings` at the workspace-staging site and the artifact
+  fallback. The dependency itself is correctly inverted (`SandboxRunner` in `mcp_ports`); only
+  construction reaches down. An injection point already exists and is already used by this class --
+  `BuiltinToolDeps.runner` -- so both sites can be retired together. Type: `refactor`.
+- **FU-7: `_persist_artifacts` carries too many responsibilities.** Dedup, two acquisition
+  strategies, budget, drop accounting, shortfall logging, concurrent upload and transaction control
+  in one ~120-line method. "Obtain bytes for a descriptor" is cleanly separable with two
+  interchangeable implementations. Type: `refactor`.
 - **FU-3: `_OUTPUTS` is never cleaned.** `_collect_artifacts` diffs on mtime (`kernel.py:88-89`), so
   a file untouched by a later call is simply not re-reported - but it stays on the session volume
   forever, against a volume with no enforced quota (`2026-07-19-session-dir-room-isolation` FU-1).
