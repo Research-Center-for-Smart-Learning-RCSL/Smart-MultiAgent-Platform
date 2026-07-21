@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import logging
 import uuid
+from functools import partial
 from types import SimpleNamespace
 from typing import Any, ClassVar
 
@@ -48,6 +49,24 @@ class _FakeAttachmentService:
         return len(kwargs["uploads"])
 
 
+def _engine() -> SimpleNamespace:
+    """A `TurnEngine` stand-in with both infrastructure seams stubbed.
+
+    `_artifact_bytes` is bound to the real implementation, so the acquisition
+    strategy under test actually runs; only `_fetch_large_artifact` (which each
+    test sets) and `_sandbox` stand in for infrastructure.
+
+    Stubbing `_sandbox` is the point of having it. Before the seam existed these
+    application-layer tests reached `docker_runsc_sandbox_from_settings()` for
+    real, and passed only because it happens to construct without a Docker
+    daemon -- a dependency they never meant to have and nothing declared.
+    """
+    engine = SimpleNamespace(_db=_FakeDB())
+    engine._sandbox = lambda: SimpleNamespace()
+    engine._artifact_bytes = partial(TurnEngine._artifact_bytes, engine)
+    return engine
+
+
 @pytest.mark.asyncio
 async def test_persist_artifacts_dedupes_skips_and_binds(monkeypatch: pytest.MonkeyPatch) -> None:
     _FakeAttachmentService.instances.clear()
@@ -55,7 +74,7 @@ async def test_persist_artifacts_dedupes_skips_and_binds(monkeypatch: pytest.Mon
         "contexts.conversation.application.attachment_service.AttachmentService",
         _FakeAttachmentService,
     )
-    engine = SimpleNamespace(_db=_FakeDB())
+    engine = _engine()
     agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     msg_id = uuid.uuid4()
     room = uuid.uuid4()
@@ -97,7 +116,7 @@ async def test_persist_artifacts_dedupes_skips_and_binds(monkeypatch: pytest.Mon
 
 @pytest.mark.asyncio
 async def test_persist_artifacts_empty_is_noop() -> None:
-    engine = SimpleNamespace(_db=_FakeDB())
+    engine = _engine()
     agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     count = await TurnEngine._persist_artifacts(engine, agent, uuid.uuid4(), uuid.uuid4(), [])  # type: ignore[arg-type]
     assert count == 0
@@ -135,7 +154,7 @@ async def test_an_unfetchable_artifact_is_reported_not_swallowed(
         "contexts.conversation.application.attachment_service.AttachmentService",
         _FakeAttachmentService,
     )
-    engine = SimpleNamespace(_db=_FakeDB())
+    engine = _engine()
     agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
 
     async def _fetch(_runner, _agent, _room, _art):
@@ -165,7 +184,7 @@ async def test_a_failed_fetch_does_not_cost_the_other_artifacts(
         "contexts.conversation.application.attachment_service.AttachmentService",
         _FakeAttachmentService,
     )
-    engine = SimpleNamespace(_db=_FakeDB())
+    engine = _engine()
     agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     png = base64.b64encode(b"\x89PNG").decode("ascii")
 
@@ -197,7 +216,7 @@ async def test_an_artifact_above_the_ceiling_is_never_fetched(
     of MB through a tool round. The refusal is explicit, unlike the old drop."""
     from contexts.agents.application.runtime import turn_engine as te
 
-    engine = SimpleNamespace(_db=_FakeDB())
+    engine = _engine()
     agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     called: list[str] = []
 
@@ -233,7 +252,7 @@ async def test_a_raising_fetch_costs_one_artifact_not_the_batch(
         "contexts.conversation.application.attachment_service.AttachmentService",
         _FakeAttachmentService,
     )
-    engine = SimpleNamespace(_db=_FakeDB())
+    engine = _engine()
     agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     png = base64.b64encode(b"\x89PNG").decode("ascii")
 
@@ -272,7 +291,7 @@ async def test_the_shortfall_count_excludes_deduped_duplicates(
         "contexts.conversation.application.attachment_service.AttachmentService",
         _FakeAttachmentService,
     )
-    engine = SimpleNamespace(_db=_FakeDB())
+    engine = _engine()
     agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
 
     async def _fetch(*_args, **_kwargs):
@@ -306,7 +325,7 @@ async def test_a_hostile_size_costs_one_artifact_not_the_batch(
         "contexts.conversation.application.attachment_service.AttachmentService",
         _FakeAttachmentService,
     )
-    engine = SimpleNamespace(_db=_FakeDB())
+    engine = _engine()
     agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     png = base64.b64encode(b"\x89PNG").decode("ascii")
     artifacts = [
@@ -338,7 +357,7 @@ async def test_hydrated_bytes_are_used_without_a_second_fetch(
         "contexts.conversation.application.attachment_service.AttachmentService",
         _FakeAttachmentService,
     )
-    engine = SimpleNamespace(_db=_FakeDB())
+    engine = _engine()
     agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     calls: list[Any] = []
 
@@ -367,7 +386,7 @@ async def test_undecodable_b64_is_now_reported_too(monkeypatch: pytest.MonkeyPat
         "contexts.conversation.application.attachment_service.AttachmentService",
         _FakeAttachmentService,
     )
-    engine = SimpleNamespace(_db=_FakeDB())
+    engine = _engine()
     agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     bad = {"filename": "corrupt.png", "mime": "image/png", "rel_path": "/x", "b64": "!!!not base64!!!"}
 
