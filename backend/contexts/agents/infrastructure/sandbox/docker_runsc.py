@@ -310,12 +310,9 @@ _TAR_FRAMING_SLACK = 16 * 1024
 class _CappedReader:
     """A file-like over ``get_archive``'s chunk iterator, hard-stopped at a budget.
 
-    ``tarfile`` in stream mode (``r|*``) only needs ``read``. Going through this
-    instead of ``b"".join(stream)`` is the difference between a bounded read and
-    an unbounded one: joining commits the whole archive to the heap *before*
-    anything inspects it, so every downstream size check is already too late.
     The archive is guest-controlled, so it must never be materialised on the
-    strength of a size the guest also supplied.
+    strength of a size the guest also supplied; see
+    docs/agent-tools/G-artifact-transport.md G.5.
     """
 
     def __init__(self, chunks: Any, max_bytes: int) -> None:
@@ -418,14 +415,8 @@ def _safe_artifact_path(raw: str) -> str | None:
     Returns ``None`` instead of raising because every caller degrades to "the
     artifact was not delivered" rather than failing the turn.
 
-    **A directory must not pass.** An earlier version accepted anything under
-    ``/session``, including the mount itself. ``get_archive`` on a directory
-    streams a tar of the whole tree while the stat header reports the directory
-    inode (~4 KiB), so the size ceiling waved it through and the worker buffered
-    the entire session volume -- which has no size option and is bounded only by
-    host disk. Requiring a basename directly under ``outputs`` costs nothing:
-    `kernel._collect_artifacts` never descends, so an artifact is always exactly
-    that shape.
+    A directory must not pass, and that is the load-bearing part; see
+    docs/agent-tools/G-artifact-transport.md G.5.
     """
     import posixpath
 
@@ -1574,35 +1565,45 @@ class DockerRunscSandbox:
         except Exception as exc:
             _log.warning("artifact fetch failed for %s: %s", safe, exc)
             return None
-        # The header is an early reject, not the bound. It is derived from the
-        # guest's own file, so it can understate the stream (a background thread
-        # in the persistent kernel can append after the daemon stats it) and it
-        # reports ~4 KiB for a directory regardless of the tree behind it. The
-        # real bound is `_CappedReader`, which stops mid-stream. An unreadable
-        # header still fails CLOSED: `or 0` would wave a missing size past here.
-        if not isinstance(stat, dict):
-            _log.warning("artifact fetch: no archive header for %r", safe)
-            return None
-        # The lexical guard above cannot see what the path *resolves* to: the
-        # daemon follows symlinks when servicing `get_archive`, and the agent
-        # owns /session read-write. Reject anything that did not come back as a
-        # plain regular file, so a symlinked or directory leaf fails closed
-        # rather than on the strength of normalisation alone.
-        if stat.get("linkTarget"):
-            _log.warning("artifact fetch: %r is a symlink to %r", safe, stat.get("linkTarget"))
-            return None
-        mode = stat.get("mode")
-        if not isinstance(mode, int) or mode & _GO_MODE_TYPE:
-            _log.warning("artifact fetch: %r is not a regular file (mode %r)", safe, mode)
-            return None
-        declared = stat.get("size")
-        if not isinstance(declared, int) or declared < 0:
-            _log.warning("artifact fetch: unusable size in archive header for %r: %r", safe, declared)
-            return None
-        if declared > max_bytes:
-            _log.warning("artifact %r is %d bytes, above the %d ceiling", safe, declared, max_bytes)
-            return None
-        return await asyncio.to_thread(_single_member_tar_bytes, stream, max_bytes)
+        # `stream` is a generator over the HTTP response body. Every path below
+        # abandons it unread, and the reader stops at the first member even on
+        # success, so it has to be closed explicitly -- otherwise the urllib3
+        # connection is held until GC and a run of rejected fetches exhausts the
+        # pool. The old `b"".join(stream)` drained it as a side effect of being
+        # unbounded; bounding the read removed that accident (G.5).
+        try:
+            # The header is an early reject, not the bound. It comes from the
+            # guest's own file, so it can understate the stream (a background
+            # thread in the persistent kernel can append after the daemon stats
+            # it) and it reports ~4 KiB for a directory whatever the tree behind
+            # it. `_CappedReader` is the real bound. An unreadable header still
+            # fails CLOSED: `or 0` would wave a missing size past here.
+            if not isinstance(stat, dict):
+                _log.warning("artifact fetch: no archive header for %r", safe)
+                return None
+            # The lexical guard cannot see what the path *resolves* to: the
+            # daemon follows symlinks, and the agent owns /session read-write.
+            # Reject anything that did not come back as a plain regular file.
+            if stat.get("linkTarget"):
+                _log.warning("artifact fetch: %r is a symlink to %r", safe, stat.get("linkTarget"))
+                return None
+            mode = stat.get("mode")
+            if not isinstance(mode, int) or mode & _GO_MODE_TYPE:
+                _log.warning("artifact fetch: %r is not a regular file (mode %r)", safe, mode)
+                return None
+            declared = stat.get("size")
+            if not isinstance(declared, int) or declared < 0:
+                _log.warning("artifact fetch: unusable size in archive header for %r: %r", safe, declared)
+                return None
+            if declared > max_bytes:
+                _log.warning("artifact %r is %d bytes, above the %d ceiling", safe, declared, max_bytes)
+                return None
+            return await asyncio.to_thread(_single_member_tar_bytes, stream, max_bytes)
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                with contextlib.suppress(Exception):
+                    close()
 
     async def purge_legacy_session_dirs(self, *, agent_id: uuid.UUID) -> None:
         """Empty ``/workspace/sessions/`` on one agent's volume.

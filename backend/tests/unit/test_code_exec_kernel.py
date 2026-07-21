@@ -14,6 +14,7 @@ import json
 import os
 import pathlib
 import uuid
+from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import pytest
@@ -420,7 +421,7 @@ class TestFetchKernelArtifact:
         assert asked == []
 
 
-def test_the_kernel_mounts_exactly_two_volumes() -> None:
+async def test_the_kernel_mounts_exactly_two_volumes(monkeypatch: pytest.MonkeyPatch) -> None:
     """The containment argument for `_safe_artifact_path` rests on this set.
 
     That guard is lexical, and the daemon resolves symlinked directory
@@ -430,15 +431,26 @@ def test_the_kernel_mounts_exactly_two_volumes() -> None:
     cap, so the symlink buys no read the agent did not have. A third mount, or a
     write bind on /workspace, silently removes that argument -- so it fails here
     rather than in a future security review.
-    """
-    import inspect
 
+    Asserts the config actually handed to the daemon, not the source text: a
+    mount added by any route has to show up here, and reformatting must not.
+    """
     from contexts.agents.infrastructure.sandbox import docker_runsc as dr
 
-    src = inspect.getsource(dr.DockerRunscSandbox._create_kernel)
-    assert '_agent_volume_name(agent_id): {"bind": _VOLUME_ROOT, "mode": "ro"}' in src
-    assert '{"bind": _SESSION_ROOT, "mode": "rw"}' in src
-    assert src.count('"bind"') == 2, "a third kernel mount invalidates _safe_artifact_path's premise"
+    captured: dict[str, Any] = {}
+
+    async def _capture(_self: Any, _client: Any, **kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return SimpleNamespace(start=lambda: None)
+
+    monkeypatch.setattr(dr.DockerRunscSandbox, "_create_verified", _capture)
+    await dr.DockerRunscSandbox()._create_kernel(
+        object(), agent_id=uuid.uuid4(), chatroom_id=uuid.uuid4(), name="k"
+    )
+
+    mounts = {spec["bind"]: spec["mode"] for spec in captured["volumes"].values()}
+    assert mounts == {"/workspace": "ro", "/session": "rw"}
+    assert not captured.get("mounts"), "a mount added by another route still invalidates the premise"
 
 
 def test_error_is_captured_not_raised(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:

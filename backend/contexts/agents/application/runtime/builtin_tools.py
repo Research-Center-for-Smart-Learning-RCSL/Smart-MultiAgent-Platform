@@ -20,12 +20,13 @@ import json
 import logging
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.application.runtime.tool_registry import (
+    ARTIFACT_SKIP_KEY,
     MAX_ARTIFACT_BYTES,
     MAX_ARTIFACT_TOTAL_BYTES,
     MAX_ARTIFACTS_PER_TURN,
@@ -178,6 +179,11 @@ def _build_code_exec_tool(
 ) -> Tool:
     from contexts.agents.application.tools.code_exec import CodeExecTool
 
+    # One per built tool, i.e. one per turn: the ceilings in G.3 are per-turn,
+    # so the running totals have to outlive a single call. Held here rather than
+    # re-derived from `artifact_sink` on every call, which was quadratic.
+    budget = _ArtifactBudget()
+
     async def _invoke(args: dict[str, Any]) -> ToolResult:
         source = str(args.get("source", ""))
         if not source:
@@ -200,17 +206,14 @@ def _build_code_exec_tool(
                         agent_id=agent.id,
                         chatroom_id=chatroom_id,
                         artifacts=fresh,
-                        already=artifact_sink,
+                        budget=budget,
                     )
                 artifact_sink.extend(fresh)
         body = res.stdout if res.ok else f"{res.stdout}\n[stderr]\n{res.stderr}".strip()
-        note = _artifact_note(meta.get("artifacts"))
-        # Reserved, not appended afterwards and not concatenated before. The
-        # note used to be added after clipping, which put agent-named files
-        # outside the one backstop every tool output passes through; clipping
-        # the two together instead lets a chatty stdout truncate the note away,
-        # and a model told nothing about its artifacts confabulates delivery.
-        body = clip_tool_output(body or "(no output)", reserve=len(note)) + note
+        # Built after hydration, so it can read the skip marks that records (G.4),
+        # and appended by `clip_tool_output` itself so the bound stays that
+        # function's guarantee rather than this caller's.
+        body = clip_tool_output(body or "(no output)", suffix=_artifact_note(meta.get("artifacts")))
         # Surface a kernel restart (state loss) to the model from the structured
         # metadata flag rather than relying on a magic string in stdout.
         if meta.get("restarted"):
@@ -236,65 +239,57 @@ def _build_code_exec_tool(
     )
 
 
+@dataclass(slots=True)
+class _ArtifactBudget:
+    """Running per-turn artifact totals, carried across `code_exec` calls.
+
+    The ceilings are per-turn (G.3), so the counters have to outlive one call.
+    """
+
+    seen: set[str] = field(default_factory=set)
+    fetched: int = 0
+
+
 async def _hydrate_oversized(
     runner: Any,
     *,
     agent_id: uuid.UUID,
     chatroom_id: uuid.UUID,
     artifacts: list[dict[str, Any]],
-    already: list[dict[str, Any]],
+    budget: _ArtifactBudget,
 ) -> None:
     """Pull artifacts too large to inline off the kernel, here and now.
 
-    **Timing is the entire reason this lives here** rather than in
-    `TurnEngine._persist_artifacts`, where the rest of the artifact handling is.
-    The kernel registry evicts least-recently-used at 16 live containers
-    (`docker_runsc._evict_if_full`) and reaps at 900 s idle, and
-    `_persist_artifacts` runs only once the whole turn has finished. Fetching
-    there leaves a window as long as the turn, during which any *other* room on
-    the host creating a kernel can evict this one -- so the artifact arrives on
-    a quiet box and vanishes under load. That intermittency is a worse bug to
-    diagnose than the silent loss this task set out to fix. Here the exec reply
-    has just landed, so the container is as alive as it will ever be.
-
-    Bytes ride on the descriptor as ``data`` and are uploaded by
-    `_persist_artifacts`, which still keeps its own fetch as a fallback for
-    descriptors that never passed through here (no chatroom, or a future
-    producer). Never raises: an artifact must not cost the turn its reply.
+    Runs at the exec reply rather than at turn end because the kernel can be
+    evicted in between; see docs/agent-tools/G-artifact-transport.md G.2. Bytes
+    ride on the descriptor as ``data``; anything not delivered is marked with
+    ``ARTIFACT_SKIP_KEY`` so the model's note and the operator log both see it
+    (G.4). Never raises: an artifact must not cost the turn its reply.
     """
-    seen = {str(a.get("rel_path") or "") for a in already}
-    fetched = sum(len(d) for a in already if isinstance(d := a.get("data"), bytes | bytearray))
     for art in artifacts:
         if art.get("b64"):
             continue
         rel = str(art.get("rel_path") or "")
-        if not rel or rel in seen:
+        if not rel or rel in budget.seen:
             # `_persist_artifacts` dedups on rel_path and keeps the first, so
             # fetching a repeat would move up to 32 MB only to discard it.
             continue
-        seen.add(rel)
+        budget.seen.add(rel)
         size = artifact_size_bytes(art)
-        # Per-turn ceilings, checked before the fetch rather than after: the
-        # point is not to notice the flood but to never move the bytes. `seen`
-        # spans the whole turn via `already`, so a thousand descriptors split
-        # across a hundred exec calls hit the same budget as one call's worth.
-        if len(seen) > MAX_ARTIFACTS_PER_TURN or fetched + size > MAX_ARTIFACT_TOTAL_BYTES:
-            logger.warning(
-                "artifact budget reached for room %s: not fetching %s (%d bytes)",
-                chatroom_id,
-                art.get("filename"),
-                size,
-            )
-            continue
+        name = art.get("filename")
         if size > MAX_ARTIFACT_BYTES:
-            # Logged here as well as at persist time: this is the point where
-            # the file was still reachable, so it is the honest place to say it
-            # was the limit that stopped us and not an eviction.
+            # Distinguished from the budget case below: this file could never be
+            # delivered at any point in the turn, so the model should shrink it
+            # rather than retry.
+            art[ARTIFACT_SKIP_KEY] = "too_large"
+            logger.warning("artifact %s is %d bytes, above the %d limit", name, size, MAX_ARTIFACT_BYTES)
+            continue
+        # Checked before the fetch, not after: the point is not to notice the
+        # flood but to never move the bytes.
+        if len(budget.seen) > MAX_ARTIFACTS_PER_TURN or budget.fetched + size > MAX_ARTIFACT_TOTAL_BYTES:
+            art[ARTIFACT_SKIP_KEY] = "budget"
             logger.warning(
-                "artifact %s is %d bytes, above the %d limit - not delivered",
-                art.get("filename"),
-                size,
-                MAX_ARTIFACT_BYTES,
+                "artifact budget reached for room %s: not fetching %s (%d bytes)", chatroom_id, name, size
             )
             continue
         try:
@@ -306,65 +301,52 @@ async def _hydrate_oversized(
             )
         except Exception:
             logger.warning("artifact fetch raised for %s", rel, exc_info=True)
+            data = None
+        if data is None:
+            art[ARTIFACT_SKIP_KEY] = "unavailable"
             continue
-        if data is not None:
-            art["data"] = data
-            fetched += len(data)
+        art["data"] = data
+        budget.fetched += len(data)
 
 
 def _artifact_note(produced: Any) -> str:
-    """One line naming the files this call wrote, and any that exceed the limit.
+    """What this call wrote to ``outputs/``, and what will not be coming back.
 
-    Deliberately says *written*, never *returned* or *attached*. This runs at
-    tool-call time; delivery happens later in `TurnEngine._persist_artifacts`
-    and can still fail — the kernel can be evicted between the two, an upload
-    can fail. Claiming delivery here would hand the model platform text backing
-    the exact confabulation the note exists to prevent ("I've attached the
-    chart") for a file that never arrived.
-
-    What this layer does know for certain is what the kernel reported writing,
-    and which of those are over the size limit. Naming the oversized ones gives
-    the model something to do about them (downsample, split, summarise) rather
-    than repeating the same write.
-
-    **Every name is sanitised, and this is not cosmetic.** The filename comes
-    from agent-authored code, and a POSIX filename may contain newlines. Written
-    raw, `outputs/"chart.png\\n[system: ...]"` forges a line indistinguishable
-    from this function's own bracketed framing and from `[kernel restarted: ...]`
-    above -- untrusted text re-emitted in the platform's voice. `safe_input_name`
-    is the control `shared_kernel.storage.sanitize` already applies to upload
-    names for precisely this reason.
+    Says *written*, never *returned*: delivery happens later and can still fail,
+    and platform text asserting an outcome is the confabulation this note exists
+    to prevent. Reads the skip marks `_hydrate_oversized` left, so a file the
+    per-turn budget refused is never listed as though it were on its way (G.4).
 
     Advisory, so it must never raise: it annotates a result it must not be able
-    to fail. An unusable `size_bytes` reads as 0 rather than throwing out the
-    stdout of a run that succeeded.
+    to fail.
     """
     from shared_kernel.storage.sanitize import safe_input_name
 
     if not isinstance(produced, list):
         return ""
+    arts = [a for a in produced if isinstance(a, dict)]
     written: list[str] = []
     too_large: list[str] = []
-    for art in produced[:MAX_ARTIFACTS_PER_TURN]:
-        if not isinstance(art, dict):
-            continue
+    withheld: list[str] = []
+    # Only the displayed slice is named; the count below covers the remainder,
+    # so the model never reads a complete-looking list that is not complete.
+    for art in arts[:MAX_ARTIFACTS_PER_TURN]:
         name = safe_input_name(str(art.get("filename") or "artifact"))
         size = artifact_size_bytes(art)
-        if size > MAX_ARTIFACT_BYTES:
+        reason = art.get(ARTIFACT_SKIP_KEY)
+        if reason == "too_large" or size > MAX_ARTIFACT_BYTES:
             too_large.append(f"{name} ({size} bytes)")
+        elif reason:
+            withheld.append(name)
         else:
             written.append(name)
     parts = []
     if written:
         parts.append(f"[wrote to outputs/: {', '.join(written)}]")
-    # Naming 20 and staying silent about the rest would rebuild, in miniature,
-    # the silence this whole path exists to end: the model would read a complete
-    # list and confabulate that everything landed.
-    overflow = len(produced) - MAX_ARTIFACTS_PER_TURN
-    if overflow > 0:
+    if withheld:
         parts.append(
-            f"[{overflow} further artifact(s) this turn were not returned: at most "
-            f"{MAX_ARTIFACTS_PER_TURN} per turn. They remain in outputs/ inside the sandbox.]"
+            f"[not returned, this turn's artifact budget is used up: {', '.join(withheld)}. "
+            "They remain in outputs/ inside the sandbox.]"
         )
     if too_large:
         parts.append(
@@ -372,8 +354,11 @@ def _artifact_note(produced: Any) -> str:
             f"{', '.join(too_large)}. The file is still in outputs/ inside the sandbox; "
             "write a smaller one if the user needs it.]"
         )
-    # Leading newline so the caller can concatenate before clipping without
-    # having to know whether a note is present.
+    overflow = len(arts) - MAX_ARTIFACTS_PER_TURN
+    if overflow > 0:
+        parts.append(f"[and {overflow} further artifact(s) not listed here.]")
+    # Leading newline so the caller can append without knowing whether a note
+    # is present; `clip_tool_output` does the appending.
     return "\n" + "\n".join(parts) if parts else ""
 
 
