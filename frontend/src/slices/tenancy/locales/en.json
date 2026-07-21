@@ -52,6 +52,7 @@
       "member": "Member"
     },
     "member": {
+      "actions": "Member actions",
       "sendInvite": "Send invite",
       "invited": "Invitation sent to {email}",
       "alreadyInvited": "This email has already been invited",

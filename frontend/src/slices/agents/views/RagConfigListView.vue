@@ -396,6 +396,7 @@ const RagConfigTable = typedSTable<RagConfig>()
               variant="ghost"
               icon-only
               size="sm"
+              :aria-label="t('agents.ragList.actions')"
             >
               <EllipsisVerticalIcon class="w-4 h-4" />
             </SButton>

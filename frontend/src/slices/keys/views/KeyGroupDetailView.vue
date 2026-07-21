@@ -250,6 +250,7 @@ async function onDeleteGroup() {
               variant="ghost"
               icon-only
               size="sm"
+              :aria-label="$t('keys.groups.renameConfirm')"
               @click="rename.save"
             >
               <CheckIcon class="w-4 h-4" />
@@ -258,6 +259,7 @@ async function onDeleteGroup() {
               variant="ghost"
               icon-only
               size="sm"
+              :aria-label="$t('keys.groups.renameCancel')"
               @click="rename.cancel"
             >
               <XMarkIcon class="w-4 h-4" />

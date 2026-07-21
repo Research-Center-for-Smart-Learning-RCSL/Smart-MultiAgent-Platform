@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, useSlots } from 'vue'
+import { ref, computed, useSlots, useAttrs, type StyleValue } from 'vue'
 import { EyeIcon, EyeSlashIcon } from '@heroicons/vue/20/solid'
+
+defineOptions({ inheritAttrs: false })
 
 const props = withDefaults(defineProps<{
   modelValue?: string | number
@@ -28,6 +30,24 @@ const emit = defineEmits<{
 }>()
 
 const slots = useSlots()
+const attrs = useAttrs()
+
+// The root node is the decorative wrapper, so unforwarded attrs would land on
+// the div and leave the real control unnamed (`aria-label` in particular).
+// `class`/`style` must stay on the wrapper: callers size and position the
+// bordered box with them, and a parent's scoped-style id only reaches the
+// component root. Everything else — aria-*, name, autocomplete, data-*, and
+// event listeners — belongs on the input.
+// The `StyleValue` cast only narrows the static type; an absent `style` is
+// still `undefined` at runtime, which Vue renders as "attribute omitted".
+const wrapperAttrs = computed(() => ({
+  class: attrs.class,
+  style: attrs.style as StyleValue,
+}))
+const fieldAttrs = computed(() => {
+  const { class: _class, style: _style, ...rest } = attrs
+  return rest
+})
 
 const passwordVisible = ref(false)
 
@@ -81,6 +101,7 @@ function togglePasswordVisibility() {
         's-input--has-suffix': hasSuffix || isPassword,
       },
     ]"
+    v-bind="wrapperAttrs"
   >
     <span
       v-if="hasPrefix"
@@ -89,6 +110,7 @@ function togglePasswordVisibility() {
       <slot name="prefix" />
     </span>
     <input
+      v-bind="fieldAttrs"
       :id="idAttr"
       class="s-input__field"
       :type="internalType"

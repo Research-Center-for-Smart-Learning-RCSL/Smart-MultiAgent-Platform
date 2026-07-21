@@ -116,6 +116,8 @@
       "rename": "Rename",
       "renameLabel": "Group name",
       "renameError": "Failed to rename group.",
+      "renameConfirm": "Confirm rename",
+      "renameCancel": "Cancel rename",
       "addMember": "Add Member",
       "add": "Add",
       "addMemberFailed": "Failed to add member to group.",

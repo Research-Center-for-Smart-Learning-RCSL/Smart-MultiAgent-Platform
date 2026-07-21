@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, useAttrs, type StyleValue } from 'vue'
 import { ChevronDownIcon } from '@heroicons/vue/20/solid'
+
+defineOptions({ inheritAttrs: false })
 
 const props = withDefaults(defineProps<{
   modelValue?: string | number | null
@@ -21,6 +23,24 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: string | number]
 }>()
+
+const attrs = useAttrs()
+
+// The root node is the positioning wrapper (it owns the chevron overlay), so
+// unforwarded attrs would land on the div and leave the select unnamed.
+// `class`/`style` stay on the wrapper — callers size the control with them and
+// a parent's scoped-style id only reaches the component root — while aria-*,
+// name, data-* and listeners go to the native select.
+// The `StyleValue` cast only narrows the static type; an absent `style` is
+// still `undefined` at runtime, which Vue renders as "attribute omitted".
+const wrapperAttrs = computed(() => ({
+  class: attrs.class,
+  style: attrs.style as StyleValue,
+}))
+const nativeAttrs = computed(() => {
+  const { class: _class, style: _style, ...rest } = attrs
+  return rest
+})
 
 const showPlaceholder = computed(() => {
   return props.modelValue === null || props.modelValue === ''
@@ -56,8 +76,10 @@ function onChange(event: Event) {
         's-select--placeholder': showPlaceholder,
       },
     ]"
+    v-bind="wrapperAttrs"
   >
     <select
+      v-bind="nativeAttrs"
       :id="idAttr"
       class="s-select__native"
       :value="props.modelValue ?? ''"
