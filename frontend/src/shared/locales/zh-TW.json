@@ -23,6 +23,9 @@
     },
     "codeEditor": {
       "invalidJson": "JSON 格式錯誤"
+    },
+    "errors": {
+      "rateLimited": "請求過於頻繁，請於 {seconds} 秒後再試。"
     }
   }
 }

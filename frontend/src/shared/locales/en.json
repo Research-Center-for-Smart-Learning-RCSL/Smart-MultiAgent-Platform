@@ -23,6 +23,9 @@
     },
     "codeEditor": {
       "invalidJson": "Invalid JSON"
+    },
+    "errors": {
+      "rateLimited": "Too many requests. Please retry in {seconds}s."
     }
   }
 }
