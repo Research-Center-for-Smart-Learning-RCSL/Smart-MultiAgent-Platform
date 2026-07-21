@@ -292,6 +292,15 @@ services:
   egress-proxy:
     <<: *security-defaults
     restart: unless-stopped
+    environment:
+      # Derived from the same vars the postgres service is configured with, NOT
+      # left to `.env`. EgressProxyEnvConfig declares SMAP_DB_DSN required with
+      # no default and main.py builds the app at import, so an unset value is
+      # not a degraded proxy — it is a crash loop before the port is ever bound.
+      # Sourcing it from `.env` also meant the operator had to keep that file's
+      # credentials in sync with SMAP_DB_PASSWORD by hand, and a drift there
+      # failed the same silent way.
+      SMAP_DB_DSN: postgresql+asyncpg://${SMAP_DB_USER:-smap}:${SMAP_DB_PASSWORD:?SMAP_DB_PASSWORD must be set for production}@postgres:5432/smap
     deploy:
       resources:
         limits: { cpus: "1.0", memory: 512M }

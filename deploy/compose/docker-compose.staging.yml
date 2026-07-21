@@ -297,6 +297,11 @@ services:
   egress-proxy:
     <<: *security-defaults
     restart: unless-stopped
+    environment:
+      # See the prod overlay: SMAP_DB_DSN is required with no default and the
+      # app is built at import, so leaving it to `.env` turns a missing or
+      # drifted value into a crash loop rather than a degraded proxy.
+      SMAP_DB_DSN: postgresql+asyncpg://${SMAP_DB_USER:-smap}:${SMAP_DB_PASSWORD:?SMAP_DB_PASSWORD must be set for staging}@postgres:5432/smap
     deploy:
       resources:
         limits: { cpus: "0.5", memory: 256M }
