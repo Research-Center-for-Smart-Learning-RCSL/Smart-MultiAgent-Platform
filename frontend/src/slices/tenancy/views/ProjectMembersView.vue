@@ -248,6 +248,7 @@ const breadcrumbs = computed(() => [
               variant="ghost"
               size="sm"
               icon-only
+              :aria-label="t('tenancy.member.actions')"
             >
               <EllipsisVerticalIcon class="w-4 h-4" />
             </SButton>

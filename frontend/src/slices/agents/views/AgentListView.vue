@@ -365,6 +365,7 @@ function onRowClick(row: Agent): void {
               variant="ghost"
               icon-only
               size="sm"
+              :aria-label="t('agents.list.actions')"
             >
               <EllipsisVerticalIcon class="w-4 h-4" />
             </SButton>

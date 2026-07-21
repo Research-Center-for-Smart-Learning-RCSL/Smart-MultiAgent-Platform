@@ -116,6 +116,8 @@
       "rename": "重新命名",
       "renameLabel": "群組名稱",
       "renameError": "重新命名群組失敗。",
+      "renameConfirm": "確認重新命名",
+      "renameCancel": "取消重新命名",
       "addMember": "新增成員",
       "add": "新增",
       "addMemberFailed": "新增成員至群組失敗。",

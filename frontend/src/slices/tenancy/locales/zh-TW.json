@@ -52,6 +52,7 @@
       "member": "成員"
     },
     "member": {
+      "actions": "成員操作",
       "sendInvite": "送出邀請",
       "invited": "已向 {email} 送出邀請",
       "alreadyInvited": "此信箱已被邀請過",
