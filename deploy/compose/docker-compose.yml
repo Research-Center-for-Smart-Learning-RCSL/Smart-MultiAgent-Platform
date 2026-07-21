@@ -266,6 +266,9 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
+      # JVM boot + store recovery runs ~60s before Bolt accepts connections;
+      # without this the early refusals count as failures and flap the service.
+      start_period: 90s
 
   minio:
     image: minio/minio:RELEASE.2024-11-07T00-52-20Z
