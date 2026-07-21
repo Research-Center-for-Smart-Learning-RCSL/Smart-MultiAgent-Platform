@@ -35,7 +35,10 @@ from contexts.agents.application.runtime import transcript as tx
 from contexts.agents.application.runtime.summariser import RouterSummariser
 from contexts.agents.application.runtime.tool_registry import (
     MAX_ARTIFACT_BYTES,
+    MAX_ARTIFACT_TOTAL_BYTES,
+    MAX_ARTIFACTS_PER_TURN,
     Tool,
+    artifact_size_bytes,
     build_cast_approval_vote_tool,
     build_registry,
 )
@@ -1268,7 +1271,7 @@ class TurnEngine:
         already been committed, so a failure here costs the file, not the reply.
         """
         path = str(art.get("rel_path") or "")
-        size = int(art.get("size_bytes") or 0)
+        size = artifact_size_bytes(art)
         if not path:
             return None
         if size > MAX_ARTIFACT_BYTES:
@@ -1318,7 +1321,12 @@ class TurnEngine:
             candidates = 0
             # Built once per turn, not per artifact, and lazily: most turns
             # produce nothing oversized and must not pay for a sandbox at all.
+            # `runner_failed` latches, because without it a construction error
+            # is retried -- and re-logged with a full stack -- for every
+            # remaining artifact, exactly when it is already failing.
             runner: SandboxRunner | None = None
+            runner_failed = False
+            budget = 0
             for art in artifacts:
                 rel = str(art.get("rel_path") or art.get("filename") or "")
                 # Only dedup *named* artifacts. A blank key would otherwise make
@@ -1329,28 +1337,56 @@ class TurnEngine:
                         continue
                     seen.add(rel)
                 candidates += 1
+                # Coerced through a total helper: every field here is
+                # agent-controlled, and a bare `int()` on a hostile `size_bytes`
+                # would raise past the per-artifact guards below into the
+                # method-level handler, discarding the artifacts that were fine.
                 name = str(art.get("filename") or "artifact")
-                size = int(art.get("size_bytes") or 0)
+                size = artifact_size_bytes(art)
                 b64 = art.get("b64")
+                # The backstop behind `_hydrate_oversized`'s budget, covering
+                # inline artifacts and any producer that never passed through it.
+                if len(prepared) >= MAX_ARTIFACTS_PER_TURN or budget > MAX_ARTIFACT_TOTAL_BYTES:
+                    dropped.append((name, size))
+                    continue
+                # Already pulled off the kernel at exec time, which is where the
+                # fetch belongs: the container was provably alive then, whereas
+                # this method runs after the whole turn and races LRU eviction
+                # (`builtin_tools._hydrate_oversized` carries the reasoning).
+                hydrated = art.get("data")
+                if isinstance(hydrated, bytes | bytearray):
+                    prepared.append(
+                        (
+                            name,
+                            str(art.get("mime") or "application/octet-stream"),
+                            bytes(hydrated),
+                        )
+                    )
+                    budget += len(hydrated)
+                    continue
                 if not b64:
-                    # Too large for the exec reply, so fetch it off the live
-                    # kernel instead. Until 2026-07-19 this was a bare `continue`
-                    # and the file was destroyed with no trace anywhere.
-                    try:
-                        if runner is None:
-                            from contexts.agents.infrastructure.sandbox.docker_runsc import (
-                                docker_runsc_sandbox_from_settings,
-                            )
+                    # Too large for the exec reply and not hydrated -- no
+                    # chatroom to fetch against, or a producer that bypassed the
+                    # tool. Fetch it here as a fallback. Until 2026-07-19 this
+                    # was a bare `continue` and the file was destroyed silently.
+                    data = None
+                    if not runner_failed:
+                        try:
+                            if runner is None:
+                                from contexts.agents.infrastructure.sandbox.docker_runsc import (
+                                    docker_runsc_sandbox_from_settings,
+                                )
 
-                            runner = docker_runsc_sandbox_from_settings()
-                        data = await self._fetch_large_artifact(runner, agent, chatroom_id, art)
-                    except Exception:
-                        # Per-artifact, not per-batch. The outer handler covers the
-                        # DB and upload work below; letting one malformed descriptor
-                        # reach it would discard every artifact that decoded fine,
-                        # which is a worse outcome than the loss being fixed here.
-                        _log.warning("artifact fetch raised for %s", name, exc_info=True)
-                        data = None
+                                runner = docker_runsc_sandbox_from_settings()
+                            data = await self._fetch_large_artifact(runner, agent, chatroom_id, art)
+                        except Exception:
+                            # Per-artifact, not per-batch. The outer handler covers the
+                            # DB and upload work below; letting one malformed descriptor
+                            # reach it would discard every artifact that decoded fine,
+                            # which is a worse outcome than the loss being fixed here.
+                            _log.warning("sandbox runner unavailable for %s", name, exc_info=True)
+                            runner_failed = True
+                            data = None
                     if data is None:
                         dropped.append((name, size))
                         continue
@@ -1363,11 +1399,12 @@ class TurnEngine:
                         continue
                 prepared.append(
                     (
-                        str(art.get("filename") or "artifact"),
+                        name,
                         str(art.get("mime") or "application/octet-stream"),
                         data,
                     )
                 )
+                budget += len(data)
             if dropped:
                 # The signal whose absence made this defect invisible for as long
                 # as it existed. A file the agent produced did not reach the room,

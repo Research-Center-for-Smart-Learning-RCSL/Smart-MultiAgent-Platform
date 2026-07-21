@@ -27,8 +27,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.application.runtime.tool_registry import (
     MAX_ARTIFACT_BYTES,
+    MAX_ARTIFACT_TOTAL_BYTES,
+    MAX_ARTIFACTS_PER_TURN,
     Tool,
     ToolResult,
+    artifact_size_bytes,
     clip_tool_output,
 )
 from contexts.agents.domain.mcp import SearchResult
@@ -190,12 +193,24 @@ def _build_code_exec_tool(
         if artifact_sink is not None:
             produced = meta.get("artifacts")
             if isinstance(produced, list):
-                artifact_sink.extend(a for a in produced if isinstance(a, dict))
+                fresh = [a for a in produced if isinstance(a, dict)]
+                if chatroom_id is not None:
+                    await _hydrate_oversized(
+                        deps.runner,
+                        agent_id=agent.id,
+                        chatroom_id=chatroom_id,
+                        artifacts=fresh,
+                        already=artifact_sink,
+                    )
+                artifact_sink.extend(fresh)
         body = res.stdout if res.ok else f"{res.stdout}\n[stderr]\n{res.stderr}".strip()
-        body = clip_tool_output(body or "(no output)")
         note = _artifact_note(meta.get("artifacts"))
-        if note:
-            body = f"{body}\n{note}"
+        # Reserved, not appended afterwards and not concatenated before. The
+        # note used to be added after clipping, which put agent-named files
+        # outside the one backstop every tool output passes through; clipping
+        # the two together instead lets a chatty stdout truncate the note away,
+        # and a model told nothing about its artifacts confabulates delivery.
+        body = clip_tool_output(body or "(no output)", reserve=len(note)) + note
         # Surface a kernel restart (state loss) to the model from the structured
         # metadata flag rather than relying on a magic string in stdout.
         if meta.get("restarted"):
@@ -221,6 +236,82 @@ def _build_code_exec_tool(
     )
 
 
+async def _hydrate_oversized(
+    runner: Any,
+    *,
+    agent_id: uuid.UUID,
+    chatroom_id: uuid.UUID,
+    artifacts: list[dict[str, Any]],
+    already: list[dict[str, Any]],
+) -> None:
+    """Pull artifacts too large to inline off the kernel, here and now.
+
+    **Timing is the entire reason this lives here** rather than in
+    `TurnEngine._persist_artifacts`, where the rest of the artifact handling is.
+    The kernel registry evicts least-recently-used at 16 live containers
+    (`docker_runsc._evict_if_full`) and reaps at 900 s idle, and
+    `_persist_artifacts` runs only once the whole turn has finished. Fetching
+    there leaves a window as long as the turn, during which any *other* room on
+    the host creating a kernel can evict this one -- so the artifact arrives on
+    a quiet box and vanishes under load. That intermittency is a worse bug to
+    diagnose than the silent loss this task set out to fix. Here the exec reply
+    has just landed, so the container is as alive as it will ever be.
+
+    Bytes ride on the descriptor as ``data`` and are uploaded by
+    `_persist_artifacts`, which still keeps its own fetch as a fallback for
+    descriptors that never passed through here (no chatroom, or a future
+    producer). Never raises: an artifact must not cost the turn its reply.
+    """
+    seen = {str(a.get("rel_path") or "") for a in already}
+    fetched = sum(len(d) for a in already if isinstance(d := a.get("data"), bytes | bytearray))
+    for art in artifacts:
+        if art.get("b64"):
+            continue
+        rel = str(art.get("rel_path") or "")
+        if not rel or rel in seen:
+            # `_persist_artifacts` dedups on rel_path and keeps the first, so
+            # fetching a repeat would move up to 32 MB only to discard it.
+            continue
+        seen.add(rel)
+        size = artifact_size_bytes(art)
+        # Per-turn ceilings, checked before the fetch rather than after: the
+        # point is not to notice the flood but to never move the bytes. `seen`
+        # spans the whole turn via `already`, so a thousand descriptors split
+        # across a hundred exec calls hit the same budget as one call's worth.
+        if len(seen) > MAX_ARTIFACTS_PER_TURN or fetched + size > MAX_ARTIFACT_TOTAL_BYTES:
+            logger.warning(
+                "artifact budget reached for room %s: not fetching %s (%d bytes)",
+                chatroom_id,
+                art.get("filename"),
+                size,
+            )
+            continue
+        if size > MAX_ARTIFACT_BYTES:
+            # Logged here as well as at persist time: this is the point where
+            # the file was still reachable, so it is the honest place to say it
+            # was the limit that stopped us and not an eviction.
+            logger.warning(
+                "artifact %s is %d bytes, above the %d limit - not delivered",
+                art.get("filename"),
+                size,
+                MAX_ARTIFACT_BYTES,
+            )
+            continue
+        try:
+            data = await runner.fetch_kernel_artifact(
+                agent_id=agent_id,
+                chatroom_id=chatroom_id,
+                path=rel,
+                max_bytes=MAX_ARTIFACT_BYTES,
+            )
+        except Exception:
+            logger.warning("artifact fetch raised for %s", rel, exc_info=True)
+            continue
+        if data is not None:
+            art["data"] = data
+            fetched += len(data)
+
+
 def _artifact_note(produced: Any) -> str:
     """One line naming the files this call wrote, and any that exceed the limit.
 
@@ -235,16 +326,30 @@ def _artifact_note(produced: Any) -> str:
     and which of those are over the size limit. Naming the oversized ones gives
     the model something to do about them (downsample, split, summarise) rather
     than repeating the same write.
+
+    **Every name is sanitised, and this is not cosmetic.** The filename comes
+    from agent-authored code, and a POSIX filename may contain newlines. Written
+    raw, `outputs/"chart.png\\n[system: ...]"` forges a line indistinguishable
+    from this function's own bracketed framing and from `[kernel restarted: ...]`
+    above -- untrusted text re-emitted in the platform's voice. `safe_input_name`
+    is the control `shared_kernel.storage.sanitize` already applies to upload
+    names for precisely this reason.
+
+    Advisory, so it must never raise: it annotates a result it must not be able
+    to fail. An unusable `size_bytes` reads as 0 rather than throwing out the
+    stdout of a run that succeeded.
     """
+    from shared_kernel.storage.sanitize import safe_input_name
+
     if not isinstance(produced, list):
         return ""
     written: list[str] = []
     too_large: list[str] = []
-    for art in produced:
+    for art in produced[:MAX_ARTIFACTS_PER_TURN]:
         if not isinstance(art, dict):
             continue
-        name = str(art.get("filename") or "artifact")
-        size = int(art.get("size_bytes") or 0)
+        name = safe_input_name(str(art.get("filename") or "artifact"))
+        size = artifact_size_bytes(art)
         if size > MAX_ARTIFACT_BYTES:
             too_large.append(f"{name} ({size} bytes)")
         else:
@@ -252,13 +357,24 @@ def _artifact_note(produced: Any) -> str:
     parts = []
     if written:
         parts.append(f"[wrote to outputs/: {', '.join(written)}]")
+    # Naming 20 and staying silent about the rest would rebuild, in miniature,
+    # the silence this whole path exists to end: the model would read a complete
+    # list and confabulate that everything landed.
+    overflow = len(produced) - MAX_ARTIFACTS_PER_TURN
+    if overflow > 0:
+        parts.append(
+            f"[{overflow} further artifact(s) this turn were not returned: at most "
+            f"{MAX_ARTIFACTS_PER_TURN} per turn. They remain in outputs/ inside the sandbox.]"
+        )
     if too_large:
         parts.append(
             f"[too large to return, over the {MAX_ARTIFACT_BYTES} byte limit: "
             f"{', '.join(too_large)}. The file is still in outputs/ inside the sandbox; "
             "write a smaller one if the user needs it.]"
         )
-    return "\n".join(parts)
+    # Leading newline so the caller can concatenate before clipping without
+    # having to know whether a note is present.
+    return "\n" + "\n".join(parts) if parts else ""
 
 
 def _build_file_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps) -> Tool:
