@@ -15,6 +15,10 @@ export const handlers = [
 
   http.post('/api/auth/logout', () => new HttpResponse(null, { status: 204 })),
 
+  http.post('/api/auth/ws-ticket', () =>
+    HttpResponse.json({ ticket: 'test-ws-ticket', expires_in: 30 }),
+  ),
+
   http.post('/api/auth/refresh', () =>
     HttpResponse.json({
       access_token: 'refreshed-access',
@@ -80,6 +84,10 @@ export const handlers = [
   ),
   http.get('/api/projects/:projectId/keys', () => HttpResponse.json([])),
   http.get('/api/projects/:projectId/rag-configs', () => HttpResponse.json([])),
+  http.get('/api/projects/:projectId/graphrag-configs', () => HttpResponse.json([])),
+  http.get('/api/projects/:projectId/graphrag-configs/owner-options', () => HttpResponse.json([])),
+  http.get('/api/projects/:projectId/knowmap-configs', () => HttpResponse.json([])),
+  http.get('/api/knowmap-configs/:configId/documents', () => HttpResponse.json([])),
   http.get('/api/search-keys', () => HttpResponse.json([])),
 
   http.get('/api/projects/:projectId/agents', () => HttpResponse.json([])),
@@ -227,4 +235,28 @@ export const handlers = [
   ),
 
   http.get('/api/chatrooms/:chatroomId/members', () => HttpResponse.json([])),
+  http.get('/api/chatrooms/:chatroomId/activity-activations/active', () =>
+    HttpResponse.json(null),
+  ),
+
+  http.get('/api/exports/:jobId', ({ params }) =>
+    HttpResponse.json({
+      job_id: params.jobId,
+      chatroom_id: 'cr_1',
+      status: 'ready',
+      url: null,
+      error: null,
+    }),
+  ),
+
+  // MUST stay last — msw matches in order, so this only catches what nothing
+  // above (or a test's own server.use) claimed. Without it an unmocked call is
+  // passed through to a real socket and rejects long after the test's jsdom
+  // window is torn down; a late .catch() touching window (i18n's `t`, a toast)
+  // then surfaces as an unhandled error and fails the whole run. Answering here
+  // keeps the rejection inside the test that caused it.
+  http.all('/api/*', ({ request }) => {
+    console.warn(`[msw] unmocked ${request.method} ${new URL(request.url).pathname} -> 404`)
+    return HttpResponse.json({ detail: 'unmocked in tests' }, { status: 404 })
+  }),
 ]

@@ -1,6 +1,10 @@
 import { afterAll, afterEach, beforeAll } from 'vitest'
 import { server } from './mocks/server'
 
+// The `/api/*` catch-all in handlers.ts already reports and absorbs unmocked
+// calls, so nothing reaches this. Left as 'warn' deliberately: msw 2.7's
+// 'error' strategy rejects with an InternalError that escapes as an unhandled
+// rejection and fails the run outright.
 beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }))
 afterEach(() => server.resetHandlers())
 afterAll(() => server.close())
