@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -44,10 +44,45 @@ _MAX_TOOL_OUTPUT = 16_000
 # drift and the model is told a limit that is not the one applied.
 MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 
+# Per-turn ceilings, because the per-file limit above bounds one artifact and
+# nothing bounded the set. Before the host-side fetch tier existed, the kernel's
+# own 512 MB container budget capped the batch implicitly: everything had to fit
+# in the exec reply. Fetching deliberately routes around that budget, so the
+# ceiling it removed has to be re-imposed here or an agent can hardlink one 32 MB
+# file to a thousand names and make the shared worker hold 32 GB.
+MAX_ARTIFACTS_PER_TURN = 20
+MAX_ARTIFACT_TOTAL_BYTES = 64 * 1024 * 1024
 
-def clip_tool_output(text: str) -> str:
-    """The byte-level backstop every tool's output passes through."""
-    return text if len(text) <= _MAX_TOOL_OUTPUT else text[:_MAX_TOOL_OUTPUT] + "\n…[truncated]"
+
+def artifact_size_bytes(art: Mapping[str, Any]) -> int:
+    """``size_bytes`` off an artifact descriptor. Total, never raises.
+
+    Every field of the descriptor is agent-controlled: `code_exec` runs the
+    agent's code in the kernel's own process, so it can rebind the collector and
+    emit ``{"size_bytes": "big"}``. A bare ``int()`` on that raises past the
+    per-artifact guards into the batch-level handler and discards artifacts that
+    were perfectly fine -- the same silent-loss shape this whole path exists to
+    end. An unusable size reads as 0, which is safe: it only ever makes a file
+    look small, and the fetch is bounded by the archive reader regardless.
+    """
+    try:
+        size = int(art.get("size_bytes") or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(size, 0)
+
+
+def clip_tool_output(text: str, *, reserve: int = 0) -> str:
+    """The byte-level backstop every tool's output passes through.
+
+    *reserve* holds back room for text the caller appends afterwards. Without it
+    a caller has two bad options: append after clipping, putting the suffix
+    outside the backstop entirely, or concatenate before clipping and let a
+    chatty stdout truncate the suffix away. `code_exec`'s artifact note needs
+    both properties -- bounded, and never silently dropped.
+    """
+    budget = max(_MAX_TOOL_OUTPUT - reserve, 0)
+    return text if len(text) <= budget else text[:budget] + "\n…[truncated]"
 
 
 def _tool_error(content: str) -> ToolResult:

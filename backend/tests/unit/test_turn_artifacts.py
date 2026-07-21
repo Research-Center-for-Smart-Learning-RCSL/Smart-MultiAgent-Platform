@@ -291,6 +291,74 @@ async def test_the_shortfall_count_excludes_deduped_duplicates(
 
 
 @pytest.mark.asyncio
+async def test_a_hostile_size_costs_one_artifact_not_the_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`size_bytes` is agent-controlled, like every field of the descriptor.
+
+    A bare `int()` on it raised past the per-artifact guards into the
+    method-level handler, which returns 0 -- discarding artifacts that had
+    decoded perfectly well. That is a milder rerun of the silent batch loss this
+    task exists to end, so it is pinned here rather than left to inspection.
+    """
+    _FakeAttachmentService.instances.clear()
+    monkeypatch.setattr(
+        "contexts.conversation.application.attachment_service.AttachmentService",
+        _FakeAttachmentService,
+    )
+    engine = SimpleNamespace(_db=_FakeDB())
+    agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
+    png = base64.b64encode(b"\x89PNG").decode("ascii")
+    artifacts = [
+        {"filename": "hostile.bin", "rel_path": "/session/outputs/h.bin", "size_bytes": "enormous"},
+        {"filename": "ok.png", "mime": "image/png", "rel_path": "/session/outputs/ok.png", "b64": png},
+    ]
+
+    async def _fetch(*_args, **_kwargs):
+        return None
+
+    engine._fetch_large_artifact = _fetch
+    count = await TurnEngine._persist_artifacts(  # type: ignore[arg-type]
+        engine, agent, uuid.uuid4(), uuid.uuid4(), artifacts
+    )
+
+    assert count == 1
+    assert [u["filename"] for u in _FakeAttachmentService.instances[-1].uploaded] == ["ok.png"]
+
+
+@pytest.mark.asyncio
+async def test_hydrated_bytes_are_used_without_a_second_fetch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Artifacts now arrive already fetched, off the kernel at exec time. The
+    late fetch stays only as a fallback for descriptors that never passed
+    through the tool, and must not re-fetch what is already in hand."""
+    _FakeAttachmentService.instances.clear()
+    monkeypatch.setattr(
+        "contexts.conversation.application.attachment_service.AttachmentService",
+        _FakeAttachmentService,
+    )
+    engine = SimpleNamespace(_db=_FakeDB())
+    agent = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
+    calls: list[Any] = []
+
+    async def _fetch(*args, **kwargs):
+        calls.append(args)
+
+    engine._fetch_large_artifact = _fetch
+    art = _big()
+    art["data"] = b"already here"
+
+    count = await TurnEngine._persist_artifacts(  # type: ignore[arg-type]
+        engine, agent, uuid.uuid4(), uuid.uuid4(), [art]
+    )
+
+    assert count == 1
+    assert calls == []
+    assert _FakeAttachmentService.instances[-1].uploaded[0]["data"] == b"already here"
+
+
+@pytest.mark.asyncio
 async def test_undecodable_b64_is_now_reported_too(monkeypatch: pytest.MonkeyPatch, caplog) -> None:
     """The sibling loss path: it logged at debug, so a corrupt payload was
     nearly as quiet as the dropped one. Both now report at warning."""
