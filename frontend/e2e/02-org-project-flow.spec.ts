@@ -4,11 +4,17 @@ import { env } from './fixtures/seed'
 test.describe('Org → invite → accept → transfer OC', () => {
   test('create an org', async ({ authedPage: page }) => {
     await page.goto('/orgs')
-    // OrgListView labels the input "New organisation" (not "name"), and the
-    // create button opens a confirm dialog before the API call.
-    await page.getByRole('textbox', { name: /organisation/i }).fill('E2E Org')
-    await page.getByRole('button', { name: /create/i }).click()
-    await page.getByRole('dialog').getByRole('button', { name: /create/i }).click()
+    // The name field lives inside OrgListView's SModal (gated by `:open="showCreate"`),
+    // so it only exists once the header action opens it. Both the page-header button
+    // and the empty-state button render tenancy.org.createTitle = "Create Organization",
+    // so scope to the header to stay out of strict-mode trouble.
+    await page.locator('.s-page-header').getByRole('button', { name: 'Create Organization' }).click()
+
+    const dialog = page.getByRole('dialog')
+    // The field is labelled tenancy.breadcrumb.organizations = "Organizations".
+    await dialog.getByRole('textbox', { name: 'Organizations' }).fill('E2E Org')
+    await dialog.getByRole('button', { name: 'Create Organization' }).click()
+
     await expect(page.getByText('E2E Org')).toBeVisible()
   })
 
@@ -22,9 +28,13 @@ test.describe('Org → invite → accept → transfer OC', () => {
     test.skip(!env('E2E_INVITE_TARGET'), 'needs second user')
     await page.goto('/orgs')
     await page.getByText('E2E Org').click()
-    await page.getByRole('link', { name: /members/i }).click()
-    await page.getByLabel(/email/i).fill(env('E2E_INVITE_TARGET')!)
-    await page.getByRole('button', { name: /invite/i }).click()
-    await expect(page.getByText(/invited/i)).toBeVisible()
+    // OrgDetailView renders the Members action as an SButton with as="router-link",
+    // i.e. an <a> labelled tenancy.breadcrumb.members = "Members".
+    await page.getByRole('link', { name: 'Members' }).click()
+    await page.getByLabel('Email').fill(env('E2E_INVITE_TARGET')!)
+    // tenancy.member.sendInvite = "Send invite".
+    await page.getByRole('button', { name: 'Send invite' }).click()
+    // Success toast is tenancy.member.invited = "Invitation sent to {email}".
+    await expect(page.getByText(/Invitation sent to/i)).toBeVisible()
   })
 })

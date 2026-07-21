@@ -1,5 +1,18 @@
+import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures/auth'
 import { env } from './fixtures/seed'
+
+// The header's export control (data-testid="open-export", aria-label "Export")
+// only opens ChatroomExportModal — the job is created by the modal's own
+// "Export" footer button (data-testid="submit-export"). Both carry the same
+// accessible name, so drive them by test id.
+async function startExport(page: Page) {
+  await page.getByTestId('open-export').click()
+  const modal = page.getByRole('dialog')
+  await expect(modal).toBeVisible()
+  await modal.getByTestId('submit-export').click()
+  return modal
+}
 
 test.describe('Export + attachments: download + expired state (M.3/M.5)', () => {
   test('trigger an export and see status', async ({ authedPage: page }) => {
@@ -7,12 +20,11 @@ test.describe('Export + attachments: download + expired state (M.3/M.5)', () => 
     const chatroomId = env('E2E_CHATROOM_ID')!
     await page.goto(`/chatrooms/${chatroomId}`)
 
-    const exportBtn = page.getByRole('button', { name: /export/i })
-    await expect(exportBtn).toBeVisible()
-    await exportBtn.click()
+    const modal = await startExport(page)
 
-    // Export status should appear (pending → ready or failed).
-    await expect(page.locator('.export-status')).toBeVisible({ timeout: 10_000 })
+    // Export status replaces the form once a job exists (queued/running → ready
+    // or failed).
+    await expect(modal.getByTestId('export-status')).toBeVisible({ timeout: 10_000 })
   })
 
   test('export download link appears when ready', async ({ authedPage: page }) => {
@@ -21,12 +33,15 @@ test.describe('Export + attachments: download + expired state (M.3/M.5)', () => 
     const chatroomId = env('E2E_CHATROOM_ID')!
     await page.goto(`/chatrooms/${chatroomId}`)
 
-    const exportBtn = page.getByRole('button', { name: /export/i })
-    await exportBtn.click()
+    const modal = await startExport(page)
 
-    // Poll until a terminal state (download link ready or failure message).
+    // Poll until a terminal state. The failure branch renders
+    // conversation.chatroom.exportFailed ("Failed to start export."), not the
+    // exportState.failed label.
     await expect(
-      page.locator('.export-status').filter({ hasText: /Download export|Export failed/i }),
+      modal
+        .getByTestId('export-status')
+        .filter({ hasText: /Download export|Failed to start export/i }),
     ).toBeVisible({ timeout: 100_000 })
   })
 
@@ -35,11 +50,17 @@ test.describe('Export + attachments: download + expired state (M.3/M.5)', () => 
     const chatroomId = env('E2E_CHATROOM_ID')!
     await page.goto(`/chatrooms/${chatroomId}`)
 
-    // At least one attachment element should be visible (download button or gone label).
-    const attachments = page.locator('.messages .attachments')
-    test.skip((await attachments.count()) === 0, 'no messages with attachments')
+    // ChatroomMessageBubble renders the list as .bubble__attachments. Each <li>
+    // holds exactly one of: an AttachmentImage (.attachment-image or its
+    // .attachment-image__fallback button) for an active image, a
+    // .attachment-link button for any other active file, or a .attachment-gone
+    // label for a quarantined/expired one.
+    const items = page.locator('.messages .bubble__attachments > li')
+    test.skip((await items.count()) === 0, 'no messages with attachments')
     await expect(
-      attachments.first().locator('.link-btn, .attachment-gone'),
+      items
+        .first()
+        .locator('.attachment-link, .attachment-gone, .attachment-image, .attachment-image__fallback'),
     ).toBeVisible()
   })
 })

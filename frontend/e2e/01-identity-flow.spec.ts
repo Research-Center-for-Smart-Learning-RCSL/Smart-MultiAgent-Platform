@@ -14,7 +14,10 @@ test.describe('Identity flow: Register → verify → login', () => {
     // The test stack's captcha config is provider=off, so RegisterView renders
     // no captcha widget and the backend skips verification — register submits
     // with email + password only.
-    await page.getByRole('button', { name: /register|sign up|submit/i }).click()
+    // The submit button reads identity.register.submit = "Create Account"
+    // (identity/locales/en.json); it flips to "Creating account..." while in
+    // flight, so match either.
+    await page.getByRole('button', { name: /creat(e|ing) account/i }).click()
     // RegisterView.vue redirects to /login?pendingVerify=1 on success.
     await page.waitForURL(/\/login\?.*pendingVerify=1/)
     await expect(page).toHaveURL(/pendingVerify=1/)
@@ -26,7 +29,8 @@ test.describe('Identity flow: Register → verify → login', () => {
     test.skip(!env('E2E_VERIFY_TOKEN'), 'needs seeded verify token')
     // Token rides in the URL fragment, not the query string (SEC-8).
     await page.goto(`/verify-email#token=${env('E2E_VERIFY_TOKEN')}`)
-    await expect(page.getByText(/verified|success/i)).toBeVisible()
+    // identity.verifyEmail.success — the only success copy VerifyEmailView renders.
+    await expect(page.getByText('Your email has been verified.')).toBeVisible()
   })
 
   test('login with seeded verified account', async ({ page }) => {
