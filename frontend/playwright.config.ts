@@ -7,7 +7,11 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
-  reporter: process.env.CI ? 'github' : 'html',
+  // `github` alone writes annotations but no report directory, so a CI failure
+  // left nothing behind to inspect — the screenshot/trace paths it prints live
+  // under `test-results/`, and the workflow's artifact upload of
+  // `playwright-report/` came back empty. Emit the HTML report too.
+  reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'html',
   timeout: 60_000,
 
   use: {

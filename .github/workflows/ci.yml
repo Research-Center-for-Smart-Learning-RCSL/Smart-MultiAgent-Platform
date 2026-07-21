@@ -1015,8 +1015,12 @@ jobs:
         if: failure()
         with:
           name: playwright-report
+          # test-results/ holds the screenshots, traces and error-context.md that
+          # the failure output points at; without it the artifact carried only
+          # backend-stack.log and a failure could not be diagnosed after the fact.
           path: |
             frontend/playwright-report/
+            frontend/test-results/
             backend-stack.log
           retention-days: 7
 
