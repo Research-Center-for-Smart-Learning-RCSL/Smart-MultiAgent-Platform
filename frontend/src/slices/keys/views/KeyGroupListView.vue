@@ -31,7 +31,7 @@ const router = useRouter()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
 const projectId = computed(() => route.params.projectId as string)
-const { groups, error, create, remove } = useKeyGroups(() => projectId.value)
+const { groups, isLoading, error, create, remove } = useKeyGroups(() => projectId.value)
 
 const showCreate = ref(false)
 const newName = ref('')
@@ -143,6 +143,7 @@ function formatDate(iso: string): string {
     <STable
       :columns="columns"
       :data="tableGroups"
+      :loading="isLoading"
       row-key="id"
       class="mt-6"
       @row-click="onRowClick"
