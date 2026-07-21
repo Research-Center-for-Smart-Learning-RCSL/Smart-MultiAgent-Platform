@@ -37,6 +37,29 @@ from contexts.agents.domain.models import (
 from contexts.agents.infrastructure import tables as t
 from shared_kernel.auth.clients import now
 
+#: The singleton tool-type values, in a stable order. ``SINGLETON_TOOL_TYPES`` is a
+#: frozenset, so its iteration order varies between processes; pinning it here keeps
+#: the emitted SQL byte-identical across workers.
+SINGLETON_TOOL_TYPE_VALUES: tuple[str, ...] = tuple(sorted(tt.value for tt in SINGLETON_TOOL_TYPES))
+
+# ON CONFLICT index inference must prove this predicate implies the predicate of the
+# partial index uq_agent_tools_singleton (alembic/versions/0036_agent_tools.py).
+# Postgres can only prove that from Const nodes. A plain ``.in_([...])`` renders bind
+# parameters, and once a prepared statement flips from a custom to a generic plan (the
+# 6th execution, per plan_cache_mode) those stay Params -- inference then fails with
+# InvalidColumnReferenceError, which is why the failure looked intermittent. Marking the
+# bind ``literal_execute`` makes SQLAlchemy render the values inline through the dialect's
+# literal processor on every execution, after the compiled-statement cache is consulted,
+# so the predicate is Const whether the statement was compiled fresh or served from cache.
+SINGLETON_INDEX_WHERE = t.agent_tools.c.tool_type.in_(
+    sa.bindparam(
+        "singleton_tool_types",
+        value=list(SINGLETON_TOOL_TYPE_VALUES),
+        expanding=True,
+        literal_execute=True,
+    )
+)
+
 
 def _row_to_agent(row: Any) -> Agent:
     return Agent(
@@ -622,7 +645,7 @@ class AgentToolRepository:
                 )
                 .on_conflict_do_nothing(
                     index_elements=["agent_id", "tool_type"],
-                    index_where=t.agent_tools.c.tool_type.in_([tt.value for tt in SINGLETON_TOOL_TYPES]),
+                    index_where=SINGLETON_INDEX_WHERE,
                 )
             )
             await self._db.execute(stmt)
