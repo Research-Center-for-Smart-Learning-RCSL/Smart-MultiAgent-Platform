@@ -12,7 +12,7 @@ import {
 export function useKeyGroups(projectId: () => string) {
   const qc = useQueryClient()
 
-  const { data, error: queryError, refetch } = useQuery({
+  const { data, error: queryError, refetch, isLoading } = useQuery({
     queryKey: computed(() => keysKeys.keyGroups(projectId())),
     queryFn: () => keyGroupsApi.listForProject(projectId()),
     enabled: computed(() => !!projectId()),
@@ -37,7 +37,7 @@ export function useKeyGroups(projectId: () => string) {
     await qc.invalidateQueries({ queryKey: keysKeys.keyGroups(projectId()) })
   }
 
-  return { groups, error, reload, create, remove }
+  return { groups, isLoading, error, reload, create, remove }
 }
 
 export function useKeyGroupDetail(groupId: () => string) {

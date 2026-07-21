@@ -26,16 +26,21 @@ test.describe('Create Agent → attach RAG → ingest doc → grounded answer', 
     const keyGroupSelect = page.locator('#key_group_id')
     await expect(keyGroupSelect).toBeVisible({ timeout: 10_000 })
 
-    // key_group_id auto-selects the first group once the key-groups query lands.
-    // If no key groups exist, creation is blocked — skip before filling the form.
-    // The options arrive asynchronously, so wait rather than count immediately.
-    const keyGroupOptions = keyGroupSelect.locator('option:not([value=""])')
-    const hasKeyGroup = await keyGroupOptions
-      .first()
+    // Select the SEEDED group explicitly rather than accepting the default.
+    // AgentDetailView defaults key_group_id to the first group, and the backend
+    // orders key groups created_at DESC, so any group created later by another
+    // spec (03 creates one when the list looks empty) sorts ahead of the seeded
+    // one. That group carries no key, so the create would 422 with
+    // key-group-no-matching-provider — the flake this guards against.
+    const keyGroupId = env('E2E_KEY_GROUP_ID')
+    test.skip(!keyGroupId, 'needs seeded key group')
+
+    // The options arrive asynchronously, so wait for the seeded one specifically
+    // rather than for whichever option lands first.
+    await keyGroupSelect
+      .locator(`option[value="${keyGroupId}"]`)
       .waitFor({ state: 'attached', timeout: 10_000 })
-      .then(() => true)
-      .catch(() => false)
-    test.skip(!hasKeyGroup, 'needs at least one key group')
+    await keyGroupSelect.selectOption(keyGroupId!)
 
     await page.locator('#name').fill(agentName)
     // model_hint must match a provider actually carried into the selected key

@@ -110,6 +110,12 @@ async function globalSetup(): Promise<void> {
           const kg = await kgResp.json()
           keyGroupId = kg.id
           seed.E2E_KEY_GROUP_URL = `projects/${proj.id}/key-groups/${kg.id}`
+          // Exposed separately from the URL because specs that create an agent
+          // must select THIS group by id: the picker defaults to the first
+          // group, and the list is ordered created_at DESC, so any group made
+          // later by another spec would otherwise be chosen — and it would not
+          // carry the OpenAI key the agent's model_hint requires.
+          seed.E2E_KEY_GROUP_ID = kg.id
         } else {
           console.warn(
             `[e2e-seed] KEY GROUP creation failed (status ${kgResp.status()}): ${await kgResp.text()}`,

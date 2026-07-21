@@ -34,7 +34,7 @@ const route = useRoute()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
 const projectId = computed(() => route.params.projectId as string)
-const { keys, error, reload, upload, retest, activate, remove } = useSearchKeys(
+const { keys, isLoading, error, reload, upload, retest, activate, remove } = useSearchKeys(
   () => projectId.value,
 )
 
@@ -167,6 +167,7 @@ function onAction(key: string, row: { id: string }) {
     <STable
       :columns="columns"
       :data="tableKeys"
+      :loading="isLoading"
       row-key="id"
       class="mt-6"
     >
