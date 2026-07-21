@@ -14,7 +14,21 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
   test('add an MCP binding', async ({ authedPage: page }) => {
     test.skip(!env('E2E_AGENT_ID'), 'needs seeded agent')
     const agentId = env('E2E_AGENT_ID')!
+
+    // The create's invalidateQueries is deduped into a still-in-flight initial
+    // GET, which then resolves with the pre-add list — the binding is created
+    // (201) but its row never appears. Same race the egress-allowlist spec
+    // below documents; here the list can be empty, so there is no aria-busy
+    // table to wait on and the GET itself is the signal. Registered before
+    // goto(), since the query fires during the boot this navigation triggers.
+    const toolsLoaded = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'GET' &&
+        new URL(r.url()).pathname === `/api/agents/${agentId}/tools`,
+      { timeout: 15_000 },
+    )
     await page.goto(`/agents/${agentId}/tools`)
+    await toolsLoaded
 
     // "Add Server" appears twice inside the MCP card (header + empty state) and
     // the Functions card has its own "Add Function", so scope to the card and
@@ -27,7 +41,11 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
 
     // SFormField derives each control's id from its `name`, which here is the
     // dotted vee-validate path. The source enum is url | package only.
-    const reference = '@modelcontextprotocol/server-filesystem'
+    // Unique per run: a retry re-adds the binding, so a fixed reference matches
+    // the row this attempt created AND the one the failed attempt left behind,
+    // and the retry dies on a strict-mode violation instead of reporting the
+    // problem it was retrying.
+    const reference = `@modelcontextprotocol/server-filesystem-${Date.now()}`
     await page.locator('#config\\.source').selectOption('package')
     await page.locator('#config\\.reference').fill(reference)
     // The form rejects an empty allowlist, so at least one tool name is needed.
