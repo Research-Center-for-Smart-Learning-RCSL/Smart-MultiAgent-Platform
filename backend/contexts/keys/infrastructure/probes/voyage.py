@@ -7,10 +7,11 @@ import httpx
 from contexts.keys.infrastructure.probes.base import (
     ProbeResult,
     new_http_client,
+    probe_url,
     summarise_http_failure,
 )
 
-_URL = "https://api.voyageai.com/v1/embeddings"
+_PATH = "/v1/embeddings"
 
 
 async def probe_voyage(secret: str) -> ProbeResult:
@@ -21,7 +22,7 @@ async def probe_voyage(secret: str) -> ProbeResult:
     payload = {"input": ["ping"], "model": "voyage-3-lite"}
     try:
         async with new_http_client() as client:
-            resp = await client.post(_URL, json=payload, headers=headers)
+            resp = await client.post(probe_url("voyage_base_url", _PATH), json=payload, headers=headers)
     except httpx.HTTPError as exc:
         return ProbeResult.failed(f"network: {exc.__class__.__name__}")
     if resp.status_code == 200:

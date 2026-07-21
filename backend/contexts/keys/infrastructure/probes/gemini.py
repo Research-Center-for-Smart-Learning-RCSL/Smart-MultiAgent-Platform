@@ -13,16 +13,20 @@ import httpx
 from contexts.keys.infrastructure.probes.base import (
     ProbeResult,
     new_http_client,
+    probe_url,
     summarise_http_failure,
 )
 
-_URL = "https://generativelanguage.googleapis.com/v1/models"
+_PATH = "/v1/models"
 
 
 async def probe_gemini(secret: str) -> ProbeResult:
     try:
         async with new_http_client() as client:
-            resp = await client.get(_URL, headers={"x-goog-api-key": secret})
+            resp = await client.get(
+                probe_url("gemini_base_url", _PATH),
+                headers={"x-goog-api-key": secret},
+            )
     except httpx.HTTPError as exc:
         return ProbeResult.failed(f"network: {exc.__class__.__name__}")
     if resp.status_code == 200:

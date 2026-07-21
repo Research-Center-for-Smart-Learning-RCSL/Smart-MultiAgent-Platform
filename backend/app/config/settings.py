@@ -346,6 +346,33 @@ class EmailSection(BaseSettings):
     )
 
 
+class ProviderProbeSection(BaseSettings):
+    """Base URLs the key-upload live probes dial (R7.02).
+
+    This configures the probe's *destination only*. The probe itself is
+    unconditional and byte-identical in every environment: every upload still
+    performs a real HTTP round-trip and still records the real outcome. There
+    is deliberately no switch that skips, short-circuits, or force-passes it.
+
+    Defaults are the real provider endpoints, so an unconfigured deployment
+    probes the real providers. Overriding is for deployments that must dial an
+    in-cluster egress gateway instead of the public internet, and for the E2E
+    stack, which answers probes from a fake provider so CI can seed a working
+    key without a real secret.
+
+    A redirected probe validates nothing about the real provider, so
+    ``_check_prod_secrets`` rejects any override when env is prod/staging.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="SMAP_PROBE_", extra="ignore")
+
+    anthropic_base_url: str = "https://api.anthropic.com"
+    openai_base_url: str = "https://api.openai.com"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com"
+    voyage_base_url: str = "https://api.voyageai.com"
+    cohere_base_url: str = "https://api.cohere.com"
+
+
 class LimitsSection(BaseSettings):
     """Numeric budgets keyed by §19.02 bucket; real enforcement lands in C.12."""
 
@@ -390,6 +417,7 @@ class Settings(BaseSettings):
     sandbox: SandboxSection = Field(default_factory=SandboxSection)
     knowledge: KnowledgeSection = Field(default_factory=KnowledgeSection)
     email: EmailSection = Field(default_factory=EmailSection)
+    provider_probe: ProviderProbeSection = Field(default_factory=ProviderProbeSection)
 
 
 _EGRESS_DEV_DEFAULT = "0" * 63 + "1"  # known dev sentinel
@@ -411,6 +439,17 @@ def _check_prod_secrets(s: Settings) -> None:
         problems.append("SMAP_VAULT_DEV_TOKEN must not be set in production")
     if not (s.vault.role_id and s.vault.secret_id):
         problems.append("SMAP_VAULT_ROLE_ID and SMAP_VAULT_SECRET_ID must be set in production")
+    # A probe pointed anywhere but the real provider proves nothing about the
+    # uploaded key, so a redirected probe is a silently-accepted invalid key.
+    # The override exists for the E2E stack; it must never survive into a
+    # live-facing env, hence a hard fail rather than a warning.
+    probe_defaults = ProviderProbeSection.model_fields
+    for name, field in probe_defaults.items():
+        if getattr(s.provider_probe, name) != field.default:
+            problems.append(
+                f"SMAP_PROBE_{name.upper()} must not be overridden in production"
+                " — a redirected key probe validates nothing"
+            )
     if not s.egress.shared_secret:
         problems.append("EGRESS_PROXY_SHARED_SECRET must not be empty in production")
     if s.egress.shared_secret == _EGRESS_DEV_DEFAULT:

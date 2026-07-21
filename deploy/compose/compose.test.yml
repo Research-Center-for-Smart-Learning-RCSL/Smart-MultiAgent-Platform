@@ -86,9 +86,22 @@ services:
       SMTP_PORT: "1025"
       SMTP_FROM: SMAP <no-reply@smap.test>
       SMTP_TLS_MODE: none
+      # Point the key-upload live probes (R7.02) at the in-stack fake provider.
+      # The probe is NOT disabled — it runs in full and a bad request still
+      # fails; only its destination moves off the public internet, which CI
+      # cannot reach and has no real secret for. Settings default to the real
+      # provider URLs and `_check_prod_secrets` refuses to boot prod/staging
+      # with any of these set, so this cannot leak out of the test stack.
+      SMAP_PROBE_ANTHROPIC_BASE_URL: http://fake-provider:8080
+      SMAP_PROBE_OPENAI_BASE_URL: http://fake-provider:8080
+      SMAP_PROBE_GEMINI_BASE_URL: http://fake-provider:8080
+      SMAP_PROBE_VOYAGE_BASE_URL: http://fake-provider:8080
+      SMAP_PROBE_COHERE_BASE_URL: http://fake-provider:8080
     depends_on:
       mailhog:
         condition: service_started
+      fake-provider:
+        condition: service_healthy
 
   # ---------- MailHog — SMTP catch-all for the email round-trip test (K.6) ----
   # Accepts mail on :1025 and exposes a JSON API + UI on :8025. The wiring test
@@ -99,6 +112,30 @@ services:
     networks: [backend_net]
     ports:
       - "8025:8025"
+
+  # ---------- Fake LLM provider — TEST ONLY -----------------------------------
+  # Answers the key-upload probe request shapes so the E2E seed can create a
+  # key whose test_status is `ok`, and hence an agent. Deliberately reachable
+  # only from backend_net and only referenced by this overlay; the base
+  # docker-compose.yml has no such service. See scripts/fake_provider.py.
+  fake-provider:
+    image: python:3.12-alpine
+    networks: [backend_net]
+    volumes:
+      - ./scripts/fake_provider.py:/fake_provider.py:ro
+    command: ["python3", "/fake_provider.py"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request;urllib.request.urlopen('http://localhost:8080/healthz').read()",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 2s
 
   # ---------- Backend worker ----------
   backend-worker:
