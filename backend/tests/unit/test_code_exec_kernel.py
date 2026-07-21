@@ -14,7 +14,7 @@ import json
 import os
 import pathlib
 import uuid
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -301,6 +301,144 @@ class TestSingleMemberTarExtraction:
 
         stream = self._tar("outputs", b"", kind=tarfile.DIRTYPE)
         assert _single_member_tar_bytes(stream, 1024) is None
+
+
+class TestFetchKernelArtifact:
+    """`fetch_kernel_artifact` end to end against a fake Docker client.
+
+    Previously this method appeared in the suite only as a stub asserting it was
+    *not* called: its helpers were tested in isolation while the method binding
+    them together had no coverage at all. That is the same shape of gap that let
+    the missing second transport tier survive unnoticed in the first place.
+    """
+
+    @staticmethod
+    def _tar_bytes(name: str, data: bytes) -> bytes:
+        import io as _io
+        import tarfile
+
+        buf = _io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tar.addfile(info, _io.BytesIO(data))
+        return buf.getvalue()
+
+    def _wire(self, monkeypatch: pytest.MonkeyPatch, *, stat: Any, payload: bytes | None = None) -> Any:
+        """A sandbox whose kernel registry holds one live, cooperative container."""
+        from contexts.agents.infrastructure.sandbox import docker_runsc as dr
+
+        agent_id, room_id = uuid.uuid4(), uuid.uuid4()
+        asked: list[str] = []
+
+        class _Container:
+            attrs: ClassVar[dict[str, Any]] = {"State": {"Running": True}}
+            status = "running"
+
+            def get_archive(self, path: str) -> Any:
+                asked.append(path)
+                if payload is None:
+                    raise RuntimeError("no such file")
+                return [payload], stat
+
+        monkeypatch.setitem(dr._KERNELS, dr._session_key(agent_id, room_id), dr._KernelHandle("cid", 0.0))
+        monkeypatch.setattr(dr, "_get_container_quietly", lambda _c, _r: _Container())
+        # Patched on the class: the sandbox is a frozen dataclass, so an
+        # instance attribute cannot be undone at teardown.
+        monkeypatch.setattr(dr.DockerRunscSandbox, "_client", lambda _self: object())
+        return dr.DockerRunscSandbox(), agent_id, room_id, asked
+
+    async def _fetch(self, sandbox: Any, agent_id: Any, room_id: Any, path: str) -> Any:
+        return await sandbox.fetch_kernel_artifact(
+            agent_id=agent_id, chatroom_id=room_id, path=path, max_bytes=1024
+        )
+
+    async def test_returns_the_bytes_for_a_regular_file(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        stat = {"size": 7, "mode": 0o644, "linkTarget": ""}
+        sandbox, agent_id, room_id, asked = self._wire(
+            monkeypatch, stat=stat, payload=self._tar_bytes("big.bin", b"payload")
+        )
+        got = await self._fetch(sandbox, agent_id, room_id, "/session/outputs/big.bin")
+
+        assert got == b"payload"
+        assert asked == ["/session/outputs/big.bin"]
+
+    async def test_refuses_a_symlink_leaf(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The lexical guard cannot see what a path resolves to, and the daemon
+        follows symlinks. The agent owns /session read-write."""
+        stat = {"size": 7, "mode": 0o644, "linkTarget": "/workspace/agent-files/other.csv"}
+        sandbox, agent_id, room_id, _ = self._wire(
+            monkeypatch, stat=stat, payload=self._tar_bytes("big.bin", b"payload")
+        )
+        assert await self._fetch(sandbox, agent_id, room_id, "/session/outputs/big.bin") is None
+
+    async def test_refuses_a_directory_leaf(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        stat = {"size": 4096, "mode": (1 << 31) | 0o755, "linkTarget": ""}
+        sandbox, agent_id, room_id, _ = self._wire(
+            monkeypatch, stat=stat, payload=self._tar_bytes("outputs", b"")
+        )
+        assert await self._fetch(sandbox, agent_id, room_id, "/session/outputs/big.bin") is None
+
+    async def test_fails_closed_on_an_unreadable_header(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`or 0` here would wave a missing size past the ceiling and let the
+        whole stream buffer, which is the one thing the ceiling exists for."""
+        stat = {"mode": 0o644, "linkTarget": ""}
+        sandbox, agent_id, room_id, _ = self._wire(
+            monkeypatch, stat=stat, payload=self._tar_bytes("big.bin", b"payload")
+        )
+        assert await self._fetch(sandbox, agent_id, room_id, "/session/outputs/big.bin") is None
+
+    async def test_refuses_a_file_over_the_ceiling(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        stat = {"size": 99_999, "mode": 0o644, "linkTarget": ""}
+        sandbox, agent_id, room_id, asked = self._wire(
+            monkeypatch, stat=stat, payload=self._tar_bytes("big.bin", b"payload")
+        )
+        assert await self._fetch(sandbox, agent_id, room_id, "/session/outputs/big.bin") is None
+
+    async def test_a_get_archive_failure_is_not_an_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The kernel can be evicted or reaped between the exec reply and this
+        call; an artifact must not cost the turn its text response."""
+        sandbox, agent_id, room_id, _ = self._wire(monkeypatch, stat={}, payload=None)
+        assert await self._fetch(sandbox, agent_id, room_id, "/session/outputs/big.bin") is None
+
+    async def test_no_live_kernel_yields_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from contexts.agents.infrastructure.sandbox import docker_runsc as dr
+
+        monkeypatch.setattr(dr.DockerRunscSandbox, "_client", lambda _self: object())
+        got = await dr.DockerRunscSandbox().fetch_kernel_artifact(
+            agent_id=uuid.uuid4(), chatroom_id=uuid.uuid4(), path="/session/outputs/x.bin", max_bytes=1024
+        )
+        assert got is None
+
+    async def test_a_hostile_path_never_reaches_the_daemon(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The confinement must reject *before* the daemon call, not after."""
+        stat = {"size": 7, "mode": 0o644, "linkTarget": ""}
+        sandbox, agent_id, room_id, asked = self._wire(
+            monkeypatch, stat=stat, payload=self._tar_bytes("passwd", b"root:x:0:0")
+        )
+        assert await self._fetch(sandbox, agent_id, room_id, "/etc/passwd") is None
+        assert asked == []
+
+
+def test_the_kernel_mounts_exactly_two_volumes() -> None:
+    """The containment argument for `_safe_artifact_path` rests on this set.
+
+    That guard is lexical, and the daemon resolves symlinked directory
+    components, so a path under /session/outputs can be made to resolve into
+    another mount. Today that is harmless: the only other mount is the agent's
+    own volume, read-only and already readable by this kernel under the inline
+    cap, so the symlink buys no read the agent did not have. A third mount, or a
+    write bind on /workspace, silently removes that argument -- so it fails here
+    rather than in a future security review.
+    """
+    import inspect
+
+    from contexts.agents.infrastructure.sandbox import docker_runsc as dr
+
+    src = inspect.getsource(dr.DockerRunscSandbox._create_kernel)
+    assert '_agent_volume_name(agent_id): {"bind": _VOLUME_ROOT, "mode": "ro"}' in src
+    assert '{"bind": _SESSION_ROOT, "mode": "rw"}' in src
+    assert src.count('"bind"') == 2, "a third kernel mount invalidates _safe_artifact_path's premise"
 
 
 def test_error_is_captured_not_raised(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -77,6 +77,10 @@ _SESSION_ROOT = "/session"
 # Artifacts live directly here and nowhere else (`kernel._collect_artifacts`
 # iterates one level and takes regular files only).
 _OUTPUTS_ROOT = _SESSION_ROOT + "/outputs"
+# Go's os.FileMode type bits, as `get_archive`'s stat header reports them:
+# ModeDir | ModeSymlink | ModeDevice | ModeNamedPipe | ModeSocket |
+# ModeCharDevice | ModeIrregular. A regular file has none of them set.
+_GO_MODE_TYPE = (1 << 31) | (1 << 27) | (1 << 26) | (1 << 25) | (1 << 24) | (1 << 21) | (1 << 19)
 # Host/kernel contract version; must equal `kernel.PROTOCOL_VERSION` in the
 # code-exec image. Neither direction of a mismatched deploy degrades safely, so
 # the host refuses a stamp it does not recognise rather than reading the wrong
@@ -1576,7 +1580,22 @@ class DockerRunscSandbox:
         # reports ~4 KiB for a directory regardless of the tree behind it. The
         # real bound is `_CappedReader`, which stops mid-stream. An unreadable
         # header still fails CLOSED: `or 0` would wave a missing size past here.
-        declared = stat.get("size") if isinstance(stat, dict) else None
+        if not isinstance(stat, dict):
+            _log.warning("artifact fetch: no archive header for %r", safe)
+            return None
+        # The lexical guard above cannot see what the path *resolves* to: the
+        # daemon follows symlinks when servicing `get_archive`, and the agent
+        # owns /session read-write. Reject anything that did not come back as a
+        # plain regular file, so a symlinked or directory leaf fails closed
+        # rather than on the strength of normalisation alone.
+        if stat.get("linkTarget"):
+            _log.warning("artifact fetch: %r is a symlink to %r", safe, stat.get("linkTarget"))
+            return None
+        mode = stat.get("mode")
+        if not isinstance(mode, int) or mode & _GO_MODE_TYPE:
+            _log.warning("artifact fetch: %r is not a regular file (mode %r)", safe, mode)
+            return None
+        declared = stat.get("size")
         if not isinstance(declared, int) or declared < 0:
             _log.warning("artifact fetch: unusable size in archive header for %r: %r", safe, declared)
             return None
