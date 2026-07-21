@@ -64,6 +64,13 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
 
     // The add form and the per-row remove button render for project owners only.
     await expect(page.locator('#hostname')).toBeVisible()
+
+    // The form renders before the allowlist query settles, so a submit can beat
+    // the initial GET. TanStack dedupes the post-add invalidation into that
+    // still-in-flight first fetch, which then resolves with the pre-add list and
+    // the new row never appears. Wait for the table to leave its loading state.
+    await expect(page.locator('table.s-table')).toHaveAttribute('aria-busy', 'false')
+
     await page.locator('#hostname').fill(hostname)
     await page.locator('#note').fill('E2E test')
     await page.getByRole('button', { name: 'Add', exact: true }).click()

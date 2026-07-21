@@ -18,15 +18,16 @@ test.describe('Upload LLM key → validate → carry into project → key group'
     // keys.form.submit = "Upload Key" label, so scope to the page header.
     await page.locator('.s-page-header').getByRole('button', { name: 'Upload Key' }).click()
 
-    // SSelect/SInput put the passed-through data-testid on their wrapper <div>,
-    // not the native control, so descend to the <select>/<input>.
-    const providerSelect = page.locator('[data-testid="key-provider"] select')
+    // SSelect/SInput set `inheritAttrs: false` and forward everything except
+    // class/style to the *native* control, so data-testid lands on the
+    // <select>/<input> itself, not on the wrapper <div>.
+    const providerSelect = page.locator('select[data-testid="key-provider"]')
     await expect(providerSelect).toBeVisible({ timeout: 10_000 })
     await providerSelect.selectOption('openai')
 
-    await page.locator('[data-testid="key-name"] input').fill(keyName)
+    await page.locator('input[data-testid="key-name"]').fill(keyName)
     await page
-      .locator('[data-testid="key-secret"] input')
+      .locator('input[data-testid="key-secret"]')
       .fill('sk-test-00000000000000000000000000000000')
     await page.locator('[data-testid="key-upload-submit"]').click()
 
@@ -40,7 +41,12 @@ test.describe('Upload LLM key → validate → carry into project → key group'
     const keyList = page.getByRole('table')
     await expect(keyList).toBeVisible({ timeout: 10_000 })
 
+    // STable renders its header immediately, so a visible table proves nothing
+    // about the rows. `count()` does not auto-wait — settle the query first, or
+    // the test silently skips itself on a slow list fetch.
+    const emptyState = page.getByText('No API keys uploaded yet.')
     const firstRow = keyList.locator(DATA_ROW).first()
+    await expect(firstRow.or(emptyState)).toBeVisible({ timeout: 10_000 })
     test.skip((await keyList.locator(DATA_ROW).count()) === 0, 'no keys to retest')
 
     // Retest is a menu item behind the row's actions menu, not a standalone
@@ -69,12 +75,18 @@ test.describe('Upload LLM key → validate → carry into project → key group'
     // detail route, so the links are the group rows.
     const groupLinks = groupList.getByRole('link')
 
+    // STable renders its header as soon as the view mounts, so the table being
+    // visible says nothing about the rows. `count()` does not auto-wait, so
+    // settle the async query first: either a row link or the empty state.
+    const emptyState = page.getByText('No key groups created yet.')
+    await expect(groupLinks.first().or(emptyState)).toBeVisible({ timeout: 10_000 })
+
     // If no group exists, create one. The form is inside an SModal gated by
     // `:open="showCreate"`; keys.groups.create = "Create Group" labels both the
     // header action and the empty-state button, so scope to the header.
     if ((await groupLinks.count()) === 0) {
       await page.locator('.s-page-header').getByRole('button', { name: 'Create Group' }).click()
-      await page.locator('[data-testid="group-name"] input').fill(`e2e-group-${Date.now()}`)
+      await page.locator('input[data-testid="group-name"]').fill(`e2e-group-${Date.now()}`)
       await page.locator('[data-testid="group-create"]').click()
       await expect(groupLinks.first()).toBeVisible({ timeout: 10_000 })
     }

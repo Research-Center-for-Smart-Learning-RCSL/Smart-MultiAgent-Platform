@@ -38,7 +38,10 @@ test.describe('Create Agent → attach RAG → ingest doc → grounded answer', 
     test.skip(!hasKeyGroup, 'needs at least one key group')
 
     await page.locator('#name').fill(agentName)
-    await page.locator('#model_hint').selectOption('claude')
+    // model_hint must match a provider actually carried into the selected key
+    // group (agent_service._assert_key_group_has_provider), else the create
+    // 422s. The seeded group holds an OpenAI key only.
+    await page.locator('#model_hint').selectOption('openai')
 
     // agents.detail.save = "Save Changes" (page header; the duplicate in the
     // mobile bottom bar is v-if="isMobile" and absent at desktop viewports).
