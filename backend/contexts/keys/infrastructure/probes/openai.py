@@ -7,17 +7,18 @@ import httpx
 from contexts.keys.infrastructure.probes.base import (
     ProbeResult,
     new_http_client,
+    probe_url,
     summarise_http_failure,
 )
 
-_URL = "https://api.openai.com/v1/models"
+_PATH = "/v1/models"
 
 
 async def probe_openai(secret: str) -> ProbeResult:
     headers = {"authorization": f"Bearer {secret}"}
     try:
         async with new_http_client() as client:
-            resp = await client.get(_URL, headers=headers)
+            resp = await client.get(probe_url("openai_base_url", _PATH), headers=headers)
     except httpx.HTTPError as exc:
         return ProbeResult.failed(f"network: {exc.__class__.__name__}")
     if resp.status_code == 200:

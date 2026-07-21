@@ -73,6 +73,23 @@ def new_http_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=_PROBE_TIMEOUT_SECONDS)
 
 
+def probe_url(provider_field: str, path: str) -> str:
+    """Resolve a probe endpoint from `settings.provider_probe`.
+
+    Only the host is configurable — the path, method, headers and success
+    criteria stay hard-coded in each adapter, and the probe always runs. The
+    default is the real provider, and `_check_prod_secrets` refuses to boot a
+    prod/staging process with an override active.
+
+    Imported lazily: `app.config` imports well above this layer, and probes are
+    constructed during request handling, not at module import.
+    """
+    from app.config.settings import get_settings
+
+    base: str = getattr(get_settings().provider_probe, provider_field)
+    return f"{base.rstrip('/')}{path}"
+
+
 def summarise_http_failure(response: httpx.Response) -> str:
     """Build a `test_error` string without echoing the secret.
 
@@ -98,5 +115,6 @@ __all__ = [
     "ProbeResult",
     "ProbeStatus",
     "new_http_client",
+    "probe_url",
     "summarise_http_failure",
 ]

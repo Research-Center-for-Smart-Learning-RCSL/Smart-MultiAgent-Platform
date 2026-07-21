@@ -7,10 +7,11 @@ import httpx
 from contexts.keys.infrastructure.probes.base import (
     ProbeResult,
     new_http_client,
+    probe_url,
     summarise_http_failure,
 )
 
-_URL = "https://api.anthropic.com/v1/messages"
+_PATH = "/v1/messages"
 _VERSION_HEADER = "2023-06-01"  # stable minimum that supports 1-token requests
 
 
@@ -27,7 +28,7 @@ async def probe_anthropic(secret: str) -> ProbeResult:
     }
     try:
         async with new_http_client() as client:
-            resp = await client.post(_URL, json=payload, headers=headers)
+            resp = await client.post(probe_url("anthropic_base_url", _PATH), json=payload, headers=headers)
     except httpx.HTTPError as exc:
         return ProbeResult.failed(f"network: {exc.__class__.__name__}")
     if resp.status_code == 200:

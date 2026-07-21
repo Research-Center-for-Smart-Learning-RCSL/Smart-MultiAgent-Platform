@@ -99,10 +99,80 @@ async function globalSetup(): Promise<void> {
           const kg = await kgResp.json()
           keyGroupId = kg.id
           seed.E2E_KEY_GROUP_URL = `projects/${proj.id}/key-groups/${kg.id}`
+        } else {
+          console.warn(
+            `[e2e-seed] KEY GROUP creation failed (status ${kgResp.status()}): ${await kgResp.text()}`,
+          )
+        }
+
+        // An agent's key group must hold a carried key matching the agent's
+        // model_hint (agent_service._assert_key_group_has_provider), so the
+        // key has to exist, be carried into the project, and be a group member
+        // before the agent POST below can succeed. The backend live-probes the
+        // secret on upload; the test stack answers those probes from the
+        // fake-provider service (see deploy/compose/compose.test.yml).
+        let keyId: string | undefined
+        if (keyGroupId) {
+          const keyResp = await api.post('/api/keys', {
+            headers: userAuth,
+            data: {
+              provider: 'openai',
+              name: `e2e-key-${Date.now()}`,
+              secret: `sk-e2e-fake-${Date.now()}`,
+            },
+          })
+          if (keyResp.ok()) {
+            const key = await keyResp.json()
+            keyId = key.id
+            seed.E2E_KEY_ID = key.id
+            // Upload succeeds even when the probe fails (the row is kept so the
+            // user can retest), so status is checked separately — a `failed`
+            // key here means the fake provider was unreachable.
+            if (key.test_status !== 'ok') {
+              console.warn(
+                `[e2e-seed] key probe returned test_status=${key.test_status}` +
+                  ` (${key.test_error ?? 'no error'}) — is the fake-provider service up` +
+                  ' and are SMAP_PROBE_*_BASE_URL set on backend-web?',
+              )
+            }
+          } else {
+            console.warn(
+              `[e2e-seed] KEY upload failed (status ${keyResp.status()}): ${await keyResp.text()}`,
+            )
+          }
+        }
+
+        if (keyId) {
+          const carryResp = await api.post(`/api/projects/${proj.id}/keys`, {
+            headers: userAuth,
+            data: { key_id: keyId },
+          })
+          if (!carryResp.ok()) {
+            console.warn(
+              `[e2e-seed] KEY carry into project failed (status ${carryResp.status()}):` +
+                ` ${await carryResp.text()}`,
+            )
+            keyId = undefined
+          }
+        }
+
+        if (keyId && keyGroupId) {
+          const memberResp = await api.post(`/api/key-groups/${keyGroupId}/keys`, {
+            headers: userAuth,
+            data: { key_id: keyId },
+          })
+          if (!memberResp.ok()) {
+            console.warn(
+              `[e2e-seed] KEY group membership failed (status ${memberResp.status()}):` +
+                ` ${await memberResp.text()}`,
+            )
+            keyId = undefined
+          }
         }
 
         // Create agent in project. Required: model_hint (claude|openai|gemini)
-        // and key_group_id — there is no 'provider' field.
+        // and key_group_id — there is no 'provider' field. model_hint must
+        // match the provider of the key carried into the group above.
         if (keyGroupId) {
           const agentResp = await api.post(`/api/projects/${proj.id}/agents`, {
             headers: userAuth,
@@ -117,6 +187,15 @@ async function globalSetup(): Promise<void> {
           if (agentResp.ok()) {
             const agent = await agentResp.json()
             seed.E2E_AGENT_ID = agent.id
+          } else {
+            // Loud on purpose: a missing E2E_AGENT_ID silently skips every
+            // agent-dependent spec, so CI stays green while losing coverage.
+            console.warn(
+              `[e2e-seed] AGENT creation FAILED (status ${agentResp.status()}):` +
+                ` ${await agentResp.text()}\n` +
+                '[e2e-seed] E2E_AGENT_ID will be absent — all agent-dependent specs' +
+                ' will SKIP. Check the key upload/carry/membership warnings above.',
+            )
           }
         }
       }
@@ -186,6 +265,25 @@ async function globalSetup(): Promise<void> {
 
   const count = Object.keys(seed).length
   console.log(`[e2e-seed] Seeded ${count} entities:`, Object.keys(seed).join(', '))
+
+  // Every gate below silently skips specs when its ID is missing. Name them
+  // explicitly so a regression shows up as a visible CI warning rather than a
+  // green run with quietly reduced coverage.
+  const REQUIRED = [
+    'E2E_ORG_ID',
+    'E2E_PROJECT_ID',
+    'E2E_AGENT_ID',
+    'E2E_WORKSPACE_ID',
+    'E2E_CHATROOM_ID',
+    'E2E_WORKFLOW_ID',
+  ]
+  const missing = REQUIRED.filter((k) => !seed[k])
+  if (missing.length > 0) {
+    console.warn(
+      `[e2e-seed] MISSING seed IDs: ${missing.join(', ')} — specs gated on these will SKIP.`,
+    )
+  }
+
   writeFileSync(SEED_FILE, JSON.stringify(seed, null, 2), 'utf-8')
   await api.dispose()
 }
