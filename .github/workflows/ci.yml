@@ -1003,8 +1003,13 @@ jobs:
       - name: Run E2E tests
         run: pnpm run test:e2e
 
-      - name: Dump backend logs on failure
-        if: failure()
+      # `always()`, not `failure()`: a test that fails and then passes on retry is
+      # reported as flaky and the job goes green, so a failure-gated dump keeps no
+      # evidence for exactly the failures that are hardest to reproduce. Playwright
+      # retains test-results/ only for attempts that failed, so a fully green run
+      # uploads just the report.
+      - name: Dump backend logs
+        if: always()
         working-directory: .
         run: |
           docker compose \
@@ -1012,7 +1017,7 @@ jobs:
             -f deploy/compose/compose.test.yml \
             logs --no-color backend-web postgres redis vault > backend-stack.log || true
       - uses: actions/upload-artifact@v7
-        if: failure()
+        if: always()
         with:
           name: playwright-report
           # test-results/ holds the screenshots, traces and error-context.md that
@@ -1022,6 +1027,7 @@ jobs:
             frontend/playwright-report/
             frontend/test-results/
             backend-stack.log
+          if-no-files-found: ignore
           retention-days: 7
 
       - name: Tear down backend stack

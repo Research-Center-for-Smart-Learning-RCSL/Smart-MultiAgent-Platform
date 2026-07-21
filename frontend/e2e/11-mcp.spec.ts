@@ -13,7 +13,8 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
 
   test('add an MCP binding', async ({ authedPage: page }) => {
     test.skip(!env('E2E_AGENT_ID'), 'needs seeded agent')
-    await page.goto(`/agents/${env('E2E_AGENT_ID')}/tools`)
+    const agentId = env('E2E_AGENT_ID')!
+    await page.goto(`/agents/${agentId}/tools`)
 
     // "Add Server" appears twice inside the MCP card (header + empty state) and
     // the Functions card has its own "Add Function", so scope to the card and
@@ -32,7 +33,24 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
     // The form rejects an empty allowlist, so at least one tool name is needed.
     await page.locator('#allowed_tools').fill('read_file')
 
+    // The dialog closes only from createMutation.onSuccess, so "still visible"
+    // covers both a rejected create and a submit that never fired (onSubmit
+    // returns early on an empty allowlist or unparseable advanced JSON, and a
+    // server field error that maps to no rendered field suppresses the toast).
+    // Waiting on the POST tells those apart instead of reporting all of them as
+    // "expected hidden, received visible".
+    const created = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'POST' &&
+        new URL(r.url()).pathname === `/api/agents/${agentId}/tools`,
+      { timeout: 15_000 },
+    )
+
     await dialog.getByRole('button', { name: 'Add Server', exact: true }).click()
+
+    const createResp = await created
+    expect(createResp.status(), await createResp.text()).toBe(201)
+
     await expect(dialog).toBeHidden({ timeout: 10_000 })
     await expect(page.getByRole('cell', { name: reference })).toBeVisible()
   })
