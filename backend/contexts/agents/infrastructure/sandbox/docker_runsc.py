@@ -35,7 +35,6 @@ import asyncio
 import contextlib
 import datetime
 import hmac
-import io
 import json
 import logging
 import time
@@ -43,6 +42,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from hashlib import sha256
+from io import UnsupportedOperation
 from typing import Any, Literal
 
 from contexts.agents.domain.errors import (
@@ -74,6 +74,9 @@ _VOLUME_ROOT = "/workspace"
 # an unmounted session is an absent directory, where a nested one would silently
 # expose whatever the per-agent volume happens to hold at that path.
 _SESSION_ROOT = "/session"
+# Artifacts live directly here and nowhere else (`kernel._collect_artifacts`
+# iterates one level and takes regular files only).
+_OUTPUTS_ROOT = _SESSION_ROOT + "/outputs"
 # Host/kernel contract version; must equal `kernel.PROTOCOL_VERSION` in the
 # code-exec image. Neither direction of a mismatched deploy degrades safely, so
 # the host refuses a stamp it does not recognise rather than reading the wrong
@@ -291,29 +294,99 @@ def _tar_staged_inputs(
     return buf.getvalue(), staged
 
 
+class _ArchiveTooLarge(Exception):
+    """The tar stream exceeded its byte budget mid-read."""
+
+
+# Tar frames a member in 512-byte blocks and closes with two zero blocks. This
+# covers the header, padding and trailer around one member with room to spare.
+_TAR_FRAMING_SLACK = 16 * 1024
+
+
+class _CappedReader:
+    """A file-like over ``get_archive``'s chunk iterator, hard-stopped at a budget.
+
+    ``tarfile`` in stream mode (``r|*``) only needs ``read``. Going through this
+    instead of ``b"".join(stream)`` is the difference between a bounded read and
+    an unbounded one: joining commits the whole archive to the heap *before*
+    anything inspects it, so every downstream size check is already too late.
+    The archive is guest-controlled, so it must never be materialised on the
+    strength of a size the guest also supplied.
+    """
+
+    def __init__(self, chunks: Any, max_bytes: int) -> None:
+        self._chunks = iter(chunks)
+        self._buf = bytearray()
+        self._seen = 0
+        self._pos = 0
+        self._max = max_bytes
+
+    # `tarfile` in stream mode reads and tells; the rest of the file protocol
+    # exists because typeshed's `_Fileobj` demands it. They raise rather than
+    # no-op: this is a forward-only stream, and silently accepting a seek would
+    # hand back bytes from the wrong offset.
+    def tell(self) -> int:
+        return self._pos
+
+    def seek(self, pos: int, whence: int = 0, /) -> int:
+        raise UnsupportedOperation("get_archive stream is forward-only")
+
+    def write(self, b: bytes, /) -> int:
+        raise UnsupportedOperation("get_archive stream is read-only")
+
+    def close(self) -> None:
+        self._buf = bytearray()
+
+    def read(self, size: int = -1, /) -> bytes:
+        while size < 0 or len(self._buf) < size:
+            try:
+                chunk = next(self._chunks)
+            except StopIteration:
+                break
+            self._seen += len(chunk)
+            if self._seen > self._max:
+                raise _ArchiveTooLarge
+            self._buf.extend(chunk)
+        if size < 0:
+            out, self._buf = bytes(self._buf), bytearray()
+        else:
+            out = bytes(self._buf[:size])
+            del self._buf[:size]
+        self._pos += len(out)
+        return out
+
+
 def _single_member_tar_bytes(stream: Any, max_bytes: int) -> bytes | None:
     """Extract the one regular file from a ``get_archive`` tar stream.
 
-    Bounded twice: the caller checks the header size before extracting, and this
-    stops reading past ``max_bytes`` in case the header understated it. A tar
-    whose member is a symlink, a directory, or absent yields ``None`` -- the
-    stream comes from a path the agent's own code controls, so its shape is not
-    a given.
+    Bounded while reading, not after: `_CappedReader` aborts the moment the
+    stream exceeds the budget, so a header that understated the member -- or a
+    path that turned out to be a directory -- costs the budget rather than the
+    worker. A tar whose member is a symlink, a directory, or absent yields
+    ``None``; the stream comes from a path the agent's own code controls, so its
+    shape is not a given.
     """
     import tarfile
 
-    buf = io.BytesIO(b"".join(stream))
-    with tarfile.open(fileobj=buf, mode="r|*") as tar:
-        for member in tar:
-            if not member.isfile():
-                continue
-            extracted = tar.extractfile(member)
-            if extracted is None:
-                return None
-            # read one byte past the ceiling so an oversized member is detected
-            # rather than silently truncated into a corrupt artifact.
-            data = extracted.read(max_bytes + 1)
-            return None if len(data) > max_bytes else data
+    try:
+        reader = _CappedReader(stream, max_bytes + _TAR_FRAMING_SLACK)
+        with tarfile.open(fileobj=reader, mode="r|*") as tar:
+            for member in tar:
+                if not member.isfile():
+                    continue
+                extracted = tar.extractfile(member)
+                if extracted is None:
+                    return None
+                # One byte past the ceiling so an oversized member is detected
+                # rather than silently truncated into a corrupt artifact.
+                data = extracted.read(max_bytes + 1)
+                return None if len(data) > max_bytes else data
+    except _ArchiveTooLarge:
+        _log.warning("artifact fetch: archive stream exceeded %d bytes -- abandoned", max_bytes)
+        return None
+    except tarfile.TarError:
+        _log.warning("artifact fetch: unreadable tar stream", exc_info=True)
+        return None
     return None
 
 
@@ -332,23 +405,34 @@ def _session_volume_name(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
     return f"smap-agent-session-{agent_id}-{chatroom_id}"
 
 
-def _safe_session_path(raw: str) -> str | None:
-    """Confine *raw* to the session mount, or ``None`` if it escapes.
+def _safe_artifact_path(raw: str) -> str | None:
+    """Confine *raw* to one file directly inside ``/session/outputs``.
 
     Mirrors `protocol.safe_workspace_path` and `file_tool._safe_relpath`, for the
     same reason: the path arrives from a container running agent-authored code
     and must not be able to name anything outside the room's own outputs.
     Returns ``None`` instead of raising because every caller degrades to "the
     artifact was not delivered" rather than failing the turn.
+
+    **A directory must not pass.** An earlier version accepted anything under
+    ``/session``, including the mount itself. ``get_archive`` on a directory
+    streams a tar of the whole tree while the stat header reports the directory
+    inode (~4 KiB), so the size ceiling waved it through and the worker buffered
+    the entire session volume -- which has no size option and is bounded only by
+    host disk. Requiring a basename directly under ``outputs`` costs nothing:
+    `kernel._collect_artifacts` never descends, so an artifact is always exactly
+    that shape.
     """
     import posixpath
 
-    if not isinstance(raw, str) or not raw or "\x00" in raw:
+    if not isinstance(raw, str) or not raw or not raw.isprintable():
         return None
     if not raw.startswith("/"):
         return None
     normed = posixpath.normpath(raw)
-    if normed != _SESSION_ROOT and not normed.startswith(_SESSION_ROOT + "/"):
+    if posixpath.dirname(normed) != _OUTPUTS_ROOT:
+        return None
+    if posixpath.basename(normed) in ("", ".", ".."):
         return None
     return normed
 
@@ -1464,11 +1548,11 @@ class DockerRunscSandbox:
         # The descriptor carrying this path was produced inside a container that
         # executes agent-authored code, in the same process as the kernel — so
         # the agent can reach the kernel's globals and dictate `rel_path`. Confine
-        # it to the session mount before handing it to the daemon, exactly as
-        # every other guest-supplied path in this codebase is confined.
-        safe = _safe_session_path(path)
+        # it to a single file under the outputs dir before handing it to the
+        # daemon, exactly as every other guest-supplied path here is confined.
+        safe = _safe_artifact_path(path)
         if safe is None:
-            _log.warning("artifact fetch: refusing path outside %s: %r", _SESSION_ROOT, path)
+            _log.warning("artifact fetch: refusing path outside %s: %r", _OUTPUTS_ROOT, path)
             return None
         key = _session_key(agent_id, chatroom_id)
         async with _kernels_guard:
@@ -1486,17 +1570,18 @@ class DockerRunscSandbox:
         except Exception as exc:
             _log.warning("artifact fetch failed for %s: %s", safe, exc)
             return None
-        # Trust the archive header, not the descriptor: the file is the agent's
-        # own and could have grown between the kernel's stat and this read. An
-        # unreadable header fails CLOSED — `or 0` would have waved a missing size
-        # past this check and let `_single_member_tar_bytes` buffer the whole
-        # stream, which is the one thing the ceiling exists to prevent.
+        # The header is an early reject, not the bound. It is derived from the
+        # guest's own file, so it can understate the stream (a background thread
+        # in the persistent kernel can append after the daemon stats it) and it
+        # reports ~4 KiB for a directory regardless of the tree behind it. The
+        # real bound is `_CappedReader`, which stops mid-stream. An unreadable
+        # header still fails CLOSED: `or 0` would wave a missing size past here.
         declared = stat.get("size") if isinstance(stat, dict) else None
         if not isinstance(declared, int) or declared < 0:
-            _log.warning("artifact fetch: unusable size in archive header for %s: %r", safe, declared)
+            _log.warning("artifact fetch: unusable size in archive header for %r: %r", safe, declared)
             return None
         if declared > max_bytes:
-            _log.warning("artifact %s is %d bytes, above the %d ceiling", safe, declared, max_bytes)
+            _log.warning("artifact %r is %d bytes, above the %d ceiling", safe, declared, max_bytes)
             return None
         return await asyncio.to_thread(_single_member_tar_bytes, stream, max_bytes)
 
