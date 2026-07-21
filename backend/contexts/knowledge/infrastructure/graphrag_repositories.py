@@ -168,8 +168,18 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
             # The per-owner partial-unique enforces 1:1 ownership; a second create
             # for the same owner is a domain 409, not a 500.
             raise GraphRagConfigAlreadyExists(str(owner_id)) from exc
+        # Scoped to live rows: soft-deleted configs keep their owner column, so
+        # matching on the owner alone would fan out to every past config for it.
+        # The partial unique index guarantees at most one live match.
         row = (
-            await self._db.execute(_config_select().where(t.graphrag_configs.c[owner_col] == owner_id))
+            await self._db.execute(
+                _config_select().where(
+                    sa.and_(
+                        t.graphrag_configs.c[owner_col] == owner_id,
+                        t.graphrag_configs.c.deleted_at.is_(None),
+                    )
+                )
+            )
         ).one()
         return _row_to_config(row)
 
@@ -829,13 +839,9 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
     async def soft_delete_for_project(self, project_id: uuid.UUID, deleted_at: datetime) -> int:
         """Soft-delete a deleted project's live configs, stamped with its instant.
 
-        Unlike :meth:`soft_delete` this leaves the owner columns populated. That
-        method clears them so the owner-scoped partial unique indexes do not
-        block a future create for the same owner, but clearing is irreversible
-        and would make the project restore below unable to bring the config back
-        intact. Keeping them is safe here precisely because the whole project is
-        gone: no live chatroom, agent group, or workspace remains to want that
-        owner slot, and a restore returns the config exactly as it was.
+        Owner columns stay populated (as in :meth:`soft_delete`) so the restore
+        below can bring the config back intact; the owner-scoped partial unique
+        indexes ignore deleted rows, so holding the columns blocks nothing.
         """
         result = await self._db.execute(
             t.graphrag_configs.update()
@@ -853,8 +859,8 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         """Restore only the configs that project's deletion took.
 
         Matching on the exact instant is deliberate: a config deleted on its own
-        beforehand carries a different timestamp (and cleared owners) and must
-        stay deleted, or a project restore would resurrect discarded work.
+        beforehand carries a different timestamp and must stay deleted, or a
+        project restore would resurrect discarded work.
         """
         result = await self._db.execute(
             t.graphrag_configs.update()
@@ -869,23 +875,13 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         return int(result.rowcount or 0)
 
     async def soft_delete(self, config_id: uuid.UUID) -> None:
-        # Clear all three owner columns, not just deleted_at: the partial
-        # unique indexes on owner_chatroom_id/owner_agent_group_id/
-        # owner_workspace_id (migration 0043_graphrag_owner.py) are only
-        # `WHERE {col} IS NOT NULL`, not additionally scoped to
-        # `deleted_at IS NULL` — a soft-deleted row with its owner column
-        # still populated permanently blocks any future create() for that
-        # same owner (409 GraphRagConfigAlreadyExists forever), even though
-        # list_owner_options() already shows the owner as available again.
+        # Leaves the owner columns populated. The owner-scoped partial unique
+        # indexes carry `AND deleted_at IS NULL` (migration
+        # 0061_graphrag_owner_index_live_only.py), so a deleted row no longer
+        # blocks a future create() for the same owner, and the exactly-one-owner
+        # CHECK from 0044 keeps holding — clearing them would violate it.
         await self._db.execute(
-            t.graphrag_configs.update()
-            .where(t.graphrag_configs.c.id == config_id)
-            .values(
-                deleted_at=now(),
-                owner_chatroom_id=None,
-                owner_agent_group_id=None,
-                owner_workspace_id=None,
-            )
+            t.graphrag_configs.update().where(t.graphrag_configs.c.id == config_id).values(deleted_at=now())
         )
 
     async def update(

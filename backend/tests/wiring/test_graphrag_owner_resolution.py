@@ -251,11 +251,11 @@ async def test_create_for_chatroom_and_workspace_owners() -> None:
 
 
 async def test_recreate_after_soft_delete_does_not_collide_on_owner_index() -> None:
-    # Regression (code review finding): soft_delete used to leave the owner
-    # column populated, and the partial unique index on it is not scoped to
-    # `deleted_at IS NULL` -- so a soft-deleted config permanently blocked
+    # Regression (code review finding): the owner partial unique indexes used
+    # to cover deleted rows too, so a soft-deleted config permanently blocked
     # any future create() for that same owner (409 GraphRagConfigAlreadyExists
-    # forever), even though the owner was shown as available again.
+    # forever), even though the owner was shown as available again. Migration
+    # 0061 scoped them to `deleted_at IS NULL`.
     async with async_session() as db:
         env = await _seed_project(db)
         builder_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="builder")
