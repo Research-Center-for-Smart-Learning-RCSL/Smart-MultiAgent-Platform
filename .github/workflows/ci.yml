@@ -901,11 +901,43 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test
 
+  # frontend-e2e brings up the whole compose stack, so it is not worth running
+  # on a PR that cannot affect it. This decides whether it is.
+  e2e-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Pushes only reach here for main (see `on.push.branches`), and main
+          # is the branch the suite is meant to protect — always run there.
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # frontend/ covers the app and the specs (frontend/e2e/); the compose
+          # overlays define the stack the specs run against; ci.yml is this job
+          # itself. A backend-only change can still break e2e, but gating on it
+          # would run the suite on nearly every PR — that regression is caught
+          # by the post-merge run on main.
+          if gh pr diff "${{ github.event.pull_request.number }}" \
+               --repo "$GITHUB_REPOSITORY" --name-only \
+             | grep -qE '^(frontend/|deploy/compose/|\.github/workflows/ci\.yml$)'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # E2E tests (Playwright) — runs against compose.test.yml
   frontend-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [e2e-scope]
+    if: needs.e2e-scope.outputs.relevant == 'true'
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
@@ -1323,6 +1355,7 @@ jobs:
       - frontend-gate-openapi-drift
       - frontend-typecheck
       - frontend-test
+      - e2e-scope
       - frontend-e2e
     steps:
       - name: Check all required jobs
@@ -1347,6 +1380,7 @@ jobs:
           echo "  frontend-gate-openapi-drift: ${{ needs.frontend-gate-openapi-drift.result }}"
           echo "  frontend-typecheck:         ${{ needs.frontend-typecheck.result }}"
           echo "  frontend-test:              ${{ needs.frontend-test.result }}"
+          echo "  e2e-scope:                  ${{ needs.e2e-scope.result }} (relevant=${{ needs.e2e-scope.outputs.relevant }})"
           echo "  frontend-e2e:               ${{ needs.frontend-e2e.result }}"
 
           # Required jobs — must all succeed.
@@ -1368,15 +1402,19 @@ jobs:
             "${{ needs.frontend-gate-type-coverage.result }}" \
             "${{ needs.frontend-gate-openapi-drift.result }}" \
             "${{ needs.frontend-typecheck.result }}" \
-            "${{ needs.frontend-test.result }}"; do
+            "${{ needs.frontend-test.result }}" \
+            "${{ needs.e2e-scope.result }}"; do
             if [ "$result" != "success" ]; then
               echo "FAIL: required job returned $result"
               exit 1
             fi
           done
 
-          # compose-boot-prod and frontend-e2e are allowed to skip
-          # (only run on push to main).
+          # compose-boot-prod only runs on push to main. frontend-e2e runs
+          # there too, plus on any PR e2e-scope marks relevant — so a skip here
+          # means "this PR cannot affect e2e", not "e2e never runs". e2e-scope
+          # itself is required above, so a broken filter fails loudly rather
+          # than silently dropping the suite.
           for optional in \
             "${{ needs.compose-boot-prod.result }}" \
             "${{ needs.frontend-e2e.result }}"; do
