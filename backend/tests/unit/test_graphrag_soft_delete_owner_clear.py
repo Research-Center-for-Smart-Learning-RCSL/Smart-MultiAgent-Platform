@@ -1,18 +1,15 @@
-"""Regression: soft-deleting a Concept Map config must clear its owner
-columns, not just deleted_at.
+"""Regression: soft-deleting a Concept Map config must set only deleted_at.
 
-The partial unique indexes on owner_chatroom_id/owner_agent_group_id/
-owner_workspace_id (migration 0043_graphrag_owner.py) are only
-`WHERE {col} IS NOT NULL` -- not additionally scoped to `deleted_at IS
-NULL`. A soft-deleted row that still has its owner column populated
-permanently blocks any future create() for that same owner (409
-GraphRagConfigAlreadyExists forever), even though list_owner_options()
-already shows the owner as available again once deleted_at is set.
+Clearing the owner columns as well (the earlier workaround for the owner
+partial unique indexes not being scoped to live rows) violates the
+exactly-one-owner CHECK added by migration 0044_graphrag_drop_agent_id --
+owner_kind stays NOT NULL, so a row with all three owner FKs NULL satisfies
+no branch of the constraint and Postgres rejects the UPDATE.
 
-A mocked AsyncSession can't enforce the real unique index, so this pins
-the fix at the SQL-statement level: the UPDATE's SET clause must clear all
-three owner columns alongside deleted_at. The end-to-end proof against a
-real partial unique index lives in
+Migration 0061_graphrag_owner_index_live_only scoped those indexes to
+`deleted_at IS NULL`, so keeping the owner populated blocks nothing. A mocked
+AsyncSession can't enforce the real constraint, so this pins the fix at the
+SQL-statement level; the end-to-end proof lives in
 tests/wiring/test_graphrag_owner_resolution.py.
 """
 
@@ -35,18 +32,17 @@ class _CapturingDb:
 
 
 @pytest.mark.asyncio
-async def test_soft_delete_clears_all_three_owner_columns() -> None:
+async def test_soft_delete_keeps_the_owner_columns() -> None:
     db = _CapturingDb()
     repo = GraphRagConfigRepository(db)  # type: ignore[arg-type]
 
     await repo.soft_delete(uuid.uuid4())
 
     assert len(db.statements) == 1
-    compiled = str(db.statements[0].compile(compile_kwargs={"literal_binds": True}))
+    compiled = str(db.statements[0].compile(compile_kwargs={"literal_binds": True})).replace(" ", "")
     assert "deleted_at" in compiled
     for col in ("owner_chatroom_id", "owner_agent_group_id", "owner_workspace_id"):
-        assert f"{col}=NULL" in compiled.replace(" ", ""), (
-            f"soft_delete's UPDATE must clear {col}, or a soft-deleted row's "
-            "still-populated owner column permanently blocks recreating a "
-            "config for that same owner (partial unique index collision)"
+        assert f"{col}=NULL" not in compiled, (
+            f"soft_delete's UPDATE must not clear {col}: owner_kind stays NOT NULL, "
+            "so an owner-less row violates ck_graphrag_configs_owner (migration 0044)"
         )
