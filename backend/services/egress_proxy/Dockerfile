@@ -2,7 +2,7 @@
 # Egress Proxy — standalone FastAPI forward-proxy for MCP sandbox traffic (R12.04).
 # Build context: backend/ directory (same as the main backend Dockerfile).
 
-FROM python:3.12-slim-bookworm AS runtime
+FROM python:3.14-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
