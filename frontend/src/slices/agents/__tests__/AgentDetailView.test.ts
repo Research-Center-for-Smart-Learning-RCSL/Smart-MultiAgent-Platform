@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
@@ -19,6 +19,10 @@ const routes = [
     component: { template: '<div />' },
   },
 ]
+
+// agentCreateSchema requires a uuid, so the create-mode test cannot reuse the
+// 'kg_1' placeholder the edit-mode fixture carries (edit mode never submits).
+const KEY_GROUP_ID = '11111111-1111-4111-8111-111111111111'
 
 const AGENT = {
   id: 'agent_1',
@@ -131,6 +135,52 @@ describe('AgentDetailView', () => {
     expect(values).toContain('0')
     expect(values).toContain('0.9')
     expect(values).toContain('123')
+  })
+
+  // Create mode reaches the API through a different path than edit (POST to the
+  // project, key group defaulted from the query rather than loaded from the
+  // agent), and it is what the 04-agent-rag-flow E2E spec drives. Pin the exact
+  // payload so a schema or default change that would only surface as an opaque
+  // E2E timeout fails here instead.
+  it('posts the assembled payload in create mode', async () => {
+    const posted = vi.fn()
+    server.use(
+      http.get('/api/projects/proj_1/key-groups', () =>
+        HttpResponse.json([
+          { id: KEY_GROUP_ID, project_id: 'proj_1', name: 'Primary', created_at: '2026-01-01T00:00:00Z' },
+        ]),
+      ),
+      http.get('/api/projects/proj_1/rag-configs', () => HttpResponse.json([])),
+      http.get('/api/projects/proj_1/graphrag-configs', () => HttpResponse.json([])),
+      http.get('/api/projects/proj_1/knowmap-configs', () => HttpResponse.json([])),
+      http.post('/api/projects/proj_1/agents', async ({ request }) => {
+        posted(await request.json())
+        return HttpResponse.json({ ...AGENT, id: 'agent_new' }, { status: 201 })
+      }),
+    )
+
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/new?projectId=proj_1',
+    })
+    await settle(wrapper)
+
+    // Name is the first text input; model provider the first select. The key
+    // group is never touched — it must default to the project's only group, or
+    // key_group_id fails its uuid() check and the submit is silently dropped.
+    await wrapper.findAll('.s-input__field')[0]!.setValue('e2e-agent')
+    await wrapper.findAll('.s-select__native')[0]!.setValue('openai')
+    await settle(wrapper)
+
+    await wrapper.findAll('button.s-btn--primary')[0]!.trigger('click')
+    await settle(wrapper)
+
+    expect(posted).toHaveBeenCalledTimes(1)
+    expect(posted.mock.calls[0]![0]).toMatchObject({
+      name: 'e2e-agent',
+      model_hint: 'openai',
+      key_group_id: KEY_GROUP_ID,
+    })
   })
 
   it('shows read-only Concept Map coverage on the Knowledge tab (AC-6)', async () => {
