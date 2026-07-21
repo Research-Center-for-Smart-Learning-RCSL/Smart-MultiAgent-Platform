@@ -73,13 +73,20 @@ test.describe('Tenancy/keys mgmt: roles, rename, key-group, usage (M.4)', () => 
 
     // KeyGroupDetailView uses its own rename affordance, not the tenancy one:
     // an icon-only pencil button (aria-label keys.groups.rename "Rename") swaps
-    // the <h1> for a bare SInput — no <form>, and the commit/cancel buttons are
-    // icon-only with no accessible name. The input's own Enter handler is the
-    // only labelled way to save.
-    const heading = page.getByRole('heading', { level: 1 })
+    // the group-name <h1> for a bare SInput — no <form>.
+    //
+    // The page renders TWO level-1 headings: SPageHeader is mounted with a
+    // hardcoded title="" so its own <h1 class="s-page-header__title"> is always
+    // empty, and the real group name lives in an <h1> the view passes through
+    // the default slot. A bare level-1 heading query is therefore strict-mode
+    // ambiguous — scope to the non-SPageHeader one.
+    const heading = page.locator('.s-page-header h1:not(.s-page-header__title)')
     await expect(heading).toBeVisible()
+    await expect.poll(async () => (await heading.textContent())!.trim()).not.toBe('')
     const original = (await heading.textContent())!.trim()
 
+    // "Rename" must be exact: the commit/cancel buttons are labelled
+    // "Confirm rename" / "Cancel rename" and would substring-match.
     const renameBtn = page.getByRole('button', { name: 'Rename', exact: true })
     await expect(renameBtn).toBeVisible()
     await renameBtn.click()
@@ -87,16 +94,14 @@ test.describe('Tenancy/keys mgmt: roles, rename, key-group, usage (M.4)', () => 
     const nameInput = page.locator('.s-page-header input')
     await expect(nameInput).toHaveValue(original)
     await nameInput.fill(`${original}-r`)
-    await nameInput.press('Enter')
-    await expect(
-      page.getByRole('heading', { name: `${original}-r`, level: 1 }),
-    ).toBeVisible({ timeout: 5000 })
+    await page.getByRole('button', { name: 'Confirm rename' }).click()
+    await expect(heading).toHaveText(`${original}-r`, { timeout: 5000 })
 
     // Restore original name.
-    await page.getByRole('button', { name: 'Rename', exact: true }).click()
+    await renameBtn.click()
     await page.locator('.s-page-header input').fill(original)
-    await page.locator('.s-page-header input').press('Enter')
-    await expect(page.getByRole('heading', { name: original, level: 1 })).toBeVisible({ timeout: 5000 })
+    await page.getByRole('button', { name: 'Confirm rename' }).click()
+    await expect(heading).toHaveText(original, { timeout: 5000 })
   })
 
   test('project key usage panel renders', async ({ authedPage: page }) => {
