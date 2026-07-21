@@ -10,7 +10,7 @@
 # NOT set — arbitrary outbound from user code has no route, which is the safe
 # default for code_exec. Allowlisted egress is exposed via MCP/web_search, not
 # raw sockets from this image.
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 ENV PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1 \
