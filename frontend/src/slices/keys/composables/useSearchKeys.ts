@@ -11,7 +11,7 @@ import {
 export function useSearchKeys(projectId: () => string) {
   const qc = useQueryClient()
 
-  const { data, error: queryError, refetch } = useQuery({
+  const { data, error: queryError, refetch, isLoading } = useQuery({
     queryKey: computed(() => keysKeys.searchKeys(projectId())),
     queryFn: () => searchKeysApi.list(projectId()),
     enabled: computed(() => !!projectId()),
@@ -56,5 +56,5 @@ export function useSearchKeys(projectId: () => string) {
     await qc.invalidateQueries({ queryKey: keysKeys.searchKeys(pid) })
   }
 
-  return { keys, error, reload, upload, retest, activate, remove }
+  return { keys, isLoading, error, reload, upload, retest, activate, remove }
 }
