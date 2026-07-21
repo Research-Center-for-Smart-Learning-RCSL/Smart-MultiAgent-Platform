@@ -9,7 +9,7 @@
 # is no runtime route to npm/PyPI — stdio MCP servers must be BAKED IN here.
 # URL servers are reached through the egress proxy by the driver (custom HMAC
 # forwarder, pre-signed per project by the host — no secret in the image).
-FROM node:22-slim
+FROM node:26-slim
 
 # --- system Python + uv (provides uvx) for Python-packaged MCP servers -------
 # node:22-slim is Debian bookworm. We add the distro Python 3 plus pipx/uv so
