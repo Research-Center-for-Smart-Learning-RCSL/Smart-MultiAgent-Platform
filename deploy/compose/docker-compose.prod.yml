@@ -249,11 +249,16 @@ services:
     restart: unless-stopped
     cap_add:
       - IPC_LOCK
+      # Root only bypasses file permission checks while it holds DAC_OVERRIDE,
+      # and the shared security-defaults anchor drops it. Without the add-back
+      # the mode-600 TLS key (owned by the host operator / CI runner, not uid 0)
+      # is unreadable and the listener fails to initialize.
+      - DAC_OVERRIDE
     # Run vault directly as root, bypassing the image's docker-entrypoint.sh
     # su-exec drop. The entrypoint would drop to uid=100 (vault user), which
     # cannot read the TLS key generated on the host (chmod 600, owned by the
-    # operator/CI runner). Root bypasses DAC checks. disable_mlock=true in
-    # vault.hcl makes IPC_LOCK unnecessary; cap_add is kept for completeness.
+    # operator/CI runner). disable_mlock=true in vault.hcl makes IPC_LOCK
+    # unnecessary; cap_add is kept for completeness.
     user: "0"
     entrypoint: ["vault"]
     command: server -config=/vault/config/vault.hcl
