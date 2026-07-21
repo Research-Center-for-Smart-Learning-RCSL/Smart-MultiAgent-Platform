@@ -27,16 +27,26 @@ const tag = computed(() => {
 })
 
 const isDisabled = computed(() => props.disabled || props.loading)
+
+// Built as an object rather than as separate `:href`/`:to`/`:type` bindings so
+// the keys that do not apply are ABSENT, not `undefined`. On a component tag
+// (RouterLink) an `undefined` fallthrough attr still wins over what the
+// component renders, which silently stripped the href off every
+// `as="router-link"` button and left it without the link role.
+const tagAttrs = computed<Record<string, unknown>>(() => {
+  if (props.as === 'button') {
+    return { type: props.type, disabled: isDisabled.value }
+  }
+  const attrs: Record<string, unknown> = props.as === 'a' ? { href: props.to } : { to: props.to }
+  if (isDisabled.value) attrs['aria-disabled'] = 'true'
+  return attrs
+})
 </script>
 
 <template>
   <component
     :is="tag"
-    :type="as === 'button' ? type : undefined"
-    :to="as === 'router-link' ? to : undefined"
-    :href="as === 'a' ? (to as string) : undefined"
-    :disabled="as === 'button' ? isDisabled : undefined"
-    :aria-disabled="as !== 'button' && isDisabled ? 'true' : undefined"
+    v-bind="tagAttrs"
     class="s-btn"
     :class="[
       `s-btn--${variant}`,
