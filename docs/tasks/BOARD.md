@@ -16,6 +16,11 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+- `2026-07-22-egress-redirect-classification` (bugfix, draft) — `depends_on: []`. From
+  `docs/audits/2026-07-22-agent-config-runtime/` F-10 (major): a 3xx from a function tool is
+  delivered to the model as a successful empty result, because the proxy deliberately does not
+  follow redirects and the caller drops the `Location` header. Application-layer only; the
+  egress proxy is explicitly not modified.
 - `2026-07-22-model-hint-provider-routing` (bugfix, draft) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-config-runtime/` F-2 (critical): an agent's `model_hint` does
   not constrain provider routing, so a mixed-provider key group silently runs the agent on a
