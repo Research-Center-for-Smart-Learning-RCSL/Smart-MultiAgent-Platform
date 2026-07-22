@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-22
 requirements: []
 depends_on: []
@@ -345,6 +345,9 @@ Appended by /build.
   `docs/audits/2026-07-22-web-search-cache-adversarial-verification/findings.md` for repair.
   F-1 through F-3 were added to this active task because they share the web-search cache and
   search-key lifecycle surfaces; their regression coverage is AC-11 through AC-13.
+- **D-2** — The user explicitly closed this task on 2026-07-22 with AC-10 unchecked. Focused
+  regression tests, Ruff, and targeted mypy passed; the complete backend suite could not run
+  because its integration database host `postgres:5432` was unavailable in this environment.
 
 ## 13. Follow-ups
 
