@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: reviewed
 created: 2026-07-22
 requirements: [R9.09, R11.23, R12.16, R13.19, R15.01, R15.16, R15.22]
 ---
@@ -1202,42 +1202,48 @@ new discovery.
 Per the dossier contract, this section links the task slugs this audit spawned. A finding with
 no dossier and no explicit decision to skip it is an unfinished triage.
 
-Awaiting user triage — no dispositions recorded yet.
+Triaged 2026-07-22. Every critical and major finding (F-1 – F-18) is accepted for fixing;
+the minor findings (F-19 – F-32) are deferred, not declined — they stay in this dossier as
+the record, and any of them may be promoted later without a new audit. F-1's cross-tenant
+exposure aspect was considered and deliberately handled as an ordinary bugfix rather than
+escalated to a security workflow.
+
+Dossier links are filled in as each `/spec` is written.
 
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | | |
-| F-2 | | |
-| F-3 | | |
-| F-4 | | |
-| F-5 | | |
-| F-6 | | |
-| F-7 | | |
-| F-8 | | |
-| F-9 | | |
-| F-10 | | |
-| F-11 | | |
-| F-12 | | |
-| F-13 | | |
-| F-14 | | |
-| F-15 | | |
-| F-16 | | |
-| F-17 | | |
-| F-18 | | |
-| F-19 | | |
-| F-20 | | |
-| F-21 | | |
-| F-22 | | |
-| F-23 | | |
-| F-24 | | |
-| F-25 | | |
-| F-26 | | |
-| F-27 | | |
-| F-28 | | |
-| F-29 | | |
-| F-30 | | |
-| F-31 | | |
-| F-32 | | |
+| F-1 | fix | |
+| F-2 | fix | |
+| F-3 | fix | |
+| F-4 | fix | |
+| F-5 | fix | |
+| F-6 | fix | |
+| F-7 | fix | |
+| F-8 | fix | |
+| F-9 | fix | |
+| F-10 | fix | |
+| F-11 | fix | |
+| F-12 | fix | |
+| F-13 | fix | |
+| F-14 | fix | |
+| F-15 | fix | |
+| F-16 | fix | |
+| F-17 | fix | |
+| F-18 | fix | |
+| F-19 | defer | |
+| F-20 | defer | |
+| F-21 | defer | |
+| F-22 | defer | |
+| F-23 | defer | |
+| F-24 | defer | |
+| F-25 | defer | |
+| F-26 | defer | |
+| F-27 | defer | |
+| F-28 | defer | |
+| F-29 | defer | |
+| F-30 | defer | |
+| F-31 | defer | |
+| F-32 | defer | |
 
 ## 6. Out-of-scope Observations
 
