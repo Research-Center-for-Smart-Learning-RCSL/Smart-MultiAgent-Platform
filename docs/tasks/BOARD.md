@@ -16,6 +16,11 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+- `2026-07-22-web-search-cache-project-scoping` (bugfix, draft) — `depends_on: []`. From
+  `docs/audits/2026-07-22-agent-config-runtime/` F-1 (critical): the `web_search` result
+  cache is keyed without tenant identity, so one project's search results are served to
+  another. Confined to `contexts/agents/application/tools/web_search.py` plus its unit test;
+  no migration.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
