@@ -1,6 +1,6 @@
 ---
 type: audit
-status: reviewed
+status: closed
 created: 2026-07-22
 requirements: [R12.15]
 ---
