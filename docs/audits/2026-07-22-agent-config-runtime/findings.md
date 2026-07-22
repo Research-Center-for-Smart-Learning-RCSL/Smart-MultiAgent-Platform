@@ -192,6 +192,41 @@ Ordered by severity. Never renumber — F-n identifiers are cited from spec doss
   A cleanup sweep does exist (`backend/app/workers/tasks/retention.py:488-538`) but deletes
   rows with raw SQL without firing the callback, and its own docstring concedes that
   "neither the synthetic root nor its workflow-spawned children are ever destroyed".
+- **Hand-off note** (for `docs/tasks/2026-07-22-subagent-execution-wiring/`, which owns this
+  as a2a audit F-1). A scoping pass was run here before the overlap was discovered; its
+  conclusions, so they need not be re-derived:
+  - **This is not a bugfix.** G.8 sub-agent *execution* was never built — only its
+    bookkeeping. The honest split is a small bugfix now (make the node fail fast on the
+    `failure` port instead of parking, so the feature is visibly unavailable rather than
+    silently broken) plus a feature dossier for hydration, turn execution and teardown. The
+    one thing the dossier must not do is present a hydration build as "the fix for this".
+  - **Teardown-only is unsound.** Wiring `destroy` to fire after `spawn` would resume the
+    node at `success` having performed zero work, with `output_variable` holding an instance
+    id whose task never ran — a workflow that silently lies, strictly worse than the current
+    honest hang.
+  - **The observed failure is usually not the sub-agent timeout.** `workflow_watchdog`
+    (`backend/app/workers/tasks/workflow_watchdog.py:63-72`) force-fails on
+    `idle_max_seconds`, default 1800 (`contexts/workflow/domain/models.py:199-200`), and
+    parked runs accrue idle time. The run dies at ~30 minutes with
+    `idle_max_seconds exceeded`; the 3600s `workflow_subagent_timeout` never speaks. Both
+    end in `force_fail`; only the reason differs.
+  - **A one-line divergence to fix regardless**: the executor defaults `timeout_seconds` to
+    3600 (`executors/subagent_spawn.py:47`) while the normative schema declares
+    `default: 180, maximum: 600` (`docs/workflow.schema.json:339`). The schema default is
+    declarative only — nothing injects it, and the key is optional (`:332`), so an omitting
+    config gets 3600.
+  - **This is an isolated hole, not a systemic one.** Of the four executor park sites, three
+    have live firers (`wait_for_event` via `application/event_dispatch.py:150-181`;
+    `approval_gate` via `workers/tasks/workflow_approvals.py:38-50`; `instruct` via
+    `:135-150`). `subagent_spawn` is the unique orphan.
+  - **Frontend exposure is full and unqualified** — `frontend/src/slices/workflow/`
+    `constants.ts:9,23,35`, `NodeConfigPanel.vue:40` with a dedicated
+    `SubagentSpawnConfigForm.vue`, and `WorkflowNodeComponent.vue:45,165`. Nothing marks the
+    feature as unbuilt, which is why a backend-only fail-fast is insufficient on its own.
+  - **Rollout hazard for a blocking lint rule**: `workflow_service.py:135,179` re-validates
+    on update, so an author editing an unrelated node inside a workflow that contains this
+    node would be blocked from saving. Warning-on-update / error-on-create, or scoping the
+    rule to newly-added nodes, is the design decision to make explicitly.
 
 ## F-4: the workflow `instruct` node is rejected by the A2A scope check for every ordinary agent pair
 
@@ -237,6 +272,54 @@ Ordered by severity. Never renumber — F-n identifiers are cited from spec doss
   broadcast as writing to "one inbox stream per a2a-enabled agent in the project". Here the
   caller id *is* threaded through, so the defect is the hardcoded empty frozenset, not a
   missing argument.
+- **Hand-off note** (for `docs/tasks/2026-07-22-a2a-scope-context-wiring/`, which owns this
+  as a2a audit F-9). A design pass was run here before the overlap was discovered:
+  - **Recommended fix: read the workflow run as the R9.17 rule-3 context**
+    (`REQUIREMENTS.md:450-454` names "ChatRoom **or Workflow run**" explicitly), setting
+    `caller_invocation_context_id = ctx.run_id`. Rule 3a is not absent for this path; it is
+    unfed.
+  - **The authorization set must be derived inside `A2AService`, not passed in by the
+    executor.** `evaluate` trusts `callee_attached_context_ids` unconditionally
+    (`a2a_scope.py:98-101`), so an executor asserting "the callee is attached to my run"
+    would be authorizing itself. `_enforce_workflow_tenant` (`a2a_service.py:429-433`)
+    already performs exactly this kind of service-side cross-context lookup and is the
+    pattern to copy, lazy import and all.
+  - **Rejected: mirroring `agent_invocation` by passing `from_agent_id=None`.** It discards
+    the issuer, which breaks `parent_agent_id` usage attribution (R15.23) —
+    `a2a_handler.py:186` forwards it into `turn_engine.py:873,2669,2744` and thence to
+    `key_usage_events` — and it silently overrides the `a2a_enabled` opt-out on both sides.
+    The two nodes take different rules because they are different relationships:
+    `agent_invocation_config` has no issuer agent, `instruct_config` requires one
+    (`docs/workflow.schema.json:317`).
+  - **Rejected: a workflow-origin branch in `a2a_scope.evaluate`.** That function is a
+    documented pure function with no DB access (`a2a_scope.py:14-19`); a branch that means
+    anything needs run membership, which is a DB fact. A bare "came from a workflow" flag is
+    a one-assertion bypass on an authorization boundary.
+  - **Open decision that must not be guessed**: what "attached to a workflow run" means —
+    design-time participation (agent referenced anywhere in the run's definition, extractable
+    with the already-written `linter._collect_agent_ids`,
+    `contexts/workflow/application/linter.py:111-126`) versus execution-time participation.
+    Design-time is deterministic and race-free; execution-time makes the same instruct
+    allowed or denied depending on node order. No requirement, doc, or table defines it.
+  - **Security ceiling on any fix**: R15.15 (`REQUIREMENTS.md:779`) says an instructed agent
+    cannot refuse, so an instruct is unrefusable turn execution on the target — it spends the
+    target's BYO key budget and runs its tools and MCP servers. An over-broad fix therefore
+    hands any member who can author a workflow unrefusable execution on every agent in the
+    project. Fail-closed is the current behavior and the bug is over-restrictive, so nothing
+    justifies a loose fix.
+  - **Fix regardless of option**: `instruct_service.py:144` hardcodes `workflow_run_id=None`,
+    which is simply false and degrades the instructed turn's attribution at
+    `a2a_handler.py:187`.
+  - **Secondary defect on the same path**: `instruct_service.py:128-136` inserts the
+    `instructions` row before the `send` at `:156`, so a denied send leaves an orphan row in
+    `issued` that the retention sweep never collects — it only collects chains whose rows are
+    all terminal (`retention.py:625-644`).
+  - **Test anti-requirement, load-bearing**: no new or modified test on this path may mock
+    `svc._a2a`, `A2AService._enforce_scope`, `a2a_scope.evaluate`, or
+    `OrchestrationFacade.issue_instruct`. Mocking every one of those seams is precisely why
+    this survived — `tests/unit/test_orchestration_services.py:447` asserts only that `send`
+    was awaited, never with what, and `tests/wiring/test_wiring.py:329-332` works around the
+    bug by giving the callee `call_only`, with a comment explaining why.
 
 ## F-5: one agent's `context_mode=compact` permanently truncates every other agent's history in the same room
 
@@ -1208,18 +1291,35 @@ the record, and any of them may be promoted later without a new audit. F-1's cro
 exposure aspect was considered and deliberately handled as an ordinary bugfix rather than
 escalated to a security workflow.
 
-Dossier links are filled in as each `/spec` is written.
+### Overlap with the same-day agent-to-agent orchestration audit
+
+`docs/audits/2026-07-22-agent-to-agent-orchestration/findings.md` was written and triaged
+independently on the same date, covering the `orchestration` context, the runtime's
+concurrency and trigger-coalescing machinery, and the workflow executors. Its area
+intersects this audit's fourth block (group and orchestration inheritance). The overlap was
+discovered during dossier preparation, after both audits were committed.
+
+Nine findings here are the same defect as a finding there. **This audit does not spec them.**
+Ownership goes to the a2a audit, whose triage already assigned dossier slugs by change
+surface; writing a second dossier against the same files would produce exactly the
+conflicting diffs the dossier contract's overlap-prerequisite rule exists to prevent. The
+rows below carry the cross-reference in place of a dossier of our own, and the affected
+findings keep their `fix` decision — the work is happening, under another dossier.
+
+Where this audit's analysis went deeper than the duplicate entry, the substance is recorded
+on the finding itself (see the "Hand-off note" on F-3 and F-4) so the receiving dossier can
+use it rather than re-deriving it.
 
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | fix | |
+| F-1 | fix | `docs/tasks/2026-07-22-web-search-cache-project-scoping/` |
 | F-2 | fix | |
-| F-3 | fix | |
-| F-4 | fix | |
+| F-3 | fix (owned elsewhere) | a2a audit F-1 → `docs/tasks/2026-07-22-subagent-execution-wiring/` |
+| F-4 | fix (owned elsewhere) | a2a audit F-9 → `docs/tasks/2026-07-22-a2a-scope-context-wiring/` |
 | F-5 | fix | |
 | F-6 | fix | |
 | F-7 | fix | |
-| F-8 | fix | |
+| F-8 | fix (owned elsewhere) | a2a audit F-7, F-18 → `docs/tasks/2026-07-22-turn-idempotency-and-locking/` |
 | F-9 | fix | |
 | F-10 | fix | |
 | F-11 | fix | |
@@ -1229,21 +1329,21 @@ Dossier links are filled in as each `/spec` is written.
 | F-15 | fix | |
 | F-16 | fix | |
 | F-17 | fix | |
-| F-18 | fix | |
+| F-18 | fix (owned elsewhere) | a2a audit F-31 → `docs/tasks/2026-07-22-approval-resume-claim-reliability/` |
 | F-19 | defer | |
 | F-20 | defer | |
-| F-21 | defer | |
+| F-21 | defer (owned elsewhere) | a2a audit F-13 → `docs/tasks/2026-07-22-workflow-capability-enforcement/` |
 | F-22 | defer | |
 | F-23 | defer | |
-| F-24 | defer | |
+| F-24 | defer (owned elsewhere) | a2a audit F-21 → `docs/tasks/2026-07-22-wakeup-trigger-state-and-bounds/` |
 | F-25 | defer | |
 | F-26 | defer | |
 | F-27 | defer | |
 | F-28 | defer | |
-| F-29 | defer | |
-| F-30 | defer | |
+| F-29 | defer (owned elsewhere) | a2a audit F-8 → `docs/tasks/2026-07-22-pending-notify-room-routing/` |
+| F-30 | defer (owned elsewhere) | a2a audit F-39 → `docs/tasks/2026-07-22-turn-idempotency-and-locking/` |
 | F-31 | defer | |
-| F-32 | defer | |
+| F-32 | defer (owned elsewhere) | a2a audit F-40 — that audit deferred it to the agent-to-user audit's triage for the same collision reason |
 
 ## 6. Out-of-scope Observations
 
