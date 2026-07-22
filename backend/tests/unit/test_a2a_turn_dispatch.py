@@ -699,6 +699,31 @@ async def test_run_input_turn_skips_when_model_hint_is_unserviceable(monkeypatch
     assert captured == {}
 
 
+@pytest.mark.asyncio
+async def test_run_input_turn_unserviceable_hint_audits_the_gate_room(monkeypatch) -> None:
+    agent = _agent()
+    room = uuid.uuid4()
+    engine, captured = _headless_engine(monkeypatch, agent)
+    _wire_engine(monkeypatch, agent, hint_serviceable=False)
+    audit_mock = AsyncMock()
+    engine._audit = audit_mock  # type: ignore[attr-defined]
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="hi", chatroom_id=room)
+
+    assert result.reason == "model_hint_unserviceable"
+    assert captured == {}
+    audit_mock.assert_awaited_once_with(
+        agent,
+        room,
+        "agent.turn_skipped",
+        {
+            "reason": "model_hint_unserviceable",
+            "model_hint": agent.model_hint.value,
+            "key_group_id": str(agent.key_group_id),
+        },
+    )
+
+
 # --------------------------------------------------------------------------- #
 # _pending_context_and_tools
 # --------------------------------------------------------------------------- #

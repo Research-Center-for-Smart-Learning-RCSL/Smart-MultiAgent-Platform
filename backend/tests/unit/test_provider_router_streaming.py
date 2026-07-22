@@ -59,6 +59,20 @@ class _MembersRepo:
         return self._m
 
 
+class _MembershipSnapshots(_MembersRepo):
+    """Returns fresh carried-membership snapshots on successive router checks."""
+
+    def __init__(self, snapshots: list[list[_Member]]) -> None:
+        super().__init__(snapshots[0])
+        self._snapshots = snapshots
+        self._calls = 0
+
+    async def list_ordered_carried(self, _gid: uuid.UUID) -> list[_Member]:
+        snapshot = self._snapshots[min(self._calls, len(self._snapshots) - 1)]
+        self._calls += 1
+        return snapshot
+
+
 class _KeysRepo:
     def __init__(self, keys: dict[uuid.UUID, _Key]) -> None:
         self._k = keys
@@ -93,6 +107,7 @@ class _StreamAdapter:
             yield ev
 
     async def invoke(self, *, secret: str, request: ProviderRequest) -> ProviderCallResult:
+        self.requests.append(request)
         return self._events[0].result  # only used by single-key tests
 
 
@@ -188,6 +203,80 @@ async def test_stream_rotates_before_first_token(monkeypatch) -> None:
     assert [e.text for e in events if isinstance(e, TokenDelta)] == ["ok"]
     # Both the failed (500) and the succeeding (200) call were accounted.
     assert {r["http_status"] for r in recorded} == {500, 200}
+
+
+@pytest.mark.asyncio
+async def test_stream_does_not_rotate_to_member_withdrawn_after_first_attempt(monkeypatch) -> None:
+    """A withdrawn key cannot receive the next billable call from a stale snapshot."""
+    first_kid, withdrawn_kid = uuid.uuid4(), uuid.uuid4()
+    failed = _StreamAdapter(
+        ApiKeyProvider.OPENAI,
+        [StreamComplete(ProviderCallResult(500, {"error": "unavailable"}))],
+    )
+    withdrawn = _StreamAdapter(
+        ApiKeyProvider.CLAUDE,
+        [TokenDelta("must not call"), StreamComplete(ProviderCallResult(200, {"text": "wrong"}))],
+    )
+    router, _ = _make_router(
+        monkeypatch,
+        {ApiKeyProvider.OPENAI: failed, ApiKeyProvider.CLAUDE: withdrawn},
+        [_Member(first_kid), _Member(withdrawn_kid)],
+        {
+            first_kid: _Key(first_kid, ApiKeyProvider.OPENAI),
+            withdrawn_kid: _Key(withdrawn_kid, ApiKeyProvider.CLAUDE),
+        },
+    )
+    # First snapshot chooses A then B. The owner withdraws B after A's failed
+    # request, before rotation can start B's outbound call.
+    router._members_repo = _MembershipSnapshots(  # type: ignore[attr-defined]
+        [
+            [_Member(first_kid), _Member(withdrawn_kid)],
+            [_Member(first_kid), _Member(withdrawn_kid)],
+            [_Member(first_kid)],
+        ]
+    )
+
+    with pytest.raises(KeyGroupExhausted):
+        await _drain(router.call_stream(group_id=uuid.uuid4(), request=_CHAT))
+
+    assert len(failed.requests) == 1
+    assert withdrawn.requests == []
+
+
+@pytest.mark.asyncio
+async def test_call_does_not_retry_member_withdrawn_after_rotation_starts(monkeypatch) -> None:
+    """Unary rotation has the same no-new-call-after-withdrawal guarantee."""
+    first_kid, withdrawn_kid = uuid.uuid4(), uuid.uuid4()
+    failed = _StreamAdapter(
+        ApiKeyProvider.OPENAI,
+        [StreamComplete(ProviderCallResult(500, {"error": "unavailable"}))],
+    )
+    withdrawn = _StreamAdapter(
+        ApiKeyProvider.CLAUDE,
+        [StreamComplete(ProviderCallResult(200, {"text": "must not call"}))],
+    )
+    router, _ = _make_router(
+        monkeypatch,
+        {ApiKeyProvider.OPENAI: failed, ApiKeyProvider.CLAUDE: withdrawn},
+        [_Member(first_kid), _Member(withdrawn_kid)],
+        {
+            first_kid: _Key(first_kid, ApiKeyProvider.OPENAI),
+            withdrawn_kid: _Key(withdrawn_kid, ApiKeyProvider.CLAUDE),
+        },
+    )
+    router._members_repo = _MembershipSnapshots(  # type: ignore[attr-defined]
+        [
+            [_Member(first_kid), _Member(withdrawn_kid)],
+            [_Member(first_kid), _Member(withdrawn_kid)],
+            [_Member(first_kid)],
+        ]
+    )
+
+    with pytest.raises(KeyGroupExhausted):
+        await router.call(group_id=uuid.uuid4(), request=_CHAT)
+
+    assert len(failed.requests) == 1
+    assert withdrawn.requests == []
 
 
 @pytest.mark.asyncio

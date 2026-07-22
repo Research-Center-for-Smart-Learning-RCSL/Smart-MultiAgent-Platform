@@ -58,6 +58,7 @@
       "settingsLabel": "聊天室設定"
     },
     "chatroom": {
+      "agentModelHintUnserviceable": "此代理選定的供應商沒有可用金鑰。請要求專案擁有者攜帶或新增相符供應商的金鑰。",
       "searchPlaceholder": "搜尋訊息…",
       "export": "匯出",
       "online": "線上",
