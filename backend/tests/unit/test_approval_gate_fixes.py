@@ -15,6 +15,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -22,6 +23,7 @@ import app.workers.tasks.approvals as tasks_appr
 import contexts.orchestration.application.approval_service as appr
 from contexts.orchestration.domain.models import (
     Approval,
+    ApprovalGateConfig,
     ApprovalMode,
     ApprovalState,
     ApprovalVote,
@@ -57,6 +59,72 @@ def _approval(state=ApprovalState.PENDING, *, leader=None, approvers=None):
         started_at=datetime.now(UTC),
         ended_at=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_create_gate_propagates_exactly_one_room_to_every_sink(monkeypatch) -> None:
+    room_id = uuid.uuid4()
+    workflow_run_id = uuid.uuid4()
+    leader_id = uuid.uuid4()
+    approver_id = uuid.uuid4()
+    effects: list[tuple] = []
+
+    class _Approvals:
+        async def insert(self, **kwargs):
+            effects.append(("insert", kwargs))
+            return SimpleNamespace(id=kwargs["id"])
+
+    class _Publisher:
+        def __init__(self, channel) -> None:
+            self._channel = channel
+
+        async def emit(self, event, payload):
+            effects.append(("publish", self._channel, event, payload))
+
+    async def _audit_emit(db, event):
+        effects.append(("audit", event))
+
+    async def _enqueue(job, *args, **kwargs):
+        effects.append(("enqueue", job, args, kwargs))
+
+    async def _push(agent_id, note):
+        effects.append(("notify", agent_id, note))
+
+    monkeypatch.setattr(appr, "Publisher", _Publisher)
+    monkeypatch.setattr(appr.audit, "emit", _audit_emit)
+    monkeypatch.setattr("shared_kernel.queue.enqueue", _enqueue)
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.push", _push)
+
+    service = appr.ApprovalService.__new__(appr.ApprovalService)
+    service._db = _FakeDB()
+    service._approvals = _Approvals()
+    service._votes = MagicMock()
+    config = ApprovalGateConfig(
+        mode=ApprovalMode.MAJORITY,
+        leader_agent_id=leader_id,
+        approvers=(leader_id, approver_id),
+        timeout_seconds=60,
+        question="Approve this?",
+    )
+
+    await service.create_gate(
+        workflow_run_id=workflow_run_id,
+        config=config,
+        chatroom_id=room_id,
+    )
+
+    room_publishes = [effect for effect in effects if effect[0] == "publish" and "mode" in effect[3]]
+    assert len(room_publishes) == 1
+    assert room_publishes[0][3]["workflow_run_id"] == str(workflow_run_id)
+    notes = [effect[2] for effect in effects if effect[0] == "notify"]
+    assert notes
+    assert all(note["chatroom_id"] == str(room_id) for note in notes)
+    timeout_jobs = [effect for effect in effects if effect[:2] == ("enqueue", "approval_timeout")]
+    assert len(timeout_jobs) == 1
+    assert timeout_jobs[0][2][1] == str(room_id)
+    approver_jobs = [effect for effect in effects if effect[:2] == ("enqueue", "drive_approver_turn")]
+    assert len(approver_jobs) == len(config.approvers)
+    assert all(effect[2][2] == str(room_id) for effect in approver_jobs)
 
 
 # --------------------------------------------------------------------------- #
