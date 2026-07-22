@@ -186,6 +186,7 @@ class RunContext:
     workflow_id: uuid.UUID
     workflow_def: dict[str, Any]
     variables: dict[str, Any]
+    project_id: uuid.UUID | None = None
     trigger_payload: dict[str, Any] = field(default_factory=dict)
     node_visit_counts: dict[str, int] = field(default_factory=dict)
     cancelled: bool = False

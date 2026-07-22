@@ -96,10 +96,6 @@ parallel.
   the instruct terminal state is an unguarded `UPDATE`, so a completed instruct can be persisted
   as `TIMEOUT`; and the deadline job commits before enqueueing its resume, so its own retry reads
   its own write and gives up. Carries a **deliberate behaviour change** (Q-2, timeout wins).
-- `2026-07-22-approval-gate-room-scoping` (bugfix, draft) — `depends_on: []`. a2a F-27: the
-  approval gate publishes into any chatroom UUID supplied in the caller-authored trigger payload,
-  including another project's. **Cross-tenant event injection**; `check-security` referral in
-  parallel.
 - `2026-07-22-wakeup-trigger-state-and-bounds` (bugfix, draft) — `depends_on: []`. **a2a** F-3, F-12,
   F-14, F-21, F-38 plus config F-24. (This row previously read "a2u"; corrected — the a2u audit has
   no F-38, and its F-3/F-12 belong to `attachment-lifecycle-and-rendering` and
@@ -174,5 +170,6 @@ Nothing blocked.
 
 ## In progress
 
+- `2026-07-22-approval-gate-room-scoping` (bugfix) — `depends_on: []`.
 - `2026-07-22-workflow-run-cancellation` (bugfix) — `depends_on: []`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.

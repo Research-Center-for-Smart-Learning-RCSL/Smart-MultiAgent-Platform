@@ -181,6 +181,7 @@ class RunEngine:
             workflow_id=workflow_id,
             workflow_def=definition,
             variables=variables,
+            project_id=project_id,
             trigger_payload=trigger_payload or {},
             is_dry_run=is_dry_run,
         )
@@ -265,6 +266,7 @@ class RunEngine:
             workflow_id=run.workflow_id,
             workflow_def=workflow.definition,
             variables=dict(run.variables),
+            project_id=await self._runs.get_project_id(run.id),
             trigger_payload=run.context.get("trigger_payload", {}),
             is_dry_run=(run.trigger_type == "dry_run"),
         )
@@ -308,6 +310,7 @@ class RunEngine:
             workflow_id=run.workflow_id,
             workflow_def=workflow.definition,
             variables=dict(run.variables),
+            project_id=await self._runs.get_project_id(run_id),
             trigger_payload=run.context.get("trigger_payload", {}),
             is_dry_run=(run.trigger_type == "dry_run"),
         )
@@ -355,6 +358,7 @@ class RunEngine:
             workflow_id=run.workflow_id,
             workflow_def=workflow.definition,
             variables=dict(run.variables),
+            project_id=await self._runs.get_project_id(run_id),
             trigger_payload=run.context.get("trigger_payload", {}),
             is_dry_run=(run.trigger_type == "dry_run"),
         )

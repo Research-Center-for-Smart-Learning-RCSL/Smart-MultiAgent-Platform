@@ -17,6 +17,7 @@ from contexts.workflow.domain.models import (
 )
 from contexts.workflow.infrastructure.channels import workflow_channel
 from contexts.workflow.sel.template import interpolate
+from shared_kernel import audit
 from shared_kernel.realtime.pubsub import Publisher
 
 
@@ -65,10 +66,43 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
         )
 
         raw_room = config.get("chatroom_id") or ctx.trigger_payload.get("chatroom_id")
-        try:
-            room_id = uuid.UUID(raw_room) if raw_room else None
-        except (ValueError, AttributeError):
-            room_id = None
+        room_id = None
+        if raw_room:
+            rejection_reason: str | None
+            try:
+                room_id = uuid.UUID(raw_room)
+            except (ValueError, AttributeError, TypeError):
+                rejection_reason = "approval_gate chatroom_id must be a valid UUID"
+            else:
+                from contexts.conversation.interfaces.facade import ConversationFacade
+
+                room_project_id = await ConversationFacade(db).resolve_chatroom_scope(room_id)
+                if ctx.project_id is None:
+                    rejection_reason = "approval_gate run project could not be resolved"
+                elif room_project_id is None:
+                    rejection_reason = "approval_gate chatroom_id is unknown or deleted"
+                elif room_project_id != ctx.project_id:
+                    rejection_reason = "approval_gate chatroom_id is outside the run project"
+                else:
+                    rejection_reason = None
+
+            if rejection_reason is not None:
+                await audit.emit(
+                    db,
+                    audit.AuditEvent(
+                        action="approval.gate_room_rejected",
+                        resource_type="workflow_run",
+                        resource_id=ctx.run_id,
+                        metadata={
+                            "workflow_run_id": str(ctx.run_id),
+                            "node_id": node.id,
+                            "requested_chatroom_id": str(raw_room),
+                            "project_id": str(ctx.project_id) if ctx.project_id else None,
+                            "reason": rejection_reason,
+                        },
+                    ),
+                )
+                raise ValueError(rejection_reason)
 
         approval = await facade.create_approval_gate(
             workflow_run_id=ctx.run_id,
