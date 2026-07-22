@@ -104,8 +104,10 @@ parallel.
   approval gate publishes into any chatroom UUID supplied in the caller-authored trigger payload,
   including another project's. **Cross-tenant event injection**; `check-security` referral in
   parallel.
-- `2026-07-22-wakeup-trigger-state-and-bounds` (bugfix, draft) — `depends_on: []`. a2u F-3, F-12,
-  F-14, F-21, F-38 plus config F-24. Silence triggers never fire for bindings created after the
+- `2026-07-22-wakeup-trigger-state-and-bounds` (bugfix, draft) — `depends_on: []`. **a2a** F-3, F-12,
+  F-14, F-21, F-38 plus config F-24. (This row previously read "a2u"; corrected — the a2u audit has
+  no F-38, and its F-3/F-12 belong to `attachment-lifecycle-and-rendering` and
+  `activity-session-authz-and-validation` respectively.) Silence triggers never fire for bindings created after the
   presence edge; designer soft-bounds are erased on first self-modification; `refresh_every_hours`
   is never read. Two open decisions (Q-2 clock storage, Q-3 frontend defaults).
 - `2026-07-22-workflow-dispatch-reliability` (bugfix, draft) — `depends_on: []`. a2a F-33, F-34,
@@ -144,6 +146,25 @@ parallel.
   Permission-matrix row 19 is dead code: any room reader, including a guest, can export every
   participant's messages and edit history. **Four blocking questions (Q-1..Q-4) must be answered
   before implementation.** `check-security` referral in parallel.
+- `2026-07-22-wait-for-event-timer-and-join-ports` (bugfix, draft) — `depends_on: []`. a2a F-2,
+  F-36: a `timer` wait — the editor's seeded default — parks until its timeout and exits the
+  failure port, and the join `timeout` port is documented, linted, rendered and produced by
+  nothing. **Q-2 open**: build the join timeout or record its absence. If the user chooses to
+  build it, `depends_on` becomes `[2026-07-22-join-epoch-loop-reentry]` (its Q-3).
+- `2026-07-22-search-determinism-and-highlighting` (bugfix, draft) — `depends_on: []`. a2u F-22
+  plus verification-gap V-6: search orders by a non-unique `rank` under `LIMIT`/`OFFSET`, so the
+  same query can return a different page; and the highlight marker exists in three incompatible
+  forms across backend, sanitiser and CSS. Touches DOMPurify config — §7.2 states what must not
+  weaken.
+- `2026-07-22-activity-session-authz-and-validation` (bugfix, draft) — `depends_on: []`. a2u F-12,
+  F-20 plus verification-gap V-7: any room member (including a guest) can close another
+  participant's activity session, and the stalled-validation watchdog notifies nobody.
+  **AuthZ defect**; `check-security` referral is AC-13, a deliverable rather than a gate.
+- `2026-07-22-pending-notify-room-routing` (bugfix, draft) —
+  **`depends_on: [2026-07-22-a2a-delivery-idempotency]`** (the only non-empty one in this batch).
+  a2a F-8 plus config F-29: an approval note is rendered into whatever room the approver's next
+  turn runs in, and is destroyed whether or not that turn votes. The dependency is amplification,
+  not code: this fix makes `requeue` a normal-path operation, which raises F-19's exposure.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
