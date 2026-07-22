@@ -721,6 +721,7 @@ async def test_force_fail_marks_failed(monkeypatch) -> None:
     engine._runs = MagicMock()
     engine._runs.get = AsyncMock(return_value=SimpleNamespace(id=run_id, state=RunState.WAITING))
     engine._runs.update_state = AsyncMock(return_value=True)
+    engine._runs.mark_a2a_cancellation_pending = AsyncMock()
     engine._steps = MagicMock()
     engine._steps.cancel_pending_for_run = AsyncMock(return_value=0)
     monkeypatch.setattr(re_mod.audit, "emit", AsyncMock())

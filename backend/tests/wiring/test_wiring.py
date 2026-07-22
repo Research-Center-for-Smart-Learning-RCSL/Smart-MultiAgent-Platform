@@ -58,7 +58,10 @@ from contexts.keys.application.provider_router import (
 from contexts.keys.domain.probe_status import ProbeStatus
 from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability
 from contexts.keys.infrastructure.carry_repository import KeyProjectRepository
-from contexts.keys.infrastructure.group_repository import KeyGroupRepository
+from contexts.keys.infrastructure.group_repository import (
+    KeyGroupMemberRepository,
+    KeyGroupRepository,
+)
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from contexts.orchestration.application.a2a_consumer import consume_once
 from contexts.orchestration.application.a2a_handler import handle_envelope
@@ -170,6 +173,33 @@ async def _seed_agent_and_room(
         project_id=project.id, user_id=user.id, role=ProjectMemberRole.OWNER
     )
     group = await KeyGroupRepository(db).create(project_id=project.id, name=f"kg-{u}")
+    # The turn-start routing gate (R7.x) skips any agent whose key group holds no
+    # actively-carried key for its model_hint provider. The fake router never
+    # reads this key, but the group must be serviceable for CLAUDE or every
+    # seeded agent short-circuits with `model_hint_unserviceable`.
+    key_id = uuid.uuid4()
+    await ApiKeyRepository(db).insert(
+        key_id=key_id,
+        owner_user_id=user.id,
+        provider=ApiKeyProvider.CLAUDE,
+        name=f"k-{u}",
+        envelope=EnvelopeRecord(
+            ciphertext=b"ct",
+            nonce=b"no",
+            dek_wrapped="vault:v1:zz",
+            ciphertext_hmac=b"hm",
+            transit_key_version=1,
+            hmac_key_version=1,
+        ),
+        masked_preview="sk-****",
+        test_status=ProbeStatus.OK,
+        test_error=None,
+        last_test_at=None,
+    )
+    await KeyProjectRepository(db).upsert_carry(
+        key_id=key_id, project_id=project.id, added_by_user_id=user.id
+    )
+    await KeyGroupMemberRepository(db).add(group_id=group.id, key_id=key_id, priority=1)
     agent = await AgentRepository(db).create(
         project_id=project.id,
         name=f"agent-{u}",
