@@ -1310,25 +1310,31 @@ Where this audit's analysis went deeper than the duplicate entry, the substance 
 on the finding itself (see the "Hand-off note" on F-3 and F-4) so the receiving dossier can
 use it rather than re-deriving it.
 
+**Closing condition.** This audit stays `reviewed` rather than `closed` for one honest reason:
+four rows below are owned by the same-day agent-to-agent orchestration audit, whose triage
+assigned dossier slugs that **do not yet exist on disk** (`docs/tasks/` holds none of them at
+the time of writing). Every finding this audit owns has a written dossier. Flip to `closed`
+once those four slugs exist.
+
 | Finding | Decision | Task dossier |
 |---|---|---|
 | F-1 | fix | `docs/tasks/2026-07-22-web-search-cache-project-scoping/` |
-| F-2 | fix | |
-| F-3 | fix (owned elsewhere) | a2a audit F-1 → `docs/tasks/2026-07-22-subagent-execution-wiring/` |
-| F-4 | fix (owned elsewhere) | a2a audit F-9 → `docs/tasks/2026-07-22-a2a-scope-context-wiring/` |
-| F-5 | fix | |
-| F-6 | fix | |
-| F-7 | fix | |
-| F-8 | fix (owned elsewhere) | a2a audit F-7, F-18 → `docs/tasks/2026-07-22-turn-idempotency-and-locking/` |
-| F-9 | fix | |
-| F-10 | fix | |
-| F-11 | fix | |
-| F-12 | fix | |
-| F-13 | fix | |
-| F-14 | fix | |
-| F-15 | fix | |
-| F-16 | fix | |
-| F-17 | fix | |
+| F-2 | fix | `docs/tasks/2026-07-22-model-hint-provider-routing/` |
+| F-3 | fix (owned elsewhere) | a2a audit F-1 → `docs/tasks/2026-07-22-subagent-execution-wiring/` *(not yet written)* |
+| F-4 | fix (owned elsewhere) | a2a audit F-9 → `docs/tasks/2026-07-22-a2a-scope-context-wiring/` *(not yet written)* |
+| F-5 | fix | `docs/tasks/2026-07-22-compaction-scoping-and-durability/` |
+| F-6 | fix | `docs/tasks/2026-07-22-tool-dispatch-failure-categories/` |
+| F-7 | fix | `docs/tasks/2026-07-22-compaction-scoping-and-durability/` |
+| F-8 | fix (owned elsewhere) | a2a audit F-7, F-18 → `docs/tasks/2026-07-22-turn-idempotency-and-locking/` *(not yet written)* |
+| F-9 | fix | `docs/tasks/2026-07-22-egress-allowlist-provisioning/` |
+| F-10 | fix | `docs/tasks/2026-07-22-egress-redirect-classification/` |
+| F-11 | fix | `docs/tasks/2026-07-22-reingest-allowlist-propagation/` |
+| F-12 | fix | `docs/tasks/2026-07-22-mcp-tool-contract/` |
+| F-13 | fix | `docs/tasks/2026-07-22-prompt-assistant-delivery-recovery/` |
+| F-14 | fix | `docs/tasks/2026-07-22-mcp-tool-contract/` |
+| F-15 | fix | `docs/tasks/2026-07-22-compaction-scoping-and-durability/` |
+| F-16 | fix | `docs/tasks/2026-07-22-tool-dispatch-failure-categories/` |
+| F-17 | fix | `docs/tasks/2026-07-22-tool-dispatch-failure-categories/` |
 | F-18 | fix (owned elsewhere) | a2a audit F-31 → `docs/tasks/2026-07-22-approval-resume-claim-reliability/` |
 | F-19 | defer | |
 | F-20 | defer | |
