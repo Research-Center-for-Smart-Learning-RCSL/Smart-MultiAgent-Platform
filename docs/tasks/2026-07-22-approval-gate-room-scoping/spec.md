@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-22
 requirements: [R15.10]
 depends_on: []
@@ -514,6 +514,10 @@ at that time. That is a feature decision, not a correction of the SRS.
   F-2 from `docs/audits/2026-07-22-approval-gate-room-scoping-adversarial/findings.md`: supplied
   falsy room identifiers fail closed, and scope resolution uses a transaction-held shared lock over
   the live chatroom and workspace before any room-scoped approval effects.
+- **D-3** — The user explicitly directed closure despite AC-9 remaining unchecked. Targeted
+  regressions, full linting, formatting, and type checking passed; full `pytest -q` could not finish
+  because the host cannot resolve the Compose-internal `postgres` hostname and the running backend
+  container has no pytest executable.
 
 ## 13. Follow-ups
 

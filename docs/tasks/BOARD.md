@@ -170,6 +170,5 @@ Nothing blocked.
 
 ## In progress
 
-- `2026-07-22-approval-gate-room-scoping` (bugfix) — `depends_on: []`.
 - `2026-07-22-workflow-run-cancellation` (bugfix) — `depends_on: []`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
