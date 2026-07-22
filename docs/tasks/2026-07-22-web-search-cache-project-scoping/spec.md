@@ -324,6 +324,12 @@ exposure, a revert should be paired with disabling `web_search` on affected agen
       behaviour.
 - [ ] AC-10: `pytest -q`, `ruff check .`, `ruff format --check .` and `mypy .` pass in
       `backend/`.
+- [x] AC-11: corrupt or non-UTF-8 Redis cache values degrade to a miss, permitting the live
+      search path to continue.
+- [x] AC-12: cache hits, successful provider calls, and provider failures emit `mcp.tool_invoked`
+      with an explicit `http_status` value.
+- [x] AC-13: activating a replacement search key emits `search_key.deactivated` for every
+      previously active sibling before recording the replacement activation.
 
 ## 11. SRS Delta
 
@@ -334,6 +340,11 @@ which is itself worth recording — see FU-2.
 ## 12. Deviation Log
 
 Appended by /build.
+
+- **D-1** — On 2026-07-22 the user explicitly selected every confirmed finding in
+  `docs/audits/2026-07-22-web-search-cache-adversarial-verification/findings.md` for repair.
+  F-1 through F-3 were added to this active task because they share the web-search cache and
+  search-key lifecycle surfaces; their regression coverage is AC-11 through AC-13.
 
 ## 13. Follow-ups
 

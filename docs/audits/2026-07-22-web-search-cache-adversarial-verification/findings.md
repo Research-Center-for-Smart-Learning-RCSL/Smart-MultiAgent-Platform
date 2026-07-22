@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: reviewed
 created: 2026-07-22
 requirements: [R12.15]
 ---
@@ -64,9 +64,14 @@ Not covered: a live Redis/PostgreSQL fault-injection deployment, all provider ad
 
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | Untriaged | — |
-| F-2 | Untriaged | — |
-| F-3 | Untriaged | — |
+| F-1 | Fix | `docs/tasks/2026-07-22-web-search-cache-project-scoping/` |
+| F-2 | Fix | `docs/tasks/2026-07-22-web-search-cache-project-scoping/` |
+| F-3 | Fix | `docs/tasks/2026-07-22-web-search-cache-project-scoping/` |
+
+## 5.1 Review decision
+
+The user selected every confirmed finding for repair on 2026-07-22. The active web-search
+cache task owns the agreed scope expansion and its deviation log records the decision.
 
 ## 6. Out-of-scope Observations
 

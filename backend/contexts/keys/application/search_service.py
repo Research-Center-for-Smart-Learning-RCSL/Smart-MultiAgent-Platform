@@ -151,11 +151,23 @@ class SearchKeyService:
         if sk is None or sk.project_id != project_id:
             raise KeyNotFound(str(key_id))
         try:
-            await self._repo.atomic_activate(key_id=key_id, project_id=project_id)
+            deactivated_key_ids = await self._repo.atomic_activate(key_id=key_id, project_id=project_id)
         except IntegrityError as exc:
             # Two concurrent activators raced; the partial-unique-active index
             # rejects the second writer. Translate for the 409 surface.
             raise SearchActivationConflict(str(key_id)) from exc
+        for deactivated_key_id in deactivated_key_ids:
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="search_key.deactivated",
+                    actor_user_id=actor_user_id,
+                    resource_type="search_key",
+                    resource_id=deactivated_key_id,
+                    metadata={"project_id": str(project_id), "replacement_key_id": str(key_id)},
+                    request_id=request_id,
+                ),
+            )
         await audit.emit(
             self._db,
             audit.AuditEvent(
