@@ -67,6 +67,11 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
         )
 
     except Exception as exc:
+        from contexts.orchestration.domain.errors import A2ACallCancelled
+
+        if isinstance(exc, A2ACallCancelled):
+            return StepOutcome(state=StepState.CANCELLED, port="cancelled", skip_edges=True)
+
         return StepOutcome(
             state=StepState.FAILED,
             output={},

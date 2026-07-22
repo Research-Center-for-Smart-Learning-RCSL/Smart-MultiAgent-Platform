@@ -127,6 +127,7 @@ class RunEngine:
         self._recorder = StepRecorder(db, self._steps)
         # W1/W3/W6/W10: collected during execution, dispatched after commit.
         self._pending_enqueues: list[_PendingEnqueue] = []
+        self._pending_call_cancellations: set[uuid.UUID] = set()
 
     # -- public API --
 
@@ -252,15 +253,10 @@ class RunEngine:
                 run_id,
                 run.workflow_id,
             )
-            await self._runs.update_state(run_id, state=RunState.FAILED, ended_at=datetime.now(UTC))
-            await audit.emit(
-                self._db,
-                audit.AuditEvent(
-                    action="workflow.run_finished",
-                    resource_type="workflow_run",
-                    resource_id=run_id,
-                    metadata={"final_state": "failed", "reason": "workflow deleted"},
-                ),
+            await self._finalize_run(
+                run_id,
+                state=RunState.FAILED,
+                reason="workflow deleted",
             )
             return None
 
@@ -288,6 +284,11 @@ class RunEngine:
         if not workflow:
             return
 
+        # Claim WAITING -> RUNNING before touching the placeholder.  A racing
+        # terminal transition must not let this retry seal history and execute.
+        if not await self._runs.update_state(run_id, state=RunState.RUNNING):
+            return
+
         # Cancel the "awaiting retry" placeholder step.
         await self._db.execute(
             workflow_steps.update()
@@ -301,9 +302,6 @@ class RunEngine:
             )
             .values(state="cancelled", ended_at=sa.text("now()"))
         )
-
-        # Restore run to RUNNING (it was parked WAITING during the backoff delay).
-        await self._runs.update_state(run_id, state=RunState.RUNNING)
 
         ctx = RunContext(
             run_id=run_id,
@@ -349,8 +347,7 @@ class RunEngine:
         workflow = await WorkflowRepository(self._db).get(run.workflow_id)
         if not workflow:
             logger.warning("resume_at_port: workflow %s deleted; failing run %s", run.workflow_id, run_id)
-            now = datetime.now(UTC)
-            await self._runs.update_state(run_id, state=RunState.FAILED, ended_at=now)
+            await self._finalize_run(run_id, state=RunState.FAILED, reason="workflow deleted")
             return False
 
         ctx = RunContext(
@@ -362,7 +359,8 @@ class RunEngine:
             is_dry_run=(run.trigger_type == "dry_run"),
         )
 
-        await self._runs.update_state(run_id, state=RunState.RUNNING)
+        if not await self._runs.update_state(run_id, state=RunState.RUNNING):
+            return False
 
         # Close the parked step so it doesn't remain RUNNING indefinitely.
         # Parked executors (wait_for_event, subagent_spawn) leave their step in
@@ -410,54 +408,16 @@ class RunEngine:
         if not run or run.state not in (RunState.RUNNING, RunState.WAITING):
             return False
 
-        now = datetime.now(UTC)
-        await self._runs.update_state(run_id, state=RunState.FAILED, ended_at=now)
-        await self._steps.cancel_pending_for_run(run_id)
-        WORKFLOW_RUNS_TOTAL.labels(state="failed").inc()
+        return await self._finalize_run(run_id, state=RunState.FAILED, reason=reason)
 
-        await audit.emit(
-            self._db,
-            audit.AuditEvent(
-                action="workflow.run_finished",
-                resource_type="workflow_run",
-                resource_id=run_id,
-                metadata={"final_state": "failed", "reason": reason},
-            ),
-        )
-        await Publisher(workflow_channel(run_id)).emit(
-            "workflow.run_finished",
-            {"run_id": str(run_id), "state": "failed", "reason": reason},
-        )
-        return True
-
-    async def cancel_run(self, run_id: uuid.UUID) -> None:
-        """Cancel a running/waiting workflow run."""
+    async def cancel_run(self, run_id: uuid.UUID) -> bool:
+        """Cancel a running/waiting workflow run and report whether we won."""
         run = await self._runs.get(run_id)
         if not run:
-            return
+            return False
         if run.state not in (RunState.RUNNING, RunState.WAITING):
-            return
-
-        now = datetime.now(UTC)
-        await self._runs.update_state(
-            run_id,
-            state=RunState.CANCELLED,
-            ended_at=now,
-        )
-        await self._steps.cancel_pending_for_run(run_id)
-        WORKFLOW_RUNS_TOTAL.labels(state="cancelled").inc()
-
-        await audit.emit(
-            self._db,
-            audit.AuditEvent(
-                action="workflow.run_cancelled",
-                resource_type="workflow_run",
-                resource_id=run_id,
-            ),
-        )
-
-        pub = Publisher(workflow_channel(run_id))
-        await pub.emit("workflow.run_cancelled", {"run_id": str(run_id)})
+            return False
+        return await self._finalize_run(run_id, state=RunState.CANCELLED)
 
     # -- internal --
 
@@ -473,11 +433,17 @@ class RunEngine:
 
         try:
             async with async_session() as session, session.begin():
-                await WorkflowRunRepository(session).update_state(
+                runs = WorkflowRunRepository(session)
+                transitioned = await runs.update_state(
                     run_id,
                     state=RunState.FAILED,
                     ended_at=datetime.now(UTC),
                 )
+                if transitioned:
+                    await WorkflowStepRepository(session).cancel_pending_for_run(run_id)
+                    await runs.mark_a2a_cancellation_pending(run_id)
+            if transitioned:
+                await self._cancel_live_agent_calls(run_id)
         except Exception:
             logger.exception("could not persist FAILED state for run %s", run_id)
 
@@ -494,10 +460,23 @@ class RunEngine:
         is created and *always* closed in the ``finally`` block (including its
         underlying connection pool), so Redis connections are never leaked.
         """
-        if not self._pending_enqueues:
+        if not self._pending_enqueues and not self._pending_call_cancellations:
             return
         pending = list(self._pending_enqueues)
         self._pending_enqueues.clear()
+        pending_cancellations = list(self._pending_call_cancellations)
+        self._pending_call_cancellations.clear()
+
+        failed_cancellations: list[uuid.UUID] = []
+        for run_id in pending_cancellations:
+            try:
+                await self._cancel_live_agent_calls(run_id)
+            except Exception:
+                logger.exception("could not cancel live A2A calls for terminal run %s", run_id)
+                failed_cancellations.append(run_id)
+
+        if not pending and not failed_cancellations:
+            return
 
         owns_pool = pool is None
         if pool is None:
@@ -507,6 +486,8 @@ class RunEngine:
 
             pool = await create_pool(RedisSettings.from_dsn(get_settings().redis.dsn))
         try:
+            for run_id in failed_cancellations:
+                await pool.enqueue_job("workflow_cancel_a2a_calls", str(run_id), 0)
             for task_name, run_id_str, node_id, delay_ms, from_edge in pending:
                 kwargs: dict[str, Any] = {}
                 if delay_ms > 0:
@@ -546,6 +527,19 @@ class RunEngine:
         if ctx.cancelled:
             return
 
+        # PostgreSQL READ COMMITTED is required here: each repository read must
+        # observe terminal-state commits made by sibling workers between nodes.
+        run = await self._runs.get(ctx.run_id)
+        if run is None or run.state.is_terminal:
+            ctx.cancelled = True
+            logger.info(
+                "run %s stopped before node %s because state is %s",
+                ctx.run_id,
+                node_id,
+                run.state.value if run is not None else "missing",
+            )
+            return
+
         # ASYNC-9: surface the traversed edge to the executor layer.
         ctx.arrived_via = from_edge
 
@@ -574,6 +568,10 @@ class RunEngine:
             node_id=node_id,
             input_data=node.config,
         )
+        if step is None:
+            ctx.cancelled = True
+            logger.info("run %s stopped before node %s could be claimed", ctx.run_id, node_id)
+            return
         await self._recorder.emit_step_started(
             run_id=ctx.run_id,
             step_id=step.id,
@@ -624,7 +622,9 @@ class RunEngine:
         )
 
         # Update run variables
-        await self._runs.update_variables(ctx.run_id, ctx.variables)
+        variables_updated = await self._runs.update_variables(ctx.run_id, ctx.variables)
+        if not variables_updated:
+            return
 
         # K.4: a set_variable change can satisfy a sibling branch parked on a
         # variable_matches wait. Signal it *after* commit (this enqueue is
@@ -661,29 +661,7 @@ class RunEngine:
             end_status = node.config.get("status", "success")
             final_state = RunState.SUCCEEDED if end_status == "success" else RunState.FAILED
             end_now = datetime.now(UTC)
-            await self._runs.update_state(
-                ctx.run_id,
-                state=final_state,
-                ended_at=end_now,
-            )
-            WORKFLOW_RUNS_TOTAL.labels(state=final_state.value).inc()
-            action = "workflow.run_finished"
-            await audit.emit(
-                self._db,
-                audit.AuditEvent(
-                    action=action,
-                    resource_type="workflow_run",
-                    resource_id=ctx.run_id,
-                    metadata={"final_state": final_state.value},
-                ),
-            )
-            await Publisher(workflow_channel(ctx.run_id)).emit(
-                action,
-                {
-                    "run_id": str(ctx.run_id),
-                    "state": final_state.value,
-                },
-            )
+            await self._finalize_run(ctx.run_id, state=final_state, ended_at=end_now)
             return
 
         # Failed with no recovery — fail the run
@@ -722,7 +700,6 @@ class RunEngine:
             # W1: multiple outgoing edges → parallel branches.
             # Enqueue each as an independent Arq task so branches truly run in parallel
             # with their own DB sessions; avoids sequential execution and session contention.
-            ctx.active_branches = len(matching)
             for edge in matching:
                 # ASYNC-9: carry the spawning edge id so a join immediately
                 # downstream of the parallel node dedupes arrivals per branch.
@@ -813,31 +790,58 @@ class RunEngine:
     async def _fail_run(self, ctx: RunContext, reason: str) -> None:
         """Mark a run as failed, cancel pending steps."""
         ctx.cancelled = True
-        now = datetime.now(UTC)
-        await self._runs.update_state(
-            ctx.run_id,
-            state=RunState.FAILED,
-            ended_at=now,
-        )
-        await self._steps.cancel_pending_for_run(ctx.run_id)
-        WORKFLOW_RUNS_TOTAL.labels(state="failed").inc()
+        await self._finalize_run(ctx.run_id, state=RunState.FAILED, reason=reason)
 
+    async def _finalize_run(
+        self,
+        run_id: uuid.UUID,
+        *,
+        state: RunState,
+        reason: str | None = None,
+        ended_at: datetime | None = None,
+    ) -> bool:
+        """Perform terminal side effects only for the winning state transition."""
+        if not await self._runs.update_state(
+            run_id,
+            state=state,
+            ended_at=ended_at or datetime.now(UTC),
+        ):
+            return False
+
+        await self._steps.cancel_pending_for_run(run_id)
+        await self._runs.mark_a2a_cancellation_pending(run_id)
+        self._queue_live_agent_call_cancellation(run_id)
+        WORKFLOW_RUNS_TOTAL.labels(state=state.value).inc()
+        action = "workflow.run_cancelled" if state == RunState.CANCELLED else "workflow.run_finished"
+        metadata: dict[str, Any] = {"final_state": state.value}
+        if reason is not None:
+            metadata["reason"] = reason
         await audit.emit(
             self._db,
             audit.AuditEvent(
-                action="workflow.run_finished",
+                action=action,
                 resource_type="workflow_run",
-                resource_id=ctx.run_id,
-                metadata={"final_state": "failed", "reason": reason},
+                resource_id=run_id,
+                metadata=metadata,
             ),
         )
+        payload: dict[str, str] = {"run_id": str(run_id), "state": state.value}
+        if reason is not None:
+            payload["reason"] = reason
+        await Publisher(workflow_channel(run_id)).emit(action, payload)
+        return True
 
-        pub = Publisher(workflow_channel(ctx.run_id))
-        await pub.emit(
-            "workflow.run_finished",
-            {
-                "run_id": str(ctx.run_id),
-                "state": "failed",
-                "reason": reason,
-            },
-        )
+    async def _cancel_live_agent_calls(self, run_id: uuid.UUID) -> None:
+        """Signal A2A turns owned by a terminal workflow run.
+
+        Callers that run after commit turn failures into a durable Arq retry;
+        keeping this helper exception-transparent is what prevents an outage
+        from being silently treated as a successful cancellation.
+        """
+        from contexts.orchestration.interfaces.facade import OrchestrationFacade
+
+        await OrchestrationFacade(self._db).cancel_workflow_run_calls(run_id)
+
+    def _queue_live_agent_call_cancellation(self, run_id: uuid.UUID) -> None:
+        """Defer external cancellation until the caller commits the run transition."""
+        self._pending_call_cancellations.add(run_id)

@@ -392,6 +392,7 @@ class TestWorkflowWatchdog:
 
         assert "failed=1" in result
         engine.force_fail.assert_awaited_once()
+        engine.dispatch_enqueues.assert_awaited_once_with(None)
 
     @patch("shared_kernel.db.session.async_session")
     async def test_watchdog_skips_healthy_run(self, mock_session_cm) -> None:

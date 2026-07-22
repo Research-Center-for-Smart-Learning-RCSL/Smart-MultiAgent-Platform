@@ -78,6 +78,9 @@ class OrchestrationFacade:
             callee_attached_context_ids=callee_attached_context_ids,
         )
 
+    async def cancel_workflow_run_calls(self, workflow_run_id: uuid.UUID) -> None:
+        await self._a2a.cancel_workflow_run_calls(workflow_run_id)
+
     async def a2a_notify(
         self,
         *,

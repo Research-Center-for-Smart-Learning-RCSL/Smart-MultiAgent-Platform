@@ -559,6 +559,8 @@ async def cancel_run(
     await _require_chat_create(principal, scope, resolver)
     svc = WorkflowService(db)
     await svc.cancel_run(run_id, actor_user_id=principal.user_id)
+    await db.commit()
+    await svc.dispatch_pending()
     return {"status": "cancelled"}
 
 

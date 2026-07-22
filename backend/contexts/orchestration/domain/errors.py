@@ -13,6 +13,12 @@ class A2ATimeout(OrchestrationError):
     code = "a2a-timeout"
 
 
+class A2ACallCancelled(OrchestrationError):
+    """A workflow run terminated before its synchronous A2A call completed."""
+
+    code = "a2a-call-cancelled"
+
+
 class A2AForbidden(OrchestrationError):
     """Re-raised from agents.domain when the scope check fails at send()."""
 
@@ -89,6 +95,7 @@ class ApprovalTimeoutLeader(OrchestrationError):
 
 __all__ = [
     "A2ACallDepthExceeded",
+    "A2ACallCancelled",
     "A2ACallLoop",
     "A2ADeliveryFailed",
     "A2AForbidden",

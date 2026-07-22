@@ -27,6 +27,7 @@ from shared_kernel.auth.clients import get_redis
 # CALL it cannot actually serve, so a waiting ``call`` can tell a fail-fast
 # error reply apart from a genuine agent reply.
 A2A_ERROR_KEY: Final = "__a2a_error__"
+A2A_CANCELLED_KEY: Final = "__a2a_cancelled__"
 
 # The rendezvous list outlives a slow caller but must not leak forever.
 _REPLY_TTL_SECONDS: Final = 900
@@ -44,6 +45,14 @@ def _cancel_key(correlation_id: uuid.UUID) -> str:
     return f"a2a:cancel:{correlation_id}"
 
 
+def _workflow_calls_key(workflow_run_id: uuid.UUID) -> str:
+    return f"a2a:workflow:calls:{workflow_run_id}"
+
+
+def _workflow_cancel_key(workflow_run_id: uuid.UUID) -> str:
+    return f"a2a:workflow:cancel:{workflow_run_id}"
+
+
 async def mark_call_cancelled(correlation_id: uuid.UUID) -> None:
     """Signal a timed-out CALL so the callee can stop at the next round boundary."""
     await get_redis().set(_cancel_key(correlation_id), "1", ex=_REPLY_TTL_SECONDS)
@@ -52,6 +61,39 @@ async def mark_call_cancelled(correlation_id: uuid.UUID) -> None:
 async def is_call_cancelled(correlation_id: uuid.UUID) -> bool:
     """Check whether the caller has timed out and cancelled this CALL."""
     return bool(await get_redis().get(_cancel_key(correlation_id)) == "1")
+
+
+async def register_workflow_call(workflow_run_id: uuid.UUID, correlation_id: uuid.UUID) -> bool:
+    """Index a live workflow call and report whether its run is already terminal."""
+    redis = get_redis()
+    calls_key = _workflow_calls_key(workflow_run_id)
+    await redis.sadd(calls_key, str(correlation_id))
+    await redis.expire(calls_key, _REPLY_TTL_SECONDS)
+    already_cancelled = bool(await redis.get(_workflow_cancel_key(workflow_run_id)) == "1")
+    if already_cancelled:
+        await mark_call_cancelled(correlation_id)
+        await _deliver_cancellation(correlation_id)
+    return already_cancelled
+
+
+async def unregister_workflow_call(workflow_run_id: uuid.UUID, correlation_id: uuid.UUID) -> None:
+    """Remove a completed or timed-out workflow call from its run index."""
+    await get_redis().srem(_workflow_calls_key(workflow_run_id), str(correlation_id))
+
+
+async def cancel_workflow_calls(workflow_run_id: uuid.UUID) -> None:
+    """Signal all live calls for a terminal run, including racing registrations."""
+    redis = get_redis()
+    await redis.set(_workflow_cancel_key(workflow_run_id), "1", ex=_REPLY_TTL_SECONDS)
+    correlation_ids = await redis.smembers(_workflow_calls_key(workflow_run_id))
+    for raw_correlation_id in correlation_ids:
+        value = raw_correlation_id.decode() if isinstance(raw_correlation_id, bytes) else raw_correlation_id
+        try:
+            correlation_id = uuid.UUID(str(value))
+        except (TypeError, ValueError):
+            continue
+        await mark_call_cancelled(correlation_id)
+        await _deliver_cancellation(correlation_id)
 
 
 async def register_expected_responder(correlation_id: uuid.UUID, responder_agent_id: uuid.UUID) -> None:
@@ -89,6 +131,14 @@ async def deliver_reply(correlation_id: uuid.UUID, envelope: dict[str, Any]) -> 
     await pipe.execute()
 
 
+async def _deliver_cancellation(correlation_id: uuid.UUID) -> None:
+    key = _reply_key(correlation_id)
+    pipe = get_redis().pipeline(transaction=False)
+    pipe.rpush(key, json.dumps({"payload": {A2A_CANCELLED_KEY: True}}, separators=(",", ":")))
+    pipe.expire(key, _REPLY_TTL_SECONDS)
+    await pipe.execute()
+
+
 async def await_reply(
     correlation_id: uuid.UUID,
     timeout_seconds: float,
@@ -119,7 +169,13 @@ async def await_reply(
 
 __all__ = [
     "A2A_ERROR_KEY",
+    "A2A_CANCELLED_KEY",
     "await_reply",
+    "cancel_workflow_calls",
     "deliver_reply",
+    "is_call_cancelled",
+    "mark_call_cancelled",
     "register_expected_responder",
+    "register_workflow_call",
+    "unregister_workflow_call",
 ]

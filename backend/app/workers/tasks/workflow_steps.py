@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from typing import Any
 
 from loguru import logger
@@ -75,6 +76,35 @@ async def retry_workflow_node(
     return "ok"
 
 
+async def workflow_cancel_a2a_calls(
+    ctx: dict[str, Any],
+    run_id: str,
+    attempt: int = 0,
+) -> str:
+    """Retry terminal-run A2A cancellation until Redis accepts the signal."""
+    from shared_kernel.db.session import async_session
+
+    try:
+        async with async_session() as db:
+            from contexts.orchestration.interfaces.facade import OrchestrationFacade
+            from contexts.workflow.infrastructure.repositories import WorkflowRunRepository
+
+            await OrchestrationFacade(db).cancel_workflow_run_calls(uuid.UUID(run_id))
+            await WorkflowRunRepository(db).clear_a2a_cancellation_pending(uuid.UUID(run_id))
+            await db.commit()
+    except Exception:
+        delay_seconds = min(2 ** min(attempt, 8), 300)
+        logger.bind(run_id=run_id, attempt=attempt).exception("workflow A2A cancellation retry failed")
+        await ctx["redis"].enqueue_job(
+            "workflow_cancel_a2a_calls",
+            run_id,
+            attempt + 1,
+            _defer_by=timedelta(seconds=delay_seconds),
+        )
+        return "retrying"
+    return "cancelled"
+
+
 async def workflow_subagent_timeout(
     ctx: dict[str, Any],
     run_id: str,
@@ -95,6 +125,7 @@ async def workflow_subagent_timeout(
         if failed:
             logger.bind(run_id=run_id, node_id=node_id).warning("subagent timeout: failing run")
             await db.commit()
+            await engine.dispatch_enqueues(ctx.get("redis"))
 
     return "timed_out"
 

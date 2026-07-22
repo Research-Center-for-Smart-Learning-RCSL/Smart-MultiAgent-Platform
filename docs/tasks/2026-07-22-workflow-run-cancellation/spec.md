@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-07-22
 requirements: [R14.08]
 depends_on: []
@@ -69,8 +69,8 @@ document rather than the code.
 
 | ID | Question | Decision | Rationale |
 |---|---|---|---|
-| Q-1 | What does "cancel" mean for a branch that is mid-provider-call? | Nothing is interrupted. The in-flight agent turn runs to completion and its cost is incurred. Cancellation takes effect at the *next* node boundary. | The branch worker is blocked inside `a2a_rendezvous.await_reply` (`contexts/orchestration/application/a2a_service.py:173`), a Redis `BLPOP` (`a2a_rendezvous.py:106-109`). A blocked coroutine cannot poll anything. Claiming stronger cancellation would be a lie about the achievable behaviour. |
-| Q-2 | Can the in-flight *turn* be aborted from outside, using the existing `cancel_check` hook? | **Partially, and only with new plumbing — OPEN, needs the user's call.** See the analysis below the table. | The hook exists and is already wired for workflow-originated turns, but the key needed to fire it is not recorded anywhere reachable from a run id. This is a second change of real size; whether it belongs in this dossier is a scoping decision, not a technical one. |
+| Q-1 | What does "cancel" mean for a branch that is mid-provider-call? | The provider request already in progress runs to completion and its cost is incurred. For a multi-round tool turn, its remaining rounds are then cancelled at the existing turn-engine cancellation boundary; otherwise the branch stops at its next node boundary. | A blocked coroutine cannot interrupt the active provider stream. The existing `cancel_check` is observed only between tool rounds and before final synthesis, which sets the honest ceiling on this improvement. |
+| Q-2 | Can the in-flight *turn* be aborted from outside, using the existing `cancel_check` hook? | Yes, for remaining rounds of multi-round, tool-using turns. This task adds the run-to-call correlation mapping and signals it from every run terminator. | The hook is already wired for workflow-originated turns. A call already inside the provider stream, and a single-round call with no subsequent cancellation point, still completes; the mapping limits the newly reachable work to the cancellation mechanism this task fixes. |
 | Q-3 | Should a branch reaching an `end` node with `status: success` also stop its still-running siblings? | Yes. The guard is on "run is terminal", not "run failed". | `_execute_node`'s END block sets SUCCEEDED and returns (`run_engine.py:659-687`) while siblings continue. That is the same defect with a cheerier run state and identical spend consequences: the run is over, the money is still going out. |
 | Q-4 | Detect terminality by re-reading the run row, or by a Redis kill-switch key? | Re-read the run row. | The run row is the single source of truth for `[R14.08]`; a Redis flag is a second one that can be lost. Cost is one indexed primary-key SELECT per node against an engine that already issues `insert_step` (`:572`), `update_step` (`:613`), and `update_variables` (`:627`) per node — a fourth round trip is not a meaningful regression. |
 | Q-5 | Does the re-read actually observe another worker's commit inside an already-open transaction? | Yes. | No `isolation_level` is configured on the engine (`shared_kernel/db/session.py:40-53`), so Postgres default READ COMMITTED applies and each statement takes a fresh snapshot. The repository reads via a Core `select` returning a row tuple (`infrastructure/repositories.py:227-233`), not an identity-mapped ORM entity, so there is no session-level cache to serve a stale value. This is a load-bearing precondition of the whole fix. |
@@ -107,13 +107,10 @@ gain is bounded to multi-round tool-using turns, which would drop their
 *remaining* rounds. Provider spend already committed for the round in flight is
 unrecoverable in every case.
 
-**Recommendation:** treat Q-2 as out of scope here and open it as FU-1. The
-node-boundary guard is what converts an unbounded leak into a bounded one; the
-turn-boundary abort is an incremental refinement on top, and it touches
-`contexts/orchestration` — the same surface as
-`2026-07-22-a2a-scope-context-wiring`, which already carries its own open
-authorization decision. This recommendation is not self-approving; §10 does not
-assume an answer, and the user should confirm before `/build` starts.
+**Decision:** include Q-2 in this task. The node-boundary guard removes the
+unbounded remainder-of-branch exposure, while the run-to-call mapping also drops
+remaining rounds of a multi-round tool turn. The provider request already in
+progress remains uninterruptible.
 
 ## 4. Reproduction
 
@@ -235,7 +232,7 @@ Correcting that one link prevents every downstream symptom.
 
 ## 7. Fix Design
 
-Five commits, each independently revertible.
+Six commits, each independently revertible.
 
 **C1 — a terminal-state predicate in the domain layer.** Add
 `RunState.is_terminal` (`domain/models.py:45-50`) returning true for SUCCEEDED,
@@ -266,11 +263,10 @@ fallback path (`:798`), so there is no second entrance to keep in sync. It does
 not paper over the symptom by, say, filtering zombie step rows on read or
 skipping the billing record; it prevents the provider call from being made.
 
-**What it deliberately does not claim.** Per Q-1, a branch blocked inside a
-provider call is not interrupted. The guaranteed bound after this fix is: **at
-most one further agent turn per sibling branch** — the one already in flight —
-instead of the entire remainder of the branch. That is the honest statement of
-the improvement, and §10's acceptance criteria are written against it.
+**What it deliberately does not claim.** Per Q-1, a provider request already
+inside `call_stream` is not interrupted. The guaranteed bound after this fix is
+one in-flight provider request per sibling branch; multi-round turns do not start
+their remaining rounds once the cancellation signal is observed.
 
 **C3 — make every terminator seal its steps.** Add the missing
 `cancel_pending_for_run` call to the END block (`run_engine.py:659-687`), the W8
@@ -284,6 +280,12 @@ the assignment (`run_engine.py:725`), and the test asserting it
 (`test_workflow_run_engine.py:338-353`). Per Q-7.
 
 **C5 — correct `docs/workflow.schema.md:162`.** See §11.
+
+**C6 — cancel live workflow A2A calls.** Maintain a TTL-bound Redis set from a
+workflow run id to its live call correlation ids. Every run terminator marks the
+set cancelled and wakes callers; the existing turn-engine `cancel_check` then
+stops a callee before its next tool round or final synthesis. A registration that
+races with termination observes the run cancellation marker and is never sent.
 
 **Data repair: none, deliberately.** Step rows written by zombie branches record
 work that genuinely happened — agents really were invoked, tokens really were
@@ -395,9 +397,9 @@ comments record constraints the code cannot show.
 conflict textually if merged carelessly. Mitigation: merge order by dossier, and
 the reviewer note in §6 about F-33's drop logging.
 
-**Rollback.** Five independent commits. Reverting C2 alone restores the current
-behaviour exactly; C1, C3, C4, C5 are inert with respect to branch execution.
-No migration, no persisted state, no feature flag needed.
+**Rollback.** Six independent commits. Reverting C2 alone restores the current
+behaviour exactly; C1, C3, C4, C5, and C6 are independently revertible. No
+migration, no persisted state, no feature flag needed.
 
 ## 10. Acceptance Criteria
 
@@ -409,8 +411,8 @@ No migration, no persisted state, no feature flag needed.
 - [ ] AC-6: Every one of the six run terminators listed in §6 leaves the run's step rows sealed — no row remains `pending` or `running` under a terminal run.
 - [ ] AC-7: `active_branches` no longer appears anywhere in `backend/`.
 - [ ] AC-8: `docs/workflow.schema.md:162` describes the mechanism that exists.
-- [ ] AC-9: The dossier states, and the implementation does not contradict, that an agent turn already in flight is not interrupted. `/build` must not add a cancellation claim the code cannot honour.
-- [ ] AC-10: Q-2 is answered by the user before `/build` starts. If deferred, it is recorded as FU-1 and no partial correlation-id plumbing is left in the tree.
+- [ ] AC-9: The dossier states, and the implementation does not contradict, that a provider request already in flight is not interrupted; only remaining rounds of a multi-round tool turn are cancellable.
+- [ ] AC-10: Q-2 is answered by the user before `/build` starts and its complete run-to-call cancellation path is covered by regression tests.
 - [ ] AC-11: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in `backend/`.
 
 ## 11. SRS Delta
@@ -446,26 +448,23 @@ rewritten after review.
 
 Appended by `/build`.
 
+- **D-1 (2026-07-22):** After adversarial lifecycle, concurrency, error-path,
+  and client-trace verification, the user approved repairing all five confirmed
+  findings in this dossier. The implementation additionally makes step creation
+  conditional on a live run, makes terminal state transitions a single-winner
+  operation, refuses losing resume/retry claims, retries failed A2A cancellation
+  through Arq with exponential backoff plus a durable marker in the existing run
+  context (re-dispatched by the watchdog), and refreshes step traces on
+  run-terminal socket events. These changes extend C2/C6 to close their audited
+  race and delivery gaps; no data migration is required.
+
 ## 13. Follow-ups
 
-- **FU-1 — abort in-flight tool loops on run termination.** Register live
-  `correlation_id`s per run alongside `register_expected_responder`
-  (`a2a_service.py:161`), drain them on reply and on timeout (`:173-180`), and
-  have the run terminators call `mark_call_cancelled`
-  (`a2a_rendezvous.py:47-49`) for each. The consumer side is already wired
-  (`a2a_handler.py:177-188` → `turn_engine.py:2647`). Ceiling is explicit: only
-  multi-round tool-using turns can drop their remaining rounds; a turn inside
-  `call_stream` (`turn_engine.py:2673`) and a single-round turn cannot be
-  stopped at all. Overlaps the surface of
-  `2026-07-22-a2a-scope-context-wiring`; sequence after it. Blocked on Q-2.
 - **FU-2 — proactively drop resume claim keys on run termination.** Delete
   `wf:wait:*`, `wf:approval:*`, `wf:instruct:*` for a terminated run instead of
   waiting out their TTLs (`executors/instruct.py:64-68`). Cleared as harmless in
   §6 (`workflow_common.py:34-40` already refuses terminal resumes); tidiness
   only.
-- **FU-3 — `mark_call_cancelled` and `is_call_cancelled` are absent from
-  `a2a_rendezvous.__all__`** (`a2a_rendezvous.py:120-125`) while every other
-  public function is listed. Cosmetic; would become load-bearing under FU-1.
 - **FU-4 — a spend ceiling per run.** The node guard bounds *post-termination*
   spend. Nothing bounds a healthy run's total provider spend. On a BYO-key
   product a per-run or per-workflow token budget is the structural answer to the

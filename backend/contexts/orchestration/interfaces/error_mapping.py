@@ -26,6 +26,11 @@ _MAP: ErrorMap = {
         504,
         "A2A sync call timed out",
     ),
+    errors.A2ACallCancelled: (
+        "a2a-call-cancelled",
+        409,
+        "A2A call was cancelled because its workflow run terminated",
+    ),
     errors.A2AForbidden: (
         "a2a-forbidden",
         403,

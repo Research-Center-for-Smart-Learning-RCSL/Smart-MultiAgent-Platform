@@ -33,11 +33,10 @@ _CLAIM_RESTORE_TTL_S = 60
 
 async def _run_is_terminal(db: Any, run_id: str) -> bool:
     """True when the run is gone or in a terminal state (no resume possible)."""
-    from contexts.workflow.domain.models import RunState
     from contexts.workflow.infrastructure.repositories import WorkflowRunRepository
 
     run = await WorkflowRunRepository(db).get(uuid.UUID(run_id))
-    return run is None or run.state in (RunState.SUCCEEDED, RunState.FAILED, RunState.CANCELLED)
+    return run is None or run.state.is_terminal
 
 
 async def _restore_claim(redis: Any, key: str, payload: Any, ttl: int | None) -> None:

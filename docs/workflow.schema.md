@@ -159,7 +159,7 @@ The JSON Schema catches only structural errors. The following checks are enforce
 - Every node execution creates a `workflow_steps` row: `(run_id, node_id, state, input, output, started_at, ended_at, error)`.
 - The engine consumes one node at a time per branch from the event bus. Parallel branches run as independent consumers.
 - On-error strategies:
-  - `fail`: mark run failed, cancel all sibling branches (`parallel` branches honor this by emitting cancellation events).
+  - `fail`: mark the run failed. Sibling `parallel` branches observe the terminal run state at their next node boundary and stop; a branch already inside an agent turn completes its current provider request, while remaining tool rounds are cancelled when the call reaches its next cancellation boundary.
   - `continue`: treat the node as succeeded with `output = null`; follow default port.
   - `retry`: retry up to `retry_max` times with `retry_backoff_ms` linear backoff.
   - `fallback`: follow an edge to `fallback_node_id` (must be a valid node id in the same workflow).
