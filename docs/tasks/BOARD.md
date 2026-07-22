@@ -16,6 +16,24 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+- `2026-07-22-a2a-scope-context-wiring` (bugfix, draft) — `depends_on: []`. From
+  `docs/audits/2026-07-22-agent-to-agent-orchestration/` F-9, F-24, F-25, F-26 and
+  `docs/audits/2026-07-22-agent-config-runtime/` F-4. One root cause: every authorization and
+  budget identity in the A2A subsystem is declared and never populated. **Carries an open user
+  decision** (what "attached to a workflow run" means) that must be answered before implementation
+  — it is an authorization boundary and is deliberately not guessed.
+- `2026-07-22-turn-idempotency-and-locking` (bugfix, draft) — `depends_on: []`. From the a2a audit
+  F-7, F-18, F-22, F-23, F-39 and the config audit F-8, F-30. Six sequenced commits; one hard
+  ordering constraint (cleanup before lock-liveness). Names two textual adjacencies with the
+  compaction and tool-dispatch dossiers.
+- `2026-07-22-approval-resume-claim-reliability` (bugfix, draft) — `depends_on: []`. From the a2a
+  audit F-31, F-32 and the config audit F-18. Approval-gate side effects dispatched pre-commit,
+  plus a claim key that can expire inside its own consumer's retry budget.
+- `2026-07-22-subagent-spawn-fail-fast` (bugfix, draft) — `depends_on: []`. From the a2a audit F-1
+  and the config audit F-3. Makes the dead `subagent_spawn` node fail fast instead of parking for
+  half an hour. **Deviates from the a2a triage**, which grouped five findings here: only one is
+  actionable today, the other four are latent until sub-agent execution is built and are recorded
+  as follow-ups for that feature dossier.
 - `2026-07-22-compaction-scoping-and-durability` (bugfix, draft) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-config-runtime/` F-5, F-7, F-15 (all major): one agent's
   compaction truncates every other agent's history in the room (violating `[R9.09]`), an empty
