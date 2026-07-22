@@ -1,0 +1,285 @@
+---
+type: bugfix
+status: draft
+created: 2026-07-22
+requirements: [R14.07, R14.10]
+depends_on: []
+---
+
+# The workflow engine's dispatch and resume paths lose work when the second half of a two-step operation fails
+
+## 1. Summary
+
+Five defects in the workflow run engine's dispatch and resume machinery. A parallel fan-out can lose branches when one enqueue fails mid-loop (F-33); a cron trigger can fire the same workflow twice a minute because its debounce marker is written after the run is already durable (F-34); a signal-triggered run that fails to start is swallowed with no retry and no audit row (F-35); a concurrent event dispatch can delete a parked wait's index entry during another task's claim window, orphaning the wait (F-37); and the `wait_for_event` timeout path advances a run without emitting the `workflow.resumed` audit that the other resume paths emit (F-41). User-visible impact: a parallel workflow silently drops branches and stalls until the watchdog force-fails it; a cron workflow runs twice; a message that should have started a workflow silently does not; a parked branch can only ever exit via its timeout port; and an operator reconstructing why a compensation branch ran finds no audit trail.
+
+**Do the five share a root cause? Partly — and the honest split is three groups, not one.**
+
+- **F-33 and F-34 are the same defect.** Both perform a durable state change and then an effect that the state change authorizes, and both treat the state change as final before the effect has succeeded. `dispatch_enqueues` empties `_pending_enqueues` (`run_engine.py:499-500`) before the first `enqueue_job` (`:522-524`); `workflow_cron_scheduler` commits the run (`workflow_cron.py:92`) and writes the debounce marker two statements later (`:94`), with an `except` that calls `db.rollback()` (`:101`) which cannot undo the commit. In both, a failure in the window leaves the system in a state that is neither "done" nor "not done", with no compensation. This is a genuine shared root cause.
+- **F-37 is adjacent but distinct.** It is not an ordering choice — it is a *non-inverse restore*. The claim protocol (`workflow_common.py:43-45`) restores the claim key but never the `wf:wait:by_event:{type}` index member added at `wait_for_event.py:79`, while a second reader treats a missing claim key as proof of staleness and prunes (`event_dispatch.py:158-161`). Two halves of one invariant maintained in two modules by different rules.
+- **F-35 and F-41 are grouped by change surface only, and this dossier says so plainly.** Neither is an ordering defect. F-35 is an error-handling policy choice (`workflow_signals.py:321-323` returns `"error"`, which arq reads as success). F-41 is a missing emit on one branch of a five-branch family. They are here because they live in the same four files and would be reviewed and reverted alongside the others, not because a shared cause explains them.
+
+The proposed unifying framing — "each path performs a state mutation and a side effect in an order chosen locally, with no shared rule about which comes first" — is **accurate for F-33 and F-34 and is not stretched to the other three**. The codebase does have one written ordering rule, the DB-1 contract (`run_engine.py:484-495`, restated at `workflow_steps.py:38-39`, `workflows.py:475-477`, `workflow_service.py:370-379`), and every site honours it. What no rule covers is *what happens when the second half fails*, and that is the real shared absence behind F-33 and F-34.
+
+Source: `docs/audits/2026-07-22-agent-to-agent-orchestration/findings.md` F-33 (`:858-877`), F-34 (`:879-898`), F-35 (`:900-916`), F-37 (`:935-957`), F-41 (`:1018-1034`). Already adversarially verified; not re-verified here.
+
+## 2. Observed vs Expected
+
+**F-33.** `dispatch_enqueues` snapshots and clears the pending list before the loop (`run_engine.py:497-500`), then enqueues each entry with no per-item `try` and no re-queue on failure (`:509-524`). If `enqueue_job` raises for branch 2 of 3, branches 2 and 3 are already gone from the list. On the arq path (`workflow_steps.py:41`) the exception propagates, arq retries the whole job, and `_execute_node` re-runs the parallel node — re-appending *all* branch enqueues, so already-enqueued branch 1 runs twice. On the API path (`workflows.py:478-479`, `:503-504`) there is no arq wrapper and no retry: the branches are lost outright.
+
+**Expected** — the DB-1 contract at `run_engine.py:484-495` promises that "a worker that picks up an enqueued job can see the run row". It says nothing about what survives a partial dispatch. An entry that was never successfully enqueued must remain pending, so a caller can retry the dispatch alone without re-executing the node.
+
+**F-34.** `workflow_cron.py:88` `trigger_run`, `:92` `commit`, `:93` `dispatch_pending`, `:94` `redis.set(last_fire)`. The eligibility gate reads only `wf:cron:{id}:last_fire` (`:64-70`) and falls back to `now - 1min` when absent (`:80`) — there is no DB column and no query against the runs table. A raise in `dispatch_pending` at `:93` reaches the `except` at `:96`, which rolls back a session that already committed at `:92`; `last_fire` is never written; 60 seconds later the same workflow fires again.
+
+**Expected** — the module's own docstring at `:52-63`: "each trigger fires at most ONCE per pass … never one run per missed tick." `docs/implement/H-workflow.md` H.4.
+
+**F-35.** `workflow_signals.py:319-323` — `except Exception: logger.exception(...); return "error"`. A normal return is a successful arq job: no retry, no DLQ. `dispatch_pending` at `:325` is outside the try, so only *start* failures are swallowed. No audit row, no metric, no comment stating intent.
+
+**Expected** — R14.07 ("a workflow run is started by a trigger … `message_received`, `a2a_event`, or `wakeup_signal`"). A trigger that matched and then failed to start must either retry or leave a durable record that it did not.
+
+**F-37.** `event_dispatch.py:158-161` SREMs the index member whenever `wf:wait:{run}:{node}` reads `None`. That is exactly the state during the gap between `workflow_signals.py:265` (`getdel`) and `:277` (`_restore_claim`), and the identical gap at `:59`→`:75` in `workflow_event_timeout`. `_restore_claim` (`workflow_common.py:43-45`) is a single `redis.set`; the index member is added only at `wait_for_event.py:79` and nowhere else, so the restore is not the inverse of the claim.
+
+**Expected** — the ASYNC-10 dispatcher contract at `wait_for_event.py:7-15`, and `event_dispatch.py:143-149`, whose docstring says the function is "Read-only" and that a stale member is "pruned by the resume job's miss". Both statements are contradicted by the write at `:160`.
+
+**F-41.** `workflow_event_resume` calls `_emit_resumed(..., reason="event")` at `workflow_signals.py:290`; `workflow_resume_approval` at `workflow_approvals.py:104`; `workflow_resume_instruct` at `:197`. `workflow_event_timeout` (`workflow_signals.py:27-107`) has none on its success path — the only record is `logger.bind(event="workflow_event_timed_out")` at `:104-106`, a log line, not an audit row.
+
+**Expected** — `workflow_common.py:48-49` names the `workflow.resumed` audit as cross-cutting checklist item 2; R14.10 requires the run trace to be stored in the DB and visible in the backstage panel.
+
+## 3. Clarifications
+
+| ID | Question | Decision | Rationale |
+|---|---|---|---|
+| Q-1 | Is a durable outbox table warranted for F-33? | **No.** | `_pending_enqueues` entries are all `(run_id, node_id)`-keyed engine tasks whose loss is already backstopped by `workflow_watchdog`'s `idle_max_seconds` force-fail. Keeping the unsent tail in memory and letting the caller's failure propagate is proportionate; a table plus migration plus dispatcher is not. See also Q-4 — the failure semantics an outbox would impose are the opposite of what the approval dossier needs. |
+| Q-2 | For F-33, re-queue on failure or abort the whole batch? | **Re-queue the unsent tail and re-raise.** | Drain each entry only after its `enqueue_job` returns. On a raise, the failed entry and everything after it remain in `_pending_enqueues`, and the exception still propagates so the arq path is not silently degraded. This makes `dispatch_enqueues` safely re-callable, which is the property both the API and the worker path need. |
+| Q-3 | Does F-33's fix change the `_PendingEnqueue` tuple shape? | **No — deliberately not.** | See §6 coordination. Keeping `run_engine.py:100-104` and the positional unpack at `:510` byte-identical keeps this dossier off the surface the approval dossier declined to touch. No dataclass conversion, no extra field, even though one would read better. |
+| Q-4 | Should F-33's fix accommodate the approval dossier's announce-job need? | **No — they stay separate, and the reason is stronger than "coordination".** | `_pending_enqueues` is dispatched strictly *post-commit* and must never fail the transaction. The approval dossier's announce enqueue is explicitly *load-bearing pre-commit*: its §6 states the enqueue "inherits the load-bearing role — if it fails, gate creation must still fail so the caller rolls back" (`approval-resume-claim-reliability/spec.md:200-204`). Those are opposite failure contracts on the same channel. Widening the tuple would not merely be a merge conflict; it would put two incompatible semantics in one queue. Record this so the question is not reopened. |
+| Q-5 | F-37 — fix the reader or the restorer? | **Both, reader first.** | Deleting the prune at `event_dispatch.py:160` corrects the contract violation (a function documented read-only that writes) and eliminates the window outright. Adding an optional re-index to `_restore_claim` is defence in depth for any future pruner. Neither alone is complete: without the reader fix the window persists; without the restore fix the index and the claim key can still diverge. |
+| Q-6 | F-35 — raise so arq retries, or self-re-enqueue with an attempt counter? | **Self-re-enqueue, bounded, mirroring the resume tasks in the same file.** | Raising hands the retry policy to arq's worker-wide defaults (`main.py` sets no `retry_jobs`/`max_tries`, so `retry_jobs=True`, `max_tries=5`), which also retries the *post-commit* half at `workflow_signals.py:325` and would re-run `trigger_run` against an already-committed run. A bounded self-re-enqueue keyed on `attempt`, reusing `_RESUME_RETRY_DELAY_S`/`_RESUME_RETRY_MAX_ATTEMPTS` (`workflow_common.py:27-28`), retries only the half that is safe to retry. |
+| Q-7 | Can the F-35 retry be made idempotent with a dedup key? | **Not from the payload as it exists today.** | The signal payloads carry no stable event id: `messages.py:371-379` sends `{chatroom_id, sender_type, content}`; `a2a_handler.py:215-219` sends `{target_agent_id, msg_type}`; `orchestration.py:170` sends `{agent_id}`; `workflow_signal` forwards them verbatim at `workflow_signals.py:139`. There is nothing to key on. The retry is therefore made safe by *scope* (only the pre-commit half retries) rather than by a key. Adding a signal id is FU-2. |
+| Q-8 | F-41 — is the omission deliberate ("a timeout is a lapse, not a resume")? | **Treat it as accidental; emit `reason="timeout"`.** | Nothing states the deliberate reading, and instruct timeouts *are* audited because they route through `workflow_resume_instruct` (`workflow_approvals.py:197`). A distinct `reason` preserves the semantic difference without leaving a hole in the trace. |
+| Q-9 | `depends_on`? | `[]`. | Checked against `docs/tasks/BOARD.md`. Three named adjacencies instead, in §6 — none is a hard prerequisite, and every one of the five fixes is testable and shippable against `main` today. |
+
+## 4. Reproduction
+
+**F-33** (deterministic, unit level). Build a `RunEngine` with three entries in `_pending_enqueues` (as `test_workflow_k4.py:412-430` does with one). Pass a pool whose `enqueue_job` raises on the second call. Observed: one job enqueued, the exception propagates, and `engine._pending_enqueues == []` — branches 2 and 3 are unrecoverable. Expected: the list still holds entries 2 and 3.
+
+Integration shape: a workflow whose `parallel` node fans out to three branches, triggered via `POST /workflows/{id}/runs` (`workflows.py:459-480`) with Redis rejecting the second `enqueue_job`. The run row and its step rows are committed; two branches never start; the run sits RUNNING until `workflow_watchdog` force-fails it on `idle_max_seconds`.
+
+**F-34** (deterministic). A workflow with a `cron` trigger due to fire. Patch `WorkflowService.dispatch_pending` to raise. Observed: `trigger_run` commits at `workflow_cron.py:92`, the raise is caught at `:96`, `db.rollback()` at `:101` does not undo the commit, `wf:cron:{id}:last_fire` is never set. The next pass 60 seconds later reads no `last_fire` (`:65-70`), falls back to `now - 1min` (`:80`) and fires a second run. Amplified by `:110-113`: if this is the only eligible workflow, the task raises and arq retries the whole pass immediately.
+
+**F-35** (deterministic). Patch `WorkflowService.trigger_run` to raise, then call `run_triggered_workflow`. Observed: return value `"error"`, arq records the job as succeeded, no run row, no audit event, no retry. This is currently *pinned as correct* by `test_workflow_signals.py:714-730`.
+
+**F-37** (nondeterministic — a genuine race). A branch parked on `message_in_room`, held non-WAITING by a running parallel sibling. Message M1 arrives; `workflow_event_resume` GETDELs the claim at `workflow_signals.py:265` and begins its DB work. Message M2 arrives concurrently; `find_matching_waits` reads `None` at `event_dispatch.py:158` and SREMs the member at `:160`. The first task restores the claim key at `:277` but not the index member. Message M3 is never matched.
+
+Deterministically reproducible at unit level by driving `find_matching_waits` against a Redis fake seeded with an index member whose claim key has been GETDEL'd but not yet restored — the state a claim window is defined by. The nondeterminism is only in *arriving* there in production; the window spans a session open, `resume_at_port`, a commit and `_run_is_terminal`, tens of milliseconds under load.
+
+**F-41** (deterministic). Any `wait_for_event` node that times out. Query the audit table for `action = "workflow.resumed"` and `resource_id = run_id`: no row, while the same workflow resuming via `workflow_event_resume` produces one (`workflow_signals.py:290`).
+
+## 5. Root Cause Analysis
+
+**F-33.** Trigger: `_advance_from` appends one entry per outgoing edge for a parallel node (`run_engine.py:726-731`). → `dispatch_enqueues` treats the snapshot-and-clear at `:499-500` as the commit point of the dispatch, when the actual commit points are the individual `enqueue_job` calls at `:522-524`. → The loop at `:509-524` has no per-item recovery. → On a mid-loop raise the unsent tail exists nowhere. **Root cause: the pending list is drained before the work it describes has been performed.** The absence of retry on the API path (`workflows.py:479`) is an aggravating factor, not the cause — with the list intact, that caller could retry the dispatch alone.
+
+**F-34.** Trigger: a cron trigger becomes due. → `trigger_run` + `commit` make the run durable (`workflow_cron.py:88-92`). → `dispatch_pending` at `:93` raises. → `redis.set(last_fire)` at `:94` is skipped. → The `except` at `:96-103` rolls back a session with nothing left to roll back. → The eligibility gate at `:64-70` has no source of truth other than that unwritten key, so the next pass sees a workflow that has never fired. **Root cause: the debounce marker — the only record that this trigger fired — is written after the run it debounces is already durable, and the only failure handler cannot undo either half.** The `errors == eligible` raise at `:110-113` is an aggravating factor that shortens the re-fire interval from 60 s to arq's immediate retry.
+
+**F-35.** Trigger: a signal matches a dormant trigger; `workflow_signal` enqueues `run_triggered_workflow` (`workflow_signals.py:140`). → `trigger_run` raises at `:320`. → The bare `except` at `:321` logs and returns `"error"` at `:323`. → arq treats a normal return as success. **Root cause: a failure is converted into a successful job result, which discards both of the recovery mechanisms available (arq's retry and the audit trail) in a single statement.** That the failure *is* visible in a bound, stack-traced log is why this is minor rather than major; visibility is not recovery.
+
+**F-37.** Trigger: two signals of the same event type arrive within one claim window. → Task A GETDELs the claim key (`workflow_signals.py:265` or `:59`). → Task B's `find_matching_waits` reads the key as `None` (`event_dispatch.py:158`) and infers "stale index member". → It SREMs (`:160`). → Task A restores only the key (`workflow_common.py:45`). → The index — the *only* path by which a future signal can find this wait (`event_dispatch.py:151`; the member is written only at `wait_for_event.py:79`) — is permanently short one member. **Root cause: `None` on the claim key is not evidence of staleness, because the claim protocol deliberately makes the key transiently absent; a reader treats a designed-for transient state as a permanent one.** The non-inverse `_restore_claim` is the second half of the same invariant and is an equal contributor: correcting either alone leaves the invariant maintained by one party only.
+
+**F-41.** Trigger: a `wait_for_event` node's timeout fires and resumes the run. → `resume_at_port` returns `True` (`workflow_signals.py:70`). → `db.commit()` at `:71`. → No `_emit_resumed` call anywhere between. **Root cause: the audit emit is a per-call-site convention rather than a property of the resume operation.** `_emit_resumed` (`workflow_common.py:48-60`) is a free helper each caller must remember; `resume_at_port` (`run_engine.py:319-341`) — the one place that knows a resume happened — does not emit. Four of five call sites remembered.
+
+## 6. Blast Radius and Sibling Suspects
+
+**Blast radius.**
+
+- F-33: any run with a `parallel` node, plus `retry_workflow_node` (`run_engine.py:764-766`), `workflow_variable_signal` (`:633-634`) and every park timeout arm (`:650-652`), all of which ride the same list. No corrupt rows are written; the damage is missing work (API path) or duplicated agent invocations and instructs (arq path).
+- F-34: cron-triggered workflows only, and only when a transient failure lands in the `:93`-`:94` window (`redis.get` at `:65` sits outside the try, so a hard Redis outage aborts the pass before firing anything). Cost is a duplicate run, which for an `agent_invocation` workflow is duplicate provider spend on the user's key.
+- F-35: every `message_received`, `a2a_event`, `wakeup_signal` and `activity_event` trigger — i.e. every dormant trigger kind, since all four route through `run_triggered_workflow` (`workflow_signals.py:140`).
+- F-37: any `wait_for_event` in a run with parallel siblings, on a busy event type. Narrower than it sounds: the retry loop keeps chasing the *original* event, so orphaning bites only for a subsequent event after ~10.5 min of retries are spent.
+- F-41: audit completeness only. No behavioral effect; the run advances correctly.
+
+**Sibling sweep 1 — every place a pending list is cleared before its effects are dispatched.**
+
+Repo-wide grep for `.clear()` outside tests returns six production sites. `run_engine.py:500` is **the only drain-then-dispatch of a pending effect list in the backend** — this is F-33's singular home, and the finding is not an instance of a systemic pattern. Cleared, with evidence:
+
+| Site | Verdict |
+|---|---|
+| `contexts/workflow/application/run_engine.py:500` | **Confirmed — F-33.** The only one. |
+| `contexts/orchestration/application/a2a_consumer.py:272` | **Cleared** — shutdown teardown of a task registry, dispatches nothing. |
+| `contexts/keys/infrastructure/dek_cache.py:45` | **Cleared** — cache invalidation. |
+| `contexts/keys/infrastructure/adapters/anthropic.py:68`, `gemini.py:41` | **Cleared** — per-message buffers cleared *after* the accumulated block is appended, i.e. already the correct order. |
+| `contexts/activities/application/validators/registry.py:40`, `sandbox/docker_runsc.py:1819` | **Cleared** — registry resets, no effects. |
+
+Two semantically similar destructive reads, both **cleared for this dossier and owned elsewhere**: `pending_notify.drain` (`contexts/orchestration/infrastructure/pending_notify.py:43-64`) is read-then-delete, but a `requeue` compensator exists (`:67-86`) and its call-site correctness is owned by `2026-07-22-turn-idempotency-and-locking/` and `2026-07-22-pending-notify-room-routing/`; `turn_engine.py:304-305` (`_pop_queued_trigger`) is confirmed defective but is F-39, explicitly owned by the turn-idempotency dossier (its §6 at `:206-207` states it is the repo's only unpipelined multi-key sequence).
+
+**Sibling sweep 2 — every resume path, to test F-41's "the only one missing its audit" claim.**
+
+Repo-wide grep for `resume_at_port` callers finds exactly five production sites. **F-41 is not the only one missing the audit.**
+
+| Resume path | Audit | Verdict |
+|---|---|---|
+| `workflow_event_resume` (`workflow_signals.py:273`) | `_emit_resumed(reason="event")` at `:290` | Cleared |
+| `workflow_resume_approval` (`workflow_approvals.py:86`) | `_emit_resumed(reason=f"approval:{port}")` at `:104` | Cleared |
+| `workflow_resume_instruct` (`workflow_approvals.py:181`) | `_emit_resumed(reason=f"instruct:{port}")` at `:197` | Cleared |
+| `workflow_event_timeout` (`workflow_signals.py:70`) | none | **Confirmed — F-41, fixed here** |
+| `workflow_subagent_complete` (`workflow_steps.py:121`) | none | **Confirmed — a second instance, and NOT fixed here** |
+
+`workflow_subagent_complete` also discards `resume_at_port`'s boolean, breaching the claim-before-verify contract documented at `run_engine.py:336-341`. That is a2a **F-28** (`findings.md:748-768`), which names the missing `_emit_resumed` explicitly at `:757-758`, and is owned by `docs/tasks/2026-07-22-subagent-execution-wiring/`. It is latent (`destroy_subagent` has no production caller — F-1) and its fix requires the claim-restore work that dossier owns, so pulling only the audit emit here would leave the harder half unfixed in another dossier and create a merge conflict in the same three lines. **Left with its owner, recorded here so the sweep result is not misread as "F-41 is singular".** It is not; it is one of two, and both are owned.
+
+`retry_workflow_node` (`workflow_steps.py:65`) calls `retry_node`, not `resume_at_port`, and is a re-execution rather than a resume — **cleared**, correctly out of the family.
+
+**Sibling sweep 3 — other readers that mutate on a transient-absence inference (F-37's pattern).**
+
+`find_run_variable_waits` (`event_dispatch.py:171-189`) reads the same `wf:wait:*` keys through the same index and hits the identical `payload is None` condition at `:182` — but it `continue`s without pruning. **Cleared, and it is the model the F-37 fix should imitate**: two sibling functions in one module already disagree about whether a read may prune, which is the defect stated as an internal inconsistency.
+
+`workflow_resume_approval:51-52` and `workflow_resume_instruct:151-152` return `"noop:no_claim"` on a missing key without mutating any index — **cleared**; their keys have no index to corrupt.
+
+**Coordination — three named adjacencies, all checked, none a `depends_on`.**
+
+1. **`docs/tasks/2026-07-22-approval-resume-claim-reliability/spec.md:97` (Q-3)** rejected riding `RunEngine._pending_enqueues` because its tuple "cannot carry an approval id, and generalising it puts this dossier directly on top of the workflow-dispatch dossier's change surface (its F-33)". **Assessment: confirmed correct on the facts, and correct for a stronger reason than the one given.** The factual half checks out — `_PendingEnqueue = tuple[str, str, str, int, str | None]` (`run_engine.py:104`) is unpacked positionally at `:510` and every consumer is a `(run_id, node_id)`-keyed engine task, so an approval id genuinely does not fit. But the decisive objection is the failure contract, not the shape: `_pending_enqueues` is dispatched strictly post-commit and must never fail the transaction, whereas that dossier's §6 (`:200-204`) requires its announce enqueue to fail gate creation. **The two remain deliberately separate. This dossier's fix does not accommodate the approval dossier's needs and should not** — see Q-3 and Q-4. To keep the surfaces disjoint in the diff as well as in principle, C4 leaves `run_engine.py:100-104` and the unpack at `:510` untouched (Q-3), so the approval dossier can land in either order with zero textual conflict.
+
+2. **`docs/tasks/2026-07-22-turn-idempotency-and-locking/spec.md:196-197`** marks `run_workflow_step` and siblings "**confirmed suspects**, owned by the workflow-dispatch dossier", and its `:198-199` notes that "the worker-wide `retry_jobs` default remains a latent hazard for every non-idempotent task above". **Determination: F-33 and F-35 cover only part of it, and the remainder is a real gap that no dossier owns.**
+
+   What this dossier does own and will fix: the enqueue-loop half of F-33 (a partial dispatch no longer loses entries, which removes the *most common* reason a workflow task retries at all), and — as part of C5 — a guard so that a post-commit failure in `run_triggered_workflow` (`workflow_signals.py:325`, currently outside the `try` and therefore already retried by arq into a second `trigger_run`) cannot re-run the start. C3 incidentally closes the same hole for the cron path.
+
+   What remains **unowned**: `run_workflow_step` (`workflow_steps.py:17-46`), `retry_workflow_node` (`:49-75`) and `workflow_subagent_complete` (`:102-128`) are registered bare in `main.py:264-273`, and `WorkerSettings` sets only `job_timeout`, `max_jobs` and `keep_result` (`:310-312`) — no `retry_jobs`, no `max_tries` — so arq's defaults (`retry_jobs=True`, `max_tries=5`) apply. A worker killed *after* `db.commit()` at `workflow_steps.py:39` but before the job is acked causes a retry that re-runs `RunEngine.run_step`, which inserts a fresh step row (`run_engine.py:572-576`) and re-invokes whatever the node does — agents, instructs, sub-agents. **Nothing in F-33 addresses that, because F-33 is about the enqueue loop, not about whether re-executing a node is safe.** Fixing it needs a per-(run_id, node_id, from_edge) execution guard or a job-id dedup, which is a design change to the engine, not a bugfix to a dispatch loop, and it touches `run_engine._execute_node` — territory the run-cancellation dossier (adjacency 3) will also enter.
+
+   **Stated plainly: workflow-task retry-safety is a gap none of the current dossiers owns.** It is recorded as FU-1 with a proposed home rather than absorbed here, because absorbing it would double this dossier's size and put it in `_execute_node`, where two other dossiers are already headed. An unowned defect is worse than a duplicated one — hence FU-1 exists and is explicit about the scope, rather than being left implied by the turn-idempotency dossier's hand-off.
+
+3. **`docs/tasks/2026-07-22-workflow-run-cancellation/` (a2a F-10)** — assessed from F-10's finding text (`findings.md:338-362`) and from that dossier's own scope: its surface is `RunContext.active_branches` (assigned at `run_engine.py:725`, never read), `_fail_run` (`:813-843`), the entry state check in `_prepare_continuation` (`:241-243`) and the per-process `ctx.cancelled` guard at `:546`. This dossier's engine surface is `dispatch_enqueues` (`:484-530`) only. The nearest approach is `_advance_from`'s parallel append at `:726-731` — F-10 will plausibly gate that append or add a cross-process check beside it, roughly 200 lines from C4's edit. **Semantically the two compose rather than conflict**: F-10 adds "should this branch still run", C4 adds "did this branch's enqueue actually happen". Whoever writes the cancellation dossier should read C4's re-queue loop first, because a cancelled run must *drop* its pending entries rather than retain them — a case C4 does not need to handle today but which F-10's fix will introduce.
+
+## 7. Fix Design
+
+Five independently revertible commits. One hard ordering constraint, named below.
+
+**C1 — `fix(backend): audit workflow.resumed on the wait_for_event timeout path` (F-41).**
+Insert `await _emit_resumed(db, run_id, node_id, reason="timeout")` in `workflow_signals.py` between the `resume_at_port` call at `:70` and the `db.commit()` at `:71`, guarded on `resumed` being truthy so the not-resumed and terminal paths are unaffected. `_emit_resumed` is already imported at `:21`. One hunk, one file.
+
+*Why this corrects rather than masks*: the audit is the trace R14.10 requires, and emitting it in the same transaction as the resume means the row and the state change are atomic — the same property the other three call sites have. It does not paper over anything; there is no behavior to mask, only a missing record.
+
+*Data repair*: **none, deliberately.** Audit is an append-only record of what was observed. Back-filling `workflow.resumed` rows for historical timeouts would insert events no observer emitted, at timestamps inferred from log lines. The historical gap stands; the trace is correct from the fix forward. State this in the release note so an operator reading a pre-fix run does not conclude the fix failed.
+
+**C2 — `fix(backend): stop the wait dispatcher pruning a wait inside another task's claim window` (F-37).**
+Two halves, per Q-5.
+(a) Delete the `srem` at `event_dispatch.py:160`, `continue` on a `None` payload, and correct the docstring at `:143-149` so it no longer claims a prune that no longer happens. This makes `find_matching_waits` genuinely read-only, matching its sibling `find_run_variable_waits` (`:171-189`) exactly.
+(b) Give `_restore_claim` (`workflow_common.py:43-45`) an optional keyword `reindex: tuple[str, str] | None = None`; when supplied, `SADD` the member back alongside the `set`. The two `wf:wait:*` callers (`workflow_signals.py:75`, `:277`) pass `(f"wf:wait:by_event:{event_type}", f"{run_id}:{node_id}")`, parsed from the already-claimed payload the same way `:91-94` and `:296-298` parse it. The approval and instruct callers (`workflow_approvals.py:94`, `:187`) pass nothing and compile unchanged.
+
+*Why this corrects rather than masks*: pruning was never this function's job. The resume and timeout tasks already own it and already do it, on the paths where a missing key genuinely means consumed (`workflow_signals.py:94`, `:298`). The prune at `:160` was a redundant second owner making an inference the protocol invalidates. Removing it restores single ownership; (b) makes the restore a true inverse of the claim so the invariant holds even if a future reader prunes again. Masking would be widening the claim window or retrying the index read — neither addresses who is allowed to write.
+
+*Data repair*: **none needed.** Orphaned index members are bounded by the index set's own TTL (`wait_for_event.py:78-82`, `timeout_seconds + 60`), so any member the current defect has already dropped is unrecoverable and any member left stale by the removed prune expires on its own. No table is affected.
+
+**C3 — `fix(backend): write the cron debounce marker before the run is dispatched` (F-34).**
+In `workflow_cron.py`, write `redis.set(redis_key, ...)` immediately after `trigger_run` succeeds and **before** `db.commit()` at `:92`, so the ordering becomes mark → commit → dispatch. Then, if the commit or the dispatch fails, the marker is already set: the workflow does not re-fire on the next pass and the failure surfaces via the `except` at `:96-103` and the all-eligible-failed raise at `:110-113`.
+
+*Why this corrects rather than masks*: the two possible orderings trade a duplicate run against a skipped tick, and neither is free. This choice is correct for this specific marker because the fallback at `:80` is already `now - 1min`, i.e. the design explicitly accepts at most one missed tick ("On a missed window … enqueues a single catch-up run — never one run per missed tick", `:52-63`), while it does not accept a duplicate: a duplicate run means duplicate agent invocations and duplicate provider spend on the user's key. Marking first makes the failure mode the one the docstring already sanctions. A retry-the-`redis.set` approach would be the masking fix — it narrows the window without changing which failure mode the design tolerates.
+
+*Data repair*: **none.** `wf:cron:*` keys carry a 24 h TTL (`:94`); no key written by the current code is wrong, only sometimes absent. Duplicate runs already created are legitimate committed rows and must not be deleted — they represent work that actually executed.
+
+**C4 — `fix(backend): keep undispatched engine enqueues pending on a partial failure` (F-33).**
+In `dispatch_enqueues` (`run_engine.py:497-530`): snapshot without clearing, and inside the loop remove each entry from `_pending_enqueues` only *after* its `enqueue_job` awaits successfully. On a raise, the failed entry and all entries after it remain in the list and the exception still propagates. The `finally` pool cleanup at `:525-530` is unchanged, as is the `_defer_by` handling at `:511-518` and the `from_edge` branch at `:521-524` — and per Q-3 the tuple type at `:100-104` and its unpack at `:510` are not touched.
+
+*Why this corrects rather than masks*: the alternatives are worse in a way worth recording. Swallowing per-item failures (`try/except: continue`) would convert branch loss into *silent* branch loss — strictly worse. Wrapping the whole loop in a retry inside `dispatch_enqueues` would hold the caller's session open across Redis backoff. Keeping the unsent tail pending and re-raising fixes the actual defect — that the record of unfinished work is destroyed before the work is done — and gives every caller the option to retry the dispatch alone. It makes `dispatch_enqueues` idempotent-on-retry at the entry level, which is exactly the property `workflow_service.dispatch_pending` (`:370-381`) needs to be safely re-callable.
+
+Note what C4 does **not** fix: an arq retry of `run_workflow_step` still re-executes the node, because the retry re-enters `run_step` (`workflow_steps.py:37`) rather than re-entering `dispatch_enqueues`. C4 removes the *reason* that retry happens in the common case; it does not make the retry safe. See §6 adjacency 2 and FU-1.
+
+*Data repair*: **none, and repair is not possible for already-lost branches.** A branch whose enqueue was lost left no marker distinguishing it from a branch that legitimately never ran. Runs stranded by it are force-failed by `workflow_watchdog` on `idle_max_seconds`, so none is stranded permanently; duplicated step rows on the arq path are an accurate record of executions that did occur and must stay.
+
+**C5 — `fix(backend): retry and audit a failed dormant-trigger workflow start` (F-35).**
+In `run_triggered_workflow` (`workflow_signals.py:308-330`), per Q-6: on an exception from `trigger_run`, keep the bound `logger.exception` at `:322`, emit an audit event recording the failed start (workflow id, trigger type, error class — never the payload, which can carry message content), and re-enqueue self with `attempt + 1` and `_defer_by=_RESUME_RETRY_DELAY_S`, bounded by `_RESUME_RETRY_MAX_ATTEMPTS` (both already in `workflow_common.py:27-28`), returning `"start_failed:retry"` or `"start_failed:gave_up"`. Add an `attempt: int = 0` parameter, matching the shape of the three resume tasks in the same module.
+
+Second half, closing the retry-safety hole this commit would otherwise widen (§6 adjacency 2): move `dispatch_pending` at `:325` inside the same session block with its own `try`, so a post-commit dispatch failure is logged and does not propagate to arq — which would otherwise retry the whole task and call `trigger_run` a second time against an already-committed run. The audit emitted on the start-failure path must therefore be scoped to *pre-commit* failures only.
+
+*Why this corrects rather than masks*: the defect is that a failure is reported as a success, destroying both recovery paths at once. Restoring the retry (bounded and scoped to the half that is safe to retry) and the audit row restores both. Simply raising would be the masking fix — it looks like "now it retries", but hands the policy to a worker-wide default that also retries a half the code cannot safely repeat, converting a lost run into a duplicated one.
+
+*Data repair*: **none.** No bad rows were written — the defect's signature is the *absence* of a run. Triggers that were dropped historically cannot be identified (Q-7: the signals carry no id) and must not be replayed speculatively; replaying a `message_received` trigger days later would invoke agents against stale context.
+
+**Hard ordering constraint: C5 must land after C4.** C5 introduces the first retry loop on a path that calls `dispatch_pending` → `dispatch_enqueues`. Under today's clear-first behavior, a retry that re-runs `trigger_run` re-appends every entry while a partial dispatch has already fired some of them — C5 before C4 would amplify exactly the duplication F-33 describes. C1, C2 and C3 are mutually independent and independent of C4/C5; they may land in any order.
+
+## 8. Regression Test Plan
+
+Every test below is new coverage or a deliberate expectation change; each states why it fails today. **The failing test comes first in each commit** — `/build` writes it before touching the fix.
+
+**C4 / F-33 — `backend/tests/unit/test_workflow_k4.py`** (anchor: `test_dispatch_enqueues_uses_underscore_defer_by`, `:412-430`, which already builds a `RunEngine(db=MagicMock())` with a seeded `_pending_enqueues` and a mock pool).
+
+*The failing test, first*: `test_dispatch_enqueues_retains_unsent_entries_on_partial_failure` — seed three entries; give the pool an `enqueue_job` that raises `RuntimeError` on its second call; assert the raise propagates, assert exactly one `enqueue_job` succeeded, and assert `engine._pending_enqueues` still holds entries 2 and 3 in order. **Fails today**: `run_engine.py:499-500` clears before the loop, so the post-raise list is `[]`.
+
+Then: `test_dispatch_enqueues_is_reentrant_after_partial_failure` — after the above, swap in a working pool, call `dispatch_enqueues` again, and assert entries 2 and 3 are enqueued exactly once each and the list is now empty. **Fails today** for the same reason — there is nothing left to re-dispatch. And `test_dispatch_enqueues_drains_fully_on_success`, pinning that the happy path still empties the list (guards against a fix that only stops clearing).
+
+**C3 / F-34 — `backend/tests/unit/test_workers.py`, class `TestWorkflowCron` (`:464-560`).**
+The existing tests use a bare `redis = AsyncMock()` (`:483`, `:514`), which cannot express ordering; these need a small recording fake (or `unittest.mock.Mock.mock_calls` on a shared parent mock) so `set` versus `commit` order is observable.
+
+*The failing test, first*: `test_cron_marks_last_fire_before_committing_the_run` — assert the `redis.set` on `wf:cron:{id}:last_fire` is recorded before `db.commit`. **Fails today**: `workflow_cron.py:92` commits, `:94` sets.
+
+Then: `test_cron_does_not_refire_when_dispatch_fails` — patch `svc.dispatch_pending` to raise, run one pass, assert `last_fire` was nonetheless written and that a second immediate pass returns `fired=0`. **Fails today**: the raise at `:93` skips `:94`, and the second pass reads no `last_fire` at `:65` and fires again. Preserve `test_cron_fires_due_workflow` (`:467-495`) and `test_cron_skips_recently_fired` (`:499-520`) unchanged — the fix must not alter either.
+
+**C5 / F-35 — `backend/tests/unit/test_workflow_signals.py`, class `TestRunTriggeredWorkflow` (`:686-731`).**
+
+`test_trigger_error` (`:714-730`) **currently passes and pins the defect**: it asserts `result == "error"`. It is rewritten, not extended, and the rewrite is a deliberate expectation change to be called out in review.
+
+*The failing test, first*: `test_trigger_start_failure_retries_and_audits` — `svc.trigger_run` raises; assert an audit event is emitted for the failed start, assert `ctx["redis"].enqueue_job` was awaited with `("run_triggered_workflow", workflow_id, payload, attempt=1)` and a `_defer_by`, and assert the return is `"start_failed:retry"`. **Fails today**: `workflow_signals.py:321-323` logs and returns `"error"` with no enqueue and no audit.
+
+Then: `test_trigger_start_failure_gives_up_at_budget` — `attempt = _RESUME_RETRY_MAX_ATTEMPTS`; assert no re-enqueue and `"start_failed:gave_up"`. And `test_dispatch_failure_after_commit_does_not_retry_the_start` — `svc.trigger_run` succeeds, `svc.dispatch_pending` raises; assert the task returns normally (no exception escapes to arq) and that `trigger_run` was awaited exactly once. **Fails today**: the raise at `:325` propagates out of the task, and arq's default `retry_jobs=True` would re-run the whole body. Preserve `test_trigger_success` (`:688-711`) unchanged.
+
+**C2 / F-37 — `backend/tests/unit/test_workflow_k4.py`** (the `_FakeRedis` at `:30-64` already covers `get`/`getdel`/`sadd`/`srem`/`smembers`; no TTL tracking is needed for these assertions since `ttl` at `:61-64` already returns `-1`/`-2`).
+
+*The failing test, first*: `test_find_matching_waits_does_not_prune_a_claimed_wait` — seed a wait via `_seed_wait` (`:67-71`), GETDEL its claim key to simulate another task's claim window, then call `find_matching_waits`; assert the returned list is empty **and** that the index member is still present in `redis.sets`. **Fails today**: `event_dispatch.py:160` SREMs it.
+
+`test_find_matching_waits_prunes_dangling_index` (`:308-316`) asserts the opposite and **must be rewritten**, not deleted — recast it as `test_find_matching_waits_leaves_dangling_index_to_its_ttl`, asserting the empty result and the surviving member, with a comment naming F-37 and the index TTL at `wait_for_event.py:78`. The same pinning exists at `test_workflow_signals.py:237-248` (`test_skips_expired_claims`) — check whether it asserts the SREM and adjust identically if so.
+
+Then, for the restore half: `test_restore_claim_reindexes_when_asked` in `backend/tests/unit/test_workers.py`, extending the existing `test_restore_claim` (`:210-216`) and `test_restore_claim_default_ttl` (`:218-222`) — assert `sadd` is awaited with the index key and member when `reindex` is passed, and **not** awaited when it is omitted (pinning that the approval and instruct callers are unaffected). **Fails today**: `workflow_common.py:45` is a bare `redis.set`.
+
+And an end-to-end-shaped unit test in `test_workflow_signals.py`, class `TestWorkflowEventResume`: `test_restore_after_failed_resume_reindexes_the_wait` — `resume_at_port` returns `False` and the run is non-terminal; assert both the claim key and the index member are present afterwards. **Fails today**: `:277` restores only the key.
+
+**C1 / F-41 — `backend/tests/unit/test_workflow_signals.py`, class `TestWorkflowEventTimeout` (`:297-411`).**
+
+*The failing test, first*: extend `test_timeout_resumes_and_dispatches` (`:314-341`), or add a sibling `test_timeout_emits_resumed_audit`, patching `app.workers.tasks.workflow_signals._emit_resumed` and asserting it is awaited once with `reason="timeout"` and with the run's `db` session — i.e. before the commit at `:71`. **Fails today**: `workflow_event_timeout` never calls it. The audit event's shape is already pinned by `test_workers.py:226-238` (`test_emit_resumed`), so this test only needs to assert the call, not re-verify the payload.
+
+Then: `test_timeout_does_not_audit_when_not_resumed` — `resume_at_port` returns `False`; assert `_emit_resumed` was not awaited, guarding the retry path at `:72-85`. Anchor against the existing `test_not_waiting_retries` (`:342-381`) and `test_terminal_run_returns_noop` (`:382-411`), both of which must still pass.
+
+**Full suite**: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` in `backend/`. No frontend surface — no API contract change, so no `pnpm run gen:api`.
+
+## 9. Risks and Rollback
+
+| Risk | Mitigation |
+|---|---|
+| **C3 trades a duplicate run for a skipped tick** — marking before commit means a commit failure leaves `last_fire` set and the workflow does not fire this minute | Deliberate and argued in §7: the docstring at `workflow_cron.py:52-63` already sanctions a missed tick and does not sanction a duplicate. The failure remains visible via `:96-103` and the all-failed raise at `:110-113`. Record as an accepted semantic change in the release note. |
+| **C4 changes an exception's blast radius** — entries retained after a raise could be re-dispatched by a caller that previously could not | Only `dispatch_enqueues` and `dispatch_pending` (`workflow_service.py:370-381`) can re-dispatch, and both are explicit calls. No caller today calls twice; the property is added, not exercised. `test_dispatch_enqueues_drains_fully_on_success` pins the happy path. |
+| **C4 retains entries for a run that has since been cancelled** — a future concern F-10's fix introduces | Named in §6 adjacency 3 so the cancellation dossier's author reads C4 first. Not a defect today: a cancelled run's branch tasks already no-op at `_prepare_continuation` (`run_engine.py:241-243`). |
+| **C5 introduces retries on a path that had none**, and a bug in the bound could loop for ~10.5 min | The bound reuses the existing, already-reviewed `_RESUME_RETRY_MAX_ATTEMPTS` (`workflow_common.py:28`); the retry is scoped to pre-commit failures only, so a retry can never encounter a committed run; `test_trigger_start_failure_gives_up_at_budget` pins the bound. |
+| **C5's audit row could leak message content** if the trigger payload is included | Emit workflow id, trigger type and error class only — never `trigger_payload`, which for `message_received` carries the message body (`messages.py:371-379`). Assert the absence in the test. |
+| **C2 leaves stale index members alive longer** than today | Bounded by the index TTL set at `wait_for_event.py:78-82` (`timeout_seconds + 60`), and the resume/timeout tasks still prune on the paths where absence genuinely means consumed (`workflow_signals.py:94`, `:298`). Cost is a bounded number of wasted `redis.get` calls in `find_matching_waits`, not correctness. |
+| **C2's `reindex` keyword changes a shared helper** used by four call sites, two owned by the approval dossier | Optional keyword with a `None` default so `workflow_approvals.py:94,187` compile and behave unchanged; test pins that `sadd` is not called when omitted. That dossier's own §6 Part 4 adds a different optional keyword (`min_ttl`) to the same signature — **the two compose** (both optional, both defaulting to current behavior), but whichever lands second must re-read the other's signature. Named here so it is not discovered as a merge conflict. |
+| Two tests currently pin defective behavior (`test_trigger_error`, `test_find_matching_waits_prunes_dangling_index`) | Rewritten, not deleted, each with a comment naming the finding — so a future reader does not restore the old assertion. |
+
+**Rollback.** Five pure-code commits, no Alembic migration, no API contract change, no persisted state whose shape changes. Revert individually in any order except that C5 must be reverted before or with C4 (C5 relies on C4's re-dispatch safety). Reverting C1 removes audit rows going forward only; reverting C2 restores the prune and the window; reverting C3 restores the duplicate-fire window; reverting C4 restores clear-before-dispatch; reverting C5 restores the swallow. Nothing written by any of the five needs unwinding.
+
+## 10. Acceptance Criteria
+
+- [ ] **AC-1**: `test_dispatch_enqueues_retains_unsent_entries_on_partial_failure` (§8) fails against current code and passes after C4.
+- [ ] **AC-2**: after a `dispatch_enqueues` call that raises mid-loop, every entry not successfully enqueued remains in `_pending_enqueues`, in order, and a subsequent call enqueues each exactly once.
+- [ ] **AC-3**: `_PendingEnqueue` (`run_engine.py:104`) and its unpack at `:510` are unchanged, keeping this dossier off the surface the approval dossier declined to touch (Q-3).
+- [ ] **AC-4**: a cron trigger whose `dispatch_pending` fails does not fire a second run on the following pass, and `wf:cron:{id}:last_fire` is written before the run is committed.
+- [ ] **AC-5**: a `trigger_run` failure in `run_triggered_workflow` produces an audit row and a bounded retry, and gives up with `"start_failed:gave_up"` only after the budget; the audit row contains no trigger payload content.
+- [ ] **AC-6**: a `dispatch_pending` failure *after* the commit in `run_triggered_workflow` does not propagate to arq and does not cause `trigger_run` to run a second time.
+- [ ] **AC-7**: `find_matching_waits` performs no Redis writes, and a wait whose claim key is transiently absent keeps its `wf:wait:by_event:*` index member.
+- [ ] **AC-8**: `_restore_claim` restores the by-event index member alongside the claim key for `wf:wait:*` callers, and is behaviorally unchanged for the approval and instruct callers.
+- [ ] **AC-9**: `workflow_event_timeout` emits `workflow.resumed` with `reason="timeout"` in the same transaction as the resume, and emits nothing when the resume did not happen.
+- [ ] **AC-10**: the sibling sweep is recorded in the code review: `run_engine.py:500` is the only drain-before-dispatch site, and `workflow_subagent_complete` (`workflow_steps.py:121`) is the second resume path missing its audit, deliberately left to F-28's dossier.
+- [ ] **AC-11**: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`.
+
+## 11. SRS Delta
+
+**None.** All five restore documented or self-documented behavior: R14.07 for F-35, R14.10 and the cross-cutting audit checklist at `workflow_common.py:48-49` for F-41, the DB-1 contract at `run_engine.py:484-495` for F-33, the module docstring at `workflow_cron.py:52-63` for F-34, and the ASYNC-10 contract at `wait_for_event.py:7-15` for F-37.
+
+Two documentation corrections ship inside the commits rather than as an SRS change: `event_dispatch.py:143-149`'s docstring must stop claiming a prune that C2 removes, and `run_engine.py:484-495`'s DB-1 note should state the new post-condition (unsent entries remain pending). Both are code comments, not requirement text.
+
+## 12. Deviation Log
+
+Appended by /build.
+
+## 13. Follow-ups
+
+- **FU-1 — Workflow-task retry-safety is unowned.** `run_workflow_step`, `retry_workflow_node` and `workflow_subagent_complete` (`workflow_steps.py:17-128`) are registered bare in `main.py:264-273` under arq's defaults (`retry_jobs=True`, `max_tries=5`; `WorkerSettings` at `:310-312` overrides none of them), and a retry after their `db.commit()` re-executes the node — re-inserting step rows (`run_engine.py:572-576`) and re-invoking agents or instructs. `2026-07-22-turn-idempotency-and-locking/spec.md:196-197` marks these "confirmed suspects, owned by the workflow-dispatch dossier"; **this dossier owns only the enqueue-loop half (F-33) and the `run_triggered_workflow` post-commit half (C5), not node re-execution.** Needs its own dossier — proposed `docs/tasks/2026-07-22-workflow-step-idempotency/` — because the fix is an execution guard in `_execute_node`, where the run-cancellation dossier (F-10) is also headed, and it should be specced with that adjacency in view. **Recording it here rather than leaving it implied: without this entry, the defect is orphaned by a hand-off that assumed this dossier covered it.**
+- **FU-2 — Workflow signals carry no event id.** `messages.py:371-379`, `a2a_handler.py:215-219`, `orchestration.py:170` and `activities.py:443` all enqueue `workflow_signal` with content-only payloads, so no downstream consumer can dedupe. This is why C5's retry had to be made safe by scope rather than by an idempotency key (Q-7). Adding a signal id would let `run_triggered_workflow` dedupe properly and would also help F-4's loop guard. Cross-cutting; needs its own scoping.
+- **FU-3 — The `workflow.resumed` audit is a per-call-site convention.** `_emit_resumed` (`workflow_common.py:48-60`) is a free helper five call sites must each remember, and two of five forgot (F-41, and F-28's `workflow_steps.py:121`). Moving the emit into `RunEngine.resume_at_port` (`run_engine.py:319-341`) — the one function that knows a resume occurred — would make the omission structurally impossible. Not done here: it changes a shared engine method that three dossiers currently touch, and it needs a decision about how `reason` reaches the engine.
+- **FU-4 — Cleared but fragile: `find_run_variable_waits`** (`event_dispatch.py:171-189`) reads the same keys through the same index and correctly declines to prune. It is fragile only in that its correctness is undocumented — the two sibling functions disagreed for no stated reason until C2. Worth a one-line comment stating that readers of this index never write.
+- **FU-5 — The `workflow_cron_scheduler` eligibility gate has no durable source of truth.** It depends entirely on a Redis key with a 24 h TTL (`workflow_cron.py:64-70, :94`); a Redis flush resets every workflow's baseline to `now - 1min` (`:80`). C3 makes the marker reliable *given* Redis, but a `last_fired_at` column on the workflows table (or a query against the runs table) would make the debounce survive a cache loss entirely. That is a schema change and a design decision, not a bugfix.
+</content>
