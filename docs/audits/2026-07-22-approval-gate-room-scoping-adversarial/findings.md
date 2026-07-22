@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: closed
 created: 2026-07-22
 requirements: [R15.10]
 ---
@@ -96,8 +96,8 @@ severity beyond recording functional isolation behavior.
 
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | pending user triage | — |
-| F-2 | pending user triage | — |
+| F-1 | fix | `docs/tasks/2026-07-22-approval-gate-room-scoping/` |
+| F-2 | fix | `docs/tasks/2026-07-22-approval-gate-room-scoping/` |
 
 ## 6. Out-of-scope Observations
 

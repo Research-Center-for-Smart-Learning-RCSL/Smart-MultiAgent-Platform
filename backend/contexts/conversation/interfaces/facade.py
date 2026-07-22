@@ -83,13 +83,14 @@ class ConversationFacade:
     ) -> Chatroom | None:
         return await self._rooms.get(chatroom_id, include_deleted=include_deleted)
 
-    async def resolve_chatroom_scope(self, chatroom_id: uuid.UUID) -> uuid.UUID | None:
-        """Return the live chatroom's project id, or None when it is not live."""
-        room = await self.get_chatroom(chatroom_id)
-        if room is None:
-            return None
-        workspace = await self.get_workspace(room.workspace_id)
-        return workspace.project_id if workspace is not None else None
+    async def lock_live_chatroom_scope(self, chatroom_id: uuid.UUID) -> uuid.UUID | None:
+        """Lock a live room and workspace while resolving its project scope.
+
+        Cross-context publishers call this before room-scoped side effects and
+        retain the shared transaction through publication. The lock prevents a
+        concurrent soft delete from making a validated target stale.
+        """
+        return await self._rooms.lock_live_project_id(chatroom_id)
 
     async def list_chatroom_ids_for_project(
         self,
