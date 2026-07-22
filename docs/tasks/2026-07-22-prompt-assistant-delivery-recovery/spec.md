@@ -340,7 +340,14 @@ Appended by /build.
 - **FU-1** — Replay/cursor semantics on the pub/sub layer (Redis Streams). `pubsub.py:4-7`
   anticipates it and notes the `Publisher`/`Subscriber` shape would survive. It is the generic
   fix for every lost-frame class on all seven channels; deliberately not coupled to this
-  dossier.
+  dossier. **It now has at least three known consumers**: this defect, and F-11 ("message edits
+  and deletions that occur during a disconnect are never reconciled") and F-13 ("approvals
+  raised while a socket is disconnected never appear") of
+  `docs/audits/2026-07-22-agent-to-user-conversation/`. All three are the same class — a frame
+  lost during a disconnect with no durable read side — reached from different channels. The
+  per-channel fixes in this dossier and in that audit's dossiers are correct and should ship;
+  FU-1 is what would stop the class recurring on the next channel added. Whoever picks it up
+  should read all three findings together.
 - **FU-2** — `useObservations.ts:144-175` strands `observerAnalyzing` on a lost terminal
   observation frame. Content is recoverable and no control wedges, so it is a stale badge
   rather than this defect — but it is the same shape and the natural second consumer of the
