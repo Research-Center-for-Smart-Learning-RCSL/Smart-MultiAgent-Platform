@@ -2,7 +2,7 @@
 type: bugfix
 status: draft
 created: 2026-07-22
-requirements: [R9.09, R9.10, R9.11]
+requirements: [R9.09, R9.10, R9.11, R13.16, R13.24, R13.25]
 depends_on: []
 ---
 
@@ -27,6 +27,19 @@ same code and three near-identical harnesses.
 - **C (F-15)** — the compaction lock is released before the summary row commits, so a second
   agent re-reads history in its own session, cannot see the uncommitted row, and folds an
   overlapping range. The FIX-11 comment asserts an invariant the construction does not provide.
+- **D (V-1)** — content deleted from the transcript **survives inside the summary**. Deletion
+  hard-deletes the message row and never inspects any summary's `compacted_ids`, so a folded
+  message's content persists in a row that is rendered to the room, included in exports, and
+  injected into every subsequent turn. Retention is defeated structurally: a summary is always
+  newer than everything it folds, so a `created_at < horizon` purge removes the originals and
+  leaves the copy. Added after this dossier was first drafted, from
+  `docs/audits/2026-07-22-conversation-verification-gap/findings.md` V-1 (**plausible** — the
+  mechanism is fully traced, but whether a given summary reproduces enough of a given deleted
+  message to matter is a property of an LLM's output and is not statically decidable).
+
+  **D is this dossier's own §7 argument read in the other direction.** §7 justifies the repair
+  plan by observing that `replace_range_with_summary` only INSERTs and "the originals are
+  intact". That same property is exactly why deleting an original does not delete the copy.
 
 **One real coupling, worth exploiting:** if A is fixed by scoping summaries to their producing
 agent, two concurrent compactions in one room are necessarily by *different* agents (the turn
@@ -153,7 +166,19 @@ failure to the designed failure channel; *semantic* failure has no mapping
 guards the summarisation call; the invariant needs the row's visibility
 (`turn_engine.py:2526-2569` versus the commit at `:2104`).
 
-**Not a shared cause.** Recorded explicitly so no one goes looking for the one-line fix.
+**D — deletion has no knowledge of derived copies.**
+`backend/contexts/conversation/application/message_service.py:339-383` performs `get`, pulls
+attachment paths, `hard_delete`, MinIO removal, audit — and never references `metadata`,
+`compact_summary` or `compacted_ids`. A repo-wide search for `compacted_ids` returns eleven code
+sites, **none in a deletion path**. Retention is defeated by construction rather than by
+oversight: `backend/contexts/conversation/application/retention_service.py:52-93` selects victims
+by `created_at < horizon`, and a summary is created at fold time, so it is always newer than
+every message it folds.
+
+**Not a shared cause across A, B and C** — recorded explicitly so no one goes looking for the
+one-line fix. **D is a fourth, and it is coupled to the others** in one specific way: A's
+per-agent scoping changes *which readers see a summary at all*, so any redaction design for D
+must be built on top of A's scoping rather than beside it.
 
 ## 6. Blast Radius and Sibling Suspects
 
@@ -287,6 +312,34 @@ package exists and is the established home):
 Retain `original_compacted_ids` in every void — it is what makes the repair itself
 rollback-safe.
 
+**D, last, and it needs a decision before it needs code.** The mechanism is settled; the policy
+is not, and it should not be chosen by an implementer. Three shapes, in increasing cost:
+
+- **D1 — void the summary on deletion.** When a message is deleted, find any summary whose
+  `compacted_ids` contains it and rename its `type` so it stops eliding and stops being injected
+  (the same one-edit mechanism the repair plan already uses). Cheapest, no LLM call, and it fails
+  in the safe direction — the room loses a summary and regains the un-folded remainder. Cost: an
+  unrelated deletion discards a summary covering hundreds of messages, and the next turn re-folds
+  and re-pays.
+- **D2 — re-summarise the range without the deleted message.** Correct in principle, but it
+  spends the user's BYO key on a deletion, and the new summary is still an LLM's paraphrase of
+  content that included the deleted message moments earlier — so it does not actually guarantee
+  removal.
+- **D3 — accept and disclose.** Document that compaction summaries are derived content not
+  covered by message deletion, and surface that where deletion is offered. Honest, but it
+  contradicts `[R13.24]`, which is explicit that deletion reaches derived copies ("edit history
+  for that message is also purged").
+
+**Recommend D1**, on the grounds that `[R13.24]` states the requirement and only D1 satisfies it
+without spending the user's money or relying on a paraphrase. D2 and D3 should be recorded as
+rejected with reasons rather than left unmentioned. **Flag to the user before implementing** —
+this is a data-lifecycle policy question, not an engineering detail, and D1 has a real cost the
+product may not want to pay.
+
+Detection for the existing population: summaries whose `compacted_ids` reference message ids that
+no longer exist. That is a straightforward anti-join and it is exact — unlike A's attribution
+problem, no audit correlation is needed. Fold it into the same maintenance command.
+
 ## 8. Regression Test Plan
 
 Existing coverage and why it misses all three: `backend/tests/unit/test_context_compaction.py:97-147`
@@ -341,13 +394,23 @@ Then:
 
 ## 9. Risks and Rollback
 
-**Does the fix change existing rooms' *visible* history? No — not once, in any of the three.**
-This should be stated up front. The user-visible transcript is served by
-`ConversationFacade.list_messages` → `MessageRepository.list` (`message_repo.py:79-149`), which
-filters only on `chatroom_id` and `deleted_at` and has never consulted `compacted_ids`.
-Compaction has always been a model-facing projection (`transcript.py:8-14`). The one exception
-is elective and beneficial: soft-deleting empty summary rows during repair removes an empty
-divider users can already see and cannot read.
+**Does the fix change the *folded original messages'* visibility? No — not once, in any of the
+three.** The user-visible transcript is served by `ConversationFacade.list_messages` →
+`MessageRepository.list` (`message_repo.py:79-149`), which filters only on `chatroom_id` and
+`deleted_at` and has never consulted `compacted_ids`. The elision is a model-facing projection
+(`transcript.py:8-14`), so no original message appears or disappears from the feed as a result of
+this work.
+
+**Correction, and it matters for D below.** An earlier draft of this dossier stated that the
+transcript change is "never what users see" without qualification. That is **wrong for the
+summary row itself**: `MessageRepository.list` serves it like any other row and
+`ChatroomMessageBubble.vue:22-34` renders `sender_type === 'system'` into the feed, and
+`all_for_chatroom` (`message_repo.py:289-301`) applies the same filters, so the summary is
+exported too. The claim is true of the *originals* and false of the *summary*. It was corrected
+after `docs/audits/2026-07-22-conversation-verification-gap/findings.md` V-1 turned on exactly
+that distinction. Soft-deleting an empty summary row during repair is therefore a genuinely
+user-visible change — a beneficial one, since it removes an empty divider users can already see
+and cannot read.
 
 | Risk | Impact | Mitigation |
 |---|---|---|
@@ -384,8 +447,17 @@ provided `original_compacted_ids` is preserved; insist on that field.
 - [ ] AC-7: an agent's own summary is applied to its own view, both eliding its range and
       injecting its text; another agent's summary is applied to neither.
 - [ ] AC-8: legacy summaries with no producer behave per the Q-7 decision, pinned by a test.
-- [ ] AC-9: the user-visible transcript is unchanged — `MessageRepository.list` returns the
-      same rows before and after, for every room.
+- [ ] AC-9: no **originally-posted** message changes visibility in the feed as a result of A, B
+      or C — `MessageRepository.list` returns the same non-summary rows before and after, for
+      every room. (Summary rows themselves are user-visible and D may deliberately change them;
+      see the correction in §9.)
+- [ ] AC-12: **D** — deleting a message that has already been folded leaves no copy of its
+      content reachable by any reader: not in the feed, not in an export, and not in the next
+      turn's prompt. Pinned by a test that folds a message, deletes it, and asserts on all three
+      surfaces.
+- [ ] AC-13: **D** — the retention purge cannot leave a summary covering messages it has just
+      deleted; a room purged past its horizon retains no summary whose `compacted_ids` reference
+      purged rows.
 - [ ] AC-10: the repair command is dry-run by default, preserves `original_compacted_ids` on
       every void, and emits an audit row per mutated row.
 - [ ] AC-11: `pytest -q`, `ruff check .`, `ruff format --check .` and `mypy .` pass in
