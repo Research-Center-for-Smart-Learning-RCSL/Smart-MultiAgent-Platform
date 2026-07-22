@@ -68,6 +68,11 @@ class ApprovalService:
         config: ApprovalGateConfig,
         chatroom_id: uuid.UUID | None = None,
     ) -> Approval:
+        """Create a gate using a room already validated against the run's project.
+
+        The room is intentionally transient: approvals do not persist it, so this
+        context cannot independently re-derive or re-check its scope.
+        """
         approval_id = uuid.uuid4()
         approval = await self._approvals.insert(
             id=approval_id,

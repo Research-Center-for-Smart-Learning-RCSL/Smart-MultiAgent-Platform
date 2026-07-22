@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-07-22
 requirements: [R15.10]
 depends_on: []
@@ -223,11 +223,13 @@ this dossier fixes one line's worth of trust rather than adding a filter at ever
 ## 7. Fix Design
 
 **Part 1 — give the run context its project identity.** Add `project_id: uuid.UUID | None` to
-`RunContext` (`contexts/workflow/domain/models.py:177-192`) and populate it on all three construction
+`RunContext` (`contexts/workflow/domain/models.py:177-192`) and populate it on all four executable construction
 sites: `start_run` already receives it as a parameter (`run_engine.py:136`, set at `:178-185`);
 `_prepare_continuation` (`:267-274`) and `retry_node` (`:308-315`) resolve it with the existing
 `WorkflowRunRepository.get_project_id` (`repositories.py:235-246`) — one indexed single-column read
-per continuation. Rejected alternative: adding `project_id` to the domain `WorkflowRun`
+per continuation. `resume_at_port` (`run_engine.py:353-360`) is the fourth executable
+construction site and must resolve the same project identity before it can execute a later gate.
+Rejected alternative: adding `project_id` to the domain `WorkflowRun`
 (`repositories.py:44-55`), which `:236-240` documents as a deliberate omission; keeping the field on
 the mutable execution context rather than the domain entity respects that decision.
 
@@ -295,6 +297,9 @@ rejected:
    (`approval_gate.py:87-91`) and in Arq job arguments (`approval_service.py:162-185`). It is neither
    queryable nor repairable, and both carriers expire. Nothing to do; stated so the absence of a
    repair step is a decision rather than an oversight.
+
+The runnable report is `docs/runbook-approval-gate-room-scoping.sql`; it contains only read-only
+`SELECT` statements and reports both persisted populations above.
 
 No Alembic migration. No API contract change, so no `pnpm run gen:api`. No frontend change.
 
@@ -458,24 +463,24 @@ production.
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1**: `test_approval_gate_rejects_trigger_payload_room_outside_run_project` (§8) fails
+- [x] **AC-1**: `test_approval_gate_rejects_trigger_payload_room_outside_run_project` (§8) fails
       against current code and passes after the fix.
-- [ ] **AC-2**: an approval gate is never created, no claim key is written, and no event is published
+- [x] **AC-2**: an approval gate is never created, no claim key is written, and no event is published
       when the resolved room does not belong to the run's project — whether the room came from
       `config` or from `trigger_payload`.
-- [ ] **AC-3**: an out-of-scope, unknown, deleted, or malformed room fails the node with a stated
+- [x] **AC-3**: an out-of-scope, unknown, deleted, or malformed room fails the node with a stated
       reason and an `approval.gate_room_rejected` audit row; it never degrades silently to a headless
       gate.
-- [ ] **AC-4**: an **in-project** room supplied via `trigger_payload` still produces exactly the
+- [x] **AC-4**: an **in-project** room supplied via `trigger_payload` still produces exactly the
       behaviour it does today — gate created with that room, claim key written, node parked.
-- [ ] **AC-5**: a gate with no room anywhere still parks as a headless gate, and performs no project
+- [x] **AC-5**: a gate with no room anywhere still parks as a headless gate, and performs no project
       or room lookup.
-- [ ] **AC-6**: the room reaching the room publish, the approver notify note, the `approval_timeout`
+- [x] **AC-6**: the room reaching the room publish, the approver notify note, the `approval_timeout`
       argument and the `drive_approver_turn` argument is in every case the single validated value
       (`test_create_gate_propagates_exactly_one_room_to_every_sink`).
-- [ ] **AC-7**: `create_gate`'s docstring states the trust contract and the reason it cannot re-check
+- [x] **AC-7**: `create_gate`'s docstring states the trust contract and the reason it cannot re-check
       (the room is not persisted).
-- [ ] **AC-8**: the detection report from §7 exists as a runnable read-only query for both
+- [x] **AC-8**: the detection report from §7 exists as a runnable read-only query for both
       populations (definitions, persisted trigger payloads) and rewrites nothing.
 - [ ] **AC-9**: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`.
 
@@ -492,7 +497,10 @@ at that time. That is a feature decision, not a correction of the SRS.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1** — The approved plan was corrected before implementation to populate `project_id` on
+  `resume_at_port` as well as the three cited construction paths, and to locate the runnable
+  detection query at `docs/runbook-approval-gate-room-scoping.sql`. The current implementation has
+  four executable context constructors; the correction was reviewed and approved by the user.
 
 ## 13. Follow-ups
 
@@ -527,4 +535,7 @@ Appended by /build.
   room in the workflow's project (`workflows.py:455-480`). Rejected as the primary fix (Q-2) because
   it covers one of six trigger sources, but it turns a run-time failure into an immediate, legible
   error for the common interactive case.
+- **FU-8** — `test_force_fail_marks_failed` in `backend/tests/unit/test_workflow_k4.py` does not mock
+  the pre-existing async `WorkflowRunRepository.mark_a2a_cancellation_pending` call, so the full K.4
+  test module fails independently of this change. Add the missing `AsyncMock` in that test.
 </content>
