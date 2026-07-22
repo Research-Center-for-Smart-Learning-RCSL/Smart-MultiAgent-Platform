@@ -135,6 +135,29 @@ class ChatroomRepository:
         ).all()
         return [r.id for r in rows]
 
+    async def lock_live_project_id(self, chatroom_id: uuid.UUID) -> uuid.UUID | None:
+        """Return a live room's project while blocking concurrent soft deletes.
+
+        The caller must keep its transaction open until every room-scoped side
+        effect has been emitted. ``FOR SHARE`` conflicts with the update used by
+        both chatroom and workspace soft deletion, so neither can commit between
+        this live-state check and publication.
+        """
+        statement = (
+            sa.select(t.workspaces.c.project_id)
+            .select_from(t.chatrooms.join(t.workspaces, t.chatrooms.c.workspace_id == t.workspaces.c.id))
+            .where(
+                sa.and_(
+                    t.chatrooms.c.id == chatroom_id,
+                    t.chatrooms.c.deleted_at.is_(None),
+                    t.workspaces.c.deleted_at.is_(None),
+                )
+            )
+            .with_for_update(read=True, of=[t.chatrooms.c.id, t.workspaces.c.id])
+        )
+        row = (await self._db.execute(statement)).first()
+        return row.project_id if row else None
+
     async def list_for_workspace(
         self,
         workspace_id: uuid.UUID,

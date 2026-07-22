@@ -65,9 +65,17 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             question=question or None,
         )
 
-        raw_room = config.get("chatroom_id") or ctx.trigger_payload.get("chatroom_id")
+        room_supplied = False
+        raw_room = None
+        if "chatroom_id" in config:
+            raw_room = config["chatroom_id"]
+            room_supplied = True
+        elif "chatroom_id" in ctx.trigger_payload:
+            raw_room = ctx.trigger_payload["chatroom_id"]
+            room_supplied = True
+
         room_id = None
-        if raw_room:
+        if room_supplied:
             rejection_reason: str | None
             try:
                 room_id = uuid.UUID(raw_room)
@@ -76,7 +84,7 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             else:
                 from contexts.conversation.interfaces.facade import ConversationFacade
 
-                room_project_id = await ConversationFacade(db).resolve_chatroom_scope(room_id)
+                room_project_id = await ConversationFacade(db).lock_live_chatroom_scope(room_id)
                 if ctx.project_id is None:
                     rejection_reason = "approval_gate run project could not be resolved"
                 elif room_project_id is None:

@@ -483,6 +483,15 @@ production.
 - [x] **AC-8**: the detection report from §7 exists as a runnable read-only query for both
       populations (definitions, persisted trigger payloads) and rewrites nothing.
 - [ ] **AC-9**: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`.
+- [x] **AC-10**: an explicitly supplied `chatroom_id` with `null`, an empty string, `false`, zero,
+      an array, or an object fails closed with `approval.gate_room_rejected`; only an absent key
+      permits a headless gate. A config value, including a falsy one, takes precedence over the
+      trigger payload (`test_approval_gate_rejects_explicit_falsy_room_instead_of_becoming_headless`,
+      `test_approval_gate_rejects_falsy_config_without_falling_back_to_trigger_room`).
+- [x] **AC-11**: resolving a supplied room's live project acquires a PostgreSQL `FOR SHARE` lock on
+      both the chatroom and workspace until the shared transaction finishes, so a concurrent soft
+      delete cannot commit before room-scoped approval effects are emitted
+      (`test_lock_live_project_id_locks_live_room_and_workspace_until_transaction_end`).
 
 ## 11. SRS Delta
 
@@ -501,6 +510,10 @@ at that time. That is a feature decision, not a correction of the SRS.
   `resume_at_port` as well as the three cited construction paths, and to locate the runnable
   detection query at `docs/runbook-approval-gate-room-scoping.sql`. The current implementation has
   four executable context constructors; the correction was reviewed and approved by the user.
+- **D-2** — Following the adversarial audit and explicit user approval, this task also closes F-1 and
+  F-2 from `docs/audits/2026-07-22-approval-gate-room-scoping-adversarial/findings.md`: supplied
+  falsy room identifiers fail closed, and scope resolution uses a transaction-held shared lock over
+  the live chatroom and workspace before any room-scoped approval effects.
 
 ## 13. Follow-ups
 
