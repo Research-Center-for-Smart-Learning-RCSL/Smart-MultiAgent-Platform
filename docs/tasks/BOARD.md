@@ -16,6 +16,11 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+- `2026-07-22-model-hint-provider-routing` (bugfix, draft) — `depends_on: []`. From
+  `docs/audits/2026-07-22-agent-config-runtime/` F-2 (critical): an agent's `model_hint` does
+  not constrain provider routing, so a mixed-provider key group silently runs the agent on a
+  different provider and model. Touches `contexts/keys` routing, `turn_engine.py` model
+  resolution and payload construction, and `summariser.py`; no migration.
 - `2026-07-22-web-search-cache-project-scoping` (bugfix, draft) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-config-runtime/` F-1 (critical): the `web_search` result
   cache is keyed without tenant identity, so one project's search results are served to
