@@ -80,6 +80,70 @@ parallel.
   cache is keyed without tenant identity, so one project's search results are served to
   another. Confined to `contexts/agents/application/tools/web_search.py` plus its unit test;
   no migration.
+- `2026-07-22-join-epoch-loop-reentry` (bugfix, draft) — `depends_on: []`. a2a F-11: an `any`/`count`
+  join reached by a loop back-edge fires once and stalls, because the one-shot latch is claimed at
+  `fire_threshold` arrivals and released only at `total_branches`. Folds in an ALL-mode deadlock the
+  audit did not name. **Recommended to land before** `wait-for-event-timer-and-join-ports`.
+- `2026-07-22-a2a-event-trigger-loop-guard` (bugfix, draft) — `depends_on: []`. a2a F-4: an
+  `a2a_event` trigger whose workflow calls the same agent self-amplifies without bound, one full
+  agent turn per iteration on the user's own key. Carries a **non-empty SRS Delta** drafting
+  `[R14.07a]`, and one open decision (Q-3, the trigger budget value).
+- `2026-07-22-a2a-delivery-idempotency` (bugfix, draft) — `depends_on: []`. a2a F-5, F-19, F-20.
+  Grouped by change surface only, and says so: an `XAUTOCLAIM` that reads PEL idle time as
+  liveness, a `requeue` whose `LTRIM` keeps the wrong end of the queue, and a supervisor whose
+  liveness key `mkstream=True` recreates.
+- `2026-07-22-workflow-run-cancellation` (bugfix, draft) — `depends_on: []`. a2a F-10: a failed
+  parallel branch marks the run FAILED but no signal reaches sibling branches in other worker
+  processes, so they keep invoking agents on a terminal run. One open decision (Q-2, whether to
+  abort in-flight tool loops) that must be answered before `/build`.
+- `2026-07-22-instruct-terminal-state-guard` (bugfix, draft) — `depends_on: []`. a2a F-15, F-16:
+  the instruct terminal state is an unguarded `UPDATE`, so a completed instruct can be persisted
+  as `TIMEOUT`; and the deadline job commits before enqueueing its resume, so its own retry reads
+  its own write and gives up. Carries a **deliberate behaviour change** (Q-2, timeout wins).
+- `2026-07-22-approval-gate-room-scoping` (bugfix, draft) — `depends_on: []`. a2a F-27: the
+  approval gate publishes into any chatroom UUID supplied in the caller-authored trigger payload,
+  including another project's. **Cross-tenant event injection**; `check-security` referral in
+  parallel.
+- `2026-07-22-wakeup-trigger-state-and-bounds` (bugfix, draft) — `depends_on: []`. a2u F-3, F-12,
+  F-14, F-21, F-38 plus config F-24. Silence triggers never fire for bindings created after the
+  presence edge; designer soft-bounds are erased on first self-modification; `refresh_every_hours`
+  is never read. Two open decisions (Q-2 clock storage, Q-3 frontend defaults).
+- `2026-07-22-workflow-dispatch-reliability` (bugfix, draft) — `depends_on: []`. a2a F-33, F-34,
+  F-35, F-37, F-41. Names an **unowned gap** in §13 FU-1: workflow-task retry-safety belongs to no
+  dossier and needs its own.
+- `2026-07-22-retention-sweep-fixes` (bugfix, draft) — `depends_on: []`. a2a F-17, F-42 plus
+  verification-gap V-5. **Resolves a duplicate hand-off**: two audits routed the same purge-audit
+  finding to two different slugs; this consolidates under one and records why.
+- `2026-07-22-workflow-capability-enforcement` (bugfix, draft) — `depends_on: []`. a2a F-13 plus
+  config F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read
+  by nothing. **Blocked on Q-8** (migration posture) — enforcing without a backfill breaks every
+  working approval gate on deploy.
+- `2026-07-22-attachment-lifecycle-and-rendering` (bugfix, draft) — `depends_on: []`. a2u F-3, F-14
+  plus verification-gap V-3. Carries an explicit **do-not-do warning**: the SVG finding's one-line
+  description misattributes the defect to the backend allowlist, and following it would delete a
+  security control.
+- `2026-07-22-chatroom-socket-lifecycle` (bugfix, draft) — `depends_on: []`. a2u F-1, F-4, F-18.
+  **Ordering conflict with `reconnect-reconciliation`** — the two dossiers reached opposite
+  conclusions about which lands first; see that dossier's §3 conflict note. User decides.
+- `2026-07-22-reconnect-reconciliation` (bugfix, draft) — `depends_on: []`. a2u F-11, F-13, F-17,
+  F-19 plus verification-gap V-2. Adds a nullable `approvals.chatroom_id` and a room-scoped list
+  endpoint. Same ordering conflict as above.
+- `2026-07-22-settings-form-reconciliation` (bugfix, draft) — `depends_on: []`. a2u F-7, F-8 plus
+  verification-gap V-4. **Corrects the a2u audit's own §3 coupling note**: F-8 is not contingent on
+  F-1, and the evidence is in its Q-1.
+- `2026-07-22-presence-transition-and-release-wakeup` (bugfix, draft) — `depends_on: []`. a2u F-5,
+  F-21. Imposes a **hard constraint on the socket-lifecycle dossier**: any keepalive interval must
+  stay below `_CONN_TTL_SECONDS = 150`.
+- `2026-07-22-turn-outcome-reporting` (bugfix, draft) — `depends_on: []`. a2u F-6, F-9, F-15 plus
+  a2a F-40. A committed reply is recorded as a failed turn when the post-commit publish raises.
+  Names two test-locked decisions that must be decided, not silently edited.
+- `2026-07-22-observation-binding-cleanup` (bugfix, draft) — `depends_on: []`. a2u F-10: removing
+  the last observer binding hides the Observer tab entirely, stranding the creator's own analyses
+  with no route to read, release or delete them. Frontend only; **no migration permitted**.
+- `2026-07-22-chat-export-authz-and-polling` (bugfix, draft) — `depends_on: []`. a2u F-2, F-16.
+  Permission-matrix row 19 is dead code: any room reader, including a guest, can export every
+  participant's messages and edit history. **Four blocking questions (Q-1..Q-4) must be answered
+  before implementation.** `check-security` referral in parallel.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
