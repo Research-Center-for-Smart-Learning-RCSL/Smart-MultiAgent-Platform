@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: reviewed
 created: 2026-07-22
 requirements: [R6.02, R13.04, R13.06, R13.08, R13.11, R13.16, R13.17, R13.19, R13.20, R13.23, R13.25, R18.02, R19.03, R22.15.04, R24.14, R24.23, R28.06, R28.07, R28.14, R30.01]
 ---
@@ -640,20 +640,65 @@ conversely becomes *worse* once F-1 is fixed. Re-derive all four together.
 
 ## 5. Hand-off
 
-Not yet triaged. This audit's findings must be reconciled against the two concurrent
-audits before any dossier is cut — see §1 and the note below — and the §2 verification
-gaps must be closed first for the candidates they cover.
+Triaged 2026-07-22: the user elected to fix **every** finding. No declines.
+
+**Both preconditions this section set have now been met**, in the order it prescribed.
+
+1. *"the §2 verification gaps must be closed first"* — done, in
+   `docs/audits/2026-07-22-conversation-verification-gap/findings.md`. Of the eleven
+   candidates: seven confirmed or plausible (recorded there as V-1 – V-9, two of which are
+   routed rather than fixed), two refuted (M-4's composite keyset is correct; A-6's boolean
+   half is correct behaviour), and two reclassified — AT-4 is unreachable dead code rather
+   than a live 400, and AT-6 is a security posture rather than a functional defect. That pass
+   was recorded separately, at the user's direction, to preserve authorship of this document.
+   **Its V-findings are triaged into the groups below**, since they belong to this audit's
+   area.
+2. *"the three hand-off tables should be merged into one dossier map in a single pass"* —
+   done. The map spans this audit, `docs/audits/2026-07-22-agent-config-runtime/` and
+   `docs/audits/2026-07-22-agent-to-agent-orchestration/`. Concretely: the config audit's nine
+   overlapping findings were handed to this audit's and the a2a audit's groups rather than
+   double-specced, and the a2a audit's F-40 — which that audit explicitly deferred to *this*
+   triage because its fix spans the streaming and frontend-draft code examined here — is
+   folded into the turn-outcome group below.
+
+Findings are grouped by **change surface**, matching the a2a audit's stated rule: findings
+that touch the same files and would be reverted together share one dossier. Where a group
+mixes a confirmed defect with a plausible one, the dossier's scope note must say so.
 
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 .. F-22 | pending triage | |
+| F-1, F-4, F-18 | fix | `docs/tasks/2026-07-22-chatroom-socket-lifecycle/` |
+| F-2, F-16 | fix | `docs/tasks/2026-07-22-chat-export-authz-and-polling/` |
+| F-3, F-14, **V-3** | fix | `docs/tasks/2026-07-22-attachment-lifecycle-and-rendering/` |
+| F-5, F-21 | fix | `docs/tasks/2026-07-22-presence-transition-and-release-wakeup/` |
+| F-6, F-9, F-15, **a2a F-40** | fix | `docs/tasks/2026-07-22-turn-outcome-reporting/` |
+| F-7, F-8, **V-4** | fix | `docs/tasks/2026-07-22-settings-form-reconciliation/` |
+| F-11, F-13, F-17, F-19, **V-2** | fix | `docs/tasks/2026-07-22-reconnect-reconciliation/` |
+| F-10 | fix | `docs/tasks/2026-07-22-observation-binding-cleanup/` |
+| F-12, F-20, **V-7** | fix | `docs/tasks/2026-07-22-activity-session-authz-and-validation/` |
+| F-22, **V-6** | fix | `docs/tasks/2026-07-22-search-determinism-and-highlighting/` |
+| **V-5** | fix | `docs/tasks/2026-07-22-retention-audit-accuracy/` |
+| **V-1** | fix | appended to `docs/tasks/2026-07-22-compaction-scoping-and-durability/` — same rows, same maintenance command, same test seam |
+| **V-8** | route | `check-security`, alongside F-12 — both are "gate proved once, never re-proved" |
+| **V-9** | route | `check-quality` — delete or finish the dead branch; not a bugfix |
 
-**Reconciliation note.** `docs/audits/2026-07-22-agent-config-runtime/` and
-`docs/audits/2026-07-22-agent-to-agent-orchestration/` were produced concurrently against
-the same code, and the former's hand-off table already assigns eight of its findings to the
-latter's dossier groups. Cutting dossiers from this audit independently would produce specs
-that overlap both. The three hand-off tables should be merged into one dossier map in a
-single pass.
+**Three sequencing notes the dossiers must carry.**
+
+- **F-18's blast radius depends on F-1.** §3 already records that `resyncPresence` clears
+  typing on every reconnect, which under F-1 happens every two minutes — so "typing sticks
+  forever" is false in the current build and **becomes true once F-1 is fixed**. The socket
+  dossier must fix both together, or fixing F-1 alone regresses F-18. The same coupling note
+  at the head of §3 applies to F-8, F-11 and F-13.
+- **V-2 and F-11 share one cause**, a frame lost during a disconnect with no durable read
+  side, and that cause has a third instance outside this audit: F-13 of
+  `docs/audits/2026-07-22-agent-config-runtime/`, whose dossier
+  (`docs/tasks/2026-07-22-prompt-assistant-delivery-recovery/`) records the generic remedy —
+  replay or cursor semantics on the pub/sub layer — as its FU-1. Whoever picks up the
+  reconnect dossier should read all three together.
+- **V-1 forces a correction to the compaction dossier** regardless of whether it is adopted:
+  that dossier's AC-9 and §9 assert the transcript change is "never what users see", which is
+  not accurate for the summary row itself — `message_repo.list` serves it and
+  `ChatroomMessageBubble` renders it.
 
 ## 6. Out-of-scope Observations
 
