@@ -153,14 +153,14 @@ class SearchKeyRepository:
             .values(test_status=test_status.value, test_error=test_error, last_test_at=last_test_at)
         )
 
-    async def atomic_activate(self, *, key_id: uuid.UUID, project_id: uuid.UUID) -> None:
+    async def atomic_activate(self, *, key_id: uuid.UUID, project_id: uuid.UUID) -> list[uuid.UUID]:
         """Flip `key_id` to active and deactivate every sibling in one TX.
 
         The partial-unique index `uq_search_keys_active_per_project` enforces
         the invariant; doing the deactivate first inside the same transaction
         keeps the constraint satisfied throughout.
         """
-        await self._db.execute(
+        deactivated = await self._db.execute(
             t.search_keys.update()
             .where(
                 sa.and_(
@@ -170,6 +170,7 @@ class SearchKeyRepository:
                 )
             )
             .values(is_active=False)
+            .returning(t.search_keys.c.id)
         )
         await self._db.execute(
             t.search_keys.update()
@@ -181,6 +182,7 @@ class SearchKeyRepository:
             )
             .values(is_active=True)
         )
+        return list(deactivated.scalars())
 
     async def soft_delete(self, key_id: uuid.UUID, *, at: Any) -> None:
         await self._db.execute(

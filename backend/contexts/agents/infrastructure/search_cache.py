@@ -63,11 +63,11 @@ class RedisSearchCache:
         raw: Any = await get_redis().get(cache_key)
         if raw is None:
             return None
-        if isinstance(raw, bytes):
-            raw = raw.decode("utf-8")
         try:
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
             return _decode(raw)
-        except (ValueError, TypeError):
+        except (AttributeError, UnicodeDecodeError, ValueError, TypeError):
             return None
 
     async def set(self, cache_key: str, results: list[SearchResult], *, ttl_s: int) -> None:

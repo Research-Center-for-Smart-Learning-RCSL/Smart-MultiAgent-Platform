@@ -150,7 +150,7 @@ def _tool(
     *,
     project_id: uuid.UUID,
     active_key: SearchKey,
-    adapter: _FakeAdapter,
+    adapter: Any,
     cache: _DictCache,
 ) -> _StubWebSearchTool:
     return _StubWebSearchTool(
@@ -223,6 +223,60 @@ async def test_live_call_then_cache_hit() -> None:
     assert len(second) == 2
     # No additional adapter call — served from cache.
     assert len(adapter.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_live_and_failed_searches_audit_http_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[dict[str, object]] = []
+
+    class _StatusAdapter:
+        name = "status"
+
+        async def search(self, _query: str, **kwargs: Any) -> list[SearchResult]:
+            await kwargs["proxy"].request(
+                method="GET", url="https://example.com", project_id=kwargs["project_id"]
+            )
+            return [_result("live")]
+
+    async def _capture_audit(
+        _self: WebSearchTool,
+        _query: str,
+        _provider: SearchProvider,
+        source: str,
+        result_count: int,
+        *,
+        http_status: int | None,
+    ) -> None:
+        events.append({"source": source, "result_count": result_count, "http_status": http_status})
+
+    monkeypatch.setattr(WebSearchTool, "_audit", _capture_audit)
+    sk = _sk(SearchProvider.TAVILY)
+    tool = _tool(
+        project_id=sk.project_id,
+        active_key=sk,
+        adapter=_StatusAdapter(),
+        cache=_DictCache(),
+    )
+
+    await tool.search("hi")
+
+    assert events == [{"source": "live", "result_count": 1, "http_status": 200}]
+
+    class _FailingStatusAdapter(_StatusAdapter):
+        async def search(self, _query: str, **kwargs: Any) -> list[SearchResult]:
+            await super().search(_query, **kwargs)
+            raise RuntimeError("provider failed after HTTP response")
+
+    failed_tool = _tool(
+        project_id=sk.project_id,
+        active_key=sk,
+        adapter=_FailingStatusAdapter(),
+        cache=_DictCache(),
+    )
+    with pytest.raises(RuntimeError, match="provider failed"):
+        await failed_tool.search("hi")
+
+    assert events[-1] == {"source": "live", "result_count": 0, "http_status": 200}
 
 
 @pytest.mark.asyncio

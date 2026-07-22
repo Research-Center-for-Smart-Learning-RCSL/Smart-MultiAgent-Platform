@@ -21,7 +21,7 @@ import hashlib
 import json
 import uuid
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,6 +71,37 @@ def _cache_key(
     )
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return f"search:{project_id}:{digest}"
+
+
+@dataclass(slots=True)
+class _StatusTrackingProxy:
+    proxy: EgressProxyClient
+    http_status: int | None = None
+
+    async def request(
+        self,
+        *,
+        method: str,
+        url: str,
+        project_id: uuid.UUID,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        json_body: Any | None = None,
+        timeout_s: float = 20.0,
+        upstream_auth: tuple[str, str] | None = None,
+    ) -> tuple[int, dict[str, str], bytes]:
+        status, response_headers, payload = await self.proxy.request(
+            method=method,
+            url=url,
+            project_id=project_id,
+            headers=headers,
+            params=params,
+            json_body=json_body,
+            timeout_s=timeout_s,
+            upstream_auth=upstream_auth,
+        )
+        self.http_status = status
+        return status, response_headers, payload
 
 
 def _cap_results(results: list[SearchResult]) -> list[SearchResult]:
@@ -147,7 +178,7 @@ class WebSearchTool:
         cached = await self.cache.get(ck)
         if cached is not None:
             capped = _cap_results(cached)
-            await self._audit(query, key.provider, "cache", len(capped))
+            await self._audit(query, key.provider, "cache", len(capped), http_status=None)
             return capped
 
         # Step 4 — cache miss: consume a rate-limit token before egress (R12.14).
@@ -162,6 +193,7 @@ class WebSearchTool:
 
         # Step 5 — unwrap the search key and call the adapter.
         plaintext = await self._unwrap_search_key(key.id)
+        tracking_proxy = _StatusTrackingProxy(self.proxy)
         try:
             results = await adapter.search(
                 query,
@@ -169,17 +201,20 @@ class WebSearchTool:
                 locale=locale,
                 freshness=freshness,
                 api_key=plaintext,
-                proxy=self.proxy,
+                proxy=tracking_proxy,
                 project_id=self.project_id,
                 config=key.config,
             )
+        except Exception:
+            await self._audit(query, key.provider, "live", 0, http_status=tracking_proxy.http_status)
+            raise
         finally:
             # Best-effort zeroisation — bytes are immutable so swap reference.
             del plaintext
 
         capped = _cap_results(results)
         await self.cache.set(ck, capped, ttl_s=_CACHE_TTL_S)
-        await self._audit(query, key.provider, "live", len(capped))
+        await self._audit(query, key.provider, "live", len(capped), http_status=tracking_proxy.http_status)
         return capped
 
     async def _unwrap_search_key(self, key_id: uuid.UUID) -> bytes:
@@ -204,6 +239,8 @@ class WebSearchTool:
         provider: SearchProvider,
         source: Literal["cache", "live"],
         result_count: int,
+        *,
+        http_status: int | None,
     ) -> None:
         trimmed = query[: self._audit_query_trunc]
         await audit.emit(
@@ -218,6 +255,7 @@ class WebSearchTool:
                     "query": trimmed,
                     "source": source,
                     "result_count": result_count,
+                    "http_status": http_status,
                     "project_id": str(self.project_id),
                 },
             ),
