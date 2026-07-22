@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-07-22
 requirements: []
 depends_on: []
@@ -302,24 +302,24 @@ exposure, a revert should be paired with disabling `web_search` on affected agen
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: `test_cache_is_not_shared_across_projects` (§8) fails against current code and
+- [x] AC-1: `test_cache_is_not_shared_across_projects` (§8) fails against current code and
       passes after the fix.
-- [ ] AC-2: two agents in different projects issuing an identical query each reach their own
+- [x] AC-2: two agents in different projects issuing an identical query each reach their own
       provider adapter; neither observes the other's results.
-- [ ] AC-3: within one project, activating a replacement search key causes the next identical
+- [x] AC-3: within one project, activating a replacement search key causes the next identical
       query to go live rather than serve the retired key's cached results.
-- [ ] AC-4: within one project, editing `key.config` in place (e.g. changing `cx`) causes the
+- [x] AC-4: within one project, editing `key.config` in place (e.g. changing `cx`) causes the
       next identical query to go live.
-- [ ] AC-5: two `key.config` dicts holding the same pairs in different insertion order produce
+- [x] AC-5: two `key.config` dicts holding the same pairs in different insertion order produce
       a cache hit, not a miss.
-- [ ] AC-6: `_cache_key` returns a string beginning `search:{project_id}:` and does not collide
+- [x] AC-6: `_cache_key` returns a string beginning `search:{project_id}:` and does not collide
       with the `search:rl:` namespace.
-- [ ] AC-7: the pre-existing same-project cache-hit behaviour is unchanged —
+- [x] AC-7: the pre-existing same-project cache-hit behaviour is unchanged —
       `test_live_call_then_cache_hit` passes without modification.
-- [ ] AC-8: no provider key plaintext appears in any cache key, log line, or audit payload; the
+- [x] AC-8: no provider key plaintext appears in any cache key, log line, or audit payload; the
       key-shape computation runs before the unwrap at `web_search.py:143` and the audit payload
       (`:188-202`) gains no new fields.
-- [ ] AC-9: the module docstring at `web_search.py:8` and the stale invalidation comment at
+- [x] AC-9: the module docstring at `web_search.py:8` and the stale invalidation comment at
       `backend/contexts/keys/application/search_service.py:170-172` describe the implemented
       behaviour.
 - [ ] AC-10: `pytest -q`, `ruff check .`, `ruff format --check .` and `mypy .` pass in

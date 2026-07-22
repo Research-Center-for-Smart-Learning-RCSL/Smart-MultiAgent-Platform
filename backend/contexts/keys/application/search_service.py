@@ -167,9 +167,8 @@ class SearchKeyService:
                 request_id=request_id,
             ),
         )
-        # §12.4: activation flip invalidates the Redis `search:{hash}` cache
-        # for this project. The cache-key layout lives with Phase E; we
-        # publish a plain message so the cache owner can choose the strategy.
+        # Cache keys include the project, key identity, and canonical configuration,
+        # so activation makes entries written by the prior key unreachable.
         await get_redis().publish("search_key.activated", f"{project_id}:{key_id}")
 
     async def delete(

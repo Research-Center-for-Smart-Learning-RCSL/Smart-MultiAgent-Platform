@@ -5,9 +5,10 @@ Flow:
 1. Find the active search key for the project. If none, raise
    :class:`SearchKeyNotConfigured` (R12.10).
 2. Resolve the adapter by provider (R12.17 — Tavily ships in v1).
-3. Check the Redis cache keyed by ``hash(provider,query_norm,top_k,locale,freshness)``
-   with TTL = 10 minutes (R12.13). A cache hit returns immediately and
-   consumes no rate-limit quota — quota gates real provider egress only.
+3. Check the Redis cache keyed by project, search-key identity, canonical key
+   configuration, and call shape, with TTL = 10 minutes (R12.13). Cache
+   hits return immediately and consume no rate-limit quota — quota gates real
+   provider egress only.
 4. Miss → check the project-scoped rate limit (R12.14 — default 60/min,
    tunable), then call the adapter via the Egress Proxy.
 5. Cap the serialised result at 4 KB (R12.12).
@@ -46,10 +47,30 @@ _CACHE_TTL_S = 600
 _DEFAULT_QUERY_TRUNC = 256
 
 
-def _cache_key(provider: str, query: str, top_k: int, locale: str, freshness: str) -> str:
-    payload = f"{provider}|{query.strip().lower()}|{top_k}|{locale}|{freshness}"
+def _cache_key(
+    project_id: uuid.UUID,
+    key: SearchKey,
+    query: str,
+    top_k: int,
+    locale: str,
+    freshness: str,
+) -> str:
+    """Build a project-scoped cache key without exposing key configuration."""
+    payload = json.dumps(
+        {
+            "key_config": key.config,
+            "key_id": str(key.id),
+            "provider": key.provider.value,
+            "query": query.strip().lower(),
+            "top_k": top_k,
+            "locale": locale,
+            "freshness": freshness,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    return f"search:{digest}"
+    return f"search:{project_id}:{digest}"
 
 
 def _cap_results(results: list[SearchResult]) -> list[SearchResult]:
@@ -122,7 +143,7 @@ class WebSearchTool:
         # Step 3 — cache. DOM-12: checked BEFORE the rate limiter so a cache
         # hit costs neither a provider call nor a quota token; the rate limit
         # exists to throttle real egress, and a cached answer makes none.
-        ck = _cache_key(key.provider.value, query, top_k, locale, freshness)
+        ck = _cache_key(self.project_id, key, query, top_k, locale, freshness)
         cached = await self.cache.get(ck)
         if cached is not None:
             capped = _cap_results(cached)

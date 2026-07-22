@@ -75,11 +75,6 @@ parallel.
   not constrain provider routing, so a mixed-provider key group silently runs the agent on a
   different provider and model. Touches `contexts/keys` routing, `turn_engine.py` model
   resolution and payload construction, and `summariser.py`; no migration.
-- `2026-07-22-web-search-cache-project-scoping` (bugfix, draft) — `depends_on: []`. From
-  `docs/audits/2026-07-22-agent-config-runtime/` F-1 (critical): the `web_search` result
-  cache is keyed without tenant identity, so one project's search results are served to
-  another. Confined to `contexts/agents/application/tools/web_search.py` plus its unit test;
-  no migration.
 - `2026-07-22-join-epoch-loop-reentry` (bugfix, draft) — `depends_on: []`. a2a F-11: an `any`/`count`
   join reached by a loop back-edge fires once and stalls, because the one-shot latch is claimed at
   `fire_threshold` arrivals and released only at `total_branches`. Folds in an ALL-mode deadlock the
@@ -170,5 +165,6 @@ Nothing blocked.
 
 ## In progress
 
+- `2026-07-22-web-search-cache-project-scoping` (bugfix) — `depends_on: []`.
 - `2026-07-22-workflow-run-cancellation` (bugfix) — `depends_on: []`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.

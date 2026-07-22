@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from contexts.agents.application.tools.web_search import WebSearchTool
+from contexts.agents.application.tools.web_search import WebSearchTool, _cache_key
 from contexts.agents.domain.errors import (
     SearchKeyNotConfigured,
     SearchQuotaExceeded,
@@ -95,17 +95,24 @@ class _FakeSession:
         return _R()
 
 
-def _sk(provider: SearchProvider, *, is_active: bool = True) -> SearchKey:
+def _sk(
+    provider: SearchProvider,
+    *,
+    is_active: bool = True,
+    key_id: uuid.UUID | None = None,
+    project_id: uuid.UUID | None = None,
+    config: dict[str, Any] | None = None,
+) -> SearchKey:
     return SearchKey(
-        id=uuid.uuid4(),
-        project_id=uuid.uuid4(),
+        id=key_id or uuid.uuid4(),
+        project_id=project_id or uuid.uuid4(),
         provider=provider,
         masked_preview="****",
         test_status=ProbeStatus.OK,
         test_error=None,
         last_test_at=datetime.now(tz=UTC),
         is_active=is_active,
-        config={},
+        config={} if config is None else config,
         transit_key_version=1,
         hmac_key_version=1,
         created_at=datetime.now(tz=UTC),
@@ -136,6 +143,25 @@ def _result(title: str) -> SearchResult:
         snippet="snippet " + title,
         published_at=None,
         score=0.5,
+    )
+
+
+def _tool(
+    *,
+    project_id: uuid.UUID,
+    active_key: SearchKey,
+    adapter: _FakeAdapter,
+    cache: _DictCache,
+) -> _StubWebSearchTool:
+    return _StubWebSearchTool(
+        agent_id=uuid.uuid4(),
+        project_id=project_id,
+        db=_FakeSession(),  # type: ignore[arg-type]
+        adapters={active_key.provider: adapter},
+        cache=cache,
+        rate_limiter=_TokenLimiter(10),
+        proxy=_FakeProxy(),
+        active_key=active_key,
     )
 
 
@@ -197,6 +223,148 @@ async def test_live_call_then_cache_hit() -> None:
     assert len(second) == 2
     # No additional adapter call — served from cache.
     assert len(adapter.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_cache_is_not_shared_across_projects() -> None:
+    project_a = uuid.uuid4()
+    project_b = uuid.uuid4()
+    cache = _DictCache()
+    adapter_a = _FakeAdapter([_result("project-a")])
+    adapter_b = _FakeAdapter([_result("project-b")])
+    tool_a = _tool(
+        project_id=project_a,
+        active_key=_sk(SearchProvider.TAVILY, project_id=project_a),
+        adapter=adapter_a,
+        cache=cache,
+    )
+    tool_b = _tool(
+        project_id=project_b,
+        active_key=_sk(SearchProvider.TAVILY, project_id=project_b),
+        adapter=adapter_b,
+        cache=cache,
+    )
+
+    results_a = await tool_a.search("hi", top_k=5, locale="en-US", freshness="any")
+    results_b = await tool_b.search("hi", top_k=5, locale="en-US", freshness="any")
+
+    assert [result.title for result in results_a] == ["project-a"]
+    assert [result.title for result in results_b] == ["project-b"]
+    assert len(adapter_a.calls) == 1
+    assert len(adapter_b.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_cache_is_not_shared_across_key_ids_in_one_project() -> None:
+    project_id = uuid.uuid4()
+    cache = _DictCache()
+    adapter_a = _FakeAdapter([_result("key-a")])
+    adapter_b = _FakeAdapter([_result("key-b")])
+    tool_a = _tool(
+        project_id=project_id,
+        active_key=_sk(SearchProvider.TAVILY, project_id=project_id),
+        adapter=adapter_a,
+        cache=cache,
+    )
+    tool_b = _tool(
+        project_id=project_id,
+        active_key=_sk(SearchProvider.TAVILY, project_id=project_id),
+        adapter=adapter_b,
+        cache=cache,
+    )
+
+    await tool_a.search("hi", top_k=5, locale="en-US", freshness="any")
+    results_b = await tool_b.search("hi", top_k=5, locale="en-US", freshness="any")
+
+    assert [result.title for result in results_b] == ["key-b"]
+    assert len(adapter_a.calls) == 1
+    assert len(adapter_b.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_cache_is_not_shared_across_differing_key_config() -> None:
+    project_id = uuid.uuid4()
+    key_id = uuid.uuid4()
+    cache = _DictCache()
+    adapter_a = _FakeAdapter([_result("corpus-a")])
+    adapter_b = _FakeAdapter([_result("corpus-b")])
+    tool_a = _tool(
+        project_id=project_id,
+        active_key=_sk(
+            SearchProvider.GOOGLE_CSE,
+            key_id=key_id,
+            project_id=project_id,
+            config={"cx": "corpus-a"},
+        ),
+        adapter=adapter_a,
+        cache=cache,
+    )
+    tool_b = _tool(
+        project_id=project_id,
+        active_key=_sk(
+            SearchProvider.GOOGLE_CSE,
+            key_id=key_id,
+            project_id=project_id,
+            config={"cx": "corpus-b"},
+        ),
+        adapter=adapter_b,
+        cache=cache,
+    )
+
+    await tool_a.search("hi", top_k=5, locale="en-US", freshness="any")
+    results_b = await tool_b.search("hi", top_k=5, locale="en-US", freshness="any")
+
+    assert [result.title for result in results_b] == ["corpus-b"]
+    assert len(adapter_a.calls) == 1
+    assert len(adapter_b.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_cache_key_is_stable_under_config_dict_ordering() -> None:
+    project_id = uuid.uuid4()
+    key_id = uuid.uuid4()
+    cache = _DictCache()
+    adapter_a = _FakeAdapter([_result("canonical")])
+    adapter_b = _FakeAdapter([_result("should-not-be-called")])
+    tool_a = _tool(
+        project_id=project_id,
+        active_key=_sk(
+            SearchProvider.GOOGLE_CSE,
+            key_id=key_id,
+            project_id=project_id,
+            config={"cx": "corpus", "safe": "active"},
+        ),
+        adapter=adapter_a,
+        cache=cache,
+    )
+    tool_b = _tool(
+        project_id=project_id,
+        active_key=_sk(
+            SearchProvider.GOOGLE_CSE,
+            key_id=key_id,
+            project_id=project_id,
+            config={"safe": "active", "cx": "corpus"},
+        ),
+        adapter=adapter_b,
+        cache=cache,
+    )
+
+    await tool_a.search("hi", top_k=5, locale="en-US", freshness="any")
+    results_b = await tool_b.search("hi", top_k=5, locale="en-US", freshness="any")
+
+    assert [result.title for result in results_b] == ["canonical"]
+    assert len(adapter_a.calls) == 1
+    assert len(adapter_b.calls) == 0
+
+
+def test_cache_key_is_project_prefixed() -> None:
+    project_id = uuid.uuid4()
+    key = _sk(SearchProvider.TAVILY, project_id=project_id)
+
+    cache_key = _cache_key(project_id, key, "hi", 5, "en-US", "any")
+
+    assert cache_key.startswith(f"search:{project_id}:")
+    assert not cache_key.startswith("search:rl:")
 
 
 @pytest.mark.asyncio
