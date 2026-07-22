@@ -36,8 +36,8 @@ class StepRecorder:
         node_id: str,
         input_data: dict[str, Any],
     ) -> Any:
-        """Insert a RUNNING step row and return the step object."""
-        return await self._steps.insert(
+        """Claim and insert a RUNNING step while the parent run is active."""
+        return await self._steps.insert_if_run_active(
             run_id=run_id,
             node_id=node_id,
             state=StepState.RUNNING,

@@ -49,6 +49,10 @@ class RunState(str, enum.Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
 
+    @property
+    def is_terminal(self) -> bool:
+        return self in (self.SUCCEEDED, self.FAILED, self.CANCELLED)
+
 
 class StepState(str, enum.Enum):
     PENDING = "pending"
@@ -184,7 +188,6 @@ class RunContext:
     variables: dict[str, Any]
     trigger_payload: dict[str, Any] = field(default_factory=dict)
     node_visit_counts: dict[str, int] = field(default_factory=dict)
-    active_branches: int = 1
     cancelled: bool = False
     is_dry_run: bool = False
     # ASYNC-9: id of the edge traversed to reach the node currently executing;

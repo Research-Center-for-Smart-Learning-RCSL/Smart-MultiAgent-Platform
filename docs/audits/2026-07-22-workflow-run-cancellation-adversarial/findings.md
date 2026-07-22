@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: reviewed
 created: 2026-07-22
 requirements: [R14.08, R14.10]
 ---
@@ -82,6 +82,12 @@ Not covered: live PostgreSQL/Redis fault injection or browser rendering. The con
 | F-3 | Untriaged | — |
 | F-4 | Untriaged | — |
 | F-5 | Untriaged | — |
+
+## 5.1 Review decision
+
+The user approved repair of every confirmed finding. F-1 through F-5 are all
+assigned to `docs/tasks/2026-07-22-workflow-run-cancellation/`; the historical
+handoff table above is retained unchanged from the audit capture.
 
 ## 6. Out-of-scope Observations
 

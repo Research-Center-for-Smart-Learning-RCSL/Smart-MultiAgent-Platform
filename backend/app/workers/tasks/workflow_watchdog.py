@@ -72,12 +72,19 @@ async def workflow_watchdog(ctx: dict[str, Any]) -> str:
                         reason = f"idle_max_seconds exceeded ({idle:.0f}s > {ctx_view.idle_max_seconds}s)"
                 if reason is None:
                     continue
-                if await RunEngine(db).force_fail(run_id, reason=reason):
+                engine = RunEngine(db)
+                if await engine.force_fail(run_id, reason=reason):
                     await db.commit()
+                    await engine.dispatch_enqueues(ctx.get("redis"))
                     failed += 1
             except Exception:
                 await db.rollback()
                 logger.bind(run_id=str(run_id)).exception("watchdog: run check failed")
+
+        redis = ctx.get("redis")
+        if redis is not None:
+            for run_id in await runs.list_a2a_cancellation_pending():
+                await redis.enqueue_job("workflow_cancel_a2a_calls", str(run_id), 0)
 
     logger.bind(event="workflow_watchdog_done", checked=checked, failed=failed).info(
         f"workflow watchdog: failed {failed}/{checked} active runs"

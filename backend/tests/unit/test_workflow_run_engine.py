@@ -8,6 +8,7 @@ without requiring a live database or Redis instance.
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from contexts.workflow.application.run_engine import RunEngine
@@ -17,6 +18,7 @@ from contexts.workflow.domain.models import (
     OnErrorConfig,
     OnErrorStrategy,
     RunContext,
+    RunState,
     StepOutcome,
     StepState,
 )
@@ -66,6 +68,276 @@ def _engine() -> RunEngine:
 
 def _def_with_edges(edges: list[dict]) -> dict:
     return {"nodes": [], "edges": edges}
+
+
+def _run(state: RunState) -> SimpleNamespace:
+    return SimpleNamespace(state=state)
+
+
+# ---------------------------------------------------------------------------
+# Run terminality
+# ---------------------------------------------------------------------------
+
+
+async def test_execute_node_refuses_a_terminal_run() -> None:
+    engine = _engine()
+    ctx = _make_ctx(
+        {
+            "nodes": [
+                {"id": "n1", "type": "set_variable", "config": {"key": "x", "value": 1}},
+            ],
+            "edges": [],
+        }
+    )
+    engine._runs.get = AsyncMock(return_value=_run(RunState.FAILED))
+    engine._recorder.insert_step = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
+    engine._recorder.emit_step_started = AsyncMock()
+    engine._recorder.update_step = AsyncMock()
+    engine._recorder.emit_step_event = AsyncMock()
+    engine._runs.update_variables = AsyncMock()
+    executor = AsyncMock(return_value=StepOutcome(state=StepState.SUCCEEDED))
+
+    with patch("contexts.workflow.application.run_engine.get_executor", return_value=executor):
+        await engine._execute_node(ctx, "n1")
+
+    assert ctx.cancelled is True
+    engine._recorder.insert_step.assert_not_awaited()
+    executor.assert_not_awaited()
+
+
+async def test_execute_node_observes_sibling_failure_at_next_node_boundary() -> None:
+    engine = _engine()
+    ctx = _make_ctx(
+        {
+            "nodes": [
+                {"id": "a", "type": "set_variable", "config": {"key": "a", "value": 1}},
+                {"id": "b", "type": "set_variable", "config": {"key": "b", "value": 2}},
+            ],
+            "edges": [{"id": "e1", "from": "a", "to": "b", "from_port": "default"}],
+        }
+    )
+    engine._runs.get = AsyncMock(side_effect=[_run(RunState.RUNNING), _run(RunState.FAILED)])
+    engine._recorder.insert_step = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
+    engine._recorder.emit_step_started = AsyncMock()
+    engine._recorder.update_step = AsyncMock()
+    engine._recorder.emit_step_event = AsyncMock()
+    engine._runs.update_variables = AsyncMock()
+    executor = AsyncMock(return_value=StepOutcome(state=StepState.SUCCEEDED))
+
+    with patch("contexts.workflow.application.run_engine.get_executor", return_value=executor):
+        await engine._execute_node(ctx, "a")
+
+    assert engine._recorder.insert_step.await_count == 1
+    assert engine._recorder.insert_step.await_args.kwargs["node_id"] == "a"
+    assert executor.await_count == 1
+
+
+async def test_execute_node_refuses_a_cancelled_run() -> None:
+    engine = _engine()
+    ctx = _make_ctx({"nodes": [{"id": "n1", "type": "set_variable", "config": {}}], "edges": []})
+    engine._runs.get = AsyncMock(return_value=_run(RunState.CANCELLED))
+    engine._recorder.insert_step = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
+    engine._recorder.emit_step_started = AsyncMock()
+    engine._recorder.update_step = AsyncMock()
+    engine._recorder.emit_step_event = AsyncMock()
+    engine._runs.update_variables = AsyncMock()
+    executor = AsyncMock(return_value=StepOutcome(state=StepState.SUCCEEDED))
+
+    with patch("contexts.workflow.application.run_engine.get_executor", return_value=executor):
+        await engine._execute_node(ctx, "n1")
+
+    engine._recorder.insert_step.assert_not_awaited()
+
+
+async def test_execute_node_runs_while_the_run_is_live() -> None:
+    engine = _engine()
+    ctx = _make_ctx({"nodes": [{"id": "n1", "type": "set_variable", "config": {}}], "edges": []})
+    engine._runs.get = AsyncMock(return_value=_run(RunState.RUNNING))
+    engine._recorder.insert_step = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
+    engine._recorder.emit_step_started = AsyncMock()
+    engine._recorder.update_step = AsyncMock()
+    engine._recorder.emit_step_event = AsyncMock()
+    engine._runs.update_variables = AsyncMock()
+    executor = AsyncMock(return_value=StepOutcome(state=StepState.SUCCEEDED))
+
+    with patch("contexts.workflow.application.run_engine.get_executor", return_value=executor):
+        await engine._execute_node(ctx, "n1")
+
+    engine._recorder.insert_step.assert_awaited_once()
+    executor.assert_awaited_once()
+
+
+async def test_terminal_guard_reads_once_per_node() -> None:
+    engine = _engine()
+    ctx = _make_ctx(
+        {
+            "nodes": [
+                {"id": "a", "type": "set_variable", "config": {}},
+                {"id": "b", "type": "set_variable", "config": {}},
+                {"id": "c", "type": "set_variable", "config": {}},
+            ],
+            "edges": [
+                {"id": "e1", "from": "a", "to": "b", "from_port": "default"},
+                {"id": "e2", "from": "b", "to": "c", "from_port": "default"},
+            ],
+        }
+    )
+    engine._runs.get = AsyncMock(return_value=_run(RunState.RUNNING))
+    engine._recorder.insert_step = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
+    engine._recorder.emit_step_started = AsyncMock()
+    engine._recorder.update_step = AsyncMock()
+    engine._recorder.emit_step_event = AsyncMock()
+    engine._runs.update_variables = AsyncMock()
+    executor = AsyncMock(return_value=StepOutcome(state=StepState.SUCCEEDED))
+
+    with patch("contexts.workflow.application.run_engine.get_executor", return_value=executor):
+        await engine._execute_node(ctx, "a")
+
+    assert engine._runs.get.await_count == 3
+
+
+async def test_terminal_run_during_execution_does_not_persist_variables_or_advance() -> None:
+    engine = _engine()
+    ctx = _make_ctx(
+        {
+            "nodes": [
+                {"id": "a", "type": "set_variable", "config": {}},
+                {"id": "b", "type": "set_variable", "config": {}},
+            ],
+            "edges": [{"id": "e1", "from": "a", "to": "b", "from_port": "default"}],
+        }
+    )
+    engine._runs.get = AsyncMock(return_value=_run(RunState.RUNNING))
+    engine._recorder.insert_step = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
+    engine._recorder.emit_step_started = AsyncMock()
+    engine._recorder.update_step = AsyncMock()
+    engine._recorder.emit_step_event = AsyncMock()
+    engine._runs.update_variables = AsyncMock(return_value=False)
+    executor = AsyncMock(return_value=StepOutcome(state=StepState.SUCCEEDED))
+
+    with patch("contexts.workflow.application.run_engine.get_executor", return_value=executor):
+        await engine._execute_node(ctx, "a")
+
+    engine._recorder.insert_step.assert_awaited_once()
+    executor.assert_awaited_once()
+
+
+async def test_execute_node_does_not_invoke_executor_when_atomic_claim_loses_race() -> None:
+    engine = _engine()
+    ctx = _make_ctx({"nodes": [{"id": "n1", "type": "set_variable", "config": {}}], "edges": []})
+    engine._runs.get = AsyncMock(return_value=_run(RunState.RUNNING))
+    engine._recorder.insert_step = AsyncMock(return_value=None)
+    executor = AsyncMock(return_value=StepOutcome(state=StepState.SUCCEEDED))
+
+    with patch("contexts.workflow.application.run_engine.get_executor", return_value=executor):
+        await engine._execute_node(ctx, "n1")
+
+    executor.assert_not_awaited()
+    assert ctx.cancelled is True
+
+
+async def test_resume_losing_transition_does_not_seal_or_advance(monkeypatch) -> None:
+    engine = _engine()
+    run = SimpleNamespace(
+        state=RunState.WAITING,
+        workflow_id=uuid.uuid4(),
+        variables={},
+        context={},
+        trigger_type="manual",
+    )
+    engine._runs.get = AsyncMock(return_value=run)
+    engine._runs.update_state = AsyncMock(return_value=False)
+    engine._db.execute = AsyncMock()
+    engine._advance_from = AsyncMock()  # type: ignore[method-assign]
+
+    workflow = SimpleNamespace(definition={"nodes": [], "edges": []})
+    with patch(
+        "contexts.workflow.infrastructure.repositories.WorkflowRepository.get",
+        new=AsyncMock(return_value=workflow),
+    ):
+        resumed = await engine.resume_at_port(uuid.uuid4(), "gate", "success")
+
+    assert resumed is False
+    engine._db.execute.assert_not_awaited()
+    engine._advance_from.assert_not_awaited()
+
+
+async def test_terminal_loser_emits_no_cancellation_or_events(monkeypatch) -> None:
+    engine = _engine()
+    run_id = uuid.uuid4()
+    engine._runs.get = AsyncMock(return_value=_run(RunState.RUNNING))
+    engine._runs.update_state = AsyncMock(return_value=False)
+    engine._steps.cancel_pending_for_run = AsyncMock()
+
+    with (
+        patch("contexts.workflow.application.run_engine.audit.emit", new=AsyncMock()) as emit_audit,
+        patch("contexts.workflow.application.run_engine.Publisher") as publisher,
+    ):
+        transitioned = await engine.force_fail(run_id, reason="race")
+
+    assert transitioned is False
+    engine._steps.cancel_pending_for_run.assert_not_awaited()
+    emit_audit.assert_not_awaited()
+    publisher.return_value.emit.assert_not_called()
+    assert engine._pending_call_cancellations == set()
+
+
+async def test_end_node_cancels_pending_sibling_steps(monkeypatch) -> None:
+    engine = _engine()
+    ctx = _make_ctx({"nodes": [{"id": "end", "type": "end", "config": {"status": "success"}}], "edges": []})
+    engine._runs.get = AsyncMock(return_value=_run(RunState.RUNNING))
+    engine._recorder.insert_step = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
+    engine._recorder.emit_step_started = AsyncMock()
+    engine._recorder.update_step = AsyncMock()
+    engine._recorder.emit_step_event = AsyncMock()
+    engine._runs.update_variables = AsyncMock()
+    engine._runs.update_state = AsyncMock()
+    engine._runs.mark_a2a_cancellation_pending = AsyncMock()
+    engine._steps.cancel_pending_for_run = AsyncMock()
+    cancel_calls = AsyncMock()
+    monkeypatch.setattr(engine, "_cancel_live_agent_calls", cancel_calls)
+
+    with (
+        patch("contexts.workflow.application.run_engine.audit.emit", new=AsyncMock()),
+        patch("contexts.workflow.application.run_engine.Publisher") as publisher,
+    ):
+        publisher.return_value.emit = AsyncMock()
+        await engine._execute_node(ctx, "end")
+
+    engine._steps.cancel_pending_for_run.assert_awaited_once_with(ctx.run_id)
+    cancel_calls.assert_not_awaited()
+
+    await engine.dispatch_enqueues()
+
+    cancel_calls.assert_awaited_once_with(ctx.run_id)
+
+
+async def test_mark_run_failed_isolated_cancels_pending_steps(monkeypatch) -> None:
+    engine = _engine()
+    session = MagicMock()
+    session_cm = MagicMock()
+    session_cm.__aenter__ = AsyncMock(return_value=session)
+    session_cm.__aexit__ = AsyncMock(return_value=False)
+    transaction_cm = MagicMock()
+    transaction_cm.__aenter__ = AsyncMock(return_value=None)
+    transaction_cm.__aexit__ = AsyncMock(return_value=False)
+    session.begin.return_value = transaction_cm
+    runs = MagicMock(update_state=AsyncMock(), mark_a2a_cancellation_pending=AsyncMock())
+    steps = MagicMock(cancel_pending_for_run=AsyncMock())
+    cancel_calls = AsyncMock()
+    monkeypatch.setattr(engine, "_cancel_live_agent_calls", cancel_calls)
+
+    with (
+        patch("shared_kernel.db.session.async_session", return_value=session_cm),
+        patch("contexts.workflow.application.run_engine.WorkflowRunRepository", return_value=runs),
+        patch("contexts.workflow.application.run_engine.WorkflowStepRepository", return_value=steps),
+    ):
+        await engine._mark_run_failed_isolated(ctx_run_id := uuid.uuid4())
+
+    runs.update_state.assert_awaited_once()
+    runs.mark_a2a_cancellation_pending.assert_awaited_once_with(ctx_run_id)
+    steps.cancel_pending_for_run.assert_awaited_once_with(ctx_run_id)
+    cancel_calls.assert_awaited_once_with(ctx_run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +607,7 @@ async def test_advance_from_unrelated_node_edges_ignored() -> None:
     assert engine._pending_enqueues == []
 
 
-async def test_advance_from_three_branches_sets_active_branches() -> None:
+async def test_advance_from_three_branches_enqueues_every_branch() -> None:
     engine = _engine()
     engine._execute_node = AsyncMock()  # type: ignore[method-assign]
     ctx = _make_ctx(
@@ -350,5 +622,4 @@ async def test_advance_from_three_branches_sets_active_branches() -> None:
 
     await engine._advance_from(ctx, "n1")
 
-    assert ctx.active_branches == 3
     assert len(engine._pending_enqueues) == 3

@@ -82,6 +82,7 @@ from app.workers.tasks.workflow_signals import (
 from app.workers.tasks.workflow_steps import (
     retry_workflow_node,
     run_workflow_step,
+    workflow_cancel_a2a_calls,
     workflow_subagent_complete,
     workflow_subagent_timeout,
 )
@@ -263,6 +264,7 @@ class WorkerSettings:
         drive_approver_turn,
         run_workflow_step,
         retry_workflow_node,
+        workflow_cancel_a2a_calls,
         workflow_event_timeout,
         workflow_subagent_timeout,
         workflow_subagent_complete,

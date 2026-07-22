@@ -92,10 +92,6 @@ parallel.
   Grouped by change surface only, and says so: an `XAUTOCLAIM` that reads PEL idle time as
   liveness, a `requeue` whose `LTRIM` keeps the wrong end of the queue, and a supervisor whose
   liveness key `mkstream=True` recreates.
-- `2026-07-22-workflow-run-cancellation` (bugfix, draft) — `depends_on: []`. a2a F-10: a failed
-  parallel branch marks the run FAILED but no signal reaches sibling branches in other worker
-  processes, so they keep invoking agents on a terminal run. One open decision (Q-2, whether to
-  abort in-flight tool loops) that must be answered before `/build`.
 - `2026-07-22-instruct-terminal-state-guard` (bugfix, draft) — `depends_on: []`. a2a F-15, F-16:
   the instruct terminal state is an unguarded `UPDATE`, so a completed instruct can be persisted
   as `TIMEOUT`; and the deadline job commits before enqueueing its resume, so its own retry reads
@@ -178,4 +174,5 @@ Nothing blocked.
 
 ## In progress
 
+- `2026-07-22-workflow-run-cancellation` (bugfix) — `depends_on: []`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.

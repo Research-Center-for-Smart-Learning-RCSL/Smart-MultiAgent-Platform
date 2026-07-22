@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, ClassVar
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql as pg
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.infrastructure.tables import workspaces
@@ -330,10 +331,18 @@ class WorkflowRunRepository:
         self,
         run_id: uuid.UUID,
         variables: dict[str, Any],
-    ) -> None:
-        await self._db.execute(
-            workflow_runs.update().where(workflow_runs.c.id == run_id).values(variables=variables),
+    ) -> bool:
+        result = await self._db.execute(
+            workflow_runs.update()
+            .where(
+                sa.and_(
+                    workflow_runs.c.id == run_id,
+                    workflow_runs.c.state.in_([RunState.RUNNING.value, RunState.WAITING.value]),
+                ),
+            )
+            .values(variables=variables),
         )
+        return result.rowcount > 0
 
     async def list_active(self) -> list[tuple[uuid.UUID, uuid.UUID, datetime]]:
         """``(run_id, workflow_id, started_at)`` for every RUNNING/WAITING run.
@@ -351,6 +360,39 @@ class WorkflowRunRepository:
             )
         ).all()
         return [(r.id, r.workflow_id, r.started_at) for r in rows]
+
+    async def mark_a2a_cancellation_pending(self, run_id: uuid.UUID) -> None:
+        """Persist the post-commit A2A cancellation work item with the run."""
+        await self._db.execute(
+            workflow_runs.update()
+            .where(workflow_runs.c.id == run_id)
+            .values(
+                context=workflow_runs.c.context.op("||")(
+                    sa.cast({"a2a_cancellation_pending": True}, pg.JSONB),
+                ),
+            ),
+        )
+
+    async def clear_a2a_cancellation_pending(self, run_id: uuid.UUID) -> None:
+        await self._db.execute(
+            workflow_runs.update()
+            .where(workflow_runs.c.id == run_id)
+            .values(
+                context=workflow_runs.c.context.op("||")(
+                    sa.cast({"a2a_cancellation_pending": False}, pg.JSONB),
+                ),
+            ),
+        )
+
+    async def list_a2a_cancellation_pending(self) -> list[uuid.UUID]:
+        rows = (
+            await self._db.execute(
+                sa.select(workflow_runs.c.id).where(
+                    workflow_runs.c.context["a2a_cancellation_pending"].as_boolean().is_(True),
+                ),
+            )
+        ).all()
+        return [row.id for row in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +426,41 @@ class WorkflowStepRepository:
         ).first()
         assert row is not None
         return _row_to_step(row)
+
+    async def insert_if_run_active(
+        self,
+        *,
+        run_id: uuid.UUID,
+        node_id: str,
+        state: StepState = StepState.PENDING,
+        input_data: dict[str, Any] | None = None,
+    ) -> WorkflowStep | None:
+        """Atomically claim a node only while its run is still live.
+
+        The conditional ``INSERT … SELECT`` makes the step insertion the
+        execution linearization point.  A terminal transition committed before
+        this statement therefore cannot leave behind a new runnable step.
+        """
+        stmt = (
+            workflow_steps.insert()
+            .from_select(
+                ["run_id", "node_id", "state", "input"],
+                sa.select(
+                    sa.literal(run_id),
+                    sa.literal(node_id),
+                    sa.literal(state.value),
+                    sa.literal(input_data or {}, type_=workflow_steps.c.input.type),
+                ).where(
+                    sa.and_(
+                        workflow_runs.c.id == run_id,
+                        workflow_runs.c.state.in_([RunState.RUNNING.value, RunState.WAITING.value]),
+                    ),
+                ),
+            )
+            .returning(workflow_steps)
+        )
+        row = (await self._db.execute(stmt)).first()
+        return _row_to_step(row) if row is not None else None
 
     async def update(
         self,

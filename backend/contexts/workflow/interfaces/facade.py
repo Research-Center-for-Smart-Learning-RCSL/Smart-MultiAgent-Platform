@@ -105,8 +105,8 @@ class WorkflowFacade:
         ).first()
         return row.project_id if row else None
 
-    async def cancel_run(self, run_id: uuid.UUID) -> None:
-        await self._engine.cancel_run(run_id)
+    async def cancel_run(self, run_id: uuid.UUID) -> bool:
+        return await self._engine.cancel_run(run_id)
 
     async def list_steps(self, run_id: uuid.UUID) -> list[WorkflowStep]:
         return await self._svc.list_steps(run_id)

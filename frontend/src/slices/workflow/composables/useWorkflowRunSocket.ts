@@ -68,6 +68,7 @@ export function useWorkflowRunSocket(runId: string) {
       case 'workflow.run_started':
       case 'workflow.run_finished':
       case 'workflow.run_cancelled':
+        qc.invalidateQueries({ queryKey: wfKeys.steps(runId) })
         qc.invalidateQueries({ queryKey: wfKeys.run(runId) })
         break
       case 'approval.requested':

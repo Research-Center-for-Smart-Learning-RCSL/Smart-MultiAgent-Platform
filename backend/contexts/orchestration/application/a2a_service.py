@@ -27,7 +27,7 @@ from contexts.agents.application.a2a_scope import (
 )
 from contexts.agents.interfaces.facade import Agent, AgentsFacade
 from contexts.orchestration.application import a2a_call_chain
-from contexts.orchestration.domain.errors import A2ADeliveryFailed, A2AForbidden, A2ATimeout
+from contexts.orchestration.domain.errors import A2ACallCancelled, A2ADeliveryFailed, A2AForbidden, A2ATimeout
 from contexts.orchestration.domain.models import (
     A2A_BROADCAST_MAX_RECIPIENTS,
     A2AEnvelope,
@@ -159,35 +159,49 @@ class A2AService:
         # reply forged by another live agent that learned the correlation_id is
         # dropped by the rendezvous (anti-spoof, R9.15).
         await a2a_rendezvous.register_expected_responder(correlation_id, to_agent_id)
-
-        await self.send(
-            envelope=envelope,
-            caller_invocation_context_id=caller_invocation_context_id,
-            callee_attached_context_ids=callee_attached_context_ids,
-        )
-
-        # The background A2A consumer (app.workers) is the sole reader of inbox
-        # streams and hands replies to the rendezvous. Reading the stream here
-        # would race that consumer for the same consumer-group entry, so we
-        # block on the rendezvous instead.
-        reply = await a2a_rendezvous.await_reply(correlation_id, timeout_seconds)
-        if reply is None:
-            await a2a_rendezvous.mark_call_cancelled(correlation_id)
-            raise A2ATimeout(
-                f"sync call from {from_agent_id} to {to_agent_id} "
-                f"timed out after {timeout_seconds}s "
-                f"(correlation_id={correlation_id})"
+        already_cancelled = False
+        if workflow_run_id is not None:
+            already_cancelled = await a2a_rendezvous.register_workflow_call(workflow_run_id, correlation_id)
+        try:
+            if already_cancelled:
+                raise A2ACallCancelled(f"workflow run {workflow_run_id} is already terminal")
+            await self.send(
+                envelope=envelope,
+                caller_invocation_context_id=caller_invocation_context_id,
+                callee_attached_context_ids=callee_attached_context_ids,
             )
-        # A degraded reply (no agent runtime wired to serve the CALL) fails
-        # fast rather than masquerading as a successful but empty answer.
-        reply_payload = reply.get("payload")
-        if isinstance(reply_payload, dict) and a2a_rendezvous.A2A_ERROR_KEY in reply_payload:
-            raise A2ADeliveryFailed(
-                f"a2a call from {from_agent_id} to {to_agent_id} could not be "
-                f"served: {reply_payload[a2a_rendezvous.A2A_ERROR_KEY]} "
-                f"(correlation_id={correlation_id})"
-            )
-        return reply
+
+            # The background A2A consumer (app.workers) is the sole reader of inbox
+            # streams and hands replies to the rendezvous. Reading the stream here
+            # would race that consumer for the same consumer-group entry, so we
+            # block on the rendezvous instead.
+            reply = await a2a_rendezvous.await_reply(correlation_id, timeout_seconds)
+            if reply is None:
+                await a2a_rendezvous.mark_call_cancelled(correlation_id)
+                raise A2ATimeout(
+                    f"sync call from {from_agent_id} to {to_agent_id} "
+                    f"timed out after {timeout_seconds}s "
+                    f"(correlation_id={correlation_id})"
+                )
+            reply_payload = reply.get("payload")
+            if isinstance(reply_payload, dict) and a2a_rendezvous.A2A_CANCELLED_KEY in reply_payload:
+                raise A2ACallCancelled(f"workflow run {workflow_run_id} was cancelled")
+            # A degraded reply (no agent runtime wired to serve the CALL) fails
+            # fast rather than masquerading as a successful but empty answer.
+            if isinstance(reply_payload, dict) and a2a_rendezvous.A2A_ERROR_KEY in reply_payload:
+                raise A2ADeliveryFailed(
+                    f"a2a call from {from_agent_id} to {to_agent_id} could not be "
+                    f"served: {reply_payload[a2a_rendezvous.A2A_ERROR_KEY]} "
+                    f"(correlation_id={correlation_id})"
+                )
+            return reply
+        finally:
+            if workflow_run_id is not None:
+                await a2a_rendezvous.unregister_workflow_call(workflow_run_id, correlation_id)
+
+    async def cancel_workflow_run_calls(self, workflow_run_id: uuid.UUID) -> None:
+        """Signal live synchronous calls belonging to a terminal workflow run."""
+        await a2a_rendezvous.cancel_workflow_calls(workflow_run_id)
 
     async def notify(
         self,

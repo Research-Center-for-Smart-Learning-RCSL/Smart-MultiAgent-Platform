@@ -415,8 +415,9 @@ class WorkflowService:
             raise WorkflowRunNotCancellable(
                 f"Run {run_id} is in state {run.state.value}, cannot cancel",
             )
-        engine = RunEngine(self._db)
-        await engine.cancel_run(run_id)
+        self._engine = RunEngine(self._db)
+        if not await self._engine.cancel_run(run_id):
+            raise WorkflowRunNotCancellable(f"Run {run_id} completed before it could be cancelled")
 
     async def list_steps(self, run_id: uuid.UUID) -> list[WorkflowStep]:
         return await self._steps.list_for_run(run_id)
