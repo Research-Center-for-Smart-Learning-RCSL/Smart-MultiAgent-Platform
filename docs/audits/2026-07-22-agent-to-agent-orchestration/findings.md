@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: reviewed
 created: 2026-07-22
 requirements: [R9.13, R9.15, R9.16, R9.17, R14.07, R14.10, R15.01, R15.02, R15.03, R15.04, R15.06, R15.08, R15.09, R15.12, R15.13, R15.15, R15.16, R15.17, R15.18, R15.19, R15.20, R15.21, R15.22, R28.07]
 ---
@@ -1155,53 +1155,39 @@ likely to be re-reported by the next sweep of this area.
 
 ## 5. Hand-off
 
-Per the dossier contract, this section links the task slugs this audit spawned. A finding
-with no dossier and no explicit decision to skip it is an unfinished triage.
+Triaged 2026-07-22: the user elected to fix **every** finding. No declines.
+
+Findings are grouped into dossiers by **change surface** — findings that touch the same
+files and would be reverted together share one dossier — rather than one dossier per
+finding. A 1:1 mapping would make `/build` re-read the same modules a dozen times and
+would produce conflicting diffs across concurrent tasks; grouping also lets each dossier
+carry one coherent set of acceptance criteria. Where a group mixes an active defect with
+latent ones, the dossier's scope note says so, because the latent members are only
+verifiable once the active one is fixed.
+
+`depends_on` between these groups is recorded in each `spec.md`, not here. Two known
+sequencing constraints: T-01 must land before T-12's sub-agent half and before T-28/T-29's
+members can be tested at all, and T-05 overlaps T-07 in `turn_engine.py`'s A2A entry path.
 
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | pending triage | |
-| F-2 | pending triage | |
-| F-3 | pending triage | |
-| F-4 | pending triage | |
-| F-5 | pending triage | |
-| F-6 | pending triage | |
-| F-7 | pending triage | |
-| F-8 | pending triage | |
-| F-9 | pending triage | |
-| F-10 | pending triage | |
-| F-11 | pending triage | |
-| F-12 | pending triage | |
-| F-13 | pending triage | |
-| F-14 | pending triage | |
-| F-15 | pending triage | |
-| F-16 | pending triage | |
-| F-17 | pending triage | |
-| F-18 | pending triage | |
-| F-19 | pending triage | |
-| F-20 | pending triage | |
-| F-21 | pending triage | |
-| F-22 | pending triage | |
-| F-23 | pending triage | |
-| F-24 | pending triage | |
-| F-25 | pending triage | |
-| F-26 | pending triage | |
-| F-27 | pending triage | |
-| F-28 | pending triage | |
-| F-29 | pending triage | |
-| F-30 | pending triage | |
-| F-31 | pending triage | |
-| F-32 | pending triage | |
-| F-33 | pending triage | |
-| F-34 | pending triage | |
-| F-35 | pending triage | |
-| F-36 | pending triage | |
-| F-37 | pending triage | |
-| F-38 | pending triage | |
-| F-39 | pending triage | |
-| F-40 | pending triage | |
-| F-41 | pending triage | |
-| F-42 | pending triage | |
+| F-1, F-27, F-28, F-29, F-30 | fix | `docs/tasks/2026-07-22-subagent-execution-wiring/` |
+| F-2, F-36 | fix | `docs/tasks/2026-07-22-wait-for-event-timer-and-join-ports/` |
+| F-3, F-12, F-14, F-21, F-38 | fix | `docs/tasks/2026-07-22-wakeup-trigger-state-and-bounds/` |
+| F-4 | fix | `docs/tasks/2026-07-22-a2a-event-trigger-loop-guard/` |
+| F-5, F-19, F-20 | fix | `docs/tasks/2026-07-22-a2a-delivery-idempotency/` |
+| F-6 | fix | `docs/tasks/2026-07-22-approval-gate-room-scoping/` |
+| F-7, F-18, F-22, F-23, F-39 | fix | `docs/tasks/2026-07-22-turn-idempotency-and-locking/` |
+| F-8 | fix | `docs/tasks/2026-07-22-pending-notify-room-routing/` |
+| F-9, F-24, F-25, F-26 | fix | `docs/tasks/2026-07-22-a2a-scope-context-wiring/` |
+| F-10 | fix | `docs/tasks/2026-07-22-workflow-run-cancellation/` |
+| F-11 | fix | `docs/tasks/2026-07-22-join-epoch-loop-reentry/` |
+| F-13 | fix | `docs/tasks/2026-07-22-workflow-capability-enforcement/` |
+| F-15, F-16 | fix | `docs/tasks/2026-07-22-instruct-terminal-state-guard/` |
+| F-17, F-42 | fix | `docs/tasks/2026-07-22-retention-sweep-fixes/` |
+| F-31, F-32 | fix | `docs/tasks/2026-07-22-approval-resume-claim-reliability/` |
+| F-33, F-34, F-35, F-37, F-41 | fix | `docs/tasks/2026-07-22-workflow-dispatch-reliability/` |
+| F-40 | fix | deferred to the agent-to-user audit's triage — the fix spans the same streaming and frontend-draft code that audit is examining, so speccing it now would collide |
 
 ## 6. Out-of-scope Observations
 
