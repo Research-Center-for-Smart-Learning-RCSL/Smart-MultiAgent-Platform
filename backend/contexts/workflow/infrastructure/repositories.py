@@ -445,10 +445,13 @@ class WorkflowStepRepository:
             workflow_steps.insert()
             .from_select(
                 ["run_id", "node_id", "state", "input"],
+                # Every literal carries its target column's type: an untyped
+                # str literal renders as VARCHAR, which Postgres refuses to
+                # coerce into the `step_state` enum on INSERT … SELECT.
                 sa.select(
-                    sa.literal(run_id),
-                    sa.literal(node_id),
-                    sa.literal(state.value),
+                    sa.literal(run_id, type_=workflow_steps.c.run_id.type),
+                    sa.literal(node_id, type_=workflow_steps.c.node_id.type),
+                    sa.literal(state.value, type_=workflow_steps.c.state.type),
                     sa.literal(input_data or {}, type_=workflow_steps.c.input.type),
                 ).where(
                     sa.and_(
