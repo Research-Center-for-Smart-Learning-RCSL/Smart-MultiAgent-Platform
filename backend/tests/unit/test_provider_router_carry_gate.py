@@ -100,3 +100,45 @@ async def test_load_eligible_empty_when_nothing_carried() -> None:
     eligible = await router._load_eligible(uuid.uuid4(), ProviderCapability.LLM_CHAT)
 
     assert eligible == []
+
+
+async def test_load_eligible_filters_to_requested_provider() -> None:
+    openai_kid = uuid.uuid4()
+    claude_kid = uuid.uuid4()
+    members_repo = _FakeMembersRepo(
+        carried=[_Member(openai_kid), _Member(claude_kid)],
+        everything=[_Member(openai_kid), _Member(claude_kid)],
+    )
+    keys_repo = _FakeKeysRepo(
+        {
+            openai_kid: _Key(openai_kid, ApiKeyProvider.OPENAI),
+            claude_kid: _Key(claude_kid, ApiKeyProvider.CLAUDE),
+        }
+    )
+    router = _router(members_repo, keys_repo)
+
+    eligible = await router._load_eligible(
+        uuid.uuid4(), ProviderCapability.LLM_CHAT, provider=ApiKeyProvider.CLAUDE
+    )
+
+    assert [em.key.id for em in eligible] == [claude_kid]
+
+
+async def test_load_eligible_provider_none_preserves_current_behaviour() -> None:
+    openai_kid = uuid.uuid4()
+    claude_kid = uuid.uuid4()
+    members_repo = _FakeMembersRepo(
+        carried=[_Member(openai_kid), _Member(claude_kid)],
+        everything=[_Member(openai_kid), _Member(claude_kid)],
+    )
+    keys_repo = _FakeKeysRepo(
+        {
+            openai_kid: _Key(openai_kid, ApiKeyProvider.OPENAI),
+            claude_kid: _Key(claude_kid, ApiKeyProvider.CLAUDE),
+        }
+    )
+    router = _router(members_repo, keys_repo)
+
+    eligible = await router._load_eligible(uuid.uuid4(), ProviderCapability.LLM_CHAT, provider=None)
+
+    assert [em.key.id for em in eligible] == [openai_kid, claude_kid]

@@ -72,7 +72,7 @@ from contexts.keys.application.provider_router import (
     TokenDelta,
 )
 from contexts.keys.domain.errors import KeyGroupExhausted
-from contexts.keys.domain.providers import ProviderCapability
+from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.keys.interfaces.facade import KeysFacade
 from contexts.knowledge.application.graphrag_context_provider import (
@@ -184,12 +184,6 @@ AGENT_STREAM_TOKENS_TOTAL = Counter(
     registry=REGISTRY,
 )
 
-# Per-provider chat-model defaults — passed to the adapter as a ``models`` map.
-# When an agent has a ``model_id`` configured, ``_resolve_models`` overrides
-# the entry for that provider so the adapter uses the agent's chosen model.
-# Sourced from the agents domain so the runtime default and the default the
-# model-catalog API advertises to the UI stay in lock-step.
-_DEFAULT_CHAT_MODELS: dict[str, str] = dict(DEFAULT_CHAT_MODELS)
 _CONTEXT_LIMITS: dict[str, int] = dict(CONTEXT_LIMITS)
 
 
@@ -232,12 +226,10 @@ _PARTICIPANT_LABEL_NOTE = (
 )
 
 
-def _resolve_models(agent: Agent) -> dict[str, str]:
-    """Build the ``models`` map for a turn, applying agent-level overrides."""
-    models = dict(_DEFAULT_CHAT_MODELS)
-    if agent.model_id:
-        models[agent.model_hint.value] = agent.model_id
-    return models
+def _resolve_provider_and_model(agent: Agent) -> tuple[ApiKeyProvider, str]:
+    """Resolve the configured model with its required provider."""
+    provider = ApiKeyProvider(agent.model_hint.value)
+    return provider, agent.model_id or DEFAULT_CHAT_MODELS[provider.value]
 
 
 # Must exceed any realistic heartbeat-extended turn; the flag is popped
@@ -694,7 +686,20 @@ class TurnEngine:
             )
             await self._db.commit()
             return TurnResult(status="skipped", reason="key_group_scope")
-        models = _resolve_models(agent)
+        if await self._model_hint_unserviceable(agent):
+            await self._audit(
+                agent,
+                None,
+                "agent.turn_skipped",
+                {
+                    "reason": "model_hint_unserviceable",
+                    "model_hint": agent.model_hint.value,
+                    "key_group_id": str(agent.key_group_id),
+                },
+            )
+            await self._db.commit()
+            return TurnResult(status="skipped", reason="model_hint_unserviceable")
+        provider, model = _resolve_provider_and_model(agent)
         wf = str(workflow_run_id) if workflow_run_id else None
         pending_notes: list[dict[str, Any]] = []
         try:
@@ -873,7 +878,8 @@ class TurnEngine:
                 parent_agent_id=parent_agent_id,
                 system_text=system_text,
                 messages=messages,
-                models=models,
+                provider=provider,
+                model=model,
                 registry=registry,
                 room=None,
                 cancel_check=cancel_check,
@@ -1699,6 +1705,12 @@ class TurnEngine:
         group = await KeysFacade(self._db).get_key_group(agent.key_group_id)
         return group is None or group.project_id != agent.project_id
 
+    async def _model_hint_unserviceable(self, agent: Agent) -> bool:
+        """True when no carried key can serve the agent's configured provider."""
+        return not await KeysFacade(self._db).has_carried_provider_in_group(
+            agent.key_group_id, agent.model_hint.value
+        )
+
     async def _run_locked(
         self,
         *,
@@ -1747,6 +1759,25 @@ class TurnEngine:
                 await emit_agent_finished_error(chatroom_id, agent.id, "key_group_scope")
             return TurnResult(status="skipped", reason="key_group_scope")
         # Per-(agent, room) turn rate bucket — backstop against trigger storms.
+        if await self._model_hint_unserviceable(agent):
+            await self._audit(
+                agent,
+                chatroom_id,
+                "agent.turn_skipped",
+                {
+                    "reason": "model_hint_unserviceable",
+                    "model_hint": agent.model_hint.value,
+                    "key_group_id": str(agent.key_group_id),
+                },
+            )
+            await self._db.commit()
+            if is_observer:
+                await self._emit_observation_event(
+                    chatroom_id, agent.id, "observation.failed", {"kind": "model_hint_unserviceable"}
+                )
+            else:
+                await emit_agent_finished_error(chatroom_id, agent.id, "model_hint_unserviceable")
+            return TurnResult(status="skipped", reason="model_hint_unserviceable")
         if not await self._turn_rate_allowed(agent_id, chatroom_id):
             await self._audit(
                 agent,
@@ -1765,7 +1796,7 @@ class TurnEngine:
                 await emit_agent_finished_error(chatroom_id, agent.id, "rate_limited")
             return TurnResult(status="skipped", reason="rate_limited")
 
-        models = _resolve_models(agent)
+        provider, model = _resolve_provider_and_model(agent)
         context_limit = _context_limit_for(agent)
 
         # Observer turns get NO room channel at all (R28.01): every emit below
@@ -1866,7 +1897,7 @@ class TurnEngine:
                 + _DEFAULT_MAX_TOKENS
             )
             history = await self._assemble_history(
-                agent, chatroom_id, context_limit, models, extra_projected_tokens=prefix_tokens
+                agent, chatroom_id, context_limit, provider, model, extra_projected_tokens=prefix_tokens
             )
 
             ceiling = _request_ceiling(agent, context_limit)
@@ -2030,7 +2061,8 @@ class TurnEngine:
                         agent,
                         chatroom_id,
                         context_limit,
-                        models,
+                        provider,
+                        model,
                         extra_projected_tokens=non_history_prefix,
                     )
                     system_text, messages, rag_ctx, starved = await _assemble_request(history)
@@ -2109,7 +2141,8 @@ class TurnEngine:
                 parent_agent_id=parent_agent_id,
                 system_text=system_text,
                 messages=messages,
-                models=models,
+                provider=provider,
+                model=model,
                 registry=registry,
                 room=room,
             )
@@ -2485,7 +2518,8 @@ class TurnEngine:
         agent: Agent,
         chatroom_id: uuid.UUID,
         context_limit: int,
-        models: dict[str, str],
+        provider: ApiKeyProvider,
+        model: str,
         *,
         extra_projected_tokens: int = 0,
     ) -> list[tx.HistoryMessage]:
@@ -2546,7 +2580,8 @@ class TurnEngine:
             summariser = RouterSummariser(
                 router=self._router,
                 key_group_id=agent.key_group_id,
-                models=models,
+                provider=provider,
+                model=model,
                 agent_id=agent.id,
             )
             store = tx.MessagesTranscriptStore(self._db, chatroom_id=chatroom_id)
@@ -2594,7 +2629,8 @@ class TurnEngine:
             return False
         context_limit = _context_limit_for(agent)
         try:
-            await self._assemble_history(agent, chatroom_id, context_limit, _resolve_models(agent))
+            provider, model = _resolve_provider_and_model(agent)
+            await self._assemble_history(agent, chatroom_id, context_limit, provider, model)
             await self._db.commit()
             self._compact_forced_rooms.discard(chatroom_id)
             return True
@@ -2641,7 +2677,8 @@ class TurnEngine:
         parent_agent_id: uuid.UUID | None,
         system_text: str,
         messages: list[dict[str, Any]],
-        models: dict[str, str],
+        provider: ApiKeyProvider,
+        model: str,
         registry: Any,
         room: str | None,
         cancel_check: CancelCheck | None = None,
@@ -2652,7 +2689,7 @@ class TurnEngine:
             if cancel_check is not None and await cancel_check():
                 raise _TurnCancelled(rounds - 1)
             payload: dict[str, Any] = {
-                "models": models,
+                "model": model,
                 "system": system_text,
                 "messages": messages,
                 "max_tokens": _DEFAULT_MAX_TOKENS,
@@ -2665,6 +2702,7 @@ class TurnEngine:
             request = ProviderRequest(
                 capability=ProviderCapability.LLM_CHAT,
                 payload=payload,
+                provider=provider,
                 agent_id=agent.id,
                 parent_agent_id=parent_agent_id,
                 chatroom_id=chatroom_id,
@@ -2729,7 +2767,7 @@ class TurnEngine:
             else:
                 final_messages.append(m)
         final_payload: dict[str, Any] = {
-            "models": models,
+            "model": model,
             "system": system_text,
             "messages": final_messages,
             "max_tokens": _DEFAULT_MAX_TOKENS,
@@ -2740,6 +2778,7 @@ class TurnEngine:
         final_request = ProviderRequest(
             capability=ProviderCapability.LLM_CHAT,
             payload=final_payload,
+            provider=provider,
             agent_id=agent.id,
             parent_agent_id=parent_agent_id,
             chatroom_id=chatroom_id,

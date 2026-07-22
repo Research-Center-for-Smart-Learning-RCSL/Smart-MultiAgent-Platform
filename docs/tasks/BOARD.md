@@ -70,11 +70,6 @@ parallel.
   delivered to the model as a successful empty result, because the proxy deliberately does not
   follow redirects and the caller drops the `Location` header. Application-layer only; the
   egress proxy is explicitly not modified.
-- `2026-07-22-model-hint-provider-routing` (bugfix, draft) — `depends_on: []`. From
-  `docs/audits/2026-07-22-agent-config-runtime/` F-2 (critical): an agent's `model_hint` does
-  not constrain provider routing, so a mixed-provider key group silently runs the agent on a
-  different provider and model. Touches `contexts/keys` routing, `turn_engine.py` model
-  resolution and payload construction, and `summariser.py`; no migration.
 - `2026-07-22-join-epoch-loop-reentry` (bugfix, draft) — `depends_on: []`. a2a F-11: an `any`/`count`
   join reached by a loop back-edge fires once and stalls, because the one-shot latch is claimed at
   `fire_threshold` arrivals and released only at `total_branches`. Folds in an ALL-mode deadlock the
@@ -165,5 +160,6 @@ Nothing blocked.
 
 ## In progress
 
+- `2026-07-22-model-hint-provider-routing` (bugfix) — `depends_on: []`.
 - `2026-07-22-workflow-run-cancellation` (bugfix) — `depends_on: []`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.

@@ -123,7 +123,7 @@ def _headless_engine(monkeypatch, agent, *, member=True, drain=None):
 # --------------------------------------------------------------------------- #
 
 
-def _wire_engine(monkeypatch, agent, *, drain=None, member=True, group="match"):
+def _wire_engine(monkeypatch, agent, *, drain=None, member=True, group="match", hint_serviceable=True):
     """``group`` mirrors ``test_no_response_notices.py``'s ``_wire_locked``: 'match'
     (key group OK — what every pre-existing test here means), 'mismatch' (wrong
     project), 'none' (deleted)."""
@@ -155,6 +155,9 @@ def _wire_engine(monkeypatch, agent, *, drain=None, member=True, group="match"):
 
         async def get_key_group(self, kgid):
             return grp
+
+        async def has_carried_provider_in_group(self, kgid, provider):
+            return hint_serviceable
 
     monkeypatch.setattr(te, "KeysFacade", _KeysFacade)
 
@@ -676,6 +679,24 @@ async def test_run_input_turn_key_group_cross_project_skips(monkeypatch) -> None
         "agent.turn_skipped",
         {"reason": "key_group_scope", "key_group_id": str(agent.key_group_id)},
     )
+
+
+# --------------------------------------------------------------------------- #
+# model-hint routing
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_skips_when_model_hint_is_unserviceable(monkeypatch) -> None:
+    agent = _agent()
+    engine, captured = _headless_engine(monkeypatch, agent)
+    _wire_engine(monkeypatch, agent, hint_serviceable=False)
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    assert result.status == "skipped"
+    assert result.reason == "model_hint_unserviceable"
+    assert captured == {}
 
 
 # --------------------------------------------------------------------------- #

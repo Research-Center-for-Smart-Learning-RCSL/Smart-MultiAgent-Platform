@@ -801,6 +801,9 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
         async def get_key_group(self, kgid):
             return SimpleNamespace(project_id=agent.project_id)
 
+        async def has_carried_provider_in_group(self, kgid, provider):
+            return True
+
     monkeypatch.setattr(te, "KeysFacade", _KeysFacade)
 
     class _BoomMessageService:
@@ -850,7 +853,7 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
     async def _true(*a, **k):
         return True
 
-    async def _history(agent_, chatroom_id, context_limit, models, *, extra_projected_tokens=0):
+    async def _history(agent_, chatroom_id, context_limit, provider, model, *, extra_projected_tokens=0):
         return [
             SimpleNamespace(
                 role="user", content="hello", sender_id=uuid.uuid4(), id=uuid.uuid4(), token_count=2
@@ -1010,7 +1013,9 @@ async def test_observer_turn_no_input_emits_observation_skipped(monkeypatch) -> 
     creator = uuid.uuid4()
     engine, _recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
 
-    async def _empty_history(agent_, chatroom_id, context_limit, models, *, extra_projected_tokens=0):
+    async def _empty_history(
+        agent_, chatroom_id, context_limit, provider, model, *, extra_projected_tokens=0
+    ):
         return []
 
     engine._assemble_history = _empty_history  # type: ignore[attr-defined]

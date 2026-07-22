@@ -35,7 +35,12 @@ class _FakeDB:
 
 
 def _locked_agent():
-    return SimpleNamespace(id=uuid.uuid4(), key_group_id=uuid.uuid4(), project_id=uuid.uuid4())
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        model_hint=SimpleNamespace(value="claude"),
+    )
 
 
 def _wire_locked(
@@ -45,6 +50,7 @@ def _wire_locked(
     bound: bool = True,
     group: str = "match",
     rate_ok: bool = True,
+    hint_serviceable: bool = True,
 ):
     """Wire ``_run_locked``'s early guards to fakes and capture WS emits.
 
@@ -91,6 +97,9 @@ def _wire_locked(
 
         async def get_key_group(self, kgid):
             return grp
+
+        async def has_carried_provider_in_group(self, kgid, provider):
+            return hint_serviceable
 
     monkeypatch.setattr(te, "KeysFacade", _KeysFacade)
 
@@ -165,6 +174,16 @@ async def test_key_group_scope_emits_on_any_trigger(monkeypatch) -> None:
     result = await _run_locked(engine, trigger="every_n_messages")
     assert result.reason == "key_group_scope"
     assert emitted[0][1]["error"] == "key_group_scope"
+
+
+@pytest.mark.asyncio
+async def test_model_hint_unserviceable_emits_on_any_trigger(monkeypatch) -> None:
+    engine, emitted = _wire_locked(monkeypatch, agent=_locked_agent(), hint_serviceable=False)
+
+    result = await _run_locked(engine, trigger="every_n_messages")
+
+    assert result.reason == "model_hint_unserviceable"
+    assert emitted[0][1]["error"] == "model_hint_unserviceable"
 
 
 @pytest.mark.asyncio

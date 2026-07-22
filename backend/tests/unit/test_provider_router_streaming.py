@@ -83,8 +83,10 @@ class _StreamAdapter:
     def __init__(self, provider: ApiKeyProvider, events: list) -> None:
         self.provider = provider
         self._events = events
+        self.requests: list[ProviderRequest] = []
 
     async def stream(self, *, secret: str, request: ProviderRequest):
+        self.requests.append(request)
         for ev in self._events:
             if isinstance(ev, BaseException):
                 raise ev
@@ -92,6 +94,17 @@ class _StreamAdapter:
 
     async def invoke(self, *, secret: str, request: ProviderRequest) -> ProviderCallResult:
         return self._events[0].result  # only used by single-key tests
+
+
+class _SequenceStreamAdapter(_StreamAdapter):
+    def __init__(self, provider: ApiKeyProvider, batches: list[list]) -> None:
+        super().__init__(provider, [])
+        self._batches = batches
+
+    async def stream(self, *, secret: str, request: ProviderRequest):
+        self.requests.append(request)
+        for event in self._batches.pop(0):
+            yield event
 
 
 def _make_router(monkeypatch, adapters, members, keys) -> tuple[ProviderRouter, list[dict]]:
@@ -175,6 +188,76 @@ async def test_stream_rotates_before_first_token(monkeypatch) -> None:
     assert [e.text for e in events if isinstance(e, TokenDelta)] == ["ok"]
     # Both the failed (500) and the succeeding (200) call were accounted.
     assert {r["http_status"] for r in recorded} == {500, 200}
+
+
+@pytest.mark.asyncio
+async def test_stream_does_not_route_to_unhinted_provider(monkeypatch) -> None:
+    openai_kid, claude_kid = uuid.uuid4(), uuid.uuid4()
+    openai = _StreamAdapter(
+        ApiKeyProvider.OPENAI,
+        [TokenDelta("wrong"), StreamComplete(ProviderCallResult(200, {"text": "wrong"}))],
+    )
+    claude = _StreamAdapter(
+        ApiKeyProvider.CLAUDE,
+        [TokenDelta("right"), StreamComplete(ProviderCallResult(200, {"text": "right"}))],
+    )
+    router, _ = _make_router(
+        monkeypatch,
+        {ApiKeyProvider.OPENAI: openai, ApiKeyProvider.CLAUDE: claude},
+        [_Member(openai_kid), _Member(claude_kid)],
+        {
+            openai_kid: _Key(openai_kid, ApiKeyProvider.OPENAI),
+            claude_kid: _Key(claude_kid, ApiKeyProvider.CLAUDE),
+        },
+    )
+    request = ProviderRequest(
+        capability=ProviderCapability.LLM_CHAT,
+        payload={"model": "claude-opus-4-8", "messages": []},
+        provider=ApiKeyProvider.CLAUDE,
+    )
+
+    events = await _drain(router.call_stream(group_id=uuid.uuid4(), request=request))
+
+    assert [event.text for event in events if isinstance(event, TokenDelta)] == ["right"]
+    assert openai.requests == []
+    assert claude.requests == [request]
+
+
+@pytest.mark.asyncio
+async def test_429_rotation_stays_within_provider(monkeypatch) -> None:
+    claude_a, openai, claude_b = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    claude_adapter = _SequenceStreamAdapter(
+        ApiKeyProvider.CLAUDE,
+        [
+            [StreamComplete(ProviderCallResult(429, {"error": "rate limited"}))],
+            [TokenDelta("ok"), StreamComplete(ProviderCallResult(200, {"text": "ok"}))],
+        ],
+    )
+    openai_adapter = _StreamAdapter(
+        ApiKeyProvider.OPENAI,
+        [TokenDelta("wrong"), StreamComplete(ProviderCallResult(200, {"text": "wrong"}))],
+    )
+    router, _ = _make_router(
+        monkeypatch,
+        {ApiKeyProvider.CLAUDE: claude_adapter, ApiKeyProvider.OPENAI: openai_adapter},
+        [_Member(claude_a), _Member(openai), _Member(claude_b)],
+        {
+            claude_a: _Key(claude_a, ApiKeyProvider.CLAUDE),
+            openai: _Key(openai, ApiKeyProvider.OPENAI),
+            claude_b: _Key(claude_b, ApiKeyProvider.CLAUDE),
+        },
+    )
+    request = ProviderRequest(
+        capability=ProviderCapability.LLM_CHAT,
+        payload={"model": "claude-opus-4-8", "messages": []},
+        provider=ApiKeyProvider.CLAUDE,
+    )
+
+    events = await _drain(router.call_stream(group_id=uuid.uuid4(), request=request))
+
+    assert [event.text for event in events if isinstance(event, TokenDelta)] == ["ok"]
+    assert len(claude_adapter.requests) == 2
+    assert openai_adapter.requests == []
 
 
 @pytest.mark.asyncio

@@ -20,6 +20,7 @@ from contexts.keys.application.provider_router import (
     StreamComplete,
     TokenDelta,
 )
+from contexts.keys.domain.providers import ApiKeyProvider
 
 
 class _FakeRouter:
@@ -65,6 +66,21 @@ class _FakeRegistry:
         return ToolResult(content='{"ok": true}')
 
 
+def test_resolve_provider_and_model_uses_agent_override_or_provider_default() -> None:
+    agent = SimpleNamespace(model_hint=SimpleNamespace(value="claude"), model_id="claude-opus-4-8")
+
+    provider, model = te._resolve_provider_and_model(agent)
+
+    assert provider is ApiKeyProvider.CLAUDE
+    assert model == "claude-opus-4-8"
+
+    agent.model_id = None
+    provider, model = te._resolve_provider_and_model(agent)
+
+    assert provider is ApiKeyProvider.CLAUDE
+    assert model == "claude-sonnet-4-6"
+
+
 @pytest.mark.asyncio
 async def test_stream_with_tools_runs_one_tool_round(monkeypatch) -> None:
     events: list = []
@@ -92,7 +108,8 @@ async def test_stream_with_tools_runs_one_tool_round(monkeypatch) -> None:
         parent_agent_id=None,
         system_text="sys",
         messages=messages,
-        models={"claude": "m"},
+        provider=ApiKeyProvider.CLAUDE,
+        model="m",
         registry=registry,
         room="room",
     )
@@ -116,6 +133,10 @@ async def test_stream_with_tools_runs_one_tool_round(monkeypatch) -> None:
     # The second request carried the tool result back to the provider.
     assert engine._router.rounds == 2  # type: ignore[attr-defined]
     assert engine._router.requests[1].payload["messages"][-1]["role"] == "tool"  # type: ignore[attr-defined]
+    for request in engine._router.requests:  # type: ignore[attr-defined]
+        assert request.provider is ApiKeyProvider.CLAUDE
+        assert request.payload["model"] == "m"
+        assert "models" not in request.payload
 
 
 @pytest.mark.asyncio
@@ -147,12 +168,62 @@ async def test_stream_with_tools_no_tools_single_round(monkeypatch) -> None:
         parent_agent_id=None,
         system_text="sys",
         messages=[{"role": "user", "content": "hi"}],
-        models={"claude": "m"},
+        provider=ApiKeyProvider.CLAUDE,
+        model="m",
         registry=_FakeRegistry(),
         room="room",
     )
     assert text == "hi there"
     assert rounds == 0
+
+
+@pytest.mark.asyncio
+async def test_final_no_tools_call_carries_the_same_provider_and_model() -> None:
+    class _ToolRoundRouter:
+        def __init__(self) -> None:
+            self.requests: list = []
+
+        async def call_stream(self, *, group_id, request):
+            self.requests.append(request)
+            if len(self.requests) <= te.MAX_TOOL_ROUNDS:
+                yield StreamComplete(
+                    ProviderCallResult(
+                        200,
+                        {
+                            "text": "",
+                            "tool_calls": [{"id": "t1", "name": "update_wakeup", "arguments": {}}],
+                            "finish_reason": "tool_use",
+                        },
+                    )
+                )
+            else:
+                yield StreamComplete(ProviderCallResult(200, {"text": "final"}))
+
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._router = _ToolRoundRouter()  # type: ignore[attr-defined]
+    agent = SimpleNamespace(
+        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None
+    )
+
+    text, rounds = await engine._stream_with_tools(
+        agent=agent,
+        chatroom_id=uuid.uuid4(),
+        parent_agent_id=None,
+        system_text="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        provider=ApiKeyProvider.CLAUDE,
+        model="claude-opus-4-8",
+        registry=_FakeRegistry(),
+        room=None,
+    )
+
+    assert text == "final"
+    assert rounds == te.MAX_TOOL_ROUNDS
+    assert len(engine._router.requests) == te.MAX_TOOL_ROUNDS + 1  # type: ignore[attr-defined]
+    final_request = engine._router.requests[-1]  # type: ignore[attr-defined]
+    assert final_request.provider is ApiKeyProvider.CLAUDE
+    assert final_request.payload["model"] == "claude-opus-4-8"
+    assert "models" not in final_request.payload
 
 
 def test_knowledge_queries_include_recent_context() -> None:

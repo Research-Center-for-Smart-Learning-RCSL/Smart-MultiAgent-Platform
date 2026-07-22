@@ -12,7 +12,7 @@ import uuid
 
 from contexts.agents.application.context import MessageLike
 from contexts.keys.application.provider_router import ProviderRequest, ProviderRouter
-from contexts.keys.domain.providers import ProviderCapability
+from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability
 
 _SYSTEM_PROMPT = (
     "You are a context compaction engine. Summarise the conversation excerpt "
@@ -34,24 +34,27 @@ class RouterSummariser:
         *,
         router: ProviderRouter,
         key_group_id: uuid.UUID,
-        models: dict[str, str],
+        provider: ApiKeyProvider,
+        model: str,
         agent_id: uuid.UUID | None = None,
     ) -> None:
         self._router = router
         self._key_group_id = key_group_id
-        self._models = models
+        self._provider = provider
+        self._model = model
         self._agent_id = agent_id
 
     async def summarise(self, messages: list[MessageLike], *, max_tokens: int = 2000) -> str:
         request = ProviderRequest(
             capability=ProviderCapability.LLM_CHAT,
             payload={
-                "models": self._models,
+                "model": self._model,
                 "system": _SYSTEM_PROMPT,
                 "max_tokens": max_tokens,
                 "messages": [{"role": "user", "content": _render(messages)}],
             },
             agent_id=self._agent_id,
+            provider=self._provider,
         )
         result = await self._router.call(group_id=self._key_group_id, request=request)
         if result.http_status != 200:

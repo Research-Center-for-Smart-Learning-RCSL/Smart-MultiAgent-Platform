@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-07-22
 requirements: []
 depends_on: []
@@ -350,21 +350,21 @@ the population that would break is knowable in advance.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: `test_load_eligible_filters_to_requested_provider` (§8) fails against current code
+- [x] AC-1: `test_load_eligible_filters_to_requested_provider` (§8) fails against current code
       and passes after the fix.
-- [ ] AC-2: an agent bound to a mixed-provider key group runs its turn on the provider named
+- [x] AC-2: an agent bound to a mixed-provider key group runs its turn on the provider named
       by `model_hint`, regardless of member priority order.
-- [ ] AC-3: the provider payload carries a single `"model"` equal to the agent's `model_id`
+- [x] AC-3: the provider payload carries a single `"model"` equal to the agent's `model_id`
       (or that provider's default when unset), and no `"models"` map.
-- [ ] AC-4: the final no-tools synthesis call uses the same provider and model as the tool
+- [x] AC-4: the final no-tools synthesis call uses the same provider and model as the tool
       rounds of the same turn.
-- [ ] AC-5: a 429 on one key rotates only to keys of the same provider; the agent's model
+- [x] AC-5: a 429 on one key rotates only to keys of the same provider; the agent's model
       never changes mid-conversation.
-- [ ] AC-6: when the bound group holds no carried key of the hinted provider, the turn is
+- [x] AC-6: when the bound group holds no carried key of the hinted provider, the turn is
       skipped with `agent.turn_skipped {reason: "model_hint_unserviceable"}`, a room-visible
       error is emitted, and **no** provider call is made.
-- [ ] AC-7: `RouterSummariser` issues its request with a pinned provider and a scalar model.
-- [ ] AC-8: `provider=None` preserves current routing behaviour exactly — the GraphRAG and
+- [x] AC-7: `RouterSummariser` issues its request with a pinned provider and a scalar model.
+- [x] AC-8: `provider=None` preserves current routing behaviour exactly — the GraphRAG and
       Knowledge Map triple extractors are unaffected, pinned by a test that passes both before
       and after.
 - [ ] AC-9: the pre-deploy detection query in §7 runs and its result is recorded in the
