@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import uuid
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -62,6 +63,64 @@ class _FakeRedis:
         # No TTL tracking — claims behave as persistent (-1); restore paths
         # then fall back to their default restore TTL.
         return -1 if key in self.kv else -2
+
+
+def _approval_gate_node(*, chatroom_id: uuid.UUID | None = None):
+    config = {
+        "mode": "single",
+        "leader_agent_id": str(uuid.uuid4()),
+        "approvers": [],
+    }
+    if chatroom_id is not None:
+        config["chatroom_id"] = str(chatroom_id)
+    from contexts.workflow.domain.models import NodeSpec
+
+    return NodeSpec(id="gate1", type=NodeType.APPROVAL_GATE, config=config)
+
+
+def _wire_approval_gate(monkeypatch, *, room_project_id):
+    from contexts.workflow.application.executors import approval_gate as ag
+
+    captured: dict[str, Any] = {
+        "created": [],
+        "emitted": [],
+        "audits": [],
+        "scope_calls": [],
+        "redis": _FakeRedis(),
+    }
+
+    class _FakeFacade:
+        def __init__(self, db):
+            pass
+
+        async def create_approval_gate(self, **kwargs):
+            captured["created"].append(kwargs)
+            return SimpleNamespace(id=uuid.uuid4())
+
+    class _FakeConversationFacade:
+        def __init__(self, db):
+            pass
+
+        async def resolve_chatroom_scope(self, chatroom_id):
+            captured["scope_calls"].append(chatroom_id)
+            return room_project_id
+
+    class _Publisher:
+        def __init__(self, channel):
+            pass
+
+        async def emit(self, event, payload):
+            captured["emitted"].append((event, payload))
+
+    async def _audit_emit(db, event):
+        captured["audits"].append(event)
+
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _FakeFacade)
+    monkeypatch.setattr("contexts.conversation.interfaces.facade.ConversationFacade", _FakeConversationFacade)
+    monkeypatch.setattr("shared_kernel.auth.clients.get_redis", lambda: captured["redis"])
+    monkeypatch.setattr(ag, "Publisher", _Publisher)
+    monkeypatch.setattr(ag.audit, "emit", _audit_emit)
+    return ag, captured
 
 
 def _seed_wait(redis: _FakeRedis, run_id: str, node_id: str, event_type: str, match: dict) -> None:
@@ -145,6 +204,201 @@ async def test_approval_gate_builds_config_and_registers_claim(monkeypatch) -> N
     # resume claim key registered with (run_id, node_id).
     claim = json.loads(fake_redis.kv[f"wf:approval:{approval_id}"])
     assert claim == {"run_id": str(ctx.run_id), "node_id": "gate1"}
+
+
+async def test_approval_gate_rejects_trigger_payload_room_outside_run_project(monkeypatch) -> None:
+    from contexts.workflow.domain.models import RunContext, StepState
+
+    run_project_id = uuid.uuid4()
+    room_id = uuid.uuid4()
+    ag, captured = _wire_approval_gate(monkeypatch, room_project_id=uuid.uuid4())
+    ctx = RunContext(
+        run_id=uuid.uuid4(),
+        workflow_id=uuid.uuid4(),
+        workflow_def={},
+        variables={},
+        project_id=run_project_id,
+        trigger_payload={"chatroom_id": str(room_id)},
+    )
+
+    outcome = await ag.execute(ctx, _approval_gate_node(), MagicMock())
+
+    assert outcome.state == StepState.FAILED
+    assert captured["created"] == []
+    assert captured["redis"].kv == {}
+    assert captured["emitted"] == []
+
+
+async def test_approval_gate_rejects_config_room_outside_project(monkeypatch) -> None:
+    from contexts.workflow.domain.models import RunContext, StepState
+
+    project_id = uuid.uuid4()
+    room_id = uuid.uuid4()
+    ag, captured = _wire_approval_gate(monkeypatch, room_project_id=uuid.uuid4())
+
+    outcome = await ag.execute(
+        RunContext(
+            run_id=uuid.uuid4(),
+            workflow_id=uuid.uuid4(),
+            workflow_def={},
+            variables={},
+            project_id=project_id,
+        ),
+        _approval_gate_node(chatroom_id=room_id),
+        MagicMock(),
+    )
+
+    assert outcome.state == StepState.FAILED
+    assert captured["created"] == []
+    assert captured["redis"].kv == {}
+    assert captured["emitted"] == []
+
+
+async def test_approval_gate_rejects_unknown_or_deleted_room(monkeypatch) -> None:
+    from contexts.workflow.domain.models import RunContext, StepState
+
+    room_id = uuid.uuid4()
+    ag, captured = _wire_approval_gate(monkeypatch, room_project_id=None)
+
+    outcome = await ag.execute(
+        RunContext(
+            run_id=uuid.uuid4(),
+            workflow_id=uuid.uuid4(),
+            workflow_def={},
+            variables={},
+            project_id=uuid.uuid4(),
+            trigger_payload={"chatroom_id": str(room_id)},
+        ),
+        _approval_gate_node(),
+        MagicMock(),
+    )
+
+    assert outcome.state == StepState.FAILED
+    assert "unknown or deleted" in outcome.error
+    assert captured["created"] == []
+    assert captured["redis"].kv == {}
+    assert captured["emitted"] == []
+
+
+async def test_approval_gate_rejects_room_when_run_project_is_unavailable(monkeypatch) -> None:
+    from contexts.workflow.domain.models import RunContext, StepState
+
+    room_id = uuid.uuid4()
+    ag, captured = _wire_approval_gate(monkeypatch, room_project_id=uuid.uuid4())
+
+    outcome = await ag.execute(
+        RunContext(
+            run_id=uuid.uuid4(),
+            workflow_id=uuid.uuid4(),
+            workflow_def={},
+            variables={},
+            trigger_payload={"chatroom_id": str(room_id)},
+        ),
+        _approval_gate_node(),
+        MagicMock(),
+    )
+
+    assert outcome.state == StepState.FAILED
+    assert "project could not be resolved" in outcome.error
+    assert captured["created"] == []
+
+
+async def test_approval_gate_rejects_malformed_room_instead_of_ignoring_it(monkeypatch) -> None:
+    from contexts.workflow.domain.models import RunContext, StepState
+
+    ag, captured = _wire_approval_gate(monkeypatch, room_project_id=uuid.uuid4())
+
+    outcome = await ag.execute(
+        RunContext(
+            run_id=uuid.uuid4(),
+            workflow_id=uuid.uuid4(),
+            workflow_def={},
+            variables={},
+            project_id=uuid.uuid4(),
+            trigger_payload={"chatroom_id": "not-a-uuid"},
+        ),
+        _approval_gate_node(),
+        MagicMock(),
+    )
+
+    assert outcome.state == StepState.FAILED
+    assert "valid UUID" in outcome.error
+    assert captured["scope_calls"] == []
+    assert captured["created"] == []
+
+
+async def test_approval_gate_room_rejection_is_audited(monkeypatch) -> None:
+    from contexts.workflow.domain.models import RunContext
+
+    project_id = uuid.uuid4()
+    room_id = uuid.uuid4()
+    ag, captured = _wire_approval_gate(monkeypatch, room_project_id=uuid.uuid4())
+    ctx = RunContext(
+        run_id=uuid.uuid4(),
+        workflow_id=uuid.uuid4(),
+        workflow_def={},
+        variables={},
+        project_id=project_id,
+        trigger_payload={"chatroom_id": str(room_id)},
+    )
+
+    await ag.execute(ctx, _approval_gate_node(), MagicMock())
+
+    assert len(captured["audits"]) == 1
+    event = captured["audits"][0]
+    assert event.action == "approval.gate_room_rejected"
+    assert event.metadata["workflow_run_id"] == str(ctx.run_id)
+    assert event.metadata["requested_chatroom_id"] == str(room_id)
+    assert event.metadata["project_id"] == str(project_id)
+
+
+async def test_approval_gate_accepts_trigger_payload_room_in_run_project(monkeypatch) -> None:
+    from contexts.workflow.domain.models import RunContext, StepState
+
+    project_id = uuid.uuid4()
+    room_id = uuid.uuid4()
+    ag, captured = _wire_approval_gate(monkeypatch, room_project_id=project_id)
+
+    outcome = await ag.execute(
+        RunContext(
+            run_id=uuid.uuid4(),
+            workflow_id=uuid.uuid4(),
+            workflow_def={},
+            variables={},
+            project_id=project_id,
+            trigger_payload={"chatroom_id": str(room_id)},
+        ),
+        _approval_gate_node(),
+        MagicMock(),
+    )
+
+    assert outcome.state == StepState.RUNNING
+    assert outcome.park is True
+    assert captured["created"][0]["chatroom_id"] == room_id
+    assert captured["redis"].kv
+    assert captured["scope_calls"] == [room_id]
+
+
+async def test_approval_gate_without_room_stays_headless(monkeypatch) -> None:
+    from contexts.workflow.domain.models import RunContext, StepState
+
+    ag, captured = _wire_approval_gate(monkeypatch, room_project_id=uuid.uuid4())
+
+    outcome = await ag.execute(
+        RunContext(
+            run_id=uuid.uuid4(),
+            workflow_id=uuid.uuid4(),
+            workflow_def={},
+            variables={},
+        ),
+        _approval_gate_node(),
+        MagicMock(),
+    )
+
+    assert outcome.state == StepState.RUNNING
+    assert outcome.park is True
+    assert captured["created"][0]["chatroom_id"] is None
+    assert captured["scope_calls"] == []
 
 
 async def test_approval_gate_failure_returns_timeout_port(monkeypatch) -> None:

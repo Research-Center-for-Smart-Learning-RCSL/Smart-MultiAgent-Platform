@@ -246,6 +246,7 @@ async def test_resume_losing_transition_does_not_seal_or_advance(monkeypatch) ->
         trigger_type="manual",
     )
     engine._runs.get = AsyncMock(return_value=run)
+    engine._runs.get_project_id = AsyncMock(return_value=uuid.uuid4())
     engine._runs.update_state = AsyncMock(return_value=False)
     engine._db.execute = AsyncMock()
     engine._advance_from = AsyncMock()  # type: ignore[method-assign]
