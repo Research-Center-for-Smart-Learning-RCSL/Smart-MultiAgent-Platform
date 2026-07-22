@@ -16,6 +16,20 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+- `2026-07-22-egress-allowlist-provisioning` (bugfix, draft) — `depends_on: []`. From
+  `docs/audits/2026-07-22-agent-config-runtime/` F-9 (major): nothing ever seeds the egress
+  allowlist, so `web_search` — enabled by default — is denied on first use in every new
+  project. **Carries a non-empty SRS Delta**: the fix seeds one hostname on search-key
+  activation rather than four per project, which requires amending `[R12.16]` at approval.
+  Includes a derived, insert-only backfill migration.
+- `2026-07-22-prompt-assistant-delivery-recovery` (bugfix, draft) — `depends_on: []`. From
+  `docs/audits/2026-07-22-agent-config-runtime/` F-13 (major): the prompt-assistant channel has
+  no durable read side, so a lost frame loses a paid-for reply and can permanently disable the
+  composer. Adds a session read endpoint, refetch-on-connect, and a watchdog.
+- `2026-07-22-reingest-allowlist-propagation` (bugfix, draft) — `depends_on: []`. From
+  `docs/audits/2026-07-22-agent-config-runtime/` F-11 (major): re-uploading a document discards
+  the submitted per-agent allowlist on all four ingestion entry points, so the retry path cannot
+  correct a wrong binding. Backend plus a frontend 409 handler.
 - `2026-07-22-egress-redirect-classification` (bugfix, draft) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-config-runtime/` F-10 (major): a 3xx from a function tool is
   delivered to the model as a successful empty result, because the proxy deliberately does not
