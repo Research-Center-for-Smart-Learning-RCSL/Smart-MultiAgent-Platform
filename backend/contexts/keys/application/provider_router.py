@@ -82,6 +82,9 @@ class ProviderRequest:
     agent_id: uuid.UUID | None = None
     parent_agent_id: uuid.UUID | None = None
     chatroom_id: uuid.UUID | None = None
+    # When set, restrict group rotation to this provider. Agent turns use this
+    # to make their configured model provider an invariant rather than a hint.
+    provider: ApiKeyProvider | None = None
     # Non-agent traffic discriminator recorded on the usage event (e.g.
     # 'prompt_assistant'); NULL for ordinary agent/chatroom calls.
     usage_context: str | None = None
@@ -345,9 +348,11 @@ class ProviderRouter:
         If any member is still quota-blocked → sleep & re-poll until
         `queue_wait_seconds` → `KeyGroupExhausted("quota")`.
         """
-        members = await self._load_eligible(group_id, request.capability)
+        members = await self._load_eligible(group_id, request.capability, provider=request.provider)
         if not members:
-            raise KeyGroupExhausted(group_id=group_id, reason="no_members")
+            reason = "provider_unavailable" if request.provider is not None else "no_members"
+            KEY_GROUP_EXHAUSTED_TOTAL.labels(reason=reason).inc()
+            raise KeyGroupExhausted(group_id=group_id, reason=reason)
 
         state: dict[uuid.UUID, _MemberState] = {em.key.id: _MemberState() for em in members}
         quota_deadline = time.monotonic() + self._config.queue_wait_seconds
@@ -413,9 +418,11 @@ class ProviderRouter:
         Yields `TokenDelta` events followed by one terminal `StreamComplete`.
         Raises `KeyGroupExhausted` if no member can serve the request.
         """
-        members = await self._load_eligible(group_id, request.capability)
+        members = await self._load_eligible(group_id, request.capability, provider=request.provider)
         if not members:
-            raise KeyGroupExhausted(group_id=group_id, reason="no_members")
+            reason = "provider_unavailable" if request.provider is not None else "no_members"
+            KEY_GROUP_EXHAUSTED_TOTAL.labels(reason=reason).inc()
+            raise KeyGroupExhausted(group_id=group_id, reason=reason)
 
         quota_blocked = False
         for em in members:
@@ -734,7 +741,11 @@ class ProviderRouter:
     # -----------------------------------------------------------------
 
     async def _load_eligible(
-        self, group_id: uuid.UUID, capability: ProviderCapability
+        self,
+        group_id: uuid.UUID,
+        capability: ProviderCapability,
+        *,
+        provider: ApiKeyProvider | None = None,
     ) -> list[_EligibleMember]:
         # SEC-H3: `list_ordered_carried` (not `list_ordered`) requires an
         # active `key_projects` carry into the group's project, so a withdrawn
@@ -749,6 +760,8 @@ class ProviderRouter:
             if key is None:
                 continue
             if capability not in _CAPS[key.provider]:
+                continue
+            if provider is not None and key.provider is not provider:
                 continue
             eligible.append(_EligibleMember(member=m, key=key))
         return eligible

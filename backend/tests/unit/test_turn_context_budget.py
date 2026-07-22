@@ -23,6 +23,7 @@ import pytest
 
 import contexts.agents.application.runtime.turn_engine as te
 from contexts.agents.application.context import KnowledgeBudget
+from contexts.keys.domain.providers import ApiKeyProvider
 
 
 def _async_return(value):
@@ -175,7 +176,9 @@ async def test_assemble_history_budgets_the_next_request_not_history_alone(monke
         context_mode=SimpleNamespace(value="compact"),
         context_token_cap=1000,
     )
-    out = await engine._assemble_history(agent, uuid.uuid4(), 128_000, {}, extra_projected_tokens=800)
+    out = await engine._assemble_history(
+        agent, uuid.uuid4(), 128_000, ApiKeyProvider.CLAUDE, "claude-opus-4-8", extra_projected_tokens=800
+    )
 
     # F-17: the compaction decision sees history (500) + the non-knowledge
     # prefix (800), not history alone — so a large prompt/tool prefix can trigger
