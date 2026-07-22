@@ -16,6 +16,23 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+- `2026-07-22-compaction-scoping-and-durability` (bugfix, draft) — `depends_on: []`. From
+  `docs/audits/2026-07-22-agent-config-runtime/` F-5, F-7, F-15 (all major): one agent's
+  compaction truncates every other agent's history in the room (violating `[R9.09]`), an empty
+  summary is accepted and permanently elides its range, and the compaction lock is released
+  before the summary commits. Three independent defects on one change surface; includes a
+  dry-run repair command. Two open decisions for the user in §3 (Q-7 legacy rows, Q-8 the
+  room-level `/compact` flag). Coordinate with the a2a audit's turn-locking dossier.
+- `2026-07-22-tool-dispatch-failure-categories` (bugfix, draft) — `depends_on: []`. From
+  `docs/audits/2026-07-22-agent-config-runtime/` F-6, F-16, F-17 (all major): a tool's DB
+  failure poisons the turn session and destroys an already-streamed reply, truncated tool-call
+  JSON silently becomes empty arguments, and a failed final synthesis is persisted as the
+  answer. Six sequenced commits; needs one empirical check before the design is fixed (§3 Q-2).
+- `2026-07-22-mcp-tool-contract` (bugfix, draft) — `depends_on: []`. From
+  `docs/audits/2026-07-22-agent-config-runtime/` F-12, F-14 (both major): MCP bindings store
+  opaque strings, so tools are advertised with no parameter schema and an unvalidated tool name
+  can brick every turn for an agent. One shared root cause; migration 0062 plus a driver change.
+  Ship driver-first.
 - `2026-07-22-egress-allowlist-provisioning` (bugfix, draft) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-config-runtime/` F-9 (major): nothing ever seeds the egress
   allowlist, so `web_search` — enabled by default — is denied on first use in every new
