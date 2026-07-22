@@ -35,6 +35,13 @@ describe('AGENT_ERROR_MESSAGE_KEYS', () => {
     )
   })
 
+  it('maps an unserviceable model hint to actionable configuration guidance', () => {
+    expect(AGENT_ERROR_MESSAGE_KEYS.model_hint_unserviceable).toBe(
+      'conversation.chatroom.agentModelHintUnserviceable',
+    )
+    expect(AGENT_ERROR_MESSAGE_KEYS.model_hint_unserviceable).not.toBe(AGENT_ERROR_FALLBACK_KEY)
+  })
+
   it.each(LOCALES)('resolves every mapped key plus the fallback in %s', (_name, locale) => {
     // No CI gate catches a key present in en but missing in zh-TW; this is that
     // gate for the agent-error surface.

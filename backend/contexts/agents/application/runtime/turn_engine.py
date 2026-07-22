@@ -689,7 +689,7 @@ class TurnEngine:
         if await self._model_hint_unserviceable(agent):
             await self._audit(
                 agent,
-                None,
+                chatroom_id,
                 "agent.turn_skipped",
                 {
                     "reason": "model_hint_unserviceable",

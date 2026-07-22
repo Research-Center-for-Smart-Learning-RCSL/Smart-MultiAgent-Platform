@@ -383,6 +383,14 @@ behavioural one, and does not belong in a bugfix delta.
 
 Appended by /build.
 
+- **D-1** — The adversarial audit at
+  `docs/audits/2026-07-23-model-hint-routing-adversarial/findings.md` found three defects
+  adjacent to the implemented provider-routing change. The user explicitly approved repairing
+  all three: revalidate carried membership before each outbound rotated call (F-1), preserve
+  the approval gate room in the headless unserviceable-provider audit (F-3), and render the
+  deterministic error as actionable localized guidance (F-2). This extends the original
+  implementation while preserving its provider-pinning contract.
+
 ## 13. Follow-ups
 
 - **FU-1** — No `[Rxx.yy]` entry states that an agent's turn must run on its configured

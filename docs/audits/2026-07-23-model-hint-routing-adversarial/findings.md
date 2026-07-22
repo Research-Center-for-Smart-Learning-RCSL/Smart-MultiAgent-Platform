@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: closed
 created: 2026-07-23
 requirements: [R7.04, R9.11]
 ---
@@ -116,9 +116,9 @@ the missing live stack limits only timing measurements, not their reproduction c
 
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | pending user triage | — |
-| F-2 | pending user triage | — |
-| F-3 | pending user triage | — |
+| F-1 | selected and repaired | `2026-07-22-model-hint-provider-routing` |
+| F-2 | selected and repaired | `2026-07-22-model-hint-provider-routing` |
+| F-3 | selected and repaired | `2026-07-22-model-hint-provider-routing` |
 
 ## 6. Out-of-scope Observations
 

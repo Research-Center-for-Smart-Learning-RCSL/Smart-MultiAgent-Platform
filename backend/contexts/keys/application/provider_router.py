@@ -377,7 +377,7 @@ class ProviderRouter:
                     st.exhausted = True
                     continue
 
-                result = await self._try_member(em, request, adapter, st)
+                result = await self._try_member(group_id, em, request, adapter, st)
                 if result is not None:
                     return result
                 # _try_member flipped `st.exhausted` for non-OK terminal outcomes.
@@ -441,7 +441,7 @@ class ProviderRouter:
             # guarantees its usage accounting runs even when *our* consumer
             # abandons the stream — `async for` does not aclose its sub-iterator,
             # so the abort signal must be propagated explicitly down the chain.
-            inner = self._stream_member(em, request, adapter_obj)
+            inner = self._stream_member(group_id, em, request, adapter_obj)
             try:
                 async for ev in inner:
                     yield ev
@@ -463,6 +463,7 @@ class ProviderRouter:
 
     async def _stream_member(
         self,
+        group_id: uuid.UUID,
         em: _EligibleMember,
         request: ProviderRequest,
         adapter: StreamingAdapter,
@@ -481,6 +482,8 @@ class ProviderRouter:
         `ProviderStreamError` when a non-OK terminal status follows ≥1 token,
         and re-raises provider transport errors that occur after the first token.
         """
+        if not await self._is_still_eligible(group_id, em.key.id, request):
+            raise _KeyVanished(em.key.id)
         secret_bytes = await self._unwrap_secret(em.key.id)
         t0 = time.monotonic()
         first_token = False
@@ -554,6 +557,7 @@ class ProviderRouter:
 
     async def _try_member(
         self,
+        group_id: uuid.UUID,
         em: _EligibleMember,
         request: ProviderRequest,
         adapter: ProviderAdapter,
@@ -565,7 +569,7 @@ class ProviderRouter:
         retry_max = em.member.rotation.retry_max
         while True:
             try:
-                outcome, result = await self._call_member(em, request, adapter)
+                outcome, result = await self._call_member(group_id, em, request, adapter)
             except _KeyVanished:
                 st.last_outcome = ErrorOutcome(RotationReason.FATAL, None, "key_vanished")
                 st.exhausted = True
@@ -766,6 +770,20 @@ class ProviderRouter:
             eligible.append(_EligibleMember(member=m, key=key))
         return eligible
 
+    async def _is_still_eligible(
+        self,
+        group_id: uuid.UUID,
+        key_id: uuid.UUID,
+        request: ProviderRequest,
+    ) -> bool:
+        """Recheck carry and membership immediately before an outbound request."""
+        members = await self._load_eligible(
+            group_id,
+            request.capability,
+            provider=request.provider,
+        )
+        return any(member.key.id == key_id for member in members)
+
     async def _quota_exceeded(self, em: _EligibleMember) -> bool:
         lim = em.member.limits
         check_tokens = em.member.rotation.rotate_on_token_quota and (
@@ -790,10 +808,13 @@ class ProviderRouter:
 
     async def _call_member(
         self,
+        group_id: uuid.UUID,
         em: _EligibleMember,
         request: ProviderRequest,
         adapter: ProviderAdapter,
     ) -> tuple[ErrorOutcome, ProviderCallResult | None]:
+        if not await self._is_still_eligible(group_id, em.key.id, request):
+            raise _KeyVanished(em.key.id)
         secret = await self._unwrap_secret(em.key.id)
         t0 = time.monotonic()
         try:

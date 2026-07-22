@@ -58,6 +58,7 @@
       "settingsLabel": "Chatroom settings"
     },
     "chatroom": {
+      "agentModelHintUnserviceable": "This agent's selected provider has no available key. Ask a project owner to carry or add a matching provider key.",
       "searchPlaceholder": "Search messages…",
       "export": "Export",
       "online": "Online",
