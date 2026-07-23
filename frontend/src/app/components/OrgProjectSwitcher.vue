@@ -316,9 +316,15 @@ onBeforeUnmount(() => {
   max-width: 180px;
 }
 
+/* In the sidebar the switcher hugs the screen's left edge, so a right-anchored
+   panel wider than the sidebar spills past the viewport's left border. Anchor
+   left and cap the width to the sidebar so it never overflows. */
 .switcher--compact .switcher__panel {
-  left: auto;
-  right: 0;
+  left: 0;
+  right: auto;
+  min-width: 0;
+  width: max-content;
+  max-width: calc(var(--sidebar-width) - 24px);
 }
 
 .switcher__text {
