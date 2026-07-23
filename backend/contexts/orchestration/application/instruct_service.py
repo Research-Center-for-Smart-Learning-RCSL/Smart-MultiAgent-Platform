@@ -12,6 +12,7 @@ SoC:
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -199,7 +200,10 @@ class InstructService:
         try:
             await self._a2a.send(envelope=envelope)
         except Exception:
-            await self._instructions.delete(instruction_id)
+            # Compensation must not mask the real failure (e.g. A2AForbidden) with
+            # a delete error; swallow any delete hiccup and re-raise the original.
+            with contextlib.suppress(Exception):
+                await self._instructions.delete(instruction_id)
             raise
 
         await audit.emit(
