@@ -16,7 +16,7 @@ import type {
   ValidatorKind,
 } from '@shared/api-client'
 
-import SchemaBuilder from './SchemaBuilder.vue'
+import PayloadSchemaField from './PayloadSchemaField.vue'
 import { listActivityValidators, registerActivityType, updateActivityType } from '../api'
 import { activityKeys } from '../queries'
 import {
@@ -93,6 +93,15 @@ const [inProcessValidatorId] = defineField('in_process_validator_id')
 const [exactMatchField] = defineField('exact_match_field')
 const [exactMatchExpected] = defineField('exact_match_expected')
 const [exactMatchCaseSensitive] = defineField('exact_match_case_sensitive')
+
+// i18n key of a raw-JSON parse error surfaced by PayloadSchemaField, or null.
+// When set, it takes precedence over the field's own `schemaEmpty` message so a
+// malformed raw value reads as a parse error rather than an empty schema.
+const schemaParseError = ref<string | null>(null)
+const payloadSchemaError = computed(() => {
+  if (schemaParseError.value) return t(`activities.typeForm.${schemaParseError.value}`)
+  return errors.value.payload_schema ? t('activities.typeForm.schemaEmpty') : ''
+})
 
 // SInput's model accepts `string | number` (not null); retention is nullable
 // (blank = no cap). Bridge to '' for display; the field keeps storing number | null.
@@ -172,6 +181,7 @@ watch(
   (open) => {
     if (!open) return
     hydrating.value = true
+    schemaParseError.value = null
     resetForm({ values: toFormValues(props.editType ?? null) })
     void nextTick(() => {
       hydrating.value = false
@@ -320,14 +330,15 @@ function onClose(): void {
       <SFormField
         :label="t('activities.typeForm.payloadSchema')"
         name="payload_schema"
-        :error="errors.payload_schema ? t('activities.typeForm.schemaEmpty') : ''"
+        :error="payloadSchemaError"
         :help="t('activities.typeForm.payloadSchemaHelp')"
         required
       >
-        <SchemaBuilder
+        <PayloadSchemaField
           :key="`${props.editType?.id ?? 'new'}:${String(props.open)}`"
           :initial="props.editType?.payload_schema ?? null"
           @update:model-value="(s) => (payloadSchema = s)"
+          @update:parse-error="(e) => (schemaParseError = e)"
         />
       </SFormField>
 

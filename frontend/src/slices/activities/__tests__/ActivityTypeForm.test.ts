@@ -156,6 +156,33 @@ describe('ActivityTypeForm', () => {
     expect(wrapper.emitted('created')).toBeTruthy()
   })
 
+  it('registers a nested payload_schema authored in raw mode (AC-1)', async () => {
+    registerMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await mountForm()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-key"]').setValue('survey')
+    await wrapper.find('[data-testid="type-name"]').setValue('Survey')
+    await wrapper.find('[data-testid="type-webhook-url"]').setValue('https://x.test/score')
+
+    // The raw editor produces a nested schema the flat builder can't express;
+    // it reaches the form through the same update:model-value the builder uses.
+    const nested = {
+      type: 'object',
+      properties: { profile: { type: 'object', properties: { age: { type: 'integer' } } } },
+    }
+    wrapper.findComponent({ name: 'PayloadSchemaField' }).vm.$emit('update:modelValue', nested)
+    await flushPromises()
+
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(registerMock).toHaveBeenCalled())
+    expect(registerMock).toHaveBeenCalledWith(
+      'p1',
+      expect.objectContaining({ key: 'survey', payload_schema: nested }),
+    )
+  })
+
   it('pre-fills from the row and submits a keyless PATCH in edit mode (AC-1)', async () => {
     updateMock.mockResolvedValue({ id: 't1' })
     const wrapper = await renderView(ActivityTypeForm, {
