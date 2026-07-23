@@ -17,17 +17,24 @@ from app.workers.tasks.workflow_common import (
     _RESUME_RETRY_DELAY_S,
     _RESUME_RETRY_MAX_ATTEMPTS,
     _emit_resumed,
-    _remaining_budget_ttl,
     _restore_claim,
     _run_is_terminal,
+)
+from contexts.workflow.domain.claim_ttl import (
+    CLAIM_RESUME_DELAY_S,
+    CLAIM_RESUME_MAX_ATTEMPTS,
+)
+from contexts.workflow.domain.claim_ttl import (
+    remaining_budget_ttl as _remaining_budget_ttl,
 )
 
 # Poll budget bridging the gap between an approval resolving inside an agent
 # turn's tool call and that turn's single end-of-turn commit (the turn engine
 # commits once). 3 s × 210 ≈ 10.5 min ≥ the 600 s job timeout, so any voting
-# turn has committed (or rolled back) before the budget is spent.
-_APPROVAL_RESUME_DELAY_S = 3
-_APPROVAL_RESUME_MAX_ATTEMPTS = 210
+# turn has committed (or rolled back) before the budget is spent. Sourced from
+# the single claim-TTL truth (FU-3).
+_APPROVAL_RESUME_DELAY_S = CLAIM_RESUME_DELAY_S
+_APPROVAL_RESUME_MAX_ATTEMPTS = CLAIM_RESUME_MAX_ATTEMPTS
 
 
 async def workflow_resume_approval(ctx: dict[str, Any], approval_id: str, attempt: int = 0) -> str:

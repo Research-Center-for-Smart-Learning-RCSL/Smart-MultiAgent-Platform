@@ -10,6 +10,12 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from contexts.workflow.domain.claim_ttl import (
+    CLAIM_CONSUMER_BUDGET_S,
+    CLAIM_RESUME_DELAY_S,
+    CLAIM_RESUME_MAX_ATTEMPTS,
+)
+
 # ---------------------------------------------------------------------------
 # Claim-before-verify recovery (K remediation)
 #
@@ -22,23 +28,20 @@ from typing import Any
 # forever. On a failed resume of a NON-terminal run the claim is restored with
 # its remaining TTL and the task re-enqueues itself with a short defer, bounded
 # by the same budget as the approval pending-poll (3 s × 210 ≈ 10.5 min).
+#
+# The budget/grace constants and the ``_remaining_budget_ttl`` helper are owned
+# by ``contexts.workflow.domain.claim_ttl`` (the single source of truth stating
+# the key-life invariant, FU-3); the local names below are aliases kept for
+# readability at the call sites.
 # ---------------------------------------------------------------------------
 
-_RESUME_RETRY_DELAY_S = 3
-_RESUME_RETRY_MAX_ATTEMPTS = 210
+_RESUME_RETRY_DELAY_S = CLAIM_RESUME_DELAY_S
+_RESUME_RETRY_MAX_ATTEMPTS = CLAIM_RESUME_MAX_ATTEMPTS
 # Floor a restored/extended claim key must never fall below: the *full* consumer
 # retry budget. A claim that expires inside its own consumer's budget loses the
-# resume silently (F-32); the previous 60 s fallback was shorter than the 630 s
-# budget it guarded, which was the bug in miniature. Callers with a decaying
-# live budget pass a tighter ``min_ttl`` via ``_remaining_budget_ttl``.
-_CLAIM_RESTORE_TTL_S = _RESUME_RETRY_MAX_ATTEMPTS * _RESUME_RETRY_DELAY_S
-
-
-def _remaining_budget_ttl(max_attempts: int, delay_s: int, attempt: int) -> int:
-    """Seconds a claim key must still live to outlast a consumer's remaining
-    retry budget (F-32). One extra delay cycle of margin covers the gap between
-    extending the key and the next retry actually running."""
-    return max(0, max_attempts - attempt + 1) * delay_s
+# resume silently (F-32). Callers with a decaying live budget pass a tighter
+# ``min_ttl`` via ``_remaining_budget_ttl``.
+_CLAIM_RESTORE_TTL_S = CLAIM_CONSUMER_BUDGET_S
 
 
 async def _run_is_terminal(db: Any, run_id: str) -> bool:
