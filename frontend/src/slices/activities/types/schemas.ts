@@ -8,11 +8,16 @@ import { z } from 'zod'
 
 import type { JSONSchema } from '../sdk/types'
 
-// v1 offers only the validator kinds that dispatch and score end-to-end today.
-// `in_process` is deliberately absent (no first-party validators are registered
-// on the platform) — see the dossier's FU-1.
-export const VALIDATOR_KINDS = ['webhook', 'mcp'] as const
+// The validator kinds the authoring form can offer. `in_process` is gated at
+// runtime: the form drops it unless the platform reports ≥1 registered first-party
+// validator (GET /api/activity-validators), so it never appears with an empty picker.
+export const VALIDATOR_KINDS = ['webhook', 'mcp', 'in_process'] as const
 export type ValidatorKindOption = (typeof VALIDATOR_KINDS)[number]
+
+// The only first-party validator shipped in v1. Its sub-form collects `field` +
+// `expected`; any other registered id folds to just `{validator_id}` (no
+// per-validator fields), which is correct until a second validator ships.
+export const EXACT_MATCH_VALIDATOR_ID = 'exact_match'
 
 // The flat scalar field types the guided builder can author. Nested objects and
 // arrays are the raw-JSON escape hatch's job (FU-5), not the builder's.
@@ -49,6 +54,12 @@ export const activityTypeCreateSchema = z
     mcp_agent_id: z.string().trim().default(''),
     mcp_binding_id: z.string().trim().default(''),
     mcp_tool_name: z.string().trim().default(''),
+    // in_process sub-form. `expected` stays a string in the form and is coerced to
+    // the selected field's schema type by `assembleValidatorConfig` at submit.
+    in_process_validator_id: z.string().trim().default(''),
+    exact_match_field: z.string().trim().default(''),
+    exact_match_expected: z.string().default(''),
+    exact_match_case_sensitive: z.boolean().default(false),
   })
   .superRefine((val, ctx) => {
     if (val.validator_kind === 'webhook') {
@@ -59,6 +70,25 @@ export const activityTypeCreateSchema = z
       for (const f of ['mcp_agent_id', 'mcp_binding_id', 'mcp_tool_name'] as const) {
         if (!val[f]) {
           ctx.addIssue({ code: z.ZodIssueCode.custom, path: [f], message: 'required' })
+        }
+      }
+    } else if (val.validator_kind === 'in_process') {
+      if (!val.in_process_validator_id) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['in_process_validator_id'],
+          message: 'required',
+        })
+      } else if (val.in_process_validator_id === EXACT_MATCH_VALIDATOR_ID) {
+        if (!val.exact_match_field) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['exact_match_field'], message: 'required' })
+        }
+        if (val.exact_match_expected === '') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['exact_match_expected'],
+            message: 'required',
+          })
         }
       }
     }
@@ -72,9 +102,40 @@ export function assembleValidatorConfig(
   if (values.validator_kind === 'webhook') {
     return { url: values.webhook_url }
   }
+  if (values.validator_kind === 'in_process') {
+    const config: Record<string, unknown> = { validator_id: values.in_process_validator_id }
+    if (values.in_process_validator_id === EXACT_MATCH_VALIDATOR_ID) {
+      config.field = values.exact_match_field
+      config.expected = coerceExpected(
+        values.exact_match_expected,
+        schemaFieldType(values.payload_schema, values.exact_match_field),
+      )
+      config.case_sensitive = values.exact_match_case_sensitive
+    }
+    return config
+  }
   return {
     agent_id: values.mcp_agent_id,
     binding_id: values.mcp_binding_id,
     tool_name: values.mcp_tool_name,
   }
+}
+
+// The declared type of one payload-schema property, so `expected` submits as the
+// same JSON type the payload will carry (a numeric answer compares equal to a
+// numeric submission, not to its string form).
+function schemaFieldType(schema: JSONSchema, field: string): string | undefined {
+  const props = (schema?.properties ?? {}) as Record<string, { type?: string }>
+  return props[field]?.type
+}
+
+function coerceExpected(raw: string, type: string | undefined): unknown {
+  if (type === 'number' || type === 'integer') {
+    const n = Number(raw)
+    return raw.trim() !== '' && !Number.isNaN(n) ? n : raw
+  }
+  if (type === 'boolean') {
+    return raw === 'true'
+  }
+  return raw
 }

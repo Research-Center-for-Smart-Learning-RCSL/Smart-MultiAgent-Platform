@@ -12,10 +12,25 @@ import type { ActivitySubmissionsPageOut } from '../models/ActivitySubmissionsPa
 import type { ActivityTypeIn } from '../models/ActivityTypeIn';
 import type { ActivityTypeOut } from '../models/ActivityTypeOut';
 import type { ActivityTypeUpdateIn } from '../models/ActivityTypeUpdateIn';
+import type { ActivityValidatorOut } from '../models/ActivityValidatorOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class ActivitiesService {
+    /**
+     * List Activity Validators
+     * List the registered first-party in-process validators (R30.24). Global and
+     * process-scoped — availability never varies per project — so any authenticated
+     * caller reads the same set the picker draws from. Exposes ids/titles only.
+     * @returns ActivityValidatorOut Successful Response
+     * @throws ApiError
+     */
+    public static listActivityValidatorsApiActivityValidatorsGet(): CancelablePromise<Array<ActivityValidatorOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/activity-validators',
+        });
+    }
     /**
      * Start Activity Activation
      * @returns ActivityActivationOut Successful Response

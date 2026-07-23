@@ -70,10 +70,22 @@
       "validator": "Validator",
       "validatorKind": {
         "webhook": "Webhook",
-        "mcp": "MCP tool"
+        "mcp": "MCP tool",
+        "in_process": "Built-in"
       },
       "webhookHint": "Each submission is sent (through the egress proxy) to your URL, which returns the score.",
       "mcpHint": "Each submission is scored by an MCP tool running on one of this project's agents.",
+      "inProcessHint": "Each submission is scored instantly by a built-in validator that ships with the platform.",
+      "inProcessValidator": "Built-in validator",
+      "inProcessValidatorHelp": "The built-in scorer that runs against each submission.",
+      "inProcessValidatorPlaceholder": "Select a validator",
+      "exactMatchField": "Field to check",
+      "exactMatchFieldHelp": "The submission field whose value is compared to the expected answer.",
+      "exactMatchFieldPlaceholder": "Select a field",
+      "exactMatchExpected": "Expected answer",
+      "exactMatchExpectedHelp": "A submission is valid when this field equals this value.",
+      "exactMatchCaseSensitivity": "Case sensitivity",
+      "exactMatchCaseSensitive": "Match text case exactly",
       "webhookUrl": "Webhook URL",
       "webhookUrlPlaceholder": "https://example.com/score",
       "webhookUrlHelp": "The endpoint that receives each submission and returns a JSON verdict.",

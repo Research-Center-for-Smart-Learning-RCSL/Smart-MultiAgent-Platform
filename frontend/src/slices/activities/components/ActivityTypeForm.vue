@@ -5,7 +5,7 @@ import { useMutation, useQuery } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 
-import { SModal, SFormField, SInput, SSelect, SButton } from '@shared/ui'
+import { SModal, SFormField, SInput, SSelect, SCheckbox, SButton } from '@shared/ui'
 import { useServerErrors, useToast } from '@shared/composables'
 import { ApiError } from '@shared/errors'
 import { agentsApi, agentKeys } from '@slices/agents'
@@ -17,8 +17,10 @@ import type {
 } from '@shared/api-client'
 
 import SchemaBuilder from './SchemaBuilder.vue'
-import { registerActivityType, updateActivityType } from '../api'
+import { listActivityValidators, registerActivityType, updateActivityType } from '../api'
+import { activityKeys } from '../queries'
 import {
+  EXACT_MATCH_VALIDATOR_ID,
   VALIDATOR_KINDS,
   activityTypeCreateSchema,
   assembleValidatorConfig,
@@ -48,6 +50,10 @@ function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateIn
       mcp_agent_id: '',
       mcp_binding_id: '',
       mcp_tool_name: '',
+      in_process_validator_id: '',
+      exact_match_field: '',
+      exact_match_expected: '',
+      exact_match_case_sensitive: false,
     }
   }
   const cfg = (row.validator_config ?? {}) as Record<string, unknown>
@@ -56,13 +62,15 @@ function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateIn
     name: row.name,
     retention_days: row.retention_days,
     payload_schema: row.payload_schema,
-    // Safe while the UI only creates webhook/mcp types (in_process is FU-1); an
-    // in_process type would render with no validator selected.
     validator_kind: row.validator_kind as ValidatorKindOption,
     webhook_url: typeof cfg.url === 'string' ? cfg.url : '',
     mcp_agent_id: typeof cfg.agent_id === 'string' ? cfg.agent_id : '',
     mcp_binding_id: typeof cfg.binding_id === 'string' ? cfg.binding_id : '',
     mcp_tool_name: typeof cfg.tool_name === 'string' ? cfg.tool_name : '',
+    in_process_validator_id: typeof cfg.validator_id === 'string' ? cfg.validator_id : '',
+    exact_match_field: typeof cfg.field === 'string' ? cfg.field : '',
+    exact_match_expected: cfg.expected === undefined || cfg.expected === null ? '' : String(cfg.expected),
+    exact_match_case_sensitive: cfg.case_sensitive === true,
   }
 }
 
@@ -81,6 +89,10 @@ const [webhookUrl] = defineField('webhook_url')
 const [mcpAgentId] = defineField('mcp_agent_id')
 const [mcpBindingId] = defineField('mcp_binding_id')
 const [mcpToolName] = defineField('mcp_tool_name')
+const [inProcessValidatorId] = defineField('in_process_validator_id')
+const [exactMatchField] = defineField('exact_match_field')
+const [exactMatchExpected] = defineField('exact_match_expected')
+const [exactMatchCaseSensitive] = defineField('exact_match_case_sensitive')
 
 // SInput's model accepts `string | number` (not null); retention is nullable
 // (blank = no cap). Bridge to '' for display; the field keeps storing number | null.
@@ -91,9 +103,36 @@ const retentionDisplay = computed<string | number>({
   },
 })
 
+// First-party in-process validators are process-global; fetch them so the form can
+// (a) gate the `in_process` kind on ≥1 being registered and (b) populate the picker.
+const validatorsQuery = useQuery({
+  queryKey: activityKeys.validators(),
+  queryFn: () => listActivityValidators(),
+})
+
+const hasInProcessValidators = computed(() => (validatorsQuery.data.value ?? []).length > 0)
+
 const validatorKindOptions = computed(() =>
-  VALIDATOR_KINDS.map((k) => ({ value: k, label: t(`activities.typeForm.validatorKind.${k}`) })),
+  VALIDATOR_KINDS.filter((k) => k !== 'in_process' || hasInProcessValidators.value).map((k) => ({
+    value: k,
+    label: t(`activities.typeForm.validatorKind.${k}`),
+  })),
 )
+
+const validatorOptions = computed(() =>
+  (validatorsQuery.data.value ?? []).map((v) => ({ value: v.id, label: v.title })),
+)
+
+const isExactMatch = computed(
+  () => validatorKind.value === 'in_process' && inProcessValidatorId.value === EXACT_MATCH_VALIDATOR_ID,
+)
+
+// The payload schema's property names — the fields an exact_match validator can
+// compare against. Sourced from the same schema the builder is editing.
+const schemaFieldOptions = computed(() => {
+  const properties = (payloadSchema.value?.properties ?? {}) as Record<string, unknown>
+  return Object.keys(properties).map((name) => ({ value: name, label: name }))
+})
 
 // --- MCP validator pickers (agent + hosted_mcp binding from the same project) ---
 const agentsQuery = useQuery({
@@ -191,6 +230,12 @@ const updateMutation = useMutation({
 const isPending = computed(
   () => createMutation.isPending.value || updateMutation.isPending.value,
 )
+
+const validatorHint = computed(() => {
+  if (validatorKind.value === 'webhook') return t('activities.typeForm.webhookHint')
+  if (validatorKind.value === 'mcp') return t('activities.typeForm.mcpHint')
+  return t('activities.typeForm.inProcessHint')
+})
 
 const onSubmit = handleSubmit((formValues) => {
   const shared = {
@@ -290,9 +335,7 @@ function onClose(): void {
         :label="t('activities.typeForm.validator')"
         name="validator_kind"
         :error="errors.validator_kind ?? ''"
-        :help="validatorKind === 'webhook'
-          ? t('activities.typeForm.webhookHint')
-          : t('activities.typeForm.mcpHint')"
+        :help="validatorHint"
         required
       >
         <SSelect
@@ -364,6 +407,63 @@ function onClose(): void {
             :error="!!errors.mcp_tool_name"
           />
         </SFormField>
+      </template>
+
+      <template v-if="validatorKind === 'in_process'">
+        <SFormField
+          :label="t('activities.typeForm.inProcessValidator')"
+          name="in_process_validator_id"
+          :error="errors.in_process_validator_id ? t('activities.typeForm.fieldRequired') : ''"
+          :help="t('activities.typeForm.inProcessValidatorHelp')"
+          required
+        >
+          <SSelect
+            v-model="inProcessValidatorId"
+            :options="validatorOptions"
+            :placeholder="t('activities.typeForm.inProcessValidatorPlaceholder')"
+            data-testid="type-in-process-validator"
+          />
+        </SFormField>
+
+        <template v-if="isExactMatch">
+          <SFormField
+            :label="t('activities.typeForm.exactMatchField')"
+            name="exact_match_field"
+            :error="errors.exact_match_field ? t('activities.typeForm.fieldRequired') : ''"
+            :help="t('activities.typeForm.exactMatchFieldHelp')"
+            required
+          >
+            <SSelect
+              v-model="exactMatchField"
+              :options="schemaFieldOptions"
+              :placeholder="t('activities.typeForm.exactMatchFieldPlaceholder')"
+              data-testid="type-exact-match-field"
+            />
+          </SFormField>
+
+          <SFormField
+            :label="t('activities.typeForm.exactMatchExpected')"
+            name="exact_match_expected"
+            :error="errors.exact_match_expected ? t('activities.typeForm.fieldRequired') : ''"
+            :help="t('activities.typeForm.exactMatchExpectedHelp')"
+            required
+          >
+            <SInput
+              v-model="exactMatchExpected"
+              :error="!!errors.exact_match_expected"
+              data-testid="type-exact-match-expected"
+            />
+          </SFormField>
+
+          <SFormField
+            :label="t('activities.typeForm.exactMatchCaseSensitivity')"
+            name="exact_match_case_sensitive"
+          >
+            <SCheckbox v-model="exactMatchCaseSensitive">
+              {{ t('activities.typeForm.exactMatchCaseSensitive') }}
+            </SCheckbox>
+          </SFormField>
+        </template>
       </template>
     </form>
 

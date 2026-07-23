@@ -562,6 +562,25 @@
         "title": "ActivityTypeUpdateIn",
         "type": "object"
       },
+      "ActivityValidatorOut": {
+        "description": "A registered first-party in-process validator the authoring form may offer.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "ActivityValidatorOut",
+        "type": "object"
+      },
       "AddMemberIn": {
         "properties": {
           "key_id": {
@@ -9216,6 +9235,32 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/activity-validators": {
+      "get": {
+        "description": "List the registered first-party in-process validators (R30.24). Global and\nprocess-scoped \u2014 availability never varies per project \u2014 so any authenticated\ncaller reads the same set the picker draws from. Exposes ids/titles only.",
+        "operationId": "list_activity_validators_api_activity_validators_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ActivityValidatorOut"
+                  },
+                  "title": "Response List Activity Validators Api Activity Validators Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Activity Validators",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
     "/api/admin/admins": {
       "get": {
         "operationId": "list_admins_api_admin_admins_get",

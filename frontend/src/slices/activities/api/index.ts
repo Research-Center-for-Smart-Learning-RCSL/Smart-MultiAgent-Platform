@@ -16,10 +16,15 @@ import type {
   ActivityTypeIn,
   ActivityTypeOut,
   ActivityTypeUpdateIn,
+  ActivityValidatorOut,
 } from '@shared/api-client'
 
 export async function listActivityTypes(projectId: string): Promise<ActivityTypeOut[]> {
   return ActivitiesService.listActivityTypesApiProjectsProjectIdActivityTypesGet({ projectId })
+}
+
+export async function listActivityValidators(): Promise<ActivityValidatorOut[]> {
+  return ActivitiesService.listActivityValidatorsApiActivityValidatorsGet()
 }
 
 export async function registerActivityType(

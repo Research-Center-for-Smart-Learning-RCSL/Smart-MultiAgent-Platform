@@ -70,10 +70,22 @@
       "validator": "驗證器",
       "validatorKind": {
         "webhook": "Webhook",
-        "mcp": "MCP 工具"
+        "mcp": "MCP 工具",
+        "in_process": "內建"
       },
       "webhookHint": "每次提交會（經由 egress proxy）送到你的網址，由該端點回傳評分。",
       "mcpHint": "每次提交由本專案某個代理上執行的 MCP 工具進行評分。",
+      "inProcessHint": "每次提交由平台內建的驗證器即時評分。",
+      "inProcessValidator": "內建驗證器",
+      "inProcessValidatorHelp": "對每次提交執行的內建評分器。",
+      "inProcessValidatorPlaceholder": "選擇驗證器",
+      "exactMatchField": "檢查欄位",
+      "exactMatchFieldHelp": "拿來與預期答案比對的提交欄位。",
+      "exactMatchFieldPlaceholder": "選擇欄位",
+      "exactMatchExpected": "預期答案",
+      "exactMatchExpectedHelp": "當此欄位等於此值時，提交即為有效。",
+      "exactMatchCaseSensitivity": "大小寫敏感",
+      "exactMatchCaseSensitive": "文字須完全符合大小寫",
       "webhookUrl": "Webhook 網址",
       "webhookUrlPlaceholder": "https://example.com/score",
       "webhookUrlHelp": "接收每次提交並回傳 JSON 判定結果的端點。",

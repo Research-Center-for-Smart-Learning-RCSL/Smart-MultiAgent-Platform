@@ -1,5 +1,7 @@
 // AC-3 (webhook create), AC-4 (mcp sub-form), AC-5 (409 surfaced on the form),
-// AC-8 (in_process not offered). The api + agents slice are mocked.
+// plus the in-process-validators feature: the in_process kind is gated on ≥1
+// registered validator and the exact_match sub-form assembles its config. The api
+// + agents slice are mocked.
 
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
@@ -10,7 +12,12 @@ import ActivityTypeForm from '../components/ActivityTypeForm.vue'
 
 const registerMock = vi.hoisted(() => vi.fn())
 const updateMock = vi.hoisted(() => vi.fn())
-vi.mock('../api', () => ({ registerActivityType: registerMock, updateActivityType: updateMock }))
+const listValidatorsMock = vi.hoisted(() => vi.fn())
+vi.mock('../api', () => ({
+  registerActivityType: registerMock,
+  updateActivityType: updateMock,
+  listActivityValidators: listValidatorsMock,
+}))
 
 vi.mock('@slices/agents', async (importOriginal) => ({
   ...(await importOriginal<typeof AgentsSlice>()),
@@ -53,11 +60,15 @@ const EDIT_TYPE = {
 beforeEach(() => {
   registerMock.mockReset()
   updateMock.mockReset()
+  listValidatorsMock.mockReset()
+  listValidatorsMock.mockResolvedValue([{ id: 'exact_match', title: 'Exact match' }])
 })
 
 describe('ActivityTypeForm', () => {
-  it('offers only webhook and mcp validator kinds (AC-8)', async () => {
+  it('hides in_process when no validator is registered (AC-4)', async () => {
+    listValidatorsMock.mockResolvedValue([])
     const wrapper = await mountForm()
+    await flushPromises()
     const values = wrapper
       .find('[data-testid="type-validator"]')
       .findAll('option')
@@ -65,6 +76,47 @@ describe('ActivityTypeForm', () => {
     expect(values).toContain('webhook')
     expect(values).toContain('mcp')
     expect(values).not.toContain('in_process')
+  })
+
+  it('offers in_process once a validator is registered (AC-4)', async () => {
+    const wrapper = await mountForm()
+    await flushPromises()
+    const values = wrapper
+      .find('[data-testid="type-validator"]')
+      .findAll('option')
+      .map((o) => o.attributes('value'))
+    expect(values).toContain('in_process')
+  })
+
+  it('assembles the exact_match validator_config from the sub-form (AC-2, AC-4)', async () => {
+    registerMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await mountForm()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-key"]').setValue('quiz')
+    await wrapper.find('[data-testid="type-name"]').setValue('Quiz')
+    await wrapper.find('[data-testid="schema-field-name"]').setValue('answer')
+    await wrapper.find('[data-testid="type-validator"]').setValue('in_process')
+    await wrapper.find('[data-testid="type-in-process-validator"]').setValue('exact_match')
+    // The field picker sources its options from the schema built above.
+    await wrapper.find('[data-testid="type-exact-match-field"]').setValue('answer')
+    await wrapper.find('[data-testid="type-exact-match-expected"]').setValue('42')
+
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(registerMock).toHaveBeenCalled())
+    expect(registerMock).toHaveBeenCalledWith(
+      'p1',
+      expect.objectContaining({
+        validator_kind: 'in_process',
+        validator_config: {
+          validator_id: 'exact_match',
+          field: 'answer',
+          expected: '42',
+          case_sensitive: false,
+        },
+      }),
+    )
   })
 
   it('swaps the sub-form between webhook and mcp (AC-3, AC-4)', async () => {
