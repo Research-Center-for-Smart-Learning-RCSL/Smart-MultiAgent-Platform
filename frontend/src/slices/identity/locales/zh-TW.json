@@ -24,7 +24,18 @@
       "registerLink": "註冊",
       "pendingVerify": "請先查看電子郵件，點擊驗證連結後再登入。",
       "passwordResetSuccess": "密碼已重設。請使用新密碼登入。",
-      "passwordChangedSuccess": "密碼已變更。請使用新密碼登入。"
+      "passwordChangedSuccess": "密碼已變更。請使用新密碼登入。",
+      "orDivider": "或",
+      "googleSignIn": "使用 Google 繼續",
+      "oauthError": {
+        "unavailable": "Google 登入目前無法使用。請稍後再試或改用密碼登入。",
+        "denied": "已取消 Google 登入。",
+        "emailUnverified": "您的 Google 電子郵件尚未驗證，無法用於登入。",
+        "generic": "Google 登入未能完成。請再試一次。"
+      }
+    },
+    "googleComplete": {
+      "signingIn": "登入中..."
     },
     "verifyEmail": {
       "title": "驗證電子郵件",
@@ -57,7 +68,22 @@
       "displayName": "顯示名稱",
       "displayNameHelp": "聊天室中顯示給其他人看的名稱。留空則改用簡短 ID。",
       "submit": "儲存",
-      "saved": "個人資料已更新。"
+      "saved": "個人資料已更新。",
+      "connections": {
+        "title": "已連結的帳號",
+        "google": "Google",
+        "notLinked": "尚未連結",
+        "linkedAs": "已連結：{email}",
+        "link": "連結",
+        "unlink": "取消連結",
+        "linkedSuccess": "已連結 Google 帳號。",
+        "loadError": "無法載入已連結的帳號。",
+        "linkError": "無法連結你的 Google 帳號。請再試一次。",
+        "unlinkError": "無法取消連結 Google 帳號。請再試一次。",
+        "conflictError": "該 Google 帳號已連結到另一個帳號。",
+        "setPasswordFirst": "取消連結 Google 前請先設定密碼，以免失去登入方式。",
+        "setPasswordLink": "設定密碼"
+      }
     },
     "changePassword": {
       "title": "變更密碼",

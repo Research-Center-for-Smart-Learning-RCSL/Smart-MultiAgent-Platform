@@ -32,6 +32,14 @@ export const identityRoutes: RouteRecordRaw[] = [
     meta: { requiresAuth: false, layout: 'auth' },
   },
   {
+    // Landing after the backend Google callback set the refresh cookie: hydrate
+    // the session from that cookie, then redirect on. Public (R6.15).
+    path: '/auth/google/complete',
+    name: 'identity.googleComplete',
+    component: () => import('./views/GoogleCompleteView.vue'),
+    meta: { requiresAuth: false, layout: 'auth' },
+  },
+  {
     path: '/account/profile',
     name: 'identity.profile',
     component: () => import('./views/ProfileView.vue'),

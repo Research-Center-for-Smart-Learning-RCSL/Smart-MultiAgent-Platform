@@ -50,6 +50,12 @@ export interface Session {
   expires_at: string
 }
 
+export interface Identity {
+  provider: string
+  email: string | null
+  created_at: string
+}
+
 // UserOut types display_name optional; the server always sends it, so `?? null` keeps the
 // hand-rolled required `string | null` truthful without churning consumers.
 function toMe(u: UserOut): Me {
@@ -128,4 +134,14 @@ export const authApi = {
 
   revokeSession: (id: string) =>
     AuthService.revokeSessionApiAuthSessionsSessionIdDelete({ sessionId: id }),
+
+  // Google account linking (R6.17). `googleLinkStart` returns the Google authorize
+  // URL to which the caller navigates the browser (a top-level navigation cannot
+  // carry the bearer header, so the URL is fetched over XHR here first).
+  googleLinkStart: (): Promise<{ authorize_url: string }> =>
+    AuthService.googleLinkStartApiAuthGoogleLinkStartPost(),
+
+  googleUnlink: () => AuthService.googleUnlinkApiAuthGoogleLinkDelete(),
+
+  listIdentities: (): Promise<Identity[]> => AuthService.listIdentitiesApiAuthIdentitiesGet(),
 }
