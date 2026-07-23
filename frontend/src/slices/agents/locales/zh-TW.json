@@ -306,6 +306,7 @@
       "sizeHint": "PDF、TXT、MD、DOCX——最大 32 MB",
       "uploadStarted": "已接受上傳，索引進行中。",
       "uploadFailed": "上傳失敗。",
+      "uploadUnprocessable": "無法讀取這份文件，可能是檔案損毀、沒有文字內容，或格式不支援。",
       "visibleToAgents": "可見的 AI Agents",
       "visibleToAgentsHint": "只有選取的 AI Agents 能檢索此文件。未選取任何 AI Agent 代表沒有 AI Agent 看得到它。",
       "noBoundAgents": "目前沒有 AI Agents 綁定此知識圖譜。請先將 AI Agent 綁定到它，再於此處選擇文件可見範圍。",
