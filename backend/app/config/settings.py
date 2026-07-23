@@ -418,6 +418,12 @@ class LimitsSection(BaseSettings):
     upload_per_min_user: int = 10
     other_per_min_user: int = 300
     ws_concurrent_per_user: int = 5
+    # F-4 (R14.07a): per-workflow ceiling on event-triggered runs within a
+    # rolling window. Above any human- or agent-paced event rate, two orders of
+    # magnitude below a runaway. Set the count to 0 to disable the breaker
+    # (emergency lever without a code deploy).
+    workflow_trigger_per_window: int = 20
+    workflow_trigger_window_seconds: int = 60
 
 
 # ---------- Root ----------

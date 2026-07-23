@@ -31,6 +31,18 @@ _AGENT = str(uuid.uuid4())
 _RUN_ID = str(uuid.uuid4())
 
 
+def _settings_with_limit(limit: int, window_s: int = 60):
+    """Minimal settings stub for the F-4 trigger-budget path (limit 0 disables)."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        limits=SimpleNamespace(
+            workflow_trigger_per_window=limit,
+            workflow_trigger_window_seconds=window_s,
+        )
+    )
+
+
 # ===========================================================================
 # Pure matchers — event_dispatch
 # ===========================================================================
@@ -791,9 +803,15 @@ class TestRunTriggeredWorkflow:
         svc.trigger_run.return_value = run_id
         pool = AsyncMock()
 
-        with patch(
-            "contexts.workflow.application.workflow_service.WorkflowService",
-            return_value=svc,
+        # F-4: the budget path runs first. Disable it here (limit 0) so this test
+        # isolates the trigger_run success path; the budget has its own tests.
+        with (
+            patch("shared_kernel.auth.clients.get_redis", return_value=AsyncMock()),
+            patch("app.config.settings.get_settings", return_value=_settings_with_limit(0)),
+            patch(
+                "contexts.workflow.application.workflow_service.WorkflowService",
+                return_value=svc,
+            ),
         ):
             result = await run_triggered_workflow(
                 {"redis": pool}, wf_id, {"trigger_type": "message_received"}
@@ -814,9 +832,13 @@ class TestRunTriggeredWorkflow:
         svc = AsyncMock()
         svc.trigger_run.side_effect = RuntimeError("workflow deleted")
 
-        with patch(
-            "contexts.workflow.application.workflow_service.WorkflowService",
-            return_value=svc,
+        with (
+            patch("shared_kernel.auth.clients.get_redis", return_value=AsyncMock()),
+            patch("app.config.settings.get_settings", return_value=_settings_with_limit(0)),
+            patch(
+                "contexts.workflow.application.workflow_service.WorkflowService",
+                return_value=svc,
+            ),
         ):
             result = await run_triggered_workflow({}, str(uuid.uuid4()))
 
