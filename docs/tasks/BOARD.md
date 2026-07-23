@@ -138,10 +138,6 @@ parallel.
   same query can return a different page; and the highlight marker exists in three incompatible
   forms across backend, sanitiser and CSS. Touches DOMPurify config — §7.2 states what must not
   weaken.
-- `2026-07-22-activity-session-authz-and-validation` (bugfix, draft) — `depends_on: []`. a2u F-12,
-  F-20 plus verification-gap V-7: any room member (including a guest) can close another
-  participant's activity session, and the stalled-validation watchdog notifies nobody.
-  **AuthZ defect**; `check-security` referral is AC-13, a deliverable rather than a gate.
 - `2026-07-22-pending-notify-room-routing` (bugfix, draft) —
   **`depends_on: [2026-07-22-a2a-delivery-idempotency]`** (the only non-empty one in this batch).
   a2a F-8 plus config F-29: an approval note is rendered into whatever room the approver's next
@@ -160,6 +156,9 @@ Nothing blocked.
 
 ## In progress
 
+- `2026-07-22-activity-session-authz-and-validation` (bugfix) — `depends_on: []`. a2u F-12,
+  F-20 plus verification-gap V-7: activity-session AuthZ + watchdog notification + optional
+  enum-array assembly.
 - `2026-07-22-model-hint-provider-routing` (bugfix) — `depends_on: []`.
 - `2026-07-22-workflow-run-cancellation` (bugfix) — `depends_on: []`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
