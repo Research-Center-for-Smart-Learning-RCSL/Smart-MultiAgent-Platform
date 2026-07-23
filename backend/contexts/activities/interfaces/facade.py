@@ -92,6 +92,33 @@ class ActivitiesFacade:
             request_id=request_id,
         )
 
+    async def update_type(
+        self,
+        *,
+        project_id: uuid.UUID,
+        type_id: uuid.UUID,
+        name: str,
+        payload_schema: dict[str, Any],
+        validator_kind: ValidatorKind,
+        validator_config: dict[str, Any],
+        retention_days: int | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> ActivityType:
+        return await self._types.update(
+            project_id=project_id,
+            type_id=type_id,
+            name=name,
+            payload_schema=payload_schema,
+            validator_kind=validator_kind,
+            validator_config=validator_config,
+            retention_days=retention_days,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
     async def list_types(self, project_id: uuid.UUID) -> Sequence[ActivityType]:
         return await self._types.list_types(project_id)
 

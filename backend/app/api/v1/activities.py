@@ -65,6 +65,18 @@ class ActivityTypeIn(BaseModel):
     retention_days: int | None = Field(default=None, ge=1)
 
 
+class ActivityTypeUpdateIn(BaseModel):
+    """Full editable representation for an edit; ``key`` is intentionally absent
+    (never editable, R30.23). The edit form pre-fills and resubmits every field,
+    so the service diffs this against the stored row to decide the version bump."""
+
+    name: str = Field(min_length=1, max_length=_MAX_NAME)
+    payload_schema: dict[str, Any]
+    validator_kind: ValidatorKind
+    validator_config: dict[str, Any] = Field(default_factory=dict)
+    retention_days: int | None = Field(default=None, ge=1)
+
+
 class ActivityTypeOut(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
@@ -270,6 +282,34 @@ async def _assert_mcp_binding_in_project(
     tools = await facade.list_agent_tools(agent_id)
     if not any(t.id == binding_id and t.tool_type is AgentToolType.HOSTED_MCP for t in tools):
         raise ValidatorConfigInvalid("mcp validator binding_id is not a hosted_mcp tool on this agent")
+
+
+@project_router.patch("/{project_id}/activity-types/{type_id}")
+async def update_activity_type(
+    body: ActivityTypeUpdateIn,
+    project_id: uuid.UUID = Path(...),
+    type_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ActivityTypeOut:
+    await assert_project_owner(db=db, principal=principal, project_id=project_id)
+    if body.validator_kind is ValidatorKind.MCP:
+        await _assert_mcp_binding_in_project(db, project_id, body.validator_config)
+    activity_type = await ActivitiesFacade(db).update_type(
+        project_id=project_id,
+        type_id=type_id,
+        name=body.name,
+        payload_schema=body.payload_schema,
+        validator_kind=body.validator_kind,
+        validator_config=body.validator_config,
+        retention_days=body.retention_days,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    return _type_out(activity_type)
 
 
 @project_router.delete("/{project_id}/activity-types/{type_id}", status_code=204, response_model=None)

@@ -16,10 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.activities.application.validators.registry import is_registered
 from contexts.activities.application.validators.schema import validate_schema_wellformed
 from contexts.activities.domain.errors import (
+    ActivityTypeActive,
     ActivityTypeNotFound,
     ValidatorConfigInvalid,
 )
 from contexts.activities.domain.models import ActivityType, ValidatorKind
+from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
 from shared_kernel import audit
 
@@ -28,6 +30,7 @@ class ActivityTypeService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
         self._repo = ActivityTypeRepository(db)
+        self._activation_repo = ActivationRepository(db)
 
     async def register(
         self,
@@ -70,6 +73,70 @@ class ActivityTypeService:
         if created is None:  # pragma: no cover — just inserted in this transaction
             raise ActivityTypeNotFound(str(type_id))
         return created
+
+    async def update(
+        self,
+        *,
+        project_id: uuid.UUID,
+        type_id: uuid.UUID,
+        name: str,
+        payload_schema: dict[str, Any],
+        validator_kind: ValidatorKind,
+        validator_config: dict[str, Any],
+        retention_days: int | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> ActivityType:
+        """Edit an existing type's fields (``key`` is never editable, R30.23).
+
+        Safe metadata (``name``, ``retention_days``) may change any time. A change
+        to a behavioral field (``payload_schema``/``validator_kind``/
+        ``validator_config``) re-runs registration's validators, bumps ``version``,
+        and is rejected while any active activation references the type — otherwise
+        an in-flight activation would desync. The ``project_id`` guard keeps this
+        tenant-safe (mirrors ``delete_type``).
+        """
+        existing = await self._repo.get(type_id)
+        if existing is None or existing.project_id != project_id:
+            raise ActivityTypeNotFound(str(type_id))
+
+        behavioral_changed = (
+            payload_schema != existing.payload_schema
+            or validator_kind != existing.validator_kind
+            or validator_config != existing.validator_config
+        )
+        if behavioral_changed:
+            validate_schema_wellformed(payload_schema)
+            self._validate_validator_config(validator_kind, validator_config)
+            if await self._activation_repo.list_active_for_type(type_id):
+                raise ActivityTypeActive(str(type_id))
+
+        await self._repo.update(
+            type_id,
+            name=name,
+            payload_schema=payload_schema,
+            validator_kind=validator_kind,
+            validator_config=validator_config,
+            retention_days=retention_days,
+            bump_version=behavioral_changed,
+        )
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="activity_type.updated",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="activity_type",
+                resource_id=type_id,
+                metadata={"project_id": str(project_id), "version_bumped": behavioral_changed},
+                request_id=request_id,
+            ),
+        )
+        updated = await self._repo.get(type_id)
+        if updated is None:  # pragma: no cover — just updated in this transaction
+            raise ActivityTypeNotFound(str(type_id))
+        return updated
 
     async def list_types(self, project_id: uuid.UUID) -> Sequence[ActivityType]:
         return await self._repo.list_for_project(project_id)

@@ -126,6 +126,42 @@ class ActivityTypeRepository:
         ).all()
         return [_row_to_type(r) for r in rows]
 
+    async def update(
+        self,
+        type_id: uuid.UUID,
+        *,
+        name: str,
+        payload_schema: dict[str, Any],
+        validator_kind: ValidatorKind,
+        validator_config: dict[str, Any],
+        retention_days: int | None,
+        bump_version: bool,
+    ) -> bool:
+        """Replace a live type's editable fields (``key`` excluded); the
+        ``deleted_at IS NULL`` guard makes an update of a tombstoned type a no-op
+        (0 rows). ``version`` increments only when ``bump_version`` is set — the
+        service passes it when a behavioral field actually changed (R30.23)."""
+        values: dict[str, Any] = {
+            "name": name,
+            "payload_schema": payload_schema,
+            "validator_kind": validator_kind.value,
+            "validator_config": validator_config,
+            "retention_days": retention_days,
+        }
+        if bump_version:
+            values["version"] = t.activity_types.c.version + 1
+        result = await self._db.execute(
+            t.activity_types.update()
+            .where(
+                sa.and_(
+                    t.activity_types.c.id == type_id,
+                    t.activity_types.c.deleted_at.is_(None),
+                )
+            )
+            .values(**values)
+        )
+        return bool(rowcount(result))
+
     async def soft_delete(self, type_id: uuid.UUID) -> bool:
         """Tombstone a type; the ``deleted_at IS NULL`` guard makes a
         double-delete a no-op (0 rows)."""
