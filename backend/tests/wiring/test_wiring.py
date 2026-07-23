@@ -30,6 +30,7 @@ import json
 import os
 import time
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import httpx
@@ -66,6 +67,8 @@ from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from contexts.orchestration.application.a2a_consumer import consume_once
 from contexts.orchestration.application.a2a_handler import handle_envelope
 from contexts.orchestration.application.a2a_service import A2AService
+from contexts.orchestration.domain.errors import A2AForbidden
+from contexts.orchestration.domain.models import A2AEnvelope, A2AMessageType
 from contexts.orchestration.interfaces.facade import OrchestrationFacade
 from contexts.tenancy.domain.models import OrgMemberRole, ProjectMemberRole
 from contexts.tenancy.infrastructure.repositories import (
@@ -235,17 +238,18 @@ async def _seed_agent_and_room(
 
 
 @contextlib.asynccontextmanager
-async def _serving(agent_id: uuid.UUID):
+async def _serving(agent_id: uuid.UUID, handler=handle_envelope):
     """Run an A2A inbox consumer for ``agent_id`` for the duration of the block.
 
     The agent rows must be committed before entering — the consumer dispatches
-    each envelope on its own ``async_session`` (see ``a2a_handler``)."""
+    each envelope on its own ``async_session`` (see ``a2a_handler``). ``handler``
+    defaults to the real dispatch but can wrap it to capture inbound envelopes."""
     flag = {"on": True}
 
     async def _loop() -> None:
         while flag["on"]:
             with contextlib.suppress(Exception):
-                await consume_once(agent_id, handle_envelope)
+                await consume_once(agent_id, handler)
             await asyncio.sleep(0.02)
 
     task = asyncio.create_task(_loop())
@@ -584,3 +588,308 @@ def test_register_delivers_verification_email_via_smtp() -> None:
             break
         time.sleep(0.5)
     assert found, f"verification email for {email} not received by MailHog"
+
+
+# --------------------------------------------------------------------------- #
+# 7. A2A scope + context wiring (2026-07-22-a2a-scope-context-wiring).          #
+#                                                                              #
+# These pin the fix for the audit findings F-9/F-24/F-25/F-26: authorization-  #
+# relevant context is DERIVED server-side from workflow_run_participants, never #
+# defaulted at a call site. No test here mocks _enforce_scope, a2a_scope.       #
+# evaluate, svc._a2a or issue_instruct (the anti-requirement in §8).            #
+# --------------------------------------------------------------------------- #
+
+
+async def _add_agent(env: SimpleNamespace, *, a2a_enabled: bool = True, call_only: bool = False):
+    """A second (or third) agent in the same project as ``env`` (reuses its key
+    group so the turn-start routing gate is serviceable)."""
+    async with async_session() as db:
+        wakeup = {"triggers": {"call_only": {"enabled": True}}} if call_only else {}
+        agent = await AgentRepository(db).create(
+            project_id=env.project.id,
+            name=f"agent2-{uuid.uuid4().hex[:8]}",
+            model_hint=AgentModelHint.CLAUDE,
+            model_id=None,
+            effort=None,
+            key_group_id=env.group.id,
+            system_prompt="You are a deterministic test agent.",
+            rag_config_id=None,
+            knowmap_config_id=None,
+            context_mode=ContextMode.GENERAL,
+            context_token_cap=None,
+            skill_index_token_cap=None,
+            temperature=None,
+            top_p=None,
+            seed=None,
+            a2a_enabled=a2a_enabled,
+            wakeup_config=wakeup,
+            workflow_capabilities={},
+        )
+        await db.commit()
+        return agent
+
+
+def _instruct_definition(issuer_id: uuid.UUID, target_id: uuid.UUID) -> dict:
+    return {
+        "entry_node_id": "trigger_1",
+        "nodes": [
+            {"id": "trigger_1", "type": "trigger", "config": {"trigger_type": "manual"}},
+            {
+                "id": "instruct_1",
+                "type": "instruct",
+                "config": {
+                    "issuer_agent_id": str(issuer_id),
+                    "target_agent_id": str(target_id),
+                    "instruction_template": "do the thing",
+                    # Non-parking: the node succeeds immediately and the run ends;
+                    # the callee's consumer drives the instruction to `delivered`.
+                    "wait_for_completion": False,
+                },
+            },
+            {"id": "end_1", "type": "end", "config": {"status": "success"}},
+        ],
+        "edges": [
+            {"id": "e1", "from": "trigger_1", "to": "instruct_1"},
+            {"id": "e2", "from": "instruct_1", "to": "end_1", "from_port": "success"},
+        ],
+    }
+
+
+async def _count_forbidden(db, callee_id: uuid.UUID) -> int:
+    return (
+        await db.execute(
+            sa.text(
+                "SELECT count(*) FROM audit_logs WHERE action = 'a2a.forbidden' "
+                "AND metadata->>'callee_agent_id' = :c"
+            ),
+            {"c": str(callee_id)},
+        )
+    ).scalar_one()
+
+
+async def test_a2a_workflow_instruct_shared_run_context_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """W-1: two ordinary a2a_enabled agents, NEITHER call_only, both referenced by
+    the same run's instruct node — the instruct is authorized by rule 3a (shared
+    run participation), delivered, with no a2a.forbidden row. Fails before the fix
+    (the callee has no call_only, so the old code denies at the scope check)."""
+    import contexts.agents.application.runtime.turn_engine as te
+
+    monkeypatch.setattr(te, "build_router", lambda db, **_: _FakeRouter(db))
+
+    async with async_session() as seed_db:
+        env = await _seed_agent_and_room(seed_db, a2a_enabled=True)
+        await seed_db.commit()
+    issuer = env.agent  # a2a_enabled, no call_only
+    target = await _add_agent(env, a2a_enabled=True, call_only=False)
+
+    definition = _instruct_definition(issuer.id, target.id)
+    async with async_session() as wf_db:
+        workflow = await WorkflowRepository(wf_db).insert(
+            workspace_id=env.workspace.id, name="instruct-wire", definition=definition
+        )
+        await wf_db.commit()
+
+    captured: list[A2AEnvelope] = []
+
+    async def _capture(envelope: A2AEnvelope) -> None:
+        captured.append(envelope)
+        await handle_envelope(envelope)
+
+    async with _serving(target.id, _capture), async_session() as db:
+        run_id = await RunEngine(db).start_run(
+            project_id=env.project.id,
+            workflow_id=workflow.id,
+            definition=definition,
+            trigger_type="manual",
+            trigger_payload={},
+        )
+        await db.commit()
+
+        run = await WorkflowRunRepository(db).get(run_id)
+        assert run is not None
+        # Node authorized and followed its `success` edge to end → run SUCCEEDED.
+        assert run.state == RunState.SUCCEEDED
+
+        # Poll WHILE the callee's consumer is still serving — it drives the
+        # instruction from `issued` to `delivered`.
+        delivered = False
+        for _ in range(100):
+            async with async_session() as poll_db:
+                row = (
+                    await poll_db.execute(
+                        sa.text(
+                            "SELECT state FROM instructions WHERE target_agent_id = :t "
+                            "ORDER BY issued_at DESC LIMIT 1"
+                        ),
+                        {"t": str(target.id)},
+                    )
+                ).first()
+            if row is not None and row[0] in ("delivered", "completed"):
+                delivered = True
+                break
+            await asyncio.sleep(0.05)
+        assert delivered, "instruction never reached delivered"
+
+    async with async_session() as db:
+        assert await _count_forbidden(db, target.id) == 0
+
+    # The delivered envelope carries the real run id (covers the workflow_run_id
+    # hardcode); at least one instruct envelope was captured.
+    instruct_envs = [e for e in captured if e.type is A2AMessageType.INSTRUCT]
+    assert instruct_envs, "no instruct envelope captured"
+    assert instruct_envs[0].workflow_run_id == run_id
+
+
+async def test_a2a_workflow_instruct_non_participant_denied() -> None:
+    """W-2 (security floor): an instruct whose target is NOT a participant of the
+    run is denied, with an a2a.forbidden row. This is the test that fails if a
+    future change loosens the grant to "any workflow"."""
+    async with async_session() as seed_db:
+        env = await _seed_agent_and_room(seed_db, a2a_enabled=True)
+        await seed_db.commit()
+    issuer = env.agent
+    outsider = await _add_agent(env, a2a_enabled=True, call_only=False)
+
+    # A run whose definition references only the issuer — the outsider is a
+    # project peer but NOT a run participant.
+    definition = {
+        "entry_node_id": "trigger_1",
+        "nodes": [
+            {"id": "trigger_1", "type": "trigger", "config": {"trigger_type": "manual"}},
+            {
+                "id": "agent_1",
+                "type": "agent_invocation",
+                "config": {"agent_id": str(issuer.id), "input_template": "x"},
+            },
+            {"id": "end_1", "type": "end", "config": {"status": "success"}},
+        ],
+        "edges": [
+            {"id": "e1", "from": "trigger_1", "to": "agent_1"},
+            {"id": "e2", "from": "agent_1", "to": "end_1", "from_port": "success"},
+        ],
+    }
+    async with async_session() as db:
+        workflow = await WorkflowRepository(db).insert(
+            workspace_id=env.workspace.id, name="w2", definition=definition
+        )
+        run = await WorkflowRunRepository(db).insert(
+            project_id=env.project.id, workflow_id=workflow.id, trigger_type="manual"
+        )
+        await WorkflowRunRepository(db).insert_participants(run.id, {issuer.id})
+        await db.commit()
+
+        envelope = A2AEnvelope(
+            id=uuid.uuid4(),
+            from_agent=issuer.id,
+            to_agent=str(outsider.id),
+            workflow_run_id=run.id,
+            type=A2AMessageType.INSTRUCT,
+            payload={"input": "hi"},
+            correlation_id=uuid.uuid4(),
+            created_at=datetime.now(UTC),
+        )
+        with pytest.raises(A2AForbidden):
+            await A2AService(db).send(envelope=envelope)
+        await db.commit()
+        assert await _count_forbidden(db, outsider.id) == 1
+
+
+async def test_a2a_cross_project_instruct_denied() -> None:
+    """W-3: a cross-project target stays denied regardless of run context."""
+    async with async_session() as db1:
+        env1 = await _seed_agent_and_room(db1, a2a_enabled=True)
+        await db1.commit()
+    async with async_session() as db2:
+        env2 = await _seed_agent_and_room(db2, a2a_enabled=True)
+        await db2.commit()
+
+    async with async_session() as db:
+        run = await WorkflowRunRepository(db).insert(
+            project_id=env1.project.id, workflow_id=None, trigger_type="manual"
+        )
+        # Even if we (wrongly) claim both as participants, cross-project must win.
+        await WorkflowRunRepository(db).insert_participants(run.id, {env1.agent.id})
+        await db.commit()
+
+        envelope = A2AEnvelope(
+            id=uuid.uuid4(),
+            from_agent=env1.agent.id,
+            to_agent=str(env2.agent.id),
+            workflow_run_id=run.id,
+            type=A2AMessageType.INSTRUCT,
+            payload={"input": "hi"},
+            correlation_id=uuid.uuid4(),
+            created_at=datetime.now(UTC),
+        )
+        with pytest.raises(A2AForbidden):
+            await A2AService(db).send(envelope=envelope)
+
+
+async def test_a2a_disabled_side_denied_even_with_shared_run() -> None:
+    """W-4: a2a_enabled=false on the callee stays denied even when both agents
+    are run participants — guards against the rejected from_agent=None shortcut
+    silently overriding the opt-out."""
+    async with async_session() as seed_db:
+        env = await _seed_agent_and_room(seed_db, a2a_enabled=True)
+        await seed_db.commit()
+    issuer = env.agent
+    target = await _add_agent(env, a2a_enabled=False, call_only=False)
+
+    async with async_session() as db:
+        run = await WorkflowRunRepository(db).insert(
+            project_id=env.project.id, workflow_id=None, trigger_type="manual"
+        )
+        await WorkflowRunRepository(db).insert_participants(run.id, {issuer.id, target.id})
+        await db.commit()
+
+        envelope = A2AEnvelope(
+            id=uuid.uuid4(),
+            from_agent=issuer.id,
+            to_agent=str(target.id),
+            workflow_run_id=run.id,
+            type=A2AMessageType.INSTRUCT,
+            payload={"input": "hi"},
+            correlation_id=uuid.uuid4(),
+            created_at=datetime.now(UTC),
+        )
+        with pytest.raises(A2AForbidden):
+            await A2AService(db).send(envelope=envelope)
+
+
+async def test_denied_instruct_leaves_no_issued_row() -> None:
+    """W-6: a denied instruct leaves no orphan `issued` row (compensated), so
+    retention (which reaps only all-terminal chains) is not left a leak."""
+    async with async_session() as seed_db:
+        env = await _seed_agent_and_room(seed_db, a2a_enabled=True)
+        await seed_db.commit()
+    issuer = env.agent
+    outsider = await _add_agent(env, a2a_enabled=True, call_only=False)
+
+    async with async_session() as db:
+        run = await WorkflowRunRepository(db).insert(
+            project_id=env.project.id, workflow_id=None, trigger_type="manual"
+        )
+        await WorkflowRunRepository(db).insert_participants(run.id, {issuer.id})
+        await db.commit()
+
+        with pytest.raises(A2AForbidden):
+            await OrchestrationFacade(db).issue_instruct(
+                issuer_agent_id=issuer.id,
+                target_agent_id=outsider.id,
+                payload={"instruction": "x"},
+                workflow_run_id=run.id,
+            )
+        await db.commit()
+
+        issued = (
+            await db.execute(
+                sa.text(
+                    "SELECT count(*) FROM instructions "
+                    "WHERE issuer_agent_id = :i AND state = 'issued'"
+                ),
+                {"i": str(issuer.id)},
+            )
+        ).scalar_one()
+        assert issued == 0

@@ -114,3 +114,40 @@ def test_soft_deleted_callee_project_denied() -> None:
     )
     assert not v.allowed
     assert "soft-deleted" in v.reason
+
+
+def test_workflow_run_id_as_shared_context_allowed() -> None:
+    """U-3: a workflow run id used as the invocation context grants rule 3a
+    exactly like a chatroom context — evaluate stays pure and does not
+    special-case the workflow origin (the A2AService derivation feeds this)."""
+    p = uuid.uuid4()
+    run_id = uuid.uuid4()
+    v = evaluate(
+        A2ACheckInput(
+            caller=_agent(p, enabled=True),
+            callee=_agent(p, enabled=True),
+            callee_attached_context_ids=frozenset({run_id}),
+            caller_invocation_context_id=run_id,
+            callee_project_deleted=False,
+        )
+    )
+    assert v.allowed
+    assert v.reason == "shared invocation context"
+
+
+def test_workflow_run_id_not_shared_denied_without_call_only() -> None:
+    """U-3: when the callee is not a participant of the caller's run (empty
+    attached set) and has no call_only, rule 3a fails closed — the exact F-9
+    state before the derivation supplies a genuine shared context."""
+    p = uuid.uuid4()
+    v = evaluate(
+        A2ACheckInput(
+            caller=_agent(p, enabled=True),
+            callee=_agent(p, enabled=True),
+            callee_attached_context_ids=frozenset(),
+            caller_invocation_context_id=uuid.uuid4(),
+            callee_project_deleted=False,
+        )
+    )
+    assert not v.allowed
+    assert "no shared context" in v.reason
