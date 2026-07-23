@@ -246,6 +246,12 @@ class AuthService:
             # a real verify — denying the login timing oracle (SEC-M3).
             self._hasher.verify(DUMMY_HASH, password)
             fail = True
+        elif user.password_hash is None:
+            # Google-only account (R6.15): no password credential. Spend the same
+            # Argon2id work against the dummy hash (SEC-M3 timing parity) and fail
+            # closed rather than calling the verifier on a NULL hash.
+            self._hasher.verify(DUMMY_HASH, password)
+            fail = True
         else:
             # Always verify the password first — regardless of account status —
             # so banned/deleted accounts cost the same Argon2id work as active
@@ -545,7 +551,9 @@ class AuthService:
             raise PasswordPolicyViolation(exc.detail) from exc
 
         user = await self._users.get_by_id(user_id)
-        if user is None:
+        # A passwordless (Google-only) account has no current password to verify
+        # against; it must use the set-initial-password flow instead (R6.17).
+        if user is None or user.password_hash is None:
             raise InvalidCredentials()
         verification = self._hasher.verify(user.password_hash, current_password)
         if not verification.ok:
@@ -578,7 +586,11 @@ class AuthService:
         if not await email_domain_policy.is_allowed(new_email):
             raise EmailDomainDenied(f"domain not allowed: {new_email!r}")
         user = await self._users.get_by_id(user_id)
-        if user is None or not self._hasher.verify(user.password_hash, password).ok:
+        if (
+            user is None
+            or user.password_hash is None
+            or not self._hasher.verify(user.password_hash, password).ok
+        ):
             raise InvalidCredentials()
         if await self._users.get_active_by_email(new_email) is not None:
             raise EmailAlreadyRegistered(new_email)
@@ -646,9 +658,14 @@ class AuthService:
         this is a destructive, recovery-gated action, so a hijacked session
         alone must not be enough to trigger it.
         """
-        # R6.07: re-authenticate.
+        # R6.07: re-authenticate. A passwordless (Google-only) account must set a
+        # password first (set-initial-password flow) before it can self-delete.
         user = await self._users.get_by_id(user_id)
-        if user is None or not self._hasher.verify(user.password_hash, password).ok:
+        if (
+            user is None
+            or user.password_hash is None
+            or not self._hasher.verify(user.password_hash, password).ok
+        ):
             raise InvalidCredentials()
 
         # Cross-context (tenancy). Lazy import mirrors ProjectService→KeysFacade:

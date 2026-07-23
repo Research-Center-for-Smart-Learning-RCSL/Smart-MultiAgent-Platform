@@ -22,7 +22,8 @@ users = sa.Table(
     sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
     sa.Column("email", sa.Text, nullable=False),
     sa.Column("display_name", sa.String(50), nullable=True),
-    sa.Column("password_hash", sa.Text, nullable=False),
+    # Nullable since 0063: a Google-only account has no password (R6.15).
+    sa.Column("password_hash", sa.Text, nullable=True),
     sa.Column("email_verified", sa.Boolean, nullable=False, server_default=sa.text("false")),
     sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'pending'")),
     sa.Column("banned_reason", sa.Text, nullable=True),
@@ -77,6 +78,23 @@ email_verify_tokens = sa.Table(
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )
 
+auth_identities = sa.Table(
+    "auth_identities",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    ),
+    sa.Column("provider", sa.Text, nullable=False),
+    sa.Column("provider_subject", sa.Text, nullable=False),
+    # citext in-DB (see migration 0063); an informational last-seen snapshot,
+    # never the resolution key — that is (provider, provider_subject).
+    sa.Column("email", sa.Text, nullable=True),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.UniqueConstraint("provider", "provider_subject", name="uq_auth_identities_provider_subject"),
+    sa.UniqueConstraint("user_id", "provider", name="uq_auth_identities_user_provider"),
+)
+
 admins = sa.Table(
     "admins",
     metadata,
@@ -128,6 +146,7 @@ ip_bans = sa.Table(
 __all__ = [
     "admin_impersonation_sessions",
     "admins",
+    "auth_identities",
     "email_verify_tokens",
     "ip_bans",
     "password_reset_tokens",

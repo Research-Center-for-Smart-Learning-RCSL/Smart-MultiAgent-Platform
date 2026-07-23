@@ -21,6 +21,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.identity.domain.models import (
+    AuthIdentity,
     IpBan,
     Session,
     User,
@@ -52,11 +53,26 @@ class UserRepository:
         self._db = db
 
     async def insert(
-        self, *, email: str, password_hash: str, status: UserStatus = UserStatus.PENDING
+        self,
+        *,
+        email: str,
+        password_hash: str | None,
+        status: UserStatus = UserStatus.PENDING,
+        email_verified: bool = False,
+        display_name: str | None = None,
     ) -> User:
+        # `password_hash=None` provisions a passwordless (e.g. Google-only)
+        # account; `email_verified=True` + `status=ACTIVE` is the OAuth-provision
+        # shape that skips email verification (R6.15).
         stmt = (
             t.users.insert()
-            .values(email=email, password_hash=password_hash, status=status.value)
+            .values(
+                email=email,
+                password_hash=password_hash,
+                status=status.value,
+                email_verified=email_verified,
+                display_name=display_name,
+            )
             .returning(t.users)
         )
         row = (await self._db.execute(stmt)).one()
@@ -90,6 +106,12 @@ class UserRepository:
         if only_if_hash is not None:
             stmt = stmt.where(t.users.c.password_hash == only_if_hash)
         await self._db.execute(stmt.values(password_hash=password_hash))
+
+    async def neutralize_password(self, user_id: uuid.UUID) -> None:
+        """Clear the password credential (set NULL). Used when a Google login
+        binds to a previously-unverified account whose password is unproven
+        (R6.16) — the owner must set a new password to use password login."""
+        await self._db.execute(t.users.update().where(t.users.c.id == user_id).values(password_hash=None))
 
     async def set_display_name(self, user_id: uuid.UUID, display_name: str | None) -> None:
         await self._db.execute(
@@ -190,6 +212,85 @@ class UserRepository:
             t.users.update()
             .where(t.users.c.id == user_id)
             .values(status=UserStatus.ACTIVE.value, banned_reason=None, banned_at=None)
+        )
+
+
+def row_to_auth_identity(row: Any) -> AuthIdentity:
+    return AuthIdentity(
+        id=row.id,
+        user_id=row.user_id,
+        provider=row.provider,
+        provider_subject=row.provider_subject,
+        email=row.email,
+        created_at=row.created_at,
+    )
+
+
+class AuthIdentityRepository:
+    """Linked external identities (R6.14-R6.17). Uniqueness is enforced by the
+    DB (`uq_auth_identities_provider_subject`, `uq_auth_identities_user_provider`),
+    so callers catch IntegrityError rather than pre-checking (TOCTOU-safe)."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def get_by_provider_subject(self, provider: str, provider_subject: str) -> AuthIdentity | None:
+        row = (
+            await self._db.execute(
+                t.auth_identities.select().where(
+                    sa.and_(
+                        t.auth_identities.c.provider == provider,
+                        t.auth_identities.c.provider_subject == provider_subject,
+                    )
+                )
+            )
+        ).first()
+        return row_to_auth_identity(row) if row else None
+
+    async def insert(
+        self, *, user_id: uuid.UUID, provider: str, provider_subject: str, email: str | None
+    ) -> AuthIdentity:
+        stmt = (
+            t.auth_identities.insert()
+            .values(
+                user_id=user_id,
+                provider=provider,
+                provider_subject=provider_subject,
+                email=email,
+            )
+            .returning(t.auth_identities)
+        )
+        row = (await self._db.execute(stmt)).one()
+        return row_to_auth_identity(row)
+
+    async def list_for_user(self, user_id: uuid.UUID) -> list[AuthIdentity]:
+        rows = (
+            await self._db.execute(
+                t.auth_identities.select()
+                .where(t.auth_identities.c.user_id == user_id)
+                .order_by(t.auth_identities.c.created_at)
+            )
+        ).all()
+        return [row_to_auth_identity(r) for r in rows]
+
+    async def delete(self, user_id: uuid.UUID, provider: str) -> bool:
+        """Remove a provider link. Returns True if a row was deleted."""
+        result = await self._db.execute(
+            t.auth_identities.delete()
+            .where(
+                sa.and_(
+                    t.auth_identities.c.user_id == user_id,
+                    t.auth_identities.c.provider == provider,
+                )
+            )
+            .returning(t.auth_identities.c.id)
+        )
+        return result.first() is not None
+
+    async def update_email(self, identity_id: uuid.UUID, email: str | None) -> None:
+        """Refresh the informational email snapshot on a successful login (R6.16)."""
+        await self._db.execute(
+            t.auth_identities.update().where(t.auth_identities.c.id == identity_id).values(email=email)
         )
 
 

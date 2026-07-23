@@ -24,7 +24,8 @@ class UserStatus(str, enum.Enum):
 class User:
     id: uuid.UUID
     email: str
-    password_hash: str
+    # None for a Google-only account with no password credential (R6.15).
+    password_hash: str | None
     email_verified: bool
     status: UserStatus
     banned_reason: str | None
@@ -74,6 +75,19 @@ class PasswordResetToken:
 
 
 @dataclass(frozen=True, slots=True)
+class AuthIdentity:
+    """A linked external identity (e.g. Google). Resolution keys on
+    (provider, provider_subject); `email` is an informational snapshot (R6.17)."""
+
+    id: uuid.UUID
+    user_id: uuid.UUID
+    provider: str
+    provider_subject: str
+    email: str | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class IpBan:
     id: uuid.UUID
     cidr: str
@@ -83,6 +97,7 @@ class IpBan:
 
 
 __all__ = [
+    "AuthIdentity",
     "EmailVerifyToken",
     "IpBan",
     "PasswordResetToken",
