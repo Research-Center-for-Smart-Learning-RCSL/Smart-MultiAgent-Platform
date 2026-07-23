@@ -16,6 +16,13 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+- `2026-07-23-claim-ttl-single-source` (refactor, draft) — `depends_on: []`. FU-3 of
+  `approval-resume-claim-reliability`: the claim-key TTL grace (`+300`/`+60`) is a magic literal at
+  four producer executors and the consumer retry budget lives as separate worker constants, with no
+  single statement of the `key life >= consumer budget` invariant. Extracts both into a new
+  dependency-free `contexts/workflow/domain/claim_ttl.py`, numbers preserved exactly. Textual
+  adjacency with the wait-for-event / instruct-guard / subagent-fail-fast / workflow-dispatch drafts;
+  recommended to land first.
 - `2026-07-22-turn-idempotency-and-locking` (bugfix, draft) — `depends_on: []`. From the a2a audit
   F-7, F-18, F-22, F-23, F-39 and the config audit F-8, F-30. Six sequenced commits; one hard
   ordering constraint (cleanup before lock-liveness). Names two textual adjacencies with the
