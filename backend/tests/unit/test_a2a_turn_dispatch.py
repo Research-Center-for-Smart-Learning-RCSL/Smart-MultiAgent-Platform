@@ -1060,6 +1060,9 @@ class _FakePipe:
     def rpush(self, k, v):
         self._ops.append(("rpush", k, v))
 
+    def lpush(self, k, v):
+        self._ops.append(("lpush", k, v))
+
     def ltrim(self, k, a, b):
         self._ops.append(("ltrim", k, a, b))
 
@@ -1078,6 +1081,9 @@ class _FakePipe:
             kind = op[0]
             if kind == "rpush":
                 self._store.setdefault(op[1], []).append(op[2])
+                results.append(len(self._store[op[1]]))
+            elif kind == "lpush":
+                self._store.setdefault(op[1], []).insert(0, op[2])
                 results.append(len(self._store[op[1]]))
             elif kind == "ltrim":
                 lst = self._store.get(op[1], [])
@@ -1117,6 +1123,54 @@ async def test_pending_notify_roundtrip(monkeypatch) -> None:
     assert [n["kind"] for n in out] == ["notify", "approval_request"]
     # Drained queue is empty on the next read.
     assert await pn.drain(aid) == []
+
+
+@pytest.mark.asyncio
+async def test_requeue_over_cap_drops_oldest_not_newest(monkeypatch) -> None:
+    # F-19: when a failed turn requeues a drained batch on top of notifications
+    # that arrived while it ran, the cap must drop the OLDEST, keeping every
+    # freshly-arrived note (a new approval ballot sits among the newest).
+    fake = _FakeRedis()
+    monkeypatch.setattr(pn, "get_redis", lambda: fake)
+    aid = uuid.uuid4()
+
+    for i in range(1, 46):  # 45 restored notes, well under the cap on their own
+        await pn.push(aid, {"n": f"old{i}"})
+    restored = await pn.drain(aid)
+    assert len(restored) == 45
+
+    for i in range(1, 11):  # 10 concurrent arrivals while the turn ran
+        await pn.push(aid, {"n": f"n{i}"})
+
+    await pn.requeue(aid, restored)
+
+    survivors = await pn.drain(aid)
+    assert len(survivors) == pn._MAX_PENDING  # 55 pushed, capped at 50
+    names = [note["n"] for note in survivors]
+    # The 10 newest all survive and sit at the tail, in arrival order.
+    assert names[-10:] == [f"n{i}" for i in range(1, 11)]
+    # The 5 dropped are the oldest restored notes, not the newest arrivals.
+    assert "old1" not in names and "old5" not in names
+    assert names[0] == "old6"
+
+
+@pytest.mark.asyncio
+async def test_requeue_under_cap_is_lossless(monkeypatch) -> None:
+    # Below the cap the trim is a no-op: every note survives, restored batch
+    # first (oldest) then concurrent arrivals (newest).
+    fake = _FakeRedis()
+    monkeypatch.setattr(pn, "get_redis", lambda: fake)
+    aid = uuid.uuid4()
+
+    for i in range(1, 6):  # 5 concurrent arrivals already parked
+        await pn.push(aid, {"n": f"c{i}"})
+    restored = [{"n": f"r{i}"} for i in range(1, 11)]  # 10 to restore
+
+    await pn.requeue(aid, restored)
+
+    survivors = await pn.drain(aid)
+    names = [note["n"] for note in survivors]
+    assert names == [f"r{i}" for i in range(1, 11)] + [f"c{i}" for i in range(1, 6)]
 
 
 # --------------------------------------------------------------------------- #

@@ -72,7 +72,10 @@ async def requeue(agent_id: uuid.UUID, notes: list[dict[str, Any]]) -> None:
     before the agent could see the notifications — without this, drain-then-
     fail destroys approval requests and A2A notifies. LPUSH in reverse so
     ``notes[0]`` ends up at the head; anything pushed while the turn ran stays
-    behind the restored batch (newer), and the cap still trims oldest-first.
+    behind the restored batch (newer). The cap trims oldest-first (tail-
+    relative, matching ``push``): if restored + concurrent exceeds the cap the
+    oldest restored notes are dropped, never the newest arrivals — a fresh
+    approval ballot sits among those newest.
     """
     if not notes:
         return
@@ -81,7 +84,7 @@ async def requeue(agent_id: uuid.UUID, notes: list[dict[str, Any]]) -> None:
     pipe = r.pipeline(transaction=False)
     for note in reversed(notes):
         pipe.lpush(key, json.dumps(note, separators=(",", ":")))
-    pipe.ltrim(key, 0, _MAX_PENDING - 1)
+    pipe.ltrim(key, -_MAX_PENDING, -1)
     pipe.expire(key, _TTL_SECONDS)
     await pipe.execute()
 
