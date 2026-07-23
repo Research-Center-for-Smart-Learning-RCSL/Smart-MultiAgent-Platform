@@ -190,9 +190,16 @@ async def activities_watchdog(ctx: dict[str, Any]) -> str:
         await flush_tail_events(db)
         # Build each completion signal post-commit so the rolling aggregate counts
         # the just-written ``validation_timeout`` verdict (as the completion path
-        # documents); a build failure for one row must not drop the others.
+        # documents); a build failure for one row must not drop the others, so the
+        # per-row build is guarded — the write-back is already committed.
         for submission_id, chatroom_id in swept:
-            payload = await facade.build_activity_signal(submission_id=submission_id)
+            try:
+                payload = await facade.build_activity_signal(submission_id=submission_id)
+            except Exception:
+                logger.bind(submission_id=str(submission_id)).warning(
+                    "activity watchdog signal build failed", exc_info=True
+                )
+                continue
             to_emit.append((chatroom_id, submission_id, payload))
 
     # Both emits already swallow their own failures, so one bad row cannot fail the

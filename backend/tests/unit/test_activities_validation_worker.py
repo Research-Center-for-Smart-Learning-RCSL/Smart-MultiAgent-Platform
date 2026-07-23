@@ -329,6 +329,30 @@ class TestWatchdog:
         assert commit_order.count("commit") == 1
         assert set(commit_order[1:]) == {"emit"}
 
+    async def test_watchdog_build_failure_for_one_row_does_not_drop_the_rest(self) -> None:
+        rows = [(uuid.uuid4(), uuid.uuid4()), (uuid.uuid4(), uuid.uuid4())]
+        af = MagicMock()
+        af.sweep_stalled = AsyncMock(return_value=rows)
+        # First row's signal build blows up; the second must still be emitted.
+        af.build_activity_signal = AsyncMock(side_effect=[RuntimeError("db hiccup"), {"submission_id": "y"}])
+        db = MagicMock()
+        db.commit = AsyncMock()
+        with (
+            patch("shared_kernel.db.session.async_session", return_value=_FakeSession(db)),
+            patch("contexts.activities.interfaces.facade.ActivitiesFacade", return_value=af),
+            patch("shared_kernel.audit.flush_tail_events", new=AsyncMock()),
+            patch("shared_kernel.audit.emit", new=AsyncMock()),
+            patch.object(worker, "_emit_validated", new=AsyncMock()) as emit_v,
+            patch("shared_kernel.queue.enqueue", new=AsyncMock()) as enq,
+        ):
+            result = await worker.activities_watchdog({})
+
+        assert result == "swept=2"  # the count still reflects every swept row
+        emit_v.assert_awaited_once()  # only the row whose signal built
+        assert emit_v.await_args.args[:2] == (rows[1][1], rows[1][0])
+        signal_calls = [c for c in enq.await_args_list if c.args[:2] == ("workflow_signal", "activity")]
+        assert len(signal_calls) == 1
+
     async def test_watchdog_with_no_stalled_rows_emits_nothing(self) -> None:
         af = MagicMock()
         af.sweep_stalled = AsyncMock(return_value=[])
