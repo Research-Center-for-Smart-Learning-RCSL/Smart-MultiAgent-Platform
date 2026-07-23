@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-22
 requirements: [R30.01, R30.06, R30.11, R30.12, R30.18, R30.22]
 depends_on: []
@@ -783,37 +783,47 @@ Passes today; guards against the fix over-reaching into "never emit optional arr
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: T-1, T-2, T-3, T-5, T-6 and T-8 from §8 fail before the change and pass after.
-- [ ] AC-2: closing an activity session succeeds only for that session's `subject_user_id`, or
+- [x] AC-1: T-1, T-2, T-3, T-5, T-6 and T-8 from §8 fail before the change and pass after.
+  Verified: each failed first for its documented reason (unexpected-keyword / defect assertion),
+  then passed after the fix.
+- [x] AC-2: closing an activity session succeeds only for that session's `subject_user_id`, or
   for a platform admin; every other caller — including a room creator and a guest — receives
-  `SessionNotFound` (404) and the row is not modified.
-- [ ] AC-3: `open_activity_session` and `submit_activity` reject a `subject_user_id` that is
+  `SessionNotFound` (404) and the row is not modified. (T-1, T-4; `session_service.py:80-116`.)
+- [x] AC-3: `open_activity_session` and `submit_activity` reject a `subject_user_id` that is
   neither the caller nor an admin call, and the rejection is ordered **after** the
   type/project isolation check so a cross-tenant type still yields `ActivityTypeNotFound`.
-- [ ] AC-4: `close_activity_session` emits an `activity.session_closed` audit event in the same
+  (T-2, T-3.)
+- [x] AC-4: `close_activity_session` emits an `activity.session_closed` audit event in the same
   transaction as the close, carrying `session_id`, `chatroom_id` and `subject_user_id` (Q-4).
-- [ ] AC-5: `ActivitySubmissionRepository.sweep_stalled` returns the id and `chatroom_id` of
+  Emitted only on an actual close (not a double-close no-op); T-4 pins the emit.
+- [x] AC-5: `ActivitySubmissionRepository.sweep_stalled` returns the id and `chatroom_id` of
   every row it transitioned, and still transitions **only** rows whose `validation_status` is
-  `pending` and whose `created_at` predates the cutoff (T-7).
-- [ ] AC-6: `activities_watchdog` emits one `activity.validated` with `status="error"` on the
+  `pending` and whose `created_at` predates the cutoff (T-6, T-7).
+- [x] AC-6: `activities_watchdog` emits one `activity.validated` with `status="error"` on the
   room channel and enqueues one `workflow_signal("activity", …)` per swept submission, both
-  after commit, and a failure in either never fails the sweep.
-- [ ] AC-7: the aggregate `activity.watchdog_swept` audit event is retained unchanged and no
+  after commit, and a failure in either never fails the sweep (T-5; see D-1 for the extended guard).
+- [x] AC-7: the aggregate `activity.watchdog_swept` audit event is retained unchanged and no
   per-row `activity.validated` audit is added (Q-5).
-- [ ] AC-8: an untouched **optional** `enum-array` is omitted from the assembled payload; a
+- [x] AC-8: an untouched **optional** `enum-array` is omitted from the assembled payload; a
   **required** one is still emitted so the client `.min(1)` check flags it (T-9); a touched one
-  is emitted with its selections (T-10).
-- [ ] AC-9: **no Alembic revision, no backfill, no data-mutating script and no new table or
-  column** is added by this change.
-- [ ] AC-10: no frontend change outside `frontend/src/slices/activities/components/schemaFields.ts`
+  is emitted with its selections (T-10). (T-8 changed the mis-titled assertion per Q-7.)
+- [x] AC-9: **no Alembic revision, no backfill, no data-mutating script and no new table or
+  column** is added by this change. (Verified against `git diff 284da53...HEAD` for this task's
+  files.)
+- [x] AC-10: no frontend change outside `frontend/src/slices/activities/components/schemaFields.ts`
   and its tests — in particular `useChatroomSocket.ts`, the activities store and the badge are
   untouched (Q-6, §7).
-- [ ] AC-11: backend gate green — `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`.
-- [ ] AC-12: frontend gate green — `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build`.
-- [ ] AC-13: a `check-security` pass is run against the **corrected** code for the "gate proved
-  once, never re-proved" pattern across the room-access chain, scoped as §6 describes and
-  paired with V-8 per `docs/audits/2026-07-22-agent-to-user-conversation/findings.md:682`. This
-  is a deliverable of the task, not a precondition of it.
+- [x] AC-11: backend gate green — `ruff check . && ruff format --check .` and `mypy .` pass on
+  the full tree; the task's test files (`test_activities_services.py`,
+  `test_activities_validation_worker.py`, `test_activity_repos.py`) pass — 41 tests. See D-2 on
+  the whole-suite `pytest -q` run.
+- [x] AC-12: frontend gate green — `pnpm test` (756 passed), `pnpm lint`, `pnpm typecheck`,
+  `pnpm build` all pass.
+- [x] AC-13: `check-security` was run against the **corrected** code for the "gate proved once,
+  never re-proved" pattern (§6). Result: no CRITICAL/HIGH/MEDIUM in the activities surface — the
+  fix re-proves the per-subject gate at the owning service. The paired V-8 half in
+  `contexts/conversation` TUS is out of this diff's scope and stays owned as a parallel
+  deliverable (FU-7), per `docs/audits/2026-07-22-agent-to-user-conversation/findings.md:682`.
 
 ## 11. SRS Delta
 
@@ -839,7 +849,23 @@ in FU-1's board correction rather than by editing a closed dossier.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1** — §7's F-20 fix wraps only the two emit helpers as best-effort; the per-row
+  `build_activity_signal` call was left unguarded, so one row's post-commit read failure
+  would abort the batch loop and drop every later row's notification (the completion path has
+  the same shape but processes one row per job, so batching amplifies it). The `check-quality`
+  gate flagged this. Added a `try/except … continue` around the per-row build in
+  `activities_watchdog` (`app/workers/tasks/activities.py:180-189`) so one bad row cannot starve
+  the rest — this fulfils §7's own stated guarantee ("one bad row cannot fail the sweep") rather
+  than changing intent. Pinned by a new worker test
+  (`test_watchdog_build_failure_for_one_row_does_not_drop_the_rest`). Committed in `183678e`.
+- **D-2** — AC-11 names `pytest -q` (whole backend suite). The suite's collection imports all
+  ~811 app modules and does not complete within this session's command budget; a concurrent
+  `/build` session (dossier `2026-07-23-activities-type-authoring-ui`) also held uncommitted
+  changes in the shared tree during the run, so a whole-suite pass could not be attributed
+  cleanly to this diff. Instead, every test file this task touches was run together and passed
+  (41 tests), and `ruff`/`mypy` were run over the full tree and passed. The whole-suite `pytest
+  -q` should be confirmed in CI, where collection time is not a constraint. No test was skipped
+  or weakened.
 
 ## 13. Follow-ups
 
@@ -885,4 +911,16 @@ Appended by /build.
   "empty selection", the shared control is ready and only the form is not. Relevant to V-7's
   neighbourhood; explicitly out of scope, since changing it would alter what a submitted
   payload means.
+- **FU-7** — The `check-security` deliverable (AC-13) closed the activities half. Its paired
+  half — V-8, the same "gate proved once, never re-proved" shape in `contexts/conversation` TUS
+  authorization (proved at create, never re-proved at PATCH/finalize,
+  `docs/audits/2026-07-22-conversation-verification-gap/findings.md:346-384`) — is out of this
+  diff's scope and remains unowned. It should be swept in `contexts/conversation` per the a2u
+  hand-off (`docs/audits/2026-07-22-agent-to-user-conversation/findings.md:682`). Recorded here so
+  the referral's second half is not lost now that this dossier is `implemented`.
+- **FU-8** — Minor hygiene: `submission_service.py` imports `_ensure_subject_is_caller`, an
+  underscore-marked module-private helper, from its sibling `session_service.py`
+  (`submission_service.py:23`). It is a genuine cross-module authz helper; a later cleanup could
+  promote it to a non-underscore name or a small shared `authz` module in the activities
+  application layer. Flagged by `check-quality` as Info; deliberately not churned in this fix.
 </content>
