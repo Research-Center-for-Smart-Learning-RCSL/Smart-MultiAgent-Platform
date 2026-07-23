@@ -26,6 +26,7 @@ from contexts.knowledge.application.knowmap_triggers import enqueue_knowmap_buil
 from contexts.knowledge.application.ports import BlobStore, Embedder
 from contexts.knowledge.domain.errors import (
     DocumentTooLarge,
+    DocumentUnprocessable,
     IngestFailed,
     KnowmapConfigNotFound,
     UnsupportedMime,
@@ -39,7 +40,7 @@ from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapDocumentRepository,
 )
 from shared_kernel import audit
-from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, normalise_mime
+from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, ParserError, normalise_mime
 
 _log = logging.getLogger(__name__)
 
@@ -256,6 +257,11 @@ class KnowmapIngestService:
                 await self._db.rollback()
                 await self._docs.set_status(document_id=doc.id, status=DocumentStatus.FAILED)
                 await self._db.commit()
+            # A parse failure is a client-fixable input problem (unparseable, no text
+            # layer, or unsupported content) → 422; any other failure (embedding,
+            # provider, store) is a server-side ingest failure → 500.
+            if isinstance(exc, ParserError):
+                raise DocumentUnprocessable(str(exc)) from exc
             raise IngestFailed(f"{type(exc).__name__}: {exc}") from exc
 
         refreshed = await self._docs.get(doc.id)

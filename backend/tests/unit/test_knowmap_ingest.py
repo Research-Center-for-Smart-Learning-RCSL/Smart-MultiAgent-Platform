@@ -20,10 +20,15 @@ from contexts.knowledge.application.knowmap_ingest_service import (
     KnowmapIngestInput,
     KnowmapIngestService,
 )
-from contexts.knowledge.domain.errors import IngestFailed, KnowmapConfigNotFound
+from contexts.knowledge.domain.errors import (
+    DocumentUnprocessable,
+    IngestFailed,
+    KnowmapConfigNotFound,
+)
 from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapDocument
 from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus, ScanStatus
+from shared_kernel.text_extraction.parsers import ParserError
 
 _MOD = "contexts.knowledge.application.knowmap_ingest_service"
 _NOW = datetime(2026, 7, 7, 12, 0, 0)
@@ -230,5 +235,38 @@ class TestIngest:
             await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
 
         svc._db.rollback.assert_awaited()
+        doc_repo.set_status.assert_awaited_with(document_id=doc.id, status=DocumentStatus.FAILED)
+        svc._db.commit.assert_awaited()
+
+    async def test_parse_failure_raises_document_unprocessable_not_ingest_failed(self) -> None:
+        # A ParserError (unparseable / no text layer / unsupported content) is a
+        # client-fixable input problem: it must surface as DocumentUnprocessable (422),
+        # not IngestFailed (500), while still persisting the row as FAILED so the file
+        # stays visible in the list rather than vanishing.
+        cfg = _make_config()
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = cfg
+        doc = _make_document(status=DocumentStatus.INGESTING)
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = None
+        doc_repo.create.return_value = doc
+        chunk_repo = AsyncMock()
+        blob = AsyncMock()
+        blob.put.return_value = doc.minio_path
+        svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=chunk_repo, blob=blob)
+
+        def _unparseable(_: bytes) -> str:
+            raise ParserError("pdf parse failed: no extractable text layer")
+
+        with (
+            patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": _unparseable}, clear=False),
+            patch(f"{_MOD}.audit.emit", AsyncMock()),
+            patch(f"{_MOD}.enqueue_knowmap_scan", AsyncMock()),
+            patch(f"{_MOD}.enqueue_knowmap_build", AsyncMock()),
+            pytest.raises(DocumentUnprocessable),
+        ):
+            await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
+
+        # The row is still marked FAILED and committed (not rolled back to nothing).
         doc_repo.set_status.assert_awaited_with(document_id=doc.id, status=DocumentStatus.FAILED)
         svc._db.commit.assert_awaited()
