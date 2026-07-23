@@ -376,16 +376,20 @@ type active in a room, confirm the room's Activity panel reflects the ended acti
 
 - FU-1: Register first-party `in_process` validators (a `backend/app/plugins/` startup site
   + a listing accessor/endpoint) and add the `in_process` branch to the form.
+  **Spec drafted:** `docs/tasks/2026-07-23-activity-in-process-validators/`.
 - FU-2: Edit an existing activity type (update route + `version` bump + edit UI).
+  **Spec drafted:** `docs/tasks/2026-07-23-activity-type-edit/`.
 - FU-3: Enumerate the tools an MCP binding exposes so `tool_name` becomes a picker.
+  (Deliberately not scoped — user declined at FU-triage.)
 - FU-4: Force-close in-flight `ActivitySession`s when their type is deleted.
+  **Done** — commit `2ba33dd` (`close_open_for_type` in the delete cascade).
 - FU-5: A raw/advanced JSON-Schema editor (and nested field types) alongside the builder.
+  **Spec drafted:** `docs/tasks/2026-07-23-activity-schema-raw-json/`.
 - FU-6: (from the build-time `check-security` pass, MEDIUM, pre-existing) The activity-type
-  register route validates an `mcp` validator's `agent_id`/`binding_id` as UUIDs only, not as
-  belonging to the type's project (`type_service.py:114-128`). The authoring UI constrains its
-  pickers to the current project's agents/bindings (§8), but a direct API caller could POST a
-  foreign `binding_id`; the blast radius is contained by project-scoped egress at dispatch.
-  Add a project-membership check for `agent_id`/`binding_id` at registration.
-- FU-7: (from the build-time `check-quality` pass, Info) The `typedSTable` Volar-workaround
-  helper is duplicated between `RagConfigListView.vue` and `ActivityTypesView.vue`; extract it
-  into a shared `@shared/ui` helper.
+  register route validated an `mcp` validator's `agent_id`/`binding_id` as UUIDs only, not as
+  belonging to the type's project. **Done** — commit `2690210` (route-layer check via
+  `AgentsFacade`: `agent_id` must be an agent in the project and `binding_id` a `hosted_mcp`
+  tool on it, else `ValidatorConfigInvalid`).
+- FU-7: (from the build-time `check-quality` pass, Info) The `typedTable` Volar-workaround
+  helper was duplicated between `RagConfigListView.vue` and `ActivityTypesView.vue`.
+  **Done** — commit `ea45069` (extracted to `@shared/ui/typedTable`).
