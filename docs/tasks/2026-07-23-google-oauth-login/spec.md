@@ -495,9 +495,11 @@ Touches auth, session issuance, and account identity — full treatment required
 full unit suite (5700 passed). AC-13 by the frontend component tests. The migration behind
 AC-2/AC-5 was verified empirically (up → guarded downgrade with a real NULL-hash row → up).
 AC-1, AC-12, AC-15, AC-18 are verified by construction + OpenAPI (route wiring, `current_principal`
-bearer gate, `_establish_session` reuse, the reused password-reset flow) — their end-to-end
-browser behavior is the **staging-manual Google E2E** the test plan (§12) designates as the
-final confirmation before prod.
+bearer gate, `_establish_session` reuse, the reused password-reset flow), and their end-to-end
+browser behavior was **confirmed working on staging by the user (2026-07-23)** — the staging-manual
+Google E2E the test plan (§12) designates as the final confirmation. Staging deploy verified
+`GET /api/auth/google/authorize` → 302, migrate one-shot applied 0063, and the real Google login
+flow succeeds.
 
 - [x] AC-1: `GET /api/auth/google/authorize?mode=login` returns a 302 to Google with a
   `state`, `code_challenge` (PKCE S256), `nonce`, and a `redirect_uri` derived from
@@ -656,6 +658,11 @@ to:
   signing) and the **real Google-browser E2E remain staging-manual**, as §12 designated.
   Reason: unit tests pin the branch logic precisely without standing up the full wiring
   stack; the E2E genuinely needs a real Google client + browser.
+- D-4: §6 listed the Google button on `LoginView` "(+ optionally `RegisterView`)". Both were
+  shipped: `LoginView` in M6, and `RegisterView` added post-implementation (commit `da2f498`)
+  because the landing "Get Started" CTA routes to `/register` (`Landing.vue` `getStartedTo`), so
+  the primary onboarding entry needed it. One button serves both (Google login provisions on
+  first sign-in).
 - D-3: §6 listed a `google_linked` field on `UserOut`. Implementation surfaces linked
   status through `GET /api/auth/identities` instead (which the profile connections section
   already consumes), avoiding a `get_profile`/facade change. Functionally equivalent for
