@@ -19,16 +19,29 @@ import {
   Square3Stack3DIcon,
   ShieldCheckIcon,
   ShieldExclamationIcon,
+  UsersIcon,
+  PuzzlePieceIcon,
+  ClipboardDocumentCheckIcon,
 } from '@heroicons/vue/24/outline'
 import { useSessionStore } from '@shared/stores/session'
 import { useWorkspaceStore } from '@shared/stores/workspace'
+import { useBreakpoint } from '@shared/composables/useBreakpoint'
+import { useProjectRole } from '@slices/tenancy'
 import SidebarChatroomList from './SidebarChatroomList.vue'
 import SidebarGroup from './SidebarGroup.vue'
+import OrgProjectSwitcher from './OrgProjectSwitcher.vue'
 
 const { t } = useI18n()
 const route = useRoute()
 const session = useSessionStore()
 const workspace = useWorkspaceStore()
+const { isDesktop } = useBreakpoint()
+
+// Owner/admin gate for the Manage group. Reactive projectId so the gate
+// re-resolves when the active project changes. `decided` keeps an owner's group
+// from flashing in mid role-resolution (R11.10); until decided it stays hidden,
+// exactly like the non-owner case.
+const { decided, isAuthorized } = useProjectRole(() => workspace.projectId ?? undefined)
 
 interface NavItem {
   icon: typeof BuildingOffice2Icon
@@ -85,6 +98,19 @@ const infraNav = computed<NavItem[]>(() => {
   ]
 })
 
+// Owner-only project management surfaces (gated in the template). Path-string
+// routes match the rest of the sidebar and sidestep the members route's `id`
+// vs. `projectId` param-name difference.
+const manageNav = computed<NavItem[]>(() => {
+  const pid = workspace.projectId
+  if (!pid) return []
+  return [
+    { icon: UsersIcon, label: t('app.sidebar.members'), route: `/projects/${pid}/members` },
+    { icon: PuzzlePieceIcon, label: t('app.sidebar.skills'), route: `/projects/${pid}/skills` },
+    { icon: ClipboardDocumentCheckIcon, label: t('app.sidebar.activityTypes'), route: `/projects/${pid}/activity-types` },
+  ]
+})
+
 function isActive(path: string): boolean {
   if (path === '/') return route.path === '/'
   return route.path.startsWith(path)
@@ -97,6 +123,15 @@ function isActive(path: string): boolean {
     class="sidebar"
   >
     <nav class="sidebar__nav">
+      <!-- Org/project switcher — desktop only; on mobile it stays in the top
+           bar since the sidebar is a hidden drawer. -->
+      <div
+        v-if="isDesktop"
+        class="sidebar__switcher"
+      >
+        <OrgProjectSwitcher compact />
+      </div>
+
       <!-- Global — Workspace -->
       <div class="sidebar__section">
         <RouterLink
@@ -220,6 +255,27 @@ function isActive(path: string): boolean {
           </RouterLink>
         </SidebarGroup>
 
+        <!-- Manage (owner/admin only) -->
+        <SidebarGroup
+          v-if="decided && isAuthorized"
+          :label="t('app.sidebar.groupManage')"
+          storage-key="project-manage"
+        >
+          <RouterLink
+            v-for="item in manageNav"
+            :key="item.route"
+            :to="item.route"
+            class="nav-item"
+            :class="{ 'nav-item--active': isActive(item.route) }"
+          >
+            <component
+              :is="item.icon"
+              class="nav-icon"
+            />
+            <span class="nav-label">{{ item.label }}</span>
+          </RouterLink>
+        </SidebarGroup>
+
         <!-- Recent Chatrooms -->
         <div class="sidebar__divider" />
         <SidebarChatroomList />
@@ -260,6 +316,10 @@ function isActive(path: string): boolean {
   display: flex;
   flex-direction: column;
   padding: 8px 0;
+}
+
+.sidebar__switcher {
+  padding: 4px 12px 8px;
 }
 
 .sidebar__section {

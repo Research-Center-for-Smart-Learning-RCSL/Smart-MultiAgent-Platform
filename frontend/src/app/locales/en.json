@@ -126,6 +126,9 @@
       "searchKeys": "Search Keys",
       "workspaces": "Workspaces",
       "mcpAllowlist": "MCP Allowlist",
+      "members": "Members",
+      "skills": "Skills",
+      "activityTypes": "Activity Types",
       "recentChatrooms": "Recent Chatrooms",
       "noChatrooms": "No chatrooms yet",
       "loadError": "Failed to load",
@@ -133,6 +136,7 @@
       "groupKnowledge": "Knowledge",
       "groupKeys": "Keys",
       "groupInfra": "Infrastructure",
+      "groupManage": "Manage",
       "admin": "Admin Console"
     },
     "switcher": {
