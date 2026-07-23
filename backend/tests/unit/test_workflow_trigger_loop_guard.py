@@ -15,6 +15,7 @@ cannot spend without bound. See docs/tasks/2026-07-22-a2a-event-trigger-loop-gua
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -275,3 +276,87 @@ class TestTriggerBudget:
                 await run_triggered_workflow({"redis": AsyncMock()}, wf_id, {})
 
         assert svc.trigger_run.await_count == 50
+
+
+# --------------------------------------------------------------------------- #
+# AC-6: the two dispatch hops compose to a bounded run count
+# --------------------------------------------------------------------------- #
+
+
+async def _drive_signal(payload: dict[str, Any], wf_ids: list[uuid.UUID]) -> list[str]:
+    """Run the real ``workflow_signal`` a2a branch with ``find_triggered_workflows``
+    returning ``wf_ids``; return the workflow ids for which a run was actually
+    started (a ``run_triggered_workflow`` job enqueued)."""
+    from app.workers.tasks.workflow_signals import workflow_signal
+
+    pool = AsyncMock()
+    with (
+        patch("shared_kernel.auth.clients.get_redis", return_value=AsyncMock()),
+        patch(
+            "contexts.workflow.application.event_dispatch.find_matching_waits",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch("shared_kernel.db.session.async_session") as mock_sc,
+        patch(
+            "contexts.workflow.application.event_dispatch.find_triggered_workflows",
+            new_callable=AsyncMock,
+            return_value=wf_ids,
+        ),
+    ):
+        db = AsyncMock()
+        mock_sc.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_sc.return_value.__aexit__ = AsyncMock(return_value=False)
+        await workflow_signal({"redis": pool}, "a2a", payload)
+    return [c.args[1] for c in pool.enqueue_job.await_args_list if c.args[0] == "run_triggered_workflow"]
+
+
+class TestBoundedRunCount:
+    async def test_one_inbound_envelope_starts_one_run_then_the_loop_is_broken(
+        self, monkeypatch: Any
+    ) -> None:
+        """AC-6/AC-8: compose the two real dispatch hops. A user-originated CALL
+        starts exactly one run; the envelope that run emits carries the workflow
+        on its trigger_path (asserted in test_a2a_call_chain), so the second hop
+        refuses to start it again. Total runs = 1 (<= 2). No provider request,
+        no unbounded execution — every step is a single deterministic call."""
+        from contexts.orchestration.application import a2a_handler
+        from contexts.orchestration.domain.models import A2AEnvelope, A2AMessageType
+
+        wf = uuid.uuid4()
+        agent = str(uuid.uuid4())
+
+        captured: dict[str, Any] = {}
+
+        async def _fake_enqueue(task: str, *args: Any, **_: Any) -> None:
+            if task == "workflow_signal":
+                captured["payload"] = args[1]
+
+        monkeypatch.setattr("shared_kernel.queue.enqueue", _fake_enqueue)
+
+        def _env(trigger_path: list[str]) -> A2AEnvelope:
+            return A2AEnvelope(
+                id=uuid.uuid4(),
+                from_agent=None,
+                to_agent=agent,
+                workflow_run_id=uuid.uuid4() if trigger_path else None,
+                type=A2AMessageType.CALL,
+                payload={"input": "x"},
+                correlation_id=uuid.uuid4(),
+                created_at=datetime.now(UTC),
+                trigger_depth=len(trigger_path),
+                trigger_path=tuple(trigger_path),
+            )
+
+        # Hop 1: a genuine user-originated CALL (empty chain) reaches the handler,
+        # which fans out the a2a signal. The dispatch then starts run 1 of wf.
+        await a2a_handler._dispatch_a2a_workflow_signal(_env([]))
+        started_1 = await _drive_signal(captured["payload"], [wf])
+        assert started_1 == [str(wf)]
+
+        # Run 1's agent_invocation stamps wf onto the outbound envelope's chain
+        # (test_a2a_call_chain::test_agent_invocation_stamps_trigger_chain). That
+        # envelope returns to the handler.
+        await a2a_handler._dispatch_a2a_workflow_signal(_env([str(wf)]))
+        started_2 = await _drive_signal(captured["payload"], [wf])
+        assert started_2 == []  # loop broken — no run 2 ever starts
