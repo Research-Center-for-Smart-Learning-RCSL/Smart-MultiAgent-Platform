@@ -240,6 +240,12 @@ async def _dispatch_a2a_workflow_signal(envelope: A2AEnvelope) -> None:
                 # on read), keeping a fresh chain for genuine roots.
                 "chain_id": envelope.payload.get("chain_id"),
                 "chain_path": envelope.payload.get("path"),
+                # F-4: relay the trigger-causality chain so the a2a_event trigger
+                # dispatch refuses to start a workflow already on the chain.
+                # Envelope defaults (0/[]) keep a user-originated message a
+                # genuine trigger root.
+                "trigger_depth": envelope.trigger_depth,
+                "trigger_path": list(envelope.trigger_path),
             },
         )
     except Exception:
