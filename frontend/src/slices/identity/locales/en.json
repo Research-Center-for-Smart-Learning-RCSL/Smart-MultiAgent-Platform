@@ -24,7 +24,18 @@
       "registerLink": "Register",
       "pendingVerify": "Check your email and click the verification link before logging in.",
       "passwordResetSuccess": "Password reset successfully. Log in with your new password.",
-      "passwordChangedSuccess": "Password changed. Please log in with your new password."
+      "passwordChangedSuccess": "Password changed. Please log in with your new password.",
+      "orDivider": "or",
+      "googleSignIn": "Continue with Google",
+      "oauthError": {
+        "unavailable": "Google sign-in is currently unavailable. Please try again later or use your password.",
+        "denied": "Google sign-in was cancelled.",
+        "emailUnverified": "Your Google email is not verified, so it can't be used to sign in.",
+        "generic": "Google sign-in could not be completed. Please try again."
+      }
+    },
+    "googleComplete": {
+      "signingIn": "Signing you in..."
     },
     "verifyEmail": {
       "title": "Verify Email",
@@ -57,7 +68,22 @@
       "displayName": "Display name",
       "displayNameHelp": "Shown to others in chats. Leave blank to use a short ID instead.",
       "submit": "Save",
-      "saved": "Profile updated."
+      "saved": "Profile updated.",
+      "connections": {
+        "title": "Connected accounts",
+        "google": "Google",
+        "notLinked": "Not connected",
+        "linkedAs": "Connected as {email}",
+        "link": "Connect",
+        "unlink": "Disconnect",
+        "linkedSuccess": "Google account connected.",
+        "loadError": "Failed to load connected accounts.",
+        "linkError": "Could not connect your Google account. Please try again.",
+        "unlinkError": "Could not disconnect your Google account. Please try again.",
+        "conflictError": "That Google account is already connected to a different account.",
+        "setPasswordFirst": "Set a password before disconnecting Google, so you don't lose access.",
+        "setPasswordLink": "Set a password"
+      }
     },
     "changePassword": {
       "title": "Change Password",

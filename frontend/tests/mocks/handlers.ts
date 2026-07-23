@@ -51,6 +51,8 @@ export const handlers = [
     })
   }),
 
+  http.get('/api/auth/identities', () => HttpResponse.json([])),
+
   http.get('/api/orgs', () => HttpResponse.json([])),
   http.get('/api/orgs/:orgId', () =>
     HttpResponse.json({ id: 'org_1', name: 'Test Org', owner_id: 'u_test' }),

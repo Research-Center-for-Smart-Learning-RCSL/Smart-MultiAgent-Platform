@@ -51,6 +51,27 @@ function initFlash(): void {
   }
 }
 
+function initOauthError(): void {
+  const code = route.query.oauth_error as string | undefined
+  if (!code) return
+  const map: Record<string, string> = {
+    'oauth-unavailable': t('identity.login.oauthError.unavailable'),
+    'oauth-denied': t('identity.login.oauthError.denied'),
+    'oauth-email-unverified': t('identity.login.oauthError.emailUnverified'),
+    banned: t('identity.errors.banned'),
+    deleted: t('identity.errors.accountDeleted'),
+  }
+  serverError.value = map[code] ?? t('identity.login.oauthError.generic')
+  const { oauth_error: _oe, ...rest } = route.query
+  router.replace({ ...route, query: rest })
+}
+
+function signInWithGoogle(): void {
+  // Full-page navigation to the backend authorize endpoint (which 302s to Google).
+  // A top-level navigation cannot carry the bearer header — login mode needs none.
+  window.location.assign('/api/auth/google/authorize')
+}
+
 
 function validateEmail(): boolean {
   return validateField(emailSchema, email.value, fieldErrors, 'email', t)
@@ -67,6 +88,7 @@ function validatePassword(): boolean {
 
 onMounted(async () => {
   initFlash()
+  initOauthError()
   if (session.isAuthenticated) {
     const raw = (route.query.redirect as string) || ''
     router.push(safeRedirect(raw))
@@ -214,6 +236,49 @@ async function submit(): Promise<void> {
       </SButton>
     </form>
 
+    <div
+      class="oauth-divider"
+      role="separator"
+    >
+      <span>{{ $t('identity.login.orDivider') }}</span>
+    </div>
+
+    <SButton
+      type="button"
+      variant="secondary"
+      size="md"
+      class="submit-btn"
+      :disabled="!!(submitting || rateLimit.active.value)"
+      @click="signInWithGoogle"
+    >
+      <template #icon-left>
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 18 18"
+          aria-hidden="true"
+        >
+          <path
+            fill="#4285F4"
+            d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92A8.78 8.78 0 0 0 17.64 9.2z"
+          />
+          <path
+            fill="#34A853"
+            d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"
+          />
+          <path
+            fill="#FBBC05"
+            d="M3.97 10.72a5.41 5.41 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"
+          />
+          <path
+            fill="#EA4335"
+            d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"
+          />
+        </svg>
+      </template>
+      {{ $t('identity.login.googleSignIn') }}
+    </SButton>
+
     <template #footer>
       {{ $t('identity.login.registerPrompt') }}
       <RouterLink :to="registerLinkTo">
@@ -258,5 +323,25 @@ async function submit(): Promise<void> {
 
 .forgot-link a:hover {
   text-decoration: underline;
+}
+
+.oauth-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+  margin: var(--space-4) 0;
+}
+
+.oauth-divider::before,
+.oauth-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--color-border);
+}
+
+.oauth-divider span {
+  padding: 0 var(--space-3);
 }
 </style>
