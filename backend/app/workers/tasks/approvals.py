@@ -28,6 +28,55 @@ _NOT_VISIBLE_RETRY_DELAY_S = 2
 _NOT_VISIBLE_MAX_ATTEMPTS = 5
 
 
+async def approval_gate_announce(
+    ctx: dict[str, Any],
+    approval_id: str,
+    chatroom_id: str | None = None,
+    node_id: str | None = None,
+    question: str | None = None,
+    attempt: int = 0,
+) -> str:
+    """Post-commit announcement of a created approval gate (F-18).
+
+    Enqueued once, pre-commit, by ``ApprovalService.create_gate``. Opens its own
+    session, re-reads the row, and only then performs every externally-visible
+    effect (WS publishes, approver notifies, timeout arm, approver-turn
+    dispatch) — so nothing escapes before the row is durable. An enqueue orphaned
+    by a rolled-back creation re-reads, finds no row, and gives up harmlessly.
+    Retries within a small budget when the row is not yet visible (the creation
+    transaction has not committed).
+    """
+    from contexts.orchestration.interfaces.facade import OrchestrationFacade
+
+    aid = uuid.UUID(approval_id)
+    cid = uuid.UUID(chatroom_id) if chatroom_id else None
+    async with async_session() as db:
+        announced = await OrchestrationFacade(db).announce_approval_gate(
+            aid,
+            chatroom_id=cid,
+            node_id=node_id,
+            question=question,
+        )
+    if announced:
+        return "announced"
+    # Not yet visible — retry within budget rather than dropping the gate's
+    # announcement (which would leave no card, no approver note and no armed
+    # timeout).
+    if attempt < _NOT_VISIBLE_MAX_ATTEMPTS:
+        await ctx["redis"].enqueue_job(
+            "approval_gate_announce",
+            approval_id,
+            chatroom_id,
+            node_id,
+            question,
+            attempt + 1,
+            _defer_by=timedelta(seconds=_NOT_VISIBLE_RETRY_DELAY_S),
+        )
+        return "retry:not_visible"
+    logger.bind(approval_id=approval_id).warning("approval announce gave up: approval never became visible")
+    return "noop:gone"
+
+
 async def drive_approver_turn(
     ctx: dict[str, Any],
     agent_id: str,
@@ -114,4 +163,4 @@ async def drive_approver_turn(
     return result.status
 
 
-__all__ = ["drive_approver_turn"]
+__all__ = ["approval_gate_announce", "drive_approver_turn"]

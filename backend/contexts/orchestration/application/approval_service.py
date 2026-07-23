@@ -42,12 +42,6 @@ from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)
 
-# Small delay so drive_approver_turn lands after create_gate's enclosing
-# transaction commits (the executor commits just after the node returns). The
-# worker also re-checks/retries when the row is not yet visible, so this only
-# trims the first wasted attempt.
-_APPROVER_TURN_DISPATCH_DELAY_S = 2
-
 
 class ApprovalService:
     """Application-level approval gate orchestration (G.6)."""
@@ -67,11 +61,19 @@ class ApprovalService:
         workflow_run_id: uuid.UUID,
         config: ApprovalGateConfig,
         chatroom_id: uuid.UUID | None = None,
+        node_id: str | None = None,
     ) -> Approval:
         """Create a gate using a room already validated against the run's project.
 
         The room is intentionally transient: approvals do not persist it, so this
         context cannot independently re-derive or re-check its scope.
+
+        Every externally-visible effect (WS publishes, approver notifies, timeout
+        arm, approver-turn dispatch) is deferred to a single post-commit
+        ``approval_gate_announce`` job that re-reads the row first, so nothing
+        escapes before the row is durable (F-18). ``node_id`` and
+        ``config.question`` are not persisted on the row, so they ride on the
+        enqueue for the announce payloads.
         """
         approval_id = uuid.uuid4()
         approval = await self._approvals.insert(
@@ -83,6 +85,8 @@ class ApprovalService:
             timeout_seconds=config.timeout_seconds,
         )
 
+        # Audit is a DB write in this same transaction, so it commits (or rolls
+        # back) atomically with the row — it is not a pre-commit escape.
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -99,49 +103,77 @@ class ApprovalService:
             ),
         )
 
-        if chatroom_id:
-            pub = Publisher(room_channel(chatroom_id))
-            await pub.emit(
-                "approval.requested",
-                {
-                    "approval_id": str(approval_id),
-                    "workflow_run_id": str(workflow_run_id),
-                    "mode": config.mode.value,
-                    "leader_agent_id": str(config.leader_agent_id),
-                    "approver_agent_ids": [str(a) for a in config.approvers],
-                    "timeout_seconds": config.timeout_seconds,
-                    "question": config.question,
-                },
-            )
+        # Load-bearing enqueue: if it fails, gate creation fails and the caller's
+        # transaction rolls back (``shared_kernel.queue.enqueue`` raises). An
+        # orphaned enqueue after a rollback is a harmless no-op — the announce
+        # job re-reads, finds no row, and gives up without any effect.
+        from shared_kernel.queue import enqueue
 
-        wf_pub = Publisher(workflow_channel(workflow_run_id))
-        await wf_pub.emit(
-            "approval.requested",
-            {
-                "approval_id": str(approval_id),
-            },
-        )
-
-        # K.3: notify approver agents so their next turn exposes cast_approval_vote,
-        # and arm the timeout as a deferred job. Approver notifies are best-effort
-        # (a missed one still resolves via timeout), but the timeout arm itself is
-        # load-bearing for liveness and raises on failure (see _notify_and_arm).
-        await self._notify_and_arm(
-            approval_id=approval_id,
-            config=config,
-            workflow_run_id=workflow_run_id,
-            chatroom_id=chatroom_id,
+        await enqueue(
+            "approval_gate_announce",
+            str(approval_id),
+            str(chatroom_id) if chatroom_id else None,
+            node_id,
+            config.question,
         )
 
         return approval
 
+    async def announce_gate(
+        self,
+        approval_id: uuid.UUID,
+        *,
+        chatroom_id: uuid.UUID | None = None,
+        node_id: str | None = None,
+        question: str | None = None,
+    ) -> bool:
+        """Post-commit announcement of a created gate (F-18).
+
+        Re-reads the row so no effect fires unless the row is durable. Returns
+        ``False`` when the row is not (yet) visible so the caller can retry
+        within budget; ``True`` once announced (or already resolved by a fast
+        vote, in which case there is nothing left to announce).
+        """
+        approval = await self._approvals.get(approval_id)
+        if approval is None:
+            return False
+        if approval.state != ApprovalState.PENDING:
+            return True
+
+        if chatroom_id:
+            await Publisher(room_channel(chatroom_id)).emit(
+                "approval.requested",
+                {
+                    "approval_id": str(approval.id),
+                    "workflow_run_id": str(approval.workflow_run_id),
+                    "mode": approval.mode.value,
+                    "leader_agent_id": str(approval.leader_agent_id),
+                    "approver_agent_ids": [str(a) for a in approval.approver_agent_ids],
+                    "timeout_seconds": approval.timeout_seconds,
+                    "question": question,
+                },
+            )
+
+        # Single workflow-channel event carrying node_id and question (Q-5 folds
+        # in the executor's former duplicate publish).
+        await Publisher(workflow_channel(approval.workflow_run_id)).emit(
+            "approval.requested",
+            {
+                "approval_id": str(approval.id),
+                "node_id": node_id,
+                "question": question,
+            },
+        )
+
+        await self._notify_and_arm(approval=approval, chatroom_id=chatroom_id, question=question)
+        return True
+
     async def _notify_and_arm(
         self,
         *,
-        approval_id: uuid.UUID,
-        config: ApprovalGateConfig,
-        workflow_run_id: uuid.UUID,
+        approval: Approval,
         chatroom_id: uuid.UUID | None,
+        question: str | None,
     ) -> None:
         from datetime import timedelta
 
@@ -150,48 +182,44 @@ class ApprovalService:
 
         note = {
             "kind": "approval_request",
-            "approval_id": str(approval_id),
-            "mode": config.mode.value,
-            "workflow_run_id": str(workflow_run_id),
+            "approval_id": str(approval.id),
+            "mode": approval.mode.value,
+            "workflow_run_id": str(approval.workflow_run_id),
             "chatroom_id": str(chatroom_id) if chatroom_id else None,
             # What is being voted on — without it the approver only sees an
             # opaque approval_id and cannot make an informed decision.
-            "question": config.question,
+            "question": question,
         }
         # Arm the timeout FIRST. It is the gate's liveness backstop (in
         # MAJORITY/CONSENSUS a single silent approver otherwise parks the run
-        # forever) and is NOT best-effort — if it cannot be armed, fail gate
-        # creation so the caller rolls back. Doing it before the approver jobs
-        # means a failed arm leaves no orphaned drive_approver_turn jobs behind
-        # (those are non-transactional and would otherwise survive the rollback).
+        # forever) and is NOT best-effort — if it cannot be armed, the announce
+        # job fails and arq retries it. Doing it before the approver jobs means a
+        # failed arm leaves no orphaned drive_approver_turn jobs behind.
         await enqueue(
             "approval_timeout",
-            str(approval_id),
+            str(approval.id),
             str(chatroom_id) if chatroom_id else None,
-            _defer_by=timedelta(seconds=config.timeout_seconds),
+            _defer_by=timedelta(seconds=approval.timeout_seconds),
         )
-        for approver in config.approvers:
+        for approver in approval.approver_agent_ids:
             try:
                 await pending_notify.push(approver, dict(note))
                 # Pending notifies are only drained at the approver's *next*
                 # turn, and nothing else causes one for a headless approver —
-                # without this the gate always falls to the timeout port.
-                # Drive one headless turn per approver; the drained note
-                # supplies the cast_approval_vote tool. Deferred so the job runs
-                # AFTER this gate's transaction commits — create_gate runs inside
-                # the caller's (executor's) transaction, so a non-deferred job
-                # would observe no approval row and skip every approver.
+                # without this the gate always falls to the timeout port. Drive
+                # one headless turn per approver; the drained note supplies the
+                # cast_approval_vote tool. No dispatch delay is needed: the
+                # announce job already runs post-commit, so the row is visible.
                 await enqueue(
                     "drive_approver_turn",
                     str(approver),
-                    str(approval_id),
+                    str(approval.id),
                     str(chatroom_id) if chatroom_id else None,
-                    _defer_by=timedelta(seconds=_APPROVER_TURN_DISPATCH_DELAY_S),
                 )
             except Exception:
                 _log.warning(
                     "approval %s: approver %s notify/turn dispatch failed",
-                    approval_id,
+                    approval.id,
                     approver,
                     exc_info=True,
                 )

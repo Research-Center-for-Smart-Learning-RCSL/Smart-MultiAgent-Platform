@@ -11,8 +11,10 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
 
 import { wsManager, type ChannelEvent } from '@shared/transport'
+import { ApiError } from '@shared/api-client'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
 import { getActiveActivation, useActivitiesStore } from '@slices/activities'
+import { getApproval } from '@slices/workflow'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
 import { getChatroomPresence, getMessage, listMessages } from '../api'
 import { useConversationStore } from '../stores/conversation'
@@ -101,6 +103,39 @@ export function useChatroomSocket(roomId: string) {
       if (generation === replayGeneration) {
         qc.invalidateQueries({ queryKey: ['conversation', 'messages', roomId] })
       }
+    }
+  }
+
+  // Approval cards are inserted from WS alone (approval.requested), so a dropped
+  // approval.resolved — or a gate whose creation rolled back before its row was
+  // durable (F-18) — would pin a `pending` card until reload. Reconcile against
+  // the server on (re)connect and on a slow timer; the store owns the
+  // grace/decision logic, here we just supply the fetch and map a 404 to null.
+  const APPROVAL_RECONCILE_INTERVAL_MS = 30_000
+  let approvalReconcileTimer: ReturnType<typeof setInterval> | null = null
+
+  async function fetchApprovalOrNull(approvalId: string): Promise<ApprovalWithVotes | null> {
+    try {
+      return await getApproval(approvalId)
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null
+      throw e
+    }
+  }
+
+  function reconcileApprovals(): void {
+    void orchStore.reconcilePending(roomId, fetchApprovalOrNull)
+  }
+
+  function startApprovalReconcile(): void {
+    if (approvalReconcileTimer !== null) return
+    approvalReconcileTimer = setInterval(reconcileApprovals, APPROVAL_RECONCILE_INTERVAL_MS)
+  }
+
+  function stopApprovalReconcile(): void {
+    if (approvalReconcileTimer !== null) {
+      clearInterval(approvalReconcileTimer)
+      approvalReconcileTimer = null
     }
   }
 
@@ -353,6 +388,8 @@ export function useChatroomSocket(roomId: string) {
       void replayDelta()
       void resyncPresence()
       void resyncActivation()
+      // Recover any approval.resolved lost while the socket was down.
+      reconcileApprovals()
     }
   })
 
@@ -364,15 +401,18 @@ export function useChatroomSocket(roomId: string) {
 
   onMounted(() => {
     channel.connect()
+    startApprovalReconcile()
   })
 
   onActivated(() => {
     channel.connect()
+    startApprovalReconcile()
   })
 
   onDeactivated(() => {
     clearThinkingTimeout()
     stopPolling()
+    stopApprovalReconcile()
     channel.disconnect()
   })
 
@@ -381,6 +421,7 @@ export function useChatroomSocket(roomId: string) {
     activationGeneration += 1
     clearThinkingTimeout()
     stopPolling()
+    stopApprovalReconcile()
     channel.send({ type: 'typing.stop' })
     unsubscribeEvent()
     unsubscribeStatus()

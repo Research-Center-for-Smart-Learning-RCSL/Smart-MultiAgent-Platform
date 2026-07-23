@@ -4,7 +4,7 @@
 import { registerLocaleLoaders } from '@shared/i18n'
 
 export { workflowRoutes } from './routes'
-export { patchAgentWakeupConfig } from './api'
+export { getApproval, patchAgentWakeupConfig } from './api'
 export { useOrchestrationStore } from './stores/orchestration'
 export { useWorkflowStore } from './stores/workflow'
 export { useWorkflowRunSocket } from './composables/useWorkflowRunSocket'

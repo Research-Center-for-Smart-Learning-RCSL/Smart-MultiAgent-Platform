@@ -36,7 +36,7 @@ from app.workers.agent_fs_gc import sweep_once as _agent_fs_gc_sweep_once
 from app.workers.agent_fs_gc import sweep_report_dict as _agent_fs_gc_report_dict
 from app.workers.tasks.activities import activities_watchdog, validate_activity_submission
 from app.workers.tasks.advisory import daily_org_advisory_snapshot
-from app.workers.tasks.approvals import drive_approver_turn
+from app.workers.tasks.approvals import approval_gate_announce, drive_approver_turn
 from app.workers.tasks.conversation import (
     chat_export,
     compact_chatroom,
@@ -273,6 +273,7 @@ class WorkerSettings:
         evaluate_silence,
         wakeup_refresh,
         approval_timeout,
+        approval_gate_announce,
         compact_chatroom,
         drive_approver_turn,
         run_workflow_step,

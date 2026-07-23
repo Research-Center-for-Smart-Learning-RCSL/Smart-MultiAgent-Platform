@@ -62,28 +62,19 @@ def _approval(state=ApprovalState.PENDING, *, leader=None, approvers=None):
     )
 
 
-@pytest.mark.asyncio
-async def test_create_gate_propagates_exactly_one_room_to_every_sink(monkeypatch) -> None:
-    room_id = uuid.uuid4()
-    workflow_run_id = uuid.uuid4()
-    leader_id = uuid.uuid4()
-    approver_id = uuid.uuid4()
+def _record_effects(monkeypatch):
+    """Patch Publisher / audit / enqueue / pending_notify.push onto a log."""
     effects: list[tuple] = []
-
-    class _Approvals:
-        async def insert(self, **kwargs):
-            effects.append(("insert", kwargs))
-            return SimpleNamespace(id=kwargs["id"])
 
     class _Publisher:
         def __init__(self, channel) -> None:
-            self._channel = channel
+            pass
 
         async def emit(self, event, payload):
-            effects.append(("publish", self._channel, event, payload))
+            effects.append(("publish", event, payload))
 
     async def _audit_emit(db, event):
-        effects.append(("audit", event))
+        effects.append(("audit", event.action))
 
     async def _enqueue(job, *args, **kwargs):
         effects.append(("enqueue", job, args, kwargs))
@@ -95,11 +86,35 @@ async def test_create_gate_propagates_exactly_one_room_to_every_sink(monkeypatch
     monkeypatch.setattr(appr.audit, "emit", _audit_emit)
     monkeypatch.setattr("shared_kernel.queue.enqueue", _enqueue)
     monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.push", _push)
+    return effects
 
+
+def _bare_service(approvals):
     service = appr.ApprovalService.__new__(appr.ApprovalService)
     service._db = _FakeDB()
-    service._approvals = _Approvals()
+    service._approvals = approvals
     service._votes = MagicMock()
+    return service
+
+
+@pytest.mark.asyncio
+async def test_create_gate_publishes_nothing_before_commit(monkeypatch) -> None:
+    # F-18 (AC-1/AC-2): the create path owns no transaction, so it must perform
+    # NO externally-visible effect inline — only enqueue the post-commit announce
+    # job. Fails against the old code, which published, notified, armed the
+    # timeout and dispatched approvers all inline.
+    room_id = uuid.uuid4()
+    workflow_run_id = uuid.uuid4()
+    leader_id = uuid.uuid4()
+    approver_id = uuid.uuid4()
+    effects = _record_effects(monkeypatch)
+
+    class _Approvals:
+        async def insert(self, **kwargs):
+            effects.append(("insert", kwargs))
+            return SimpleNamespace(id=kwargs["id"])
+
+    service = _bare_service(_Approvals())
     config = ApprovalGateConfig(
         mode=ApprovalMode.MAJORITY,
         leader_agent_id=leader_id,
@@ -112,20 +127,192 @@ async def test_create_gate_propagates_exactly_one_room_to_every_sink(monkeypatch
         workflow_run_id=workflow_run_id,
         config=config,
         chatroom_id=room_id,
+        node_id="gate1",
     )
 
-    room_publishes = [effect for effect in effects if effect[0] == "publish" and "mode" in effect[3]]
+    kinds = [e[0] for e in effects]
+    assert "publish" not in kinds  # no WS publish before commit
+    assert "notify" not in kinds  # no approver notify before commit
+    enqueues = [e for e in effects if e[0] == "enqueue"]
+    assert len(enqueues) == 1  # only the announce job — no timeout arm, no drive
+    _, job, args, _kw = enqueues[0]
+    assert job == "approval_gate_announce"
+    approval_id = effects[0][1]["id"]
+    assert args == (str(approval_id), str(room_id), "gate1", "Approve this?")
+    # The in-transaction audit is durable with the row and is not an escape.
+    assert ("audit", "approval.requested") in effects
+
+
+@pytest.mark.asyncio
+async def test_create_gate_fails_when_announce_enqueue_fails(monkeypatch) -> None:
+    # AC-4: the announce enqueue inherits the timeout arm's load-bearing role —
+    # if it raises, create_gate must propagate so the caller's transaction rolls
+    # back rather than committing a row whose effects will never fire.
+    _record_effects(monkeypatch)
+
+    async def _boom_enqueue(job, *args, **kwargs):
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr("shared_kernel.queue.enqueue", _boom_enqueue)
+
+    class _Approvals:
+        async def insert(self, **kwargs):
+            return SimpleNamespace(id=kwargs["id"])
+
+    service = _bare_service(_Approvals())
+    config = ApprovalGateConfig(
+        mode=ApprovalMode.SINGLE,
+        leader_agent_id=(leader := uuid.uuid4()),
+        approvers=(leader,),
+        timeout_seconds=60,
+    )
+
+    with pytest.raises(RuntimeError, match="redis down"):
+        await service.create_gate(workflow_run_id=uuid.uuid4(), config=config)
+
+
+@pytest.mark.asyncio
+async def test_announce_arms_timeout_and_drives_approvers_once_visible(monkeypatch) -> None:
+    room_id = uuid.uuid4()
+    leader_id = uuid.uuid4()
+    approver_id = uuid.uuid4()
+    approval = _approval(state=ApprovalState.PENDING, leader=leader_id, approvers=(leader_id, approver_id))
+    effects = _record_effects(monkeypatch)
+
+    class _Approvals:
+        async def get(self, aid):
+            return approval
+
+    service = _bare_service(_Approvals())
+
+    announced = await service.announce_gate(approval.id, chatroom_id=room_id, node_id="g", question="ok?")
+
+    assert announced is True
+    # AC-5: exactly one workflow-channel publish, carrying node_id + question.
+    wf_publishes = [e for e in effects if e[0] == "publish" and "node_id" in e[2]]
+    assert len(wf_publishes) == 1
+    assert wf_publishes[0][2]["node_id"] == "g"
+    assert wf_publishes[0][2]["question"] == "ok?"
+    # AC-5: room publish still carries workflow_run_id (B5).
+    room_publishes = [e for e in effects if e[0] == "publish" and "mode" in e[2]]
     assert len(room_publishes) == 1
-    assert room_publishes[0][3]["workflow_run_id"] == str(workflow_run_id)
-    notes = [effect[2] for effect in effects if effect[0] == "notify"]
-    assert notes
-    assert all(note["chatroom_id"] == str(room_id) for note in notes)
-    timeout_jobs = [effect for effect in effects if effect[:2] == ("enqueue", "approval_timeout")]
-    assert len(timeout_jobs) == 1
-    assert timeout_jobs[0][2][1] == str(room_id)
-    approver_jobs = [effect for effect in effects if effect[:2] == ("enqueue", "drive_approver_turn")]
-    assert len(approver_jobs) == len(config.approvers)
-    assert all(effect[2][2] == str(room_id) for effect in approver_jobs)
+    assert room_publishes[0][2]["workflow_run_id"] == str(approval.workflow_run_id)
+    # Timeout armed once; one drive + one notify per approver.
+    timeouts = [e for e in effects if e[0] == "enqueue" and e[1] == "approval_timeout"]
+    assert len(timeouts) == 1
+    drives = [e for e in effects if e[0] == "enqueue" and e[1] == "drive_approver_turn"]
+    assert len(drives) == len(approval.approver_agent_ids)
+    notes = [e for e in effects if e[0] == "notify"]
+    assert len(notes) == len(approval.approver_agent_ids)
+    assert all(n[2]["question"] == "ok?" for n in notes)
+    # AC-8: no 2s dispatch delay on the approver turns — the announce job is the
+    # commit barrier now.
+    assert all("_defer_by" not in e[3] for e in drives)
+
+
+@pytest.mark.asyncio
+async def test_announce_returns_true_for_already_resolved_row(monkeypatch) -> None:
+    approval = _approval(state=ApprovalState.APPROVED)
+    effects = _record_effects(monkeypatch)
+
+    class _Approvals:
+        async def get(self, aid):
+            return approval
+
+    service = _bare_service(_Approvals())
+
+    announced = await service.announce_gate(approval.id, chatroom_id=None)
+
+    assert announced is True
+    assert effects == []  # a gate resolved before announce has nothing to emit
+
+
+@pytest.mark.asyncio
+async def test_announce_returns_false_for_invisible_row(monkeypatch) -> None:
+    effects = _record_effects(monkeypatch)
+
+    class _Approvals:
+        async def get(self, aid):
+            return None
+
+    service = _bare_service(_Approvals())
+
+    announced = await service.announce_gate(uuid.uuid4(), chatroom_id=None)
+
+    assert announced is False
+    assert effects == []  # rolled-back / not-yet-visible gate emits nothing (AC-3)
+
+
+def test_approver_turn_dispatch_delay_constant_removed() -> None:
+    # AC-8: the 2s dispatch delay only approximated the commit barrier the
+    # announce job now enforces properly; it must be gone.
+    assert not hasattr(appr, "_APPROVER_TURN_DISPATCH_DELAY_S")
+
+
+# --------------------------------------------------------------------------- #
+# approval_gate_announce task — post-commit barrier + visibility retry (F-18)
+# --------------------------------------------------------------------------- #
+
+
+def _wire_announce(monkeypatch, announced):
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def announce_approval_gate(self, aid, *, chatroom_id=None, node_id=None, question=None):
+            return announced
+
+    @asynccontextmanager
+    async def _sess():
+        yield _FakeDB()
+
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade)
+    monkeypatch.setattr(tasks_appr, "async_session", _sess)
+
+
+@pytest.mark.asyncio
+async def test_announce_task_returns_announced(monkeypatch) -> None:
+    _wire_announce(monkeypatch, True)
+    out = await tasks_appr.approval_gate_announce({}, str(uuid.uuid4()), None, "g", "q?")
+    assert out == "announced"
+
+
+@pytest.mark.asyncio
+async def test_announce_task_retries_invisible_row(monkeypatch) -> None:
+    _wire_announce(monkeypatch, False)
+    enqueued: list = []
+
+    class _Redis:
+        async def enqueue_job(self, *a, **k):
+            enqueued.append((a, k))
+
+    out = await tasks_appr.approval_gate_announce({"redis": _Redis()}, str(uuid.uuid4()), None, "g", "q?")
+
+    assert out == "retry:not_visible"
+    assert len(enqueued) == 1
+    assert enqueued[0][0][-1] == 1  # re-armed with attempt+1
+
+
+@pytest.mark.asyncio
+async def test_announce_task_gives_up_after_max_attempts(monkeypatch) -> None:
+    _wire_announce(monkeypatch, False)
+    enqueued: list = []
+
+    class _Redis:
+        async def enqueue_job(self, *a, **k):
+            enqueued.append((a, k))
+
+    out = await tasks_appr.approval_gate_announce(
+        {"redis": _Redis()},
+        str(uuid.uuid4()),
+        None,
+        "g",
+        "q?",
+        tasks_appr._NOT_VISIBLE_MAX_ATTEMPTS,
+    )
+
+    assert out == "noop:gone"
+    assert enqueued == []
 
 
 # --------------------------------------------------------------------------- #
