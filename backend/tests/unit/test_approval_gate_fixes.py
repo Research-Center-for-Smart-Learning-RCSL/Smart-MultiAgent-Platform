@@ -160,9 +160,10 @@ async def test_create_gate_fails_when_announce_enqueue_fails(monkeypatch) -> Non
             return SimpleNamespace(id=kwargs["id"])
 
     service = _bare_service(_Approvals())
+    leader = uuid.uuid4()
     config = ApprovalGateConfig(
         mode=ApprovalMode.SINGLE,
-        leader_agent_id=(leader := uuid.uuid4()),
+        leader_agent_id=leader,
         approvers=(leader,),
         timeout_seconds=60,
     )
