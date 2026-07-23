@@ -267,8 +267,10 @@ class TestActivitySignalEmit:
 
 class TestWatchdog:
     async def test_sweeps_stalled(self) -> None:
+        rows = [(uuid.uuid4(), uuid.uuid4()) for _ in range(4)]
         af = MagicMock()
-        af.sweep_stalled = AsyncMock(return_value=4)
+        af.sweep_stalled = AsyncMock(return_value=rows)
+        af.build_activity_signal = AsyncMock(return_value=None)
         db = MagicMock()
         db.commit = AsyncMock()
         with (
@@ -276,8 +278,75 @@ class TestWatchdog:
             patch("contexts.activities.interfaces.facade.ActivitiesFacade", return_value=af),
             patch("shared_kernel.audit.flush_tail_events", new=AsyncMock()),
             patch("shared_kernel.audit.emit", new=AsyncMock()),
+            patch.object(worker, "_emit_validated", new=AsyncMock()),
+            patch("shared_kernel.queue.enqueue", new=AsyncMock()),
         ):
             result = await worker.activities_watchdog({})
 
         assert result == "swept=4"
         af.sweep_stalled.assert_awaited_once()
+
+    async def test_watchdog_emits_validated_and_signal_per_swept_row(self) -> None:
+        """T-5: the watchdog notifies each swept row — one activity.validated with
+        status='error' on the room channel and one workflow_signal — both after the
+        commit, mirroring the completion path."""
+        rows = [(uuid.uuid4(), uuid.uuid4()), (uuid.uuid4(), uuid.uuid4())]
+        payload = {"submission_id": "x", "rolling": {"same_error_count": 1}}
+        commit_order: list[str] = []
+        af = MagicMock()
+        af.sweep_stalled = AsyncMock(return_value=rows)
+        af.build_activity_signal = AsyncMock(return_value=payload)
+        db = MagicMock()
+
+        async def _record_commit() -> None:
+            commit_order.append("commit")
+
+        db.commit = AsyncMock(side_effect=_record_commit)
+
+        async def _record_emit(*_a: object, **_k: object) -> None:
+            commit_order.append("emit")
+
+        with (
+            patch("shared_kernel.db.session.async_session", return_value=_FakeSession(db)),
+            patch("contexts.activities.interfaces.facade.ActivitiesFacade", return_value=af),
+            patch("shared_kernel.audit.flush_tail_events", new=AsyncMock()),
+            patch("shared_kernel.audit.emit", new=AsyncMock()),
+            patch.object(worker, "_emit_validated", new=AsyncMock(side_effect=_record_emit)) as emit_v,
+            patch("shared_kernel.queue.enqueue", new=AsyncMock()) as enq,
+        ):
+            result = await worker.activities_watchdog({})
+
+        assert result == "swept=2"
+        # One activity.validated per row, all with status='error'.
+        assert emit_v.await_count == 2
+        for call in emit_v.await_args_list:
+            assert call.args[2] == "error"
+        # One workflow_signal("activity", …) enqueue per row.
+        signal_calls = [c for c in enq.await_args_list if c.args[:2] == ("workflow_signal", "activity")]
+        assert len(signal_calls) == 2
+        # Every emit happens after the single commit.
+        assert commit_order[0] == "commit"
+        assert commit_order.count("commit") == 1
+        assert set(commit_order[1:]) == {"emit"}
+
+    async def test_watchdog_with_no_stalled_rows_emits_nothing(self) -> None:
+        af = MagicMock()
+        af.sweep_stalled = AsyncMock(return_value=[])
+        af.build_activity_signal = AsyncMock()
+        db = MagicMock()
+        db.commit = AsyncMock()
+        with (
+            patch("shared_kernel.db.session.async_session", return_value=_FakeSession(db)),
+            patch("contexts.activities.interfaces.facade.ActivitiesFacade", return_value=af),
+            patch("shared_kernel.audit.flush_tail_events", new=AsyncMock()),
+            patch("shared_kernel.audit.emit", new=AsyncMock()) as emit_audit,
+            patch.object(worker, "_emit_validated", new=AsyncMock()) as emit_v,
+            patch("shared_kernel.queue.enqueue", new=AsyncMock()) as enq,
+        ):
+            result = await worker.activities_watchdog({})
+
+        assert result == "swept=0"
+        emit_v.assert_not_awaited()
+        enq.assert_not_awaited()
+        af.build_activity_signal.assert_not_awaited()
+        emit_audit.assert_not_awaited()  # no aggregate audit row when nothing swept

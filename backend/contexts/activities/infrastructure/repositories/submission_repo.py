@@ -209,12 +209,16 @@ class ActivitySubmissionRepository:
 
     async def sweep_stalled(
         self, *, cutoff: dt.datetime, error_class: str, swept_at: dt.datetime, limit: int = 500
-    ) -> int:
-        """Watchdog: move ``pending`` rows older than ``cutoff`` to ``error``.
+    ) -> Sequence[tuple[uuid.UUID, uuid.UUID]]:
+        """Watchdog: move ``pending`` rows older than ``cutoff`` to ``error``,
+        returning the ``(id, chatroom_id)`` of each transitioned row.
 
-        Bounded per call; the ``pending``-only predicate leaves ``validated`` and
-        already-``error`` rows untouched (R30.06). ``validated_at`` records when
-        the timeout was actually observed (``swept_at``), not the TTL boundary."""
+        The identities let the watchdog emit the same per-room ``activity.validated``
+        event and ``activity`` workflow signal the completion path emits (F-20) —
+        a bare rowcount forecloses that. Bounded per call; the ``pending``-only
+        predicate leaves ``validated`` and already-``error`` rows untouched
+        (R30.06). ``validated_at`` records when the timeout was actually observed
+        (``swept_at``), not the TTL boundary."""
         batch = (
             sa.select(_SUB.c.id)
             .where(
@@ -238,8 +242,9 @@ class ActivitySubmissionRepository:
                 error_class=error_class,
                 validated_at=swept_at,
             )
+            .returning(_SUB.c.id, _SUB.c.chatroom_id)
         )
-        return rowcount(result) or 0
+        return [(row.id, row.chatroom_id) for row in result]
 
     async def list_recent_for_room(
         self, *, chatroom_id: uuid.UUID, limit: int

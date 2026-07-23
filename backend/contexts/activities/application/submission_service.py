@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Sequence
 from datetime import timedelta
 from typing import Any
 
@@ -261,8 +262,12 @@ class SubmissionService:
             )
         return changed
 
-    async def sweep_stalled(self, *, ttl_seconds: int, error_class: str = "validation_timeout") -> int:
-        """Watchdog: move ``pending`` submissions older than the TTL to ``error``."""
+    async def sweep_stalled(
+        self, *, ttl_seconds: int, error_class: str = "validation_timeout"
+    ) -> Sequence[tuple[uuid.UUID, uuid.UUID]]:
+        """Watchdog: move ``pending`` submissions older than the TTL to ``error``,
+        returning the ``(id, chatroom_id)`` of each swept row so the watchdog can
+        notify per room (F-20)."""
         swept_at = now()
         cutoff = swept_at - timedelta(seconds=ttl_seconds)
         return await self._sub_repo.sweep_stalled(cutoff=cutoff, error_class=error_class, swept_at=swept_at)

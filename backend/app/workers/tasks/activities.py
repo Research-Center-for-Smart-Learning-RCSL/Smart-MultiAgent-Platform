@@ -162,29 +162,50 @@ async def validate_activity_submission(ctx: dict[str, Any], submission_id: str) 
 
 
 async def activities_watchdog(ctx: dict[str, Any]) -> str:
-    """Sweep ``pending`` submissions older than the TTL to ``error`` (R30.06)."""
+    """Sweep ``pending`` submissions older than the TTL to ``error`` (R30.06), then
+    notify each swept row exactly as the completion path does (F-20): one
+    ``activity.validated`` room event and one ``activity`` workflow signal per row.
+    The sweep is the safety net for a stalled worker OR a dropped enqueue, so it
+    must emit the same frames that path would have."""
     from contexts.activities.interfaces.facade import ActivitiesFacade
     from shared_kernel import audit
     from shared_kernel.audit import flush_tail_events
     from shared_kernel.db.session import async_session
 
+    # (chatroom_id, submission_id, signal_payload) built post-commit, emitted
+    # outside the session — same ordering as validate_activity_submission.
+    to_emit: list[tuple[uuid.UUID, uuid.UUID, dict[str, Any] | None]] = []
     async with async_session() as db:
-        swept = await ActivitiesFacade(db).sweep_stalled(ttl_seconds=_PENDING_TTL_SECONDS)
+        facade = ActivitiesFacade(db)
+        swept = await facade.sweep_stalled(ttl_seconds=_PENDING_TTL_SECONDS)
         if swept:
             await audit.emit(
                 db,
                 audit.AuditEvent(
                     action="activity.watchdog_swept",
-                    metadata={"rows_affected": swept, "ttl_seconds": _PENDING_TTL_SECONDS},
+                    metadata={"rows_affected": len(swept), "ttl_seconds": _PENDING_TTL_SECONDS},
                 ),
             )
         await db.commit()
         await flush_tail_events(db)
+        # Build each completion signal post-commit so the rolling aggregate counts
+        # the just-written ``validation_timeout`` verdict (as the completion path
+        # documents); a build failure for one row must not drop the others.
+        for submission_id, chatroom_id in swept:
+            payload = await facade.build_activity_signal(submission_id=submission_id)
+            to_emit.append((chatroom_id, submission_id, payload))
 
-    logger.bind(event="activities_watchdog_done", swept=swept).info(
-        f"activities watchdog: swept {swept} stalled submissions"
+    # Both emits already swallow their own failures, so one bad row cannot fail the
+    # sweep or block the rest.
+    for chatroom_id, submission_id, payload in to_emit:
+        await _emit_validated(chatroom_id, submission_id, "error")
+        await _emit_activity_signal(payload)
+
+    swept_count = len(swept)
+    logger.bind(event="activities_watchdog_done", swept=swept_count).info(
+        f"activities watchdog: swept {swept_count} stalled submissions"
     )
-    return f"swept={swept}"
+    return f"swept={swept_count}"
 
 
 __all__ = ["activities_watchdog", "validate_activity_submission"]
