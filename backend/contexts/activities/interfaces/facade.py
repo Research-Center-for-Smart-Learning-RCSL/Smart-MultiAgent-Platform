@@ -158,16 +158,34 @@ class ActivitiesFacade:
         activity_type_id: uuid.UUID,
         chatroom_id: uuid.UUID,
         subject_user_id: uuid.UUID,
+        caller_user_id: uuid.UUID | None,
     ) -> ActivitySession:
         return await self._sessions.open_session(
             project_id=project_id,
             activity_type_id=activity_type_id,
             chatroom_id=chatroom_id,
             subject_user_id=subject_user_id,
+            caller_user_id=caller_user_id,
         )
 
-    async def close_session(self, *, session_id: uuid.UUID, chatroom_id: uuid.UUID) -> None:
-        await self._sessions.close_session(session_id=session_id, chatroom_id=chatroom_id)
+    async def close_session(
+        self,
+        *,
+        session_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        subject_user_id: uuid.UUID | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        await self._sessions.close_session(
+            session_id=session_id,
+            chatroom_id=chatroom_id,
+            subject_user_id=subject_user_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
 
     async def get_session(self, session_id: uuid.UUID) -> ActivitySession | None:
         return await self._sessions.get_session(session_id)
@@ -182,6 +200,7 @@ class ActivitiesFacade:
         chatroom_id: uuid.UUID,
         producer_user_id: uuid.UUID,
         subject_user_id: uuid.UUID,
+        caller_user_id: uuid.UUID | None,
         payload: dict[str, object],
         session_id: uuid.UUID | None = None,
         actor_user_id: uuid.UUID,
@@ -196,6 +215,7 @@ class ActivitiesFacade:
             chatroom_id=chatroom_id,
             producer_user_id=producer_user_id,
             subject_user_id=subject_user_id,
+            caller_user_id=caller_user_id,
             payload=payload,
             session_id=session_id,
             actor_user_id=actor_user_id,

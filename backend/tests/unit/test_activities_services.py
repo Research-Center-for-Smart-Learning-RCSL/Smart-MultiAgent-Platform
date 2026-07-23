@@ -14,7 +14,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from contexts.activities.application import session_service as sess_svc
 from contexts.activities.application import submission_service as ss
+from contexts.activities.application.session_service import ActivitySessionService
 from contexts.activities.application.submission_service import SubmissionService
 from contexts.activities.application.type_service import ActivityTypeService
 from contexts.activities.application.validators import registry
@@ -24,7 +26,9 @@ from contexts.activities.application.validators.schema import (
 )
 from contexts.activities.domain.errors import (
     ActivityNotActive,
+    ActivityTypeNotFound,
     PayloadSchemaInvalid,
+    SessionNotFound,
     SubmissionPayloadInvalid,
     ValidatorConfigInvalid,
 )
@@ -272,6 +276,7 @@ class TestSubmitInProcess:
                 chatroom_id=session.chatroom_id,
                 producer_user_id=session.subject_user_id,
                 subject_user_id=session.subject_user_id,
+                caller_user_id=session.subject_user_id,
                 # Client tries to forge a passing score / attempt number:
                 payload={"answer": "x", "is_valid": False, "attempt_no": 99, "score": 0},
                 actor_user_id=session.subject_user_id,
@@ -296,6 +301,7 @@ class TestSubmitInProcess:
                 chatroom_id=session.chatroom_id,
                 producer_user_id=session.subject_user_id,
                 subject_user_id=session.subject_user_id,
+                caller_user_id=session.subject_user_id,
                 payload={},  # missing required 'answer'
                 actor_user_id=session.subject_user_id,
                 actor_ip=None,
@@ -314,6 +320,7 @@ class TestSubmitInProcess:
                 chatroom_id=session.chatroom_id,
                 producer_user_id=session.subject_user_id,
                 subject_user_id=session.subject_user_id,
+                caller_user_id=session.subject_user_id,
                 payload={"answer": "x"},
                 actor_user_id=session.subject_user_id,
                 actor_ip=None,
@@ -343,6 +350,7 @@ class TestSubmitInProcess:
                 chatroom_id=session.chatroom_id,
                 producer_user_id=session.subject_user_id,
                 subject_user_id=session.subject_user_id,
+                caller_user_id=session.subject_user_id,
                 payload={"answer": "x"},
                 actor_user_id=session.subject_user_id,
                 actor_ip=None,
@@ -489,6 +497,191 @@ class TestOpenSessionTenantIsolation:
                 activity_type_id=uuid.uuid4(),
                 chatroom_id=uuid.uuid4(),
                 subject_user_id=uuid.uuid4(),
+                caller_user_id=uuid.uuid4(),
             )
         # Never touched the session table for a foreign type.
         svc._repo.get_open.assert_not_awaited()
+
+    async def test_opening_a_session_for_another_subject_is_refused(self) -> None:
+        """T-2: a room member may not open a session naming a foreign subject."""
+        activity_type = _make_type()
+        svc = ActivitySessionService(MagicMock())
+        svc._type_repo = MagicMock()
+        svc._type_repo.get = AsyncMock(return_value=activity_type)
+        svc._repo = MagicMock()
+        svc._repo.get_open = AsyncMock()
+        svc._repo.create_open = AsyncMock()
+
+        with pytest.raises(SessionNotFound):
+            await svc.open_session(
+                project_id=activity_type.project_id,
+                activity_type_id=activity_type.id,
+                chatroom_id=uuid.uuid4(),
+                subject_user_id=uuid.uuid4(),  # subject B
+                caller_user_id=uuid.uuid4(),  # caller A != B
+            )
+        # Rejected before any session resolution.
+        svc._repo.get_open.assert_not_awaited()
+
+    async def test_admin_may_open_a_session_for_any_subject(self) -> None:
+        """T-4 (open arm): caller_user_id=None (admin) skips the subject check."""
+        activity_type = _make_type()
+        session = ActivitySession(
+            id=uuid.uuid4(),
+            activity_type_id=activity_type.id,
+            chatroom_id=uuid.uuid4(),
+            subject_user_id=uuid.uuid4(),
+            status=SessionStatus.OPEN,
+            created_at=_NOW,
+        )
+        svc = ActivitySessionService(MagicMock())
+        svc._type_repo = MagicMock()
+        svc._type_repo.get = AsyncMock(return_value=activity_type)
+        svc._repo = MagicMock()
+        svc._repo.get_open = AsyncMock(return_value=session)
+
+        opened = await svc.open_session(
+            project_id=activity_type.project_id,
+            activity_type_id=activity_type.id,
+            chatroom_id=session.chatroom_id,
+            subject_user_id=session.subject_user_id,
+            caller_user_id=None,
+        )
+        assert opened is session
+
+
+def _wire_session_service(
+    *, subject_user_id: uuid.UUID, chatroom_id: uuid.UUID
+) -> tuple[ActivitySessionService, ActivitySession]:
+    session = ActivitySession(
+        id=uuid.uuid4(),
+        activity_type_id=uuid.uuid4(),
+        chatroom_id=chatroom_id,
+        subject_user_id=subject_user_id,
+        status=SessionStatus.OPEN,
+        created_at=_NOW,
+    )
+    svc = ActivitySessionService(MagicMock())
+    svc._repo = MagicMock()
+    svc._repo.get = AsyncMock(return_value=session)
+    svc._repo.close = AsyncMock(return_value=True)
+    return svc, session
+
+
+class TestCloseSessionAuthz:
+    async def test_closing_another_subjects_session_is_refused(self) -> None:
+        """T-1: closing a session that belongs to another subject raises
+        SessionNotFound and never reaches the repository close."""
+        room = uuid.uuid4()
+        subject_a = uuid.uuid4()
+        subject_b = uuid.uuid4()
+        svc, session = _wire_session_service(subject_user_id=subject_a, chatroom_id=room)
+
+        with (
+            patch.object(sess_svc.audit, "emit", new=AsyncMock()),
+            pytest.raises(SessionNotFound),
+        ):
+            await svc.close_session(
+                session_id=session.id,
+                chatroom_id=room,
+                subject_user_id=subject_b,  # not the session's subject
+                actor_user_id=subject_b,
+                actor_ip=None,
+            )
+        svc._repo.close.assert_not_awaited()
+
+    async def test_subject_closes_own_session_and_double_close_is_noop(self) -> None:
+        """T-4: the subject's own close succeeds, a second close is a no-op, and
+        the platform-admin arm may close another subject's session."""
+        room = uuid.uuid4()
+        subject_a = uuid.uuid4()
+        svc, session = _wire_session_service(subject_user_id=subject_a, chatroom_id=room)
+
+        with patch.object(sess_svc.audit, "emit", new=AsyncMock()) as emit:
+            await svc.close_session(
+                session_id=session.id,
+                chatroom_id=room,
+                subject_user_id=subject_a,
+                actor_user_id=subject_a,
+                actor_ip=None,
+            )
+            svc._repo.close.assert_awaited_once()
+            emit.assert_awaited_once()  # AC-4: a real close emits the audit event
+            # Double close: the status='open' guard makes it 0 rows; no error, no
+            # second audit for a state that did not change.
+            svc._repo.close = AsyncMock(return_value=False)
+            await svc.close_session(
+                session_id=session.id,
+                chatroom_id=room,
+                subject_user_id=subject_a,
+                actor_user_id=subject_a,
+                actor_ip=None,
+            )
+
+        svc_admin, session_admin = _wire_session_service(subject_user_id=uuid.uuid4(), chatroom_id=room)
+        with patch.object(sess_svc.audit, "emit", new=AsyncMock()):
+            await svc_admin.close_session(
+                session_id=session_admin.id,
+                chatroom_id=room,
+                subject_user_id=None,  # admin arm: no subject constraint
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+        svc_admin._repo.close.assert_awaited_once()
+
+    async def test_close_in_a_different_room_is_refused(self) -> None:
+        room = uuid.uuid4()
+        subject_a = uuid.uuid4()
+        svc, session = _wire_session_service(subject_user_id=subject_a, chatroom_id=room)
+
+        with (
+            patch.object(sess_svc.audit, "emit", new=AsyncMock()),
+            pytest.raises(SessionNotFound),
+        ):
+            await svc.close_session(
+                session_id=session.id,
+                chatroom_id=uuid.uuid4(),  # wrong room
+                subject_user_id=subject_a,
+                actor_user_id=subject_a,
+                actor_ip=None,
+            )
+        svc._repo.close.assert_not_awaited()
+
+
+class TestSubmitSubjectAuthz:
+    async def test_submitting_on_behalf_of_another_subject_is_refused(self) -> None:
+        """T-3: submitting with a foreign subject raises SessionNotFound, and the
+        rejection is ordered AFTER the type/project isolation check."""
+        activity_type = _make_type(project_id=uuid.uuid4())
+        svc, sub_repo, session = _wire_submission_service(activity_type)
+        caller_b = uuid.uuid4()
+        subject_a = uuid.uuid4()
+
+        with pytest.raises(SessionNotFound):
+            await svc.submit(
+                project_id=activity_type.project_id,
+                activity_type_id=activity_type.id,
+                chatroom_id=session.chatroom_id,
+                producer_user_id=caller_b,
+                subject_user_id=subject_a,  # foreign subject
+                caller_user_id=caller_b,
+                payload={"answer": "x"},
+                actor_user_id=caller_b,
+                actor_ip=None,
+            )
+        sub_repo.insert.assert_not_awaited()
+
+        # Ordering: a cross-tenant type still yields ActivityTypeNotFound, never the
+        # subject error — the tenant boundary is checked first.
+        with pytest.raises(ActivityTypeNotFound):
+            await svc.submit(
+                project_id=uuid.uuid4(),  # not the type's project
+                activity_type_id=activity_type.id,
+                chatroom_id=session.chatroom_id,
+                producer_user_id=caller_b,
+                subject_user_id=subject_a,
+                caller_user_id=caller_b,
+                payload={"answer": "x"},
+                actor_user_id=caller_b,
+                actor_ip=None,
+            )
