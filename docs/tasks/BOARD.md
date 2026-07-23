@@ -16,6 +16,12 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+- `2026-07-23-google-oauth-login` (feature, draft) — `depends_on: []`. Adds "Sign in with
+  Google" (OIDC Authorization Code + PKCE) alongside email/password, plus link/unlink from
+  the profile page. New `auth_identities` table, `users.password_hash` made nullable, and a
+  reusable `_establish_session` seam extracted from `AuthService.login`. **Reverses the v1
+  non-goal at `REQUIREMENTS.md:51` — carries a non-empty SRS Delta** (new §6.1a / R6.14-R6.17,
+  amended R19.01 + audit-events table). Security-critical email-collision policy in Q-2.
 - `2026-07-22-a2a-scope-context-wiring` (bugfix, draft) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-to-agent-orchestration/` F-9, F-24, F-25, F-26 and
   `docs/audits/2026-07-22-agent-config-runtime/` F-4. One root cause: every authorization and
