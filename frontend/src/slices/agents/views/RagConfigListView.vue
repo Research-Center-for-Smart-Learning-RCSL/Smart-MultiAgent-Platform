@@ -15,7 +15,6 @@ import {
 import {
   SPageHeader,
   SSearchInput,
-  STable,
   SBadge,
   SButton,
   SDropdown,
@@ -27,6 +26,7 @@ import {
   SEmptyState,
   SPagination,
   STooltip,
+  typedTable,
 } from '@shared/ui'
 import {
   useConfirmDialog,
@@ -281,25 +281,7 @@ const columns = computed<Column[]>(() => [
   { key: 'actions', label: '', width: '48px', align: 'right' },
 ])
 
-// STable's row generic (`T extends Record<string, unknown> = Record<string, unknown>`)
-// falls back to its default type instead of inferring from `:data`/slot usage here (a
-// Volar limitation with generic script-setup props that declare a default type
-// argument). Pin it explicitly so `row` in slots/emits resolves to `RagConfig` instead
-// of `Record<string, unknown>`.
-const _fixedSTable = STable<Record<string, unknown>>
-type STablePropsBase = Parameters<typeof _fixedSTable>[0]
-function typedSTable<T extends object>() {
-  return STable as unknown as new () => {
-    $props: Omit<STablePropsBase, 'data'> & {
-      data?: T[]
-      onRowClick?: (row: T) => void
-    }
-    $slots: {
-      [key: string]: (arg: { row: T; value: unknown; index: number }) => unknown
-    }
-  }
-}
-const RagConfigTable = typedSTable<RagConfig>()
+const RagConfigTable = typedTable<RagConfig>()
 </script>
 
 <template>
