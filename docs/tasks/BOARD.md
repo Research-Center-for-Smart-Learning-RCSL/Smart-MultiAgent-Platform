@@ -16,11 +16,6 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-07-23-sidebar-project-nav` (feature, approved) — `depends_on: []`. Lift
-  Members/Skills/Activities out of the `ProjectDetailView` header into a role-gated
-  "Manage" `SidebarGroup` in the sidebar's Project Context, and move `OrgProjectSwitcher`
-  into the sidebar top on desktop (kept in the top bar on mobile). Frontend-only, additive;
-  header buttons retained. No SRS delta.
 - `2026-07-22-a2a-scope-context-wiring` (bugfix, draft) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-to-agent-orchestration/` F-9, F-24, F-25, F-26 and
   `docs/audits/2026-07-22-agent-config-runtime/` F-4. One root cause: every authorization and
