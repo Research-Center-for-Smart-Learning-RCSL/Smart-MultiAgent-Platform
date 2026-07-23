@@ -905,8 +905,8 @@ async def test_resume_approval_extends_claim_ttl_across_pending_retries(monkeypa
         _APPROVAL_RESUME_DELAY_S,
         _APPROVAL_RESUME_MAX_ATTEMPTS,
     )
-    from app.workers.tasks.workflow_common import _remaining_budget_ttl
     from contexts.orchestration.domain.models import ApprovalState
+    from contexts.workflow.domain.claim_ttl import remaining_budget_ttl as _remaining_budget_ttl
 
     aid = uuid.uuid4()
     key = f"wf:approval:{aid}"
@@ -1049,8 +1049,8 @@ def test_claim_ttl_never_expires_before_next_retry() -> None:
     from app.workers.tasks.workflow_common import (
         _RESUME_RETRY_DELAY_S,
         _RESUME_RETRY_MAX_ATTEMPTS,
-        _remaining_budget_ttl,
     )
+    from contexts.workflow.domain.claim_ttl import remaining_budget_ttl as _remaining_budget_ttl
 
     for max_attempts, delay in (
         (_APPROVAL_RESUME_MAX_ATTEMPTS, _APPROVAL_RESUME_DELAY_S),

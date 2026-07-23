@@ -19,10 +19,10 @@ from app.workers.tasks.workflow_common import (
     _RESUME_RETRY_DELAY_S,
     _RESUME_RETRY_MAX_ATTEMPTS,
     _emit_resumed,
-    _remaining_budget_ttl,
     _restore_claim,
     _run_is_terminal,
 )
+from contexts.workflow.domain.claim_ttl import remaining_budget_ttl as _remaining_budget_ttl
 
 # F-4 (R14.07a): hard cap on the trigger-causality chain length. The
 # already-on-path check below catches every cycle (a cycle must repeat a
