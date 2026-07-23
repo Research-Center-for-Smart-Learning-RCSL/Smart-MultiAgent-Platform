@@ -56,6 +56,8 @@ function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateIn
     name: row.name,
     retention_days: row.retention_days,
     payload_schema: row.payload_schema,
+    // Safe while the UI only creates webhook/mcp types (in_process is FU-1); an
+    // in_process type would render with no validator selected.
     validator_kind: row.validator_kind as ValidatorKindOption,
     webhook_url: typeof cfg.url === 'string' ? cfg.url : '',
     mcp_agent_id: typeof cfg.agent_id === 'string' ? cfg.agent_id : '',
@@ -67,17 +69,7 @@ function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateIn
 const { handleSubmit, errors, defineField, resetForm, setErrors, setFieldError } =
   useForm<ActivityTypeCreateInput>({
     validationSchema: toTypedSchema(activityTypeCreateSchema),
-    initialValues: {
-      key: '',
-      name: '',
-      retention_days: null,
-      payload_schema: { type: 'object', properties: {} },
-      validator_kind: 'webhook',
-      webhook_url: '',
-      mcp_agent_id: '',
-      mcp_binding_id: '',
-      mcp_tool_name: '',
-    },
+    initialValues: toFormValues(null),
   })
 
 const [key] = defineField('key')
