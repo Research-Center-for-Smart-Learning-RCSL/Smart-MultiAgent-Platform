@@ -20,9 +20,6 @@ parallel.
   F-7, F-18, F-22, F-23, F-39 and the config audit F-8, F-30. Six sequenced commits; one hard
   ordering constraint (cleanup before lock-liveness). Names two textual adjacencies with the
   compaction and tool-dispatch dossiers.
-- `2026-07-22-approval-resume-claim-reliability` (bugfix, draft) — `depends_on: []`. From the a2a
-  audit F-31, F-32 and the config audit F-18. Approval-gate side effects dispatched pre-commit,
-  plus a claim key that can expire inside its own consumer's retry budget.
 - `2026-07-22-subagent-spawn-fail-fast` (bugfix, draft) — `depends_on: []`. From the a2a audit F-1
   and the config audit F-3. Makes the dead `subagent_spawn` node fail fast instead of parking for
   half an hour. **Deviates from the a2a triage**, which grouped five findings here: only one is
@@ -142,10 +139,6 @@ Nothing blocked.
 
 ## In progress
 
-- `2026-07-23-google-oauth-login` (feature) — `depends_on: []`. "Sign in with Google" (OIDC
-  Authorization Code + PKCE) alongside email/password + link/unlink. New `auth_identities` table,
-  `users.password_hash` nullable, `_establish_session` seam, null-hash handling at all four
-  password-verify sites + set-initial-password flow, `pyjwt[crypto]` RS256-pinned. 18 ACs.
 - `2026-07-22-activity-session-authz-and-validation` (bugfix) — `depends_on: []`. a2u F-12,
   F-20 plus verification-gap V-7: activity-session AuthZ + watchdog notification + optional
   enum-array assembly.

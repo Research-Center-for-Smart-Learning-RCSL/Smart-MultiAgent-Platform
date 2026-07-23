@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-22
 requirements: []
 depends_on: []
@@ -311,24 +311,36 @@ openapi-drift risk. The only public-surface change is the frontend barrel export
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: `test_create_gate_publishes_nothing_before_commit` (§7) fails against current code and
-      passes after the fix.
-- [ ] AC-2: no WS publish, notify push, timeout arm or approver dispatch occurs before the
-      approval row is durable.
-- [ ] AC-3: a rolled-back gate creation produces **no** user-visible artifact — no pinned card, no
-      approver note, no armed timeout.
-- [ ] AC-4: gate creation still fails when the announce enqueue fails.
-- [ ] AC-5: exactly one `approval.requested` is published on the workflow channel, carrying
+- [x] AC-1: `test_create_gate_publishes_nothing_before_commit` (§7) fails against current code and
+      passes after the fix. (Verified: base `create_gate` did `pub.emit`/`wf_pub.emit`/`_notify_and_arm`
+      inline and had no `approval_gate_announce` job, so the test's assertions fail against `e757221`.)
+- [x] AC-2: no WS publish, notify push, timeout arm or approver dispatch occurs before the
+      approval row is durable. (`test_create_gate_publishes_nothing_before_commit`.)
+- [x] AC-3: a rolled-back gate creation produces **no** user-visible artifact — no pinned card, no
+      approver note, no armed timeout. (`test_announce_returns_false_for_invisible_row`: the announce
+      job re-reads, finds no row, emits nothing.)
+- [x] AC-4: gate creation still fails when the announce enqueue fails.
+      (`test_create_gate_fails_when_announce_enqueue_fails`.)
+- [x] AC-5: exactly one `approval.requested` is published on the workflow channel, carrying
       `node_id` and `question`, and the room payload still carries `workflow_run_id`.
-- [ ] AC-6: `approval_timeout` retries a not-yet-visible row on the same budget
+      (`test_announce_arms_timeout_and_drives_approvers_once_visible`,
+      `test_announce_gate_room_payload_carries_run_id`; executor duplicate publish deleted.)
+- [x] AC-6: `approval_timeout` retries a not-yet-visible row on the same budget
       `drive_approver_turn` uses, and gives up with `noop:gone` only after it.
-- [ ] AC-7: a claim key never expires inside its consumer's remaining retry budget — including
+      (`test_approval_timeout_retries_when_row_not_visible`, `_gives_up_after_max_attempts`.)
+- [x] AC-7: a claim key never expires inside its consumer's remaining retry budget — including
       across the pending-poll branch — for approval, instruct and wait-for-event alike.
-- [ ] AC-8: `_APPROVER_TURN_DISPATCH_DELAY_S` is deleted.
-- [ ] AC-9: a pinned approval card for an approval the server reports absent clears without a
-      reload.
-- [ ] AC-10: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`;
-      `pnpm test`, `pnpm lint`, `pnpm typecheck` pass in `frontend/`.
+      (`test_resume_approval_extends_claim_ttl_across_pending_retries`,
+      `test_resume_{approval,instruct}_restores_claim_with_budget_floor`,
+      `test_event_resume_restores_claim_with_budget_floor`, `test_claim_ttl_never_expires_before_next_retry`,
+      `test_restore_claim_*`.)
+- [x] AC-8: `_APPROVER_TURN_DISPATCH_DELAY_S` is deleted.
+      (`test_approver_turn_dispatch_delay_constant_removed`; drive enqueues carry no `_defer_by`.)
+- [x] AC-9: a pinned approval card for an approval the server reports absent clears without a
+      reload. (`orchestration.test.ts` "reconcile removes a card the server reports absent".)
+- [x] AC-10: backend `pytest tests/unit -q` (5717 passed), `ruff check .`, `ruff format --check .`,
+      `mypy .` all pass; frontend `pnpm test` (798 passed), `pnpm lint`, `pnpm typecheck`, `pnpm build`
+      all pass. See D-3 on the `tests/wiring/` suite.
 
 ## 10. SRS Delta
 
@@ -337,7 +349,27 @@ line with the resolution path in the same file, which already implements the rul
 
 ## 11. Deviation Log
 
-Appended by /build.
+- **D-1** — §7 asked for a `slices/conversation/__tests__/ChatroomView.test.ts` proving a
+  server-absent card disappears. Implemented instead as a store-level unit test
+  (`frontend/src/shared/stores/__tests__/orchestration.test.ts`, case "reconcile removes a card the
+  server reports absent"). Reason: the reconcile decision logic lives entirely in the store's new
+  `reconcilePending` action; the composable is thin wiring (a 404→null fetch wrapper plus a timer and
+  a connect hook). The store test proves the card-removal mechanism deterministically without a full
+  ChatroomView WS mount, which would be heavy and brittle. The composable wiring is covered by
+  `pnpm typecheck`/`pnpm lint`.
+- **D-2** — Reconciliation is placed in the store as `reconcilePending(roomId, fetchApproval, opts)`
+  with the fetcher **injected**, rather than the store importing `getApproval` directly. Reason: the
+  store lives in `@shared/stores` and `shared/` may not import from `slices/` (frontend boundary). The
+  conversation slice supplies `getApproval` (via the new workflow-barrel export) wrapped as
+  `fetchApprovalOrNull`, which maps a 404 to `null`. Same observable behaviour as §6 Part 2, without a
+  boundary breach.
+- **D-3** — Behavioral verification via the live app (Step 4 / `run` skill) was not performed: this
+  environment has no reachable Postgres/Redis (the `tests/wiring/` suite fails at DNS
+  resolution — `asyncpg ... getaddrinfo`), so the stack cannot be launched here. The AC-10 gate was
+  run as `pytest tests/unit` rather than the full `pytest -q`; the 60 `tests/wiring/` failures are
+  pre-existing infra-dependency, unrelated to this change (confirmed the same failures are DNS-level).
+  Behavioral confidence rests on the unit + store suites. **Recommend the user run the app** (or CI
+  with infra) to confirm the card lifecycle end-to-end before deploy.
 
 ## 12. Follow-ups
 
