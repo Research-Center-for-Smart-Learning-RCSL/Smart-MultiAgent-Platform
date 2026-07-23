@@ -69,20 +69,41 @@ class TestSubmissionRepoScoping:
 
     async def test_sweep_stalled_touches_only_pending(self) -> None:
         db = AsyncMock()
+        rows = [SimpleNamespace(id=uuid.uuid4(), chatroom_id=uuid.uuid4()) for _ in range(3)]
         result = MagicMock()
-        result.rowcount = 3
+        result.__iter__.return_value = iter(rows)
         db.execute.return_value = result
 
         swept_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
-        n = await ActivitySubmissionRepository(db).sweep_stalled(
+        swept = await ActivitySubmissionRepository(db).sweep_stalled(
             cutoff=datetime(2026, 1, 1, tzinfo=UTC), error_class="stalled", swept_at=swept_at
         )
 
-        assert n == 3
+        assert len(swept) == 3
         compiled = _compiled(db.execute.await_args_list[0].args[0])
+        # The pending-only predicate is the must-not-weaken guard: the RETURNING
+        # rewrite must not touch the WHERE.
         assert "validation_status = 'pending'" in compiled
         # validated_at records the sweep time, not the (earlier) TTL cutoff.
         assert "2026-01-01 12:00:00" in compiled
+
+    async def test_sweep_stalled_returns_identity_of_each_swept_row(self) -> None:
+        db = AsyncMock()
+        rows = [SimpleNamespace(id=uuid.uuid4(), chatroom_id=uuid.uuid4()) for _ in range(2)]
+        result = MagicMock()
+        result.__iter__.return_value = iter(rows)
+        db.execute.return_value = result
+
+        swept = await ActivitySubmissionRepository(db).sweep_stalled(
+            cutoff=datetime(2026, 1, 1, tzinfo=UTC),
+            error_class="stalled",
+            swept_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        assert swept == [(r.id, r.chatroom_id) for r in rows]
+        # The RETURNING clause must project both columns the watchdog needs to emit.
+        compiled = _compiled(db.execute.await_args_list[0].args[0])
+        assert "RETURNING activity_submissions.id, activity_submissions.chatroom_id" in compiled
 
     async def test_next_attempt_no_ignores_soft_delete_for_monotonicity(self) -> None:
         db = AsyncMock()

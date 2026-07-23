@@ -244,7 +244,9 @@ class ActivitiesFacade:
             submission_id=submission_id, error_class=error_class
         )
 
-    async def sweep_stalled(self, *, ttl_seconds: int, error_class: str = "validation_timeout") -> int:
+    async def sweep_stalled(
+        self, *, ttl_seconds: int, error_class: str = "validation_timeout"
+    ) -> Sequence[tuple[uuid.UUID, uuid.UUID]]:
         return await self._submissions.sweep_stalled(ttl_seconds=ttl_seconds, error_class=error_class)
 
     # -- Read model ---------------------------------------------------------
