@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-23
 requirements: [R30.02, R30.05, R30.07, R30.11, R30.17, R30.19, R30.20, R30.21, R30.22]
 depends_on: []
@@ -274,25 +274,37 @@ Recommend a `check-security` pass at build time on the new routes and the webhoo
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: A project owner sees an "Activity types" entry point in the project detail
+- [x] AC-1: A project owner sees an "Activity types" entry point in the project detail
   header; a non-owner member does not. Gated on `decided && isAuthorized`.
-- [ ] AC-2: The page lists the project's live activity types (name, key, validator kind);
-  soft-deleted types do not appear.
-- [ ] AC-3: The create form registers a `webhook` type (key, name, optional retention_days,
+  (Header button in `ProjectDetailView` gated on the view's existing `isOwner`, matching the
+  Skills sibling; the page itself gates via `useProjectRole` `decided && isAuthorized` — see D-2.
+  `ActivityTypesView` owner-gate covered by `ActivityTypesView.test.ts`.)
+- [x] AC-2: The page lists the project's live activity types (name, key, validator kind);
+  soft-deleted types do not appear. (`type_repo.list_for_project` excludes `deleted_at`;
+  list/empty/error states covered by `ActivityTypesView.test.ts`.)
+- [x] AC-3: The create form registers a `webhook` type (key, name, optional retention_days,
   builder-authored schema, `url`) and it appears in the list without a page reload.
-- [ ] AC-4: The create form registers an `mcp` type with agent + binding selected from the
-  current project and a `tool_name`, and it appears in the list.
-- [ ] AC-5: The schema builder emits a valid JSON Schema `object`; a server
+  (`ActivityTypeForm.test.ts` asserts the assembled body; view invalidates `activityKeys.types`.)
+- [x] AC-4: The create form registers an `mcp` type with agent + binding selected from the
+  current project and a `tool_name`, and it appears in the list. (Sub-form switch covered by
+  `ActivityTypeForm.test.ts`; pickers constrained to the project's agents/`hosted_mcp` bindings.)
+- [x] AC-5: The schema builder emits a valid JSON Schema `object`; a server
   `PayloadSchemaInvalid` (422) or `ActivityTypeKeyConflict` (409) is surfaced on the form,
-  not as an unhandled error.
-- [ ] AC-6: `DELETE /api/projects/{id}/activity-types/{type_id}` returns 204 for an owner,
-  403 for a non-owner, 404 for an already-deleted/unknown type.
-- [ ] AC-7: Deleting a type that is `active` in one or more rooms ends every such activation
+  not as an unhandled error. (Object emission covered by `SchemaBuilder.test.ts`; the 409/422
+  form-surfacing is implemented via `onError` mapping and the backend 409/404 route tests —
+  the live-mutation component test was omitted, see D-3.)
+- [x] AC-6: `DELETE /api/projects/{id}/activity-types/{type_id}` returns 204 for an owner,
+  403 for a non-owner, 404 for an already-deleted/unknown type. (`test_activity_type_delete.py`
+  route AuthZ matrix + cascade service unknown/already-deleted → `ActivityTypeNotFound`.)
+- [x] AC-7: Deleting a type that is `active` in one or more rooms ends every such activation
   and each affected room receives `activity.activation.ended`; afterwards a new submission
   to those rooms is rejected and no room shows a dangling active activation for the type.
-- [ ] AC-8: `in_process` is not offered as a selectable validator kind in the form.
-- [ ] AC-9: All new user-facing strings resolve in both en and zh-TW; `pnpm lint`
-  (i18n gate) passes.
+  (`test_activity_type_delete.py` asserts N-rooms cascade + per-room dispatch; submission
+  rejection follows from the ended activation + soft-deleted type via existing paths.)
+- [x] AC-8: `in_process` is not offered as a selectable validator kind in the form.
+  (`ActivityTypeForm.test.ts` asserts the validator options exclude `in_process`.)
+- [x] AC-9: All new user-facing strings resolve in both en and zh-TW; `pnpm lint`
+  (i18n gate) passes. (Both locale files updated; `pnpm lint` green.)
 
 ## 12. Test Plan
 
@@ -333,7 +345,32 @@ Add to `REQUIREMENTS.md` §30, verbatim on approval:
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- **D-1**: No new backend `mcp-bindings` read endpoint was added. The existing
+  `agentsApi.listTools(agentId)` (`GET /api/agents/{id}/tools`) already returns the agent's
+  `hosted_mcp` bindings, whose `AgentTool.id` is exactly the `binding_id` that
+  `invoke_mcp_tool` resolves (`backend/app/workers/tasks/activities.py:52-59`). The form
+  filters `listTools` to `tool_type === 'hosted_mcp'`. `gen:api` was therefore rerun only for
+  the new `DELETE` route, not a bindings read. Approved with the user at plan time. This
+  removes the §6 "New GET …/mcp-bindings" item and its frontend wrapper.
+- **D-2**: The `ProjectDetailView` header entry point is gated on the view's existing
+  `isOwner` computed (`v-if="isOwner"`), matching the adjacent Skills/Members buttons, rather
+  than `useProjectRole`'s `decided && isAuthorized`. AC-1's `decided && isAuthorized` gate is
+  applied where it matters for flash-free + admin support — inside `ActivityTypesView` itself.
+  This reconciles AC-1's intent with the established sibling-button precedent instead of
+  introducing a second gating idiom into `ProjectDetailView`.
+- **D-3**: The `ActivityTypeForm` component test for a live 409/422 rejection was omitted. A
+  vue-query `mutate` rejection surfaces as a floating rejection under vitest that its
+  unhandled-rejection guard fails on, and the codebase has no precedent for testing rejected
+  vue-query mutations (only plain-async paths, e.g. `ActivityHost.test.ts`). The 409/422
+  form-surfacing is implemented (`onError` → `useServerErrors` + explicit `ApiError.status`
+  mapping) and the backend 409/404 responses are covered by `test_activity_type_delete.py`;
+  end-to-end surfacing is left to the behavioral gate (see below).
+
+**Behavioral verification (Definition of Done gate 4) was not run:** the live app requires
+the Docker stack (Postgres/Redis/Vault), which was not available in the build environment.
+All automated gates (backend `pytest`/`ruff`/`mypy`, frontend `test`/`lint`/`typecheck`/`build`,
+`check-quality`, `check-security`) passed. A manual pass (create webhook + mcp types, delete a
+type active in a room, confirm the room's Activity panel reflects the ended activation) remains.
 
 ## 16. Follow-ups
 
@@ -343,3 +380,12 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - FU-3: Enumerate the tools an MCP binding exposes so `tool_name` becomes a picker.
 - FU-4: Force-close in-flight `ActivitySession`s when their type is deleted.
 - FU-5: A raw/advanced JSON-Schema editor (and nested field types) alongside the builder.
+- FU-6: (from the build-time `check-security` pass, MEDIUM, pre-existing) The activity-type
+  register route validates an `mcp` validator's `agent_id`/`binding_id` as UUIDs only, not as
+  belonging to the type's project (`type_service.py:114-128`). The authoring UI constrains its
+  pickers to the current project's agents/bindings (§8), but a direct API caller could POST a
+  foreign `binding_id`; the blast radius is contained by project-scoped egress at dispatch.
+  Add a project-membership check for `agent_id`/`binding_id` at registration.
+- FU-7: (from the build-time `check-quality` pass, Info) The `typedSTable` Volar-workaround
+  helper is duplicated between `RagConfigListView.vue` and `ActivityTypesView.vue`; extract it
+  into a shared `@shared/ui` helper.

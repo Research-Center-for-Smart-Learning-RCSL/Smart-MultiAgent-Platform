@@ -143,12 +143,6 @@ parallel.
   a2a F-8 plus config F-29: an approval note is rendered into whatever room the approver's next
   turn runs in, and is destroyed whether or not that turn votes. The dependency is amplification,
   not code: this fix makes `requeue` a normal-path operation, which raises F-19's exposure.
-- `2026-07-23-activities-type-authoring-ui` (feature, approved) — `depends_on: []`. Closes the
-  gap in `docs/activities-type-authoring-gap.md`: no UI to author `ActivityType`s. Adds an
-  owner-only project-settings management page (list/create/delete), the missing `DELETE`
-  route with cascade-end of active activations, and `webhook`+`mcp` validator authoring via
-  a guided schema builder. **Non-empty SRS Delta applied** ([R30.23], [R30.24]). `in_process`,
-  type editing, and MCP tool enumeration are deferred (FU-1..5).
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
