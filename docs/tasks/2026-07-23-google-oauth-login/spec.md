@@ -61,6 +61,8 @@ carries a non-empty SRS Delta (§13).
 | Q-4 | Restrict Google login to a Workspace domain (`hd` claim)? | No restriction — any Google account is accepted. | BYO-key self-hosted platform serves general users; a domain fence can be added later without reworking this. |
 | Q-5 | Provisioning-time `display_name`: use the Google profile name? | Only when the account has no `display_name` yet (new account, or existing account with a null/empty name). Never overwrite a user-set name. | Respects a name the user chose; still gives new accounts a sensible default. |
 | Q-6 | Does this depend on any active dossier under `docs/tasks/`? | No. `depends_on: []`. | Dependency scan (§4) found no non-`implemented` dossier that touches the identity login/session/`users`/`sessions` surface; the ~40 active dossiers are in activities, workflow, a2a, conversation, and admin areas. No logical or overlap prerequisite. |
+| Q-7 | Callback topology: Google → SPA route that POSTs `code` to the backend, or Google → backend GET callback that exchanges server-side, sets the refresh cookie, and 302s to the SPA? | Backend-handled GET + 302 + `hydrate()`. | Reuses the existing `smap_refresh` cookie + `session.hydrate()` machinery with no new token plumbing; keeps `code`/tokens out of the SPA URL/history; smaller frontend surface; and gives the login-CSRF state cookie (Q-8) a natural home. Surfaced by the red-team review. |
+| Q-8 | The link flow is authenticated, but a full-page navigation to a GET endpoint carries no bearer header, and login-CSRF is unmitigated by Redis-only state. How are both fixed? | Link is initiated by an authenticated **XHR** `POST /google/link/start` that returns the authorize URL (bearer works on XHR); the callback recovers `user_id` from the Redis state, not from request auth. A short-lived `smap_oauth_state` cookie (`SameSite=Lax`) is set at authorize and compared on callback to bind the browser. | The bearer token lives in a JS in-memory ref attached only by the axios interceptor (`shared/transport/axios.ts`); a top-level navigation cannot send it, and `middleware/auth.py` reads only the bearer header (no cookie fallback). The state cookie closes the login-CSRF hole (attacker fixing the victim's Google account). Both surfaced by the red-team review. |
 
 ## 4. Current State
 
@@ -160,43 +162,98 @@ reusable by definition, and guarantees a Google session is indistinguishable dow
 from a password session (same middleware, same refresh, same revocation). The identities
 table is the only model that stays clean when a second provider is added later
 (explicitly wanted, Q-3). Redis state matches the ephemeral lifetime of an OAuth
-round-trip and reuses infrastructure already in the auth path.
+round-trip and reuses infrastructure already in the auth path. The callback topology and
+the authenticated-link + login-CSRF handling below were revised after an adversarial review
+(see Q-7, Q-8 and §8).
 
-**Flow (Authorization Code + PKCE, all server-side):**
+**Callback topology (Q-7): backend-handled GET + 302 + `hydrate()`.** The registered
+Google `redirect_uri` points at a **backend** `GET /api/auth/google/callback`, not at the
+SPA. The backend does the code exchange and id_token verification server-side, mints the
+session, sets the `smap_refresh` cookie, and 302-redirects to an SPA landing route; the SPA
+then calls the existing `session.hydrate()` (`session.ts:60-71`, refresh cookie → access
+token) and `safeRedirect`s. This keeps `code`/tokens out of the SPA URL entirely and reuses
+the existing cookie+refresh machinery with **no** new token plumbing in JS. (Rejected
+alternative: Google → SPA route → SPA POSTs `code`/`state` to a JSON callback returning
+`TokenPairOut`. Works, but exposes `code` in browser history, needs a new POST endpoint +
+view + api wrapper, and is a larger surface for no security gain.)
 
-1. `GET /api/auth/google/authorize?mode=login|link` → generate `state` + PKCE
-   `code_verifier`/`code_challenge` + `nonce`; store `{code_verifier, nonce, mode, user_id?}`
-   in Redis under `state` (short TTL); 302 to Google's authorization endpoint with
-   `redirect_uri` built from `_public_origin()` (`auth.py:70-73`). `mode=link` requires an
-   authenticated caller; the current `user_id` is captured into the state.
-2. Google redirects the browser to the SPA callback route, which reads `code` + `state`
-   from the URL and POSTs them to `POST /api/auth/google/callback`.
-3. Callback: load+delete the Redis state by `state` (single-use; missing/expired → 400);
-   exchange `code` for tokens against Google's token endpoint using the stored
-   `code_verifier`; verify the `id_token` JWT against Google's JWKS (`iss` ∈
-   {`accounts.google.com`, `https://accounts.google.com`}, `aud` = configured client id,
-   `exp` valid, `nonce` matches the stored nonce); extract `sub`, `email`, `email_verified`,
-   `name`.
-4. Resolve the user (see resolution table below), run the status gate
-   (`auth_service.py:293-300`) against the resolved/created user, then call
-   `_establish_session`. For `mode=login` the callback sets the `smap_refresh` cookie
-   (`_set_refresh_cookie`, `auth.py:43-53`) and returns `TokenPairOut`, identical to `login`.
-   For `mode=link` the callback creates the `auth_identities` row for the captured `user_id`
-   and returns the updated link status (no new session needed — the caller is already
-   logged in).
+**Login-CSRF binding (F2 fix, Q-8).** The `state` is not only stored server-side in Redis
+(single-use, deleted on read) but also written to a short-lived `smap_oauth_state` cookie
+(`HttpOnly`, `SameSite=Lax` so it survives the cross-site top-level GET back from Google,
+`Secure`, path `/api/auth/google`) at authorize time. The callback requires URL `state` ==
+cookie `state` == the Redis entry, all three, before proceeding. Without the cookie tie an
+attacker could feed a victim a pre-seeded `state`/`code` and log the victim into the
+attacker's Google account.
 
-**User resolution (callback, `mode=login`):**
+**Flow — login mode:**
+
+1. Login page button → full-page `window.location.assign('/api/auth/google/authorize?mode=login')`.
+2. `GET /api/auth/google/authorize` (**unauthenticated**, R19.01 exception): generate
+   `state` + PKCE `code_verifier`/`code_challenge` (S256) + `nonce`; store
+   `{code_verifier, nonce, mode:'login'}` in Redis under `state` (short TTL); set the
+   `smap_oauth_state` cookie; 302 to Google's authorization endpoint with `redirect_uri`
+   built from `_public_origin()` (`auth.py:70-73`).
+3. Google 302s the browser to `GET /api/auth/google/callback?code&state` (**unauthenticated**,
+   R19.01 exception). Backend: require `state` cookie == query `state` == Redis entry (else
+   400); load+delete the Redis entry; exchange `code` at Google's **pinned** token URL using
+   `code_verifier` + client secret (httpx, bounded timeout); verify the `id_token` via
+   `PyJWKClient` against Google's **pinned** JWKS URL with `algorithms=["RS256"]` (alg pinned
+   to block confusion), `audience`=client id, `issuer` ∈ {`accounts.google.com`,
+   `https://accounts.google.com`}, `exp` (small leeway), and `nonce` == stored nonce;
+   extract `sub`, `email`, `email_verified`, `name`.
+4. Resolve the user (table below), run the status gate (`auth_service.py:293-300`), call
+   `_establish_session`, set the `smap_refresh` cookie (`_set_refresh_cookie`,
+   `auth.py:43-53`), 302 to the SPA landing route (carrying a safe `redirect` param). SPA
+   calls `session.hydrate()` then `safeRedirect`.
+
+**Flow — link mode (F1 fix, Q-8):** the authenticated leg never rides a full-page GET
+(a top-level navigation carries no `Authorization` header — `middleware/auth.py` reads only
+the bearer header, never a cookie). Instead:
+
+1. ProfileView (authenticated) calls `POST /api/auth/google/link/start` via **XHR** (bearer
+   auto-attached by the axios interceptor). Backend authenticates via bearer, generates
+   `state`/PKCE/nonce, stores `{..., mode:'link', user_id}` in Redis bound to the current
+   `user_id`, sets the `smap_oauth_state` cookie, and returns `{authorize_url}` JSON.
+2. Frontend `window.location.assign(authorize_url)`.
+3. Same `GET /api/auth/google/callback`: `mode` and `user_id` come from the Redis state
+   (not from the request's auth, which the Google redirect lacks); the cookie/state triple
+   still binds the browser. Backend inserts the `auth_identities` row for that `user_id`
+   and 302s to the profile page with a success flag. No new session is minted (the user is
+   already logged in; their existing `smap_refresh`/session are untouched).
+
+**User resolution (callback, `mode=login`):** each insert path is wrapped to catch a unique
+-constraint `IntegrityError` (asyncpg) and **re-run resolution** — closing the concurrent
+double-callback race against `uq_users_email_active` and `UNIQUE(provider, provider_subject)`
+(F5). A pre-check is never treated as authoritative (TOCTOU); the DB constraint is.
 
 | Situation | Action |
 |---|---|
 | `auth_identities(provider='google', provider_subject=sub)` exists | Log in that user (status gate first). |
 | No identity; `get_active_by_email(email)` finds a user with `email_verified=true` | Auto-link: insert identity, log in (Q-2). |
-| No identity; `get_active_by_email(email)` finds a user with `email_verified=false` | Bind: insert identity, `mark_verified`, **neutralize the existing password** (set to unusable / require reset), log in (Q-2 refinement). |
+| No identity; `get_active_by_email(email)` finds a user with `email_verified=false` | Bind: insert identity, `mark_verified`, **neutralize the existing password** (set `password_hash=NULL`), invalidate that user's existing sessions/refresh tokens, log in (Q-2 refinement). |
 | No identity; no active user for that email | Provision: insert `users` row with `password_hash=NULL`, `email_verified=true`, `status=ACTIVE`, `display_name` from Google if the account has none (Q-5); insert identity; log in. |
+| Google `id_token` reports `email_verified=false` | Reject before resolution — never provision or bind on an unverified Google email. |
 
-**Unlink guard (`mode=link`, unlink):** refuse to unlink the last remaining credential — a
-user with `password_hash IS NULL` and no other `auth_identities` row must set a password
-before unlinking Google (returns an RFC 7807 error the UI renders).
+On a successful Google login, refresh `auth_identities.email` from the current Google email
+(the column is an informational, last-seen snapshot — F8; `change_email` does not touch it,
+documented in §6).
+
+**Null-password (Google-only) accounts — all password-verify sites (F4).** Making
+`password_hash` nullable affects four flows, not just login. Every site that verifies a
+password must treat `password_hash IS NULL` as "no password credential" and return
+`InvalidCredentials` (never call the argon2 verifier on `None` → 500):
+`login` (`auth_service.py:254`), `change_password` (`:550`), `change_email` (`:581`),
+`delete_account` (`:651`). Additionally, a Google-only user has no way to *set* a first
+password (`change_password` requires a current one they never had), which would trap them
+against the unlink guard. So this task adds a **set-initial-password** path for
+passwordless accounts (a `reset-password`-style flow: request a set-password email →
+set via token, reusing `PasswordResetTokenRepository`), and the profile "set a password"
+affordance points at it.
+
+**Unlink guard (unlink):** refuse to unlink the last remaining credential — a user with
+`password_hash IS NULL` and no other `auth_identities` row must set a password (via the
+set-initial-password path above) before unlinking Google (returns an RFC 7807 error the UI
+renders alongside the "set a password" affordance).
 
 ## 6. Detailed Changes
 
@@ -216,56 +273,91 @@ before unlinking Google (returns an RFC 7807 error the UI renders).
   (reuse `set_password` semantics, `repositories.py:82-92`).
 - **`application/auth_service.py`** — extract `_establish_session` from `:302-348`; add
   `login_with_oauth(profile, *, remote_ip, user_agent, request_id)` implementing the
-  resolution table; add `link_google`/`unlink_google(user_id, ...)`. New audit actions
-  (see §7).
-- **New `application/oauth_service.py` (or `infrastructure/oauth/google.py`)** — the Google
-  OIDC adapter: authorize-URL construction, PKCE, code exchange, `id_token` JWKS
-  verification (`iss`/`aud`/`exp`/`nonce`), Redis state store. No secret read here beyond
-  the Vault-sourced client secret (mirror the SMTP factory pattern, `factory.py:31,53`).
+  resolution table with `IntegrityError`-retry (F5); add `link_google`/`unlink_google`.
+  **Fix all four password-verify sites for null hash (F4):** `login` (`:254`),
+  `change_password` (`:550`), `change_email` (`:581`), `delete_account` (`:651`) must return
+  `InvalidCredentials` when `password_hash IS NULL` rather than calling the argon2 verifier
+  on `None`. Add a **set-initial-password** flow (request + token-consume, reusing
+  `PasswordResetTokenRepository`) so a passwordless account can gain a password (also unblocks
+  the unlink guard). `change_email` leaves `auth_identities.email` untouched (documented
+  snapshot, F8). New audit actions (see §7).
+- **New `application/oauth_service.py` (+ `infrastructure/oauth/google.py`)** — the Google
+  OIDC adapter: authorize-URL construction, PKCE, code exchange (httpx, bounded timeout),
+  `id_token` verification via `PyJWKClient` against the **pinned** JWKS URL with
+  `algorithms=["RS256"]` + `iss`/`aud`/`exp`/`nonce` checks, Redis state store + the
+  `smap_oauth_state` cookie (F2). Token/JWKS/authorize URLs are pinned constants — never
+  derived from the (attacker-influenceable) `iss` — so the SSRF surface is nil. Fail closed
+  (503-style) if Google is unreachable; never hang. Client secret is Vault-sourced only
+  (mirror the SMTP factory, `factory.py:31,53`).
 - **`interfaces/facade.py`** — optionally expose the link-status read for `get_profile`
   (so `UserProfile`/`UserOut` can carry linked-provider info). Following the existing auth
-  convention, the callback endpoint may talk to `AuthService` directly.
+  convention, the OAuth endpoints may talk to `AuthService` directly.
 
 **API contract** (`app/api/v1/auth.py`) — `gen:api` rerun **required**.
-- `GET /api/auth/google/authorize` (302 redirect; `mode` query).
-- `POST /api/auth/google/callback` (body `{code, state}`) → `TokenPairOut` for login mode;
-  sets `smap_refresh` cookie like `login` (`auth.py:311`).
-- `POST /api/auth/google/link` / `DELETE /api/auth/google/link` (authenticated) → link
-  status.
-- `GET /api/auth/identities` (authenticated) → list linked providers, for the profile UI.
+- `GET /api/auth/google/authorize` (**unauthenticated**; 302 to Google; sets
+  `smap_oauth_state` cookie).
+- `GET /api/auth/google/callback?code&state` (**unauthenticated**; server-side exchange +
+  verify; sets `smap_refresh` cookie like `login` `auth.py:311`; 302 to the SPA — no JSON
+  body, no `TokenPairOut` for the callback).
+- `POST /api/auth/google/link/start` (**authenticated**, XHR) → `{authorize_url}` JSON;
+  binds `user_id` into Redis state (F1).
+- `DELETE /api/auth/google/link` (authenticated) → link status, with the last-credential
+  guard.
+- `GET /api/auth/identities` (authenticated) → linked providers, for the profile UI.
+- Set-initial-password endpoints (request + confirm), modeled on the password-reset pair.
 - Add a `google_linked`/provider field to `UserOut` (`auth.py:174-180`) and `UserProfile`.
-- `authorize`, `callback` are **unauthenticated** endpoints → must be added to the
-  `R19.01` exception list (SRS Delta §13) and rate-limited like the other public auth
-  endpoints.
+- Only `authorize` + `callback` are unauthenticated → added to the `R19.01` exception list
+  (§13); `link/start` is bearer-authenticated. All are rate-limited (the `/api/auth/` bucket
+  auto-applies, `rate_limit.py:56-60`; consider a tighter bucket for the provisioning
+  callback — §16 FU-3).
+
+**New dependency (F3).** Add `pyjwt[crypto]` (pinned) for `PyJWKClient` + RS256/JWKS
+id_token verification. Today only SMAP's own tokens are verified, via Vault Transit
+(`shared_kernel/auth/jwt.py:109`), which cannot verify Google's keys; `pyproject.toml` has
+no JWT/JOSE library. **Hand-rolling JWS verification is forbidden** (alg-confusion footgun);
+pin `algorithms=["RS256"]`. Route through `pip-audit`.
 
 **Frontend** (`identity` slice) — after backend `openapi.json` changes + `pnpm run gen:api`.
-- `api/auth.ts` — add `googleAuthorize`/`googleCallback`/`linkGoogle`/`unlinkGoogle`
-  wrappers; extend `Me` (`:35-42`) + `toMe` (`:55-64`) with link status.
-- `stores/session.ts` — optional `loginWithGoogle` action reusing `applyTokens` + `refreshMe`
-  (keeps the WebSocket/query-cache lifecycle identical to password login).
+- `api/auth.ts` — add `googleLinkStart` (XHR→`{authorize_url}`), `googleUnlink`,
+  `listIdentities`, and the set-initial-password wrappers; extend `Me` (`:35-42`) + `toMe`
+  (`:55-64`) with link status. **No `googleCallback` wrapper** — the callback is a backend
+  GET the browser follows, not a JS call.
+- `stores/session.ts` — reuse the existing `hydrate()` (`:60-71`) on the post-callback
+  landing; no new token action needed (the WebSocket/query-cache lifecycle stays identical).
 - `views/LoginView.vue` (+ optionally `RegisterView.vue`) — a "Sign in with Google"
   `SButton variant="secondary"` with an inline Google "G" SVG in the `icon-left` slot (no
-  heroicons Google mark exists; supply a custom SVG). Clicking navigates full-page to
+  heroicons Google mark exists). Clicking navigates full-page to
   `/api/auth/google/authorize?mode=login` via `window.location.assign`.
-- New `views/GoogleCallbackView.vue` modeled on `VerifyEmailView.vue:16-41` — reads
-  `code`/`state`, calls the store, `safeRedirect`s; add a public route in `routes.ts`
-  (mirror `verify-email` meta `requiresAuth:false, layout:'auth'`).
-- `views/ProfileView.vue` — a connections section showing linked Google account + link/
-  unlink buttons (link navigates to `authorize?mode=link`); unlink calls the API and
-  surfaces the last-credential guard error.
+- New lightweight landing route/view (e.g. `/auth/google/complete`, public,
+  `requiresAuth:false`, `layout:'auth'`) modeled on `VerifyEmailView.vue` — on mount calls
+  `session.hydrate()` then `safeRedirect` (success) or shows the error carried in the 302's
+  query (failure). This replaces the rejected SPA-POST `GoogleCallbackView`.
+- `views/ProfileView.vue` — a connections section showing linked Google status; **link**
+  button calls `authApi.googleLinkStart()` (XHR) then `window.location.assign(url)`;
+  **unlink** calls the API and surfaces the last-credential guard error next to a "set a
+  password" affordance (→ set-initial-password flow).
 - i18n — new keys in `slices/identity/locales/en.json` + `zh-TW.json`
-  (`identity.login.googleSignIn`, `identity.profile.connections.*`, error keys); any
-  `UserMenu` entry needs `app/locales/*`.
+  (`identity.login.googleSignIn`, `identity.profile.connections.*`, set-password, error
+  keys); any `UserMenu` entry needs `app/locales/*`.
 
 **Deploy/config**
-- New `OAuthSection` in `settings.py`: `google_client_id`, `google_redirect_path` (or full
-  redirect URI derivation from `_public_origin()`), `enabled` flag. **`google_client_secret`
-  is NOT an env var** — read from Vault KV `secret/smap/config/google_oauth` following the
-  SMTP precedent (`factory.py:31,53`).
-- Google Cloud Console: an OAuth 2.0 Client (Web application) with the authorized redirect
-  URI pointing at the SPA callback route on each origin (staging `smap.rcsl.online`, prod).
-- Startup: log a single warning if `enabled` but client id/secret unconfigured (mirror
-  `warn_if_email_unconfigured`, `factory.py:98-110`).
+- New `OAuthSection` in `settings.py`: `google_client_id`, `google_redirect_path` (redirect
+  URI derived from `_public_origin()`), `enabled` flag. **`google_client_secret` is NOT an
+  env var** — read from Vault KV `secret/smap/config/google_oauth` (SMTP precedent,
+  `factory.py:31,53`).
+- **Egress prerequisite (F6):** `backend-web` must reach Google over HTTPS
+  (`accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com`). `backend_net` is
+  `internal: false` (`docker-compose.yml:19,128`) so a direct route exists and the
+  egress-proxy is **not** involved (that plane is sandbox-only); but the hardened staging
+  host's own egress policy (`smap.rcsl.online`) must be confirmed to allow these hosts.
+  JWKS/token URLs are pinned constants; requests carry an httpx timeout and the JWKS is
+  cached.
+- Google Cloud Console: an OAuth 2.0 Web-application client with the authorized redirect URI
+  set to the **backend** callback (`https://<origin>/api/auth/google/callback`) for each
+  origin (staging `smap.rcsl.online`, prod).
+- Startup: log a single warning if `enabled` but client id/secret unconfigured, and fail
+  closed on the OAuth endpoints rather than 500 (mirror `warn_if_email_unconfigured`,
+  `factory.py:98-110`).
 
 ## 7. NFR Checklist
 
@@ -279,15 +371,19 @@ before unlinking Google (returns an RFC 7807 error the UI renders).
 - [x] Tenant isolation — N/A for authorize/callback (pre-tenant identity endpoints, like
   register/login). `link`/`unlink`/`identities` are self-scoped to the authenticated
   `user_id`; no org/project data crosses.
-- [x] Error handling UX — RFC 7807 problem details for: state expired/invalid, Google
-  denied/`error` param, `email_verified=false` from Google (reject — do not provision an
-  unverified identity), account banned/deleted, provider-already-linked-to-another-user
-  (409), last-credential unlink guard. Login page reuses the `isProblemWithType` branching
-  (`LoginView.vue:96-116`); callback view shows loading/error states like
+- [x] Error handling UX — the backend callback conveys failures to the SPA landing route as
+  a safe error code in the 302 query (never leaking `code`/tokens); the landing view renders
+  RFC 7807-style copy for: state/cookie mismatch or expiry, Google denied/`error` param,
+  `email_verified=false` from Google (reject), account banned/deleted, Google unreachable
+  (fail-closed, not a hang), provider-already-linked-to-another-user (409), and the
+  last-credential unlink guard. Login page reuses `isProblemWithType` branching
+  (`LoginView.vue:96-116`); the landing view shows loading/error states like
   `VerifyEmailView.vue`.
-- [x] Performance — O(1) per auth: one Redis get/del for state, one JWKS verification
-  (JWKS cached), one-to-two indexed user/identity lookups. No new list endpoints beyond a
-  per-user identities read (bounded, ≤ number of providers). No N+1.
+- [x] Performance — O(1) per auth: one Redis get/del for state, one id_token verification
+  against a **cached** JWKS, one-to-two indexed user/identity lookups. The code-exchange and
+  any JWKS refresh are outbound httpx calls with a **bounded timeout** (no unbounded wait on
+  an unauthenticated endpoint). No new list endpoints beyond a bounded per-user identities
+  read. No N+1.
 
 ## 8. Security Considerations
 
@@ -300,14 +396,21 @@ Touches auth, session issuance, and account identity — full treatment required
 - **`email_verified=false` from Google.** Reject provisioning/linking when Google itself
   reports the email unverified — a Google account can carry an unverified email; treating
   it as proof of ownership would reintroduce the takeover vector.
-- **CSRF on the OAuth round-trip.** `state` is single-use, random, stored server-side, and
-  compared on callback; the Redis entry is deleted on read. `mode=link` binds the state to
-  the initiating `user_id` so a callback cannot link an attacker's Google account to a
-  victim's session.
-- **`id_token` validation.** Verify signature against Google JWKS, and check `iss`, `aud`
-  (must equal our client id — blocks token substitution from another Google app), `exp`,
-  and `nonce` (replay defense). Never trust `email`/`sub` from the token endpoint response
-  body without id_token verification.
+- **CSRF / login-CSRF on the OAuth round-trip (F2).** `state` is single-use, random, stored
+  server-side (deleted on read), **and** mirrored into a short-lived `smap_oauth_state`
+  cookie (`HttpOnly`, `SameSite=Lax`, `Secure`, path `/api/auth/google`) set at authorize;
+  the callback requires URL `state` == cookie `state` == Redis entry. The cookie tie is what
+  stops login-CSRF (attacker feeding a victim a pre-seeded `state`/`code` to log them into
+  the attacker's Google account) — Redis single-use alone does not. `mode=link`
+  additionally binds the state to the initiating `user_id`.
+- **`id_token` validation + algorithm pinning (F3).** Verify via `PyJWKClient` against
+  Google's **pinned** JWKS URL with `algorithms=["RS256"]` **explicitly pinned** (blocks
+  `alg=none`/HS256-vs-RS256 confusion), plus `iss`, `aud` (must equal our client id — blocks
+  token substitution from another Google app), `exp` (small leeway), and `nonce` (replay
+  defense). Never trust `email`/`sub` from the token-endpoint body without id_token
+  verification. Hand-rolled JWS verification is forbidden.
+- **SSRF surface is nil.** The authorize/token/JWKS URLs are pinned constants, never derived
+  from the (attacker-influenceable) `iss` claim, so the outbound calls cannot be steered.
 - **Authorization Code + PKCE** (not implicit), server-side code exchange; the client
   secret stays server-side (Vault), never reaches the SPA.
 - **Redirect URI** is exact-match registered in Google Console and derived from
@@ -323,8 +426,12 @@ Touches auth, session issuance, and account identity — full treatment required
 - **No secret logging.** Client secret, `code`, `code_verifier`, `id_token`, and
   access/refresh tokens are never logged (project constraint; redaction filter exists at
   `shared_kernel/logging/redaction.py`).
-- **Rate limiting.** `authorize`/`callback` are public — rate-limit per IP like the other
-  `R19.01` exceptions.
+- **Null-hash flows (F4).** Making `password_hash` nullable means every password-verify site
+  (`login` `:254`, `change_password` `:550`, `change_email` `:581`, `delete_account` `:651`)
+  must fail closed with `InvalidCredentials` for a null hash — calling the argon2 verifier on
+  `None` is a 500, and an unhandled null hash on `delete_account` regresses R6.07 self-delete.
+- **Rate limiting.** `authorize`/`callback` are public — rate-limited per IP by the
+  `/api/auth/` bucket (`rate_limit.py:56-60`); `link/start` is bearer-authenticated.
 
 ## 9. Quality Notes
 
@@ -365,27 +472,34 @@ Touches auth, session issuance, and account identity — full treatment required
   only safe if no Google-only (`password_hash IS NULL`) accounts exist — the down migration
   must guard on that (or backfill an unusable sentinel) rather than blindly re-adding the
   constraint. Documented in the revision.
-- **`password_hash` nullability blast radius.** Any code assuming a non-null hash (e.g.
-  the login dummy-hash path, `auth_service.py:247`) must handle password-less accounts:
-  a Google-only user attempting password login must get `invalid credentials` (or a
-  "use Google" hint), not a 500. Covered by AC-8.
+- **`password_hash` nullability blast radius (F4).** Four flows assume a non-null hash and
+  must be fixed together — `login` (`:254`, incl. the dummy-hash path `:247`),
+  `change_password` (`:550`), `change_email` (`:581`), `delete_account` (`:651`). Each must
+  return `invalid credentials` for a null hash, never a 500, and `delete_account` must not
+  regress R6.07 self-delete. Plus the set-initial-password path must exist so a passwordless
+  user is not trapped by the unlink guard. Covered by AC-8, AC-14, AC-15.
 - **Misconfiguration parity with SMTP.** If `enabled` but client id/secret unset, fail
-  closed on the OAuth endpoints (return a clear error / hide the button via config) and log
-  a startup warning — do not 500. Mirrors the SMTP `warn_if_email_unconfigured` posture.
-- **Cookie `SameSite`.** The callback completes via a same-origin POST from the SPA (not a
-  cross-site top-level POST), so `SameSite=lax` remains valid; `settings.py:214-217`
-  disallows `none`. Verify the callback is reached same-origin on staging before prod.
+  closed on the OAuth endpoints (clear error / hide the button via config) and log a startup
+  warning — do not 500. Mirrors the SMTP `warn_if_email_unconfigured` posture. Same posture
+  if Google's token/JWKS endpoints are unreachable: bounded timeout → fail-closed error.
+- **Cookie `SameSite`.** Both cookies work under `SameSite=Lax` (`settings.py:214-217`
+  disallows `none`): the `smap_oauth_state` cookie must survive the cross-site top-level GET
+  back from Google (Lax permits top-level GET), and the `smap_refresh` `Set-Cookie` on the
+  callback GET is likewise a top-level navigation Lax allows. Verify the callback is reached
+  on the same registered origin on staging before prod.
 
 ## 11. Acceptance Criteria
 
 - [ ] AC-1: `GET /api/auth/google/authorize?mode=login` returns a 302 to Google with a
   `state`, `code_challenge` (PKCE S256), `nonce`, and a `redirect_uri` derived from
-  `_public_origin()`; the `state` entry is stored in Redis with a bounded TTL.
+  `_public_origin()`; the `state` entry is stored in Redis with a bounded TTL and the
+  matching `smap_oauth_state` cookie (`SameSite=Lax`) is set.
 - [ ] AC-2: A valid callback for a Google `sub` that has never been seen and whose email
   matches no active account provisions a `users` row with `password_hash IS NULL`,
   `email_verified=true`, `status=ACTIVE`, inserts an `auth_identities` row, sets the
-  `smap_refresh` cookie, returns a `TokenPairOut`, and emits `auth.oauth.provisioned` +
-  `auth.oauth.login.success`.
+  `smap_refresh` cookie, **302-redirects to the SPA landing route** (no JSON body), and
+  emits `auth.oauth.provisioned` + `auth.oauth.login.success`. The SPA landing calls
+  `hydrate()` and ends up logged in.
 - [ ] AC-3: A callback whose `sub` already has an `auth_identities` row logs that user in
   (new session) without creating a duplicate identity or user.
 - [ ] AC-4: A callback whose email matches an existing `email_verified=true` account (no
@@ -397,10 +511,25 @@ Touches auth, session issuance, and account identity — full treatment required
   and logs in.
 - [ ] AC-6: A callback where the verified id_token reports `email_verified=false` is
   rejected (no user/identity created), with an RFC 7807 error.
-- [ ] AC-7: A callback with an expired/unknown/reused `state`, or an id_token failing
-  `iss`/`aud`/`exp`/`nonce`/signature checks, is rejected with a 400 and no session minted.
+- [ ] AC-7: A callback is rejected (no session minted) when any of these fail: URL `state`
+  != `smap_oauth_state` cookie (login-CSRF binding), state expired/unknown/reused, or an
+  id_token failing signature / `algorithms=["RS256"]` pinning (an `alg=none`/HS256 token is
+  rejected) / `iss` / `aud` / `exp` / `nonce`.
 - [ ] AC-8: A Google-only account (`password_hash IS NULL`) attempting `POST /api/auth/login`
   receives an invalid-credentials error, never a 500.
+- [ ] AC-14: A Google-only account calling `change_password`, `change_email`, or
+  `delete_account` receives an invalid-credentials (or "set a password first") error, never a
+  500, and self-delete is not permanently blocked (R6.07 preserved via the set-password path).
+- [ ] AC-15: A passwordless account can complete the set-initial-password flow (request →
+  token → set) and afterward can log in with a password and unlink Google.
+- [ ] AC-16: Two concurrent first-time callbacks for the same new email converge on a single
+  `users` row (the loser catches the `uq_users_email_active` violation and re-resolves to the
+  winner), with no 500. Two concurrent link attempts for the same `sub` yield one identity
+  and a 409 for the loser.
+- [ ] AC-17: When Google's token or JWKS endpoint is unreachable within the bounded timeout,
+  the callback fails closed with an error surfaced to the SPA landing — it does not hang.
+- [ ] AC-18: `link/start` requires a bearer token (401 without); the resulting callback binds
+  the identity to the `user_id` captured in the Redis state, not to any request-supplied id.
 - [ ] AC-9: A BANNED (and separately, DELETED) account cannot obtain a session via the
   Google callback — the status gate rejects it, and `auth.oauth.login.rejected` is emitted.
 - [ ] AC-10: An authenticated user can link Google (`mode=link`): the identity binds to
@@ -413,27 +542,34 @@ Touches auth, session issuance, and account identity — full treatment required
   from a password session (refresh, revocation via jti denylist, ban-on-next-request all
   behave identically).
 - [ ] AC-13: The login page renders a "Sign in with Google" button (i18n via `$t`, present
-  in both locales) that navigates to `authorize`; the callback view handles loading/error
-  states; the profile page shows link/unlink with the current linked status.
+  in both locales) that navigates to `authorize`; the landing view handles loading/error
+  states; the profile page shows link/unlink with the current linked status and a "set a
+  password" affordance for passwordless accounts.
 
 ## 12. Test Plan
 
 - **Unit (backend, `tests/unit/`)** — resolution-table logic in `login_with_oauth`
-  (AC-2..AC-6, AC-9): fake `AuthIdentityRepository`/`UserRepository`, assert the branch
-  taken and the audit action, mirroring `tests/unit/test_auth_service.py`. id_token
-  verification (AC-7) with a stubbed JWKS: valid, wrong `aud`, expired, bad `nonce`, bad
-  signature. `_establish_session` characterization: existing login tests stay green after
-  the extraction. Password-neutralize + password-login-of-nullable-hash account (AC-5,
-  AC-8).
-- **Integration (`tests/integration/`, Postgres+Redis)** — the migration applies and
-  rolls back; `authorize` stores state; a mocked Google token/JWKS drives a full callback
-  producing a real session row + cookie (AC-1..AC-4, AC-10..AC-12); state single-use/expiry
-  (AC-7). Model on `tests/integration/test_auth_login_refresh.py`.
-- **Frontend (component)** — LoginView renders the Google button (both locales);
-  GoogleCallbackView posts `code`/`state` and redirects on success / shows error on failure;
-  ProfileView link/unlink states incl. the last-credential guard error (AC-11, AC-13).
-- **Manual (`/run` or `frontend:verify`)** — end-to-end against a real Google test client
-  on staging (`smap.rcsl.online`): new-account provision, link from profile, unlink guard.
+  (AC-2..AC-6, AC-9): fake `AuthIdentityRepository`/`UserRepository`, assert the branch taken
+  and the audit action, mirroring `tests/unit/test_auth_service.py`. id_token verification
+  (AC-7) with a stubbed JWKS: valid, wrong `aud`, expired, bad `nonce`, bad signature, and an
+  `alg=none`/HS256 token (must be rejected by the RS256 pinning). State/cookie-mismatch reject
+  (AC-7). Null-hash handling at all four verify sites (AC-8, AC-14) and the set-initial-password
+  flow (AC-15). `IntegrityError`-retry resolution (AC-16). Google-unreachable fail-closed with a
+  patched httpx timeout (AC-17). `_establish_session` characterization: existing login tests
+  stay green after the extraction.
+- **Integration (`tests/integration/`, Postgres+Redis)** — the migration applies and rolls
+  back (incl. the down-guard against null-hash accounts); `authorize` stores state + sets the
+  cookie; a mocked Google token/JWKS drives a full backend callback producing a real session
+  row + `smap_refresh` cookie + a 302 to the SPA (AC-1..AC-4, AC-10..AC-12, AC-18); state
+  single-use/expiry and cookie-binding (AC-7); concurrency (AC-16). Model on
+  `tests/integration/test_auth_login_refresh.py`.
+- **Frontend (component)** — LoginView renders the Google button (both locales); the landing
+  view calls `hydrate()` and redirects on success / renders the 302 error code on failure;
+  ProfileView link (XHR→navigate), unlink last-credential guard, and the set-password
+  affordance (AC-11, AC-13, AC-15).
+- **Manual (`/run` or `frontend:verify`)** — end-to-end against a real Google test client on
+  staging (`smap.rcsl.online`): new-account provision, link from profile, unlink guard,
+  set-initial-password. Confirms the host egress policy reaches Google (F6).
 
 ## 13. SRS Delta
 
@@ -456,8 +592,9 @@ to:
   Code flow with PKCE, as an alternative to email+password. The client secret is stored in
   Vault KV (`secret/smap/config/google_oauth`), never on the application filesystem or in
   env. `authorize` and `callback` are unauthenticated, rate-limited endpoints (see R19.01).
-  The `id_token` is verified for signature (Google JWKS), `iss`, `aud` (our client id),
-  `exp`, and `nonce`; `state` is single-use and CSRF-binding.
+  The `id_token` is verified against Google's JWKS with the algorithm pinned to RS256, plus
+  `iss`, `aud` (our client id), `exp`, and `nonce`; `state` is single-use and bound to the
+  initiating browser via a short-lived cookie (login-CSRF defense).
 - **[R6.15]** A successful Google authentication issues the same session artifacts as
   R6.03 (RS256 access token, rotating refresh token, Redis session, jti revocation) and is
   subject to the same ban/lockout/deleted gates (R6.04, R6.13). A first-time Google user
@@ -473,8 +610,9 @@ to:
 - **[R6.17]** A logged-in user may link and unlink a Google identity from their profile.
   One Google account (`sub`) maps to at most one user; a user has at most one Google
   identity. Unlinking is refused when it would remove the account's only remaining
-  credential (no password and no other linked identity) until a password is set. Link and
-  unlink are audit-logged (`auth.oauth.account_linked` / `auth.oauth.account_unlinked`).
+  credential (no password and no other linked identity) until a password is set; a
+  passwordless account may set an initial password via an emailed set-password token. Link
+  and unlink are audit-logged (`auth.oauth.account_linked` / `auth.oauth.account_unlinked`).
 ```
 
 **Amend `[R19.01]`** (`REQUIREMENTS.md:870`) to extend the unauthenticated-exception list:
@@ -508,3 +646,10 @@ Appended by /build. Empty means the implementation matches this spec exactly.
   `public_origin` setting in a later task. Not fixed here.
 - FU-2: The `auth_identities` model is provider-generic; adding GitHub/Microsoft is a
   future task that reuses the seam, adapter interface, and UI section built here.
+- FU-3: The account-provisioning callback shares the generic `/api/auth/` `AUTH` rate-limit
+  bucket (`rate_limit.py:56-60`) rather than a tighter recovery-grade bucket. Consider a
+  dedicated bucket for the provisioning path in a later hardening pass (F9). Not changed here.
+- FU-4: Interaction with org/project invite acceptance (R6.09-R6.11) was checked — `register`
+  carries no invite handling, so Google provisioning does not regress it — but invite
+  acceptance being email-keyed post-login should be re-confirmed when that flow is next
+  touched. Recorded, not acted on here.
