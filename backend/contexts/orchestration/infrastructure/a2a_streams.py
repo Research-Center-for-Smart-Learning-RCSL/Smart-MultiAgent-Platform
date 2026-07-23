@@ -161,6 +161,30 @@ async def xautoclaim_stale(
     return len(result[1] or [])
 
 
+async def xclaim_refresh(agent_id: uuid.UUID, stream_ids: list[str]) -> None:
+    """Reset the PEL idle clock of in-flight entries owned by this consumer.
+
+    :func:`xautoclaim_stale` selects entries by PEL idle time alone, but no
+    live consumer advances that clock, so an entry whose handler is still
+    running is reclaimed by a peer at ``_CLAIM_MIN_IDLE_MS`` and re-processed.
+    Called periodically while a handler runs, this re-claims the entry to *this*
+    consumer with ``JUSTID`` — which resets its idle time without incrementing
+    the delivery count, so the retry budget is untouched. ``min_idle_time=0``
+    claims unconditionally; the entries are already ours.
+    """
+    if not stream_ids:
+        return
+    r = get_redis()
+    await r.xclaim(
+        _inbox_key(agent_id),
+        _CONSUMER_GROUP,
+        _consumer_name(agent_id),
+        0,
+        stream_ids,
+        justid=True,
+    )
+
+
 def _parse_xread(
     result: Any,
 ) -> list[tuple[str, dict[str, str]]]:
