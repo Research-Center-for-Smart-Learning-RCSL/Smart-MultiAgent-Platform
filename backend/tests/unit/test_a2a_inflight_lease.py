@@ -62,7 +62,7 @@ def _entry_fields() -> dict[str, str]:
 
 
 @pytest.fixture
-def _patched(monkeypatch):
+def patched(monkeypatch):
     fake = _FakeRedis()
     monkeypatch.setattr(consumer, "get_redis", lambda: fake)
     xack = AsyncMock()
@@ -75,8 +75,8 @@ def _patched(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_process_entry_runs_handler_once(_patched) -> None:
-    fake, _xack, _dlq = _patched
+async def test_concurrent_process_entry_runs_handler_once(patched) -> None:
+    fake, _xack, _dlq = patched
     agent_id = uuid.uuid4()
     stream_id = "1-0"
     fields = _entry_fields()
@@ -102,8 +102,8 @@ async def test_concurrent_process_entry_runs_handler_once(_patched) -> None:
 
 
 @pytest.mark.asyncio
-async def test_inflight_loser_does_not_ack_or_dlq(_patched) -> None:
-    fake, xack, move_to_dlq = _patched
+async def test_inflight_loser_does_not_ack_or_dlq(patched) -> None:
+    fake, xack, move_to_dlq = patched
     agent_id = uuid.uuid4()
     stream_id = "1-0"
     fields = _entry_fields()
@@ -130,8 +130,8 @@ async def test_inflight_loser_does_not_ack_or_dlq(_patched) -> None:
 
 
 @pytest.mark.asyncio
-async def test_lease_released_on_handler_failure(_patched) -> None:
-    fake, _xack, _dlq = _patched
+async def test_lease_released_on_handler_failure(patched) -> None:
+    fake, _xack, _dlq = patched
     agent_id = uuid.uuid4()
     stream_id = "2-0"
     fields = _entry_fields()
@@ -147,8 +147,8 @@ async def test_lease_released_on_handler_failure(_patched) -> None:
 
 
 @pytest.mark.asyncio
-async def test_lease_released_on_dlq(_patched) -> None:
-    fake, _xack, move_to_dlq = _patched
+async def test_lease_released_on_dlq(patched) -> None:
+    fake, _xack, move_to_dlq = patched
     agent_id = uuid.uuid4()
     stream_id = "3-0"
     fields = _entry_fields()

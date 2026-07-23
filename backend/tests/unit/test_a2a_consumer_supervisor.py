@@ -43,7 +43,7 @@ def _key(agent_id: uuid.UUID) -> str:
 
 
 @pytest.fixture
-def _patched(monkeypatch):
+def patched(monkeypatch):
     def _make(keys: set[str]):
         fake = _FakeRedis(keys)
         monkeypatch.setattr(consumer, "get_redis", lambda: fake)
@@ -54,9 +54,9 @@ def _patched(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_stops_loop_for_deleted_agent(_patched) -> None:
+async def test_reconcile_stops_loop_for_deleted_agent(patched) -> None:
     a1, a2 = uuid.uuid4(), uuid.uuid4()
-    _patched({_key(a1), _key(a2)})
+    patched({_key(a1), _key(a2)})
     live = {a1, a2}
 
     async def liveness(ids):
@@ -76,10 +76,10 @@ async def test_reconcile_stops_loop_for_deleted_agent(_patched) -> None:
 
 
 @pytest.mark.asyncio
-async def test_deleted_agent_loop_is_not_recreated_by_stream_key(_patched) -> None:
+async def test_deleted_agent_loop_is_not_recreated_by_stream_key(patched) -> None:
     a1, a2 = uuid.uuid4(), uuid.uuid4()
     # SCAN keeps returning a2's key across every round — mkstream recreates it.
-    _patched({_key(a1), _key(a2)})
+    patched({_key(a1), _key(a2)})
     live = {a1}
 
     async def liveness(ids):
@@ -94,9 +94,9 @@ async def test_deleted_agent_loop_is_not_recreated_by_stream_key(_patched) -> No
 
 
 @pytest.mark.asyncio
-async def test_restored_agent_loop_is_recreated(_patched) -> None:
+async def test_restored_agent_loop_is_recreated(patched) -> None:
     a1, a2 = uuid.uuid4(), uuid.uuid4()
-    _patched({_key(a1), _key(a2)})
+    patched({_key(a1), _key(a2)})
     live = {a1}
 
     async def liveness(ids):
@@ -114,9 +114,9 @@ async def test_restored_agent_loop_is_recreated(_patched) -> None:
 
 
 @pytest.mark.asyncio
-async def test_liveness_error_keeps_all_loops(_patched) -> None:
+async def test_liveness_error_keeps_all_loops(patched) -> None:
     a1, a2 = uuid.uuid4(), uuid.uuid4()
-    _patched({_key(a1), _key(a2)})
+    patched({_key(a1), _key(a2)})
     state = {"raise": False}
 
     async def liveness(ids):
@@ -132,14 +132,15 @@ async def test_liveness_error_keeps_all_loops(_patched) -> None:
     await sup._reconcile()
 
     assert set(sup._loops) == {a1, a2}
-    assert not task_a1.cancelled() and not task_a2.cancelled()
+    assert not task_a1.cancelled()
+    assert not task_a2.cancelled()
     await sup._stop_all()
 
 
 @pytest.mark.asyncio
-async def test_stop_all_still_clears_loops(_patched) -> None:
+async def test_stop_all_still_clears_loops(patched) -> None:
     a1, a2 = uuid.uuid4(), uuid.uuid4()
-    _patched({_key(a1), _key(a2)})
+    patched({_key(a1), _key(a2)})
 
     async def liveness(ids):
         return ids
@@ -155,11 +156,11 @@ async def test_stop_all_still_clears_loops(_patched) -> None:
 
 
 @pytest.mark.asyncio
-async def test_no_liveness_filter_is_create_only(_patched) -> None:
+async def test_no_liveness_filter_is_create_only(patched) -> None:
     # Backward-compat: without a liveness filter the supervisor never prunes,
     # exactly as before C4 (F-20). A vanished SCAN key just stops re-creating.
     a1 = uuid.uuid4()
-    _patched({_key(a1)})
+    patched({_key(a1)})
 
     sup = consumer.A2AConsumerSupervisor(_handler)
     await sup._reconcile()
