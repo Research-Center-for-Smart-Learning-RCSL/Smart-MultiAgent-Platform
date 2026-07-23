@@ -157,6 +157,8 @@ pydyf==0.12.1
     # via weasyprint
 pygments==2.20.0
     # via rich
+pyjwt==2.10.1
+    # via smap-backend (pyproject.toml)
 pypdf==6.14.2
     # via smap-backend (pyproject.toml)
 pyphen==0.17.2
