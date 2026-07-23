@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-23
 requirements: [R30.05, R30.17, R30.19, R30.24]
 depends_on: []
@@ -118,11 +118,12 @@ returns `(validator_id, title)` and the config rules live beside the scorer, not
 - i18n en + zh-TW.
 
 ## 7. NFR Checklist
-- [ ] i18n — new strings both locales.
-- [ ] Audit log — none new (registration is startup; creation already audits).
-- [ ] Tenant isolation — the list is first-party/global; the read requires auth.
-- [ ] Error handling UX — form validator picker loading/empty states.
-- [ ] Performance — the list is a tiny in-memory read.
+- [x] i18n — new strings both locales (`en.json` + `zh-TW.json`).
+- [x] Audit log — none new (registration is startup; creation already audits). N/A.
+- [x] Tenant isolation — the list is first-party/global; the read requires auth (`current_principal`).
+- [x] Error handling UX — the picker degrades gracefully: on a failed/empty validators fetch the
+  `in_process` kind is simply not offered, so the picker is never shown empty.
+- [x] Performance — the list is a tiny in-memory read over the process-global registry.
 
 ## 8. Security Considerations
 
@@ -143,19 +144,22 @@ rejects malformed config at the API boundary (registration/edit), consistent wit
   registration is served. Additive; removing the plugin module + route rolls back.
 
 ## 11. Acceptance Criteria
-- [ ] AC-1: `exact_match` is registered at startup (via the `INITIALIZERS` step) and
+- [x] AC-1: `exact_match` is registered at startup (via the `INITIALIZERS` step) and
   `GET /api/activity-validators` returns it as `{id: "exact_match", title: ...}` for an
-  authenticated caller.
-- [ ] AC-2: An owner creates an `in_process`/`exact_match` type with a valid `field`/`expected`;
+  authenticated caller. *(test_activities_services.py::TestActivityValidatorRegistrationWiring,
+  test_activity_type_edit.py::TestValidatorListRoute)*
+- [x] AC-2: An owner creates an `in_process`/`exact_match` type with a valid `field`/`expected`;
   it registers (no 422). A submission whose `field` equals `expected` scores `is_valid=true`; a
   mismatching submission scores `is_valid=false, error_class="mismatch"` — end-to-end via the
-  synchronous submit path.
-- [ ] AC-3: Registering (or editing) an `exact_match` type with a missing/empty `field` or absent
+  synchronous submit path. *(TestExactMatchValidator, TestSubmitInProcess::test_exact_match_scores_end_to_end,
+  test_in_process_valid_exact_match_config_passes)*
+- [x] AC-3: Registering (or editing) an `exact_match` type with a missing/empty `field` or absent
   `expected` is rejected at the API with `ValidatorConfigInvalid` (422), not deferred to submit.
-- [ ] AC-4: The form offers `in_process` only when ≥1 validator is registered; the picker lists
+  *(test_in_process_exact_match_missing_field_rejected, config-validator tests)*
+- [x] AC-4: The form offers `in_process` only when ≥1 validator is registered; the picker lists
   the registered ids, and selecting `exact_match` reveals the `field`/`expected`/case-sensitivity
-  sub-form.
-- [ ] AC-5: new strings resolve en + zh-TW; `pnpm lint` and `ruff check` pass.
+  sub-form. *(ActivityTypeForm.test.ts: hides/offers/assembles)*
+- [x] AC-5: new strings resolve en + zh-TW; `pnpm lint` and `ruff check` pass.
 
 ## 12. Test Plan
 - Backend unit: `list_registered` returns `(id, title)` for `exact_match`; `exact_match` scorer
@@ -201,8 +205,23 @@ Amend `[R30.24]` — the surface now offers `in_process`, backed by a registered
 
 ## 15. Deviation Log
 
-Appended by /build.
+No deviations. The implementation matches the approved design: `exact_match` under
+`app/plugins/`, a startup `INITIALIZERS` step, the registry `title` + `config_validator`
+metadata with `list_registered()`, the `IN_PROCESS` config-validation hook in `type_service`,
+the authenticated `GET /api/activity-validators`, and the form's `in_process` branch. One
+implementation choice worth noting (not a spec departure): `ActivitiesFacade.list_validators`
+is a `staticmethod` and its route takes no `db_session`, because the registry is process-global
+and needs no transaction.
 
 ## 16. Follow-ups
 
-To be discovered during build.
+- FU-1: The `exact_match` `expected` input is a single free-text field for all payload types.
+  For a `boolean` field the user must type `true`/`false` and for numeric fields a bare number;
+  a type-aware input (toggle for boolean, number input for numeric) would be better UX. Out of
+  scope for v1 (the config round-trips correctly; only the input affordance is coarse).
+- FU-2 (hardening): `validate_exact_match_config` does not cap the length of `field`/`expected`.
+  No attack path (owner-only, request-body bounded, never interpolated into SQL/prompt/HTML) —
+  a per-field `max_length` would be pure defense-in-depth. From the security audit's Hardening note.
+- FU-3: `ActivityTypeForm.vue` now hosts three validator sub-forms plus create/edit; extracting
+  each sub-form (webhook/mcp/in_process) into a presentational child component would arrest its
+  growth. Pre-existing trajectory, surfaced by the quality audit (Info).
