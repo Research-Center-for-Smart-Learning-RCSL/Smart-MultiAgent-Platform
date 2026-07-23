@@ -151,6 +151,13 @@ raw mode is an authoring affordance, not new platform behavior.
   `2026-07-23-activity-in-process-validators` held uncommitted edits on every shared file, so this
   task paused, took `depends_on: [2026-07-23-activity-in-process-validators]` (Q-4), and resumed
   on a clean tree after that task reached `implemented`.
+- D-4: Three `/code-review` findings fixed after the initial commits. (1) `schemaRawPlaceholder`
+  held literal `{ }` braces, which vue-i18n parses as interpolation and crashes in the prod runtime
+  build (only warns in dev/test, so unit tests missed it) — reworded brace-free in both locales.
+  (2) `onRawUpdate` accepted any `JSON.parse`-valid value (array/number/`null`), emitting a
+  non-object up and breaking the `(schema: JSONSchema)` emit contract; now guarded with a distinct
+  `schemaNotObject` message. (3) The flat-schema predicate was extracted to `types/schemas.ts` as
+  `isFlatSchema` so "what the flat builder can express" lives in one place beside `SCHEMA_FIELD_TYPES`.
 
 ## 16. Follow-ups
 
