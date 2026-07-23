@@ -151,6 +151,10 @@ class IngestService:
                 actor_ip=actor_ip,
                 request_id=request_id,
             )
+            # Commit the re-upload audit before indexing: _index_document's failure
+            # path rolls back partial writes, which would otherwise discard this
+            # still-uncommitted audit row and leave a failed retry invisible.
+            await self._db.commit()
             await Publisher(rag_channel(cfg.id)).emit(
                 "ingestion.started", {"document_id": str(existing.id), "total": 1}
             )

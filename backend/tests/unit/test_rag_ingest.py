@@ -131,6 +131,34 @@ class TestIngestFailureSemantics:
         doc_repo.set_status.assert_awaited_with(document_id=doc.id, status=DocumentStatus.FAILED)
         svc._db.commit.assert_awaited()
 
+    async def test_reindex_retry_failure_still_records_reupload_audit(self) -> None:
+        # The re-upload audit must be committed before indexing, so a failed retry of
+        # a previously-failed document is not erased by the FAILED-persist rollback
+        # (which would otherwise leave the retry invisible in the audit trail).
+        cfg = _make_config()
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = cfg
+        existing = _make_document(status=DocumentStatus.FAILED)
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = existing
+        chunk_repo = AsyncMock()
+        svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=chunk_repo)
+
+        with (
+            patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": lambda b: "parsed body"}, clear=False),
+            patch(f"{_MOD}.chunk_document", AsyncMock(side_effect=RuntimeError("boom"))),
+            patch(f"{_MOD}.emit_reupload_audit", AsyncMock()) as reupload_audit,
+            patch(f"{_MOD}.Publisher", _fake_publisher()),
+            patch(f"{_MOD}.enqueue_rag_scan", AsyncMock()),
+            pytest.raises(IngestFailed),
+        ):
+            await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
+
+        reupload_audit.assert_awaited_once()
+        # Two commits: the pre-index re-upload-audit commit and the FAILED-persist
+        # commit. Before the fix the audit was uncommitted and rolled back on failure.
+        assert svc._db.commit.await_count >= 2
+
     async def test_non_parse_failure_raises_ingest_failed(self) -> None:
         cfg = _make_config()
         cfg_repo = AsyncMock()
