@@ -16,14 +16,6 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-07-23-google-oauth-login` (feature, approved) — `depends_on: []`. Adds "Sign in with
-  Google" (OIDC Authorization Code + PKCE) alongside email/password, plus link/unlink from
-  the profile page. New `auth_identities` table, `users.password_hash` made nullable, and a
-  reusable `_establish_session` seam extracted from `AuthService.login`. SRS Delta applied at
-  approval (new §6.1a / R6.14-R6.17, amended R19.01 + audit-events table). Hardened after an
-  adversarial review: XHR link/start (bearer), `smap_oauth_state` login-CSRF cookie, backend
-  GET+302+hydrate callback, null-hash handling at all four password-verify sites plus a
-  set-initial-password flow, `pyjwt[crypto]` RS256-pinned, Google egress prerequisite. 18 ACs.
 - `2026-07-22-turn-idempotency-and-locking` (bugfix, draft) — `depends_on: []`. From the a2a audit
   F-7, F-18, F-22, F-23, F-39 and the config audit F-8, F-30. Six sequenced commits; one hard
   ordering constraint (cleanup before lock-liveness). Names two textual adjacencies with the
@@ -80,10 +72,6 @@ parallel.
   `a2a_event` trigger whose workflow calls the same agent self-amplifies without bound, one full
   agent turn per iteration on the user's own key. Carries a **non-empty SRS Delta** drafting
   `[R14.07a]`, and one open decision (Q-3, the trigger budget value).
-- `2026-07-22-a2a-delivery-idempotency` (bugfix, approved) — `depends_on: []`. a2a F-5, F-19, F-20.
-  Grouped by change surface only, and says so: an `XAUTOCLAIM` that reads PEL idle time as
-  liveness, a `requeue` whose `LTRIM` keeps the wrong end of the queue, and a supervisor whose
-  liveness key `mkstream=True` recreates.
 - `2026-07-22-instruct-terminal-state-guard` (bugfix, draft) — `depends_on: []`. a2a F-15, F-16:
   the instruct terminal state is an unguarded `UPDATE`, so a completed instruct can be persisted
   as `TIMEOUT`; and the deadline job commits before enqueueing its resume, so its own retry reads
@@ -158,6 +146,10 @@ Nothing blocked.
 
 ## In progress
 
+- `2026-07-23-google-oauth-login` (feature) — `depends_on: []`. "Sign in with Google" (OIDC
+  Authorization Code + PKCE) alongside email/password + link/unlink. New `auth_identities` table,
+  `users.password_hash` nullable, `_establish_session` seam, null-hash handling at all four
+  password-verify sites + set-initial-password flow, `pyjwt[crypto]` RS256-pinned. 18 ACs.
 - `2026-07-22-activity-session-authz-and-validation` (bugfix) — `depends_on: []`. a2u F-12,
   F-20 plus verification-gap V-7: activity-session AuthZ + watchdog notification + optional
   enum-array assembly.
