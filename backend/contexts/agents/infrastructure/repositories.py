@@ -130,6 +130,28 @@ class AgentRepository:
         ).all()
         return {row.key_group_id: int(row.n) for row in rows}
 
+    async def filter_live_agent_ids(self, agent_ids: set[uuid.UUID]) -> set[uuid.UUID]:
+        """Return the subset of ``agent_ids`` that are not soft-deleted.
+
+        A cross-context liveness probe: the A2A consumer supervisor discovers
+        agent inbox streams from Redis (which its own loops recreate via
+        ``mkstream``), so it needs the authoritative live set from the DB to
+        decide which loops to stop.
+        """
+        if not agent_ids:
+            return set()
+        rows = (
+            await self._db.execute(
+                sa.select(t.agents.c.id).where(
+                    sa.and_(
+                        t.agents.c.id.in_(list(agent_ids)),
+                        t.agents.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).all()
+        return {row.id for row in rows}
+
     async def create(
         self,
         *,
