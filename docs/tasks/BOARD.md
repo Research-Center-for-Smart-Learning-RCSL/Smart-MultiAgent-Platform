@@ -16,10 +16,12 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-07-23-activity-in-process-validators` (feature, draft) — `depends_on: []`. FU-1:
-  register first-party `in_process` validators (startup site outside the activities context)
-  + a listing endpoint, and add the `in_process` branch to the authoring form. Open decision:
-  which validators ship in v1.
+- `2026-07-23-activity-in-process-validators` (feature, approved) — `depends_on: []`. FU-1 of the
+  authoring-UI dossier: register first-party `exact_match` in-process validator (startup site
+  under `app/plugins/`), a `list_registered()` accessor + authenticated `GET /api/activity-validators`,
+  a per-validator `config_validator` hook, and the `in_process` branch (validator picker +
+  `field`/`expected` sub-form) in `ActivityTypeForm.vue`. Q-1..Q-3 decided; SRS Delta amends
+  `[R30.05]`, `[R30.24]`.
 - `2026-07-23-activity-schema-raw-json` (feature, draft) — `depends_on: []`. FU-5: a raw
   JSON-Schema editing mode (reusing `SCodeEditor`) alongside the guided builder, for schemas
   the flat builder can't express. Frontend-only. Open decision: mode round-trip behavior.
