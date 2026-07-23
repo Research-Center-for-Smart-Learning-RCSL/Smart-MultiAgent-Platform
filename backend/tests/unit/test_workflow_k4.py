@@ -34,17 +34,24 @@ class _FakeRedis:
     def __init__(self) -> None:
         self.kv: dict[str, str] = {}
         self.sets: dict[str, set[str]] = {}
+        # Tracks the ex/expire seconds last written per key so TTL-anchoring
+        # assertions (F-32) can inspect what a restore/extend actually set.
+        self.ttls: dict[str, int] = {}
 
     async def set(self, key, value, ex=None):
         self.kv[key] = value
+        if ex is not None:
+            self.ttls[key] = ex
 
     async def get(self, key):
         return self.kv.get(key)
 
     async def getdel(self, key):
+        self.ttls.pop(key, None)
         return self.kv.pop(key, None)
 
     async def delete(self, key):
+        self.ttls.pop(key, None)
         self.kv.pop(key, None)
 
     async def sadd(self, key, member):
@@ -57,12 +64,17 @@ class _FakeRedis:
         return set(self.sets.get(key, set()))
 
     async def expire(self, key, ttl):
-        return True
+        if key in self.kv:
+            self.ttls[key] = ttl
+            return True
+        return False
 
     async def ttl(self, key):
-        # No TTL tracking — claims behave as persistent (-1); restore paths
-        # then fall back to their default restore TTL.
-        return -1 if key in self.kv else -2
+        if key not in self.kv:
+            return -2
+        # A key with no recorded ex behaves as persistent (-1), so restore
+        # paths fall back to their default floor.
+        return self.ttls.get(key, -1)
 
 
 def _approval_gate_node(*, chatroom_id: uuid.UUID | None = None):
@@ -879,6 +891,174 @@ async def test_resume_approval_retries_while_pending(monkeypatch) -> None:
     result = await wf.workflow_resume_approval({"redis": pool}, str(aid), 0)
 
     assert result == "pending:retry"
-    # re-enqueued itself with the next attempt; claim key untouched.
+    # re-enqueued itself with the next attempt; claim key still present (its TTL
+    # is now extended to cover the remaining budget, asserted separately below).
     pool.enqueue_job.assert_awaited_once()
     assert f"wf:approval:{aid}" in redis.kv
+
+
+# --------------------------------------------------------------------------- #
+# F-32 — claim keys never expire inside their consumer's retry budget          #
+# --------------------------------------------------------------------------- #
+
+
+async def test_resume_approval_extends_claim_ttl_across_pending_retries(monkeypatch) -> None:
+    from app.workers.tasks import workflow as wf
+    from app.workers.tasks.workflow_approvals import (
+        _APPROVAL_RESUME_DELAY_S,
+        _APPROVAL_RESUME_MAX_ATTEMPTS,
+    )
+    from app.workers.tasks.workflow_common import _remaining_budget_ttl
+    from contexts.orchestration.domain.models import ApprovalState
+
+    aid = uuid.uuid4()
+    key = f"wf:approval:{aid}"
+    redis = _FakeRedis()
+    redis.kv[key] = json.dumps({"run_id": str(uuid.uuid4()), "node_id": "g"})
+    redis.ttls[key] = 5  # decayed near-expiry, as it would be deep into the poll
+
+    facade = SimpleNamespace(
+        get_approval=AsyncMock(return_value=SimpleNamespace(state=ApprovalState.PENDING))
+    )
+    db = MagicMock()
+    pool = AsyncMock()
+    monkeypatch.setattr("shared_kernel.auth.clients.get_redis", lambda: redis)
+    monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db))
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade)
+
+    result = await wf.workflow_resume_approval({"redis": pool}, str(aid), 0)
+
+    assert result == "pending:retry"
+    # Fails today: the pending-poll branch never touched the key, so it kept the
+    # decayed 5s and could expire mid-poll. Now extended to the remaining budget.
+    expected = _remaining_budget_ttl(_APPROVAL_RESUME_MAX_ATTEMPTS, _APPROVAL_RESUME_DELAY_S, 0)
+    assert redis.ttls[key] == expected
+    assert expected > 600
+
+
+async def _drive_restore_floor(monkeypatch, redis, key, task_coro):
+    """Shared harness: resume_at_port fails, run non-terminal → restore path."""
+
+    class _FakeEngine:
+        def __init__(self, db):
+            pass
+
+        async def resume_at_port(self, rid, nid, port):
+            return False  # run not WAITING yet (parallel sibling / commit gap)
+
+        async def dispatch_enqueues(self, pool):
+            pass
+
+    db = MagicMock()
+    db.commit = AsyncMock()
+    monkeypatch.setattr("shared_kernel.auth.clients.get_redis", lambda: redis)
+    monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db))
+    monkeypatch.setattr("contexts.workflow.application.run_engine.RunEngine", _FakeEngine)
+    monkeypatch.setattr("shared_kernel.audit.emit", AsyncMock())
+    return await task_coro(db)
+
+
+async def test_resume_approval_restores_claim_with_budget_floor(monkeypatch) -> None:
+    from app.workers.tasks import workflow as wf
+    from contexts.orchestration.domain.models import ApprovalState
+
+    aid = uuid.uuid4()
+    key = f"wf:approval:{aid}"
+    redis = _FakeRedis()
+    redis.kv[key] = json.dumps({"run_id": str(uuid.uuid4()), "node_id": "g"})
+    redis.ttls[key] = 5  # decayed original TTL, verbatim under the old code
+
+    facade = SimpleNamespace(
+        get_approval=AsyncMock(
+            return_value=SimpleNamespace(state=ApprovalState.APPROVED, leader_agent_id=uuid.uuid4())
+        ),
+        get_approval_votes=AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade)
+    monkeypatch.setattr(
+        "app.workers.tasks.workflow_approvals._run_is_terminal", AsyncMock(return_value=False)
+    )
+
+    async def _run(_db):
+        return await wf.workflow_resume_approval({"redis": AsyncMock()}, str(aid), 0)
+
+    result = await _drive_restore_floor(monkeypatch, redis, key, _run)
+
+    assert result == "not_waiting:retry"
+    # Fails today: the claim was restored with its decayed 5s TTL verbatim. Now
+    # floored to the remaining budget so it outlives the retries (F-32).
+    assert key in redis.kv
+    assert redis.ttls[key] > 600
+
+
+async def test_resume_instruct_restores_claim_with_budget_floor(monkeypatch) -> None:
+    from app.workers.tasks import workflow as wf
+    from contexts.orchestration.domain.models import InstructionState
+
+    iid = uuid.uuid4()
+    key = f"wf:instruct:{iid}"
+    redis = _FakeRedis()
+    redis.kv[key] = json.dumps({"run_id": str(uuid.uuid4()), "node_id": "n"})
+    redis.ttls[key] = 5
+
+    # TIMEOUT → port "failure" → skips the output-variable population path.
+    facade = SimpleNamespace(
+        get_instruction=AsyncMock(return_value=SimpleNamespace(state=InstructionState.TIMEOUT))
+    )
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade)
+    monkeypatch.setattr(
+        "app.workers.tasks.workflow_approvals._run_is_terminal", AsyncMock(return_value=False)
+    )
+
+    async def _run(_db):
+        return await wf.workflow_resume_instruct({"redis": AsyncMock()}, str(iid), 0)
+
+    result = await _drive_restore_floor(monkeypatch, redis, key, _run)
+
+    assert result == "not_waiting:retry"
+    assert key in redis.kv
+    assert redis.ttls[key] > 600
+
+
+async def test_event_resume_restores_claim_with_budget_floor(monkeypatch) -> None:
+    from app.workers.tasks import workflow as wf
+
+    run_id, node_id = str(uuid.uuid4()), "n1"
+    key = f"wf:wait:{run_id}:{node_id}"
+    redis = _FakeRedis()
+    redis.kv[key] = json.dumps({"run_id": run_id, "node_id": node_id, "event_type": "message_in_room"})
+    redis.ttls[key] = 5  # wait keys are created with only +60s grace
+
+    monkeypatch.setattr("app.workers.tasks.workflow_signals._run_is_terminal", AsyncMock(return_value=False))
+
+    async def _run(_db):
+        return await wf.workflow_event_resume({"redis": AsyncMock()}, run_id, node_id, 0)
+
+    result = await _drive_restore_floor(monkeypatch, redis, key, _run)
+
+    assert result == "not_waiting:retry"
+    assert key in redis.kv
+    assert redis.ttls[key] > 600
+
+
+def test_claim_ttl_never_expires_before_next_retry() -> None:
+    # Invariant behind F-32: at every attempt the extended/restored TTL must
+    # outlast the defer before the next retry runs, or the claim is silently
+    # dropped mid-poll. Covers the shared helper for all three consumers.
+    from app.workers.tasks.workflow_approvals import (
+        _APPROVAL_RESUME_DELAY_S,
+        _APPROVAL_RESUME_MAX_ATTEMPTS,
+    )
+    from app.workers.tasks.workflow_common import (
+        _RESUME_RETRY_DELAY_S,
+        _RESUME_RETRY_MAX_ATTEMPTS,
+        _remaining_budget_ttl,
+    )
+
+    for max_attempts, delay in (
+        (_APPROVAL_RESUME_MAX_ATTEMPTS, _APPROVAL_RESUME_DELAY_S),
+        (_RESUME_RETRY_MAX_ATTEMPTS, _RESUME_RETRY_DELAY_S),
+    ):
+        for attempt in range(max_attempts):
+            ttl = _remaining_budget_ttl(max_attempts, delay, attempt)
+            assert ttl > delay

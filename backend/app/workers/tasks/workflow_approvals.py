@@ -17,6 +17,7 @@ from app.workers.tasks.workflow_common import (
     _RESUME_RETRY_DELAY_S,
     _RESUME_RETRY_MAX_ATTEMPTS,
     _emit_resumed,
+    _remaining_budget_ttl,
     _restore_claim,
     _run_is_terminal,
 )
@@ -63,6 +64,14 @@ async def workflow_resume_approval(ctx: dict[str, Any], approval_id: str, attemp
             # back. Retry within budget; the gate-timeout path will resolve and
             # re-enqueue if votes never commit.
             if attempt < _APPROVAL_RESUME_MAX_ATTEMPTS:
+                # The pending phase is where the retries accumulate, so the claim
+                # must be extended here or it expires mid-poll before the restore
+                # path is ever reached (F-32). Restore-branch below never runs on
+                # this path, so this is the only site that keeps the key alive.
+                await redis.expire(
+                    key,
+                    _remaining_budget_ttl(_APPROVAL_RESUME_MAX_ATTEMPTS, _APPROVAL_RESUME_DELAY_S, attempt),
+                )
                 await ctx["redis"].enqueue_job(
                     "workflow_resume_approval",
                     approval_id,
@@ -90,8 +99,17 @@ async def workflow_resume_approval(ctx: dict[str, Any], approval_id: str, attemp
                 return "noop:terminal"
             # Claim-before-verify: run not WAITING yet (parking commit pending
             # or a parallel sibling running) — restore the claim and retry.
-            # Shares the attempt budget with the pending-poll above.
-            await _restore_claim(redis, key, claimed, ttl)
+            # Shares the attempt budget with the pending-poll above. Floor the
+            # restored TTL to the remaining budget so the key outlives it (F-32).
+            await _restore_claim(
+                redis,
+                key,
+                claimed,
+                ttl,
+                min_ttl=_remaining_budget_ttl(
+                    _APPROVAL_RESUME_MAX_ATTEMPTS, _APPROVAL_RESUME_DELAY_S, attempt
+                ),
+            )
             if attempt < _APPROVAL_RESUME_MAX_ATTEMPTS:
                 await ctx["redis"].enqueue_job(
                     "workflow_resume_approval",
@@ -183,8 +201,15 @@ async def workflow_resume_instruct(ctx: dict[str, Any], instruction_id: str, att
             await db.commit()  # persist side effects (output_variable / failed run)
             if await _run_is_terminal(db, info["run_id"]):
                 return "noop:terminal"
-            # Claim-before-verify: restore the claim and retry bounded.
-            await _restore_claim(redis, key, claimed, ttl)
+            # Claim-before-verify: restore the claim and retry bounded. Floor the
+            # restored TTL to the remaining budget so the key outlives it (F-32).
+            await _restore_claim(
+                redis,
+                key,
+                claimed,
+                ttl,
+                min_ttl=_remaining_budget_ttl(_RESUME_RETRY_MAX_ATTEMPTS, _RESUME_RETRY_DELAY_S, attempt),
+            )
             if attempt < _RESUME_RETRY_MAX_ATTEMPTS:
                 await ctx["redis"].enqueue_job(
                     "workflow_resume_instruct",

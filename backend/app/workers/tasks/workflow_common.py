@@ -26,9 +26,19 @@ from typing import Any
 
 _RESUME_RETRY_DELAY_S = 3
 _RESUME_RETRY_MAX_ATTEMPTS = 210
-# Fallback TTL when the claim's original TTL could not be read (e.g. it had
-# already expired between the TTL read and the GETDEL).
-_CLAIM_RESTORE_TTL_S = 60
+# Floor a restored/extended claim key must never fall below: the *full* consumer
+# retry budget. A claim that expires inside its own consumer's budget loses the
+# resume silently (F-32); the previous 60 s fallback was shorter than the 630 s
+# budget it guarded, which was the bug in miniature. Callers with a decaying
+# live budget pass a tighter ``min_ttl`` via ``_remaining_budget_ttl``.
+_CLAIM_RESTORE_TTL_S = _RESUME_RETRY_MAX_ATTEMPTS * _RESUME_RETRY_DELAY_S
+
+
+def _remaining_budget_ttl(max_attempts: int, delay_s: int, attempt: int) -> int:
+    """Seconds a claim key must still live to outlast a consumer's remaining
+    retry budget (F-32). One extra delay cycle of margin covers the gap between
+    extending the key and the next retry actually running."""
+    return max(0, max_attempts - attempt + 1) * delay_s
 
 
 async def _run_is_terminal(db: Any, run_id: str) -> bool:
@@ -39,9 +49,22 @@ async def _run_is_terminal(db: Any, run_id: str) -> bool:
     return run is None or run.state.is_terminal
 
 
-async def _restore_claim(redis: Any, key: str, payload: Any, ttl: int | None) -> None:
-    """Put a GETDEL-claimed resume token back so a later claimant can own it."""
-    await redis.set(key, payload, ex=ttl if ttl and ttl > 0 else _CLAIM_RESTORE_TTL_S)
+async def _restore_claim(
+    redis: Any,
+    key: str,
+    payload: Any,
+    ttl: int | None,
+    *,
+    min_ttl: int = _CLAIM_RESTORE_TTL_S,
+) -> None:
+    """Put a GETDEL-claimed resume token back so a later claimant can own it.
+
+    Restores with the larger of the key's remaining TTL and ``min_ttl`` so the
+    key never expires inside the consumer's remaining retry budget (F-32).
+    ``min_ttl`` defaults to the full budget; callers pass their decaying
+    remaining budget via :func:`_remaining_budget_ttl`.
+    """
+    await redis.set(key, payload, ex=max(ttl or 0, min_ttl))
 
 
 async def _emit_resumed(db: Any, run_id: str, node_id: str, *, reason: str) -> None:

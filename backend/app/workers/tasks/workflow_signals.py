@@ -19,6 +19,7 @@ from app.workers.tasks.workflow_common import (
     _RESUME_RETRY_DELAY_S,
     _RESUME_RETRY_MAX_ATTEMPTS,
     _emit_resumed,
+    _remaining_budget_ttl,
     _restore_claim,
     _run_is_terminal,
 )
@@ -108,8 +109,16 @@ async def workflow_event_timeout(
         await db.commit()
         if not resumed and not await _run_is_terminal(db, run_id):
             # Run not WAITING (parallel sibling executing) — restore the claim
-            # and retry; the wait must not be lost (claim-before-verify).
-            await _restore_claim(redis, wait_key, claimed, ttl)
+            # and retry; the wait must not be lost (claim-before-verify). Floor
+            # the restored TTL to the remaining budget so the key outlives it,
+            # not the mere +60s grace the wait key was created with (F-32).
+            await _restore_claim(
+                redis,
+                wait_key,
+                claimed,
+                ttl,
+                min_ttl=_remaining_budget_ttl(_RESUME_RETRY_MAX_ATTEMPTS, _RESUME_RETRY_DELAY_S, attempt),
+            )
             if attempt < _RESUME_RETRY_MAX_ATTEMPTS:
                 await ctx["redis"].enqueue_job(
                     "workflow_event_timeout",
@@ -325,7 +334,14 @@ async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str, 
         if not resumed:
             await db.commit()  # persist side effects (e.g. workflow-deleted FAILED)
             if not await _run_is_terminal(db, run_id):
-                await _restore_claim(redis, wait_key, claimed, ttl)
+                # Floor the restored TTL to the remaining budget (F-32).
+                await _restore_claim(
+                    redis,
+                    wait_key,
+                    claimed,
+                    ttl,
+                    min_ttl=_remaining_budget_ttl(_RESUME_RETRY_MAX_ATTEMPTS, _RESUME_RETRY_DELAY_S, attempt),
+                )
                 if attempt < _RESUME_RETRY_MAX_ATTEMPTS:
                     await ctx["redis"].enqueue_job(
                         "workflow_event_resume",
