@@ -215,7 +215,17 @@ async def _dispatch_a2a_workflow_signal(envelope: A2AEnvelope) -> None:
         await enqueue(
             "workflow_signal",
             "a2a",
-            {"target_agent_id": str(envelope.to_agent), "msg_type": envelope.type.value},
+            {
+                "target_agent_id": str(envelope.to_agent),
+                "msg_type": envelope.type.value,
+                # F-24: relay the synchronous CALL chain across the process hop so a
+                # workflow started by this signal continues the cycle/depth guard
+                # instead of restarting it from an empty ContextVar. Envelope
+                # defaults (0/[]) keep a partial deploy degrading to today's
+                # behaviour rather than crashing.
+                "call_depth": envelope.call_depth,
+                "call_path": list(envelope.call_path),
+            },
         )
     except Exception:
         logger.warning("a2a workflow-signal dispatch failed for %s", envelope.to_agent, exc_info=True)

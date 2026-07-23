@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -148,16 +149,27 @@ class A2AService:
         timeout_seconds: float = _DEFAULT_CALL_TIMEOUT,
         caller_invocation_context_id: uuid.UUID | None = None,
         callee_attached_context_ids: frozenset[uuid.UUID] | None = None,
+        inbound_call_depth: int | None = None,
+        inbound_call_path: Sequence[str] | None = None,
     ) -> dict[str, Any]:
         """Synchronous A2A call — blocks until reply or timeout (R9.15).
 
         Returns the reply envelope as a dict.
         Raises A2ATimeout after ``timeout_seconds``.
+
+        ``inbound_call_depth`` / ``inbound_call_path`` carry the chain of the
+        CALL that entered this run when the caller is a workflow worker (a
+        different process from the A2A consumer that bound the ContextVar), so
+        the cycle/depth guard sees the real chain instead of an empty one (F-24).
         """
         # R9.15: reject a recursive / over-deep synchronous call before dispatch.
-        # Reads the chain bound by the enclosing CALL-triggered turn (if any);
-        # at root (workflow-originated) the chain is empty so depth becomes 1.
-        call_depth, call_path = a2a_call_chain.next_hop(str(to_agent_id))
+        # Prefer the explicit inbound chain (workflow-worker path); otherwise read
+        # the chain bound by the enclosing CALL-triggered turn (in-process path);
+        # at root the chain is empty so depth becomes 1.
+        base: tuple[int, tuple[str, ...]] | None = None
+        if inbound_call_depth is not None or inbound_call_path is not None:
+            base = (inbound_call_depth or 0, tuple(inbound_call_path or ()))
+        call_depth, call_path = a2a_call_chain.next_hop(str(to_agent_id), base=base)
         correlation_id = uuid.uuid4()
         envelope = A2AEnvelope(
             id=uuid.uuid4(),

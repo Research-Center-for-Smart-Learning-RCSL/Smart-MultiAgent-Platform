@@ -12,6 +12,7 @@ Workflow (H) and Conversation (F) contexts use this facade to:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -67,6 +68,8 @@ class OrchestrationFacade:
         timeout_seconds: float = 60.0,
         caller_invocation_context_id: uuid.UUID | None = None,
         callee_attached_context_ids: frozenset[uuid.UUID] | None = None,
+        inbound_call_depth: int | None = None,
+        inbound_call_path: Sequence[str] | None = None,
     ) -> dict[str, Any]:
         return await self._a2a.call(
             from_agent_id=from_agent_id,
@@ -76,6 +79,8 @@ class OrchestrationFacade:
             timeout_seconds=timeout_seconds,
             caller_invocation_context_id=caller_invocation_context_id,
             callee_attached_context_ids=callee_attached_context_ids,
+            inbound_call_depth=inbound_call_depth,
+            inbound_call_path=inbound_call_path,
         )
 
     async def cancel_workflow_run_calls(self, workflow_run_id: uuid.UUID) -> None:
