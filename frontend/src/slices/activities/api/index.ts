@@ -13,11 +13,29 @@ import type {
   ActivitySubmissionIn,
   ActivitySubmissionOut,
   ActivitySubmissionsPageOut,
+  ActivityTypeIn,
   ActivityTypeOut,
 } from '@shared/api-client'
 
 export async function listActivityTypes(projectId: string): Promise<ActivityTypeOut[]> {
   return ActivitiesService.listActivityTypesApiProjectsProjectIdActivityTypesGet({ projectId })
+}
+
+export async function registerActivityType(
+  projectId: string,
+  body: ActivityTypeIn,
+): Promise<ActivityTypeOut> {
+  return ActivitiesService.registerActivityTypeApiProjectsProjectIdActivityTypesPost({
+    projectId,
+    requestBody: body,
+  })
+}
+
+export async function deleteActivityType(projectId: string, typeId: string): Promise<void> {
+  return ActivitiesService.deleteActivityTypeApiProjectsProjectIdActivityTypesTypeIdDelete({
+    projectId,
+    typeId,
+  })
 }
 
 export async function startActivation(

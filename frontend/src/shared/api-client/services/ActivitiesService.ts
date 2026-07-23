@@ -246,4 +246,28 @@ export class ActivitiesService {
             },
         });
     }
+    /**
+     * Delete Activity Type
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteActivityTypeApiProjectsProjectIdActivityTypesTypeIdDelete({
+        projectId,
+        typeId,
+    }: {
+        projectId: string,
+        typeId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/projects/{project_id}/activity-types/{type_id}',
+            path: {
+                'project_id': projectId,
+                'type_id': typeId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
 }
