@@ -46,6 +46,11 @@ _MAP: ErrorMap = {
         409,
         "An activity type with this key already exists in the project",
     ),
+    errors.ActivityTypeActive: (
+        "activities/type-active",
+        409,
+        "This activity type is active in a room; its schema or validator cannot be edited",
+    ),
     errors.PayloadSchemaInvalid: (
         "activities/payload-schema-invalid",
         422,

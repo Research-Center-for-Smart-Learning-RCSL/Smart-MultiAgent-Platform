@@ -41,6 +41,14 @@ class ActivityTypeKeyConflict(ActivitiesError):
     code = "activities/type-key-conflict"
 
 
+class ActivityTypeActive(ActivitiesError):
+    """A behavioral edit (schema/validator) was attempted while the type has an
+    active activation in some room; rejected to avoid desyncing an in-flight
+    activation (409). Metadata-only edits are unaffected."""
+
+    code = "activities/type-active"
+
+
 class PayloadSchemaInvalid(ActivitiesError):
     """The registered ``payload_schema`` is not a well-formed JSON Schema (422)."""
 
@@ -65,6 +73,7 @@ __all__ = [
     "ActivityActivationNotFound",
     "ActivityAlreadyActive",
     "ActivityNotActive",
+    "ActivityTypeActive",
     "ActivityTypeKeyConflict",
     "ActivityTypeNotFound",
     "PayloadSchemaInvalid",
