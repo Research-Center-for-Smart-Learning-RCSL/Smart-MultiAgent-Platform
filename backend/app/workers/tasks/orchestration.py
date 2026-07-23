@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from typing import Any
 
 from loguru import logger
@@ -181,16 +182,28 @@ async def wakeup_agent(
     return result.status
 
 
+# The gate is armed inside the caller's (executor's) transaction, so the
+# deadline can fire before that commit lands and observe no approval row.
+# Distinguish that (retry within a small budget, mirroring drive_approver_turn)
+# from a genuinely rolled-back / never-created gate (give up). handle_timeout is
+# idempotent, so a spurious retry after a real rollback is harmless.
+_TIMEOUT_NOT_VISIBLE_RETRY_DELAY_S = 2
+_TIMEOUT_NOT_VISIBLE_MAX_ATTEMPTS = 5
+
+
 async def approval_timeout(
     ctx: dict[str, Any],
     approval_id: str,
     chatroom_id: str | None = None,
+    attempt: int = 0,
 ) -> str:
     """Resolve an approval gate that did not reach a verdict in time (R15.13).
 
     Armed as a deferred job when the gate is created (K.3). Idempotent: if the
     gate already resolved via votes, ``handle_timeout`` is a no-op and returns
-    the existing state.
+    the existing state. When the row is not yet visible (creation transaction
+    uncommitted), retries within a small budget rather than abandoning the
+    gate's liveness backstop.
     """
     from contexts.orchestration.interfaces.facade import OrchestrationFacade
 
@@ -200,6 +213,15 @@ async def approval_timeout(
         state = await OrchestrationFacade(db).handle_approval_timeout(aid, chatroom_id=cid)
         await db.commit()
     if state is None:
+        if attempt < _TIMEOUT_NOT_VISIBLE_MAX_ATTEMPTS:
+            await ctx["redis"].enqueue_job(
+                "approval_timeout",
+                approval_id,
+                chatroom_id,
+                attempt + 1,
+                _defer_by=timedelta(seconds=_TIMEOUT_NOT_VISIBLE_RETRY_DELAY_S),
+            )
+            return "retry:not_visible"
         logger.bind(approval_id=approval_id).info("approval timeout: approval gone")
         return "noop:gone"
     logger.bind(approval_id=approval_id, state=state.value).info("approval timeout handled")
