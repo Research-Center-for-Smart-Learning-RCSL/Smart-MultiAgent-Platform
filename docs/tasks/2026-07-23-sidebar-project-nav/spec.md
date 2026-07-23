@@ -302,6 +302,10 @@ None — the implementation matches this spec.
 ## 16. Follow-ups
 
 - FU-1: The other sidebar project groups (agents/knowledge/keys/infra) are shown to any
-  member regardless of role; decide per-surface whether they should be role-gated too.
+  member regardless of role. **Resolved (no change):** these surfaces are membership-gated
+  reads (`agents.py:192`, `graphrag.py:238`, `rag.py:209`, `knowmap.py:259`) — members can
+  legitimately open them — so gating the sidebar links to owner would hide member-usable
+  navigation. User confirmed keeping them member-visible; only the Manage group stays
+  owner-gated.
 - FU-2: Extract the repeated `RouterLink`-with-icon markup in `AppSidebar.vue` into a small
-  presentational item component to cut the per-section duplication.
+  presentational item component. **Done** — commit `2fda2c6` (`SidebarNavItem`).
