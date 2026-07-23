@@ -80,7 +80,7 @@ parallel.
   `a2a_event` trigger whose workflow calls the same agent self-amplifies without bound, one full
   agent turn per iteration on the user's own key. Carries a **non-empty SRS Delta** drafting
   `[R14.07a]`, and one open decision (Q-3, the trigger budget value).
-- `2026-07-22-a2a-delivery-idempotency` (bugfix, draft) — `depends_on: []`. a2a F-5, F-19, F-20.
+- `2026-07-22-a2a-delivery-idempotency` (bugfix, approved) — `depends_on: []`. a2a F-5, F-19, F-20.
   Grouped by change surface only, and says so: an `XAUTOCLAIM` that reads PEL idle time as
   liveness, a `requeue` whose `LTRIM` keeps the wrong end of the queue, and a supervisor whose
   liveness key `mkstream=True` recreates.
