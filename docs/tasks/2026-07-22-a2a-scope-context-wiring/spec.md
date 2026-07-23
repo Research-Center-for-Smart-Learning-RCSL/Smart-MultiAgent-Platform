@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-07-22
 requirements: [R9.17, R15.15, R15.16, R15.23]
 depends_on: []
@@ -94,8 +94,8 @@ path — it is unfed.
 | Q-3 | Who derives the callee's attached-context set? | **`A2AService`, from the DB. Never the executor.** | `a2a_scope.py:98-101` trusts `callee_attached_context_ids` **unconditionally**, so an executor-supplied set is self-authorization — a one-argument authorization bypass. This is the single most important constraint in the dossier. `_enforce_workflow_tenant` (`a2a_service.py:419-450`) is the service-side pattern to copy, lazy `WorkflowFacade` import included. |
 | Q-4 | Why not mirror `agent_invocation` with `from_agent_id=None`? | **Rejected.** | It discards the issuer, breaking `parent_agent_id` usage attribution (`[R15.23]`) — `a2a_handler.py:186` forwards it into `turn_engine.py:873,2669,2744` and thence to `key_usage_events` — and it silently overrides the `a2a_enabled` opt-out on both sides. The two nodes take different rules because they are different relationships: `agent_invocation_config` has no issuer, `instruct_config` requires one (`docs/workflow.schema.json:317`). |
 | Q-5 | Why not add a workflow-origin branch to `a2a_scope.evaluate`? | **Rejected.** | `a2a_scope.py:14-19` documents it as a pure function with no DB access; a branch that means anything needs run membership, which is a DB fact. A bare "came from a workflow" flag is a one-assertion bypass, and the moment an agent-authored surface can set it the check is defeated. |
-| Q-6 | **What does "attached to a workflow run" mean?** | **OPEN — user decision required. Do not guess.** | Three options in §7. No requirement, doc or table defines it; `REQUIREMENTS.md:453` says only "a context … that the callee is also attached to". The security context for the decision: `[R15.15]` (`:779`) says an instructed agent **cannot refuse**, so every widening hands workflow authors unrefusable turn execution — the target's BYO key spend, the target's tools, the target's MCP servers — on more agents. |
-| Q-7 | `wakeup_started_at` has no meaning for a workflow-originated instruct. What replaces rule 3? | **OPEN — user decision.** | Either (i) pass the *run* start as the budget window and rename the concept to an issuing window, or (ii) declare rule 3 out of scope for workflow instructs and add a run-scoped loop guard instead. Note F-26's failure scenario — a loop body issuing 500 instructs — is a **run**-scoped abuse, not a wake-up-scoped one, so (i) is the substantive fix and (ii) is a documented non-fix. |
+| Q-6 | **What does "attached to a workflow run" mean?** | **Option C — a `workflow_run_participants` table**, materialized at run start from the design-time agent extraction (`linter._collect_agent_ids`). A2AService grants rule 3a only when **both** issuer and target have a row for `run_id`. | Chosen over A (design-time, in-memory) and B (execution-time steps). C is snapshot-correct — immune to the mid-run definition-edit drift that A1 accepts and A2 only partially closes — and it is explicit and queryable, which matters on an authorization boundary where over-broad grant is the dominant risk. B was rejected: it makes the same instruct allowed or denied by node execution order (`workflow_steps`), denying the common shape where the instruct node fires before the target's own node. C costs a migration (new table + down-migration); accepted. Security frame unchanged: `[R15.15]` (`:779`) makes an instruct unrefusable, so the participant set is the exact width of the unrefusable-execution grant — it must be derived server-side (Q-3) and no wider than the agents the author already wrote into the definition. |
+| Q-7 | `wakeup_started_at` has no meaning for a workflow-originated instruct. What replaces rule 3? | **Option (i) — run-scoped issuing window.** For a workflow-originated instruct the issuing window is the **workflow run**; `count_issued_by_agent_since` is measured from the run start, so a loop body issuing past the cap trips `InstructBudgetExceeded`. Requires the §11 SRS Delta to `[R15.16]` rule 3. | The substantive fix. F-26's failure scenario — a loop body issuing 500 instructs — is a **run**-scoped abuse, so (i) restores the per-issuer budget that rule 3 intends; (ii) (declare rule 3 out of scope + a bare loop guard) was rejected as a documented non-fix that leaves the budget-breach guard unreachable. The wakeup path keeps its existing per-wakeup window unchanged; only the origin that has no wakeup gets the run as its window. |
 | Q-8 | Does this depend on any open dossier? | No. `depends_on: []`. | Checked against `BOARD.md`. `2026-07-22-subagent-spawn-fail-fast` touches a different executor; nothing else touches `a2a_service.py` or `instruct_service.py`. |
 
 ## 4. Reproduction
@@ -177,30 +177,37 @@ are live).
 
 ## 7. Fix Design
 
-**Part 1 — feed rule 3a (F-9).** `A2AService` derives the run's participant set and grants when
-both issuer and target are members, setting the context to `run_id`. Three options for
-"participant", and **Q-6 is the user's to answer**:
+**Part 1 — feed rule 3a (F-9). Chosen: Option C (Q-6).** `A2AService` derives the run's
+participant set and grants when both issuer and target are members, setting the context to
+`run_id`.
 
-- **Option A — design-time participation (recommended shape).** New `WorkflowFacade` method
-  resolving run → `workflow_id` → `definition`, then reusing **`linter._collect_agent_ids`**
+- **Chosen — Option C: a `workflow_run_participants` table.** Materialized at run start in
+  `run_engine.py` (at the `insert` site, `:150-157`) from **`linter._collect_agent_ids`**
   (`contexts/workflow/application/linter.py:111-126`), which already extracts `agent_id`,
   `target_agent_id`, `issuer_agent_id`, `leader_agent_id`, `parent_agent_id` and `approvers` —
-  exactly the reference sites that matter, already written and already tested. Deterministic,
-  race-free, node-order-independent.
-  **Caveat the implementer must handle**: the run does **not** snapshot its definition —
-  `run_engine.py:155` persists `context={"trigger_payload": ...}` only, holding `definition` in
-  memory as `RunContext.workflow_def` (`:181`). A long-running run whose workflow was edited
-  mid-flight is authorized against the *current* definition. Sub-choices: **A1** accept and
-  document the drift; **A2** snapshot the participant set into `workflow_runs.context` at
-  `:155` — JSONB, so no migration, but it only helps runs started after deploy and old runs must
-  fall back to A1.
-- **Option B — execution-time participation**, derived from `workflow_steps`
-  (`WorkflowFacade.list_steps`, `:111-112`). Narrowest grant, but the same instruct is allowed or
-  denied depending on node execution order, and an instruct node firing *before* the target's own
-  node is denied — the common authoring shape. Leaning reject.
-- **Option C — a `workflow_run_participants` table**, materialized at run start from the same
-  extraction. This is A2 normalized: explicit, queryable, snapshot-correct, no drift. Costs a
-  migration.
+  exactly the reference sites that matter, already written and already tested. Applied over every
+  node in `RunContext.workflow_def`. New migration **0062** (latest is `0061`; note
+  `2026-07-22-mcp-tool-contract` also targets 0062 on an unrelated table — whoever builds second
+  takes the next free number, no `depends_on` between them): table
+  `workflow_run_participants(run_id FK→workflow_runs.id ON DELETE CASCADE, agent_id FK→agents.id,
+  PRIMARY KEY (run_id, agent_id))`, mirroring the `workflow_steps` FK/cascade convention
+  (`tables.py:45-51`, migration `0024`). A2AService (server-side, per Q-3) sets
+  `caller_invocation_context_id = run_id` **only if** the issuer has a row for `run_id`, and
+  `callee_attached_context_ids = {run_id}` **only if** the target has a row for `run_id`; if
+  either is absent both stay empty and rule 3a fails closed — matching
+  `_enforce_workflow_tenant`'s `workflow_run_id is None` denial (`a2a_service.py:426-427`). The
+  DB read happens inside the caller's ambient transaction (no commit — DB-1 contract,
+  `run_engine.py:188-192`). Snapshot-correct: a mid-run definition edit cannot change an existing
+  run's participant rows, so there is no drift.
+- **Considered — Option A: design-time, in-memory** (resolve run → definition → `_collect_agent_ids`
+  live, no table). Rejected: the run does not snapshot its definition — `run_engine.py:150-157`
+  persists `context={"trigger_payload": ...}` only, holding `definition` in memory as
+  `RunContext.workflow_def` (`:182`) — so a run whose workflow is edited mid-flight authorizes
+  against the *current* definition (the A1 drift). Option C is A materialized, which removes that
+  drift for the cost of one migration.
+- **Considered — Option B: execution-time participation** from `workflow_steps`. Rejected: the
+  same instruct is allowed or denied depending on node execution order, and an instruct node
+  firing *before* the target's own node is denied — the common authoring shape.
 
 Also, regardless of option: fix `instruct_service.py:144`'s hardcoded `workflow_run_id=None`,
 and move the `instructions` INSERT and `instruct.issued` audit (`:128-136`) after the send, or
@@ -218,7 +225,14 @@ serializes correctly and could desync from it.
 - **F-25**: bind chain context in `a2a_handler._handle_instruct` around `:130` from the payload
   fields `instruct_service.py:146-151` already writes, and have `executors/instruct.py:39-43`
   forward `chain_id`/`parent_path` from `ctx` when the run was itself instruct-originated.
-- **F-26**: per Q-7.
+- **F-26 (Q-7: run-scoped issuing window).** For a workflow-originated instruct the issuing
+  window is the **workflow run**: the executor passes the run start as the budget window (in place
+  of the absent `wakeup_started_at`), so `instruct_service.py:107-115` reaches
+  `count_issued_by_agent_since(issuer, run_start)` and a loop body issuing past `max_per_wakeup`
+  trips `InstructBudgetExceeded` with the existing breach audit. The wakeup-originated path is
+  unchanged — it still passes `wakeup_started_at`. Rule 3 stays gated on a present window, so a
+  caller supplying neither still skips it (fail-open on budget is the pre-existing behaviour and
+  out of scope). This is the change §11's SRS Delta records against `[R15.16]` rule 3.
 
 **Sequencing.** F-9 is the only live defect and is independently shippable. F-24/25/26 are latent
 and touch three processes; they can land second without leaving anything worse. **But do not
@@ -274,8 +288,9 @@ back out of `ctx.trigger_payload` — the seam that actually broke. **U-3** exte
 | Risk | Severity | Mitigation |
 |---|---|---|
 | **Over-broad grant** — the dominant risk | **high** | Negative wiring tests W-2/W-3/W-4 as merge gates; service-side derivation only (Q-3); Q-6 resolved by the user, not the implementer. **`check-security` should be a required gate for this dossier, not a conditional one.** |
-| Definition drift under A1 — a workflow edited mid-run authorizes against the current definition | medium | Choose A2/C, or accept and document |
-| Extra DB reads per instruct (run → workflow → definition) | low | Instructs are low-volume by `[R15.16]`. Note the reads happen inside the caller's ambient transaction — `instruct_service.py:97-99` documents that the engine never commits (the DB-1 contract at `run_engine.py:188-192`). **Do not add a commit.** |
+| Definition drift — a workflow edited mid-run authorizes against a changed participant set | ~~medium~~ **resolved** | Option C (Q-6) materializes the participant set into `workflow_run_participants` at run start; a later definition edit cannot alter an existing run's rows. Drift eliminated. |
+| Extra DB read per instruct (participant lookup) | low | One indexed `(run_id, agent_id)` PK lookup per side, not a run → workflow → definition walk. Instructs are low-volume by `[R15.16]`. The read happens inside the caller's ambient transaction — `instruct_service.py:97-99` documents that the engine never commits (the DB-1 contract at `run_engine.py:188-192`). **Do not add a commit.** |
+| Participant rows not written for a run (bug or partial deploy) | low | Fail-closed by construction: absent rows → empty context sets → rule 3a denies, then rule 3b (`call_only`) is evaluated as today. A missing participant set can only deny, never over-grant. |
 | Import cycle `A2AService` → `WorkflowFacade` while `workflow/executors` → `OrchestrationFacade` → `A2AService` | low | Already solved by the lazy import at `a2a_service.py:431` with a comment saying exactly this. Copy it; do not hoist to module level. |
 | Behaviour change for projects that worked around F-9 with project-wide `call_only` | low | They keep working — rule 3b is unchanged and evaluated after 3a. Call it out in release notes so operators can **narrow** their now-unnecessary `call_only` grants; leaving them is a wider grant than needed. |
 | F-24 propagation spans three processes; a partial deploy | medium | `A2AEnvelope.from_dict:86-87` already defaults `call_depth=0`/`call_path=()`, so envelopes are forward and backward safe. Ensure the workflow-signal payload read uses the same defaulting, so a partial deploy degrades to today's behaviour rather than crashing. |
@@ -296,11 +311,12 @@ no longer protect it. That is a privilege-escalation-by-authoring primitive. Not
 **shipping nothing is safe**: current behaviour fails closed, so there is no pressure to accept a
 loose fix. If Q-6 cannot be resolved, keeping the feature broken is the correct action.
 
-**Rollback.** Pure application-layer under A1 and the Part-2 design — revert and behaviour
-returns to fail-closed denial (annoying, not dangerous). A2 writes into the existing
-`workflow_runs.context` JSONB, revert-safe since old code ignores the extra key. C adds a table
-and needs a down-migration. Prefer A1 or A2 if rollback speed is weighted heavily. No cache or
-Redis key shapes change under any option.
+**Rollback.** Option C adds `workflow_run_participants` (migration 0062) and needs its
+down-migration; the rest is application-layer. Reverting the app code returns behaviour to
+fail-closed denial (annoying, not dangerous); the empty table is inert if left behind, so the
+down-migration is not on the critical path for a code-only revert. No cache or Redis key shapes
+change. The F-24 wire path is forward/backward safe (`A2AEnvelope.from_dict:86-87` defaults
+`call_depth=0`/`call_path=()`), so a partial deploy degrades to today's behaviour.
 
 ## 10. Acceptance Criteria
 
@@ -310,8 +326,9 @@ Redis key shapes change under any option.
 - [ ] AC-3: W-2 — an instruct targeting a non-participant is denied, with an `a2a.forbidden`
       audit row.
 - [ ] AC-4: cross-project and `a2a_enabled=false` denials are unchanged, each pinned by a test.
-- [ ] AC-5: the callee's attached-context set is derived inside `A2AService` from the DB; no
-      executor-supplied value influences it.
+- [ ] AC-5: the callee's attached-context set is derived inside `A2AService` from
+      `workflow_run_participants`; no executor-supplied value influences it, and rule 3a grants
+      only when **both** issuer and target have a participant row for the run.
 - [ ] AC-6: the delivered envelope carries the real `workflow_run_id`, and a denied instruct
       leaves no orphan `issued` row.
 - [ ] AC-7: A2A broadcast reaches a room-mate with `a2a_enabled` and no `call_only`.
@@ -322,13 +339,33 @@ Redis key shapes change under any option.
 - [ ] AC-10: no test on this path mocks `_enforce_scope`, `a2a_scope.evaluate`, `svc._a2a` or
       `issue_instruct`.
 - [ ] AC-11: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`.
+- [ ] AC-12: `workflow_run_participants` (migration 0062) is populated at run start from every
+      agent referenced in the definition (`_collect_agent_ids`); `alembic upgrade head` and the
+      downgrade both apply cleanly.
+- [ ] AC-13: `[R15.16]` rule 3 is reachable for a workflow instruct — a loop body issuing past
+      `max_per_wakeup` within one run raises `InstructBudgetExceeded` with a breach audit (I-2),
+      while the wakeup-originated per-wakeup window is unchanged.
 
 ## 11. SRS Delta
 
-None for the F-9 half — this makes `[R9.17]` rule 3a reachable as written. **Possibly required
-for Q-7**: if rule 3's wake-up window is redefined as a run-scoped issuing window, `[R15.16]`
-rule 3 must be amended to say so. Draft the delta at approval once Q-7 is answered; do not apply
-it before.
+Nothing changes for the F-9 half — that makes `[R9.17]` rule 3a reachable as written, no SRS
+change. One amendment is required for Q-7 (run-scoped issuing window). It clarifies the window
+over which rule 3 counts; it does not change the default cap or add new behaviour. Applied to
+`REQUIREMENTS.md` at approval.
+
+**Amend `[R15.16]`, the rule-3 bullet (`REQUIREMENTS.md:785`).**
+
+Before:
+
+> 3. Reject if the issuing agent has exceeded `max_instructions_per_wakeup` (default 5).
+
+After:
+
+> 3. Reject if the issuing agent has exceeded `max_instructions_per_wakeup` (default 5) within
+>    the current **issuing window**. The issuing window is the agent's wakeup for a
+>    wakeup-originated instruct, and the **workflow run** for a workflow-originated instruct
+>    (which has no wakeup). This bounds a workflow loop body that issues an instruct each
+>    iteration.
 
 ## 12. Deviation Log
 

@@ -22,12 +22,15 @@ parallel.
   reusable `_establish_session` seam extracted from `AuthService.login`. **Reverses the v1
   non-goal at `REQUIREMENTS.md:51` — carries a non-empty SRS Delta** (new §6.1a / R6.14-R6.17,
   amended R19.01 + audit-events table). Security-critical email-collision policy in Q-2.
-- `2026-07-22-a2a-scope-context-wiring` (bugfix, draft) — `depends_on: []`. From
+- `2026-07-22-a2a-scope-context-wiring` (bugfix, approved) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-to-agent-orchestration/` F-9, F-24, F-25, F-26 and
   `docs/audits/2026-07-22-agent-config-runtime/` F-4. One root cause: every authorization and
-  budget identity in the A2A subsystem is declared and never populated. **Carries an open user
-  decision** (what "attached to a workflow run" means) that must be answered before implementation
-  — it is an authorization boundary and is deliberately not guessed.
+  budget identity in the A2A subsystem is declared and never populated. Both open decisions
+  resolved at approval: Q-6 = a `workflow_run_participants` table (migration 0062, snapshot-correct)
+  materialized at run start; Q-7 = run-scoped issuing window (carries a **non-empty SRS Delta**
+  amending `[R15.16]` rule 3, applied at approval). `check-security` is a required gate.
+  Migration 0062 also claimed by `mcp-tool-contract` on an unrelated table — no dependency, second
+  builder renumbers.
 - `2026-07-22-turn-idempotency-and-locking` (bugfix, draft) — `depends_on: []`. From the a2a audit
   F-7, F-18, F-22, F-23, F-39 and the config audit F-8, F-30. Six sequenced commits; one hard
   ordering constraint (cleanup before lock-liveness). Names two textual adjacencies with the
