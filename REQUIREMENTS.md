@@ -782,7 +782,11 @@ Per-agent JSON:
   - When an agent is about to dispatch an instruction to agent X:
     1. Reject if `X in path` → cycle detected. Return error to the issuing agent and audit log.
     2. Reject if `len(path) >= max_chain_depth` (platform default 5, configurable at project level up to 20).
-    3. Reject if the issuing agent has exceeded `max_instructions_per_wakeup` (default 5).
+    3. Reject if the issuing agent has exceeded `max_instructions_per_wakeup` (default 5) within
+       the current **issuing window**. The issuing window is the agent's wakeup for a
+       wakeup-originated instruct, and the **workflow run** for a workflow-originated instruct
+       (which has no wakeup). This bounds a workflow loop body that issues an instruct each
+       iteration.
   - The chain has a hard wall-clock budget (`max_chain_seconds`, default 120); if exceeded, the root workflow_run is aborted.
 - **[R15.17]** Instruction audit records include `chain_id`, `path`, `issuer`, `target`, `payload_hash`, `result`, `chain_depth_at_issue`.
 
