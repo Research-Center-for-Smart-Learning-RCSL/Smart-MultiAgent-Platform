@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-22
 requirements: [R9.17, R15.15, R15.16, R15.23]
 depends_on: []
@@ -320,29 +320,29 @@ change. The F-24 wire path is forward/backward safe (`A2AEnvelope.from_dict:86-8
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: W-1 (§8) fails against current code and passes after the fix.
-- [ ] AC-2: a workflow instruct between two ordinary `a2a_enabled` agents that share the chosen
+- [x] AC-1: W-1 (§8) fails against current code and passes after the fix.
+- [x] AC-2: a workflow instruct between two ordinary `a2a_enabled` agents that share the chosen
       context succeeds, with neither agent configured `call_only`.
-- [ ] AC-3: W-2 — an instruct targeting a non-participant is denied, with an `a2a.forbidden`
+- [x] AC-3: W-2 — an instruct targeting a non-participant is denied, with an `a2a.forbidden`
       audit row.
-- [ ] AC-4: cross-project and `a2a_enabled=false` denials are unchanged, each pinned by a test.
-- [ ] AC-5: the callee's attached-context set is derived inside `A2AService` from
+- [x] AC-4: cross-project and `a2a_enabled=false` denials are unchanged, each pinned by a test.
+- [x] AC-5: the callee's attached-context set is derived inside `A2AService` from
       `workflow_run_participants`; no executor-supplied value influences it, and rule 3a grants
       only when **both** issuer and target have a participant row for the run.
-- [ ] AC-6: the delivered envelope carries the real `workflow_run_id`, and a denied instruct
+- [x] AC-6: the delivered envelope carries the real `workflow_run_id`, and a denied instruct
       leaves no orphan `issued` row.
-- [ ] AC-7: A2A broadcast reaches a room-mate with `a2a_enabled` and no `call_only`.
-- [ ] AC-8: an A2A call chain crossing a process hop preserves `call_depth`/`call_path`, and the
+- [x] AC-7: A2A broadcast reaches a room-mate with `a2a_enabled` and no `call_only`.
+- [x] AC-8: an A2A call chain crossing a process hop preserves `call_depth`/`call_path`, and the
       cycle guard fires on a genuine cycle.
-- [ ] AC-9: `[R15.16]` rules 1, 2 and 4 are reachable — an A→B→A instruct chain raises
+- [x] AC-9: `[R15.16]` rules 1, 2 and 4 are reachable — an A→B→A instruct chain raises
       `InstructLoopDetected`.
-- [ ] AC-10: no test on this path mocks `_enforce_scope`, `a2a_scope.evaluate`, `svc._a2a` or
+- [x] AC-10: no test on this path mocks `_enforce_scope`, `a2a_scope.evaluate`, `svc._a2a` or
       `issue_instruct`.
-- [ ] AC-11: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`.
-- [ ] AC-12: `workflow_run_participants` (migration 0062) is populated at run start from every
+- [x] AC-11: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`.
+- [x] AC-12: `workflow_run_participants` (migration 0062) is populated at run start from every
       agent referenced in the definition (`_collect_agent_ids`); `alembic upgrade head` and the
       downgrade both apply cleanly.
-- [ ] AC-13: `[R15.16]` rule 3 is reachable for a workflow instruct — a loop body issuing past
+- [x] AC-13: `[R15.16]` rule 3 is reachable for a workflow instruct — a loop body issuing past
       `max_per_wakeup` within one run raises `InstructBudgetExceeded` with a breach audit (I-2),
       while the wakeup-originated per-wakeup window is unchanged.
 
@@ -369,7 +369,30 @@ After:
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (broadcast derivation source).** The spec treated the broadcast fix (AC-7) as "same class,
+  distinct fix" without specifying the derivation. Broadcast's shared context is chatroom
+  membership, not a workflow run, so `workflow_run_participants` (Q-6) does not serve it. Decided
+  with the user mid-build: derive each room-mate's shared *live chatroom* server-side (new
+  `ChatroomAgentRepository.shared_room_by_agent`, exposed via `ConversationFacade`) and pass it as
+  the rule-3a context. Still server-side per Q-3; project-bounded (broadcast enumerates only the
+  caller's project). Confirmed non-leaking by the security audit.
+- **D-2 (F-25 inline-turn binding).** The spec listed "bind chain context in `_handle_instruct`".
+  That binding had no live consumer (`turn_engine` issues no instructs — F-24/25/26 are latent).
+  Decided with the user to **build it now**: a new `instruct_chain` ContextVar bound by
+  `_handle_instruct` from the delivered envelope, read as the fallback chain by
+  `InstructService.issue`. Exercised by `test_instruct_inline_turn_inherits_ambient_chain`.
+- **D-3 (I-1/I-2 test tier).** The spec placed I-1/I-2 in the "integration tier". Implemented as
+  **wiring-tier** tests instead, reusing `_seed_agent_and_room`/`_add_agent`. Same real-stack
+  guarantee (real Postgres/Redis, real scope checker, no mocked forbidden seams); the integration
+  conftest lacks agent/key-group seeding, so this avoids duplicating the wiring seeds (DRY).
+- **D-4 (F-26 breach audit).** Added an `instruct.budget_exceeded` audit emission on the
+  run-scoped window breach. §4 recorded the *absence* of a breach audit as part of the bug and
+  AC-13 requires one; this restores auditability rather than redesigning. The pre-existing unit
+  test `test_orchestration_services.py::test_per_wakeup_count_cap` was updated for the new message
+  wording ("issuing window") and the added audit — behaviour (raise at count ≥ max) unchanged.
+- **D-5 (compensation hardening).** The orphan-row compensation (`InstructService.issue`) wraps
+  the row delete in `contextlib.suppress` so a delete hiccup cannot mask the real `A2AForbidden`.
+  Introduced-as-Info by the quality gate; fixed in-scope.
 
 ## 13. Follow-ups
 
@@ -394,4 +417,15 @@ Appended by /build.
 - **FU-6** — The mocked-seam testing pattern is the primary debt on this surface. Consider a
   standing rule: any change to `a2a_scope`, `_enforce_scope` or `_enforce_workflow_tenant`
   requires a wiring-tier test.
+- **FU-7** — Participant breadth. Under Option C the run's participant set is *every* agent
+  referenced anywhere in the definition, so any two co-referenced agents become co-participants
+  and may instruct each other. Benign today — same-project (the security audit confirmed no
+  cross-tenant walk) and there is no agent-self-service instruct/call tool to exploit the breadth;
+  only author-wired instruct nodes issue. The moment an in-turn instruct/a2a agent tool is added
+  (the same trigger as FU-5 and the Q-1 rationale), revisit narrowing the grant to per-node
+  issuer→target relationships rather than the whole-definition set.
+- **FU-8** — The instruct-chain and call-chain ContextVars (`instruct_chain.py`,
+  `a2a_call_chain.py`) share ~15 lines of `enter`/`current` carriage. Left un-factored because
+  `a2a_call_chain` additionally owns `next_hop` (depth/cycle) while `instruct_chain` is pure
+  carriage; a shared base would couple two distinct guards. Revisit only if a third chain appears.
 </content>
