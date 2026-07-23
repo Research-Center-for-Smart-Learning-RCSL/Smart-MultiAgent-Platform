@@ -154,6 +154,11 @@ class KnowmapIngestService:
                 request_id=request_id,
             ),
         )
+        # Commit the accepted upload before indexing so a parse/index failure leaves
+        # a durable FAILED row (mirroring the tus path) instead of rolling the whole
+        # upload back to nothing — a failed upload must stay visible in the document
+        # list as FAILED, not silently vanish.
+        await self._db.commit()
         result = await self._index_document(
             doc=doc,
             cfg=cfg,
@@ -241,14 +246,12 @@ class KnowmapIngestService:
                 ),
             )
         except Exception as exc:
-            # Persist FAILED durably. The synchronous ingest() caller commits only on
-            # the success path, so without an explicit commit here the request-scoped
-            # session would roll the status write back and a reprocessed document would
-            # keep its prior status. Roll back the partial parse/chunk writes first so
-            # only the terminal status is committed. (A brand-new document's create is
-            # in this same uncommitted transaction, so it rolls back to nothing — no
-            # orphan row and nothing to mark; the worker path re-marks FAILED in its own
-            # session either way.)
+            # Persist FAILED durably. A new upload's row is committed before indexing
+            # (see ingest()), and a reindexed document is already a committed row, so
+            # the rollback here discards only the partial parse/chunk writes and the
+            # FAILED status then commits onto the durable row — keeping a failed upload
+            # visible as FAILED instead of vanishing from the document list. The worker
+            # path re-marks FAILED in its own session either way.
             with contextlib.suppress(Exception):
                 await self._db.rollback()
                 await self._docs.set_status(document_id=doc.id, status=DocumentStatus.FAILED)
