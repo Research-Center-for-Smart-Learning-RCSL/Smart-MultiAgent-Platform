@@ -45,6 +45,17 @@ async def seed_users_step(settings: Settings) -> None:
     await seed_test_users(app_env=settings.app.env)
 
 
+async def register_activity_validators_step(_settings: Settings) -> None:
+    """Register first-party in-process activity validators (R30.05/R30.24).
+
+    Registration must complete before any ``in_process`` type is served, so it runs
+    as an ordered startup step rather than relying on incidental import order.
+    """
+    from app.plugins.activity_validators import register_first_party_validators
+
+    register_first_party_validators()
+
+
 async def prime_rate_limits_step(_settings: Settings) -> None:
     """Seed rate-limit policy rows + prime the Redis mirror.
 
@@ -64,6 +75,7 @@ INITIALIZERS: list[Initializer] = [
     configure_logging_step,
     confirm_re2_step,
     warn_email_step,
+    register_activity_validators_step,
     seed_users_step,
     prime_rate_limits_step,
 ]

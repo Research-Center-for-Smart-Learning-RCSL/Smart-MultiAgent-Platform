@@ -13,7 +13,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.activities.application.validators.registry import is_registered
+from contexts.activities.application.validators.registry import get_config_validator, is_registered
 from contexts.activities.application.validators.schema import validate_schema_wellformed
 from contexts.activities.domain.errors import (
     ActivityTypeActive,
@@ -175,6 +175,12 @@ class ActivityTypeService:
             vid = str(config.get("validator_id", ""))
             if not vid or not is_registered(vid):
                 raise ValidatorConfigInvalid(f"unknown in-process validator_id {vid!r}")
+            # A registered validator may declare required config (e.g. exact_match's
+            # field/expected); reject a malformed config here rather than deferring
+            # it to a per-submission error verdict.
+            config_validator = get_config_validator(vid)
+            if config_validator is not None:
+                config_validator(config)
         elif kind is ValidatorKind.WEBHOOK:
             if not str(config.get("url", "")):
                 raise ValidatorConfigInvalid("webhook validator requires a 'url'")

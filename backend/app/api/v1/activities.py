@@ -46,6 +46,7 @@ _log = logging.getLogger(__name__)
 
 project_router = APIRouter(prefix="/api/projects", tags=["activities"])
 chatroom_router = APIRouter(prefix="/api/chatrooms", tags=["activities"])
+validator_router = APIRouter(prefix="/api", tags=["activities"])
 
 _MAX_KEY = 128
 _MAX_NAME = 256
@@ -87,6 +88,13 @@ class ActivityTypeOut(BaseModel):
     validator_config: dict[str, Any]
     retention_days: int | None
     created_at: str | None
+
+
+class ActivityValidatorOut(BaseModel):
+    """A registered first-party in-process validator the authoring form may offer."""
+
+    id: str
+    title: str
 
 
 class ActivitySessionOpenIn(BaseModel):
@@ -347,6 +355,23 @@ async def list_activity_types(
 
 
 # --------------------------------------------------------------------------- #
+# Validators (process-global, first-party)                                     #
+# --------------------------------------------------------------------------- #
+
+
+@validator_router.get("/activity-validators")
+async def list_activity_validators(
+    principal: Principal = Depends(current_principal),
+) -> list[ActivityValidatorOut]:
+    """List the registered first-party in-process validators (R30.24). Global and
+    process-scoped — availability never varies per project — so any authenticated
+    caller reads the same set the picker draws from. Exposes ids/titles only."""
+    return [
+        ActivityValidatorOut(id=v.validator_id, title=v.title) for v in ActivitiesFacade.list_validators()
+    ]
+
+
+# --------------------------------------------------------------------------- #
 # Sessions (room-scoped)                                                       #
 # --------------------------------------------------------------------------- #
 
@@ -573,4 +598,4 @@ async def _dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid
         _log.error("realtime publish failed for ended activity activation %s", activation_id, exc_info=True)
 
 
-__all__ = ["chatroom_router", "project_router"]
+__all__ = ["chatroom_router", "project_router", "validator_router"]

@@ -309,3 +309,32 @@ class TestUpdateRoute:
 
         facade.update_type.assert_not_awaited()
         db.commit.assert_not_awaited()
+
+
+class TestValidatorListRoute:
+    """GET /api/activity-validators exposes the registered first-party set (AC-1)."""
+
+    def teardown_method(self) -> None:
+        from contexts.activities.application.validators import registry
+
+        registry.clear_registry()
+
+    async def test_lists_registered_validators(self) -> None:
+        from app.plugins.activity_validators import register_first_party_validators
+        from contexts.activities.application.validators import registry
+
+        registry.clear_registry()
+        register_first_party_validators()
+
+        out = await activities.list_activity_validators(principal=SimpleNamespace(user_id=uuid.uuid4()))
+
+        assert any(v.id == "exact_match" and v.title == "Exact match" for v in out)
+
+    async def test_empty_when_nothing_registered(self) -> None:
+        from contexts.activities.application.validators import registry
+
+        registry.clear_registry()
+
+        out = await activities.list_activity_validators(principal=SimpleNamespace(user_id=uuid.uuid4()))
+
+        assert out == []
