@@ -146,10 +146,15 @@ function onClose(): void {
       class="flex flex-col gap-4"
       @submit.prevent="onSubmit"
     >
+      <p class="text-sm text-[var(--color-muted)]">
+        {{ t('activities.typeForm.intro') }}
+      </p>
+
       <SFormField
         :label="t('activities.typeForm.key')"
         name="key"
         :error="errors.key ?? ''"
+        :help="t('activities.typeForm.keyHelp')"
         required
       >
         <SInput
@@ -164,6 +169,7 @@ function onClose(): void {
         :label="t('activities.typeForm.name')"
         name="name"
         :error="errors.name ?? ''"
+        :help="t('activities.typeForm.nameHelp')"
         required
       >
         <SInput
@@ -190,6 +196,7 @@ function onClose(): void {
         :label="t('activities.typeForm.payloadSchema')"
         name="payload_schema"
         :error="errors.payload_schema ? t('activities.typeForm.schemaEmpty') : ''"
+        :help="t('activities.typeForm.payloadSchemaHelp')"
         required
       >
         <SchemaBuilder @update:model-value="(s) => (payloadSchema = s)" />
@@ -199,6 +206,9 @@ function onClose(): void {
         :label="t('activities.typeForm.validator')"
         name="validator_kind"
         :error="errors.validator_kind ?? ''"
+        :help="validatorKind === 'webhook'
+          ? t('activities.typeForm.webhookHint')
+          : t('activities.typeForm.mcpHint')"
         required
       >
         <SSelect
@@ -213,6 +223,7 @@ function onClose(): void {
         :label="t('activities.typeForm.webhookUrl')"
         name="webhook_url"
         :error="errors.webhook_url ? t('activities.typeForm.fieldRequired') : ''"
+        :help="t('activities.typeForm.webhookUrlHelp')"
         required
       >
         <SInput
@@ -228,6 +239,7 @@ function onClose(): void {
           :label="t('activities.typeForm.mcpAgent')"
           name="mcp_agent_id"
           :error="errors.mcp_agent_id ? t('activities.typeForm.fieldRequired') : ''"
+          :help="t('activities.typeForm.mcpAgentHelp')"
           required
         >
           <SSelect
@@ -242,11 +254,15 @@ function onClose(): void {
           :label="t('activities.typeForm.mcpBinding')"
           name="mcp_binding_id"
           :error="errors.mcp_binding_id ? t('activities.typeForm.fieldRequired') : ''"
+          :help="!mcpAgentId
+            ? t('activities.typeForm.mcpBindingSelectAgentFirst')
+            : t('activities.typeForm.mcpBindingHelp')"
           required
         >
           <SSelect
             v-model="mcpBindingId"
             :options="bindingOptions"
+            :disabled="!mcpAgentId"
             :placeholder="t('activities.typeForm.mcpBindingPlaceholder')"
           />
         </SFormField>
@@ -255,6 +271,7 @@ function onClose(): void {
           :label="t('activities.typeForm.mcpToolName')"
           name="mcp_tool_name"
           :error="errors.mcp_tool_name ? t('activities.typeForm.fieldRequired') : ''"
+          :help="t('activities.typeForm.mcpToolNameHelp')"
           required
         >
           <SInput

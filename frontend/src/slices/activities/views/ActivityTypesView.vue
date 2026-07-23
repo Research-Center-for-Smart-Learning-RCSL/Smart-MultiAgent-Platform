@@ -111,7 +111,10 @@ const ActivityTypeTable = typedSTable<ActivityType>()
 
 <template>
   <main class="p-6">
-    <SPageHeader :title="t('activities.typesList.title')">
+    <SPageHeader
+      :title="t('activities.typesList.title')"
+      :subtitle="t('activities.typesList.subtitle')"
+    >
       <template
         v-if="decided && isAuthorized"
         #actions
