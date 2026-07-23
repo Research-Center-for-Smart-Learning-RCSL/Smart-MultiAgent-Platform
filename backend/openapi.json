@@ -1,4 +1,4 @@
-﻿{
+{
   "components": {
     "schemas": {
       "AcceptByTokenIn": {
@@ -3726,6 +3726,19 @@
         "title": "ForceTransferIn",
         "type": "object"
       },
+      "GoogleLinkStartOut": {
+        "properties": {
+          "authorize_url": {
+            "title": "Authorize Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorize_url"
+        ],
+        "title": "GoogleLinkStartOut",
+        "type": "object"
+      },
       "GraphEdgeOut": {
         "properties": {
           "confidence": {
@@ -4302,6 +4315,36 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "IdentityOut": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "email",
+          "created_at"
+        ],
+        "title": "IdentityOut",
         "type": "object"
       },
       "ImpersonateOut": {
@@ -13888,6 +13931,160 @@
           }
         },
         "summary": "Change Password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/google/authorize": {
+      "get": {
+        "description": "Login-mode OAuth start: 302 to Google, with the single-use state stored\nserver-side and mirrored into the `smap_oauth_state` cookie (login-CSRF).\nUnauthenticated (R19.01 exception).",
+        "operationId": "google_authorize_api_auth_google_authorize_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Google Authorize",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/google/callback": {
+      "get": {
+        "description": "Backend-handled callback: verify server-side, mint the session, set the\nrefresh cookie, and 302 back to the SPA. Errors end in a redirect with\n`?oauth_error=`, never a JSON 4xx. Unauthenticated (R19.01 exception).",
+        "operationId": "google_callback_api_auth_google_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": true,
+            "schema": {
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Google Callback",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/google/link": {
+      "delete": {
+        "operationId": "google_unlink_api_auth_google_link_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Google Unlink",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/google/link/start": {
+      "post": {
+        "description": "Authenticated (XHR) link start: returns the Google authorize URL and sets\nthe state cookie; the SPA then navigates the browser to that URL. Bearer auth\nworks here because it is an XHR, not a top-level navigation.",
+        "operationId": "google_link_start_api_auth_google_link_start_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleLinkStartOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Google Link Start",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/identities": {
+      "get": {
+        "operationId": "list_identities_api_auth_identities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/IdentityOut"
+                  },
+                  "title": "Response List Identities Api Auth Identities Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Identities",
         "tags": [
           "auth"
         ]

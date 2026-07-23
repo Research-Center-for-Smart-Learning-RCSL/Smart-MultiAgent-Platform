@@ -28,6 +28,7 @@ from contexts.identity.domain.errors import (
     EmailAlreadyRegistered,
     EmailDomainDenied,
     GoogleEmailUnverified,
+    IdentityError,
     InvalidCredentials,
     InvalidEmailFormat,
     LastCredentialError,
@@ -92,6 +93,18 @@ class LoginOutcome:
     user: User
     tokens: TokenPair
     session_id: uuid.UUID
+
+
+@dataclass(frozen=True, slots=True)
+class OAuthCallbackResult:
+    """What the Google callback resolved to, so the (infra-free) route can pick
+    its redirect. `error_slug` is an RFC-7807 slug when the flow failed; the route
+    maps it to `?oauth_error=`. Errors are captured (not raised) so the browser
+    navigation always ends in a redirect, never a JSON 4xx."""
+
+    mode: str  # "login" | "link" | "unknown"
+    login: LoginOutcome | None
+    error_slug: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -574,12 +587,15 @@ class AuthService:
                 return  # idempotent — already linked to this user
             raise OAuthIdentityConflict()
         try:
-            await self._identities.insert(
-                user_id=user_id,
-                provider=_PROVIDER_GOOGLE,
-                provider_subject=profile.sub,
-                email=profile.email,
-            )
+            # SAVEPOINT so a unique-violation rolls back only the insert, leaving
+            # the request transaction intact for the callback's error response.
+            async with self._db.begin_nested():
+                await self._identities.insert(
+                    user_id=user_id,
+                    provider=_PROVIDER_GOOGLE,
+                    provider_subject=profile.sub,
+                    email=profile.email,
+                )
         except IntegrityError as exc:
             # (provider, subject) or (user_id, provider) unique fired under a race.
             raise OAuthIdentityConflict() from exc
@@ -626,6 +642,73 @@ class AuthService:
 
     async def list_identities(self, user_id: uuid.UUID) -> list[AuthIdentity]:
         return await self._identities.list_for_user(user_id)
+
+    async def start_google_login(self) -> tuple[str, str]:
+        """Begin login mode. Returns (authorize_url, state); the route sets the
+        state cookie and 302s. Raises OAuthUnavailable if Google is unconfigured."""
+        return await self._start_google_oauth(mode="login", user_id=None)
+
+    async def start_google_link(self, user_id: uuid.UUID) -> tuple[str, str]:
+        """Begin link mode for an authenticated user (bound into the state)."""
+        return await self._start_google_oauth(mode="link", user_id=str(user_id))
+
+    async def _start_google_oauth(self, *, mode: str, user_id: str | None) -> tuple[str, str]:
+        try:
+            client = google_oauth.build_google_client(self._public_origin)
+        except google_oauth.GoogleOAuthNotConfigured as exc:
+            raise OAuthUnavailable() from exc
+        verifier, challenge = google_oauth.generate_pkce_pair()
+        state = google_oauth.new_state()
+        nonce = google_oauth.new_nonce()
+        await google_oauth.state_store().put(
+            state,
+            google_oauth.OAuthState(
+                code_verifier=verifier, nonce=nonce, mode=mode, user_id=user_id
+            ),
+        )
+        url = client.build_authorize_url(state=state, code_challenge=challenge, nonce=nonce)
+        return url, state
+
+    async def complete_google_callback(
+        self,
+        *,
+        code: str,
+        state: str,
+        remote_ip: str | None,
+        user_agent: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> OAuthCallbackResult:
+        """Pop the single-use state, dispatch by mode, and capture (not raise) any
+        domain error as a slug so the route always ends in a redirect."""
+        st = await google_oauth.state_store().pop(state)
+        if st is None:
+            # Unknown/expired/reused state — includes the login-CSRF cookie-mismatch
+            # case the route rejects before reaching here.
+            return OAuthCallbackResult(mode="unknown", login=None, error_slug="auth/oauth-failed")
+        try:
+            if st.mode == "link":
+                if st.user_id is None:
+                    raise OAuthExchangeFailed()
+                await self.complete_google_link(
+                    user_id=uuid.UUID(st.user_id),
+                    code=code,
+                    code_verifier=st.code_verifier,
+                    nonce=st.nonce,
+                    remote_ip=remote_ip,
+                    request_id=request_id,
+                )
+                return OAuthCallbackResult(mode="link", login=None, error_slug=None)
+            outcome = await self.complete_google_login(
+                code=code,
+                code_verifier=st.code_verifier,
+                nonce=st.nonce,
+                remote_ip=remote_ip,
+                user_agent=user_agent,
+                request_id=request_id,
+            )
+            return OAuthCallbackResult(mode="login", login=outcome, error_slug=None)
+        except IdentityError as exc:
+            return OAuthCallbackResult(mode=st.mode, login=None, error_slug=exc.code)
 
     async def refresh(
         self, *, refresh_token: str, remote_ip: str, request_id: uuid.UUID | None = None

@@ -6,6 +6,8 @@ import type { CaptchaConfigOut } from '../models/CaptchaConfigOut';
 import type { ChangeEmailIn } from '../models/ChangeEmailIn';
 import type { ChangePasswordIn } from '../models/ChangePasswordIn';
 import type { DeleteAccountIn } from '../models/DeleteAccountIn';
+import type { GoogleLinkStartOut } from '../models/GoogleLinkStartOut';
+import type { IdentityOut } from '../models/IdentityOut';
 import type { LoginIn } from '../models/LoginIn';
 import type { LogoutIn } from '../models/LogoutIn';
 import type { PasswordResetIn } from '../models/PasswordResetIn';
@@ -77,6 +79,86 @@ export class AuthService {
             errors: {
                 422: `Validation Error`,
             },
+        });
+    }
+    /**
+     * Google Authorize
+     * Login-mode OAuth start: 302 to Google, with the single-use state stored
+     * server-side and mirrored into the `smap_oauth_state` cookie (login-CSRF).
+     * Unauthenticated (R19.01 exception).
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static googleAuthorizeApiAuthGoogleAuthorizeGet(): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/auth/google/authorize',
+        });
+    }
+    /**
+     * Google Callback
+     * Backend-handled callback: verify server-side, mint the session, set the
+     * refresh cookie, and 302 back to the SPA. Errors end in a redirect with
+     * `?oauth_error=`, never a JSON 4xx. Unauthenticated (R19.01 exception).
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static googleCallbackApiAuthGoogleCallbackGet({
+        state,
+        code,
+        error,
+    }: {
+        state: string,
+        code?: (string | null),
+        error?: (string | null),
+    }): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/auth/google/callback',
+            query: {
+                'state': state,
+                'code': code,
+                'error': error,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Google Unlink
+     * @returns void
+     * @throws ApiError
+     */
+    public static googleUnlinkApiAuthGoogleLinkDelete(): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/auth/google/link',
+        });
+    }
+    /**
+     * Google Link Start
+     * Authenticated (XHR) link start: returns the Google authorize URL and sets
+     * the state cookie; the SPA then navigates the browser to that URL. Bearer auth
+     * works here because it is an XHR, not a top-level navigation.
+     * @returns GoogleLinkStartOut Successful Response
+     * @throws ApiError
+     */
+    public static googleLinkStartApiAuthGoogleLinkStartPost(): CancelablePromise<GoogleLinkStartOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/auth/google/link/start',
+        });
+    }
+    /**
+     * List Identities
+     * @returns IdentityOut Successful Response
+     * @throws ApiError
+     */
+    public static listIdentitiesApiAuthIdentitiesGet(): CancelablePromise<Array<IdentityOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/auth/identities',
         });
     }
     /**
