@@ -24,7 +24,7 @@ import logging
 import uuid
 from typing import Any
 
-from contexts.orchestration.application import a2a_call_chain
+from contexts.orchestration.application import a2a_call_chain, instruct_chain
 from contexts.orchestration.domain.models import A2AEnvelope, A2AMessageType
 from contexts.orchestration.infrastructure import a2a_rendezvous, pending_notify
 from shared_kernel.db.session import async_session
@@ -127,7 +127,16 @@ async def _handle_instruct(envelope: A2AEnvelope) -> None:
         if instruction_id is not None:
             await OrchestrationFacade(db).mark_instruct_delivered(instruction_id)
             await db.commit()
-        result = await _run_turn_with_db(db, to_id, envelope)
+        # F-25: bind the delivered envelope's chain for the turn so an instruct
+        # this turn issues continues the chain (loop/depth/budget guards stay
+        # meaningful) instead of minting a fresh one. The envelope already
+        # carries chain_id/path (instruct_service writes them); read them back.
+        chain_id = _maybe_uuid(envelope.payload.get("chain_id"))
+        parent_path = tuple(
+            p for p in (_maybe_uuid(x) for x in (envelope.payload.get("path") or [])) if p is not None
+        )
+        with instruct_chain.enter(chain_id, parent_path):
+            result = await _run_turn_with_db(db, to_id, envelope)
         if instruction_id is not None:
             facade = OrchestrationFacade(db)
             if result.status == "completed":
@@ -225,6 +234,12 @@ async def _dispatch_a2a_workflow_signal(envelope: A2AEnvelope) -> None:
                 # behaviour rather than crashing.
                 "call_depth": envelope.call_depth,
                 "call_path": list(envelope.call_path),
+                # F-25: relay the instruct chain the same way, so a workflow
+                # started by an inbound instruct continues that chain when it
+                # issues its own. Absent for non-instruct envelopes (defaulted
+                # on read), keeping a fresh chain for genuine roots.
+                "chain_id": envelope.payload.get("chain_id"),
+                "chain_path": envelope.payload.get("path"),
             },
         )
     except Exception:
