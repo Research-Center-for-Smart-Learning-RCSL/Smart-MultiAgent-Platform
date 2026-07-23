@@ -15,10 +15,8 @@ from contexts.workflow.domain.models import (
     StepOutcome,
     StepState,
 )
-from contexts.workflow.infrastructure.channels import workflow_channel
 from contexts.workflow.sel.template import interpolate
 from shared_kernel import audit
-from shared_kernel.realtime.pubsub import Publisher
 
 
 @register(NodeType.APPROVAL_GATE)
@@ -116,6 +114,7 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             workflow_run_id=ctx.run_id,
             config=gate_config,
             chatroom_id=room_id,
+            node_id=node.id,
         )
 
         # Register the resume claim key so approval resolution (vote or timeout)
@@ -132,15 +131,9 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             ex=int(timeout_seconds) + 300,
         )
 
-        pub = Publisher(workflow_channel(ctx.run_id))
-        await pub.emit(
-            "approval.requested",
-            {
-                "approval_id": str(approval.id),
-                "node_id": node.id,
-                "question": question,
-            },
-        )
+        # The approval.requested workflow-channel event (carrying node_id and
+        # question) is now published post-commit by the announce job (Q-5), so
+        # the executor no longer emits its own duplicate here.
 
         # Park — the dispatcher will resume this node when the approval resolves,
         # setting the actual port (approved/rejected/timeout) at that time.

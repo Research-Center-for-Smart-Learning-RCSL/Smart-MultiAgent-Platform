@@ -1,0 +1,95 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { useOrchestrationStore } from '../orchestration'
+import type { ApprovalWithVotes } from '@shared/types/workflow'
+
+const ROOM = 'room_1'
+// 1h after the fixed start → well past the 300s default grace.
+const PAST_GRACE = Date.parse('2026-01-01T01:00:00Z')
+
+function approval(overrides: Partial<ApprovalWithVotes> = {}): ApprovalWithVotes {
+  return {
+    id: 'a1',
+    workflow_run_id: 'run_1',
+    mode: 'majority',
+    leader_agent_id: 'agent_1',
+    approver_agent_ids: ['agent_1'],
+    timeout_seconds: 300,
+    state: 'pending',
+    started_at: '2026-01-01T00:00:00Z',
+    ended_at: null,
+    votes: [],
+    ...overrides,
+  }
+}
+
+describe('orchestration store', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('upserts, resolves and removes approval cards', () => {
+    const s = useOrchestrationStore()
+    s.upsertApproval(ROOM, approval())
+    expect(s.getApprovalsForRoom(ROOM)).toHaveLength(1)
+
+    s.resolveApproval(ROOM, 'a1', 'approved')
+    expect(s.getApprovalsForRoom(ROOM)[0].state).toBe('approved')
+
+    s.removeApproval(ROOM, 'a1')
+    expect(s.getApprovalsForRoom(ROOM)).toHaveLength(0)
+  })
+
+  it('reconcile removes a card the server reports absent (AC-9)', async () => {
+    const s = useOrchestrationStore()
+    s.upsertApproval(ROOM, approval())
+
+    const fetcher = vi.fn().mockResolvedValue(null)
+    await s.reconcilePending(ROOM, fetcher, { now: PAST_GRACE })
+
+    expect(fetcher).toHaveBeenCalledWith('a1')
+    expect(s.getApprovalsForRoom(ROOM)).toHaveLength(0)
+  })
+
+  it('reconcile transitions a card the server reports resolved', async () => {
+    const s = useOrchestrationStore()
+    s.upsertApproval(ROOM, approval())
+
+    const fetcher = vi.fn().mockResolvedValue(approval({ state: 'approved' }))
+    await s.reconcilePending(ROOM, fetcher, { now: PAST_GRACE })
+
+    expect(s.getApprovalsForRoom(ROOM)[0].state).toBe('approved')
+  })
+
+  it('reconcile leaves a card within its grace window untouched', async () => {
+    const s = useOrchestrationStore()
+    s.upsertApproval(ROOM, approval())
+
+    const fetcher = vi.fn().mockResolvedValue(null)
+    // 100s after start, grace is 300s → still fresh, never fetched.
+    await s.reconcilePending(ROOM, fetcher, { now: Date.parse('2026-01-01T00:01:40Z') })
+
+    expect(fetcher).not.toHaveBeenCalled()
+    expect(s.getApprovalsForRoom(ROOM)).toHaveLength(1)
+  })
+
+  it('reconcile keeps a card on a transient (non-404) fetch error', async () => {
+    const s = useOrchestrationStore()
+    s.upsertApproval(ROOM, approval())
+
+    const fetcher = vi.fn().mockRejectedValue(new Error('network'))
+    await s.reconcilePending(ROOM, fetcher, { now: PAST_GRACE })
+
+    expect(s.getApprovalsForRoom(ROOM)).toHaveLength(1)
+    expect(s.getApprovalsForRoom(ROOM)[0].state).toBe('pending')
+  })
+
+  it('reconcile only touches pending cards', async () => {
+    const s = useOrchestrationStore()
+    s.upsertApproval(ROOM, approval({ state: 'approved' }))
+
+    const fetcher = vi.fn().mockResolvedValue(null)
+    await s.reconcilePending(ROOM, fetcher, { now: PAST_GRACE })
+
+    expect(fetcher).not.toHaveBeenCalled()
+    expect(s.getApprovalsForRoom(ROOM)).toHaveLength(1)
+  })
+})

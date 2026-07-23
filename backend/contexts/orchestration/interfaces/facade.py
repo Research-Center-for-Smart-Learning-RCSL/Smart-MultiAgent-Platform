@@ -201,11 +201,28 @@ class OrchestrationFacade:
         workflow_run_id: uuid.UUID,
         config: ApprovalGateConfig,
         chatroom_id: uuid.UUID | None = None,
+        node_id: str | None = None,
     ) -> Approval:
         return await self._approval.create_gate(
             workflow_run_id=workflow_run_id,
             config=config,
             chatroom_id=chatroom_id,
+            node_id=node_id,
+        )
+
+    async def announce_approval_gate(
+        self,
+        approval_id: uuid.UUID,
+        *,
+        chatroom_id: uuid.UUID | None = None,
+        node_id: str | None = None,
+        question: str | None = None,
+    ) -> bool:
+        return await self._approval.announce_gate(
+            approval_id,
+            chatroom_id=chatroom_id,
+            node_id=node_id,
+            question=question,
         )
 
     async def cast_approval_vote(

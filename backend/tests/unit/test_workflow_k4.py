@@ -117,21 +117,16 @@ def _wire_approval_gate(monkeypatch, *, room_project_id):
             captured["scope_calls"].append(chatroom_id)
             return room_project_id
 
-    class _Publisher:
-        def __init__(self, channel):
-            pass
-
-        async def emit(self, event, payload):
-            captured["emitted"].append((event, payload))
-
     async def _audit_emit(db, event):
         captured["audits"].append(event)
 
     monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _FakeFacade)
     monkeypatch.setattr("contexts.conversation.interfaces.facade.ConversationFacade", _FakeConversationFacade)
     monkeypatch.setattr("shared_kernel.auth.clients.get_redis", lambda: captured["redis"])
-    monkeypatch.setattr(ag, "Publisher", _Publisher)
     monkeypatch.setattr(ag.audit, "emit", _audit_emit)
+    # The executor no longer publishes (Q-5: the approval.requested event moved
+    # to the post-commit announce job), so ``emitted`` stays empty — kept as an
+    # invariant the rejection tests still assert against.
     return ag, captured
 
 
@@ -178,15 +173,15 @@ async def test_approval_gate_builds_config_and_registers_claim(monkeypatch) -> N
         def __init__(self, db):
             pass
 
-        async def create_approval_gate(self, *, workflow_run_id, config, chatroom_id=None):
+        async def create_approval_gate(self, *, workflow_run_id, config, chatroom_id=None, node_id=None):
             captured["config"] = config
             captured["run_id"] = workflow_run_id
+            captured["node_id"] = node_id
             return SimpleNamespace(id=approval_id)
 
     fake_redis = _FakeRedis()
     monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _FakeFacade)
     monkeypatch.setattr("shared_kernel.auth.clients.get_redis", lambda: fake_redis)
-    monkeypatch.setattr(ag, "Publisher", lambda *a, **k: SimpleNamespace(emit=AsyncMock()))
 
     leader, other = uuid.uuid4(), uuid.uuid4()
     node = NodeSpec(
@@ -495,7 +490,6 @@ async def test_approval_gate_failure_returns_timeout_port(monkeypatch) -> None:
             raise RuntimeError("boom")
 
     monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _BoomFacade)
-    monkeypatch.setattr(ag, "Publisher", lambda *a, **k: SimpleNamespace(emit=AsyncMock()))
 
     node = NodeSpec(
         id="g",

@@ -1180,18 +1180,26 @@ async def test_requeue_under_cap_is_lossless(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_notify_and_arm_notifies_and_schedules(monkeypatch) -> None:
+    from datetime import UTC, datetime
+
     import contexts.orchestration.application.approval_service as appr
-    from contexts.orchestration.domain.models import ApprovalGateConfig, ApprovalMode
+    from contexts.orchestration.domain.models import Approval, ApprovalMode, ApprovalState
 
     leader, other = uuid.uuid4(), uuid.uuid4()
-    config = ApprovalGateConfig(
-        mode=ApprovalMode.MAJORITY,
-        approvers=(leader, other),
-        leader_agent_id=leader,
-        timeout_seconds=120,
-        question="Deploy v2 to production?",
-    )
     approval_id, run_id, room_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    # _notify_and_arm now reads the persisted row (the announce job re-read it),
+    # not the transient config, and takes the question separately.
+    approval = Approval(
+        id=approval_id,
+        workflow_run_id=run_id,
+        mode=ApprovalMode.MAJORITY,
+        leader_agent_id=leader,
+        approver_agent_ids=(leader, other),
+        timeout_seconds=120,
+        state=ApprovalState.PENDING,
+        started_at=datetime.now(UTC),
+        ended_at=None,
+    )
 
     pushed: list = []
 
@@ -1210,10 +1218,9 @@ async def test_notify_and_arm_notifies_and_schedules(monkeypatch) -> None:
 
     svc = appr.ApprovalService.__new__(appr.ApprovalService)
     await svc._notify_and_arm(
-        approval_id=approval_id,
-        config=config,
-        workflow_run_id=run_id,
+        approval=approval,
         chatroom_id=room_id,
+        question="Deploy v2 to production?",
     )
 
     # Every approver got an approval_request carrying the gate id + room +
@@ -1226,11 +1233,13 @@ async def test_notify_and_arm_notifies_and_schedules(monkeypatch) -> None:
         assert note["question"] == "Deploy v2 to production?"
     # One turn-driving job per approver — without it the parked notification
     # is never drained and every gate falls to the timeout port.
-    drives = [(j, a) for j, a, _k in enq if j == "drive_approver_turn"]
-    assert {a[0] for _j, a in drives} == {str(leader), str(other)}
-    for _j, args in drives:
+    drives = [(j, a, k) for j, a, k in enq if j == "drive_approver_turn"]
+    assert {a[0] for _j, a, _k in drives} == {str(leader), str(other)}
+    for _j, args, kwargs in drives:
         assert args[1] == str(approval_id)
         assert args[2] == str(room_id)
+        # AC-8: no dispatch delay — the announce job is the commit barrier now.
+        assert "_defer_by" not in kwargs
     # The timeout was armed as a deferred job for this gate.
     timeouts = [(j, a, k) for j, a, k in enq if j == "approval_timeout"]
     assert len(timeouts) == 1

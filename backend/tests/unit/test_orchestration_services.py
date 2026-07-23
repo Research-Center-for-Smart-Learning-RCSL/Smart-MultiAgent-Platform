@@ -295,13 +295,14 @@ class TestEvaluateVotesNonApprover:
 
 
 class TestApprovalCreateGate:
-    @patch(
-        "contexts.orchestration.application.approval_service.ApprovalService._notify_and_arm",
-        new_callable=AsyncMock,
-    )
     @patch("contexts.orchestration.application.approval_service.Publisher")
+    @patch("shared_kernel.queue.enqueue", new_callable=AsyncMock)
     @patch("contexts.orchestration.application.approval_service.audit.emit", new_callable=AsyncMock)
-    async def test_create_gate(self, _audit, _pub_cls, _notify) -> None:
+    async def test_create_gate_only_enqueues_announce(self, _audit, _enqueue, _pub_cls) -> None:
+        # The blind spot that hid F-18: this test used to patch _notify_and_arm
+        # away and assert on an inline publish, so the pre-commit position was
+        # never caught. Now assert the create path publishes NOTHING inline and
+        # only enqueues the announce job.
         ap = _approval()
         approvals = AsyncMock()
         approvals.insert.return_value = ap
@@ -317,14 +318,39 @@ class TestApprovalCreateGate:
             workflow_run_id=_RUN,
             config=config,
             chatroom_id=_ROOM,
+            node_id="gate1",
         )
 
         assert result.mode is ApprovalMode.SINGLE
         _audit.assert_awaited_once()
         assert _audit.call_args[0][1].action == "approval.requested"
+        # No inline WS publish before commit.
+        _pub_cls.return_value.emit.assert_not_awaited()
+        # Exactly one enqueue: the announce job, carrying node_id + question.
+        _enqueue.assert_awaited_once()
+        args = _enqueue.call_args.args
+        assert args[0] == "approval_gate_announce"
+        # The announce job gets the id the row was inserted under.
+        assert args[1] == str(approvals.insert.call_args.kwargs["id"])
+        assert args[2] == str(_ROOM)
+        assert args[3] == "gate1"
 
-        # B5: the room-channel payload must carry workflow_run_id so a
-        # frontend viewer can resolve the run without a second fetch.
+    @patch("shared_kernel.queue.enqueue", new_callable=AsyncMock)
+    @patch("contexts.orchestration.infrastructure.pending_notify.push", new_callable=AsyncMock)
+    @patch("contexts.orchestration.application.approval_service.Publisher")
+    async def test_announce_gate_room_payload_carries_run_id(self, _pub_cls, _push, _enqueue) -> None:
+        # B5: the room-channel payload must carry workflow_run_id so a frontend
+        # viewer can resolve the run without a second fetch. Preserved through
+        # the refactor — now asserted on the announce path.
+        ap = _approval()
+        approvals = AsyncMock()
+        approvals.get.return_value = ap
+        _pub_cls.return_value = AsyncMock()
+        svc = _make_approval_service(approvals=approvals)
+
+        announced = await svc.announce_gate(ap.id, chatroom_id=_ROOM, node_id="g", question="ok?")
+
+        assert announced is True
         room_payloads = [
             c.args[1]
             for c in _pub_cls.return_value.emit.call_args_list
