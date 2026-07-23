@@ -662,9 +662,7 @@ class AuthService:
         nonce = google_oauth.new_nonce()
         await google_oauth.state_store().put(
             state,
-            google_oauth.OAuthState(
-                code_verifier=verifier, nonce=nonce, mode=mode, user_id=user_id
-            ),
+            google_oauth.OAuthState(code_verifier=verifier, nonce=nonce, mode=mode, user_id=user_id),
         )
         url = client.build_authorize_url(state=state, code_challenge=challenge, nonce=nonce)
         return url, state
