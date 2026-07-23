@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
   BuildingOffice2Icon,
@@ -29,10 +27,10 @@ import { useBreakpoint } from '@shared/composables/useBreakpoint'
 import { useProjectRole } from '@slices/tenancy'
 import SidebarChatroomList from './SidebarChatroomList.vue'
 import SidebarGroup from './SidebarGroup.vue'
+import SidebarNavItem from './SidebarNavItem.vue'
 import OrgProjectSwitcher from './OrgProjectSwitcher.vue'
 
 const { t } = useI18n()
-const route = useRoute()
 const session = useSessionStore()
 const workspace = useWorkspaceStore()
 const { isDesktop } = useBreakpoint()
@@ -111,10 +109,6 @@ const manageNav = computed<NavItem[]>(() => {
   ]
 })
 
-function isActive(path: string): boolean {
-  if (path === '/') return route.path === '/'
-  return route.path.startsWith(path)
-}
 </script>
 
 <template>
@@ -134,19 +128,13 @@ function isActive(path: string): boolean {
 
       <!-- Global — Workspace -->
       <div class="sidebar__section">
-        <RouterLink
+        <SidebarNavItem
           v-for="item in workspaceNav"
           :key="item.route"
+          :icon="item.icon"
+          :label="item.label"
           :to="item.route"
-          class="nav-item"
-          :class="{ 'nav-item--active': isActive(item.route) }"
-        >
-          <component
-            :is="item.icon"
-            class="nav-icon"
-          />
-          <span class="nav-label">{{ item.label }}</span>
-        </RouterLink>
+        />
       </div>
 
       <!-- Global — Personal -->
@@ -154,19 +142,13 @@ function isActive(path: string): boolean {
         :label="t('app.sidebar.groupPersonal')"
         storage-key="personal"
       >
-        <RouterLink
+        <SidebarNavItem
           v-for="item in personalNav"
           :key="item.route"
+          :icon="item.icon"
+          :label="item.label"
           :to="item.route"
-          class="nav-item"
-          :class="{ 'nav-item--active': isActive(item.route) }"
-        >
-          <component
-            :is="item.icon"
-            class="nav-icon"
-          />
-          <span class="nav-label">{{ item.label }}</span>
-        </RouterLink>
+        />
       </SidebarGroup>
 
       <!-- Project Context -->
@@ -179,19 +161,13 @@ function isActive(path: string): boolean {
 
         <!-- Agents + Agent Groups -->
         <div class="sidebar__section">
-          <RouterLink
+          <SidebarNavItem
             v-for="item in agentNav"
             :key="item.route"
+            :icon="item.icon"
+            :label="item.label"
             :to="item.route"
-            class="nav-item"
-            :class="{ 'nav-item--active': isActive(item.route) }"
-          >
-            <component
-              :is="item.icon"
-              class="nav-icon"
-            />
-            <span class="nav-label">{{ item.label }}</span>
-          </RouterLink>
+          />
         </div>
 
         <!-- Knowledge -->
@@ -199,19 +175,13 @@ function isActive(path: string): boolean {
           :label="t('app.sidebar.groupKnowledge')"
           storage-key="knowledge"
         >
-          <RouterLink
+          <SidebarNavItem
             v-for="item in knowledgeNav"
             :key="item.route"
+            :icon="item.icon"
+            :label="item.label"
             :to="item.route"
-            class="nav-item"
-            :class="{ 'nav-item--active': isActive(item.route) }"
-          >
-            <component
-              :is="item.icon"
-              class="nav-icon"
-            />
-            <span class="nav-label">{{ item.label }}</span>
-          </RouterLink>
+          />
         </SidebarGroup>
 
         <!-- Keys -->
@@ -219,19 +189,13 @@ function isActive(path: string): boolean {
           :label="t('app.sidebar.groupKeys')"
           storage-key="project-keys"
         >
-          <RouterLink
+          <SidebarNavItem
             v-for="item in projectKeysNav"
             :key="item.route"
+            :icon="item.icon"
+            :label="item.label"
             :to="item.route"
-            class="nav-item"
-            :class="{ 'nav-item--active': isActive(item.route) }"
-          >
-            <component
-              :is="item.icon"
-              class="nav-icon"
-            />
-            <span class="nav-label">{{ item.label }}</span>
-          </RouterLink>
+          />
         </SidebarGroup>
 
         <!-- Infrastructure (default collapsed) -->
@@ -240,19 +204,13 @@ function isActive(path: string): boolean {
           storage-key="infra"
           :default-collapsed="true"
         >
-          <RouterLink
+          <SidebarNavItem
             v-for="item in infraNav"
             :key="item.route"
+            :icon="item.icon"
+            :label="item.label"
             :to="item.route"
-            class="nav-item"
-            :class="{ 'nav-item--active': isActive(item.route) }"
-          >
-            <component
-              :is="item.icon"
-              class="nav-icon"
-            />
-            <span class="nav-label">{{ item.label }}</span>
-          </RouterLink>
+          />
         </SidebarGroup>
 
         <!-- Manage (owner/admin only) -->
@@ -261,19 +219,13 @@ function isActive(path: string): boolean {
           :label="t('app.sidebar.groupManage')"
           storage-key="project-manage"
         >
-          <RouterLink
+          <SidebarNavItem
             v-for="item in manageNav"
             :key="item.route"
+            :icon="item.icon"
+            :label="item.label"
             :to="item.route"
-            class="nav-item"
-            :class="{ 'nav-item--active': isActive(item.route) }"
-          >
-            <component
-              :is="item.icon"
-              class="nav-icon"
-            />
-            <span class="nav-label">{{ item.label }}</span>
-          </RouterLink>
+          />
         </SidebarGroup>
 
         <!-- Recent Chatrooms -->
@@ -285,16 +237,11 @@ function isActive(path: string): boolean {
       <template v-if="session.me?.is_admin">
         <div class="sidebar__divider" />
         <div class="sidebar__section">
-          <RouterLink
+          <SidebarNavItem
+            :icon="ShieldExclamationIcon"
+            :label="t('app.sidebar.admin')"
             to="/admin"
-            class="nav-item"
-            :class="{ 'nav-item--active': isActive('/admin') }"
-          >
-            <ShieldExclamationIcon
-              class="nav-icon"
-            />
-            <span class="nav-label">{{ t('app.sidebar.admin') }}</span>
-          </RouterLink>
+          />
         </div>
       </template>
     </nav>
@@ -340,63 +287,5 @@ function isActive(path: string): boolean {
   color: var(--color-sidebar-section-text);
   padding: 16px 16px 8px;
   letter-spacing: 0.05em;
-}
-
-.nav-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  height: 40px;
-  padding: 0 16px;
-  gap: 12px;
-  font-size: 14px;
-  font-weight: 400;
-  color: var(--color-sidebar-text);
-  text-decoration: none;
-  transition:
-    background-color var(--transition-fast),
-    color var(--transition-fast);
-}
-
-/* Active indicator: a pseudo-element bar that grows in with the activation
-   instead of a static border, so switching items reads as motion. Using a
-   pseudo-element (not border-left) also keeps icon alignment constant. */
-.nav-item::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 8px;
-  bottom: 8px;
-  width: 3px;
-  border-radius: 0 2px 2px 0;
-  background: var(--color-sidebar-active-text);
-  transform: scaleY(0);
-  transition: transform var(--transition-fast);
-}
-
-.nav-item:hover {
-  background-color: var(--color-sidebar-hover);
-}
-
-.nav-item--active {
-  background-color: var(--color-sidebar-active-bg);
-  color: var(--color-sidebar-active-text);
-}
-
-.nav-item--active::before {
-  transform: scaleY(1);
-}
-
-.nav-icon {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  color: inherit;
-}
-
-.nav-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 </style>
