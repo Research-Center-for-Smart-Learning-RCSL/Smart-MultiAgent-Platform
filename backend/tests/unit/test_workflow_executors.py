@@ -43,6 +43,30 @@ def _make_node(
     return NodeSpec(id=node_id, type=node_type, config=config or {})
 
 
+class _RecordingRedis:
+    """Records the ex (TTL seconds) each key is written with, so producer claim
+    TTLs can be characterized (FU-3 / claim-ttl-single-source)."""
+
+    def __init__(self) -> None:
+        self.sets: dict[str, int | None] = {}
+        self.ttls: dict[str, int] = {}
+
+    async def set(self, key, value, ex=None):
+        self.sets[key] = ex
+        if ex is not None:
+            self.ttls[key] = ex
+
+    async def sadd(self, key, member):
+        return None
+
+    async def ttl(self, key):
+        return self.ttls.get(key, -2)
+
+    async def expire(self, key, ttl):
+        self.ttls[key] = ttl
+        return True
+
+
 # ===========================================================================
 # condition executor
 # ===========================================================================
@@ -468,7 +492,7 @@ class TestInstructExecutor:
         instruction.id = uuid.uuid4()
         facade_mock = AsyncMock()
         facade_mock.issue_instruct.return_value = instruction
-        mock_redis = AsyncMock()
+        mock_redis = _RecordingRedis()
 
         with (
             patch(
@@ -482,6 +506,9 @@ class TestInstructExecutor:
 
         assert outcome.state == StepState.RUNNING
         assert outcome.park is True
+        # Characterization (FU-3): the instruct claim key is armed with the gate
+        # grace (default completion_timeout_seconds=120) + 300 = 420s.
+        assert mock_redis.sets[f"wf:instruct:{instruction.id}"] == 120 + 300
 
     @patch("contexts.workflow.application.executors.instruct.interpolate", return_value="t")
     async def test_facade_exception_returns_failed(self, _interp) -> None:
@@ -592,3 +619,71 @@ class TestAgentInvocationExecutor:
 
         assert outcome.state == StepState.SUCCEEDED
         assert "reply" not in ctx.variables
+
+
+# ===========================================================================
+# Producer claim-key TTL characterization (FU-3 / claim-ttl-single-source)
+#
+# Pins the exact initial TTL each producer writes so the single-source refactor
+# is proven behaviour-preserving. approval_gate/instruct use timeout + 300;
+# wait_for_event (claim key AND its by-event index) and subagent_spawn use
+# timeout + 60.
+# ===========================================================================
+
+
+class TestWaitForEventClaimTtl:
+    async def test_wait_key_and_index_ttl_are_timeout_plus_60(self) -> None:
+        from contexts.workflow.application.executors.wait_for_event import execute
+
+        redis = _RecordingRedis()
+        ctx = _make_ctx()
+        node = _make_node(
+            NodeType.WAIT_FOR_EVENT,
+            {"event_type": "message_in_room", "timeout_seconds": 600},
+        )
+
+        with patch("shared_kernel.auth.clients.get_redis", return_value=redis):
+            outcome = await execute(ctx, node, AsyncMock())
+
+        assert outcome.park is True
+        assert redis.sets[f"wf:wait:{ctx.run_id}:{node.id}"] == 600 + 60
+        # The by-event index tracks the same window (second grace use, :78).
+        assert redis.ttls["wf:wait:by_event:message_in_room"] == 600 + 60
+
+
+class TestSubagentSpawnClaimTtl:
+    @patch("contexts.workflow.application.executors.subagent_spawn.interpolate", return_value="task")
+    async def test_callback_ttl_is_timeout_plus_60(self, _interp) -> None:
+        from contexts.workflow.application.executors.subagent_spawn import execute
+
+        redis = _RecordingRedis()
+        root = MagicMock()
+        root.id = uuid.uuid4()
+        instance = MagicMock()
+        instance.id = uuid.uuid4()
+        facade_mock = AsyncMock()
+        facade_mock.ensure_subagent_root.return_value = root
+        facade_mock.spawn_subagent.return_value = instance
+
+        ctx = _make_ctx()
+        node = _make_node(
+            NodeType.SUBAGENT_SPAWN,
+            {
+                "parent_agent_id": str(uuid.uuid4()),
+                "task_template": "t",
+                "timeout_seconds": 1800,
+                "wait_for_all": True,
+            },
+        )
+
+        with (
+            patch(
+                "contexts.orchestration.interfaces.facade.OrchestrationFacade",
+                return_value=facade_mock,
+            ),
+            patch("shared_kernel.auth.clients.get_redis", return_value=redis),
+        ):
+            outcome = await execute(ctx, node, AsyncMock())
+
+        assert outcome.park is True
+        assert redis.sets[f"wf:subagent_callback:{instance.id}"] == 1800 + 60
