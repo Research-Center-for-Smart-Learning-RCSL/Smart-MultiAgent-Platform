@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-23
 requirements: [R30.02, R30.23]
 depends_on: []
@@ -139,18 +139,24 @@ via edit (AC-4 guards this).
   behavioral edits keeps v1 safe. Additive route; reversible.
 
 ## 11. Acceptance Criteria
-- [ ] AC-1: An owner edits a type's `name`/`retention_days` and the list reflects it without
-  reload; a non-owner gets 403.
-- [ ] AC-2: `PATCH` of an unknown/soft-deleted/foreign-project type returns 404.
-- [ ] AC-3: `activity_type.updated` audit emitted on a successful edit.
-- [ ] AC-4: a PATCH moving to an `mcp` `validator_config` with a foreign `binding_id` is
-  rejected (422), same as register.
-- [ ] AC-5: new strings resolve en + zh-TW; lint passes.
-- [ ] AC-6: a PATCH that changes a behavioral field (`payload_schema`/`validator_kind`/
+- [x] AC-1: An owner edits a type's `name`/`retention_days` and the list reflects it without
+  reload; a non-owner gets 403. (`test_activity_type_edit.py::TestUpdateService::test_metadata_only_edit_does_not_bump_version`,
+  `::TestUpdateRoute::test_owner_update_commits_and_returns_type` + `::test_non_owner_is_refused_before_any_write`;
+  frontend `ActivityTypeForm.test.ts` edit pre-fill/PATCH + `ActivityTypesView` `onUpdated` invalidates `activityKeys.types`.)
+- [x] AC-2: `PATCH` of an unknown/soft-deleted/foreign-project type returns 404.
+  (`::test_unknown_type_raises_and_writes_nothing`, `::test_cross_project_type_is_refused`.)
+- [x] AC-3: `activity_type.updated` audit emitted on a successful edit.
+  (`::test_metadata_only_edit_does_not_bump_version` asserts the emit.)
+- [x] AC-4: a PATCH moving to an `mcp` `validator_config` with a foreign `binding_id` is
+  rejected (422), same as register. (`::TestUpdateRoute::test_mcp_foreign_binding_is_rejected_before_write`.)
+- [x] AC-5: new strings resolve en + zh-TW; lint passes. (Keys added to both locale files; `pnpm lint` clean.)
+- [x] AC-6: a PATCH that changes a behavioral field (`payload_schema`/`validator_kind`/
   `validator_config`) increments `version` by 1; a metadata-only PATCH leaves `version`
-  unchanged.
-- [ ] AC-7: a behavioral PATCH while the type has an `active` activation returns 409; a
+  unchanged. (`::test_behavioral_edit_bumps_version` + `::test_metadata_only_edit_does_not_bump_version`
+  assert `bump_version` True/False; the repo applies `version = version + 1`.)
+- [x] AC-7: a behavioral PATCH while the type has an `active` activation returns 409; a
   metadata-only PATCH on the same active type succeeds.
+  (`::test_behavioral_edit_while_active_is_rejected` + `::test_metadata_edit_while_active_succeeds`.)
 
 ## 12. Test Plan
 - Backend unit: service update happy path + `activity_type.updated` audit (AC-1, AC-3);
@@ -180,8 +186,30 @@ and delete" sentence becomes "author, list, edit, and delete"):
 
 ## 15. Deviation Log
 
-Appended by /build.
+- D-1: The tenant/project guard was placed in `ActivityTypeService.update` (single row
+  load, reject `existing.project_id != project_id` → 404) rather than in the facade as §6
+  suggested. Reason: the service must load the row anyway to diff behavioral fields; a
+  facade-level guard would force a second fetch. Observable behavior is identical
+  (unknown/soft-deleted/foreign → 404).
+- D-2: The PATCH body (`ActivityTypeUpdateIn`) requires the full editable field set (§6 left
+  the body shape implicit). Reason: the edit form always resubmits the whole object, so a
+  full-replace avoids the PATCH null-vs-absent ambiguity (notably `retention_days: null`
+  meaning "clear" vs "unchanged") and lets the route reuse register's
+  `if validator_kind is MCP` guard verbatim. `version` is still bumped only when a
+  behavioral field actually differs from the stored row (Q-2a preserved).
 
 ## 16. Follow-ups
 
-To be discovered during build.
+- FU-1: `ActivityTypeOut` does not expose `version`, so the UI cannot display it and AC-6 is
+  verified via the service test rather than the API response. If the UI should surface the
+  version or a bumped-since indicator, expose `version` in the response model (and rerun
+  `gen:api`) in a follow-up.
+- FU-2 (security hardening, no current attack path): `_assert_mcp_binding_in_project` runs at
+  the route only, so a future internal (non-route) caller of `update_type`/`register_type`
+  would bypass the cross-project binding check. This mirrors register exactly. If internal
+  callers are ever added, move the check into the service.
+- FU-3: `SchemaBuilder`'s edit rehydration coerces a property whose `type` is outside the
+  flat builder's set to `'string'`. Harmless today (no path produces such a schema), but once
+  raw-JSON schema editing lands (the authoring dossier's FU-5) editing such a type through the
+  guided builder would silently rewrite it. The guided builder should refuse to rehydrate a
+  schema it cannot faithfully represent then.

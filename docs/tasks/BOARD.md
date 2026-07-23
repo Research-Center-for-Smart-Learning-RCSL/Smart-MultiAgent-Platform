@@ -16,10 +16,6 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-07-23-activity-type-edit` (feature, approved) — `depends_on: []`. FU-2 of the
-  activity-type authoring dossier: an owner-only edit path (PATCH route + edit UI) for an
-  existing `ActivityType`. Q-1..Q-3 resolved: in-place PATCH of metadata + behavioral fields,
-  `version` bumps on behavioral change, behavioral edits blocked (409) while the type is active.
 - `2026-07-23-activity-in-process-validators` (feature, draft) — `depends_on: []`. FU-1:
   register first-party `in_process` validators (startup site outside the activities context)
   + a listing endpoint, and add the `in_process` branch to the authoring form. Open decision:
