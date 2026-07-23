@@ -16,6 +16,18 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+- `2026-07-23-activity-type-edit` (feature, draft) — `depends_on: []`. FU-2 of the
+  activity-type authoring dossier: an owner-only edit path (PATCH route + edit UI) for an
+  existing `ActivityType`. Carries open decisions (which fields are editable, version
+  semantics, edit-while-active) to resolve at approval.
+- `2026-07-23-activity-in-process-validators` (feature, draft) — `depends_on: []`. FU-1:
+  register first-party `in_process` validators (startup site outside the activities context)
+  + a listing endpoint, and add the `in_process` branch to the authoring form. Open decision:
+  which validators ship in v1.
+- `2026-07-23-activity-schema-raw-json` (feature, draft) — `depends_on: []`. FU-5: a raw
+  JSON-Schema editing mode (reusing `SCodeEditor`) alongside the guided builder, for schemas
+  the flat builder can't express. Frontend-only. Open decision: mode round-trip behavior.
+
 - `2026-07-22-a2a-scope-context-wiring` (bugfix, draft) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-to-agent-orchestration/` F-9, F-24, F-25, F-26 and
   `docs/audits/2026-07-22-agent-config-runtime/` F-4. One root cause: every authorization and
