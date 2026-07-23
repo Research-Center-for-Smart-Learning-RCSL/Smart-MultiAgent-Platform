@@ -1030,3 +1030,46 @@ async def test_instruct_inline_turn_inherits_ambient_chain() -> None:
         assert inst.chain_id == existing_chain
         assert inst.path == (a.id, b.id)
         assert inst.depth == 2
+
+
+async def test_broadcast_reaches_room_mate_without_call_only() -> None:
+    """W-5 (AC-7): a broadcast reaches a room-mate that is a2a_enabled and has no
+    call_only — the shared chatroom is the invocation context (rule 3a). Before
+    the fix the per-target check was hardcoded frozenset(), so a broadcast only
+    ever reached call_only agents."""
+    async with async_session() as seed_db:
+        env = await _seed_agent_and_room(seed_db, a2a_enabled=True)
+        await seed_db.commit()
+    a = env.agent  # already a member of env.room
+    b = await _add_agent(env, a2a_enabled=True, call_only=False)
+    async with async_session() as db:
+        await ChatroomAgentRepository(db).add(chatroom_id=env.room.id, agent_id=b.id)
+        await db.commit()
+
+    captured: list[A2AEnvelope] = []
+
+    async def _capture(envelope: A2AEnvelope) -> None:
+        captured.append(envelope)
+        await handle_envelope(envelope)
+
+    async with _serving(b.id, _capture), async_session() as db:
+        envelope = A2AEnvelope(
+            id=uuid.uuid4(),
+            from_agent=a.id,
+            to_agent="broadcast:workspace",
+            workflow_run_id=None,
+            type=A2AMessageType.NOTIFY,
+            payload={"input": "hello room"},
+            correlation_id=uuid.uuid4(),
+            created_at=datetime.now(UTC),
+        )
+        await A2AService(db).send(envelope=envelope)
+        await db.commit()
+
+        received = False
+        for _ in range(100):
+            if any(e.from_agent == a.id for e in captured):
+                received = True
+                break
+            await asyncio.sleep(0.05)
+        assert received, "room-mate with no call_only did not receive the broadcast"

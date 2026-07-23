@@ -345,6 +345,12 @@ class A2AService:
 
         agents = await self._agents.list_agents_for_project(caller.project_id)
 
+        # G.2: a broadcast's shared context is a chatroom both agents are in.
+        # Derive each room-mate's shared room server-side (Q-3) so rule 3a grants
+        # to room-mates, not only to call_only agents. Non-room-mates fall through
+        # to the call_only path unchanged.
+        shared_rooms = await self._shared_rooms(caller.id)
+
         first_stream_id = ""
         delivered_count = 0
         dropped_over_cap = 0
@@ -354,13 +360,21 @@ class A2AService:
             if not target.a2a_enabled:
                 continue
 
-            # Per-target scope check (G.2).
+            # Per-target scope check (G.2). When caller and target share a live
+            # room, that room is the shared invocation context (rule 3a).
+            shared_room = shared_rooms.get(target.id)
+            if shared_room is not None:
+                target_ctx_id: uuid.UUID | None = shared_room
+                target_attached = frozenset({shared_room})
+            else:
+                target_ctx_id = caller_invocation_context_id
+                target_attached = frozenset()
             try:
                 await self._enforce_scope(
                     caller=caller,
                     callee=target,
-                    callee_attached_context_ids=frozenset(),
-                    caller_invocation_context_id=caller_invocation_context_id,
+                    callee_attached_context_ids=target_attached,
+                    caller_invocation_context_id=target_ctx_id,
                 )
             except A2AForbidden:
                 continue
@@ -458,6 +472,15 @@ class A2AService:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    async def _shared_rooms(self, caller_id: uuid.UUID) -> dict[uuid.UUID, uuid.UUID]:
+        """target_agent_id -> a live chatroom it shares with ``caller_id`` (G.2).
+
+        Lazy import to avoid an orchestration <-> conversation module cycle.
+        """
+        from contexts.conversation.interfaces.facade import ConversationFacade
+
+        return await ConversationFacade(self._db).shared_room_by_agent(caller_id)
 
     async def _derive_workflow_context(
         self,
