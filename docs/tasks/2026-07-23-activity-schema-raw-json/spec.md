@@ -1,9 +1,9 @@
 ---
 type: feature
-status: draft
+status: implemented
 created: 2026-07-23
 requirements: [R30.17, R30.19]
-depends_on: []
+depends_on: [2026-07-23-activity-in-process-validators]
 ---
 
 # Raw JSON-Schema editor for activity payload schemas
@@ -38,9 +38,10 @@ author it directly. The server already validates schema well-formedness
 
 | ID | Question | Decision | Rationale |
 |---|---|---|---|
-| Q-1 | Round-trip between modes? | **To decide.** A flat builder schema can seed the raw editor; a raw (possibly nested) schema generally can't be represented back in the flat builder. Options: (a) one-way builder→raw with builder locked once raw is edited; (b) allow switching back only when the raw schema is still flat-representable, else warn. | Prevents silent loss of a nested schema when toggling back to the builder. |
+| Q-1 | Round-trip between modes? | **(a) One-way builder→raw, builder locked once raw is edited.** Builder seeds the raw editor on first switch; once the raw value has been edited, the Builder toggle is disabled for that type (switching back is blocked). No flat-representability check needed. | Makes silent loss of a nested schema impossible rather than merely guarded — the simplest design that satisfies AC-3's "no silent nested-schema loss". |
 | Q-2 | Editor component? | **Recommend `SCodeEditor`** (`shared/ui/SCodeEditor.vue` + `codeMirrorJson.ts`), already used elsewhere (e.g. the MCP tool config in `AgentToolsView`). | Reuse over a bare `<textarea>`; gives JSON syntax highlighting + the existing editor UX. |
 | Q-3 | Client-side JSON-Schema validity, or defer to server? | **Defer structure to server** (`PayloadSchemaInvalid` 422 already surfaced); client only checks JSON *parse* validity for immediate feedback. | The builder already relies on server validation (authoring §5); no need to bundle a JSON-Schema validator. |
+| Q-4 | Can this build concurrently with `2026-07-23-activity-in-process-validators`? | **No — overlap prerequisite.** During build (2026-07-23) that task was `in-progress` with uncommitted working-tree changes on every file this feature must edit: `ActivityTypeForm.vue`, `locales/en.json`, `locales/zh-TW.json`, `__tests__/ActivityTypeForm.test.ts`. `depends_on` amended to `[2026-07-23-activity-in-process-validators]`. | Building on top of its uncommitted diff would sweep half-finished work into this task's commit (CLAUDE.md discipline) and risk clobbering the concurrent session's edits. No logical dependency — pure file overlap. |
 
 ## 4. Current State
 
@@ -65,7 +66,9 @@ author it directly. The server already validates schema well-formedness
 
 ### Decision
 Option A, finalized with Q-1..Q-3 at approval. The `SchemaBuilder`'s emitted schema seeds the
-raw editor on first switch; the raw editor's parsed JSON becomes `payload_schema`.
+raw editor on first switch; the raw editor's parsed JSON becomes `payload_schema`. Per Q-1(a),
+once the raw value is edited the Builder toggle is disabled for that type (one-way switch), so a
+nested schema can never be silently discarded by toggling back.
 
 ## 6. Detailed Changes
 
@@ -99,19 +102,26 @@ safely (`schemaFields.ts`). No `v-html`/eval of the schema.
 - Keep the builder untouched (it's covered by `SchemaBuilder.test.ts`); the toggle wraps it.
 
 ## 10. Risks and Rollback
-- Mode round-trip losing a nested schema (Q-1) is the main UX risk — mitigated by locking the
-  builder once raw is edited, or a switch-back guard. Additive; reverting the form restores the
-  builder-only path.
+- Mode round-trip losing a nested schema (Q-1) is the main UX risk — mitigated per Q-1(a) by
+  locking the builder once raw is edited (one-way switch). Additive; reverting the form restores
+  the builder-only path.
 
 ## 11. Acceptance Criteria
-- [ ] AC-1: An owner switches `payload_schema` to Raw JSON, authors a nested object schema, and
-  it registers (server-accepted) and appears in the list.
-- [ ] AC-2: An invalid-JSON raw value shows a parse error inline and blocks submit; a
+- [x] AC-1: An owner switches `payload_schema` to Raw JSON, authors a nested object schema, and
+  it registers (server-accepted) and appears in the list. *Unit: `PayloadSchemaField.test.ts`
+  "emits the parsed schema for a valid nested value"; `ActivityTypeForm.test.ts` "registers a
+  nested payload_schema authored in raw mode". List rendering is unchanged existing behavior.*
+- [x] AC-2: An invalid-JSON raw value shows a parse error inline and blocks submit; a
   well-formed-but-schema-invalid value surfaces the server `PayloadSchemaInvalid` (422) on the
-  field.
-- [ ] AC-3: Switching Builder→Raw seeds the editor with the builder's current schema; the
-  round-trip behavior matches the Q-1 decision (no silent nested-schema loss).
-- [ ] AC-4: new strings resolve en + zh-TW; lint passes.
+  field. *Unit: `PayloadSchemaField.test.ts` "reports a parse error and blocks submit for invalid
+  JSON" (emits `schemaInvalidJson` + empty-props schema). The 422 path is the unchanged existing
+  server-error mapping (§6); see D-2.*
+- [x] AC-3: Switching Builder→Raw seeds the editor with the builder's current schema; the
+  round-trip behavior matches the Q-1 decision (no silent nested-schema loss). *Unit:
+  `PayloadSchemaField.test.ts` "seeds the raw editor…", "locks the builder once the raw value is
+  edited", "opens a non-flat stored schema in Raw mode with the builder locked".*
+- [x] AC-4: new strings resolve en + zh-TW; lint passes. *7 keys added to both locales;
+  `pnpm lint` (all 12 gates) and `pnpm typecheck` clean.*
 
 ## 12. Test Plan
 - Frontend component: toggle renders `SCodeEditor` in raw mode; invalid JSON blocks submit;
@@ -128,8 +138,22 @@ raw mode is an authoring affordance, not new platform behavior.
 
 ## 15. Deviation Log
 
-Appended by /build.
+- D-1: The raw-mode parse error is surfaced through the parent `SFormField` via an
+  `update:parseError` emit (a `schemaInvalidJson` i18n key), which `ActivityTypeForm` maps into a
+  mode-aware `payloadSchemaError` computed that takes precedence over the `schemaEmpty` message.
+  §6 said only "parse errors shown inline"; this keeps the parse message from being shadowed by
+  the field's empty-schema message while `SCodeEditor`'s own lint gutter still marks the position.
+- D-2: AC-2's "server `PayloadSchemaInvalid` (422) on the field" is delivered by the pre-existing
+  422 mapping (`applyServerErrors` then the `configRejected` toast), which §6 froze as
+  "unchanged". Whether the 422 lands on the field or as a toast depends on that existing mapping,
+  not on this task — recorded as FU-1 rather than changed here.
+- D-3: Built out of the originally-approved order. At build time the overlapping in-progress task
+  `2026-07-23-activity-in-process-validators` held uncommitted edits on every shared file, so this
+  task paused, took `depends_on: [2026-07-23-activity-in-process-validators]` (Q-4), and resumed
+  on a clean tree after that task reached `implemented`.
 
 ## 16. Follow-ups
 
-To be discovered during build.
+- FU-1: Confirm the server `PayloadSchemaInvalid` (422) path lands on the `payload_schema` field
+  (not only a generic `configRejected` toast). Out of scope here — §6 froze the 422 mapping as
+  unchanged; revisit if field-level 422 surfacing is wanted.
