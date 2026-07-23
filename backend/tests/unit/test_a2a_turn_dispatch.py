@@ -1150,7 +1150,8 @@ async def test_requeue_over_cap_drops_oldest_not_newest(monkeypatch) -> None:
     # The 10 newest all survive and sit at the tail, in arrival order.
     assert names[-10:] == [f"n{i}" for i in range(1, 11)]
     # The 5 dropped are the oldest restored notes, not the newest arrivals.
-    assert "old1" not in names and "old5" not in names
+    assert "old1" not in names
+    assert "old5" not in names
     assert names[0] == "old6"
 
 
