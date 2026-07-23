@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import {
   PlusIcon,
+  PencilSquareIcon,
   TrashIcon,
   PuzzlePieceIcon,
   EllipsisVerticalIcon,
@@ -38,6 +39,7 @@ const projectId = route.params.projectId as string
 const { decided, isAuthorized } = useProjectRole(projectId)
 
 const showModal = ref(false)
+const editType = ref<ActivityType | null>(null)
 
 const typesQuery = useQuery({
   queryKey: activityKeys.types(projectId),
@@ -74,16 +76,39 @@ async function confirmDelete(row: ActivityType): Promise<void> {
 }
 
 function onAction(action: string, row: ActivityType): void {
-  if (action === 'delete') void confirmDelete(row)
+  if (action === 'edit') openEdit(row)
+  else if (action === 'delete') void confirmDelete(row)
+}
+
+function openCreate(): void {
+  editType.value = null
+  showModal.value = true
+}
+
+function openEdit(row: ActivityType): void {
+  editType.value = row
+  showModal.value = true
+}
+
+function closeModal(): void {
+  showModal.value = false
+  editType.value = null
 }
 
 function onCreated(): void {
   qc.invalidateQueries({ queryKey: activityKeys.types(projectId) })
-  showModal.value = false
+  closeModal()
   toast.success(t('activities.typesList.created'))
 }
 
+function onUpdated(): void {
+  qc.invalidateQueries({ queryKey: activityKeys.types(projectId) })
+  closeModal()
+  toast.success(t('activities.typesList.updated'))
+}
+
 const actionItems = computed(() => [
+  { key: 'edit', label: t('common.edit', 'Edit'), icon: PencilSquareIcon },
   { key: 'delete', label: t('common.delete', 'Delete'), icon: TrashIcon, danger: true },
 ])
 
@@ -109,7 +134,7 @@ const ActivityTypeTable = typedTable<ActivityType>()
       >
         <SButton
           variant="primary"
-          @click="showModal = true"
+          @click="openCreate"
         >
           <template #icon-left>
             <PlusIcon class="w-4 h-4" />
@@ -200,7 +225,7 @@ const ActivityTypeTable = typedTable<ActivityType>()
             <template #action>
               <SButton
                 variant="primary"
-                @click="showModal = true"
+                @click="openCreate"
               >
                 {{ t('activities.typesList.create') }}
               </SButton>
@@ -213,8 +238,10 @@ const ActivityTypeTable = typedTable<ActivityType>()
     <ActivityTypeForm
       :project-id="projectId"
       :open="showModal"
-      @close="showModal = false"
+      :edit-type="editType"
+      @close="closeModal"
       @created="onCreated"
+      @updated="onUpdated"
     />
   </main>
 </template>

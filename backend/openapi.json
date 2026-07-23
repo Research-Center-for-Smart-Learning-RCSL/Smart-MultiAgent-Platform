@@ -521,6 +521,47 @@
         "title": "ActivityTypeOut",
         "type": "object"
       },
+      "ActivityTypeUpdateIn": {
+        "description": "Full editable representation for an edit; ``key`` is intentionally absent\n(never editable, R30.23). The edit form pre-fills and resubmits every field,\nso the service diffs this against the stored row to decide the version bump.",
+        "properties": {
+          "name": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "payload_schema": {
+            "title": "Payload Schema",
+            "type": "object"
+          },
+          "retention_days": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days"
+          },
+          "validator_config": {
+            "title": "Validator Config",
+            "type": "object"
+          },
+          "validator_kind": {
+            "$ref": "#/components/schemas/ValidatorKind"
+          }
+        },
+        "required": [
+          "name",
+          "payload_schema",
+          "validator_kind"
+        ],
+        "title": "ActivityTypeUpdateIn",
+        "type": "object"
+      },
       "AddMemberIn": {
         "properties": {
           "key_id": {
@@ -20979,6 +21020,67 @@
           }
         },
         "summary": "Delete Activity Type",
+        "tags": [
+          "activities"
+        ]
+      },
+      "patch": {
+        "operationId": "update_activity_type_api_projects__project_id__activity_types__type_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Type Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivityTypeUpdateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityTypeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Activity Type",
         "tags": [
           "activities"
         ]
