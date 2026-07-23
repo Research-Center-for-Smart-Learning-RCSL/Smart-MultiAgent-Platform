@@ -62,7 +62,7 @@ def _load_config() -> _Config:
     return _Config(
         provider=str(raw.get("provider", "off")).lower(),
         secret=str(raw.get("secret", "")),
-        mode=str(raw.get("mode", "on")).lower(),
+        mode=str(raw.get("mode", "off")).lower(),
     )
 
 
@@ -84,7 +84,7 @@ def public_config() -> PublicCaptchaConfig:
             "captcha config unreadable from Vault; serving mode=off to the frontend"
         )
         return PublicCaptchaConfig(mode="off", provider="off", sitekey="")
-    mode = str(raw.get("mode", "on")).lower()
+    mode = str(raw.get("mode", "off")).lower()
     provider = str(raw.get("provider", "off")).lower()
     sitekey = str(raw.get("sitekey", ""))
     if mode == "off":
