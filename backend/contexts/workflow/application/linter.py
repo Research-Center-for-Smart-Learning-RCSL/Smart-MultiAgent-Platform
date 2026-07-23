@@ -1,4 +1,4 @@
-"""Semantic linter — 16 blocking rules + 6 advisory warnings (§5).
+"""Semantic linter — 17 blocking rules + 6 advisory warnings (§5).
 
 Rule 15 (SEC-L5) parses every SEL expression at save time so invalid or
 non-whitelisted expressions are rejected up front instead of failing silently
@@ -708,6 +708,71 @@ def rule_16_fallback_node_exists(defn: dict[str, Any]) -> list[LintIssue]:
 
 
 # ---------------------------------------------------------------------------
+# Rule 17: a2a_event trigger self-cycle (F-4)
+# ---------------------------------------------------------------------------
+
+# Message type each A2A-emitting node produces (matched against a trigger's
+# event_types). Kept explicit rather than derived so a new emitting node type
+# has to be considered here deliberately.
+_A2A_EMIT: dict[str, tuple[str, str]] = {
+    # node type -> (config key holding the target agent id, emitted msg type)
+    "agent_invocation": ("agent_id", "call"),
+    "instruct": ("target_agent_id", "instruct"),
+}
+
+
+def rule_17_a2a_trigger_self_cycle(defn: dict[str, Any]) -> list[LintIssue]:
+    """Reject a workflow whose ``a2a_event`` trigger would be re-fired by its own
+    run (F-4). A trigger on agent A listening for message type T, plus a node
+    that emits a T-typed envelope to A, is a closed causal cycle: the run's own
+    output satisfies its own trigger, and nothing downstream breaks it.
+
+    The emitted message type is compared against ``event_types`` (not just the
+    agent id) so a disjoint pair — a trigger on ``["notify"]`` with an
+    ``agent_invocation`` on the same agent (which emits ``call``) — stays legal.
+    ``_collect_agent_ids`` is deliberately not reused: it flattens all
+    agent-reference keys and loses the per-node emitted-type semantics this rule
+    needs.
+    """
+    issues: list[LintIssue] = []
+    triggers = [
+        n
+        for n in defn.get("nodes", [])
+        if n.get("type") == "trigger" and n.get("config", {}).get("trigger_type") == "a2a_event"
+    ]
+    if not triggers:
+        return issues
+
+    for trig in triggers:
+        tconfig = trig.get("config", {})
+        trigger_agent = str(tconfig.get("agent_id", "") or "")
+        if not trigger_agent:
+            continue
+        event_types = set(tconfig.get("event_types") or [])
+        if not event_types:
+            continue
+        for n in defn.get("nodes", []):
+            emit = _A2A_EMIT.get(n.get("type", ""))
+            if emit is None:
+                continue
+            target_key, emitted_type = emit
+            target = str(n.get("config", {}).get(target_key, "") or "")
+            if target == trigger_agent and emitted_type in event_types:
+                issues.append(
+                    LintIssue(
+                        17,
+                        "error",
+                        f"Node '{n['id']}' emits a '{emitted_type}' envelope to agent "
+                        f"'{trigger_agent}', which is this workflow's own a2a_event trigger "
+                        f"target for that type — a self-amplifying loop. Change the trigger's "
+                        f"event_types or route the {n.get('type')} to a different agent.",
+                        node_id=n["id"],
+                    )
+                )
+    return issues
+
+
+# ---------------------------------------------------------------------------
 # Advisory warnings (§5.2)
 # ---------------------------------------------------------------------------
 
@@ -797,7 +862,7 @@ def validate_definition(
     valid_chatroom_ids: frozenset[str] = frozenset(),
     subagent_parent_ids: frozenset[str] = frozenset(),
 ) -> ValidationResult:
-    """Run all 16 blocking rules + advisory warnings. Returns aggregate result."""
+    """Run all 17 blocking rules + advisory warnings. Returns aggregate result."""
     all_issues: list[LintIssue] = []
 
     # Structural rules (no DB needed)
@@ -817,6 +882,7 @@ def validate_definition(
     all_issues.extend(rule_14_parallel_join(defn))
     all_issues.extend(rule_15_sel_expressions(defn))
     all_issues.extend(rule_16_fallback_node_exists(defn))
+    all_issues.extend(rule_17_a2a_trigger_self_cycle(defn))
 
     # Advisory
     all_issues.extend(advisory_warnings(defn))
