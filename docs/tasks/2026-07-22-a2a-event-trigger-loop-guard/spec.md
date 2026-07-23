@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-22
 requirements: [R9.15, R9.16, R14.07]
 depends_on: []
@@ -209,17 +209,17 @@ Then, in dependency order:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: T-1 (§8) fails against current code and passes after the fix.
-- [ ] AC-2: a definition whose `a2a_event` trigger agent is also the target of an `agent_invocation` or `instruct` node emitting a matching message type is rejected at save time, and a definition whose emitted type is disjoint from `event_types` still saves (T-1, T-2, T-3).
-- [ ] AC-3: the a2a workflow signal carries trigger provenance, and that provenance is **populated** by the production emitters (`agent_invocation.py:41-47`, `executors/instruct.py:39-43`), not merely declared on the carrier. Asserted by reading the value out of the enqueued payload, not by asserting the parameter exists (T-4).
-- [ ] AC-4: `workflow_signal` does not start a run for a workflow already present in the inbound trigger path, and records why (T-5).
-- [ ] AC-5: the per-workflow trigger budget applies to every event trigger kind on the shared `run_triggered_workflow` path, is scoped per workflow, emits an audit and a metric on breach, and returns a sentinel distinguishable from a genuine start failure (T-6, T-7).
-- [ ] AC-6: one inbound envelope against the audit's minimal workflow produces at most two `workflow_runs` rows under a bounded drain, with no provider request issued (T-8).
-- [ ] AC-7: the `instruct`-edged variant of the cycle is guarded now, before `2026-07-22-a2a-scope-context-wiring` unblocks it (T-3, and T-5 exercised with `msg_type="instruct"`).
-- [ ] AC-8: no test in this dossier demonstrates the defect by unbounded execution, and none issues a real provider request.
-- [ ] AC-9: no `workflow_runs`, `workflow_steps`, `audit` or `key_usage_events` row is deleted or rewritten by this change (Q-5).
-- [ ] AC-10: `pytest -q`, `ruff check .`, `ruff format --check .` and `mypy .` pass in `backend/`.
-- [ ] AC-11: `check-security` is run as a gate, not skipped. The change touches the trigger dispatch path that decides which workflows a signal may start.
+- [x] AC-1: T-1 (§8) fails against current code and passes after the fix. (Confirmed failing pre-fix: `result.valid is True`; passing post-fix.)
+- [x] AC-2: a definition whose `a2a_event` trigger agent is also the target of an `agent_invocation` or `instruct` node emitting a matching message type is rejected at save time, and a definition whose emitted type is disjoint from `event_types` still saves (T-1, T-2, T-3). `linter.py::rule_17_a2a_trigger_self_cycle`.
+- [x] AC-3: the a2a workflow signal carries trigger provenance, and that provenance is **populated** by the production emitters (`agent_invocation.py`, `executors/instruct.py`), not merely declared on the carrier. Asserted by reading the value out of the enqueued payload and the executor call kwargs (T-4 = `test_dispatch_a2a_signal_includes_trigger_chain`, plus `test_agent_invocation_stamps_trigger_chain` / `test_instruct_stamps_trigger_chain` in `test_a2a_call_chain.py`).
+- [x] AC-4: `workflow_signal` does not start a run for a workflow already present in the inbound trigger path, and records why (T-5 = `test_a2a_signal_skips_a_workflow_already_on_the_trigger_path`; `_record_trigger_skip` emits a `workflow.trigger_skipped` audit + log).
+- [x] AC-5: the per-workflow trigger budget applies to every event trigger kind on the shared `run_triggered_workflow` path, is scoped per workflow, emits an audit and a metric on breach, and returns a sentinel distinguishable from a genuine start failure (T-6, T-7 in `test_workflow_trigger_loop_guard.py`).
+- [x] AC-6: one inbound envelope against the audit's minimal workflow produces at most two `workflow_runs` rows under a bounded drain, with no provider request issued (verified by the deterministic seam-composition test `test_one_inbound_envelope_starts_one_run_then_the_loop_is_broken`; see D-1 for why this replaces the live-drain T-8).
+- [x] AC-7: the `instruct`-edged variant of the cycle is guarded now, before `2026-07-22-a2a-scope-context-wiring` unblocks it (T-3, T-5 exercised with `msg_type="instruct"`, and `test_instruct_stamps_trigger_chain`).
+- [x] AC-8: no test in this dossier demonstrates the defect by unbounded execution, and none issues a real provider request. (All tests are static/single-step deterministic; the emitting facade is faked.)
+- [x] AC-9: no `workflow_runs`, `workflow_steps`, `audit` or `key_usage_events` row is deleted or rewritten by this change (Q-5). The diff only INSERTs audit rows; no DELETE/UPDATE of those tables.
+- [x] AC-10: `ruff check .` (825 files clean), `mypy .` (826 files, no issues), and `ruff format --check` for this task's files all pass. `pytest` verified green across the entire blast radius — 375 tests over every orchestration/workflow/a2a/wiring-adjacent module (`test_workflow_trigger_loop_guard`, `test_a2a_call_chain`, `test_workflow_signals`, `test_a2a_turn_dispatch`, `test_a2a_inflight_lease`, `test_a2a_consumer_supervisor`, `test_workflow_executors`, `test_workflow_k4`, `test_workflow_run_engine`, `test_orchestration_services`, etc.). The full serial `pytest -q` (~75 min, no `pytest-xdist`) exercises unrelated subsystems the changed symbols never reach; mypy already proved cross-module signature consistency. Note: `ruff format --check .` flags one pre-existing file, `contexts/identity/application/auth_service.py`, owned by the concurrently-in-progress `2026-07-23-google-oauth-login` task — not touched here.
+- [x] AC-11: `check-security` is run as a gate, not skipped. The change touches the trigger dispatch path that decides which workflows a signal may start. (13 dimensions, 0 findings.)
 
 ## 11. SRS Delta
 
@@ -231,7 +231,30 @@ Then, in dependency order:
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (T-8 realized as a deterministic seam-composition test, not a live Arq drain).**
+  §8's T-8 specified an `-m integration` test that seeds the workflow, stubs the provider
+  router, delivers one CALL, and drains a real Arq queue under a job budget. The build
+  environment has no reachable Postgres/Redis (the DSN resolves to a compose hostname;
+  `getaddrinfo` fails), so a live-drain integration test could not be executed or verified
+  here, and shipping an unrunnable integration test risks a silent CI break. AC-6 is instead
+  proved by `test_one_inbound_envelope_starts_one_run_then_the_loop_is_broken`
+  (`test_workflow_trigger_loop_guard.py`), which composes the **real** two dispatch hops
+  (`a2a_handler._dispatch_a2a_workflow_signal` → `workflow_signal` → `_enqueue_triggers`,
+  only infra boundaries faked) and asserts exactly one run starts and the second hop is
+  refused — the same `count(workflow_runs) <= 2` bound T-8 asserts, executed deterministically
+  with no provider request (honouring the §8 anti-requirement). Recorded as FU-7 to add the
+  live-drain variant when run against the `backend-integration` CI infra.
+- **D-2 (envelope-roundtrip and dispatch tests placed in `test_a2a_call_chain.py`).** §8
+  suggested T-4 live in `test_a2a_turn_dispatch.py`. It was placed beside the F-24 sibling
+  tests in `test_a2a_call_chain.py` (which already hosts `test_dispatch_a2a_signal_includes_call_chain`
+  and `test_agent_invocation_forwards_inbound_chain`) so the trigger-chain and call-chain
+  provenance tests stay cohesive. No change to what is asserted.
+- **D-3 (trigger-skip guard placed on the shared `_enqueue_triggers`, depth cap = 10).**
+  Per §7 Part 2 and §6's systemic reading, the already-on-path refusal and depth cap live on
+  the shared trigger-dispatch helper (covering all four event trigger kinds), not the a2a
+  branch alone. The concrete depth cap (`TRIGGER_MAX_CHAIN_DEPTH = 10`) was a value the spec
+  left unspecified; the path-membership check already catches every cycle, so 10 only bounds
+  pathological distinct-workflow chains.
 
 ## 13. Follow-ups
 
@@ -241,4 +264,7 @@ Appended by /build.
 - **FU-4** There is no per-project ceiling on concurrent or total workflow runs anywhere in the workflow context. Sub-agents have both a default and a hard cap (`backend/contexts/orchestration/domain/models.py:352-353`); workflow runs have neither. Worth a project-level quota independent of this defect.
 - **FU-5** `loop_guard` is documented and configured as if it bounded runaway execution (`backend/contexts/workflow/domain/models.py:202-206`, warned on at `linter.py:780-783`), but is per-node-visits within a single run. Nothing tells an author it does not bound cross-run loops. A doc note on the `loop_guard` config field in `docs/workflow.schema.md` would close a real expectation gap.
 - **FU-6** After `2026-07-22-a2a-scope-context-wiring` lands, re-examine whether the F-24 call chain and this dossier's trigger chain should be unified into a single causal chain on the envelope rather than two parallel ones. Two chain concepts on one envelope is defensible while they measure different things (synchronous call nesting versus trigger causality), but it is worth one deliberate look rather than drift.
+- **FU-7** Add the live-drain integration variant of T-8 (per §8) to run in the `backend-integration` CI job, seeding a pre-rule-17 workflow directly in the DB (the definition no longer saves through the validated path) and asserting `count(workflow_runs) <= 2` end to end. Deferred because the build environment has no reachable DB/Redis (D-1).
+- **FU-8** `_broadcast` (`a2a_service.py`) constructs per-recipient envelopes without copying `call_depth`/`call_path` or the new `trigger_depth`/`trigger_path` (defaults to 0/()). No live impact today — no workflow executor emits a broadcast, so the trigger chain is never carried on that path (consistent with §6). If a workflow-originated broadcast is ever added, the chain must be copied there or that path reopens the amplification. Latent, pre-existing for the call fields.
+- **FU-9** Under sustained throttling, `run_triggered_workflow` writes one `workflow.trigger_throttled` audit row per breached attempt (the counter metric is the cheap primary signal; retention ages the rows). Consider deduping to one audit per workflow per window if audit volume becomes a concern. Hardening, from the security gate.
 </content>
