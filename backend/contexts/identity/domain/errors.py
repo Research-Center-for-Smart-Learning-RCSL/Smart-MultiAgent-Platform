@@ -64,6 +64,40 @@ class TokenExpired(IdentityError):
     code = "auth/token-expired"
 
 
+class OAuthUnavailable(IdentityError):
+    """Google login is not configured, or Google's endpoints were unreachable.
+    Fail closed — the caller maps this to a 503-style error, never a 500."""
+
+    code = "auth/oauth-unavailable"
+
+
+class OAuthExchangeFailed(IdentityError):
+    """The OAuth callback could not be completed: bad/expired state, or an
+    id_token that failed signature/aud/iss/exp/nonce verification. → 400."""
+
+    code = "auth/oauth-failed"
+
+
+class GoogleEmailUnverified(IdentityError):
+    """Google reported the account's email as unverified; provisioning/linking
+    on it would reintroduce the takeover vector, so it is rejected."""
+
+    code = "auth/oauth-email-unverified"
+
+
+class OAuthIdentityConflict(IdentityError):
+    """The Google account is already linked to a different SMAP user. → 409."""
+
+    code = "auth/oauth-identity-conflict"
+
+
+class LastCredentialError(IdentityError):
+    """Refused to unlink the account's only remaining credential (no password and
+    no other linked identity) until a password is set. → 409."""
+
+    code = "auth/last-credential"
+
+
 class OriginalCreatorSelfDeleteBlocked(IdentityError):
     code = "tenancy/original-creator-self-delete-blocked"
 
@@ -79,10 +113,15 @@ __all__ = [
     "CaptchaRequired",
     "EmailAlreadyRegistered",
     "EmailDomainDenied",
+    "GoogleEmailUnverified",
     "IdentityError",
     "InvalidCredentials",
     "InvalidEmailFormat",
+    "LastCredentialError",
     "Lockout",
+    "OAuthExchangeFailed",
+    "OAuthIdentityConflict",
+    "OAuthUnavailable",
     "OriginalCreatorSelfDeleteBlocked",
     "PasswordPolicyViolation",
     "TokenExpired",

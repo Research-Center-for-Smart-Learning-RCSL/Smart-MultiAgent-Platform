@@ -29,6 +29,8 @@ dependencies = [
 
   "hvac==2.3.*",
   "redis==5.2.*",
+  "pyjwt[crypto]==2.10.*",  # verify Google's RS256 OIDC id_token against JWKS (R6.14); algorithms pinned to RS256 at the call site
+
   "python-multipart==0.0.32",  # SEC-DEP: 0.0.27+ fixes multipart DoS; 0.0.30+ fixes CVE-2026-53538/39/40
   "orjson==3.11.*",
   "cryptography==48.0.*",
