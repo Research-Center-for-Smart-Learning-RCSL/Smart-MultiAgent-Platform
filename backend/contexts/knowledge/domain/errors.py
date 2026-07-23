@@ -67,6 +67,15 @@ class IngestFailed(KnowledgeError):
     code = "knowledge/ingest-failed"
 
 
+class DocumentUnprocessable(KnowledgeError):
+    """The uploaded document could not be parsed into text (corrupt, empty of a
+    text layer, or a format we cannot extract). A client-fixable input problem
+    (422), distinct from :class:`IngestFailed`, which stays a 500 for server-side
+    ingest failures (embedding, provider, or store errors)."""
+
+    code = "knowledge/document-unprocessable"
+
+
 class ChunkParamsInvalid(KnowledgeError):
     code = "knowledge/chunk-params-invalid"
 
@@ -277,6 +286,7 @@ __all__ = [
     "GraphRagEmbeddingModelChangeBlocked",
     "GraphRagInvalidHalfLife",
     "GraphRagOwnerProjectMismatch",
+    "DocumentUnprocessable",
     "IngestFailed",
     "KnowledgeError",
     "KnowmapBuilderKeyGroupProjectMismatch",

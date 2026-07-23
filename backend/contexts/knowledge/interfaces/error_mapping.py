@@ -61,6 +61,11 @@ _MAP: ErrorMap = {
         500,
         "Document ingest failed",
     ),
+    errors.DocumentUnprocessable: (
+        "knowledge/document-unprocessable",
+        422,
+        "Could not extract text from the document; it may be corrupt, empty, or an unsupported format",
+    ),
     errors.ChunkParamsInvalid: (
         "knowledge/chunk-params-invalid",
         422,
