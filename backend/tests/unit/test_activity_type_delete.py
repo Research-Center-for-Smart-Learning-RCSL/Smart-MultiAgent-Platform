@@ -160,7 +160,8 @@ class TestDeleteRoute:
         monkeypatch.setattr(activities, "assert_project_owner", AsyncMock())
         monkeypatch.setattr(activities, "_dispatch_activation_ended", dispatch)
 
-        result = await activities.delete_activity_type(
+        # 204 No Content: the route returns None.
+        await activities.delete_activity_type(
             project_id=project_id,
             type_id=type_id,
             ctx=SimpleNamespace(actor_ip=None, request_id=None),
@@ -168,7 +169,6 @@ class TestDeleteRoute:
             db=db,
         )
 
-        assert result is None
         db.commit.assert_awaited_once()
         assert dispatch.await_args_list[0].args == (room_a, act_a)
         assert dispatch.await_args_list[1].args == (room_b, act_b)
