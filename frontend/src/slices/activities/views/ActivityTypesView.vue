@@ -13,11 +13,11 @@ import {
 
 import {
   SPageHeader,
-  STable,
   SBadge,
   SButton,
   SDropdown,
   SEmptyState,
+  typedTable,
 } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useProjectRole } from '@slices/tenancy'
@@ -94,19 +94,7 @@ const columns = computed<Column[]>(() => [
   { key: 'actions', label: '', width: '48px', align: 'right' },
 ])
 
-// Pin STable's row generic to ActivityType (Volar cannot infer it from a
-// script-setup generic with a default type argument) — mirrors RagConfigListView.
-const _fixedSTable = STable<Record<string, unknown>>
-type STablePropsBase = Parameters<typeof _fixedSTable>[0]
-function typedSTable<T extends object>() {
-  return STable as unknown as new () => {
-    $props: Omit<STablePropsBase, 'data'> & { data?: T[] }
-    $slots: {
-      [key: string]: (arg: { row: T; value: unknown; index: number }) => unknown
-    }
-  }
-}
-const ActivityTypeTable = typedSTable<ActivityType>()
+const ActivityTypeTable = typedTable<ActivityType>()
 </script>
 
 <template>
