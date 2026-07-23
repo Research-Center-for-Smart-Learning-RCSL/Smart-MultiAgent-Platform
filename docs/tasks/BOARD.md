@@ -85,7 +85,7 @@ parallel.
   config F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read
   by nothing. **Blocked on Q-8** (migration posture) — enforcing without a backfill breaks every
   working approval gate on deploy.
-- `2026-07-22-attachment-lifecycle-and-rendering` (bugfix, draft) — `depends_on: []`. a2u F-3, F-14
+- `2026-07-22-attachment-lifecycle-and-rendering` (bugfix, approved) — `depends_on: []`. a2u F-3, F-14
   plus verification-gap V-3. Carries an explicit **do-not-do warning**: the SVG finding's one-line
   description misattributes the defect to the backend allowlist, and following it would delete a
   security control.

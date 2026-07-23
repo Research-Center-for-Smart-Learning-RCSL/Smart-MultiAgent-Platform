@@ -692,6 +692,7 @@ Four composable flags per chat room:
 - **[R13.09]** Single-upload size cap: 1 GB. Rejection at frontend and hard-enforced at gateway.
 - **[R13.10]** All attachments are stored in MinIO under `/chat-uploads/{project_id}/{chatroom_id}/{msg_id}/{filename}`. Lifecycle rule deletes objects after 3 days.
 - **[R13.11]** Messages keep a pointer to the object and, after expiry, surface the text `[attachment expired]` in the UI.
+- **[R13.11a]** The `[attachment expired]` state of R13.11 is reached by a nightly application-side expiry sweep that marks every attachment whose `expires_at` has passed as `EXPIRED` and emits one `attachment.expired` audit event per row. The sweep's horizon and the MinIO bucket lifecycle horizon of R13.10 are required to agree; independently of that agreement, the read path refuses to presign an attachment whose `expires_at` has passed, regardless of its recorded status.
 
 ### 13.5 Output / rendering (Q45)
 
