@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -85,6 +86,22 @@ class ActivationRepository:
         )
         row = result.first()
         return row.id if row is not None else None
+
+    async def list_active_for_type(self, activity_type_id: uuid.UUID) -> Sequence[ActivityActivation]:
+        """Every ACTIVE activation referencing a type, across the project's rooms.
+        Used by type deletion's cascade-end (a type is project-scoped, so the id
+        alone bounds the set to one project)."""
+        rows = (
+            await self._db.execute(
+                sa.select(*_ACTIVATION_COLS).where(
+                    sa.and_(
+                        t.activity_activations.c.activity_type_id == activity_type_id,
+                        t.activity_activations.c.status == ActivationStatus.ACTIVE.value,
+                    )
+                )
+            )
+        ).all()
+        return [_row_to_activation(r) for r in rows]
 
     async def end(self, activation_id: uuid.UUID) -> bool:
         result = await self._db.execute(
