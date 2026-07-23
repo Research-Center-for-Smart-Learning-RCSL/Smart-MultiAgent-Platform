@@ -50,6 +50,15 @@ _PROCESSED_KEY_TTL: Final = 3600
 # How often run_consumer_loop reclaims inbox entries stranded by a dead or
 # stalled consumer via XAUTOCLAIM (see a2a_streams.xautoclaim_stale).
 _CLAIM_INTERVAL_SECONDS: Final = 30.0
+# F-5: a lease held for the whole duration of an entry's handler. The processed
+# marker is written only AFTER the handler returns, so on its own it cannot stop
+# a peer that reclaimed the entry (XAUTOCLAIM) from re-running the handler
+# concurrently — duplicate LLM spend and side effects. The TTL sits well above
+# the refresh interval so a single missed renewal never drops it; a crashed
+# owner's lease then expires at roughly the same time its PEL idle clock crosses
+# _CLAIM_MIN_IDLE_MS, so genuine post-crash reprocessing is not delayed.
+_INFLIGHT_TTL: Final = 60
+_INFLIGHT_REFRESH_SECONDS: Final = 15.0
 
 MessageHandler = Callable[[A2AEnvelope], Awaitable[None]]
 # Called when a message is moved to DLQ: (agent_id, envelope_json, error, attempt)
@@ -64,6 +73,35 @@ def _retry_key(agent_id: uuid.UUID, stream_id: str) -> str:
 def _processed_key(agent_id: uuid.UUID, stream_id: str) -> str:
     """Redis key marking a stream entry whose handler already ran successfully."""
     return f"a2a:done:{agent_id}:{stream_id}"
+
+
+def _inflight_key(agent_id: uuid.UUID, stream_id: str) -> str:
+    """Redis key held for the duration of a stream entry's handler (F-5)."""
+    return f"a2a:inflight:{agent_id}:{stream_id}"
+
+
+async def _refresh_inflight(agent_id: uuid.UUID, stream_id: str, inflight_key: str) -> None:
+    """Renew the in-flight lease and the entry's PEL idle clock while its handler
+    runs (F-5, C2 + C3).
+
+    Refreshing the idle clock (``XCLAIM JUSTID``) is what keeps
+    ``xautoclaim_stale`` from selecting an actively-processed entry; renewing the
+    lease TTL is the backstop for when that idle-clock refresh is degraded (e.g.
+    a Redis older than 6.2). Best-effort: any error is logged and the loop
+    continues, so a transient Redis hiccup can never abort the live handler.
+    """
+    redis = get_redis()
+    while True:
+        await asyncio.sleep(_INFLIGHT_REFRESH_SECONDS)
+        try:
+            await redis.set(inflight_key, "1", ex=_INFLIGHT_TTL)
+            await a2a_streams.xclaim_refresh(agent_id, [stream_id])
+        except Exception:
+            logger.exception(
+                "a2a in-flight refresh failed for agent %s (stream_id=%s)",
+                agent_id,
+                stream_id,
+            )
 
 
 async def consume_once(
@@ -301,67 +339,88 @@ async def _process_entry(
         await redis.delete(retry_key)
         return 1
 
-    try:
-        data = json.loads(raw)
-        envelope = A2AEnvelope.from_dict(data)
-    except (json.JSONDecodeError, TypeError, KeyError, ValueError) as exc:
-        logger.warning(
-            "unparseable a2a message for agent %s (stream_id=%s): %s",
-            agent_id,
-            stream_id,
-            exc,
-        )
-        error_msg = f"parse error: {exc}"
-        await a2a_streams.move_to_dlq(agent_id, stream_id, raw, error_msg, attempt)
-        await redis.delete(retry_key)
-        A2A_DLQ.inc()
-        if on_dlq:
-            await on_dlq(agent_id, raw, error_msg, attempt)
+    # F-5: hold an in-flight lease across the whole attempt. On lease conflict a
+    # peer (typically one that reclaimed this entry via XAUTOCLAIM) is already
+    # running the handler: leave the entry un-ACKed in the PEL for the true owner
+    # to settle, and spend NO retry or DLQ budget — a conflict is not a failure,
+    # so this returns 0 the same way the backoff-skip in consume_once does.
+    inflight_key = _inflight_key(agent_id, stream_id)
+    if not await redis.set(inflight_key, "1", nx=True, ex=_INFLIGHT_TTL):
         return 0
-
+    refresh_task = asyncio.create_task(
+        _refresh_inflight(agent_id, stream_id, inflight_key),
+        name=f"a2a-inflight-refresh-{agent_id}-{stream_id}",
+    )
     try:
-        await handler(envelope)
-        # Mark processed BEFORE the ACK so a crash in the ACK→delete window still
-        # lets the re-delivery dedup (it finds the marker and just ACKs).
-        await redis.set(processed_key, "1", ex=_PROCESSED_KEY_TTL)
-        await a2a_streams.xack(agent_id, stream_id)
-        await redis.delete(retry_key)
-        return 1
-    except Exception as exc:
-        logger.warning(
-            "handler error for agent %s (stream_id=%s, attempt=%d): %s",
-            agent_id,
-            stream_id,
-            attempt,
-            exc,
-        )
-        if attempt >= _MAX_RETRIES:
-            error_msg = str(exc)
+        try:
+            data = json.loads(raw)
+            envelope = A2AEnvelope.from_dict(data)
+        except (json.JSONDecodeError, TypeError, KeyError, ValueError) as exc:
+            logger.warning(
+                "unparseable a2a message for agent %s (stream_id=%s): %s",
+                agent_id,
+                stream_id,
+                exc,
+            )
+            error_msg = f"parse error: {exc}"
             await a2a_streams.move_to_dlq(agent_id, stream_id, raw, error_msg, attempt)
             await redis.delete(retry_key)
             A2A_DLQ.inc()
             if on_dlq:
                 await on_dlq(agent_id, raw, error_msg, attempt)
-            logger.error(
-                "a2a message moved to DLQ for agent %s after %d attempts",
-                agent_id,
-                _MAX_RETRIES,
-            )
             return 0
 
-        # ASYNC-8: non-final failure. Leave the entry un-ACKed (it stays in the
-        # consumer group's PEL) and record an exponential, jittered backoff so
-        # the next consume_once round defers re-delivery instead of retrying in
-        # a tight loop.
-        jitter = random.uniform(0.5, 1.5)  # noqa: S311 — retry jitter, not security-sensitive
-        backoff_s = _BACKOFF_BASE * (2 ** (attempt - 1)) * jitter
-        next_at_ms = int(time.time() * 1000) + int(backoff_s * 1000)
-        await redis.hset(
-            retry_key,
-            mapping={"attempt": attempt, "next_at_ms": next_at_ms},
-        )
-        await redis.expire(retry_key, _RETRY_KEY_TTL)
-        return 0
+        try:
+            await handler(envelope)
+            # Mark processed BEFORE the ACK so a crash in the ACK→delete window
+            # still lets the re-delivery dedup (it finds the marker and just ACKs).
+            await redis.set(processed_key, "1", ex=_PROCESSED_KEY_TTL)
+            await a2a_streams.xack(agent_id, stream_id)
+            await redis.delete(retry_key)
+            return 1
+        except Exception as exc:
+            logger.warning(
+                "handler error for agent %s (stream_id=%s, attempt=%d): %s",
+                agent_id,
+                stream_id,
+                attempt,
+                exc,
+            )
+            if attempt >= _MAX_RETRIES:
+                error_msg = str(exc)
+                await a2a_streams.move_to_dlq(agent_id, stream_id, raw, error_msg, attempt)
+                await redis.delete(retry_key)
+                A2A_DLQ.inc()
+                if on_dlq:
+                    await on_dlq(agent_id, raw, error_msg, attempt)
+                logger.error(
+                    "a2a message moved to DLQ for agent %s after %d attempts",
+                    agent_id,
+                    _MAX_RETRIES,
+                )
+                return 0
+
+            # ASYNC-8: non-final failure. Leave the entry un-ACKed (it stays in
+            # the consumer group's PEL) and record an exponential, jittered
+            # backoff so the next consume_once round defers re-delivery instead
+            # of retrying in a tight loop.
+            jitter = random.uniform(0.5, 1.5)  # noqa: S311 — retry jitter, not security-sensitive
+            backoff_s = _BACKOFF_BASE * (2 ** (attempt - 1)) * jitter
+            next_at_ms = int(time.time() * 1000) + int(backoff_s * 1000)
+            await redis.hset(
+                retry_key,
+                mapping={"attempt": attempt, "next_at_ms": next_at_ms},
+            )
+            await redis.expire(retry_key, _RETRY_KEY_TTL)
+            return 0
+    finally:
+        # Release the lease on every terminal path (success, parse/retry DLQ,
+        # non-final backoff) so the backoff retry can re-acquire it. Stop the
+        # refresh task first so it cannot re-create the key after the delete.
+        refresh_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await refresh_task
+        await redis.delete(inflight_key)
 
 
 __all__ = [

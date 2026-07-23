@@ -21,8 +21,11 @@ class _FakeRedis:
     async def exists(self, key: str) -> int:
         return 1 if key in self.kv else 0
 
-    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+    async def set(self, key: str, value: str, ex: int | None = None, nx: bool = False) -> bool | None:
+        if nx and key in self.kv:
+            return None
         self.kv[key] = value
+        return True
 
     async def delete(self, key: str) -> None:
         self.kv.pop(key, None)
