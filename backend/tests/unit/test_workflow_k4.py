@@ -211,6 +211,9 @@ async def test_approval_gate_builds_config_and_registers_claim(monkeypatch) -> N
     # resume claim key registered with (run_id, node_id).
     claim = json.loads(fake_redis.kv[f"wf:approval:{approval_id}"])
     assert claim == {"run_id": str(ctx.run_id), "node_id": "gate1"}
+    # Characterization (FU-3): the claim key is armed with timeout_seconds + the
+    # gate grace (600 + 300 = 900s).
+    assert fake_redis.ttls[f"wf:approval:{approval_id}"] == 600 + 300
 
 
 async def test_approval_gate_rejects_trigger_payload_room_outside_run_project(monkeypatch) -> None:
