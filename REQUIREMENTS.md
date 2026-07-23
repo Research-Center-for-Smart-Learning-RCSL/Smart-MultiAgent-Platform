@@ -748,6 +748,7 @@ Four composable flags per chat room:
 ### 14.3 Execution
 
 - **[R14.07]** A workflow run is started by a trigger (`manual`, `cron`, `message_received`, `a2a_event`, or `wakeup_signal` — the full list matches `trigger_config.trigger_type` in `docs/workflow.schema.json`).
+- **[R14.07a]** A workflow run started by a trigger must not be able to satisfy its own trigger condition without bound. The engine propagates the causal chain of workflow ids that led to a trigger signal and refuses to start a run for a workflow already on that chain. Independently, the engine enforces a per-workflow ceiling on trigger-started runs within a rolling window; a run refused by either guard is not started and is recorded in the audit trail with the reason.
 - **[R14.08]** The engine maintains a `workflow_run` record with `state: running | waiting | succeeded | failed | cancelled` and a `step_trace` list of activity records.
 - **[R14.09]** Agent invocations inside a workflow respect all agent settings (wake-up, key group, context mode, bound skills §31). Workflow-issued invocations are logged with `origin = 'workflow'`.
 - **[R14.10]** The trace (Q55) is stored in the DB and visible to Admin + Project Owners in a dedicated **backstage** panel. It is **not** surfaced in the chat room UI.
