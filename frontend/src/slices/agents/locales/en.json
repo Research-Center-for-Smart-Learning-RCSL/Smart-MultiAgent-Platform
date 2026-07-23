@@ -306,6 +306,7 @@
       "sizeHint": "PDF, TXT, MD, DOCX -- up to 32 MB",
       "uploadStarted": "Upload accepted; indexing in progress.",
       "uploadFailed": "Upload failed.",
+      "uploadUnprocessable": "Could not read this document -- it may be corrupt, empty, or an unsupported format.",
       "visibleToAgents": "Visible to ai agents",
       "visibleToAgentsHint": "Only the selected ai agents can retrieve this document. An empty selection means no agent can see it.",
       "noBoundAgents": "No agents are bound to this Knowledge Map yet. Attach an ai agent to it first, then choose document visibility here.",

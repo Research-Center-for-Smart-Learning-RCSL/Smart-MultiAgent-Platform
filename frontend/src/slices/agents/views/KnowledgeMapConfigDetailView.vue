@@ -338,8 +338,14 @@ async function onFiles(files: File[]): Promise<void> {
     // the config row as a secondary so a later refetch converges.
     watchBuild(configId, effectiveState.value)
     qc.invalidateQueries({ queryKey: agentKeys.knowmapConfig(configId) })
-  } catch {
-    toast.error(t('agents.knowmap.uploadFailed'))
+  } catch (err) {
+    // A parse failure (422) is a client-fixable input problem — tell the user the
+    // document could not be read, rather than a generic upload failure.
+    if (isProblemWithType(err, '/document-unprocessable')) {
+      toast.error(t('agents.knowmap.uploadUnprocessable'))
+    } else {
+      toast.error(t('agents.knowmap.uploadFailed'))
+    }
   } finally {
     uploading.value = false
   }
