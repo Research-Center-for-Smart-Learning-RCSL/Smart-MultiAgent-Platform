@@ -153,6 +153,32 @@ def already_registered(login_link: str) -> RenderedEmail:
     )
 
 
+def google_linked_password_disabled(reset_link: str) -> RenderedEmail:
+    """Sent when a Google login binds to a previously-unverified account and the
+    old (unproven) password is disabled (R6.16). Carries a set-password link."""
+    return RenderedEmail(
+        subject="Your account is now linked to Google",
+        text_body=(
+            "Your SMAP account was just linked to Google sign-in. Because your email had "
+            "not been verified before, your previous password was disabled for security. "
+            f"To use password sign-in again, set a new password:\n\n{reset_link}\n\n"
+            "If you did not sign in with Google, set a new password immediately to secure "
+            "your account."
+        ),
+        html_body=_wrap_html(
+            "Your account is now linked to Google",
+            [
+                "Your SMAP account was just linked to Google sign-in. Because your email "
+                "had not been verified before, your previous password was disabled for security.",
+                "To use password sign-in again, set a new password. If you did not sign in "
+                "with Google, set a new password immediately to secure your account.",
+            ],
+            link=reset_link,
+            cta="Set a new password",
+        ),
+    )
+
+
 def invite(*, scope_label: str, scope_name: str, accept_link: str) -> RenderedEmail:
     """Org/project invite (R6.09). The link carries the plaintext invite token.
 
@@ -186,6 +212,7 @@ __all__ = [
     "RenderedEmail",
     "already_registered",
     "email_change_reverify",
+    "google_linked_password_disabled",
     "invite",
     "password_reset",
     "verify_email",

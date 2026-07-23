@@ -103,5 +103,19 @@ class AuthEmailService:
             email, email_templates.password_reset(link), user_id=user_id, template="password_reset"
         )
 
+    async def send_google_linked_password_disabled(
+        self, email: str, token: str, *, user_id: uuid.UUID
+    ) -> None:
+        # Sent when a Google login binds to a previously-unverified account and
+        # neutralizes the old password (R6.16). Carries a set-password (reset)
+        # token in the URL fragment, same discipline as password reset (SEC-8).
+        link = f"{self._public_origin}/password-reset/confirm#token={token}"
+        await self._deliver(
+            email,
+            email_templates.google_linked_password_disabled(link),
+            user_id=user_id,
+            template="google_linked_password_disabled",
+        )
+
 
 __all__ = ["AuthEmailService"]

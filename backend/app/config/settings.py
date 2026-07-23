@@ -346,6 +346,41 @@ class EmailSection(BaseSettings):
     )
 
 
+class OAuthSection(BaseSettings):
+    """Google OIDC login config (§6.1a / R6.14).
+
+    Only the non-secret client id + connection params live here; the Google
+    OAuth *client secret* is read from Vault KV ``secret/smap/config/google_oauth``
+    by the adapter, never from the environment. ``google_client_id`` being empty is
+    the signal that Google login is not configured (the button/endpoints fail
+    closed, mirroring the SMTP posture).
+    """
+
+    model_config = SettingsConfigDict(env_prefix="SMAP_OAUTH_", extra="ignore")
+
+    google_client_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("GOOGLE_OAUTH_CLIENT_ID", "SMAP_OAUTH_GOOGLE_CLIENT_ID"),
+    )
+    # Path appended to the public origin to form the Google-registered redirect URI.
+    google_redirect_path: str = Field(
+        default="/api/auth/google/callback",
+        validation_alias=AliasChoices("GOOGLE_OAUTH_REDIRECT_PATH", "SMAP_OAUTH_GOOGLE_REDIRECT_PATH"),
+    )
+    # TTL for the server-side (Redis) OAuth transaction state — an in-flight
+    # round-trip is seconds long; 10 min is generous headroom.
+    state_ttl_seconds: int = Field(
+        default=600,
+        validation_alias=AliasChoices("OAUTH_STATE_TTL_S", "SMAP_OAUTH_STATE_TTL_SECONDS"),
+    )
+    # Bounded timeout on the outbound token-exchange / JWKS calls so an
+    # unauthenticated callback can never hang on a slow Google endpoint.
+    http_timeout_s: float = Field(
+        default=10.0,
+        validation_alias=AliasChoices("OAUTH_HTTP_TIMEOUT_S", "SMAP_OAUTH_HTTP_TIMEOUT_S"),
+    )
+
+
 class ProviderProbeSection(BaseSettings):
     """Base URLs the key-upload live probes dial (R7.02).
 
@@ -417,6 +452,7 @@ class Settings(BaseSettings):
     sandbox: SandboxSection = Field(default_factory=SandboxSection)
     knowledge: KnowledgeSection = Field(default_factory=KnowledgeSection)
     email: EmailSection = Field(default_factory=EmailSection)
+    oauth: OAuthSection = Field(default_factory=OAuthSection)
     provider_probe: ProviderProbeSection = Field(default_factory=ProviderProbeSection)
 
 

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from loguru import logger
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
@@ -26,19 +27,26 @@ from contexts.identity.domain.errors import (
     CaptchaRequired,
     EmailAlreadyRegistered,
     EmailDomainDenied,
+    GoogleEmailUnverified,
     InvalidCredentials,
     InvalidEmailFormat,
+    LastCredentialError,
     Lockout,
+    OAuthExchangeFailed,
+    OAuthIdentityConflict,
+    OAuthUnavailable,
     OriginalCreatorSelfDeleteBlocked,
     PasswordPolicyViolation,
     TokenExpired,
     TokenInvalid,
 )
-from contexts.identity.domain.models import Session, User, UserStatus
+from contexts.identity.domain.models import AuthIdentity, Session, User, UserStatus
 from contexts.identity.infrastructure import email_domain_policy, lockouts
 from contexts.identity.infrastructure.email import EmailSender, recipient_digest
+from contexts.identity.infrastructure.oauth import google as google_oauth
 from contexts.identity.infrastructure.repositories import (
     AdminRepository,
+    AuthIdentityRepository,
     EmailVerifyTokenRepository,
     PasswordResetTokenRepository,
     SessionRepository,
@@ -54,6 +62,7 @@ from shared_kernel.auth.password import (
     validate_password,
 )
 
+_PROVIDER_GOOGLE = "google"
 _VERIFY_TTL = timedelta(hours=24)
 _RESET_TTL = timedelta(minutes=30)  # R6.05
 _MAX_DISPLAY_NAME = 50
@@ -109,6 +118,7 @@ class AuthService:
         self._verify = EmailVerifyTokenRepository(db)
         self._reset = PasswordResetTokenRepository(db)
         self._admins = AdminRepository(db)
+        self._identities = AuthIdentityRepository(db)
         self._public_origin = public_origin.rstrip("/")
         self._notifier = AuthEmailService(
             db=db,
@@ -375,6 +385,247 @@ class AuthService:
             ),
             session_id=session_id,
         )
+
+    # ----- Google OAuth (R6.14-R6.17) --------------------------------------
+
+    async def _verify_google(
+        self, *, code: str, code_verifier: str, nonce: str
+    ) -> google_oauth.GoogleProfile:
+        """Exchange the code and verify the id_token. Fails closed: unreachable
+        Google → OAuthUnavailable (503-style); bad/forged token → OAuthExchangeFailed
+        (400); Google-unverified email → GoogleEmailUnverified (SEC — never bind on it)."""
+        try:
+            client = google_oauth.build_google_client(self._public_origin)
+        except google_oauth.GoogleOAuthNotConfigured as exc:
+            raise OAuthUnavailable() from exc
+        try:
+            id_token = await client.exchange_code(code=code, code_verifier=code_verifier)
+            profile = await client.verify_id_token(id_token, nonce=nonce)
+        except google_oauth.GoogleOAuthUnreachable as exc:
+            raise OAuthUnavailable() from exc
+        except google_oauth.GoogleOAuthError as exc:
+            raise OAuthExchangeFailed() from exc
+        if not profile.email_verified:
+            raise GoogleEmailUnverified()
+        return profile
+
+    async def _guard_oauth_status(
+        self, user: User, *, remote_ip: str | None, request_id: uuid.UUID | None
+    ) -> None:
+        """Reuse the login status gate (DELETED/BANNED) for OAuth. Unlike password
+        login, `email_verified` is NOT required — Google provisions verified and an
+        unverified existing account is verified on bind. Emits an oauth.login.rejected
+        audit before raising so a blocked entry is recorded (AC-9)."""
+        if user.status in (UserStatus.DELETED, UserStatus.BANNED):
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="auth.oauth.login.rejected",
+                    actor_user_id=user.id,
+                    actor_ip=remote_ip,
+                    resource_type="user",
+                    resource_id=user.id,
+                    metadata={"provider": _PROVIDER_GOOGLE, "status": user.status.value},
+                    request_id=request_id,
+                ),
+            )
+            if user.status is UserStatus.DELETED:
+                raise AccountDeleted()
+            raise AccountBanned(user.banned_reason or "banned")
+
+    async def complete_google_login(
+        self,
+        *,
+        code: str,
+        code_verifier: str,
+        nonce: str,
+        remote_ip: str | None,
+        user_agent: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> LoginOutcome:
+        profile = await self._verify_google(code=code, code_verifier=code_verifier, nonce=nonce)
+        # Retry once: a concurrent first-time callback for the same email/sub can
+        # lose the insert race against the DB unique constraints; on conflict we
+        # re-resolve and this pass finds the winning row (F5). The insert is wrapped
+        # in a SAVEPOINT so only it rolls back, not the whole request transaction.
+        for _ in range(2):
+            outcome = await self._try_resolve_oauth_login(
+                profile, remote_ip=remote_ip, user_agent=user_agent, request_id=request_id
+            )
+            if outcome is not None:
+                return outcome
+        raise OAuthExchangeFailed()
+
+    async def _try_resolve_oauth_login(
+        self,
+        profile: google_oauth.GoogleProfile,
+        *,
+        remote_ip: str | None,
+        user_agent: str | None,
+        request_id: uuid.UUID | None,
+    ) -> LoginOutcome | None:
+        """One resolution attempt. Returns None on an insert-race conflict (caller
+        retries); returns a LoginOutcome on success."""
+        # 1. Known Google identity → log that user in.
+        identity = await self._identities.get_by_provider_subject(_PROVIDER_GOOGLE, profile.sub)
+        if identity is not None:
+            user = await self._users.get_by_id(identity.user_id)
+            if user is None:
+                raise OAuthExchangeFailed()
+            await self._guard_oauth_status(user, remote_ip=remote_ip, request_id=request_id)
+            await self._identities.update_email(identity.id, profile.email)
+            return await self._oauth_session(
+                user, remote_ip=remote_ip, user_agent=user_agent, request_id=request_id
+            )
+
+        email = _normalise_email(profile.email)
+        existing = await self._users.get_active_by_email(email)
+        if existing is not None:
+            await self._guard_oauth_status(existing, remote_ip=remote_ip, request_id=request_id)
+            try:
+                async with self._db.begin_nested():
+                    await self._identities.insert(
+                        user_id=existing.id,
+                        provider=_PROVIDER_GOOGLE,
+                        provider_subject=profile.sub,
+                        email=profile.email,
+                    )
+            except IntegrityError:
+                return None  # raced with another link of this sub → re-resolve
+            if not existing.email_verified:
+                # Google proves ownership; the pre-existing password is unproven.
+                # Verify + neutralize it + drop any sessions, and mail a set-password
+                # link (R6.16, OQ-2).
+                await self._users.mark_verified(existing.id)
+                await self._users.neutralize_password(existing.id)
+                await self._invalidate_user_sessions(existing.id, reason="google_link_password_disabled")
+                token, _ = await self._reset.issue(existing.id, _RESET_TTL)
+                await self._notifier.send_google_linked_password_disabled(email, token, user_id=existing.id)
+            if existing.display_name is None and profile.name:
+                await self._users.set_display_name(existing.id, profile.name)
+            user = await self._users.get_by_id(existing.id)
+            if user is None:
+                raise OAuthExchangeFailed()
+            return await self._oauth_session(
+                user, remote_ip=remote_ip, user_agent=user_agent, request_id=request_id
+            )
+
+        # 3. No user for this email → provision a passwordless, verified account.
+        try:
+            async with self._db.begin_nested():
+                user = await self._users.insert(
+                    email=email,
+                    password_hash=None,
+                    status=UserStatus.ACTIVE,
+                    email_verified=True,
+                    display_name=profile.name,
+                )
+                await self._identities.insert(
+                    user_id=user.id,
+                    provider=_PROVIDER_GOOGLE,
+                    provider_subject=profile.sub,
+                    email=profile.email,
+                )
+        except IntegrityError:
+            return None  # raced with another provision of this email/sub → re-resolve
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="auth.oauth.provisioned",
+                actor_user_id=user.id,
+                actor_ip=remote_ip,
+                resource_type="user",
+                resource_id=user.id,
+                metadata={"provider": _PROVIDER_GOOGLE, "email_digest": recipient_digest(email)},
+                request_id=request_id,
+            ),
+        )
+        return await self._oauth_session(
+            user, remote_ip=remote_ip, user_agent=user_agent, request_id=request_id
+        )
+
+    async def _oauth_session(
+        self, user: User, *, remote_ip: str | None, user_agent: str | None, request_id: uuid.UUID | None
+    ) -> LoginOutcome:
+        return await self._establish_session(
+            user,
+            remote_ip=remote_ip,
+            user_agent=user_agent,
+            request_id=request_id,
+            audit_action="auth.oauth.login.success",
+            audit_metadata={"provider": _PROVIDER_GOOGLE},
+        )
+
+    async def complete_google_link(
+        self,
+        *,
+        user_id: uuid.UUID,
+        code: str,
+        code_verifier: str,
+        nonce: str,
+        remote_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        """Bind a Google account to the already-authenticated `user_id` (mode=link)."""
+        profile = await self._verify_google(code=code, code_verifier=code_verifier, nonce=nonce)
+        existing = await self._identities.get_by_provider_subject(_PROVIDER_GOOGLE, profile.sub)
+        if existing is not None:
+            if existing.user_id == user_id:
+                return  # idempotent — already linked to this user
+            raise OAuthIdentityConflict()
+        try:
+            await self._identities.insert(
+                user_id=user_id,
+                provider=_PROVIDER_GOOGLE,
+                provider_subject=profile.sub,
+                email=profile.email,
+            )
+        except IntegrityError as exc:
+            # (provider, subject) or (user_id, provider) unique fired under a race.
+            raise OAuthIdentityConflict() from exc
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="auth.oauth.account_linked",
+                actor_user_id=user_id,
+                actor_ip=remote_ip,
+                resource_type="user",
+                resource_id=user_id,
+                metadata={"provider": _PROVIDER_GOOGLE},
+                request_id=request_id,
+            ),
+        )
+
+    async def unlink_google(
+        self, *, user_id: uuid.UUID, remote_ip: str | None, request_id: uuid.UUID | None = None
+    ) -> None:
+        """Remove the Google link. Refuses to strip the account's only remaining
+        credential (no password and no other identity) until a password is set (R6.17)."""
+        user = await self._users.get_by_id(user_id)
+        if user is None:
+            raise InvalidCredentials()
+        identities = await self._identities.list_for_user(user_id)
+        if not any(i.provider == _PROVIDER_GOOGLE for i in identities):
+            return  # nothing to unlink (idempotent)
+        has_other = user.password_hash is not None or any(i.provider != _PROVIDER_GOOGLE for i in identities)
+        if not has_other:
+            raise LastCredentialError()
+        await self._identities.delete(user_id, _PROVIDER_GOOGLE)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="auth.oauth.account_unlinked",
+                actor_user_id=user_id,
+                actor_ip=remote_ip,
+                resource_type="user",
+                resource_id=user_id,
+                metadata={"provider": _PROVIDER_GOOGLE},
+                request_id=request_id,
+            ),
+        )
+
+    async def list_identities(self, user_id: uuid.UUID) -> list[AuthIdentity]:
+        return await self._identities.list_for_user(user_id)
 
     async def refresh(
         self, *, refresh_token: str, remote_ip: str, request_id: uuid.UUID | None = None
