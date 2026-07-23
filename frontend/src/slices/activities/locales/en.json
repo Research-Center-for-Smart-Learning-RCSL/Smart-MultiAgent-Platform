@@ -67,6 +67,15 @@
       "retentionHelp": "How long submissions are kept. Leave blank for no limit.",
       "payloadSchema": "Submission fields",
       "payloadSchemaHelp": "The fields a participant fills in and submits.",
+      "schemaMode": {
+        "builder": "Builder",
+        "raw": "Raw JSON"
+      },
+      "schemaModeLabel": "Schema editor mode",
+      "schemaModeLockedHint": "This schema was authored as raw JSON and can't be edited in the builder.",
+      "schemaRawHint": "Edit the JSON Schema directly. Nested objects, arrays, and enums are supported here.",
+      "schemaRawPlaceholder": "{ \"type\": \"object\", \"properties\": { ... } }",
+      "schemaInvalidJson": "Enter valid JSON.",
       "validator": "Validator",
       "validatorKind": {
         "webhook": "Webhook",
