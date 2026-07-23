@@ -351,6 +351,48 @@ The registration CAPTCHA (R19a.12) provider/secret/sitekey/mode live in Vault KV
 leaves the backend. `mode=off` (or an unreachable Vault) ⇒ no widget renders and the
 backend bypasses verification. Login takes no CAPTCHA — it is register-only.
 
+The KV keys the backend reads are exactly these four — no others:
+
+| Key | Values | Notes |
+|-----|--------|-------|
+| `mode` | `on` \| `off` | Absent ⇒ `off`. `off` forces the public provider to `off`. |
+| `provider` | `hcaptcha` \| `turnstile` | Strict allowlist; a typo fails verification closed. |
+| `sitekey` | provider site key | Public; sent to the browser. |
+| `secret` | provider secret | Private; used only for server-side `siteverify`. |
+
+`sitekey`/`secret` come from the provider dashboard (hCaptcha or Cloudflare
+Turnstile) — SMAP cannot generate them. Only **enabling** CAPTCHA needs them;
+disabling never does.
+
+**Disable (immediate, no provider keys needed):**
+
+```bash
+# Prod/staging Vault runs in a container; exec into it with an admin token.
+docker exec -e VAULT_TOKEN=<token> $(docker ps -qf name=vault) \
+  vault kv put secret/smap/config/captcha mode=off provider=hcaptcha sitekey="" secret=""
+```
+
+**Enable:** write all four keys at once (`vault kv put` overwrites the whole
+secret — a partial write that drops `secret` breaks verification):
+
+```bash
+docker exec -e VAULT_TOKEN=<token> $(docker ps -qf name=vault) \
+  vault kv put secret/smap/config/captcha \
+    mode=on provider=hcaptcha sitekey=<site-key> secret=<secret-key>
+```
+
+Verify with `vault kv get secret/smap/config/captcha`, then hard-refresh the
+register page (the SPA caches `captcha-config` on mount).
+
+> **Bootstrap gotcha:** older `vault-init` seeds wrote `public_key`/`secret_key`
+> (wrong names) and left `mode` unset. Because `mode` then defaulted to `on`, a
+> fresh stack enforced CAPTCHA against an empty sitekey/secret — an unwinnable
+> "please complete the security check" that blocked all registration while login
+> kept working. Fixed in `smap/bootstrap/vault_init.py` (correct key names +
+> `mode=off` seed) and `shared_kernel/auth/captcha.py` (default `mode=off`).
+> `_ensure_kv` never overwrites an existing secret, so a stack bootstrapped
+> before the fix must be corrected with the `vault kv put` above.
+
 ---
 
 ## 8. Runbooks (selected high-impact scenarios)
