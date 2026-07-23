@@ -96,6 +96,14 @@ class AgentsFacade:
         annotate a key's per-project binding footprint."""
         return await self._agents.count_active_by_key_groups(group_ids)
 
+    async def filter_live_agents(self, agent_ids: set[uuid.UUID]) -> set[uuid.UUID]:
+        """Subset of ``agent_ids`` that are live (not soft-deleted).
+
+        Consumed by the orchestration A2A consumer supervisor to stop consumer
+        loops for agents that have been deleted (G.1 — one consumer per live
+        agent runtime)."""
+        return await self._agents.filter_live_agent_ids(agent_ids)
+
     # ------------------------------------------------------------------
     # Write surface exposed to orchestration (G.4 / G.5)
     # ------------------------------------------------------------------

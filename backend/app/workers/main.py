@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import uuid
 from contextlib import suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
@@ -87,6 +88,7 @@ from app.workers.tasks.workflow_steps import (
     workflow_subagent_timeout,
 )
 from app.workers.tasks.workflow_watchdog import workflow_watchdog
+from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.keys.application.threshold_worker import sample_once as _threshold_sample_once
 from contexts.keys.infrastructure import revocation_listener
 from contexts.orchestration.application.a2a_consumer import A2AConsumerSupervisor
@@ -199,6 +201,16 @@ def _start_healthz_sidecar() -> None:
     Thread(target=server.serve_forever, daemon=True, name="worker-healthz").start()
 
 
+async def _live_agents(agent_ids: set[uuid.UUID]) -> set[uuid.UUID]:
+    """Liveness filter for the A2A consumer supervisor (F-20): the DB is the
+    authority on which discovered inbox streams still have a live agent."""
+    if not agent_ids:
+        return set()
+    sm = get_sessionmaker()
+    async with sm() as session:
+        return await AgentsFacade(session).filter_live_agents(agent_ids)
+
+
 async def _startup(ctx: dict[str, Any]) -> None:
     configure_logging(get_settings().logging)
     _start_healthz_sidecar()
@@ -214,6 +226,7 @@ async def _startup(ctx: dict[str, Any]) -> None:
     supervisor = A2AConsumerSupervisor(
         handle_envelope,
         on_dlq=make_dlq_audit_callback(),
+        liveness=_live_agents,
     )
     ctx["_a2a_supervisor"] = supervisor
     ctx["_a2a_task"] = asyncio.create_task(

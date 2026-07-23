@@ -63,6 +63,11 @@ _INFLIGHT_REFRESH_SECONDS: Final = 15.0
 MessageHandler = Callable[[A2AEnvelope], Awaitable[None]]
 # Called when a message is moved to DLQ: (agent_id, envelope_json, error, attempt)
 DlqCallback = Callable[[uuid.UUID, str, str, int], Awaitable[None]]
+# Filters a discovered set of agent ids down to the ones that are still live
+# (not soft-deleted). Injected so the supervisor gets its liveness signal from
+# the DB (the authority) rather than from the Redis stream key its own loops
+# recreate via ``mkstream`` — see F-20 / :meth:`A2AConsumerSupervisor._reconcile`.
+LivenessFilter = Callable[[set[uuid.UUID]], Awaitable[set[uuid.UUID]]]
 
 
 def _retry_key(agent_id: uuid.UUID, stream_id: str) -> str:
@@ -222,9 +227,12 @@ class A2AConsumerSupervisor:
 
     A single long-lived task owned by ``app.workers``. Every
     ``_SCAN_INTERVAL_SECONDS`` it SCANs Redis for ``a2a:agent:{id}`` streams
-    and ensures a :func:`run_consumer_loop` task is running for each. Agents
-    created after start-up are picked up on the next scan; loops that have
-    exited are restarted. :meth:`stop` cancels every child loop cleanly.
+    and ensures a :func:`run_consumer_loop` task is running for each live agent.
+    Agents created after start-up are picked up on the next scan; loops that
+    have exited are restarted; loops for agents that fail the injected
+    ``liveness`` filter (soft-deleted) are cancelled and dropped. A restored
+    agent's loop is recreated by the next scan. :meth:`stop` cancels every child
+    loop cleanly.
 
     This is the *sole* reader of agent inbox streams — synchronous ``call``
     waits on the reply rendezvous (``a2a_rendezvous``) rather than the stream,
@@ -240,9 +248,11 @@ class A2AConsumerSupervisor:
         handler: MessageHandler,
         *,
         on_dlq: DlqCallback | None = None,
+        liveness: LivenessFilter | None = None,
     ) -> None:
         self._handler = handler
         self._on_dlq = on_dlq
+        self._liveness = liveness
         self._shutdown = asyncio.Event()
         self._loops: dict[uuid.UUID, asyncio.Task[None]] = {}
 
@@ -274,7 +284,25 @@ class A2AConsumerSupervisor:
         self._shutdown.set()
 
     async def _reconcile(self) -> None:
-        for agent_id in await self._discover_agents():
+        discovered = await self._discover_agents()
+        # Discovery from Redis alone is create-only and unreliable for teardown:
+        # run_consumer_loop's ensure_consumer_group recreates the a2a:agent:{id}
+        # key via mkstream, so a deleted agent's stream reappears on the next
+        # scan (F-20). The injected liveness filter is the DB authority. On its
+        # error we fail open — keep every loop and prune nothing this scan — so a
+        # transient DB blip never silences a live agent's inbox.
+        if self._liveness is None:
+            live, prune = discovered, False
+        else:
+            try:
+                live, prune = await self._liveness(discovered), True
+            except Exception:
+                logger.exception(
+                    "a2a consumer supervisor: liveness check failed; keeping all loops this scan"
+                )
+                live, prune = discovered, False
+
+        for agent_id in live:
             task = self._loops.get(agent_id)
             if task is None or task.done():
                 self._loops[agent_id] = asyncio.create_task(
@@ -286,6 +314,14 @@ class A2AConsumerSupervisor:
                     ),
                     name=f"a2a-consumer-{agent_id}",
                 )
+
+        if not prune:
+            return
+        for agent_id in set(self._loops) - live:
+            task = self._loops.pop(agent_id)
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
     async def _discover_agents(self) -> set[uuid.UUID]:
         found: set[uuid.UUID] = set()
