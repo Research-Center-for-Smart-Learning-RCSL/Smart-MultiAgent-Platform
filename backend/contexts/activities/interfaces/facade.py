@@ -19,6 +19,7 @@ from contexts.activities.application.aggregation_service import AggregationServi
 from contexts.activities.application.session_service import ActivitySessionService
 from contexts.activities.application.submission_service import SubmissionService
 from contexts.activities.application.type_service import ActivityTypeService
+from contexts.activities.application.validators.registry import ValidatorInfo, list_registered
 from contexts.activities.domain.errors import ActivityTypeNotFound
 from contexts.activities.domain.models import (
     ActivityActivation,
@@ -44,6 +45,7 @@ __all__ = [
     "ActivityType",
     "RecentActivityRow",
     "ValidationResult",
+    "ValidatorInfo",
     "ValidatorKind",
 ]
 
@@ -118,6 +120,12 @@ class ActivitiesFacade:
             actor_ip=actor_ip,
             request_id=request_id,
         )
+
+    @staticmethod
+    def list_validators() -> list[ValidatorInfo]:
+        """The process-global first-party in-process validators (id + title). No DB
+        access: the registry is populated at startup (R30.05/R30.24)."""
+        return list_registered()
 
     async def list_types(self, project_id: uuid.UUID) -> Sequence[ActivityType]:
         return await self._types.list_types(project_id)

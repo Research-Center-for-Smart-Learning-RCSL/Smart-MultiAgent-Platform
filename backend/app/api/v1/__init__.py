@@ -198,6 +198,7 @@ def _build_registry() -> list[RouterEntry]:
         # Structured activities (project-scoped types + room-scoped sessions/submissions)
         RouterEntry(activity_routes.project_router),
         RouterEntry(activity_routes.chatroom_router),
+        RouterEntry(activity_routes.validator_router),
         # Model catalog (provider/model presets for the config UI)
         RouterEntry(model_catalog_routes.router),
         # RAG

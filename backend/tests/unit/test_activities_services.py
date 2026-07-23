@@ -100,6 +100,27 @@ class TestRegistry:
         assert r2.is_valid is False
         assert r2.error_class == "bad"
 
+    def test_list_registered_returns_id_and_title_sorted(self) -> None:
+        registry.register_in_process_validator("zeta", lambda p, a, *, db: ValidationResult(is_valid=True))
+        registry.register_in_process_validator(
+            "alpha", lambda p, a, *, db: ValidationResult(is_valid=True), title="Alpha scorer"
+        )
+        listed = registry.list_registered()
+        assert [(v.validator_id, v.title) for v in listed] == [
+            ("alpha", "Alpha scorer"),
+            ("zeta", "zeta"),  # title defaults to the id
+        ]
+
+    def test_config_validator_accessor(self) -> None:
+        def cfg(config: dict[str, Any]) -> None:
+            raise ValidatorConfigInvalid("bad")
+
+        registry.register_in_process_validator(
+            "x", lambda p, a, *, db: ValidationResult(is_valid=True), config_validator=cfg
+        )
+        assert registry.get_config_validator("x") is cfg
+        assert registry.get_config_validator("missing") is None
+
 
 class TestTypeServiceValidatorConfig:
     def teardown_method(self) -> None:
@@ -196,6 +217,122 @@ class TestTypeServiceValidatorConfig:
             )
         svc._repo.create.assert_not_awaited()
 
+    async def test_in_process_valid_exact_match_config_passes(self) -> None:
+        from app.plugins.activity_validators import register_first_party_validators
+
+        register_first_party_validators()
+        svc = ActivityTypeService(MagicMock())
+        svc._repo = MagicMock()
+        type_id = uuid.uuid4()
+        svc._repo.create = AsyncMock(return_value=type_id)
+        svc._repo.get = AsyncMock(return_value=_make_type(id=type_id))
+        with patch("contexts.activities.application.type_service.audit.emit", new=AsyncMock()):
+            await svc.register(
+                project_id=uuid.uuid4(),
+                key="k",
+                name="n",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config={"validator_id": "exact_match", "field": "answer", "expected": "42"},
+                retention_days=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+        svc._repo.create.assert_awaited_once()
+
+    async def test_in_process_exact_match_missing_field_rejected(self) -> None:
+        from app.plugins.activity_validators import register_first_party_validators
+
+        register_first_party_validators()
+        svc = ActivityTypeService(MagicMock())
+        svc._repo = MagicMock()
+        svc._repo.create = AsyncMock()
+        with pytest.raises(ValidatorConfigInvalid):
+            await svc.register(
+                project_id=uuid.uuid4(),
+                key="k",
+                name="n",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config={"validator_id": "exact_match", "expected": "42"},
+                retention_days=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+        svc._repo.create.assert_not_awaited()
+
+
+class TestExactMatchValidator:
+    """The first-party ``exact_match`` scorer + its config validator (AC-2, AC-3)."""
+
+    def teardown_method(self) -> None:
+        registry.clear_registry()
+
+    def _score(self, config: dict[str, Any], payload: dict[str, Any]) -> ValidationResult:
+        from app.plugins.activity_validators import exact_match_scorer
+
+        at = _make_type(validator_config={"validator_id": "exact_match", **config})
+        return exact_match_scorer(payload, at, db=MagicMock())
+
+    def test_exact_match_valid(self) -> None:
+        r = self._score({"field": "answer", "expected": "42"}, {"answer": "42"})
+        assert r.is_valid is True
+        assert r.error_class is None
+
+    def test_exact_match_mismatch(self) -> None:
+        r = self._score({"field": "answer", "expected": "42"}, {"answer": "43"})
+        assert r.is_valid is False
+        assert r.error_class == "mismatch"
+
+    def test_exact_match_case_insensitive_by_default(self) -> None:
+        assert self._score({"field": "answer", "expected": "Yes"}, {"answer": "yes"}).is_valid is True
+
+    def test_exact_match_case_sensitive_when_set(self) -> None:
+        r = self._score({"field": "answer", "expected": "Yes", "case_sensitive": True}, {"answer": "yes"})
+        assert r.is_valid is False
+
+    def test_exact_match_non_string_equality(self) -> None:
+        assert self._score({"field": "n", "expected": 7}, {"n": 7}).is_valid is True
+        assert self._score({"field": "ok", "expected": True}, {"ok": False}).is_valid is False
+
+    def test_exact_match_missing_payload_field_is_mismatch(self) -> None:
+        r = self._score({"field": "answer", "expected": "42"}, {})
+        assert r.is_valid is False
+        assert r.error_class == "mismatch"
+
+    def test_config_validator_accepts_wellformed(self) -> None:
+        from app.plugins.activity_validators import validate_exact_match_config
+
+        validate_exact_match_config({"validator_id": "exact_match", "field": "answer", "expected": "42"})
+
+    def test_config_validator_rejects_empty_field(self) -> None:
+        from app.plugins.activity_validators import validate_exact_match_config
+
+        with pytest.raises(ValidatorConfigInvalid):
+            validate_exact_match_config({"field": "  ", "expected": "42"})
+
+    def test_config_validator_rejects_missing_expected(self) -> None:
+        from app.plugins.activity_validators import validate_exact_match_config
+
+        with pytest.raises(ValidatorConfigInvalid):
+            validate_exact_match_config({"field": "answer"})
+
+
+class TestActivityValidatorRegistrationWiring:
+    """The bootstrap step registers the shipped set (AC-1)."""
+
+    def teardown_method(self) -> None:
+        registry.clear_registry()
+
+    async def test_startup_step_registers_exact_match(self) -> None:
+        from app.bootstrap.startup import register_activity_validators_step
+
+        registry.clear_registry()
+        assert not registry.is_registered("exact_match")
+        await register_activity_validators_step(MagicMock())
+        assert registry.is_registered("exact_match")
+        assert any(v.validator_id == "exact_match" for v in registry.list_registered())
+
 
 def _wire_submission_service(
     activity_type: ActivityType,
@@ -288,6 +425,38 @@ class TestSubmitInProcess:
         assert kwargs["is_valid"] is True  # from the server scorer, not the client
         assert kwargs["sub_scores"] == {"grade": 100}
         assert kwargs["attempt_no"] == 1  # server-assigned (max 0 + 1), not client's 99
+
+    async def test_exact_match_scores_end_to_end(self) -> None:
+        from app.plugins.activity_validators import register_first_party_validators
+
+        register_first_party_validators()
+        activity_type = _make_type(
+            project_id=uuid.uuid4(),
+            validator_config={"validator_id": "exact_match", "field": "answer", "expected": "42"},
+        )
+        svc, sub_repo, session = _wire_submission_service(activity_type)
+
+        with (
+            patch.object(ss, "ConversationFacade") as conv,
+            patch.object(ss.audit, "emit", new=AsyncMock()),
+        ):
+            conv.return_value.insert_system_message = AsyncMock()
+            await svc.submit(
+                project_id=activity_type.project_id,
+                activity_type_id=activity_type.id,
+                chatroom_id=session.chatroom_id,
+                producer_user_id=session.subject_user_id,
+                subject_user_id=session.subject_user_id,
+                caller_user_id=session.subject_user_id,
+                payload={"answer": "43"},  # wrong answer
+                actor_user_id=session.subject_user_id,
+                actor_ip=None,
+            )
+
+        kwargs = sub_repo.insert.await_args.kwargs
+        assert kwargs["validation_status"] is ValidationStatus.VALIDATED
+        assert kwargs["is_valid"] is False
+        assert kwargs["error_class"] == "mismatch"
 
     async def test_payload_schema_violation_rejected(self) -> None:
         activity_type = _make_type(project_id=uuid.uuid4())
