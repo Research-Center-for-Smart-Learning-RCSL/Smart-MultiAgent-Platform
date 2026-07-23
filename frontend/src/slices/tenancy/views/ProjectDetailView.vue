@@ -14,6 +14,7 @@ import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   PencilIcon, UserGroupIcon, ClipboardIcon,
   TrashIcon, ArrowPathIcon, UserIcon, BuildingOffice2Icon, PuzzlePieceIcon,
+  ClipboardDocumentCheckIcon,
 } from '@heroicons/vue/24/outline'
 import { projectsApi, type Project, type ProjectMember } from '../api/projects'
 import { tenancyKeys } from '../queries'
@@ -170,6 +171,18 @@ const breadcrumbs = computed(() => [
                 <PuzzlePieceIcon class="w-4 h-4" />
               </template>
               {{ t('tenancy.project.skills') }}
+            </SButton>
+
+            <SButton
+              v-if="isOwner"
+              variant="secondary"
+              as="router-link"
+              :to="{ name: 'activities.types', params: { projectId: project.id } }"
+            >
+              <template #icon-left>
+                <ClipboardDocumentCheckIcon class="w-4 h-4" />
+              </template>
+              {{ t('tenancy.project.activityTypes') }}
             </SButton>
           </template>
 

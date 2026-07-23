@@ -5,6 +5,7 @@ import {
   type RouteRecordRaw,
 } from 'vue-router'
 
+import { activitiesRoutes } from '@slices/activities'
 import { adminRoutes } from '@slices/admin'
 import { agentGroupsRoutes } from '@slices/agent-groups'
 import { agentsRoutes } from '@slices/agents'
@@ -38,6 +39,7 @@ const routes: RouteRecordRaw[] = [
   ...notificationsRoutes,
   ...promptStudioRoutes,
   ...skillsRoutes,
+  ...activitiesRoutes,
   {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
