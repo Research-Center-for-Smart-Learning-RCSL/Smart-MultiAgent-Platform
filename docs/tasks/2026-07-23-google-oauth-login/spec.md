@@ -653,3 +653,9 @@ Appended by /build. Empty means the implementation matches this spec exactly.
   carries no invite handling, so Google provisioning does not regress it — but invite
   acceptance being email-keyed post-login should be re-confirmed when that flow is next
   touched. Recorded, not acted on here.
+- FU-5: Pre-existing (not introduced by this task) — `login` passes the raw client password
+  straight into `hasher.verify()` without the `_MAX_LEN` (1024) bound that `validate_password`
+  enforces, so a multi-MB password on `/api/auth/login` forces an oversized Argon2 pre-hash on
+  every attempt. Modest, unauthenticated, and identical across all three login branches (no
+  enumeration oracle). Surfaced by the M1+M2 adversarial security review; bound the length at
+  the API boundary in a later hardening pass. Not changed here.

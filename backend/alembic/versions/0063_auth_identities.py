@@ -47,11 +47,12 @@ def upgrade() -> None:
     )
     # Match the users.email convention (Text column promoted to citext in-DB).
     op.execute("ALTER TABLE auth_identities ALTER COLUMN email TYPE CITEXT USING email::citext")
-    op.create_index("ix_auth_identities_user_id", "auth_identities", ["user_id"])
+    # No standalone (user_id) index: the uq_auth_identities_user_provider unique
+    # index is btree-backed on (user_id, provider), so its leading column already
+    # serves user_id-prefix scans (same rationale as 0062_workflow_run_participants).
 
 
 def downgrade() -> None:
-    op.drop_index("ix_auth_identities_user_id", table_name="auth_identities")
     op.drop_table("auth_identities")
     # Re-tightening password_hash to NOT NULL would fail on any Google-only
     # (NULL-hash) account created while this migration was live. Backfill those
