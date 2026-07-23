@@ -105,3 +105,11 @@ committed and the file appears to disappear:
 - FU-3 (ops): re-run `smap.bootstrap minio-init` as a standard post-deploy step so
   newly added buckets are provisioned automatically. (With FU-2, a stale MinIO now
   also fails readiness, surfacing the gap before traffic is routed.)
+- FU-4 (known limitation, from code review): committing the multipart upload row
+  before synchronous indexing trades the old vanish-on-crash for a row that stays
+  `INGESTING` if the process is killed mid-index (OOM/redeploy); unlike the tus
+  path there is no Arq worker to reclaim it, so it is only recovered by re-uploading
+  the identical bytes (which re-indexes the non-READY row). This is a deliberate net
+  improvement over vanishing (the file stays visible and retriable) but has no
+  automatic recovery. A stale-`INGESTING` watchdog (flip rows stuck past a timeout
+  to `FAILED`) would close it if the spinner-forever case proves to matter.
