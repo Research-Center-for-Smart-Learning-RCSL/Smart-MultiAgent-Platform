@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: draft
+status: approved
 created: 2026-07-23
 requirements: []
 depends_on: []
