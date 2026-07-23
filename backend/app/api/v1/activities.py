@@ -328,6 +328,7 @@ async def open_activity_session(
         activity_type_id=body.activity_type_id,
         chatroom_id=chatroom_id,
         subject_user_id=body.subject_user_id or principal.user_id,
+        caller_user_id=None if principal.is_admin else principal.user_id,
     )
     await db.commit()
     return _session_out(session)
@@ -337,13 +338,21 @@ async def open_activity_session(
 async def close_activity_session(
     chatroom_id: uuid.UUID = Path(...),
     session_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> ActivitySessionOut:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
     facade = ActivitiesFacade(db)
-    await facade.close_session(session_id=session_id, chatroom_id=chatroom_id)
+    await facade.close_session(
+        session_id=session_id,
+        chatroom_id=chatroom_id,
+        subject_user_id=None if principal.is_admin else principal.user_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
     await db.commit()
     session = await facade.get_session(session_id)
     if session is None:  # unreachable — close_session validated existence in this txn
@@ -372,6 +381,7 @@ async def submit_activity(
         chatroom_id=chatroom_id,
         producer_user_id=principal.user_id,
         subject_user_id=body.subject_user_id or principal.user_id,
+        caller_user_id=None if principal.is_admin else principal.user_id,
         payload=body.payload,
         session_id=body.session_id,
         actor_user_id=principal.user_id,

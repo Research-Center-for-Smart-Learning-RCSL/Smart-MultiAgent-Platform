@@ -20,6 +20,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.application.ports import ActivityActivationRepository
+from contexts.activities.application.session_service import _ensure_subject_is_caller
 from contexts.activities.application.validators.in_process import InProcessValidator
 from contexts.activities.application.validators.schema import payload_errors
 from contexts.activities.domain.errors import (
@@ -67,6 +68,7 @@ class SubmissionService:
         chatroom_id: uuid.UUID,
         producer_user_id: uuid.UUID,
         subject_user_id: uuid.UUID,
+        caller_user_id: uuid.UUID | None,
         payload: dict[str, object],
         session_id: uuid.UUID | None = None,
         actor_user_id: uuid.UUID,
@@ -78,6 +80,10 @@ class SubmissionService:
         # cross-project → NotFound (never leak another tenant's type).
         if activity_type is None or activity_type.project_id != project_id:
             raise ActivityTypeNotFound(str(activity_type_id))
+        # A submission writes into a per-subject attempt history, so a member may
+        # only submit as themselves (caller_user_id=None is the admin arm). Ordered
+        # AFTER the type isolation so a cross-tenant probe still 404s on the type.
+        _ensure_subject_is_caller(subject_user_id, caller_user_id)
 
         # Hold the active row through the transaction. The facilitator's guarded
         # UPDATE must contend on this lock, so it cannot commit an end between
