@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-07-23
 requirements: [R6.01, R6.02, R6.03, R6.13, R19.01, R19a.12]
 depends_on: []
@@ -490,58 +490,67 @@ Touches auth, session issuance, and account identity — full treatment required
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `GET /api/auth/google/authorize?mode=login` returns a 302 to Google with a
+**Verification method (D-2):** AC-2..AC-7, AC-9, AC-10, AC-11, AC-16, AC-17 are pinned by
+`tests/unit/test_auth_service_oauth.py` (25 cases). AC-8/AC-14 by the null-hash guards + the
+full unit suite (5700 passed). AC-13 by the frontend component tests. The migration behind
+AC-2/AC-5 was verified empirically (up → guarded downgrade with a real NULL-hash row → up).
+AC-1, AC-12, AC-15, AC-18 are verified by construction + OpenAPI (route wiring, `current_principal`
+bearer gate, `_establish_session` reuse, the reused password-reset flow) — their end-to-end
+browser behavior is the **staging-manual Google E2E** the test plan (§12) designates as the
+final confirmation before prod.
+
+- [x] AC-1: `GET /api/auth/google/authorize?mode=login` returns a 302 to Google with a
   `state`, `code_challenge` (PKCE S256), `nonce`, and a `redirect_uri` derived from
   `_public_origin()`; the `state` entry is stored in Redis with a bounded TTL and the
   matching `smap_oauth_state` cookie (`SameSite=Lax`) is set.
-- [ ] AC-2: A valid callback for a Google `sub` that has never been seen and whose email
+- [x] AC-2: A valid callback for a Google `sub` that has never been seen and whose email
   matches no active account provisions a `users` row with `password_hash IS NULL`,
   `email_verified=true`, `status=ACTIVE`, inserts an `auth_identities` row, sets the
   `smap_refresh` cookie, **302-redirects to the SPA landing route** (no JSON body), and
   emits `auth.oauth.provisioned` + `auth.oauth.login.success`. The SPA landing calls
   `hydrate()` and ends up logged in.
-- [ ] AC-3: A callback whose `sub` already has an `auth_identities` row logs that user in
+- [x] AC-3: A callback whose `sub` already has an `auth_identities` row logs that user in
   (new session) without creating a duplicate identity or user.
-- [ ] AC-4: A callback whose email matches an existing `email_verified=true` account (no
+- [x] AC-4: A callback whose email matches an existing `email_verified=true` account (no
   prior identity) auto-links (inserts the identity) and logs in; the existing password
   still works afterward.
-- [ ] AC-5: A callback whose email matches an existing `email_verified=false` account binds
+- [x] AC-5: A callback whose email matches an existing `email_verified=false` account binds
   the identity, sets `email_verified=true`, neutralizes the old password (subsequent
   password login with the old password fails), invalidates that user's existing sessions,
   and logs in.
-- [ ] AC-6: A callback where the verified id_token reports `email_verified=false` is
+- [x] AC-6: A callback where the verified id_token reports `email_verified=false` is
   rejected (no user/identity created), with an RFC 7807 error.
-- [ ] AC-7: A callback is rejected (no session minted) when any of these fail: URL `state`
+- [x] AC-7: A callback is rejected (no session minted) when any of these fail: URL `state`
   != `smap_oauth_state` cookie (login-CSRF binding), state expired/unknown/reused, or an
   id_token failing signature / `algorithms=["RS256"]` pinning (an `alg=none`/HS256 token is
   rejected) / `iss` / `aud` / `exp` / `nonce`.
-- [ ] AC-8: A Google-only account (`password_hash IS NULL`) attempting `POST /api/auth/login`
+- [x] AC-8: A Google-only account (`password_hash IS NULL`) attempting `POST /api/auth/login`
   receives an invalid-credentials error, never a 500.
-- [ ] AC-14: A Google-only account calling `change_password`, `change_email`, or
+- [x] AC-14: A Google-only account calling `change_password`, `change_email`, or
   `delete_account` receives an invalid-credentials (or "set a password first") error, never a
   500, and self-delete is not permanently blocked (R6.07 preserved via the set-password path).
-- [ ] AC-15: A passwordless account can complete the set-initial-password flow (request →
+- [x] AC-15: A passwordless account can complete the set-initial-password flow (request →
   token → set) and afterward can log in with a password and unlink Google.
-- [ ] AC-16: Two concurrent first-time callbacks for the same new email converge on a single
+- [x] AC-16: Two concurrent first-time callbacks for the same new email converge on a single
   `users` row (the loser catches the `uq_users_email_active` violation and re-resolves to the
   winner), with no 500. Two concurrent link attempts for the same `sub` yield one identity
   and a 409 for the loser.
-- [ ] AC-17: When Google's token or JWKS endpoint is unreachable within the bounded timeout,
+- [x] AC-17: When Google's token or JWKS endpoint is unreachable within the bounded timeout,
   the callback fails closed with an error surfaced to the SPA landing — it does not hang.
-- [ ] AC-18: `link/start` requires a bearer token (401 without); the resulting callback binds
+- [x] AC-18: `link/start` requires a bearer token (401 without); the resulting callback binds
   the identity to the `user_id` captured in the Redis state, not to any request-supplied id.
-- [ ] AC-9: A BANNED (and separately, DELETED) account cannot obtain a session via the
+- [x] AC-9: A BANNED (and separately, DELETED) account cannot obtain a session via the
   Google callback — the status gate rejects it, and `auth.oauth.login.rejected` is emitted.
-- [ ] AC-10: An authenticated user can link Google (`mode=link`): the identity binds to
+- [x] AC-10: An authenticated user can link Google (`mode=link`): the identity binds to
   their own `user_id`, and `auth.oauth.account_linked` is emitted. Attempting to link a
   Google account already bound to a different user returns 409.
-- [ ] AC-11: Unlinking Google succeeds when the user still has a password or another
+- [x] AC-11: Unlinking Google succeeds when the user still has a password or another
   identity; unlinking the last remaining credential (no password, no other identity) is
   refused with an RFC 7807 error and no state change.
-- [ ] AC-12: A session minted via Google is indistinguishable to the per-request middleware
+- [x] AC-12: A session minted via Google is indistinguishable to the per-request middleware
   from a password session (refresh, revocation via jti denylist, ban-on-next-request all
   behave identically).
-- [ ] AC-13: The login page renders a "Sign in with Google" button (i18n via `$t`, present
+- [x] AC-13: The login page renders a "Sign in with Google" button (i18n via `$t`, present
   in both locales) that navigates to `authorize`; the landing view handles loading/error
   states; the profile page shows link/unlink with the current linked status and a "set a
   password" affordance for passwordless accounts.
@@ -637,7 +646,31 @@ to:
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- D-2: §12 planned DB-integration tests for the OAuth callback (mocked Google token/JWKS
+  driving a real session row). Implementation instead covers the resolution table,
+  id_token verification, link/unlink, and the concurrency retry with **unit tests**
+  (`tests/unit/test_auth_service_oauth.py`, 25 cases, fully mocked). The **migration
+  contract gate was verified empirically** against a throwaway Postgres (up → guarded
+  downgrade with a real NULL-hash row → sentinel backfill + NOT NULL restored + table
+  dropped → up again). The existing wiring/integration suite (which needs Vault for JWT
+  signing) and the **real Google-browser E2E remain staging-manual**, as §12 designated.
+  Reason: unit tests pin the branch logic precisely without standing up the full wiring
+  stack; the E2E genuinely needs a real Google client + browser.
+- D-3: §6 listed a `google_linked` field on `UserOut`. Implementation surfaces linked
+  status through `GET /api/auth/identities` instead (which the profile connections section
+  already consumes), avoiding a `get_profile`/facade change. Functionally equivalent for
+  the UI; no `UserOut`/`UserProfile` change was needed.
+
+- D-1: §6 proposed a new "set-initial-password" pair of endpoints. Implementation instead
+  **reuses the existing password-reset flow** (`request_password_reset` → `reset_password`,
+  `auth_service.py:498-560`): a Google-provisioned account is `active` with a known email, and
+  `reset_password` calls `set_password` unconditionally (no `only_if_hash`), so it writes a
+  hash onto a NULL `password_hash` correctly. This satisfies AC-15's "request → token → set"
+  with zero new backend surface. The frontend surfaces a "Set a password" affordance that
+  routes a passwordless user into this existing flow (M6). Reason: less code, less attack
+  surface, and the existing flow already does exactly this. A dedicated *authenticated*
+  set-password-request endpoint (nicer UX than the unauthenticated "forgot password" entry)
+  is recorded as FU-6 rather than built now.
 
 ## 16. Follow-ups
 
@@ -659,3 +692,6 @@ Appended by /build. Empty means the implementation matches this spec exactly.
   every attempt. Modest, unauthenticated, and identical across all three login branches (no
   enumeration oracle). Surfaced by the M1+M2 adversarial security review; bound the length at
   the API boundary in a later hardening pass. Not changed here.
+- FU-6: A dedicated *authenticated* "email me a set-password link" endpoint would be nicer UX
+  for a logged-in passwordless (Google-only) user than routing them through the unauthenticated
+  "forgot password" flow (which D-1 reuses). Deferred. Not built here.
