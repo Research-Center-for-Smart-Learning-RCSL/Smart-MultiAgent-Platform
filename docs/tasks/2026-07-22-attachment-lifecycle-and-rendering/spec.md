@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-07-22
 requirements: [R13.11, R22.15.04]
 depends_on: []
@@ -709,12 +709,30 @@ distributed. R13.11 (`REQUIREMENTS.md:666`) states the UI outcome, `:844` names 
 action, and `:1335` names the index "for the nightly expiry sweep", but no requirement
 states the sweep's existence or its relationship to the bucket lifecycle rule, and the
 lifecycle horizon lives in configuration (`settings.py:126`) independently of
-`ATTACHMENT_TTL` (`attachment_service.py:53`). A sentence under §13 recording that (a) the
-application-side expiry sweep is the mechanism by which R13.11's `[attachment expired]`
-state is reached, and (b) the sweep's horizon and the bucket lifecycle horizon are required
-to agree, would remove the ambiguity that let this defect exist unnoticed and would give the
-coupling risk in §9 a documented home. Proposed as a clarification for the user's approval,
-not adopted unilaterally.
+`ATTACHMENT_TTL` (`attachment_service.py:53`).
+
+**Adopted at approval**, inserted after R13.11 (`REQUIREMENTS.md:694`) using the `Rxx.yya`
+suffix this SRS already uses for clarifications appended to an existing requirement
+(`R7.09a`, `R9.10a`, `R14.07a`, `R15.05a`):
+
+> - **[R13.11a]** The `[attachment expired]` state of R13.11 is reached by a nightly
+>   application-side expiry sweep that marks every attachment whose `expires_at` has passed
+>   as `EXPIRED` and emits one `attachment.expired` audit event per row. The sweep's horizon
+>   and the MinIO bucket lifecycle horizon of R13.10 are required to agree; independently of
+>   that agreement, the read path refuses to presign an attachment whose `expires_at` has
+>   passed, regardless of its recorded status.
+
+The final clause extends the clarification §11 originally proposed. Without it AC-4, the
+read-path guard, has no home in the SRS, and Q-2 establishes that the guard is a required
+layer rather than a redundancy: the bucket lifecycle and the cron are independent clocks, so
+"the two horizons agree" does not by itself close the window. Stating only the agreement
+would misrepresent the guard as belt-and-braces.
+
+Note on citations: the line numbers cited for `REQUIREMENTS.md` throughout this dossier were
+written against an earlier revision and are offset by roughly 28-33 lines (R13.11 is at
+`:694`, not `:666`; the chat audit action row is at `:877`, not `:844`; the
+`message_attachments (expires_at)` index row is at `:1368`, not `:1335`). The quoted text at
+each location is unchanged, so this is line drift only.
 
 ## 12. Deviation Log
 
