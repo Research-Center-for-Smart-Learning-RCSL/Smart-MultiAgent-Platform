@@ -305,6 +305,28 @@ class AuthService:
         if not user.email_verified:
             raise AccountNotVerified()
 
+        return await self._establish_session(
+            user, remote_ip=remote_ip, user_agent=user_agent, request_id=request_id
+        )
+
+    async def _establish_session(
+        self,
+        user: User,
+        *,
+        remote_ip: str | None,
+        user_agent: str | None,
+        request_id: uuid.UUID | None,
+        audit_action: str = "auth.login.success",
+        audit_metadata: dict[str, str] | None = None,
+    ) -> LoginOutcome:
+        """Mint a full session for an already-authenticated user.
+
+        The single session-issuance seam shared by password login and OAuth
+        login (R6.15): RS256 access token + rotating refresh + Redis session +
+        DB mirror row + a login-success audit. Callers own credential
+        verification and the status gate (`login` / `login_with_oauth`) before
+        calling this — it performs neither.
+        """
         is_admin = await self._admins.is_admin(user.id)
         session_id = uuid.uuid4()
         access_token, claims = jwt.sign_access_token(
@@ -333,12 +355,13 @@ class AuthService:
         await audit.emit(
             self._db,
             audit.AuditEvent(
-                action="auth.login.success",
+                action=audit_action,
                 actor_user_id=user.id,
                 actor_ip=remote_ip,
                 resource_type="user",
                 resource_id=user.id,
                 session_id=session_id,
+                metadata=audit_metadata or {},
                 request_id=request_id,
             ),
         )
