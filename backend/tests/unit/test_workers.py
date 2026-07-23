@@ -207,21 +207,42 @@ class TestWorkflowCommon:
 
         assert result is True
 
-    async def test_restore_claim(self) -> None:
+    async def test_restore_claim_floors_to_min_ttl(self) -> None:
+        # F-32: a decayed original TTL must not be written back verbatim when it
+        # is shorter than the remaining consumer budget — the restore floors to
+        # the larger of (remaining key TTL, min_ttl).
         from app.workers.tasks.workflow_common import _restore_claim
 
         redis = AsyncMock()
-        await _restore_claim(redis, "wf:wait:x:n1", b'{"data": 1}', 120)
+        await _restore_claim(redis, "wf:wait:x:n1", b'{"data": 1}', 120, min_ttl=600)
 
-        redis.set.assert_awaited_once_with("wf:wait:x:n1", b'{"data": 1}', ex=120)
+        redis.set.assert_awaited_once_with("wf:wait:x:n1", b'{"data": 1}', ex=600)
 
-    async def test_restore_claim_default_ttl(self) -> None:
-        from app.workers.tasks.workflow_common import _CLAIM_RESTORE_TTL_S, _restore_claim
+    async def test_restore_claim_keeps_longer_original_ttl(self) -> None:
+        # When the original TTL already outlives the budget, keep it — the floor
+        # only raises, never shortens.
+        from app.workers.tasks.workflow_common import _restore_claim
+
+        redis = AsyncMock()
+        await _restore_claim(redis, "key", b"data", 900, min_ttl=600)
+
+        redis.set.assert_awaited_once_with("key", b"data", ex=900)
+
+    async def test_restore_claim_default_ttl_covers_budget(self) -> None:
+        # The default floor is the full retry budget, no longer a 60s fallback
+        # shorter than the budget it guards (the F-32 bug in miniature).
+        from app.workers.tasks.workflow_common import (
+            _CLAIM_RESTORE_TTL_S,
+            _RESUME_RETRY_DELAY_S,
+            _RESUME_RETRY_MAX_ATTEMPTS,
+            _restore_claim,
+        )
 
         redis = AsyncMock()
         await _restore_claim(redis, "key", b"data", 0)
 
         redis.set.assert_awaited_once_with("key", b"data", ex=_CLAIM_RESTORE_TTL_S)
+        assert _CLAIM_RESTORE_TTL_S >= _RESUME_RETRY_MAX_ATTEMPTS * _RESUME_RETRY_DELAY_S
 
     async def test_emit_resumed(self) -> None:
         from app.workers.tasks.workflow_common import _emit_resumed
