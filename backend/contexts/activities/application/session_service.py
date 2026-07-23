@@ -119,5 +119,9 @@ class ActivitySessionService:
     async def get_session(self, session_id: uuid.UUID) -> ActivitySession | None:
         return await self._repo.get(session_id)
 
+    async def close_open_for_type(self, activity_type_id: uuid.UUID) -> int:
+        """Close every open session for a type (type-deletion cascade)."""
+        return await self._repo.close_open_for_type(activity_type_id)
+
 
 __all__ = ["ActivitySessionService"]

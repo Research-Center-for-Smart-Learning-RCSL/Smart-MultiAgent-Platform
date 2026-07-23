@@ -172,6 +172,9 @@ class ActivitiesFacade:
             if result.transitioned:
                 ended.append((activation.chatroom_id, activation.id))
 
+        # Force-close any in-flight session so none outlives its type (FU-4).
+        await self._sessions.close_open_for_type(type_id)
+
         await self._types.soft_delete(
             type_id=type_id, actor_user_id=actor_user_id, actor_ip=actor_ip, request_id=request_id
         )
