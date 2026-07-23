@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-22
 requirements: [R9.14, R9.15, R9.16]
 depends_on: []
@@ -446,25 +446,29 @@ duplicate turns), whereas C3 without C2 is the weaker of the two.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: `test_concurrent_process_entry_runs_handler_once` (§8) fails against current code and
+- [x] AC-1: `test_concurrent_process_entry_runs_handler_once` (§8) fails against current code and
       passes after C2.
-- [ ] AC-2: a lease conflict returns without ACK, without DLQ, and without consuming a retry
+- [x] AC-2: a lease conflict returns without ACK, without DLQ, and without consuming a retry
       attempt; the true owner's ACK still settles the entry.
-- [ ] AC-3: an entry actively being processed has its PEL idle clock refreshed, so
+- [x] AC-3: an entry actively being processed has its PEL idle clock refreshed, so
       `xautoclaim_stale` does not select it regardless of how long the handler runs; a crashed
       owner's entry is still reclaimed after `_CLAIM_MIN_IDLE_MS`.
-- [ ] AC-4: `_CLAIM_MIN_IDLE_MS` (`a2a_streams.py:30`) is **not** raised as part of this fix
+- [x] AC-4: `_CLAIM_MIN_IDLE_MS` (`a2a_streams.py:30`) is **not** raised as part of this fix
       (Q-3), and its comment at `:28-30` is true after C3.
-- [ ] AC-5: `pending_notify.requeue` over the cap retains the **newest** entries; the surviving tail
+- [x] AC-5: `pending_notify.requeue` over the cap retains the **newest** entries; the surviving tail
       contains every concurrently-pushed note, and the docstring at `:68-76` matches the code.
-- [ ] AC-6: below the cap, `requeue` remains lossless and order-preserving.
-- [ ] AC-7: a soft-deleted agent's consumer loop is cancelled and removed from `self._loops`, and
+- [x] AC-6: below the cap, `requeue` remains lossless and order-preserving.
+- [x] AC-7: a soft-deleted agent's consumer loop is cancelled and removed from `self._loops`, and
       **stays** removed across subsequent scans despite the stream key being recreated.
-- [ ] AC-8: a restored agent's loop is recreated by the next reconcile; a liveness-check failure
+- [x] AC-8: a restored agent's loop is recreated by the next reconcile; a liveness-check failure
       cancels nothing.
-- [ ] AC-9: the two existing tests in `backend/tests/unit/test_a2a_idempotency.py` (`:56-77`,
+- [x] AC-9: the two existing tests in `backend/tests/unit/test_a2a_idempotency.py` (`:56-77`,
       `:80-94`) pass unchanged.
-- [ ] AC-10: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`.
+- [x] AC-10: `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`; the unit suite
+      (5911 passed, incl. the 12 new tests) passes. `pytest -q` in full also runs the
+      `tests/integration` + `tests/wiring` suites, which fail here at DB/Redis hostname resolution
+      (`getaddrinfo 'postgres'`) because they require the docker-compose stack — environmental,
+      pre-existing, and never reaching this diff's code (see D-2).
 
 ## 11. SRS Delta
 
@@ -479,7 +483,23 @@ three replicas in `docker-compose.prod.yml:142-143` (see FU-2).
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1** — C2's lease release is implemented as a single `try/finally` wrapping the whole
+  attempt in `_process_entry`, rather than as inline releases at each of the four terminal
+  branches §7 C2 enumerated (success, parse-DLQ, retry-DLQ, non-final backoff). The guarantee is
+  identical — the lease is released on every terminal path — but the `finally` is robust against a
+  future branch forgetting to release, and it also covers the parse-DLQ branch the spec already
+  listed among release points. The refresh task is cancelled and awaited *before* the lease delete
+  so it cannot re-create the key. Pinned by `test_lease_released_on_handler_failure` and
+  `test_lease_released_on_dlq`. Two backward-compat tests beyond §8's named set were added:
+  `test_no_liveness_filter_is_create_only` (supervisor with no liveness filter stays create-only)
+  and `test_xclaim_refresh_noop_on_empty`.
+- **D-2** (verification limitation, not a code change) — AC-10's full `pytest -q` could not be run
+  green in the build environment: `tests/integration/*` and `tests/wiring/*` require the
+  docker-compose stack (postgres/redis/qdrant/neo4j hostnames) and fail at connection setup with
+  `socket.gaierror` on `host='postgres'` before reaching any changed code. This affects the whole
+  suite equally and is independent of this diff. The deterministic mechanisms of all three fixes
+  are covered by the new unit tests; full A2A wiring verification (e.g. `test_a2a_call_round_trip`)
+  needs `docker compose up`.
 
 ## 13. Follow-ups
 
