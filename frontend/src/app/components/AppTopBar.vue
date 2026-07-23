@@ -47,9 +47,13 @@ const { isMobile } = useBreakpoint()
       </RouterLink>
     </div>
 
-    <!-- Center zone -->
+    <!-- Center zone — the switcher lives in the sidebar on desktop; on mobile
+         the sidebar is a hidden drawer, so keep it here for quick switching. -->
     <div class="topbar__center">
-      <OrgProjectSwitcher :compact="isMobile" />
+      <OrgProjectSwitcher
+        v-if="isMobile"
+        compact
+      />
     </div>
 
     <!-- Right zone -->

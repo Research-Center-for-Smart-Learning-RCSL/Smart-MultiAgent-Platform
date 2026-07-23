@@ -126,6 +126,9 @@
       "searchKeys": "搜尋金鑰",
       "workspaces": "執行環境",
       "mcpAllowlist": "MCP 允許清單",
+      "members": "成員",
+      "skills": "技能",
+      "activityTypes": "活動類型",
       "recentChatrooms": "最近聊天室",
       "noChatrooms": "尚無聊天室",
       "loadError": "載入失敗",
@@ -133,6 +136,7 @@
       "groupKnowledge": "知識庫",
       "groupKeys": "金鑰",
       "groupInfra": "基礎設施",
+      "groupManage": "管理",
       "admin": "管理控制台"
     },
     "switcher": {
