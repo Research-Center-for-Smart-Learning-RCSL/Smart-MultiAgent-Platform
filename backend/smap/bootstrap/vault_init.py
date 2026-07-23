@@ -177,7 +177,11 @@ def run(settings: Settings, *, root_token: str | None = None) -> BootstrapReport
     # --- KV seeds ---
     prefix = settings.vault.kv_prefix.rstrip("/")
     seeds: dict[str, dict[str, Any]] = {
-        f"{prefix}/captcha": {"provider": "hcaptcha", "public_key": "", "secret_key": ""},
+        # Keys MUST match what shared_kernel.auth.captcha reads (mode/provider/
+        # sitekey/secret). Seed mode="off": empty sitekey/secret with mode="on"
+        # would render an unusable widget and block registration. The operator
+        # fills sitekey+secret and flips mode to "on" to enforce CAPTCHA.
+        f"{prefix}/captcha": {"mode": "off", "provider": "hcaptcha", "sitekey": "", "secret": ""},
         f"{prefix}/smtp": {"host": "", "port": 587, "user": "", "password": ""},
         f"{prefix}/hmac-key": {"key": base64.b64encode(new_hmac_seed()).decode()},
         f"{prefix}/minio": {"access_key": "", "secret_key": ""},
