@@ -16,12 +16,14 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-07-23-google-oauth-login` (feature, draft) — `depends_on: []`. Adds "Sign in with
+- `2026-07-23-google-oauth-login` (feature, approved) — `depends_on: []`. Adds "Sign in with
   Google" (OIDC Authorization Code + PKCE) alongside email/password, plus link/unlink from
   the profile page. New `auth_identities` table, `users.password_hash` made nullable, and a
-  reusable `_establish_session` seam extracted from `AuthService.login`. **Reverses the v1
-  non-goal at `REQUIREMENTS.md:51` — carries a non-empty SRS Delta** (new §6.1a / R6.14-R6.17,
-  amended R19.01 + audit-events table). Security-critical email-collision policy in Q-2.
+  reusable `_establish_session` seam extracted from `AuthService.login`. SRS Delta applied at
+  approval (new §6.1a / R6.14-R6.17, amended R19.01 + audit-events table). Hardened after an
+  adversarial review: XHR link/start (bearer), `smap_oauth_state` login-CSRF cookie, backend
+  GET+302+hydrate callback, null-hash handling at all four password-verify sites plus a
+  set-initial-password flow, `pyjwt[crypto]` RS256-pinned, Google egress prerequisite. 18 ACs.
 - `2026-07-22-turn-idempotency-and-locking` (bugfix, draft) — `depends_on: []`. From the a2a audit
   F-7, F-18, F-22, F-23, F-39 and the config audit F-8, F-30. Six sequenced commits; one hard
   ordering constraint (cleanup before lock-liveness). Names two textual adjacencies with the
