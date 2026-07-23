@@ -15,13 +15,30 @@ interface FieldRow {
 }
 
 // One-way builder: rows are the source of truth, the assembled JSON Schema is
-// emitted upward. Authoring starts empty (create-only), so there is no need to
-// rehydrate rows from an incoming schema.
+// emitted upward. In create mode authoring starts from a single empty row; in
+// edit mode `initial` seeds the rows from the stored schema once.
+const props = defineProps<{ initial?: JSONSchema | null }>()
 const emit = defineEmits<{ (e: 'update:modelValue', schema: JSONSchema): void }>()
 
 const { t } = useI18n()
 
-const rows = ref<FieldRow[]>([{ name: '', type: 'string', required: true }])
+function rowsFromSchema(schema: JSONSchema | null | undefined): FieldRow[] {
+  const properties = schema?.properties
+  if (!properties || Object.keys(properties).length === 0) {
+    return [{ name: '', type: 'string', required: true }]
+  }
+  const required = new Set(Array.isArray(schema?.required) ? schema.required : [])
+  const known = new Set<string>(SCHEMA_FIELD_TYPES)
+  return Object.entries(properties).map(([name, prop]) => {
+    // A schema authored outside the flat builder (raw-JSON, FU-5) may carry a
+    // type the builder can't represent; fall back to 'string' rather than crash.
+    const rawType = (prop as JSONSchema)?.type
+    const type = typeof rawType === 'string' && known.has(rawType) ? (rawType as SchemaFieldType) : 'string'
+    return { name, type, required: required.has(name) }
+  })
+}
+
+const rows = ref<FieldRow[]>(rowsFromSchema(props.initial))
 
 const typeOptions = computed(() =>
   SCHEMA_FIELD_TYPES.map((ty) => ({

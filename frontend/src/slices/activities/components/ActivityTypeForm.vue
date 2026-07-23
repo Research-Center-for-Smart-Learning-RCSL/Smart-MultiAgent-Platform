@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMutation, useQuery } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
@@ -9,22 +9,60 @@ import { SModal, SFormField, SInput, SSelect, SButton } from '@shared/ui'
 import { useServerErrors, useToast } from '@shared/composables'
 import { ApiError } from '@shared/errors'
 import { agentsApi, agentKeys } from '@slices/agents'
-import type { ActivityTypeIn, ValidatorKind } from '@shared/api-client'
+import type {
+  ActivityTypeIn,
+  ActivityTypeOut,
+  ActivityTypeUpdateIn,
+  ValidatorKind,
+} from '@shared/api-client'
 
 import SchemaBuilder from './SchemaBuilder.vue'
-import { registerActivityType } from '../api'
+import { registerActivityType, updateActivityType } from '../api'
 import {
   VALIDATOR_KINDS,
   activityTypeCreateSchema,
   assembleValidatorConfig,
   type ActivityTypeCreateInput,
+  type ValidatorKindOption,
 } from '../types/schemas'
 
-const props = defineProps<{ projectId: string; open: boolean }>()
-const emit = defineEmits<{ (e: 'close'): void; (e: 'created'): void }>()
+const props = defineProps<{ projectId: string; open: boolean; editType?: ActivityTypeOut | null }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'created'): void; (e: 'updated'): void }>()
 
 const { t } = useI18n()
 const toast = useToast()
+
+const isEdit = computed(() => !!props.editType)
+
+// Rebuild the flat form fields from a stored type (edit pre-fill); the validator
+// sub-fields are disassembled back out of validator_config.
+function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateInput> {
+  if (!row) {
+    return {
+      key: '',
+      name: '',
+      retention_days: null,
+      payload_schema: { type: 'object', properties: {} },
+      validator_kind: 'webhook',
+      webhook_url: '',
+      mcp_agent_id: '',
+      mcp_binding_id: '',
+      mcp_tool_name: '',
+    }
+  }
+  const cfg = (row.validator_config ?? {}) as Record<string, unknown>
+  return {
+    key: row.key,
+    name: row.name,
+    retention_days: row.retention_days,
+    payload_schema: row.payload_schema,
+    validator_kind: row.validator_kind as ValidatorKindOption,
+    webhook_url: typeof cfg.url === 'string' ? cfg.url : '',
+    mcp_agent_id: typeof cfg.agent_id === 'string' ? cfg.agent_id : '',
+    mcp_binding_id: typeof cfg.binding_id === 'string' ? cfg.binding_id : '',
+    mcp_tool_name: typeof cfg.tool_name === 'string' ? cfg.tool_name : '',
+  }
+}
 
 const { handleSubmit, errors, defineField, resetForm, setErrors, setFieldError } =
   useForm<ActivityTypeCreateInput>({
@@ -88,10 +126,28 @@ const bindingOptions = computed(() =>
     .map((tool) => ({ value: tool.id, label: tool.display_name ?? tool.id })),
 )
 
-// Switching agents invalidates any binding chosen under the previous agent.
+// Switching agents invalidates any binding chosen under the previous agent — but
+// not during edit pre-fill, where agent and binding are hydrated together.
+const hydrating = ref(false)
 watch(mcpAgentId, () => {
-  mcpBindingId.value = ''
+  if (!hydrating.value) mcpBindingId.value = ''
 })
+
+// Sync the form to the target row each time the modal opens (create -> empty
+// defaults, edit -> the row's disassembled fields). SchemaBuilder is remounted
+// via :key so it re-seeds from the same row.
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) return
+    hydrating.value = true
+    resetForm({ values: toFormValues(props.editType ?? null) })
+    void nextTick(() => {
+      hydrating.value = false
+    })
+  },
+  { immediate: true },
+)
 
 const { applyServerErrors } = useServerErrors(setErrors)
 
@@ -117,15 +173,46 @@ const createMutation = useMutation({
   },
 })
 
+const updateMutation = useMutation({
+  mutationFn: (body: ActivityTypeUpdateIn) =>
+    updateActivityType(props.projectId, props.editType!.id, body),
+  onSuccess: () => {
+    resetForm()
+    emit('updated')
+  },
+  onError: (err) => {
+    if (applyServerErrors(err)) return
+    // In edit mode a 409 means the type is active (a behavioral edit was blocked),
+    // not a key conflict — surface the distinct reason.
+    if (err instanceof ApiError && err.status === 409) {
+      toast.error(t('activities.typeForm.activeConflict'))
+      return
+    }
+    if (err instanceof ApiError && err.status === 422) {
+      toast.error(t('activities.typeForm.configRejected'))
+      return
+    }
+    toast.error(t('activities.typeForm.updateFailed'))
+  },
+})
+
+const isPending = computed(
+  () => createMutation.isPending.value || updateMutation.isPending.value,
+)
+
 const onSubmit = handleSubmit((formValues) => {
-  createMutation.mutate({
-    key: formValues.key,
+  const shared = {
     name: formValues.name,
     payload_schema: formValues.payload_schema,
     validator_kind: formValues.validator_kind as ValidatorKind,
     validator_config: assembleValidatorConfig(formValues),
     retention_days: formValues.retention_days,
-  })
+  }
+  if (isEdit.value && props.editType) {
+    updateMutation.mutate(shared)
+    return
+  }
+  createMutation.mutate({ key: formValues.key, ...shared })
 })
 
 function onClose(): void {
@@ -137,7 +224,7 @@ function onClose(): void {
 <template>
   <SModal
     :open="props.open"
-    :title="t('activities.typeForm.title')"
+    :title="isEdit ? t('activities.typeForm.editTitle') : t('activities.typeForm.title')"
     size="lg"
     @close="onClose"
   >
@@ -161,6 +248,7 @@ function onClose(): void {
           v-model="key"
           :placeholder="t('activities.typeForm.keyPlaceholder')"
           :error="!!errors.key"
+          :disabled="isEdit"
           data-testid="type-key"
         />
       </SFormField>
@@ -199,7 +287,11 @@ function onClose(): void {
         :help="t('activities.typeForm.payloadSchemaHelp')"
         required
       >
-        <SchemaBuilder @update:model-value="(s) => (payloadSchema = s)" />
+        <SchemaBuilder
+          :key="`${props.editType?.id ?? 'new'}:${String(props.open)}`"
+          :initial="props.editType?.payload_schema ?? null"
+          @update:model-value="(s) => (payloadSchema = s)"
+        />
       </SFormField>
 
       <SFormField
@@ -295,9 +387,9 @@ function onClose(): void {
           variant="primary"
           type="submit"
           form="activity-type-form"
-          :loading="createMutation.isPending.value"
+          :loading="isPending"
         >
-          {{ t('activities.typeForm.submit') }}
+          {{ isEdit ? t('activities.typeForm.saveChanges') : t('activities.typeForm.submit') }}
         </SButton>
       </div>
     </template>

@@ -42,6 +42,7 @@
       "colValidator": "Validator",
       "actions": "Actions",
       "created": "Activity type created.",
+      "updated": "Activity type updated.",
       "deleted": "Activity type deleted.",
       "deleteFailed": "Could not delete the activity type. Please try again.",
       "deleteTitle": "Delete activity type",
@@ -87,11 +88,15 @@
       "mcpToolNamePlaceholder": "score_submission",
       "mcpToolNameHelp": "The name of the MCP tool that scores the submission.",
       "submit": "Create",
+      "editTitle": "Edit activity type",
+      "saveChanges": "Save changes",
       "fieldRequired": "This field is required.",
       "schemaEmpty": "Add at least one field.",
       "keyConflict": "An activity type with this key already exists.",
       "configRejected": "The validator configuration or schema was rejected. Please review it.",
-      "createFailed": "Could not create the activity type. Please try again."
+      "activeConflict": "This activity type is active in a room. End it before changing its fields or validator.",
+      "createFailed": "Could not create the activity type. Please try again.",
+      "updateFailed": "Could not update the activity type. Please try again."
     },
     "schemaBuilder": {
       "intro": "Add each field a participant submits. Give it a name and type, and mark whether it is required.",

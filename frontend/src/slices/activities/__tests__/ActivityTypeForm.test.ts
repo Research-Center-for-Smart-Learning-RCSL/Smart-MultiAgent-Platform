@@ -9,7 +9,8 @@ import { renderView } from '../../../../tests/utils'
 import ActivityTypeForm from '../components/ActivityTypeForm.vue'
 
 const registerMock = vi.hoisted(() => vi.fn())
-vi.mock('../api', () => ({ registerActivityType: registerMock }))
+const updateMock = vi.hoisted(() => vi.fn())
+vi.mock('../api', () => ({ registerActivityType: registerMock, updateActivityType: updateMock }))
 
 vi.mock('@slices/agents', async (importOriginal) => ({
   ...(await importOriginal<typeof AgentsSlice>()),
@@ -37,7 +38,22 @@ async function fillValidWebhook(wrapper: Awaited<ReturnType<typeof mountForm>>) 
   await wrapper.find('[data-testid="type-webhook-url"]').setValue('https://x.test/score')
 }
 
-beforeEach(() => registerMock.mockReset())
+const EDIT_TYPE = {
+  id: 't1',
+  project_id: 'p1',
+  key: 'quiz',
+  name: 'Quiz',
+  payload_schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'] },
+  validator_kind: 'webhook',
+  validator_config: { url: 'https://x.test/score' },
+  retention_days: 7,
+  created_at: null,
+}
+
+beforeEach(() => {
+  registerMock.mockReset()
+  updateMock.mockReset()
+})
 
 describe('ActivityTypeForm', () => {
   it('offers only webhook and mcp validator kinds (AC-8)', async () => {
@@ -86,5 +102,41 @@ describe('ActivityTypeForm', () => {
     )
     await flushPromises()
     expect(wrapper.emitted('created')).toBeTruthy()
+  })
+
+  it('pre-fills from the row and submits a keyless PATCH in edit mode (AC-1)', async () => {
+    updateMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await renderView(ActivityTypeForm, {
+      props: { projectId: 'p1', open: true, editType: EDIT_TYPE },
+    })
+    await flushPromises()
+
+    const keyField = wrapper.find('[data-testid="type-key"]')
+    expect((keyField.element as HTMLInputElement).value).toBe('quiz')
+    expect(keyField.attributes('disabled')).toBeDefined() // key is immutable on edit
+    expect((wrapper.find('[data-testid="type-name"]').element as HTMLInputElement).value).toBe('Quiz')
+    // SchemaBuilder rehydrated the stored field from validator/payload schema.
+    expect((wrapper.find('[data-testid="schema-field-name"]').element as HTMLInputElement).value).toBe(
+      'answer',
+    )
+
+    await wrapper.find('[data-testid="type-name"]').setValue('Quiz v2')
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(updateMock).toHaveBeenCalled())
+    expect(updateMock).toHaveBeenCalledWith(
+      'p1',
+      't1',
+      expect.objectContaining({
+        name: 'Quiz v2',
+        validator_kind: 'webhook',
+        validator_config: { url: 'https://x.test/score' },
+        payload_schema: expect.objectContaining({ properties: { answer: { type: 'string' } } }),
+      }),
+    )
+    expect(updateMock.mock.calls[0][2]).not.toHaveProperty('key')
+    expect(registerMock).not.toHaveBeenCalled()
+    await flushPromises()
+    expect(wrapper.emitted('updated')).toBeTruthy()
   })
 })

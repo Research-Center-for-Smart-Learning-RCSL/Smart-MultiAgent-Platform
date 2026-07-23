@@ -11,6 +11,7 @@ import type { ActivitySubmissionOut } from '../models/ActivitySubmissionOut';
 import type { ActivitySubmissionsPageOut } from '../models/ActivitySubmissionsPageOut';
 import type { ActivityTypeIn } from '../models/ActivityTypeIn';
 import type { ActivityTypeOut } from '../models/ActivityTypeOut';
+import type { ActivityTypeUpdateIn } from '../models/ActivityTypeUpdateIn';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -265,6 +266,34 @@ export class ActivitiesService {
                 'project_id': projectId,
                 'type_id': typeId,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Update Activity Type
+     * @returns ActivityTypeOut Successful Response
+     * @throws ApiError
+     */
+    public static updateActivityTypeApiProjectsProjectIdActivityTypesTypeIdPatch({
+        projectId,
+        typeId,
+        requestBody,
+    }: {
+        projectId: string,
+        typeId: string,
+        requestBody: ActivityTypeUpdateIn,
+    }): CancelablePromise<ActivityTypeOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/projects/{project_id}/activity-types/{type_id}',
+            path: {
+                'project_id': projectId,
+                'type_id': typeId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },

@@ -42,6 +42,7 @@
       "colValidator": "驗證器",
       "actions": "操作",
       "created": "已建立活動類型。",
+      "updated": "已更新活動類型。",
       "deleted": "已刪除活動類型。",
       "deleteFailed": "無法刪除活動類型，請再試一次。",
       "deleteTitle": "刪除活動類型",
@@ -87,11 +88,15 @@
       "mcpToolNamePlaceholder": "score_submission",
       "mcpToolNameHelp": "負責評分之 MCP 工具的名稱。",
       "submit": "建立",
+      "editTitle": "編輯活動類型",
+      "saveChanges": "儲存變更",
       "fieldRequired": "此欄位為必填。",
       "schemaEmpty": "請至少新增一個欄位。",
       "keyConflict": "已存在使用此識別碼的活動類型。",
       "configRejected": "驗證器設定或結構被拒絕，請檢查後再試。",
-      "createFailed": "無法建立活動類型，請再試一次。"
+      "activeConflict": "此活動類型正在某個聊天室進行中。請先結束後再修改欄位或驗證器。",
+      "createFailed": "無法建立活動類型，請再試一次。",
+      "updateFailed": "無法更新活動類型，請再試一次。"
     },
     "schemaBuilder": {
       "intro": "新增參與者要提交的每個欄位。給定名稱與型別，並標記是否必填。",

@@ -18,6 +18,7 @@ export type { ActivitySubmissionOut } from './models/ActivitySubmissionOut';
 export type { ActivitySubmissionsPageOut } from './models/ActivitySubmissionsPageOut';
 export type { ActivityTypeIn } from './models/ActivityTypeIn';
 export type { ActivityTypeOut } from './models/ActivityTypeOut';
+export type { ActivityTypeUpdateIn } from './models/ActivityTypeUpdateIn';
 export type { AddMemberIn } from './models/AddMemberIn';
 export type { AdminEntryOut } from './models/AdminEntryOut';
 export type { AdminPromoteIn } from './models/AdminPromoteIn';

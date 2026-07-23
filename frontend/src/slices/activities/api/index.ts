@@ -15,6 +15,7 @@ import type {
   ActivitySubmissionsPageOut,
   ActivityTypeIn,
   ActivityTypeOut,
+  ActivityTypeUpdateIn,
 } from '@shared/api-client'
 
 export async function listActivityTypes(projectId: string): Promise<ActivityTypeOut[]> {
@@ -27,6 +28,18 @@ export async function registerActivityType(
 ): Promise<ActivityTypeOut> {
   return ActivitiesService.registerActivityTypeApiProjectsProjectIdActivityTypesPost({
     projectId,
+    requestBody: body,
+  })
+}
+
+export async function updateActivityType(
+  projectId: string,
+  typeId: string,
+  body: ActivityTypeUpdateIn,
+): Promise<ActivityTypeOut> {
+  return ActivitiesService.updateActivityTypeApiProjectsProjectIdActivityTypesTypeIdPatch({
+    projectId,
+    typeId,
     requestBody: body,
   })
 }
