@@ -356,14 +356,76 @@ async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str, 
     return "resumed"
 
 
+# Distinct from the "error" a genuine start failure returns below: a throttle is
+# an intentional refusal, not a swallowed failure, and the two must stay
+# distinguishable in the job log (F-4; coordinate with the F-35 dossier).
+TRIGGER_THROTTLED_SENTINEL: str = "throttled"
+
+
+async def _consume_trigger_token(redis: Any, workflow_id: str, limit: int, window_seconds: int) -> bool:
+    """Rolling-window rate limiter, per workflow (F-4 / R14.07a).
+
+    Returns True if a token was available (run may start), False on breach. A
+    non-positive ``limit`` disables the breaker (unlimited) — the configurable
+    emergency lever. Sliding window via a Redis sorted set of timestamps;
+    slightly permissive under concurrent workers, which is the safe direction
+    for a breaker whose dominant risk is dropping a legitimate run.
+    """
+    if limit <= 0:
+        return True
+    import time
+
+    key = f"wf:trigger:{workflow_id}:window"
+    now = time.time()
+    await redis.zremrangebyscore(key, 0, now - window_seconds)
+    if await redis.zcard(key) >= limit:
+        return False
+    await redis.zadd(key, {f"{now:.6f}:{uuid.uuid4()}": now})
+    await redis.expire(key, window_seconds)
+    return True
+
+
 async def run_triggered_workflow(
     ctx: dict[str, Any],
     workflow_id: str,
     trigger_payload: dict[str, Any] | None = None,
 ) -> str:
     """Start a run for a workflow whose dormant trigger node matched a signal (K.4)."""
+    from app.config.settings import get_settings
     from contexts.workflow.application.workflow_service import WorkflowService
+    from contexts.workflow.infrastructure.metrics import WORKFLOW_TRIGGER_THROTTLED
+    from shared_kernel.auth.clients import get_redis
     from shared_kernel.db.session import async_session
+
+    # F-4 (R14.07a): per-workflow rolling-window budget on the shared start path,
+    # so every event trigger kind is bounded even if a provenance path is missed.
+    limits = get_settings().limits
+    limit = limits.workflow_trigger_per_window
+    window_s = limits.workflow_trigger_window_seconds
+    if not await _consume_trigger_token(get_redis(), workflow_id, limit, window_s):
+        WORKFLOW_TRIGGER_THROTTLED.inc()
+        logger.bind(
+            event="workflow_trigger_throttled", workflow_id=workflow_id, limit=limit, window_s=window_s
+        ).warning("workflow trigger throttled: {} exceeded {}/{}s", workflow_id, limit, window_s)
+        try:
+            from shared_kernel import audit
+
+            async with async_session() as db:
+                await audit.emit(
+                    db,
+                    audit.AuditEvent(
+                        action="workflow.trigger_throttled",
+                        resource_type="workflow",
+                        resource_id=uuid.UUID(workflow_id),
+                        metadata={"limit": limit, "window_seconds": window_s},
+                    ),
+                )
+                await db.commit()
+        except Exception:
+            logger.bind(workflow_id=workflow_id).warning(
+                "workflow trigger-throttle audit failed", exc_info=True
+            )
+        return TRIGGER_THROTTLED_SENTINEL
 
     async with async_session() as db:
         svc = WorkflowService(db)
