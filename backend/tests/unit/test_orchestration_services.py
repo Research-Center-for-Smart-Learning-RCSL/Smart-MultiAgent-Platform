@@ -473,13 +473,17 @@ class TestInstructIssue:
                 max_chain_depth=5,
             )
 
-    async def test_per_wakeup_count_cap(self) -> None:
+    @patch("contexts.orchestration.application.instruct_service.audit.emit", new_callable=AsyncMock)
+    async def test_per_wakeup_count_cap(self, _audit) -> None:
         instructions = AsyncMock()
         instructions.count_issued_by_agent_since.return_value = 5
         instructions.get_chain_start_time.return_value = None
         svc = _make_instruct_service(instructions=instructions)
 
-        with pytest.raises(InstructBudgetExceeded, match="wakeup"):
+        # The count cap is now phrased as an "issuing window" (the wakeup for a
+        # wakeup-originated instruct; the run for a workflow one) and writes an
+        # instruct.budget_exceeded breach audit before raising.
+        with pytest.raises(InstructBudgetExceeded, match="issuing window"):
             await svc.issue(
                 issuer_agent_id=_AGENT_A,
                 target_agent_id=_AGENT_B,
@@ -487,6 +491,7 @@ class TestInstructIssue:
                 wakeup_started_at=_NOW,
                 max_per_wakeup=5,
             )
+        _audit.assert_awaited_once()
 
     async def test_wall_clock_budget(self) -> None:
         chain_id = uuid.uuid4()
