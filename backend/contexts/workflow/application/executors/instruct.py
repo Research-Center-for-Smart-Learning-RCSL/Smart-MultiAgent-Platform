@@ -7,6 +7,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.workflow.application.executors.registry import register
+from contexts.workflow.domain.claim_ttl import GATE_CLAIM_GRACE_S, initial_claim_ttl
 from contexts.workflow.domain.models import (
     NodeSpec,
     NodeType,
@@ -90,7 +91,7 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             await redis.set(
                 f"wf:instruct:{instruction.id}",
                 json.dumps({"run_id": str(ctx.run_id), "node_id": node.id}),
-                ex=timeout_seconds + 300,
+                ex=initial_claim_ttl(timeout_seconds, GATE_CLAIM_GRACE_S),
             )
             # Best-effort: if the deadline job can't be armed, the A2A path's
             # mark_timeout still resumes the run on a failed/absent reply.

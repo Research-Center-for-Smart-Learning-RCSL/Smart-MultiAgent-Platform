@@ -8,6 +8,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.workflow.application.executors.registry import register
+from contexts.workflow.domain.claim_ttl import GATE_CLAIM_GRACE_S, initial_claim_ttl
 from contexts.workflow.domain.models import (
     NodeSpec,
     NodeType,
@@ -128,7 +129,7 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
         await redis.set(
             f"wf:approval:{approval.id}",
             json.dumps({"run_id": str(ctx.run_id), "node_id": node.id}),
-            ex=int(timeout_seconds) + 300,
+            ex=initial_claim_ttl(timeout_seconds, GATE_CLAIM_GRACE_S),
         )
 
         # The approval.requested workflow-channel event (carrying node_id and

@@ -20,6 +20,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.workflow.application.executors.registry import register
+from contexts.workflow.domain.claim_ttl import WAIT_CLAIM_GRACE_S, initial_claim_ttl
 from contexts.workflow.domain.models import (
     NodeSpec,
     NodeType,
@@ -89,7 +90,7 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
                         "port": "success",
                     }
                 ),
-                ex=timeout_seconds + 60,
+                ex=initial_claim_ttl(timeout_seconds, WAIT_CLAIM_GRACE_S),
             )
             logger.info(
                 "run %s: spawned subagent %s, waiting for completion (timeout=%ds)",

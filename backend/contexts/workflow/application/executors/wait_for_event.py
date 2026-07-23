@@ -23,6 +23,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.workflow.application.executors.registry import register
+from contexts.workflow.domain.claim_ttl import WAIT_CLAIM_GRACE_S, initial_claim_ttl
 from contexts.workflow.domain.models import (
     NodeSpec,
     NodeType,
@@ -62,7 +63,7 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
                 "match": dict(config),
             }
         ),
-        ex=timeout_seconds + 60,  # keep a grace window after timeout
+        ex=initial_claim_ttl(timeout_seconds, WAIT_CLAIM_GRACE_S),  # grace after timeout
     )
 
     # Index by event_type for O(1) lookup by dispatchers.
@@ -75,7 +76,7 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
     # assumes ≥ 6.2 (GETDEL); the compare also covers a fresh key (TTL == -1
     # after SADD), which GT would leave persistent forever.
     index_key = f"wf:wait:by_event:{event_type}"
-    index_ttl = timeout_seconds + 60
+    index_ttl = initial_claim_ttl(timeout_seconds, WAIT_CLAIM_GRACE_S)
     await redis.sadd(index_key, f"{ctx.run_id}:{node.id}")
     current_ttl = await redis.ttl(index_key)
     if current_ttl < index_ttl:
