@@ -63,6 +63,8 @@ def _facade_with(active: list[ActivityActivation], existing: ActivityType | None
     facade._types.soft_delete = AsyncMock()
     facade._activation_repo = MagicMock()
     facade._activation_repo.list_active_for_type = AsyncMock(return_value=active)
+    facade._sessions = MagicMock()
+    facade._sessions.close_open_for_type = AsyncMock(return_value=0)
     facade._activation = MagicMock()
 
     async def _end(*, chatroom_id, activation_id, **_kw):  # type: ignore[no-untyped-def]
@@ -90,6 +92,7 @@ class TestDeleteTypeCascade:
 
         assert set(ended) == {(room_a, act_a.id), (room_b, act_b.id)}
         assert facade._activation.end.await_count == 2
+        facade._sessions.close_open_for_type.assert_awaited_once_with(type_id)
         facade._types.soft_delete.assert_awaited_once()
 
     async def test_non_transitioning_activation_is_not_reported(self) -> None:

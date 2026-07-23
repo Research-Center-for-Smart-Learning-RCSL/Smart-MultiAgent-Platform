@@ -121,5 +121,20 @@ class ActivitySessionRepository:
         )
         return bool(rowcount(result))
 
+    async def close_open_for_type(self, activity_type_id: uuid.UUID) -> int:
+        """Close every open session for a type, returning the count. Used by
+        type deletion's cascade so no in-flight session outlives its type."""
+        result = await self._db.execute(
+            t.activity_sessions.update()
+            .where(
+                sa.and_(
+                    t.activity_sessions.c.activity_type_id == activity_type_id,
+                    t.activity_sessions.c.status == SessionStatus.OPEN.value,
+                )
+            )
+            .values(status=SessionStatus.CLOSED.value, closed_at=now())
+        )
+        return rowcount(result)
+
 
 __all__ = ["ActivitySessionRepository"]
