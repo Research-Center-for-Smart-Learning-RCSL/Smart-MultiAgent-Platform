@@ -10,15 +10,14 @@ Steps:
   6. Flip `rag_documents.status` to `ready` on success.
 
 Failure semantics:
-  Any exception in the parse/chunk/embed/upsert stage is re-raised as
-  :class:`IngestFailed`. The enclosing request transaction rolls back,
-  so the ``rag_documents`` row and Qdrant points are discarded in the
-  same unit of work. The MinIO blob is orphaned by design — reuploading
-  the same bytes overwrites it at the deterministic ``sha256`` key, so
-  retry is idempotent at the storage layer. The ``set_status(FAILED)``
-  call before re-raising is a best-effort marker that only survives if
-  the caller runs the service in a sub-transaction; in the default
-  request-scoped transaction it is rolled back with the rest.
+  A parse failure (unreadable / unsupported document) is surfaced as
+  :class:`DocumentUnprocessable` (422); any other failure in the
+  chunk/embed/upsert stage as :class:`IngestFailed` (500). The document row is
+  committed before indexing (multipart) or already committed (tus / reindex), so
+  on failure the partial chunk writes are rolled back and the row is committed
+  ``FAILED`` — it stays visible in the list instead of vanishing. Qdrant points
+  from partial batches are swept immediately. The MinIO blob is sha-addressed, so
+  a re-upload overwrites it and retry is idempotent at the storage layer.
 
 SoC:
 - The service owns the *happy path and audit trail*.
@@ -46,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.knowledge.application.ports import BlobStore, Embedder
 from contexts.knowledge.domain.errors import (
     DocumentTooLarge,
+    DocumentUnprocessable,
     IngestFailed,
     RagConfigNotFound,
     UnsupportedMime,
@@ -61,7 +61,7 @@ from contexts.knowledge.infrastructure.repositories import (
 )
 from shared_kernel import audit
 from shared_kernel.realtime.pubsub import Publisher
-from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, normalise_mime
+from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, ParserError, normalise_mime
 
 _log = logging.getLogger(__name__)
 
@@ -223,6 +223,10 @@ class IngestService:
             "ingestion.started", {"document_id": str(doc.id), "total": 1}
         )
 
+        # Commit the accepted upload before indexing so an index failure leaves a
+        # durable FAILED row (see _index_document) instead of rolling the whole
+        # upload back to nothing — a failed upload must stay visible in the list.
+        await self._db.commit()
         result = await self._index_document(
             doc=doc,
             cfg=cfg,
@@ -402,17 +406,26 @@ class IngestService:
             # doc_id, so it touches only this document's points.
             with contextlib.suppress(Exception):
                 await self._qdrant.delete_document(project_id=cfg.project_id, document_id=doc.id)
-            # Best-effort status flip; if this fails the enclosing transaction
-            # rolls back anyway, dropping the row in the same unit of work.
+            # Persist FAILED durably. The row is committed before indexing (multipart
+            # ingest()) or already committed (tus finaliser / reindex), so rolling back
+            # the partial chunk writes and committing FAILED keeps the document visible
+            # as FAILED instead of vanishing from the list.
             with contextlib.suppress(Exception):
+                await self._db.rollback()
                 await self._docs.set_status(
                     document_id=doc.id,
                     status=DocumentStatus.FAILED,
                 )
+                await self._db.commit()
             with contextlib.suppress(Exception):
                 await Publisher(rag_channel(cfg.id)).emit(
                     "ingestion.failed", {"document_id": str(doc.id), "error": str(exc)}
                 )
+            # A parse failure is a client-fixable input problem (unparseable, no text
+            # layer, or unsupported content) → 422; any other failure (embedding,
+            # provider, store) is a server-side ingest failure → 500.
+            if isinstance(exc, ParserError):
+                raise DocumentUnprocessable(str(exc)) from exc
             raise IngestFailed(f"{type(exc).__name__}: {exc}") from exc
 
         # Re-read so the returned row reflects the just-set status (the caller
