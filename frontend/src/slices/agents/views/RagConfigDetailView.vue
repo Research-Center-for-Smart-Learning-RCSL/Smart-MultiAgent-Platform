@@ -36,7 +36,7 @@ import {
   useToast,
   useBreakpoint,
 } from '@shared/composables'
-import { tusUpload } from '@shared/transport'
+import { tusUpload, isProblemWithType } from '@shared/transport'
 import { projectKeysApi, CAPABILITIES, keysKeys } from '@slices/keys'
 import {
   agentsApi,
@@ -320,8 +320,14 @@ async function onFiles(files: File[]): Promise<void> {
     }
     toast.success(t('agents.rag.uploadStarted'))
     qc.invalidateQueries({ queryKey: agentKeys.ragDocuments(configId) })
-  } catch {
-    toast.error(t('agents.rag.uploadFailed'))
+  } catch (err) {
+    // A parse failure (422) is a client-fixable input problem — tell the user the
+    // document could not be read, rather than a generic upload failure.
+    if (isProblemWithType(err, '/document-unprocessable')) {
+      toast.error(t('agents.rag.uploadUnprocessable'))
+    } else {
+      toast.error(t('agents.rag.uploadFailed'))
+    }
   } finally {
     uploading.value = false
   }

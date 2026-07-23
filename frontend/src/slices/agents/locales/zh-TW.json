@@ -559,6 +559,7 @@
       "uploading": "上傳中…",
       "uploadStarted": "已接受上傳，索引進行中。",
       "uploadFailed": "上傳失敗。",
+      "uploadUnprocessable": "無法讀取這份文件，可能是檔案損毀、沒有文字內容，或格式不支援。",
       "sizeHint": "PDF、TXT、MD、DOCX——最大 32 MB",
       "loading": "載入文件中…",
       "empty": "尚未上傳任何文件。",
