@@ -38,12 +38,19 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
 
         facade = OrchestrationFacade(db)
 
+        # F-24: if this run was started by an inbound A2A CALL signal, its chain
+        # rode in on the trigger payload; thread it back into the call so the
+        # cycle/depth guard sees the real chain (this worker is a different
+        # process from the A2A consumer, so the ContextVar is empty here).
+        trigger = ctx.trigger_payload or {}
         result = await facade.a2a_call(
             from_agent_id=None,
             to_agent_id=uuid.UUID(agent_id),
             payload={"input": rendered_input, "origin": "workflow"},
             workflow_run_id=ctx.run_id,
             timeout_seconds=float(config.get("timeout_seconds", 300)),
+            inbound_call_depth=trigger.get("call_depth"),
+            inbound_call_path=trigger.get("call_path"),
         )
 
         reply = result.get("reply", result.get("output", ""))

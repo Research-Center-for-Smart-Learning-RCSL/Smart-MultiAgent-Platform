@@ -36,14 +36,23 @@ def current() -> tuple[int, tuple[str, ...]]:
     return _chain.get()
 
 
-def next_hop(callee: str) -> tuple[int, tuple[str, ...]]:
-    """Compute (depth, path) for a CALL to ``callee`` from the current chain.
+def next_hop(
+    callee: str,
+    *,
+    base: tuple[int, tuple[str, ...]] | None = None,
+) -> tuple[int, tuple[str, ...]]:
+    """Compute (depth, path) for a CALL to ``callee`` from a chain.
+
+    ``base`` is the inbound chain to extend; when ``None`` it falls back to the
+    in-process ``ContextVar``. Workflow-worker callers pass ``base`` explicitly
+    because the CALL that entered their run ran in a *different* process, so the
+    ContextVar is always at its default there (F-24).
 
     Raises :class:`A2ACallLoop` if ``callee`` is already on the call stack, or
     :class:`A2ACallDepthExceeded` if the hop would exceed the hard depth cap —
     so the recursive/over-deep call is rejected before it can stall a loop.
     """
-    depth, path = _chain.get()
+    depth, path = base if base is not None else _chain.get()
     if callee in path:
         raise A2ACallLoop(f"a2a call cycle: {callee} already on the call stack {list(path)}")
     new_depth = depth + 1
