@@ -22,6 +22,7 @@
     },
     "project": {
       "skills": "技能",
+      "activityTypes": "活動類型",
       "createTitle": "建立專案",
       "ownerPersonal": "個人",
       "ownerOrg": "組織",

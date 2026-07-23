@@ -32,6 +32,67 @@
       "jsonPlaceholder": "輸入 JSON…",
       "invalidJson": "請輸入有效的 JSON。",
       "fieldInvalid": "此值無效。"
+    },
+    "typesList": {
+      "title": "活動類型",
+      "create": "新增活動類型",
+      "colName": "名稱",
+      "colKey": "識別碼",
+      "colValidator": "驗證器",
+      "actions": "操作",
+      "created": "已建立活動類型。",
+      "deleted": "已刪除活動類型。",
+      "deleteFailed": "無法刪除活動類型，請再試一次。",
+      "deleteTitle": "刪除活動類型",
+      "deleteConfirm": "確定要刪除「{name}」嗎？任何正在進行此活動的聊天室都會被結束。",
+      "emptyTitle": "尚無活動類型",
+      "emptyText": "建立活動類型後，主持人即可在聊天室中開始使用。",
+      "errorTitle": "無法載入活動類型",
+      "errorText": "載入清單時發生錯誤，請再試一次。",
+      "retry": "重試",
+      "forbiddenTitle": "僅限擁有者",
+      "forbiddenText": "只有專案擁有者可以管理活動類型。"
+    },
+    "typeForm": {
+      "title": "新增活動類型",
+      "key": "識別碼",
+      "keyPlaceholder": "quiz",
+      "name": "名稱",
+      "retentionDays": "保留天數",
+      "retentionHelp": "提交資料保留的天數。留空則不限制。",
+      "payloadSchema": "提交欄位",
+      "validator": "驗證器",
+      "validatorKind": {
+        "webhook": "Webhook",
+        "mcp": "MCP 工具"
+      },
+      "webhookUrl": "Webhook 網址",
+      "webhookUrlPlaceholder": "https://example.com/score",
+      "mcpAgent": "代理",
+      "mcpAgentPlaceholder": "選擇代理",
+      "mcpBinding": "MCP 綁定",
+      "mcpBindingPlaceholder": "選擇綁定",
+      "mcpToolName": "工具名稱",
+      "mcpToolNamePlaceholder": "score_submission",
+      "submit": "建立",
+      "fieldRequired": "此欄位為必填。",
+      "schemaEmpty": "請至少新增一個欄位。",
+      "keyConflict": "已存在使用此識別碼的活動類型。",
+      "configRejected": "驗證器設定或結構被拒絕，請檢查後再試。",
+      "createFailed": "無法建立活動類型，請再試一次。"
+    },
+    "schemaBuilder": {
+      "fieldName": "欄位名稱",
+      "fieldType": {
+        "string": "文字",
+        "number": "數字",
+        "integer": "整數",
+        "boolean": "是/否"
+      },
+      "required": "必填",
+      "addField": "新增欄位",
+      "removeField": "移除欄位",
+      "previewLabel": "JSON Schema 預覽"
     }
   }
 }

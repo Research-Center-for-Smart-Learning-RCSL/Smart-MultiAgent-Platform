@@ -32,6 +32,67 @@
       "jsonPlaceholder": "Enter JSON…",
       "invalidJson": "Enter valid JSON.",
       "fieldInvalid": "This value is not valid."
+    },
+    "typesList": {
+      "title": "Activity types",
+      "create": "New activity type",
+      "colName": "Name",
+      "colKey": "Key",
+      "colValidator": "Validator",
+      "actions": "Actions",
+      "created": "Activity type created.",
+      "deleted": "Activity type deleted.",
+      "deleteFailed": "Could not delete the activity type. Please try again.",
+      "deleteTitle": "Delete activity type",
+      "deleteConfirm": "Delete \"{name}\"? Any room currently running it will have the activity ended.",
+      "emptyTitle": "No activity types yet",
+      "emptyText": "Create an activity type so facilitators can run it in a room.",
+      "errorTitle": "Could not load activity types",
+      "errorText": "Something went wrong loading the list. Please try again.",
+      "retry": "Retry",
+      "forbiddenTitle": "Owners only",
+      "forbiddenText": "Only a project owner can manage activity types."
+    },
+    "typeForm": {
+      "title": "New activity type",
+      "key": "Key",
+      "keyPlaceholder": "quiz",
+      "name": "Name",
+      "retentionDays": "Retention (days)",
+      "retentionHelp": "How long submissions are kept. Leave blank for no limit.",
+      "payloadSchema": "Submission fields",
+      "validator": "Validator",
+      "validatorKind": {
+        "webhook": "Webhook",
+        "mcp": "MCP tool"
+      },
+      "webhookUrl": "Webhook URL",
+      "webhookUrlPlaceholder": "https://example.com/score",
+      "mcpAgent": "Agent",
+      "mcpAgentPlaceholder": "Select an agent",
+      "mcpBinding": "MCP binding",
+      "mcpBindingPlaceholder": "Select a binding",
+      "mcpToolName": "Tool name",
+      "mcpToolNamePlaceholder": "score_submission",
+      "submit": "Create",
+      "fieldRequired": "This field is required.",
+      "schemaEmpty": "Add at least one field.",
+      "keyConflict": "An activity type with this key already exists.",
+      "configRejected": "The validator configuration or schema was rejected. Please review it.",
+      "createFailed": "Could not create the activity type. Please try again."
+    },
+    "schemaBuilder": {
+      "fieldName": "Field name",
+      "fieldType": {
+        "string": "Text",
+        "number": "Number",
+        "integer": "Integer",
+        "boolean": "Yes/No"
+      },
+      "required": "Required",
+      "addField": "Add field",
+      "removeField": "Remove field",
+      "previewLabel": "JSON Schema preview"
     }
   }
 }
