@@ -79,7 +79,35 @@ describe('assemblePayload', () => {
   it('omits empty optional values', () => {
     const { payload } = assemblePayload(fields, { name: 'Ada', rating: '1' })
     expect('color' in payload).toBe(false)
-    expect(payload.tags).toEqual([])
+    // An untouched optional enum-array is omitted, not asserted as [] — else a
+    // minItems constraint on the optional array 422s a submission the participant
+    // never made (V-7).
+    expect('tags' in payload).toBe(false)
+  })
+
+  it('emits a touched optional enum-array with its selections', () => {
+    const { payload } = assemblePayload(fields, { name: 'Ada', rating: '1', tags: ['a'] })
+    expect(payload.tags).toEqual(['a'])
+  })
+})
+
+describe('required enum-array retention', () => {
+  const requiredTags: JSONSchema = {
+    type: 'object',
+    required: ['tags'],
+    properties: {
+      tags: { type: 'array', items: { enum: ['a', 'b'] } },
+    },
+  }
+
+  it('keeps a required enum-array so the client min(1) check still flags it', () => {
+    const fields = fieldsFromSchema(requiredTags)
+    // Present (as []) so zod's .min(1) reports it specifically, rather than
+    // disappearing into the generic required-presence branch.
+    expect('tags' in assemblePayload(fields, { tags: [] }).payload).toBe(true)
+    expect(validatePayload(requiredTags, assemblePayload(fields, { tags: [] }).payload).tags).toBe(
+      'fieldInvalid',
+    )
   })
 })
 

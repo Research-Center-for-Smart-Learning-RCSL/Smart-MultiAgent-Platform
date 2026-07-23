@@ -113,9 +113,15 @@ export function assemblePayload(
       case 'enum':
         if (v !== null && v !== undefined && v !== '') payload[f.name] = v
         break
-      case 'enum-array':
-        payload[f.name] = Array.isArray(v) ? v : []
+      case 'enum-array': {
+        // Omit an untouched optional array so a `minItems` constraint is not
+        // tripped by a submission the participant never made — the mirror of the
+        // string branch below. A required empty array is kept (as []) so the
+        // client `.min(1)` check flags it specifically.
+        const arr = Array.isArray(v) ? v : []
+        if (f.required || arr.length > 0) payload[f.name] = arr
         break
+      }
       case 'string': {
         // Omit an empty optional string so a `minLength`/`pattern`/`format`
         // constraint on an optional field is not tripped by a blank submission;
