@@ -123,6 +123,14 @@ class ConversationFacade:
     async def get_message(self, message_id: uuid.UUID) -> Message | None:
         return await self._messages.get(message_id)
 
+    async def shared_room_by_agent(self, agent_id: uuid.UUID) -> dict[uuid.UUID, uuid.UUID]:
+        """target_agent_id -> a live chatroom it shares with ``agent_id`` (G.2).
+
+        A2A broadcast uses this to grant rule 3a to the caller's room-mates: the
+        shared room is the invocation context both are attached to.
+        """
+        return await self._room_agents.shared_room_by_agent(agent_id)
+
     async def is_agent_in_chatroom(
         self,
         *,

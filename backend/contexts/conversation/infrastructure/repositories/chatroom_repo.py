@@ -303,6 +303,37 @@ class ChatroomAgentRepository:
             for r in rows
         ]
 
+    async def shared_room_by_agent(self, agent_id: uuid.UUID) -> dict[uuid.UUID, uuid.UUID]:
+        """For each agent sharing at least one live chatroom with ``agent_id``,
+        one such shared chatroom id.
+
+        Used by A2A broadcast (G.2) to grant rule 3a to room-mates: the shared
+        room is the invocation context both are attached to. Excludes the agent
+        itself and soft-deleted rooms.
+        """
+        ca1 = t.chatroom_agents.alias("ca1")
+        ca2 = t.chatroom_agents.alias("ca2")
+        # DISTINCT ON picks one shared room per room-mate (Postgres has no
+        # min(uuid)); the specific room does not matter, only that one exists.
+        rows = (
+            await self._db.execute(
+                sa.select(ca2.c.agent_id, ca1.c.chatroom_id.label("room"))
+                .select_from(
+                    ca1.join(ca2, ca1.c.chatroom_id == ca2.c.chatroom_id).join(
+                        t.chatrooms, t.chatrooms.c.id == ca1.c.chatroom_id
+                    )
+                )
+                .where(
+                    ca1.c.agent_id == agent_id,
+                    ca2.c.agent_id != agent_id,
+                    t.chatrooms.c.deleted_at.is_(None),
+                )
+                .distinct(ca2.c.agent_id)
+                .order_by(ca2.c.agent_id, ca1.c.chatroom_id)
+            )
+        ).all()
+        return {r.agent_id: r.room for r in rows}
+
     async def is_registered(
         self,
         *,
