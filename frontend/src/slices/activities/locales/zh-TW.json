@@ -74,8 +74,9 @@
       "schemaModeLabel": "結構編輯模式",
       "schemaModeLockedHint": "此結構以原始 JSON 撰寫，無法在表單編輯器中修改。",
       "schemaRawHint": "直接編輯 JSON Schema，此處支援巢狀物件、陣列與列舉。",
-      "schemaRawPlaceholder": "{ \"type\": \"object\", \"properties\": { ... } }",
+      "schemaRawPlaceholder": "輸入提交內容的 JSON Schema。",
       "schemaInvalidJson": "請輸入有效的 JSON。",
+      "schemaNotObject": "結構必須是 JSON 物件。",
       "validator": "驗證器",
       "validatorKind": {
         "webhook": "Webhook",
