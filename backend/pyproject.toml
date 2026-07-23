@@ -35,6 +35,8 @@ dependencies = [
   "psycopg[binary]==3.2.*",
   "minio==7.2.*",
   "weasyprint==69.*",  # chat export → PDF (HTML render); needs pango/cairo + fonts-noto-cjk in the image. SEC-DEP: <68 leaks the url_fetcher SSRF guard across redirects (PYSEC-2026-2034)
+  "pypdf==6.*",  # PDF text extraction for RAG / Knowledge Map ingestion (shared_kernel/text_extraction/parsers.py). Accepted upload type; without it PDF ingest 500s with "pypdf not installed"
+  "python-docx==1.*",  # DOCX text extraction on the same ingestion path; accepted upload type (imported as `docx`)
   "neo4j==5.24.*",
   "qdrant-client==1.12.*",
   "prometheus-client==0.21.*",
