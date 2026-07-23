@@ -19,6 +19,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.interfaces.facade import AgentsFacade
+from contexts.orchestration.application import instruct_chain
 from contexts.orchestration.application.a2a_service import A2AService
 from contexts.orchestration.domain.errors import (
     InstructBudgetExceeded,
@@ -70,6 +71,14 @@ class InstructService:
         For a workflow-originated instruct it is also the [R15.16] rule 3
         issuing window when no ``wakeup_started_at`` is supplied.
         """
+        # F-25 fallback: an instruct issued from inside a delivered instruct's
+        # inline turn (no explicit chain supplied) inherits the ambient chain so
+        # the loop/depth/budget guards continue rather than reset to a fresh chain.
+        if chain_id is None and not parent_path:
+            ctx_chain_id, ctx_parent_path = instruct_chain.current()
+            if ctx_chain_id is not None:
+                chain_id = ctx_chain_id
+                parent_path = ctx_parent_path
         chain_id = chain_id or uuid.uuid4()
         new_path = (*parent_path, issuer_agent_id)
         depth = len(new_path)
@@ -124,6 +133,20 @@ class InstructService:
                 issuing_window_start,
             )
             if count >= max_per_wakeup:
+                await audit.emit(
+                    self._db,
+                    audit.AuditEvent(
+                        action="instruct.budget_exceeded",
+                        resource_type="agent",
+                        resource_id=issuer_agent_id,
+                        metadata={
+                            "issuer_agent_id": str(issuer_agent_id),
+                            "count": count,
+                            "max_per_wakeup": max_per_wakeup,
+                            "workflow_run_id": str(workflow_run_id) if workflow_run_id else None,
+                        },
+                    ),
+                )
                 raise InstructBudgetExceeded(
                     f"agent {issuer_agent_id} issued {count} instructs "
                     f"this issuing window (max {max_per_wakeup})"

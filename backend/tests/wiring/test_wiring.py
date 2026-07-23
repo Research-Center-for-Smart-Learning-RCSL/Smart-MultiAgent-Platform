@@ -67,7 +67,11 @@ from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from contexts.orchestration.application.a2a_consumer import consume_once
 from contexts.orchestration.application.a2a_handler import handle_envelope
 from contexts.orchestration.application.a2a_service import A2AService
-from contexts.orchestration.domain.errors import A2AForbidden
+from contexts.orchestration.domain.errors import (
+    A2AForbidden,
+    InstructBudgetExceeded,
+    InstructLoopDetected,
+)
 from contexts.orchestration.domain.models import A2AEnvelope, A2AMessageType
 from contexts.orchestration.interfaces.facade import OrchestrationFacade
 from contexts.tenancy.domain.models import OrgMemberRole, ProjectMemberRole
@@ -886,10 +890,143 @@ async def test_denied_instruct_leaves_no_issued_row() -> None:
         issued = (
             await db.execute(
                 sa.text(
-                    "SELECT count(*) FROM instructions "
-                    "WHERE issuer_agent_id = :i AND state = 'issued'"
+                    "SELECT count(*) FROM instructions " "WHERE issuer_agent_id = :i AND state = 'issued'"
                 ),
                 {"i": str(issuer.id)},
             )
         ).scalar_one()
         assert issued == 0
+
+
+async def test_instruct_chain_loop_detected() -> None:
+    """I-1: an A->B->A instruct chain, with the chain relayed as production
+    relays it (the delivered envelope's chain_id/path threaded into the next
+    issue), trips the R15.16 loop guard and persists a rejected_loop row —
+    proving [R15.16] rules 1/2/4 are reachable once the chain propagates."""
+    async with async_session() as seed_db:
+        env = await _seed_agent_and_room(seed_db, a2a_enabled=True)
+        await seed_db.commit()
+    a = env.agent
+    b = await _add_agent(env, a2a_enabled=True, call_only=False)
+
+    async with async_session() as db:
+        run = await WorkflowRunRepository(db).insert(
+            project_id=env.project.id, workflow_id=None, trigger_type="manual"
+        )
+        await WorkflowRunRepository(db).insert_participants(run.id, {a.id, b.id})
+        await db.commit()
+
+        facade = OrchestrationFacade(db)
+        # Hop 1: A -> B (authorized; both run participants). chain_id/path here are
+        # exactly what the delivered envelope carries and what the instruct
+        # executor extracts from the trigger payload in production.
+        inst1 = await facade.issue_instruct(
+            issuer_agent_id=a.id,
+            target_agent_id=b.id,
+            payload={"instruction": "x"},
+            workflow_run_id=run.id,
+        )
+
+        # Hop 2: B -> A, continuing the SAME chain. A is already on the path, so
+        # the loop guard rejects it.
+        with pytest.raises(InstructLoopDetected):
+            await facade.issue_instruct(
+                issuer_agent_id=b.id,
+                target_agent_id=a.id,
+                payload={"instruction": "y"},
+                workflow_run_id=run.id,
+                chain_id=inst1.chain_id,
+                parent_path=inst1.path,
+            )
+
+        rejected = (
+            await db.execute(
+                sa.text(
+                    "SELECT count(*) FROM instructions " "WHERE chain_id = :c AND state = 'rejected_loop'"
+                ),
+                {"c": str(inst1.chain_id)},
+            )
+        ).scalar_one()
+        assert rejected == 1
+
+
+async def test_instruct_run_scoped_budget_exceeded() -> None:
+    """I-2 (F-26): the R15.16 rule-3 issuing window is the workflow run — a loop
+    body issuing past max_per_wakeup within one run trips InstructBudgetExceeded
+    and writes a breach audit, rather than counting an absent wakeup window."""
+    async with async_session() as seed_db:
+        env = await _seed_agent_and_room(seed_db, a2a_enabled=True)
+        await seed_db.commit()
+    a = env.agent
+    b = await _add_agent(env, a2a_enabled=True, call_only=False)
+
+    async with async_session() as db:
+        run = await WorkflowRunRepository(db).insert(
+            project_id=env.project.id, workflow_id=None, trigger_type="manual"
+        )
+        await WorkflowRunRepository(db).insert_participants(run.id, {a.id, b.id})
+        await db.commit()
+
+        facade = OrchestrationFacade(db)
+        # Default max_per_wakeup is 5; the first five succeed within the run window.
+        for _ in range(5):
+            await facade.issue_instruct(
+                issuer_agent_id=a.id,
+                target_agent_id=b.id,
+                payload={"instruction": "x"},
+                workflow_run_id=run.id,
+            )
+        with pytest.raises(InstructBudgetExceeded):
+            await facade.issue_instruct(
+                issuer_agent_id=a.id,
+                target_agent_id=b.id,
+                payload={"instruction": "x"},
+                workflow_run_id=run.id,
+            )
+
+        breaches = (
+            await db.execute(
+                sa.text(
+                    "SELECT count(*) FROM audit_logs WHERE action = 'instruct.budget_exceeded' "
+                    "AND metadata->>'issuer_agent_id' = :i"
+                ),
+                {"i": str(a.id)},
+            )
+        ).scalar_one()
+        assert breaches == 1
+
+
+async def test_instruct_inline_turn_inherits_ambient_chain() -> None:
+    """F-25 binding: an instruct issued with no explicit chain inherits the chain
+    bound for the delivered instruct's turn (a2a_handler._handle_instruct binds
+    it), so a B->C hop continues A's chain instead of minting a fresh one."""
+    from contexts.orchestration.application import instruct_chain
+
+    async with async_session() as seed_db:
+        env = await _seed_agent_and_room(seed_db, a2a_enabled=True)
+        await seed_db.commit()
+    a = env.agent
+    b = await _add_agent(env, a2a_enabled=True, call_only=False)
+    c = await _add_agent(env, a2a_enabled=True, call_only=False)
+
+    async with async_session() as db:
+        run = await WorkflowRunRepository(db).insert(
+            project_id=env.project.id, workflow_id=None, trigger_type="manual"
+        )
+        await WorkflowRunRepository(db).insert_participants(run.id, {a.id, b.id, c.id})
+        await db.commit()
+
+        existing_chain = uuid.uuid4()
+        # Emulate _handle_instruct binding the delivered A->B chain, then B issues
+        # to C from inside its turn with no explicit chain.
+        with instruct_chain.enter(existing_chain, (a.id,)):
+            inst = await OrchestrationFacade(db).issue_instruct(
+                issuer_agent_id=b.id,
+                target_agent_id=c.id,
+                payload={"instruction": "z"},
+                workflow_run_id=run.id,
+            )
+
+        assert inst.chain_id == existing_chain
+        assert inst.path == (a.id, b.id)
+        assert inst.depth == 2

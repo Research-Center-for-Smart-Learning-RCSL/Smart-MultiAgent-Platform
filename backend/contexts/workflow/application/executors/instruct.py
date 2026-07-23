@@ -17,6 +17,13 @@ from contexts.workflow.domain.models import (
 from contexts.workflow.sel.template import interpolate
 
 
+def _as_uuid(value: object) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(value)) if value else None
+    except (ValueError, TypeError):
+        return None
+
+
 @register(NodeType.INSTRUCT)
 async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutcome:
     config = node.config
@@ -32,6 +39,15 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
     }
     rendered = interpolate(template, variables)
 
+    # F-25: if this run was started by an inbound instruct, its chain rode in on
+    # the trigger payload; continue it so an A->B->A chain trips the loop guard
+    # instead of minting a fresh chain each hop.
+    trigger = ctx.trigger_payload or {}
+    inbound_chain_id = _as_uuid(trigger.get("chain_id"))
+    inbound_parent_path = tuple(
+        u for u in (_as_uuid(p) for p in (trigger.get("chain_path") or [])) if u is not None
+    )
+
     try:
         from contexts.orchestration.interfaces.facade import OrchestrationFacade
 
@@ -41,6 +57,8 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             target_agent_id=uuid.UUID(target_id),
             payload={"instruction": rendered, "origin": "workflow"},
             workflow_run_id=ctx.run_id,
+            chain_id=inbound_chain_id,
+            parent_path=inbound_parent_path,
         )
 
         result_output = {"instruction_id": str(instruction.id)}
