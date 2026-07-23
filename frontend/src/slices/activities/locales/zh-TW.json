@@ -67,6 +67,15 @@
       "retentionHelp": "提交資料保留的天數。留空則不限制。",
       "payloadSchema": "提交欄位",
       "payloadSchemaHelp": "參與者填寫並提交的欄位。",
+      "schemaMode": {
+        "builder": "表單編輯",
+        "raw": "原始 JSON"
+      },
+      "schemaModeLabel": "結構編輯模式",
+      "schemaModeLockedHint": "此結構以原始 JSON 撰寫，無法在表單編輯器中修改。",
+      "schemaRawHint": "直接編輯 JSON Schema，此處支援巢狀物件、陣列與列舉。",
+      "schemaRawPlaceholder": "{ \"type\": \"object\", \"properties\": { ... } }",
+      "schemaInvalidJson": "請輸入有效的 JSON。",
       "validator": "驗證器",
       "validatorKind": {
         "webhook": "Webhook",
