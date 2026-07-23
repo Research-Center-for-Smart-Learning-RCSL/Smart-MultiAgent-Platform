@@ -73,6 +73,26 @@ def _parse_node(raw: dict[str, Any]) -> NodeSpec:
     )
 
 
+def _collect_participant_ids(definition: dict[str, Any]) -> set[uuid.UUID]:
+    """Every agent UUID referenced by the definition's nodes (A2A rule 3a, G.2).
+
+    Reuses the linter's node-level extractor (agent_id / target_agent_id /
+    issuer_agent_id / leader_agent_id / parent_agent_id / approvers) so the
+    participant set and the linter's agent-reference validation can never
+    diverge. Non-UUID or malformed references are skipped, not fatal.
+    """
+    from contexts.workflow.application.linter import _collect_agent_ids
+
+    ids: set[uuid.UUID] = set()
+    for raw_node in definition.get("nodes", []):
+        for raw_id in _collect_agent_ids(raw_node):
+            try:
+                ids.add(uuid.UUID(str(raw_id)))
+            except (ValueError, TypeError):
+                continue
+    return ids
+
+
 def _parse_edges(raw_edges: list[dict[str, Any]]) -> list[EdgeSpec]:
     return [
         EdgeSpec(
@@ -155,6 +175,12 @@ class RunEngine:
             variables=variables,
             context={"trigger_payload": trigger_payload or {}},
         )
+
+        # G.2: snapshot the design-time participant set so A2A rule 3a can grant
+        # an instruct between two agents that both belong to this run. Derived
+        # from the definition (not from any node's runtime output), so it is
+        # immune to a mid-run edit and never influenced by an executor.
+        await self._runs.insert_participants(run.id, _collect_participant_ids(definition))
 
         await audit.emit(
             self._db,

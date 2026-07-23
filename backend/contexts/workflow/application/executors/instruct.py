@@ -40,6 +40,7 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             issuer_agent_id=uuid.UUID(issuer_id),
             target_agent_id=uuid.UUID(target_id),
             payload={"instruction": rendered, "origin": "workflow"},
+            workflow_run_id=ctx.run_id,
         )
 
         result_output = {"instruction_id": str(instruction.id)}

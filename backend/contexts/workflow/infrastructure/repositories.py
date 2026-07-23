@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Any, ClassVar
 
@@ -20,6 +21,7 @@ from contexts.workflow.domain.models import (
     WorkflowStep,
 )
 from contexts.workflow.infrastructure.tables import (
+    workflow_run_participants,
     workflow_runs_archive,
     workflow_steps,
     workflows,
@@ -360,6 +362,40 @@ class WorkflowRunRepository:
             )
         ).all()
         return [(r.id, r.workflow_id, r.started_at) for r in rows]
+
+    async def insert_participants(self, run_id: uuid.UUID, agent_ids: Iterable[uuid.UUID]) -> None:
+        """Materialize a run's design-time agent set (A2A rule 3a source, G.2).
+
+        Idempotent via ``ON CONFLICT DO NOTHING`` — a definition that names the
+        same agent on several nodes yields one row.
+        """
+        ids = set(agent_ids)
+        if not ids:
+            return
+        await self._db.execute(
+            pg.insert(workflow_run_participants)
+            .values([{"run_id": run_id, "agent_id": aid} for aid in ids])
+            .on_conflict_do_nothing(),
+        )
+
+    async def filter_participants(self, run_id: uuid.UUID, agent_ids: Iterable[uuid.UUID]) -> set[uuid.UUID]:
+        """Return the subset of ``agent_ids`` that are participants of ``run_id``.
+
+        A2A rule 3a grants only when *both* issuer and target come back, so the
+        caller passes ``{issuer, target}`` and grants on a two-element result.
+        """
+        ids = set(agent_ids)
+        if not ids:
+            return set()
+        rows = (
+            await self._db.execute(
+                sa.select(workflow_run_participants.c.agent_id).where(
+                    workflow_run_participants.c.run_id == run_id,
+                    workflow_run_participants.c.agent_id.in_(ids),
+                ),
+            )
+        ).all()
+        return {r.agent_id for r in rows}
 
     async def mark_a2a_cancellation_pending(self, run_id: uuid.UUID) -> None:
         """Persist the post-commit A2A cancellation work item with the run."""

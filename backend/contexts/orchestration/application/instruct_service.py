@@ -54,6 +54,7 @@ class InstructService:
         issuer_agent_id: uuid.UUID,
         target_agent_id: uuid.UUID,
         payload: dict[str, Any],
+        workflow_run_id: uuid.UUID | None = None,
         chain_id: uuid.UUID | None = None,
         parent_path: tuple[uuid.UUID, ...] = (),
         wakeup_started_at: datetime | None = None,
@@ -61,7 +62,14 @@ class InstructService:
         max_per_wakeup: int = INSTRUCT_MAX_PER_WAKEUP,
         max_chain_seconds: int = INSTRUCT_MAX_CHAIN_SECONDS,
     ) -> Instruction:
-        """Issue an instruct to target_agent_id with full chain validation."""
+        """Issue an instruct to target_agent_id with full chain validation.
+
+        ``workflow_run_id`` is the originating run: it is stamped onto the
+        delivered envelope for attribution ([R15.23]) and is the context
+        A2AService derives rule 3a from (both agents must be run participants).
+        For a workflow-originated instruct it is also the [R15.16] rule 3
+        issuing window when no ``wakeup_started_at`` is supplied.
+        """
         chain_id = chain_id or uuid.uuid4()
         new_path = (*parent_path, issuer_agent_id)
         depth = len(new_path)
@@ -103,15 +111,22 @@ class InstructService:
         if depth >= effective_depth:
             raise InstructBudgetExceeded(f"chain depth {depth} >= max {effective_depth}")
 
-        # R15.16 rule 3: per-wakeup count cap.
-        if wakeup_started_at:
+        # R15.16 rule 3: per-issuing-window count cap. The issuing window is the
+        # agent's wakeup for a wakeup-originated instruct, or the workflow run
+        # for a workflow-originated one (which has no wakeup) — the run start is
+        # the window boundary so a loop body issuing each iteration is bounded.
+        issuing_window_start = wakeup_started_at
+        if issuing_window_start is None and workflow_run_id is not None:
+            issuing_window_start = await self._run_started_at(workflow_run_id)
+        if issuing_window_start:
             count = await self._instructions.count_issued_by_agent_since(
                 issuer_agent_id,
-                wakeup_started_at,
+                issuing_window_start,
             )
             if count >= max_per_wakeup:
                 raise InstructBudgetExceeded(
-                    f"agent {issuer_agent_id} issued {count} instructs " f"this wakeup (max {max_per_wakeup})"
+                    f"agent {issuer_agent_id} issued {count} instructs "
+                    f"this issuing window (max {max_per_wakeup})"
                 )
 
         # R15.16 rule 4: wall-clock chain budget.
@@ -141,7 +156,7 @@ class InstructService:
             id=uuid.uuid4(),
             from_agent=issuer_agent_id,
             to_agent=str(target_agent_id),
-            workflow_run_id=None,
+            workflow_run_id=workflow_run_id,
             type=A2AMessageType.INSTRUCT,
             payload={
                 "instruction_id": str(instruction_id),
@@ -153,7 +168,16 @@ class InstructService:
             correlation_id=uuid.uuid4(),
             created_at=datetime.now(UTC),
         )
-        await self._a2a.send(envelope=envelope)
+        # Send BEFORE emitting instruct.issued. A denied send (A2AForbidden) or
+        # any delivery failure must not leave an orphan `issued` row: the executor
+        # swallows the exception into a `failure` port without rolling back, so
+        # retention (which reaps only all-terminal chains) would never collect it.
+        # Compensate by deleting the just-inserted row, then re-raise.
+        try:
+            await self._a2a.send(envelope=envelope)
+        except Exception:
+            await self._instructions.delete(instruction_id)
+            raise
 
         await audit.emit(
             self._db,
@@ -172,6 +196,18 @@ class InstructService:
         )
 
         return instruction
+
+    async def _run_started_at(self, workflow_run_id: uuid.UUID) -> datetime | None:
+        """Run start = the [R15.16] rule-3 issuing window for a workflow instruct.
+
+        Lazy import: the workflow context reaches OrchestrationFacade -> here, so
+        importing WorkflowFacade at module load risks a cycle (same reason as
+        ``a2a_service._enforce_workflow_tenant``).
+        """
+        from contexts.workflow.interfaces.facade import WorkflowFacade
+
+        run = await WorkflowFacade(self._db).get_run(workflow_run_id)
+        return run.started_at if run else None
 
     async def mark_delivered(self, instruction_id: uuid.UUID) -> None:
         await self._instructions.update_state(
