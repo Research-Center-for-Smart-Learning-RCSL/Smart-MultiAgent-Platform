@@ -12,7 +12,7 @@ from datetime import timedelta
 from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +21,11 @@ from app.config.settings import get_settings
 from contexts.identity.application.auth_service import AuthService, TokenPair
 from contexts.identity.application.factory import create_auth_service
 from contexts.identity.domain.models import UserStatus
-from contexts.identity.interfaces.error_mapping import DEAD_REFRESH_ERRORS, render_problem
+from contexts.identity.interfaces.error_mapping import (
+    DEAD_REFRESH_ERRORS,
+    OAUTH_UNAVAILABLE_ERRORS,
+    render_problem,
+)
 from contexts.identity.interfaces.facade import IdentityFacade, UserProfile
 from shared_kernel.auth import captcha, ratelimit, tokens
 from shared_kernel.auth.context import RequestContext
@@ -61,6 +65,39 @@ def _clear_refresh_cookie(response: Response) -> None:
         secure=s.security.session_cookie_secure,
         samesite=s.security.session_cookie_samesite,
     )
+
+
+_OAUTH_STATE_COOKIE = "smap_oauth_state"
+_OAUTH_STATE_COOKIE_PATH = "/api/auth/google"
+
+
+def _set_oauth_state_cookie(response: Response, state: str) -> None:
+    s = get_settings()
+    response.set_cookie(
+        key=_OAUTH_STATE_COOKIE,
+        value=state,
+        max_age=s.oauth.state_ttl_seconds,
+        path=_OAUTH_STATE_COOKIE_PATH,
+        httponly=True,
+        secure=s.security.session_cookie_secure,
+        # Must be Lax (never Strict): the cookie has to ride Google's cross-site
+        # top-level GET back to the callback for the login-CSRF binding to work.
+        samesite="lax",
+    )
+
+
+def _clear_oauth_state_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=_OAUTH_STATE_COOKIE,
+        path=_OAUTH_STATE_COOKIE_PATH,
+        secure=get_settings().security.session_cookie_secure,
+        samesite="lax",
+    )
+
+
+def _spa_redirect(path: str) -> RedirectResponse:
+    """302 to a path on the SPA origin (same origin as the API)."""
+    return RedirectResponse(url=_public_origin() + path, status_code=status.HTTP_302_FOUND)
 
 
 def _service(db: AsyncSession) -> AuthService:
@@ -575,6 +612,128 @@ async def issue_ws_ticket(
         )
     ticket, ttl = await mint_ws_ticket(raw_token)
     return WsTicketOut(ticket=ticket, expires_in=ttl)
+
+
+# ---------------------------------------------------------------------------
+# Google OAuth (R6.14-R6.17)
+# ---------------------------------------------------------------------------
+
+
+class GoogleLinkStartOut(BaseModel):
+    authorize_url: str
+
+
+class IdentityOut(BaseModel):
+    provider: str
+    email: str | None
+    created_at: str
+
+
+def _oauth_error_query(slug: str) -> str:
+    # Slugs look like "auth/oauth-failed"; the SPA only needs the tail token.
+    return slug.rsplit("/", 1)[-1]
+
+
+@router.get("/google/authorize", response_model=None)
+async def google_authorize(
+    db: AsyncSession = Depends(db_session),
+) -> RedirectResponse:
+    """Login-mode OAuth start: 302 to Google, with the single-use state stored
+    server-side and mirrored into the `smap_oauth_state` cookie (login-CSRF).
+    Unauthenticated (R19.01 exception)."""
+    service = _service(db)
+    try:
+        url, state = await service.start_google_login()
+    except OAUTH_UNAVAILABLE_ERRORS:
+        return _spa_redirect("/login?oauth_error=oauth-unavailable")
+    redirect = RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
+    _set_oauth_state_cookie(redirect, state)
+    return redirect
+
+
+@router.get("/google/callback", response_model=None)
+async def google_callback(
+    request: Request,
+    state: str,
+    code: str | None = None,
+    error: str | None = None,
+    ctx: RequestContext = Depends(current_context),
+    db: AsyncSession = Depends(db_session),
+) -> RedirectResponse:
+    """Backend-handled callback: verify server-side, mint the session, set the
+    refresh cookie, and 302 back to the SPA. Errors end in a redirect with
+    `?oauth_error=`, never a JSON 4xx. Unauthenticated (R19.01 exception)."""
+    # Google can bounce back with ?error=access_denied and no code.
+    if error is not None or code is None:
+        resp = _spa_redirect("/login?oauth_error=oauth-denied")
+        _clear_oauth_state_cookie(resp)
+        return resp
+    # Login-CSRF binding: the state must match the browser cookie set at authorize.
+    cookie_state = request.cookies.get(_OAUTH_STATE_COOKIE)
+    if not cookie_state or cookie_state != state:
+        resp = _spa_redirect("/login?oauth_error=oauth-failed")
+        _clear_oauth_state_cookie(resp)
+        return resp
+    service = _service(db)
+    result = await service.complete_google_callback(
+        code=code,
+        state=state,
+        remote_ip=ctx.actor_ip or (request.client.host if request.client else "0.0.0.0"),  # noqa: S104
+        user_agent=request.headers.get("User-Agent"),
+        request_id=ctx.request_id,
+    )
+    if result.error_slug is not None:
+        target = "/account/profile" if result.mode == "link" else "/login"
+        sep = "&" if "?" in target else "?"
+        resp = _spa_redirect(f"{target}{sep}oauth_error={_oauth_error_query(result.error_slug)}")
+        _clear_oauth_state_cookie(resp)
+        return resp
+    if result.mode == "login" and result.login is not None:
+        resp = _spa_redirect("/auth/google/complete")
+        _set_refresh_cookie(resp, result.login.tokens.refresh_token)
+    else:
+        resp = _spa_redirect("/account/profile?oauth_linked=1")
+    _clear_oauth_state_cookie(resp)
+    return resp
+
+
+@router.post("/google/link/start")
+async def google_link_start(
+    response: Response,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> GoogleLinkStartOut:
+    """Authenticated (XHR) link start: returns the Google authorize URL and sets
+    the state cookie; the SPA then navigates the browser to that URL. Bearer auth
+    works here because it is an XHR, not a top-level navigation."""
+    service = _service(db)
+    url, state = await service.start_google_link(principal.user_id)
+    _set_oauth_state_cookie(response, state)
+    return GoogleLinkStartOut(authorize_url=url)
+
+
+@router.delete("/google/link", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+async def google_unlink(
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    await _service(db).unlink_google(
+        user_id=principal.user_id,
+        remote_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+
+
+@router.get("/identities")
+async def list_identities(
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[IdentityOut]:
+    items = await _service(db).list_identities(principal.user_id)
+    return [
+        IdentityOut(provider=i.provider, email=i.email, created_at=i.created_at.isoformat()) for i in items
+    ]
 
 
 __all__ = ["router"]

@@ -32,6 +32,11 @@ _MAP: ErrorMap = {
     errors.CaptchaRequired: ("auth/captcha-required", 400, "CAPTCHA required"),
     errors.TokenInvalid: ("auth/token-invalid", 400, "Token invalid"),
     errors.TokenExpired: ("auth/token-expired", 401, "Token expired"),
+    errors.OAuthUnavailable: ("auth/oauth-unavailable", 503, "Google sign-in unavailable"),
+    errors.OAuthExchangeFailed: ("auth/oauth-failed", 400, "Google sign-in could not be completed"),
+    errors.GoogleEmailUnverified: ("auth/oauth-email-unverified", 403, "Google email not verified"),
+    errors.OAuthIdentityConflict: ("auth/oauth-identity-conflict", 409, "Google account already linked"),
+    errors.LastCredentialError: ("auth/last-credential", 409, "Set a password before unlinking"),
     errors.OriginalCreatorSelfDeleteBlocked: (
         "tenancy/original-creator-self-delete-blocked",
         409,
@@ -65,6 +70,11 @@ DEAD_REFRESH_ERRORS: tuple[type[errors.IdentityError], ...] = (
     errors.TokenInvalid,
 )
 
+#: OAuth-start failure the browser-navigation route (``/google/authorize``)
+#: catches to redirect to the login page with an error, rather than emitting a
+#: JSON 503. Exposed here so the router never imports domain error classes.
+OAUTH_UNAVAILABLE_ERRORS: tuple[type[errors.IdentityError], ...] = (errors.OAuthUnavailable,)
+
 
 async def render_problem(request: Request, exc: Exception) -> JSONResponse:
     """Render an identity domain error exactly as the global handler would.
@@ -82,4 +92,4 @@ def register(app: FastAPI) -> None:
     app.add_exception_handler(errors.IdentityError, _render)
 
 
-__all__ = ["DEAD_REFRESH_ERRORS", "register", "render_problem"]
+__all__ = ["DEAD_REFRESH_ERRORS", "OAUTH_UNAVAILABLE_ERRORS", "register", "render_problem"]
