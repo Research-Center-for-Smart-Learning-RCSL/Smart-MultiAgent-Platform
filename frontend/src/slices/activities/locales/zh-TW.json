@@ -35,6 +35,7 @@
     },
     "typesList": {
       "title": "活動類型",
+      "subtitle": "主持人可在聊天室啟用的範本。每個類型定義參與者要提交的欄位，以及每次提交如何評分。",
       "create": "新增活動類型",
       "colName": "名稱",
       "colKey": "識別碼",
@@ -55,25 +56,36 @@
     },
     "typeForm": {
       "title": "新增活動類型",
+      "intro": "建立一個可重複使用的活動：定義參與者要提交的欄位，以及每次提交如何驗證與評分。",
       "key": "識別碼",
       "keyPlaceholder": "quiz",
+      "keyHelp": "供 API 與程式使用的固定識別碼。小寫、不含空格；建立後無法修改。",
       "name": "名稱",
+      "nameHelp": "主持人啟用此活動時看到的名稱。",
       "retentionDays": "保留天數",
       "retentionHelp": "提交資料保留的天數。留空則不限制。",
       "payloadSchema": "提交欄位",
+      "payloadSchemaHelp": "參與者填寫並提交的欄位。",
       "validator": "驗證器",
       "validatorKind": {
         "webhook": "Webhook",
         "mcp": "MCP 工具"
       },
+      "webhookHint": "每次提交會（經由 egress proxy）送到你的網址，由該端點回傳評分。",
+      "mcpHint": "每次提交由本專案某個代理上執行的 MCP 工具進行評分。",
       "webhookUrl": "Webhook 網址",
       "webhookUrlPlaceholder": "https://example.com/score",
+      "webhookUrlHelp": "接收每次提交並回傳 JSON 判定結果的端點。",
       "mcpAgent": "代理",
       "mcpAgentPlaceholder": "選擇代理",
+      "mcpAgentHelp": "承載評分工具之 MCP 綁定的代理。",
       "mcpBinding": "MCP 綁定",
       "mcpBindingPlaceholder": "選擇綁定",
+      "mcpBindingHelp": "所選代理上的 MCP 綁定。",
+      "mcpBindingSelectAgentFirst": "請先選擇代理。",
       "mcpToolName": "工具名稱",
       "mcpToolNamePlaceholder": "score_submission",
+      "mcpToolNameHelp": "負責評分之 MCP 工具的名稱。",
       "submit": "建立",
       "fieldRequired": "此欄位為必填。",
       "schemaEmpty": "請至少新增一個欄位。",
@@ -82,6 +94,7 @@
       "createFailed": "無法建立活動類型，請再試一次。"
     },
     "schemaBuilder": {
+      "intro": "新增參與者要提交的每個欄位。給定名稱與型別，並標記是否必填。",
       "fieldName": "欄位名稱",
       "fieldType": {
         "string": "文字",

@@ -73,6 +73,10 @@ function removeRow(index: number): void {
 
 <template>
   <div class="flex flex-col gap-3">
+    <p class="text-xs text-[var(--color-muted)]">
+      {{ t('activities.schemaBuilder.intro') }}
+    </p>
+
     <div
       v-for="(row, index) in rows"
       :key="index"

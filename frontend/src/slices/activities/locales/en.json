@@ -35,6 +35,7 @@
     },
     "typesList": {
       "title": "Activity types",
+      "subtitle": "Templates a facilitator can start in a chatroom. Each type defines the fields participants submit and how each submission is scored.",
       "create": "New activity type",
       "colName": "Name",
       "colKey": "Key",
@@ -55,25 +56,36 @@
     },
     "typeForm": {
       "title": "New activity type",
+      "intro": "Define a reusable activity: the fields participants submit, and how each submission is validated and scored.",
       "key": "Key",
       "keyPlaceholder": "quiz",
+      "keyHelp": "A stable identifier used by the API and code. Lowercase, no spaces; it cannot be changed after creation.",
       "name": "Name",
+      "nameHelp": "The label facilitators see when they start this activity.",
       "retentionDays": "Retention (days)",
       "retentionHelp": "How long submissions are kept. Leave blank for no limit.",
       "payloadSchema": "Submission fields",
+      "payloadSchemaHelp": "The fields a participant fills in and submits.",
       "validator": "Validator",
       "validatorKind": {
         "webhook": "Webhook",
         "mcp": "MCP tool"
       },
+      "webhookHint": "Each submission is sent (through the egress proxy) to your URL, which returns the score.",
+      "mcpHint": "Each submission is scored by an MCP tool running on one of this project's agents.",
       "webhookUrl": "Webhook URL",
       "webhookUrlPlaceholder": "https://example.com/score",
+      "webhookUrlHelp": "The endpoint that receives each submission and returns a JSON verdict.",
       "mcpAgent": "Agent",
       "mcpAgentPlaceholder": "Select an agent",
+      "mcpAgentHelp": "The agent whose MCP binding hosts the scoring tool.",
       "mcpBinding": "MCP binding",
       "mcpBindingPlaceholder": "Select a binding",
+      "mcpBindingHelp": "The MCP binding on the selected agent.",
+      "mcpBindingSelectAgentFirst": "Select an agent first.",
       "mcpToolName": "Tool name",
       "mcpToolNamePlaceholder": "score_submission",
+      "mcpToolNameHelp": "The name of the MCP tool that scores the submission.",
       "submit": "Create",
       "fieldRequired": "This field is required.",
       "schemaEmpty": "Add at least one field.",
@@ -82,6 +94,7 @@
       "createFailed": "Could not create the activity type. Please try again."
     },
     "schemaBuilder": {
+      "intro": "Add each field a participant submits. Give it a name and type, and mark whether it is required.",
       "fieldName": "Field name",
       "fieldType": {
         "string": "Text",
