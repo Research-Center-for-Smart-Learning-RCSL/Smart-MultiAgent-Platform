@@ -183,3 +183,152 @@ def test_legacy_envelope_without_chain_defaults() -> None:
     restored = A2AEnvelope.from_dict(raw)
     assert restored.call_depth == 0
     assert restored.call_path == ()
+    # F-4: the trigger chain defaults the same additive way.
+    assert restored.trigger_depth == 0
+    assert restored.trigger_path == ()
+
+
+# --------------------------------------------------------------------------- #
+# F-4: trigger-causality chain (a2a_event self-amplification guard, R14.07a)
+# --------------------------------------------------------------------------- #
+
+_W1 = str(uuid.uuid4())
+_W2 = str(uuid.uuid4())
+
+
+def test_envelope_roundtrips_trigger_chain() -> None:
+    env = A2AEnvelope(
+        id=uuid.uuid4(),
+        from_agent=None,
+        to_agent=_B,
+        workflow_run_id=None,
+        type=A2AMessageType.CALL,
+        payload={"input": "hi"},
+        correlation_id=uuid.uuid4(),
+        created_at=datetime.now(UTC),
+        trigger_depth=2,
+        trigger_path=(_W1, _W2),
+    )
+    restored = A2AEnvelope.from_dict(env.to_dict())
+    assert restored.trigger_depth == 2
+    assert restored.trigger_path == (_W1, _W2)
+
+
+async def test_dispatch_a2a_signal_includes_trigger_chain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC-3 (dispatch side): the a2a workflow-signal relays trigger_depth/
+    trigger_path across the process boundary so the trigger dispatch can break
+    the cycle."""
+    from contexts.orchestration.application import a2a_handler
+
+    captured: dict[str, Any] = {}
+
+    async def _fake_enqueue(task: str, *args: Any, **_: Any) -> None:
+        captured["task"] = task
+        captured["args"] = args
+
+    monkeypatch.setattr("shared_kernel.queue.enqueue", _fake_enqueue)
+
+    env = A2AEnvelope(
+        id=uuid.uuid4(),
+        from_agent=None,
+        to_agent=_B,
+        workflow_run_id=uuid.uuid4(),
+        type=A2AMessageType.CALL,
+        payload={"input": "hi"},
+        correlation_id=uuid.uuid4(),
+        created_at=datetime.now(UTC),
+        trigger_depth=1,
+        trigger_path=(_W1,),
+    )
+    await a2a_handler._dispatch_a2a_workflow_signal(env)
+
+    source, payload = captured["args"]
+    assert source == "a2a"
+    assert payload["trigger_depth"] == 1
+    assert payload["trigger_path"] == [_W1]
+
+
+async def test_agent_invocation_stamps_trigger_chain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC-3 (populate side): the agent_invocation executor appends its own
+    workflow id to the inbound trigger chain and passes it into a2a_call — the
+    value is populated by production code, not merely declared on the carrier."""
+    from contexts.workflow.application.executors import agent_invocation
+    from contexts.workflow.domain.models import NodeSpec, NodeType, RunContext
+
+    captured: dict[str, Any] = {}
+
+    class _FakeFacade:
+        def __init__(self, _db: Any) -> None: ...
+
+        async def a2a_call(self, **kwargs: Any) -> dict[str, Any]:
+            captured.update(kwargs)
+            return {"reply": "ok"}
+
+    async def _noop_emit(*_a: Any, **_k: Any) -> None: ...
+
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _FakeFacade)
+    monkeypatch.setattr("shared_kernel.audit.emit", _noop_emit)
+
+    wf_id = uuid.uuid4()
+    ctx = RunContext(
+        run_id=uuid.uuid4(),
+        workflow_id=wf_id,
+        workflow_def={},
+        variables={},
+        trigger_payload={"trigger_depth": 1, "trigger_path": [_W1]},
+    )
+    node = NodeSpec(
+        id="n1",
+        type=NodeType.AGENT_INVOCATION,
+        config={"agent_id": str(uuid.uuid4()), "input_template": "hi"},
+    )
+    outcome = await agent_invocation.execute(ctx, node, None)  # type: ignore[arg-type]
+
+    assert outcome.port == "success"
+    assert captured["trigger_depth"] == 2
+    assert captured["trigger_path"] == [_W1, str(wf_id)]
+
+
+async def test_instruct_stamps_trigger_chain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC-3/AC-7 (populate side): the instruct executor stamps the trigger chain
+    the same way, so the instruct-edged cycle is guarded at runtime too."""
+    from contexts.workflow.application.executors import instruct
+    from contexts.workflow.domain.models import NodeSpec, NodeType, RunContext
+
+    captured: dict[str, Any] = {}
+
+    class _FakeInstruction:
+        id = uuid.uuid4()
+
+    class _FakeFacade:
+        def __init__(self, _db: Any) -> None: ...
+
+        async def issue_instruct(self, **kwargs: Any) -> Any:
+            captured.update(kwargs)
+            return _FakeInstruction()
+
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _FakeFacade)
+
+    wf_id = uuid.uuid4()
+    ctx = RunContext(
+        run_id=uuid.uuid4(),
+        workflow_id=wf_id,
+        workflow_def={},
+        variables={},
+        trigger_payload={"trigger_depth": 1, "trigger_path": [_W1]},
+    )
+    node = NodeSpec(
+        id="i1",
+        type=NodeType.INSTRUCT,
+        config={
+            "issuer_agent_id": str(uuid.uuid4()),
+            "target_agent_id": str(uuid.uuid4()),
+            "instruction_template": "do x",
+            "wait_for_completion": False,
+        },
+    )
+    outcome = await instruct.execute(ctx, node, None)  # type: ignore[arg-type]
+
+    assert outcome.port == "success"
+    assert captured["trigger_depth"] == 2
+    assert captured["trigger_path"] == [_W1, str(wf_id)]

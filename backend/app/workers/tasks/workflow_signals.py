@@ -23,6 +23,43 @@ from app.workers.tasks.workflow_common import (
     _run_is_terminal,
 )
 
+# F-4 (R14.07a): hard cap on the trigger-causality chain length. The
+# already-on-path check below catches every cycle (a cycle must repeat a
+# workflow id); this bounds pathological but non-repeating chains
+# (W1->W2->...->Wn all distinct) as a second, independent brake.
+TRIGGER_MAX_CHAIN_DEPTH: int = 10
+
+
+async def _record_trigger_skip(workflow_id: str, reason: str, trigger_path: list[str]) -> None:
+    """Audit + log a trigger start refused by the F-4 cycle/depth guard.
+
+    Best-effort: a failure to record the skip must not turn into a failure to
+    skip. The refusal itself has already happened at the call site.
+    """
+    logger.bind(
+        event="workflow_trigger_skipped",
+        workflow_id=workflow_id,
+        reason=reason,
+        trigger_path=trigger_path,
+    ).warning("workflow trigger skipped ({}): {}", reason, workflow_id)
+    try:
+        from shared_kernel import audit
+        from shared_kernel.db.session import async_session
+
+        async with async_session() as db:
+            await audit.emit(
+                db,
+                audit.AuditEvent(
+                    action="workflow.trigger_skipped",
+                    resource_type="workflow",
+                    resource_id=uuid.UUID(workflow_id),
+                    metadata={"reason": reason, "trigger_path": trigger_path},
+                ),
+            )
+            await db.commit()
+    except Exception:
+        logger.bind(workflow_id=workflow_id).warning("workflow trigger-skip audit failed", exc_info=True)
+
 
 async def workflow_event_timeout(
     ctx: dict[str, Any],
@@ -135,9 +172,23 @@ async def workflow_signal(ctx: dict[str, Any], source: str, payload: dict[str, A
 
     async def _enqueue_triggers(wf_ids: list[Any], trigger_type: str) -> None:
         nonlocal triggered
+        # F-4: the trigger-causality chain rides in on the signal payload (only
+        # the a2a source populates it today; other sources default to empty).
+        # Refusing a workflow already on the chain is the hop that closes the
+        # a2a_event self-amplification cycle. On the shared path so every event
+        # trigger kind is covered (see the dossier's §6 systemic reading).
+        inbound_path = [str(p) for p in (payload.get("trigger_path") or [])]
+        inbound_depth = int(payload.get("trigger_depth", 0) or 0)
         for wf_id in wf_ids:
+            wf_str = str(wf_id)
+            if wf_str in inbound_path:
+                await _record_trigger_skip(wf_str, "cycle", inbound_path)
+                continue
+            if inbound_depth >= TRIGGER_MAX_CHAIN_DEPTH:
+                await _record_trigger_skip(wf_str, "max_depth", inbound_path)
+                continue
             tp = {"trigger_type": trigger_type, **payload}
-            await pool.enqueue_job("run_triggered_workflow", str(wf_id), tp)
+            await pool.enqueue_job("run_triggered_workflow", wf_str, tp)
             triggered += 1
 
     if source == "message":

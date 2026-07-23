@@ -70,6 +70,8 @@ class OrchestrationFacade:
         callee_attached_context_ids: frozenset[uuid.UUID] | None = None,
         inbound_call_depth: int | None = None,
         inbound_call_path: Sequence[str] | None = None,
+        trigger_depth: int = 0,
+        trigger_path: Sequence[str] | None = None,
     ) -> dict[str, Any]:
         return await self._a2a.call(
             from_agent_id=from_agent_id,
@@ -81,6 +83,8 @@ class OrchestrationFacade:
             callee_attached_context_ids=callee_attached_context_ids,
             inbound_call_depth=inbound_call_depth,
             inbound_call_path=inbound_call_path,
+            trigger_depth=trigger_depth,
+            trigger_path=trigger_path,
         )
 
     async def cancel_workflow_run_calls(self, workflow_run_id: uuid.UUID) -> None:
@@ -259,6 +263,8 @@ class OrchestrationFacade:
         max_chain_depth: int = 5,
         max_per_wakeup: int = 5,
         max_chain_seconds: int = 120,
+        trigger_depth: int = 0,
+        trigger_path: Sequence[str] | None = None,
     ) -> Instruction:
         return await self._instruct.issue(
             issuer_agent_id=issuer_agent_id,
@@ -271,6 +277,8 @@ class OrchestrationFacade:
             max_chain_depth=max_chain_depth,
             max_per_wakeup=max_per_wakeup,
             max_chain_seconds=max_chain_seconds,
+            trigger_depth=trigger_depth,
+            trigger_path=trigger_path,
         )
 
     async def mark_instruct_delivered(self, instruction_id: uuid.UUID) -> None:

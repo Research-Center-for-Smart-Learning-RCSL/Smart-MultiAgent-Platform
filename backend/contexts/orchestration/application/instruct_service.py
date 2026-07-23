@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -63,6 +64,8 @@ class InstructService:
         max_chain_depth: int = INSTRUCT_MAX_CHAIN_DEPTH,
         max_per_wakeup: int = INSTRUCT_MAX_PER_WAKEUP,
         max_chain_seconds: int = INSTRUCT_MAX_CHAIN_SECONDS,
+        trigger_depth: int = 0,
+        trigger_path: Sequence[str] | None = None,
     ) -> Instruction:
         """Issue an instruct to target_agent_id with full chain validation.
 
@@ -191,6 +194,11 @@ class InstructService:
             },
             correlation_id=uuid.uuid4(),
             created_at=datetime.now(UTC),
+            # R14.07a / F-4: carry the trigger-causality chain (workflow ids)
+            # so an a2a_event trigger listening for `instruct` on the target
+            # cannot re-fire a workflow already on the chain.
+            trigger_depth=trigger_depth,
+            trigger_path=tuple(trigger_path or ()),
         )
         # Send BEFORE emitting instruct.issued. A denied send (A2AForbidden) or
         # any delivery failure must not leave an orphan `issued` row: the executor

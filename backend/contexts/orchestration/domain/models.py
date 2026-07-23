@@ -57,6 +57,15 @@ class A2AEnvelope:
     # non-CALL traffic and root (workflow-originated) calls.
     call_depth: int = 0
     call_path: tuple[str, ...] = ()
+    # Trigger-causality chain (R14.07a / F-4). `trigger_path` is the ordered
+    # tuple of workflow-id strings whose runs caused this envelope to be emitted;
+    # `trigger_depth` is its length. Stamped by the workflow executors that emit
+    # A2A traffic (agent_invocation, instruct) so the a2a_event trigger dispatch
+    # can refuse to start a run for a workflow already on the chain, breaking the
+    # self-amplifying cycle. Default 0/() for user-originated and non-workflow
+    # traffic (a genuine trigger root).
+    trigger_depth: int = 0
+    trigger_path: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -70,6 +79,8 @@ class A2AEnvelope:
             "created_at": self.created_at.isoformat(),
             "call_depth": self.call_depth,
             "call_path": list(self.call_path),
+            "trigger_depth": self.trigger_depth,
+            "trigger_path": list(self.trigger_path),
         }
 
     @classmethod
@@ -85,6 +96,8 @@ class A2AEnvelope:
             created_at=datetime.fromisoformat(data["created_at"]),
             call_depth=int(data.get("call_depth", 0)),
             call_path=tuple(data.get("call_path") or ()),
+            trigger_depth=int(data.get("trigger_depth", 0)),
+            trigger_path=tuple(data.get("trigger_path") or ()),
         )
 
 

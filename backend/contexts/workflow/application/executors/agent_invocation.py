@@ -43,6 +43,11 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
         # cycle/depth guard sees the real chain (this worker is a different
         # process from the A2A consumer, so the ContextVar is empty here).
         trigger = ctx.trigger_payload or {}
+        # F-4: extend the trigger-causality chain with this workflow's id before
+        # the CALL leaves the run, so an a2a_event trigger on the callee cannot
+        # re-fire a workflow already on the chain (the dispatch side refuses it).
+        out_trigger_depth = int(trigger.get("trigger_depth", 0) or 0) + 1
+        out_trigger_path = [*(trigger.get("trigger_path") or []), str(ctx.workflow_id)]
         result = await facade.a2a_call(
             from_agent_id=None,
             to_agent_id=uuid.UUID(agent_id),
@@ -51,6 +56,8 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             timeout_seconds=float(config.get("timeout_seconds", 300)),
             inbound_call_depth=trigger.get("call_depth"),
             inbound_call_path=trigger.get("call_path"),
+            trigger_depth=out_trigger_depth,
+            trigger_path=out_trigger_path,
         )
 
         reply = result.get("reply", result.get("output", ""))

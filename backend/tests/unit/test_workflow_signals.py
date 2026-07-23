@@ -573,6 +573,99 @@ class TestWorkflowSignal:
 
         assert "resumed=0" in result
 
+    @patch("shared_kernel.auth.clients.get_redis")
+    async def test_a2a_signal_skips_a_workflow_already_on_the_trigger_path(self, mock_redis_fn) -> None:
+        # F-4/AC-4: a workflow whose own earlier run produced this envelope is on
+        # the inbound trigger_path; the dispatch must NOT start it again. AC-7:
+        # exercised for both the call and instruct edges of the cycle.
+        from app.workers.tasks.workflow_signals import workflow_signal
+
+        redis = AsyncMock()
+        mock_redis_fn.return_value = redis
+        wf_id = uuid.uuid4()
+
+        for msg_type in ("call", "instruct"):
+            pool = AsyncMock()
+            with (
+                patch(
+                    "contexts.workflow.application.event_dispatch.find_matching_waits",
+                    new_callable=AsyncMock,
+                    return_value=[],
+                ),
+                patch("shared_kernel.db.session.async_session") as mock_sc,
+                patch(
+                    "contexts.workflow.application.event_dispatch.find_triggered_workflows",
+                    new_callable=AsyncMock,
+                    return_value=[wf_id],
+                ),
+            ):
+                db = AsyncMock()
+                mock_sc.return_value.__aenter__ = AsyncMock(return_value=db)
+                mock_sc.return_value.__aexit__ = AsyncMock(return_value=False)
+
+                result = await workflow_signal(
+                    {"redis": pool},
+                    "a2a",
+                    {
+                        "target_agent_id": _AGENT,
+                        "msg_type": msg_type,
+                        "trigger_depth": 1,
+                        "trigger_path": [str(wf_id)],
+                    },
+                )
+
+            assert "triggered=0" in result, msg_type
+            # No run was started for the workflow already on the chain.
+            trig_calls = [
+                c for c in pool.enqueue_job.await_args_list if c.args[0] == "run_triggered_workflow"
+            ]
+            assert trig_calls == [], msg_type
+
+    @patch("shared_kernel.auth.clients.get_redis")
+    async def test_a2a_signal_starts_a_workflow_not_on_the_trigger_path(self, mock_redis_fn) -> None:
+        # The guard is a skip, never an expansion: a workflow NOT on the chain
+        # still starts, and its run carries the inbound chain forward.
+        from app.workers.tasks.workflow_signals import workflow_signal
+
+        redis = AsyncMock()
+        mock_redis_fn.return_value = redis
+        wf_id = uuid.uuid4()
+        other = str(uuid.uuid4())
+        pool = AsyncMock()
+
+        with (
+            patch(
+                "contexts.workflow.application.event_dispatch.find_matching_waits",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch("shared_kernel.db.session.async_session") as mock_sc,
+            patch(
+                "contexts.workflow.application.event_dispatch.find_triggered_workflows",
+                new_callable=AsyncMock,
+                return_value=[wf_id],
+            ),
+        ):
+            db = AsyncMock()
+            mock_sc.return_value.__aenter__ = AsyncMock(return_value=db)
+            mock_sc.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await workflow_signal(
+                {"redis": pool},
+                "a2a",
+                {
+                    "target_agent_id": _AGENT,
+                    "msg_type": "call",
+                    "trigger_depth": 1,
+                    "trigger_path": [other],
+                },
+            )
+
+        assert "triggered=1" in result
+        trig_call = next(c for c in pool.enqueue_job.await_args_list if c.args[0] == "run_triggered_workflow")
+        # The started run carries the inbound chain so its executor can append.
+        assert trig_call.args[2]["trigger_path"] == [other]
+
     @patch("shared_kernel.db.session.async_session")
     @patch("shared_kernel.auth.clients.get_redis")
     async def test_wakeup_signal(self, mock_redis_fn, mock_session_cm) -> None:

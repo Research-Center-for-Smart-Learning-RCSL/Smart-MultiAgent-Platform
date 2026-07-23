@@ -151,6 +151,8 @@ class A2AService:
         callee_attached_context_ids: frozenset[uuid.UUID] | None = None,
         inbound_call_depth: int | None = None,
         inbound_call_path: Sequence[str] | None = None,
+        trigger_depth: int = 0,
+        trigger_path: Sequence[str] | None = None,
     ) -> dict[str, Any]:
         """Synchronous A2A call — blocks until reply or timeout (R9.15).
 
@@ -161,6 +163,12 @@ class A2AService:
         CALL that entered this run when the caller is a workflow worker (a
         different process from the A2A consumer that bound the ContextVar), so
         the cycle/depth guard sees the real chain instead of an empty one (F-24).
+
+        ``trigger_depth`` / ``trigger_path`` carry the trigger-causality chain
+        (workflow ids) so the a2a_event trigger dispatch can refuse to re-fire a
+        workflow already on the chain (R14.07a / F-4). Stamped verbatim onto the
+        envelope; the emitting executor appends its own workflow id before
+        calling, so this layer treats the values as opaque.
         """
         # R9.15: reject a recursive / over-deep synchronous call before dispatch.
         # Prefer the explicit inbound chain (workflow-worker path); otherwise read
@@ -182,6 +190,8 @@ class A2AService:
             created_at=datetime.now(UTC),
             call_depth=call_depth,
             call_path=call_path,
+            trigger_depth=trigger_depth,
+            trigger_path=tuple(trigger_path or ()),
         )
 
         # Bind the only agent allowed to answer this call before dispatch, so a

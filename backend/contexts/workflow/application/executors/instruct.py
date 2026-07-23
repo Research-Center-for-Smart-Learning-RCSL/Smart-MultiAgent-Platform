@@ -47,6 +47,11 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
     inbound_parent_path = tuple(
         u for u in (_as_uuid(p) for p in (trigger.get("chain_path") or [])) if u is not None
     )
+    # F-4: extend the trigger-causality chain with this workflow's id before the
+    # INSTRUCT leaves the run, so an a2a_event trigger listening for `instruct`
+    # on the target cannot re-fire a workflow already on the chain.
+    out_trigger_depth = int(trigger.get("trigger_depth", 0) or 0) + 1
+    out_trigger_path = [*(trigger.get("trigger_path") or []), str(ctx.workflow_id)]
 
     try:
         from contexts.orchestration.interfaces.facade import OrchestrationFacade
@@ -59,6 +64,8 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             workflow_run_id=ctx.run_id,
             chain_id=inbound_chain_id,
             parent_path=inbound_parent_path,
+            trigger_depth=out_trigger_depth,
+            trigger_path=out_trigger_path,
         )
 
         result_output = {"instruction_id": str(instruction.id)}
