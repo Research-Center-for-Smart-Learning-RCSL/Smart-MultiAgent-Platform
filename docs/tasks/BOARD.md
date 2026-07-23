@@ -16,16 +16,13 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-07-23-activity-in-process-validators` (feature, approved) — `depends_on: []`. FU-1 of the
-  authoring-UI dossier: register first-party `exact_match` in-process validator (startup site
-  under `app/plugins/`), a `list_registered()` accessor + authenticated `GET /api/activity-validators`,
-  a per-validator `config_validator` hook, and the `in_process` branch (validator picker +
-  `field`/`expected` sub-form) in `ActivityTypeForm.vue`. Q-1..Q-3 decided; SRS Delta amends
-  `[R30.05]`, `[R30.24]`.
-- `2026-07-23-activity-schema-raw-json` (feature, draft) — `depends_on: []`. FU-5: a raw
-  JSON-Schema editing mode (reusing `SCodeEditor`) alongside the guided builder, for schemas
-  the flat builder can't express. Frontend-only. Open decision: mode round-trip behavior.
-
+- `2026-07-23-activity-schema-raw-json` (feature, approved) — `depends_on:
+  [2026-07-23-activity-in-process-validators]` (now **implemented** — unblocked). FU-5: a raw
+  JSON-Schema editing mode (reusing `SCodeEditor`) alongside the guided builder, for schemas the
+  flat builder can't express. Frontend-only. Q-1 settled: one-way builder->raw, builder locked once
+  raw is edited. The overlap prerequisite (Q-4: both edit `ActivityTypeForm.vue` + activities
+  locales) is resolved now that the in-process task has landed. `PayloadSchemaField.vue` already
+  drafted as a head-start.
 - `2026-07-22-a2a-scope-context-wiring` (bugfix, draft) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-to-agent-orchestration/` F-9, F-24, F-25, F-26 and
   `docs/audits/2026-07-22-agent-config-runtime/` F-4. One root cause: every authorization and
