@@ -73,6 +73,32 @@ workflow_steps = sa.Table(
 )
 
 # ---------------------------------------------------------------------------
+# workflow_run_participants (G.2 — A2A rule 3a source, migration 0062)
+# ---------------------------------------------------------------------------
+#
+# The design-time agent set of a run, materialized at run start from the
+# workflow definition. A2A rule 3a (a2a_scope.evaluate) grants an A2A/instruct
+# between two agents only when both are participants of the same run, so this
+# table IS the authorization surface: it must be derived server-side and never
+# from an executor-supplied value. Snapshot-correct by construction — a mid-run
+# edit to the workflow definition cannot alter an existing run's rows.
+
+workflow_run_participants = sa.Table(
+    "workflow_run_participants",
+    metadata,
+    sa.Column(
+        "run_id", pg.UUID(as_uuid=True), sa.ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False
+    ),
+    sa.Column(
+        "agent_id", pg.UUID(as_uuid=True), sa.ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    ),
+    # PK (run_id, agent_id): a point lookup for the "is agent X a participant of
+    # run R" check, and a prefix scan for "all participants of run R". No extra
+    # index is needed for either access path.
+    sa.PrimaryKeyConstraint("run_id", "agent_id"),
+)
+
+# ---------------------------------------------------------------------------
 # workflow_runs_archive (H.6 — table DDL created here, worker in Phase H.6)
 # ---------------------------------------------------------------------------
 
@@ -102,6 +128,7 @@ workflow_runs_archive = sa.Table(
 
 
 __all__ = [
+    "workflow_run_participants",
     "workflow_runs_archive",
     "workflow_steps",
     "workflows",

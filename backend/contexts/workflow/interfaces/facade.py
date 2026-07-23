@@ -105,6 +105,19 @@ class WorkflowFacade:
         ).first()
         return row.project_id if row else None
 
+    async def filter_run_participants(
+        self, run_id: uuid.UUID, agent_ids: frozenset[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """Which of ``agent_ids`` are participants of ``run_id`` (A2A rule 3a, G.2).
+
+        The A2A scope checker (``a2a_scope.evaluate``) trusts the attached-context
+        set unconditionally, so this derivation MUST stay server-side: it is the
+        authorization surface for workflow-originated instructs.
+        """
+        from contexts.workflow.infrastructure.repositories import WorkflowRunRepository
+
+        return await WorkflowRunRepository(self._db).filter_participants(run_id, agent_ids)
+
     async def cancel_run(self, run_id: uuid.UUID) -> bool:
         return await self._engine.cancel_run(run_id)
 

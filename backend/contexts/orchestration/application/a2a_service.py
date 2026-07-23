@@ -89,6 +89,23 @@ class A2AService:
             caller = await self._require_agent(envelope.from_agent)
             callee = await self._require_agent(to_agent_id)
 
+            # Workflow-originated agent send (instruct / call within a run): the
+            # shared invocation context for rule 3a is derived HERE from the run's
+            # participant set, never trusted from the caller (a2a_scope trusts the
+            # attached-context set unconditionally, so an executor-supplied value
+            # would be a one-argument authorization bypass — Q-3). This overrides
+            # any caller-passed context for the workflow case; fails closed when
+            # either agent is not a participant.
+            if envelope.workflow_run_id is not None:
+                (
+                    caller_invocation_context_id,
+                    callee_attached_context_ids,
+                ) = await self._derive_workflow_context(
+                    envelope.workflow_run_id,
+                    envelope.from_agent,
+                    to_agent_id,
+                )
+
             await self._enforce_scope(
                 caller=caller,
                 callee=callee,
@@ -429,6 +446,31 @@ class A2AService:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    async def _derive_workflow_context(
+        self,
+        workflow_run_id: uuid.UUID,
+        issuer_id: uuid.UUID,
+        callee_id: uuid.UUID,
+    ) -> tuple[uuid.UUID | None, frozenset[uuid.UUID]]:
+        """Shared workflow-run context for R9.17 rule 3a, derived server-side.
+
+        Grants a shared context (the run id) ONLY when BOTH issuer and callee are
+        participants of the run — the `workflow_run_participants` snapshot taken
+        at run start. Returns ``(None, frozenset())`` otherwise so rule 3a fails
+        closed and rule 3b (callee ``call_only``) is still evaluated after it.
+        """
+        # Lazy import: workflow/executors -> OrchestrationFacade -> A2AService, so
+        # importing WorkflowFacade at module load would risk a cycle (mirrors
+        # _enforce_workflow_tenant below).
+        from contexts.workflow.interfaces.facade import WorkflowFacade
+
+        members = await WorkflowFacade(self._db).filter_run_participants(
+            workflow_run_id, frozenset({issuer_id, callee_id})
+        )
+        if issuer_id in members and callee_id in members:
+            return workflow_run_id, frozenset({workflow_run_id})
+        return None, frozenset()
 
     async def _enforce_workflow_tenant(self, workflow_run_id: uuid.UUID | None, callee: Agent) -> None:
         """Tenant boundary for workflow-originated (from_agent=None) calls.

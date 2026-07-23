@@ -316,6 +316,15 @@ class InstructionRepository:
             return None
         return _row_to_instruction(row)
 
+    async def delete(self, instruction_id: uuid.UUID) -> None:
+        """Remove an instruction row.
+
+        Used to compensate a just-inserted `issued` row when its A2A send is
+        denied/fails, so no orphan `issued` row survives (retention reaps only
+        chains whose rows are all terminal).
+        """
+        await self._db.execute(instructions.delete().where(instructions.c.id == instruction_id))
+
     async def update_state(
         self,
         instruction_id: uuid.UUID,
