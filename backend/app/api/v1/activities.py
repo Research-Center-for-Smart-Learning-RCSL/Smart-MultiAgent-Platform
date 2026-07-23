@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams, assert_project_membership, assert_project_owner
-from contexts.activities.domain.errors import SessionNotFound
+from contexts.activities.domain.errors import SessionNotFound, ValidatorConfigInvalid
 from contexts.activities.domain.models import (
     ActivityActivation,
     ActivityAggregate,
@@ -224,6 +224,8 @@ async def register_activity_type(
     db: AsyncSession = Depends(db_session),
 ) -> ActivityTypeOut:
     await assert_project_owner(db=db, principal=principal, project_id=project_id)
+    if body.validator_kind is ValidatorKind.MCP:
+        await _assert_mcp_binding_in_project(db, project_id, body.validator_config)
     activity_type = await ActivitiesFacade(db).register_type(
         project_id=project_id,
         key=body.key,
@@ -238,6 +240,36 @@ async def register_activity_type(
     )
     await db.commit()
     return _type_out(activity_type)
+
+
+async def _assert_mcp_binding_in_project(
+    db: AsyncSession, project_id: uuid.UUID, config: dict[str, Any]
+) -> None:
+    """Reject an ``mcp`` validator whose agent/binding belongs to another project
+    (R30.24). The activities context cannot see the agents context, so this
+    cross-context check lives at the route: without it an owner could POST a
+    foreign ``binding_id`` directly, bypassing the UI's project-scoped pickers.
+
+    A malformed (non-UUID) config returns early so ``type_service`` raises the
+    precise ``ValidatorConfigInvalid`` for it — this guard only adds the
+    project-membership dimension.
+    """
+    from contexts.agents.domain.models import AgentToolType
+    from contexts.agents.interfaces.facade import AgentsFacade
+
+    try:
+        agent_id = uuid.UUID(str(config["agent_id"]))
+        binding_id = uuid.UUID(str(config["binding_id"]))
+    except (KeyError, ValueError, TypeError):
+        return
+
+    facade = AgentsFacade(db)
+    agent = await facade.get_agent(agent_id)
+    if agent is None or agent.project_id != project_id:
+        raise ValidatorConfigInvalid("mcp validator agent_id is not an agent in this project")
+    tools = await facade.list_agent_tools(agent_id)
+    if not any(t.id == binding_id and t.tool_type is AgentToolType.HOSTED_MCP for t in tools):
+        raise ValidatorConfigInvalid("mcp validator binding_id is not a hosted_mcp tool on this agent")
 
 
 @project_router.delete("/{project_id}/activity-types/{type_id}", status_code=204, response_model=None)
