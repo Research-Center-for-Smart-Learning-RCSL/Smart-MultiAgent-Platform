@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: implemented
 created: 2026-07-23
 requirements: []
 depends_on: []
@@ -202,24 +202,26 @@ edits are independent. No schema, no migration, no persisted state, no API chang
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: no externally observable behavior change — every claim key is still created
+- [x] AC-1: no externally observable behavior change — every claim key is still created
       with `timeout_seconds + 300` (approval, instruct) or `timeout_seconds + 60` (wait
-      incl. its index, subagent); all pre-existing consumer tests pass unmodified.
-- [ ] AC-2: the four producers (`approval_gate.py`, `instruct.py`, `wait_for_event.py`
-      both uses, `subagent_spawn.py`) contain **no** bare `+ 300` / `+ 60` grace literal —
-      each derives its TTL via `initial_claim_ttl(..., <named grace>)` from
-      `contexts/workflow/domain/claim_ttl.py`.
-- [ ] AC-3: the consumer budget (`_RESUME_RETRY_*`, `_APPROVAL_RESUME_*`,
+      incl. its index, subagent); the producer characterization tests (§6) pass unchanged
+      across the producer repoint, and all pre-existing consumer tests pass (see D-1).
+- [x] AC-2: the four producers contain **no** bare `+ 300` / `+ 60` grace literal —
+      verified by grep over `contexts/workflow/application/executors/` (no matches); each
+      derives its TTL via `initial_claim_ttl(..., <named grace>)`.
+- [x] AC-3: the consumer budget (`_RESUME_RETRY_*`, `_APPROVAL_RESUME_*`,
       `_CLAIM_RESTORE_TTL_S`) and `remaining_budget_ttl` resolve to the single domain
-      source; `CLAIM_CONSUMER_BUDGET_S == 630` and equals `_CLAIM_RESTORE_TTL_S`.
-- [ ] AC-4: `contexts/workflow/domain/claim_ttl.py` imports nothing from `application/`,
-      `infrastructure/`, or `app/` (verified by reading its imports and by `mypy .`);
-      no executor imports from `app/workers/`.
-- [ ] AC-5: the module docstring states the invariant in one place — grace covers
-      creation→first-consumer latency (I1), the consumer extends the key ≥ its remaining
-      budget once retries begin (I2, F-32), and therefore grace need not equal the budget.
-- [ ] AC-6: `pytest -q` (unit), `ruff check .`, `ruff format --check .`, `mypy .` all pass
-      in `backend/`.
+      source; `test_claim_ttl.py::test_consumer_budget_is_attempts_times_delay` asserts
+      `CLAIM_CONSUMER_BUDGET_S == 630`, and `workflow_common._CLAIM_RESTORE_TTL_S =
+      CLAIM_CONSUMER_BUDGET_S`.
+- [x] AC-4: `contexts/workflow/domain/claim_ttl.py` imports nothing from `application/`,
+      `infrastructure/`, or `app/` (`test_claim_ttl.py::test_domain_module_has_no_upward_imports`
+      + `mypy .` green); no executor imports from `app/workers/`.
+- [x] AC-5: the module docstring states the invariant in one place — I1 (producer grace
+      covers creation→first-consumer latency), I2 (consumer extends the key ≥ remaining
+      budget, F-32), and why grace need not equal the budget.
+- [x] AC-6: backend `pytest tests/unit -q` (5724 passed), `ruff check .`,
+      `ruff format --check .`, `mypy .` (829 files) all pass.
 
 ## 10. SRS Delta
 
@@ -227,7 +229,20 @@ None. Behavior is unchanged by definition; no `[Rxx.yy]` constrains the TTL cons
 
 ## 11. Deviation Log
 
-Appended by /build.
+- **D-1** — §6 said pre-existing consumer tests "stay unmodified". Two F-32 tests in
+  `test_workflow_k4.py` imported `_remaining_budget_ttl` from `app.workers.tasks.workflow_common`;
+  since the helper moved to the domain module, those two **import lines** were repointed to
+  `contexts.workflow.domain.claim_ttl import remaining_budget_ttl`. Only the import path changed —
+  no assertion was touched — so the behavioral pin is intact. This follows a moved symbol rather than
+  weakening a test.
+- **D-2** — `_remaining_budget_ttl` was **not** re-exported from `workflow_common` after the move
+  (which would have left an unused-import lint or required an `__all__`); consumers and tests import
+  it directly from the domain module instead. Cleaner single source; the spec's §5 "optional
+  re-export" note is resolved in favour of no re-export.
+- **D-3** — Incidental, unrelated to this refactor: the whole-tree `mypy .` gate surfaced a
+  pre-existing `has-type` error on a walrus-in-call-arg in `test_approval_gate_fixes.py:165`
+  (from the F-18 task). Hoisted to a plain assignment in a separate `fix(test)` commit so the gate
+  passes; not part of this refactor's commits.
 
 ## 12. Follow-ups
 
