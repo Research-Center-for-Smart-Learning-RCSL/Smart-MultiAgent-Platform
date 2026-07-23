@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-23
 requirements: [R11.10]
 depends_on: []
@@ -232,22 +232,30 @@ Touches a tenant-scoped surface only as a *display* gate, so a light lens applie
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: When a project is active and the caller is its Owner (or an Admin), the sidebar
+- [x] AC-1: When a project is active and the caller is its Owner (or an Admin), the sidebar
   shows a collapsible "Manage" group containing Members, Skills, and Activity types, each
-  linking to the correct project-scoped route.
-- [ ] AC-2: When a project is active and the caller is a non-owner member, the Manage group
-  is not rendered at all (no header, no items).
-- [ ] AC-3: The Manage group collapse/expand state persists across reloads
-  (`SidebarGroup` storage-key), like the other sidebar groups.
-- [ ] AC-4: On desktop, `OrgProjectSwitcher` renders at the top of the sidebar and is
+  linking to the correct project-scoped route. (`AppSidebar.test.ts` "shows members / skills
+  / activity types to an owner" asserts the three hrefs.)
+- [x] AC-2: When a project is active and the caller is a non-owner member, the Manage group
+  is not rendered at all (no header, no items). (`AppSidebar.test.ts` "hides the group
+  entirely from a non-owner" + "hidden until the role is decided".)
+- [x] AC-3: The Manage group collapse/expand state persists across reloads
+  (`SidebarGroup` storage-key), like the other sidebar groups. (Reuses `SidebarGroup` with
+  `storage-key="project-manage"`; persistence is that component's existing, unchanged
+  behavior — verified by reuse, behavioral confirm in the manual pass.)
+- [x] AC-4: On desktop, `OrgProjectSwitcher` renders at the top of the sidebar and is
   absent from the top bar; selecting a project there re-scopes the sidebar's Project
-  Context (drives `useWorkspaceStore`).
-- [ ] AC-5: On mobile, `OrgProjectSwitcher` renders in the top bar (not duplicated inside
-  the drawer sidebar).
-- [ ] AC-6: The `ProjectDetailView` header still shows the Members/Skills/Activities buttons
-  for an owner (unchanged).
-- [ ] AC-7: All new user-facing strings resolve in en and zh-TW; `pnpm lint` (i18n gate)
-  passes.
+  Context (drives `useWorkspaceStore`). (`AppSidebar.test.ts` "renders the switcher ... on
+  desktop" + `AppTopBar.test.ts` "omits the top-bar switcher on desktop"; the switcher
+  component and its `useWorkspaceStore.selectProject` wiring are unchanged.)
+- [x] AC-5: On mobile, `OrgProjectSwitcher` renders in the top bar (not duplicated inside
+  the drawer sidebar). (`AppTopBar.test.ts` "shows the switcher ... on mobile" +
+  `AppSidebar.test.ts` "omits the sidebar switcher on mobile" — disjoint, no double render.)
+- [x] AC-6: The `ProjectDetailView` header still shows the Members/Skills/Activities buttons
+  for an owner (unchanged). (The file was not touched by this task — verified by diff.)
+- [x] AC-7: All new user-facing strings resolve in en and zh-TW; `pnpm lint` (i18n gate)
+  passes. (`app.sidebar.groupManage/members/skills/activityTypes` added to both locales;
+  `pnpm lint` green.)
 
 ## 12. Test Plan
 
@@ -277,7 +285,19 @@ None — navigation placement is not an SRS-level behavior; existing `[R11.10]`
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+None — the implementation matches this spec.
+
+**Definition-of-Done notes:**
+- **Gate 4 (behavioral) not run:** rendering the sidebar needs an authenticated session +
+  active project, which requires the Docker stack (unavailable in this environment). Covered
+  by the AppSidebar/AppTopBar component tests (owner/non-owner gating, desktop/mobile switcher
+  split) and `pnpm build`; a manual pass (owner sees Manage + sidebar switcher on desktop;
+  resize to mobile → switcher back in top bar; collapse persists — AC-3) remains.
+- **Gate 6 (security) N/A:** no backend, endpoint, injection surface, or authorization
+  *decision* was added. The sidebar gate is a cosmetic `v-if` reusing `useProjectRole`;
+  the pages and their backend `assert_project_owner` remain the authoritative boundary
+  (§8). "Hidden ≠ protected" is upheld — non-owners are stopped server-side regardless of
+  sidebar visibility.
 
 ## 16. Follow-ups
 
