@@ -93,13 +93,15 @@ committed and the file appears to disappear:
 
 ## 6. Follow-ups
 
-- FU-1 (parity): File RAG (`contexts/knowledge/application/ingest_service.py`)
-  has the same catch-all `IngestFailed` and likely the same vanish-on-rollback on
-  its multipart path. Apply the same `DocumentUnprocessable` typing and
-  commit-before-index treatment there for consistency.
-- FU-2 (hardening): consider extending the MinIO readiness probe
-  (`shared_kernel/infra/probes/minio.py`, currently only `chat-uploads`) to assert
-  all required buckets exist, so a missing-bucket provisioning gap fails readiness
-  at boot instead of surfacing as a 500 on a user's first upload.
+- FU-1 (parity) - done: File RAG (`contexts/knowledge/application/ingest_service.py`)
+  had the same catch-all `IngestFailed` and the same vanish-on-rollback on its
+  multipart path. Applied the same `DocumentUnprocessable` typing and
+  commit-before-index treatment; covered by `tests/unit/test_rag_ingest.py`.
+- FU-2 (hardening) - done: the MinIO readiness probe
+  (`shared_kernel/infra/probes/minio.py`) now asserts all seven provisioned buckets
+  exist and names any that are missing, so a bucket provisioning gap fails
+  readiness at boot instead of surfacing as a 500 on a user's first upload;
+  covered by `tests/unit/test_minio_probe.py`.
 - FU-3 (ops): re-run `smap.bootstrap minio-init` as a standard post-deploy step so
-  newly added buckets are provisioned automatically.
+  newly added buckets are provisioned automatically. (With FU-2, a stale MinIO now
+  also fails readiness, surfacing the gap before traffic is routed.)
