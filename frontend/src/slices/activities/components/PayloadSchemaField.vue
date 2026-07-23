@@ -6,7 +6,7 @@ import { SButton, SCodeEditor } from '@shared/ui'
 
 import type { JSONSchema } from '../sdk/types'
 import SchemaBuilder from './SchemaBuilder.vue'
-import { SCHEMA_FIELD_TYPES } from '../types/schemas'
+import { isFlatSchema } from '../types/schemas'
 
 // Wraps the guided SchemaBuilder and a raw JSON-Schema editor behind a mode
 // toggle (FU-5). The builder stays flat scalars; raw JSON is the escape hatch
@@ -25,25 +25,15 @@ const { t } = useI18n()
 
 const EMPTY_SCHEMA: JSONSchema = { type: 'object', properties: {} }
 
-// A schema round-trips through the flat builder losslessly only if it is an
-// object whose every property is a bare scalar `{ type }` and it carries no
-// keys the builder would drop. Anything else must open in raw mode with the
-// builder locked, so toggling to the builder can never discard structure.
-function isFlatRepresentable(schema: JSONSchema | null | undefined): boolean {
-  if (!schema || schema.type !== 'object') return false
-  const allowedTop = new Set(['type', 'properties', 'required'])
-  if (Object.keys(schema).some((k) => !allowedTop.has(k))) return false
-  const properties = schema.properties
-  if (!properties) return false
-  const known = new Set<string>(SCHEMA_FIELD_TYPES)
-  return Object.values(properties).every((prop) => {
-    if (!prop || typeof prop !== 'object') return false
-    const keys = Object.keys(prop)
-    return keys.length === 1 && keys[0] === 'type' && known.has((prop as JSONSchema).type as string)
-  })
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-const startInRaw = !!props.initial && !isFlatRepresentable(props.initial)
+// A schema that isn't flat-representable (nested/array/enum, or extra per-property
+// keys the builder would drop) must open in raw mode with the builder locked, so
+// toggling to the builder can never silently discard structure. `isFlatSchema`
+// is the single source for that rule (shared with the builder's field types).
+const startInRaw = !!props.initial && !isFlatSchema(props.initial)
 
 const mode = ref<'builder' | 'raw'>(startInRaw ? 'raw' : 'builder')
 // Locked once the raw value has been edited (Q-1a); starts locked when the
@@ -78,16 +68,27 @@ function switchToBuilder(): void {
 function onRawUpdate(text: string): void {
   rawText.value = text
   builderLocked.value = true
+  let parsed: unknown
   try {
-    const parsed = JSON.parse(text) as JSONSchema
-    emit('update:parseError', null)
-    emit('update:modelValue', parsed)
+    parsed = JSON.parse(text)
   } catch {
     emit('update:parseError', 'schemaInvalidJson')
     // An empty-properties object fails the form's own ">= 1 property" check, so
     // submit is blocked while the raw value is unparseable.
     emit('update:modelValue', EMPTY_SCHEMA)
+    return
   }
+  // Valid JSON that isn't an object (array, number, string, null) can't be a
+  // payload schema; flag it distinctly rather than emit a non-object up (which
+  // would surface the misleading empty-schema message) or break the emit
+  // contract by passing null.
+  if (!isPlainObject(parsed)) {
+    emit('update:parseError', 'schemaNotObject')
+    emit('update:modelValue', EMPTY_SCHEMA)
+    return
+  }
+  emit('update:parseError', null)
+  emit('update:modelValue', parsed as JSONSchema)
 }
 
 const modes = computed(() => [

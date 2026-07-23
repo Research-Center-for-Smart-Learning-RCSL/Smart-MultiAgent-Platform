@@ -71,6 +71,23 @@ describe('PayloadSchemaField', () => {
     expect(w.emitted('update:modelValue')?.at(-1)).toEqual([{ type: 'object', properties: {} }])
   })
 
+  it('flags valid-but-non-object JSON distinctly and blocks submit', async () => {
+    const w = mountField()
+    await w.find('[data-testid="schema-mode-raw"]').trigger('click')
+    await w.findComponent({ name: 'SCodeEditor' }).vm.$emit('update:modelValue', '[1, 2]')
+
+    expect(w.emitted('update:parseError')?.at(-1)).toEqual(['schemaNotObject'])
+    expect(w.emitted('update:modelValue')?.at(-1)).toEqual([{ type: 'object', properties: {} }])
+  })
+
+  it('never emits null up for a bare "null" raw value', async () => {
+    const w = mountField()
+    await w.find('[data-testid="schema-mode-raw"]').trigger('click')
+    await w.findComponent({ name: 'SCodeEditor' }).vm.$emit('update:modelValue', 'null')
+
+    expect(w.emitted('update:modelValue')?.at(-1)).toEqual([{ type: 'object', properties: {} }])
+  })
+
   it('emits the parsed schema for a valid nested value (AC-1)', async () => {
     const w = mountField()
     await w.find('[data-testid="schema-mode-raw"]').trigger('click')

@@ -74,8 +74,9 @@
       "schemaModeLabel": "Schema editor mode",
       "schemaModeLockedHint": "This schema was authored as raw JSON and can't be edited in the builder.",
       "schemaRawHint": "Edit the JSON Schema directly. Nested objects, arrays, and enums are supported here.",
-      "schemaRawPlaceholder": "{ \"type\": \"object\", \"properties\": { ... } }",
+      "schemaRawPlaceholder": "Enter a JSON Schema for the submission payload.",
       "schemaInvalidJson": "Enter valid JSON.",
+      "schemaNotObject": "The schema must be a JSON object.",
       "validator": "Validator",
       "validatorKind": {
         "webhook": "Webhook",

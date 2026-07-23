@@ -24,6 +24,27 @@ export const EXACT_MATCH_VALIDATOR_ID = 'exact_match'
 export const SCHEMA_FIELD_TYPES = ['string', 'number', 'integer', 'boolean'] as const
 export type SchemaFieldType = (typeof SCHEMA_FIELD_TYPES)[number]
 
+// Whether a payload schema round-trips through the flat SchemaBuilder without
+// loss: an object whose every property is a bare scalar `{ type }` whose type is
+// one of SCHEMA_FIELD_TYPES, and which carries no top-level key the builder would
+// drop. The raw-JSON editor (FU-5) uses this to decide whether a stored schema
+// can open in the guided builder or must stay in the raw editor. Kept here beside
+// SCHEMA_FIELD_TYPES so the definition of "what the flat builder can express"
+// lives in one place.
+export function isFlatSchema(schema: JSONSchema | null | undefined): boolean {
+  if (!schema || schema.type !== 'object') return false
+  const allowedTop = new Set(['type', 'properties', 'required'])
+  if (Object.keys(schema).some((k) => !allowedTop.has(k))) return false
+  const properties = schema.properties
+  if (!properties) return false
+  const known = new Set<string>(SCHEMA_FIELD_TYPES)
+  return Object.values(properties).every((prop) => {
+    if (!prop || typeof prop !== 'object') return false
+    const keys = Object.keys(prop)
+    return keys.length === 1 && keys[0] === 'type' && known.has((prop as JSONSchema).type as string)
+  })
+}
+
 const emptyToNull = (v: unknown): unknown =>
   v === '' || v === 0 || v === null || v === undefined ? null : v
 
