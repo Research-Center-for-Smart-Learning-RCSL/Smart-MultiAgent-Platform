@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import app.workers.tasks.approvals as tasks_appr
+import app.workers.tasks.orchestration as tasks_orch
 import contexts.orchestration.application.approval_service as appr
 from contexts.orchestration.domain.models import (
     Approval,
@@ -240,6 +241,73 @@ async def test_drive_approver_turn_gives_up_after_max_attempts(monkeypatch) -> N
     )
     assert out == "skipped:not_visible"
     assert "turn_kwargs" not in captured
+
+
+# --------------------------------------------------------------------------- #
+# approval_timeout task — retry a not-yet-visible gate row (F-31)
+# --------------------------------------------------------------------------- #
+
+
+def _wire_timeout(monkeypatch, state):
+    """Wire the approval_timeout task's imports; return captures."""
+    captured: dict = {}
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def handle_approval_timeout(self, aid, *, chatroom_id=None):
+            captured["looked_up"] = aid
+            captured["chatroom_id"] = chatroom_id
+            return state
+
+    @asynccontextmanager
+    async def _sess():
+        yield _FakeDB()
+
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade)
+    monkeypatch.setattr(tasks_orch, "async_session", _sess)
+    return captured
+
+
+@pytest.mark.asyncio
+async def test_approval_timeout_retries_when_row_not_visible(monkeypatch) -> None:
+    # A gate armed inside the caller's uncommitted transaction can fire its
+    # deadline before the row is visible — the backstop must retry (within
+    # budget), not abandon the gate at the first miss.
+    _wire_timeout(monkeypatch, None)
+    enqueued: list = []
+
+    class _Redis:
+        async def enqueue_job(self, *a, **k):
+            enqueued.append((a, k))
+
+    out = await tasks_orch.approval_timeout({"redis": _Redis()}, str(uuid.uuid4()), None)
+
+    assert out == "retry:not_visible"
+    assert len(enqueued) == 1
+    # Re-armed with attempt+1 carried in the tail arg.
+    assert enqueued[0][0][-1] == 1
+
+
+@pytest.mark.asyncio
+async def test_approval_timeout_gives_up_after_max_attempts(monkeypatch) -> None:
+    _wire_timeout(monkeypatch, None)
+    enqueued: list = []
+
+    class _Redis:
+        async def enqueue_job(self, *a, **k):
+            enqueued.append((a, k))
+
+    out = await tasks_orch.approval_timeout(
+        {"redis": _Redis()},
+        str(uuid.uuid4()),
+        None,
+        tasks_orch._TIMEOUT_NOT_VISIBLE_MAX_ATTEMPTS,
+    )
+
+    assert out == "noop:gone"
+    assert enqueued == []  # budget spent: no further re-arm
 
 
 # --------------------------------------------------------------------------- #
