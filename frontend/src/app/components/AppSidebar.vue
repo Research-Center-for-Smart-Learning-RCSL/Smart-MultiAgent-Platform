@@ -45,11 +45,14 @@ interface NavItem {
   icon: typeof BuildingOffice2Icon
   label: string
   route: string
+  exact?: boolean
 }
 
 const workspaceNav = computed<NavItem[]>(() => [
   { icon: BuildingOffice2Icon, label: t('app.sidebar.orgs'), route: '/orgs' },
-  { icon: FolderIcon, label: t('app.sidebar.projects'), route: '/projects' },
+  // Exact: `/projects` is an ancestor of every `/projects/:id/*` section, so a
+  // prefix match would keep it lit alongside the active project-context item.
+  { icon: FolderIcon, label: t('app.sidebar.projects'), route: '/projects', exact: true },
 ])
 
 const personalNav = computed<NavItem[]>(() => [
@@ -134,6 +137,7 @@ const manageNav = computed<NavItem[]>(() => {
           :icon="item.icon"
           :label="item.label"
           :to="item.route"
+          :exact="!!item.exact"
         />
       </div>
 

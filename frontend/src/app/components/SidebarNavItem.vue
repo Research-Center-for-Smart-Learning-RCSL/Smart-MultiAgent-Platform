@@ -6,15 +6,23 @@ const props = defineProps<{
   icon: Component
   label: string
   to: string
+  // Match only the exact path. Set for list pages whose route is an ancestor of
+  // other sidebar routes (e.g. `/projects`, an ancestor of every
+  // `/projects/:id/*` section) so they don't stay highlighted alongside the
+  // active section — otherwise two items read as active at once.
+  exact?: boolean
 }>()
 
 const route = useRoute()
 
-// Prefix-match so a detail route (e.g. /projects/x/agents/y) keeps its section
-// highlighted; the root link matches only the exact path.
-const active = computed(() =>
-  props.to === '/' ? route.path === '/' : route.path.startsWith(props.to),
-)
+// Segment-boundary prefix match keeps a section highlighted on its detail routes
+// (/projects/x/agents/y) without a shorter route matching a sibling that merely
+// shares a string prefix (/foo vs /foobar). Root and `exact` links match only
+// their own path.
+const active = computed(() => {
+  if (props.to === '/' || props.exact) return route.path === props.to
+  return route.path === props.to || route.path.startsWith(props.to + '/')
+})
 </script>
 
 <template>
