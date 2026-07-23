@@ -48,7 +48,7 @@ SMAP (Smart Multi-Agent Platform) is a self-hosted web application that lets use
 - Native mobile apps (responsive web is sufficient).
 - Agent versioning and export/import. (Prompt templates are in scope as of §29; skill bundles are in scope as of §31 — a skill exports independently of any agent, and exporting one never exports an agent.)
 - Cross-organization project migration or cloning.
-- SSO, OAuth, or MFA in v1 (email + password only).
+- MFA in v1. (Google OAuth login is in scope as of §6.1a; other SSO/OIDC providers remain out of scope.)
 - Voice/audio input.
 
 ---
@@ -224,6 +224,34 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
 - **[R6.06]** Users can change their email (requires re-verification) and password (requires current password). A password change invalidates all existing refresh tokens of that user and denylists all currently-valid access tokens.
 - **[R6.07]** Account self-deletion soft-deletes the account; the Admin can still recover within 60 days. **Exception**: if the user is the Original Creator of any Org with other active members, self-deletion is blocked until the Original-Creator role is transferred (see §8.5).
 - **[R6.08]** Session termination: user can revoke individual refresh tokens ("sessions") from their profile page. Revoking a session also denylists the jti of any access token issued from that session's last refresh.
+
+### 6.1a Google sign-in (OAuth/OIDC)
+
+- **[R6.14]** Users may authenticate with Google via the OpenID Connect Authorization
+  Code flow with PKCE, as an alternative to email+password. The client secret is stored in
+  Vault KV (`secret/smap/config/google_oauth`), never on the application filesystem or in
+  env. `authorize` and `callback` are unauthenticated, rate-limited endpoints (see R19.01).
+  The `id_token` is verified against Google's JWKS with the algorithm pinned to RS256, plus
+  `iss`, `aud` (our client id), `exp`, and `nonce`; `state` is single-use and bound to the
+  initiating browser via a short-lived cookie (login-CSRF defense).
+- **[R6.15]** A successful Google authentication issues the same session artifacts as
+  R6.03 (RS256 access token, rotating refresh token, Redis session, jti revocation) and is
+  subject to the same ban/lockout/deleted gates (R6.04, R6.13). A first-time Google user
+  with no existing account is provisioned directly as `active` + `email_verified=true`,
+  bypassing R6.02 email verification; any Google account is accepted (no Workspace-domain
+  restriction).
+- **[R6.16]** Email-collision binding: a Google login whose verified email matches an
+  existing account is bound to that account. If the existing account is already
+  email-verified, the Google identity is auto-linked. If it is not yet verified, the
+  identity is linked, the account is marked verified, and the existing password is
+  invalidated (a reset is required to reuse password login), closing the pre-registration
+  takeover vector. A Google `id_token` reporting `email_verified=false` is rejected.
+- **[R6.17]** A logged-in user may link and unlink a Google identity from their profile.
+  One Google account (`sub`) maps to at most one user; a user has at most one Google
+  identity. Unlinking is refused when it would remove the account's only remaining
+  credential (no password and no other linked identity) until a password is set; a
+  passwordless account may set an initial password via an emailed set-password token. Link
+  and unlink are audit-logged (`auth.oauth.account_linked` / `auth.oauth.account_unlinked`).
 
 ### 6.2 Invitations
 
@@ -837,7 +865,7 @@ The system records a structured event for every action in the following categori
 
 | Category | Example actions |
 |---|---|
-| Auth | `auth.login.success`, `auth.login.failed`, `auth.logout`, `auth.password_reset_requested`, `auth.password_changed`, `auth.email_changed`, `auth.email_verified`, `auth.session_revoked` |
+| Auth | `auth.login.success`, `auth.login.failed`, `auth.logout`, `auth.password_reset_requested`, `auth.password_changed`, `auth.email_changed`, `auth.email_verified`, `auth.session_revoked`, `auth.oauth.login.success`, `auth.oauth.provisioned`, `auth.oauth.account_linked`, `auth.oauth.account_unlinked`, `auth.oauth.login.rejected` |
 | User lifecycle | `user.created`, `user.deleted`, `user.banned`, `user.unbanned`, `user.impersonated_begin`, `user.impersonated_end` |
 | Org | `org.created`, `org.deleted`, `org.restored`, `org.member_invited`, `org.member_removed`, `org.owner_promoted`, `org.owner_demoted` (blocked for Original Creator) |
 | Project | `project.created`, `project.deleted`, `project.restored`, `project.member_invited`, `project.member_removed` |
@@ -871,7 +899,7 @@ The system records a structured event for every action in the following categori
 
 ## 19. Rate Limiting & Abuse
 
-- **[R19.01]** Every HTTP endpoint **requires authentication** (Q57). Two exceptions: `/api/auth/register`, `/api/auth/login`, `/api/auth/request-password-reset`, `/api/auth/verify-email` — all four are rate-limited aggressively.
+- **[R19.01]** Every HTTP endpoint **requires authentication** (Q57). Exceptions: `/api/auth/register`, `/api/auth/login`, `/api/auth/request-password-reset`, `/api/auth/verify-email`, `/api/auth/google/authorize`, `/api/auth/google/callback` — all rate-limited aggressively.
 - **[R19.02]** Global middleware enforces (per-user-id AND per-IP) sliding-window rate limits stored in Redis:
   - Auth endpoints: 10 req / min / IP.
   - Chat send: 60 msg / min / user.
