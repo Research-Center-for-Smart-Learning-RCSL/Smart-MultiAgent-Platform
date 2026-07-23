@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Protocol
 
 from contexts.activities.domain.models import ActivityActivation, ActivityType
@@ -16,6 +17,8 @@ class ActivityActivationRepository(Protocol):
     async def get(self, activation_id: uuid.UUID) -> ActivityActivation | None: ...
 
     async def get_active(self, chatroom_id: uuid.UUID) -> ActivityActivation | None: ...
+
+    async def list_active_for_type(self, activity_type_id: uuid.UUID) -> Sequence[ActivityActivation]: ...
 
     async def get_active_for_update(self, chatroom_id: uuid.UUID) -> ActivityActivation | None: ...
 

@@ -240,6 +240,29 @@ async def register_activity_type(
     return _type_out(activity_type)
 
 
+@project_router.delete("/{project_id}/activity-types/{type_id}", status_code=204, response_model=None)
+async def delete_activity_type(
+    project_id: uuid.UUID = Path(...),
+    type_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    await assert_project_owner(db=db, principal=principal, project_id=project_id)
+    ended = await ActivitiesFacade(db).delete_type(
+        project_id=project_id,
+        type_id=type_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    # Durable-commit before the WS fan-out: the tombstone and every activation-end
+    # must be persisted before any room is told its activation ended.
+    await db.commit()
+    for chatroom_id, activation_id in ended:
+        await _dispatch_activation_ended(chatroom_id, activation_id)
+
+
 @project_router.get("/{project_id}/activity-types")
 async def list_activity_types(
     project_id: uuid.UUID = Path(...),

@@ -19,6 +19,7 @@ from contexts.activities.application.aggregation_service import AggregationServi
 from contexts.activities.application.session_service import ActivitySessionService
 from contexts.activities.application.submission_service import SubmissionService
 from contexts.activities.application.type_service import ActivityTypeService
+from contexts.activities.domain.errors import ActivityTypeNotFound
 from contexts.activities.domain.models import (
     ActivityActivation,
     ActivityActivationEndResult,
@@ -52,6 +53,7 @@ class ActivitiesFacade:
         self._db = db
         self._types = ActivityTypeService(db)
         activation_repo = ActivationRepository(db)
+        self._activation_repo = activation_repo
         self._activation = ActivationService(
             db,
             activation_repo=activation_repo,
@@ -137,17 +139,43 @@ class ActivitiesFacade:
     async def get_active_activation(self, chatroom_id: uuid.UUID) -> ActivityActivation | None:
         return await self._activation.get_active(chatroom_id)
 
-    async def soft_delete_type(
+    async def delete_type(
         self,
         *,
+        project_id: uuid.UUID,
         type_id: uuid.UUID,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> None:
+    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+        """Cascade-delete a type: end every active activation referencing it, then
+        soft-delete the type, all on the caller's transaction (R30.23).
+
+        Returns the ``(chatroom_id, activation_id)`` pairs actually transitioned so
+        the route can emit ``activity.activation.ended`` per room post-commit. The
+        ``project_id`` guard makes this tenant-safe: an owner of one project cannot
+        delete another project's type via a mismatched path.
+        """
+        existing = await self._types.get_type(type_id)
+        if existing is None or existing.project_id != project_id:
+            raise ActivityTypeNotFound(str(type_id))
+
+        ended: list[tuple[uuid.UUID, uuid.UUID]] = []
+        for activation in await self._activation_repo.list_active_for_type(type_id):
+            result = await self._activation.end(
+                chatroom_id=activation.chatroom_id,
+                activation_id=activation.id,
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                request_id=request_id,
+            )
+            if result.transitioned:
+                ended.append((activation.chatroom_id, activation.id))
+
         await self._types.soft_delete(
             type_id=type_id, actor_user_id=actor_user_id, actor_ip=actor_ip, request_id=request_id
         )
+        return ended
 
     # -- Sessions -----------------------------------------------------------
 
