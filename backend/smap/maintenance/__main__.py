@@ -7,6 +7,7 @@ from loguru import logger
 
 from . import purge_session_dirs as _purge_session_dirs
 from . import reconcile_attachment_sizes as _reconcile_attachment_sizes
+from . import repair_compaction_summaries as _repair_compaction_summaries
 
 app = typer.Typer(
     help="SMAP one-shot maintenance CLI. Every destructive command is dry-run until armed.",
@@ -103,6 +104,35 @@ def reconcile_attachment_sizes_cmd() -> None:
         logger.warning(
             "{} object(s) could not be read; those rows were not reconciled",
             report.unreadable,
+        )
+
+
+@app.command("repair-compaction-summaries")
+def repair_compaction_summaries_cmd() -> None:
+    """Void compaction summaries left bad by the pre-scoping compaction defects.
+
+    Repairs what `docs/tasks/2026-07-22-compaction-scoping-and-durability` fixed
+    prospectively: summaries written from an empty provider response, and
+    overlapping folds by one agent caused by the lock releasing before the
+    summary committed.
+
+    Only summary-row metadata is edited -- compaction never deleted a folded
+    message, so no conversation content is at risk. Summaries with no producer
+    are counted but not touched: the loader already treats them as belonging to
+    no one, so those rooms have their full history back already.
+
+    Dry-run unless SMAP_REPAIR_COMPACTION_SUMMARIES_ARMED is set to a truthy
+    value; see repair_compaction_summaries._ARMED_ENV for why that is an
+    environment variable rather than a flag. Scans `messages` without a metadata
+    index -- run it in a maintenance window.
+    """
+    report = _repair_compaction_summaries.run()
+    if report.dry_run and report.would_void:
+        logger.warning("Nothing was changed. Re-run armed once the above looks right.")
+    if report.orphaned:
+        logger.warning(
+            "{} summary row(s) cover deleted messages; reported only, see the module docstring",
+            len(report.orphaned),
         )
 
 
