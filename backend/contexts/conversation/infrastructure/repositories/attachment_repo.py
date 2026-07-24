@@ -264,6 +264,24 @@ class MessageAttachmentRepository:
             .values(status=AttachmentStatus.EXPIRED.value),
         )
 
+    async def list_after(
+        self,
+        *,
+        after_id: uuid.UUID | None,
+        limit: int,
+    ) -> Sequence[MessageAttachment]:
+        """One page of rows ordered by id, for a full-table walk.
+
+        Keyset rather than OFFSET so a long walk cannot re-read or skip rows
+        when something is inserted between pages. Used by the read-only size
+        reconciliation command, which has no predicate to narrow on.
+        """
+        query = t.message_attachments.select().order_by(t.message_attachments.c.id)
+        if after_id is not None:
+            query = query.where(t.message_attachments.c.id > after_id)
+        rows = (await self._db.execute(query.limit(limit))).all()
+        return [_row_to_attachment(r) for r in rows]
+
     async def list_expired(
         self,
         *,

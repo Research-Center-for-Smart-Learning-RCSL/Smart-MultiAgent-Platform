@@ -286,6 +286,19 @@ class ConversationFacade:
 
     # -- Retention helpers (H4) ------------------------------------------------
 
+    async def list_attachments_after(
+        self,
+        *,
+        after_id: uuid.UUID | None,
+        limit: int,
+    ) -> Sequence[MessageAttachment]:
+        """One id-ordered page of every attachment row, for a full-table walk.
+
+        Exists for the read-only size reconciliation command, which has to
+        examine every row and so has no predicate any other method offers.
+        """
+        return await self._attachments.list_after(after_id=after_id, limit=limit)
+
     async def expire_attachments(self, *, limit: int = 500) -> int:
         """Mark one batch of message-bound attachments past their TTL EXPIRED.
 

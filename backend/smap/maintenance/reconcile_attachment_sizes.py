@@ -31,11 +31,10 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 
-import sqlalchemy as sa
 from loguru import logger
 
 from contexts.conversation.domain.models import AttachmentStatus
-from contexts.conversation.infrastructure import tables as t
+from contexts.conversation.interfaces.facade import ConversationFacade
 from shared_kernel.auth.clients import as_utc, now
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.storage import get_minio_client
@@ -74,19 +73,14 @@ async def _reconcile() -> ReconcileReport:
     last_id: uuid.UUID | None = None
 
     while True:
-        # Keyset pagination on the primary key: a plain OFFSET would re-read or
-        # skip rows if anything is inserted between pages during a long run.
+        # One short-lived session per page rather than one held open for the
+        # whole walk: this can run for a long time against a large table and
+        # must not pin a connection while it waits on object storage.
         async with sm() as session:
-            query = sa.select(
-                t.message_attachments.c.id,
-                t.message_attachments.c.minio_path,
-                t.message_attachments.c.size_bytes,
-                t.message_attachments.c.status,
-                t.message_attachments.c.expires_at,
-            ).order_by(t.message_attachments.c.id)
-            if last_id is not None:
-                query = query.where(t.message_attachments.c.id > last_id)
-            rows = (await session.execute(query.limit(_PAGE))).all()
+            rows = await ConversationFacade(session).list_attachments_after(
+                after_id=last_id,
+                limit=_PAGE,
+            )
 
         if not rows:
             break
@@ -103,7 +97,7 @@ async def _reconcile() -> ReconcileReport:
                 continue
 
             if stat is None:
-                still_live = row.status == AttachmentStatus.ACTIVE.value and (
+                still_live = row.status is AttachmentStatus.ACTIVE and (
                     row.expires_at is None or as_utc(row.expires_at) > horizon
                 )
                 if still_live:
