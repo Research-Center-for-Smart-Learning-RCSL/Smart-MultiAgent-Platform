@@ -76,6 +76,7 @@
       "live": "即時",
       "offline": "離線",
       "degraded": "離線（輪詢中）",
+      "limited": "連線數已達上限，請關閉其他分頁",
       "sending": "傳送中…",
       "uploadFailed": "（失敗）{filename}",
       "sendFailed": "傳送訊息失敗。",

@@ -76,6 +76,7 @@
       "live": "live",
       "offline": "offline",
       "degraded": "offline (polling)",
+      "limited": "connection limit — close a tab",
       "sending": "Sending…",
       "uploadFailed": "(failed) {filename}",
       "sendFailed": "Failed to send message.",

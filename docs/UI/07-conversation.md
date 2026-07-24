@@ -1042,7 +1042,16 @@ When a chatroom has no messages and no active streaming:
 |-------|-------|-------|------|
 | Connected | "Live" | `--color-success` text, `--color-success-tint` bg | `SignalIcon` 12px |
 | Reconnecting | "Reconnecting" | `--color-warning` text, `--color-warning-tint` bg | `ArrowPathIcon` 12px (spin animation) |
+| Degraded | "Offline (polling)" | `--color-danger` text, `--color-danger-tint` bg | `ArrowPathIcon` 12px (spin animation) |
+| Connection limit | "Connection limit — close a tab" | `--color-warning` text, `--color-warning-tint` bg | `SignalSlashIcon` 12px |
 | Disconnected | "Offline" | `--color-danger` text, `--color-danger-tint` bg | `SignalSlashIcon` 12px |
+
+Degraded is reached after three failed reconnects and means the room is being
+kept current by the 10s REST poll of §12.7.1 rather than by pushes. Connection
+limit is the server refusing this user's excess sockets (`[R19.03]`, close code
+4429); it does not spin, because waiting is not what clears it. It takes
+precedence over Degraded, which a capped channel also reaches — of the two, only
+this one names something the user can act on.
 
 Pill style: `SBadge`-like, `--radius-full`, padding 2px 10px, 12px font.
 

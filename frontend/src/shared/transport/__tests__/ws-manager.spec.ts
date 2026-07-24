@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+// Type-only, so it is erased before the runtime import below — the module must
+// not load until the WebSocket global has been stubbed.
+import type { Channel as ChannelClass } from '../ws-manager'
+
 // Locks the Channel lifecycle contract from
 // docs/tasks/2026-07-22-chatroom-socket-lifecycle/spec.md §8:
 //   - the client half of the ping/pong heartbeat the server's idle reaper is
@@ -79,7 +83,7 @@ function framesOf(socket: FakeWebSocket): Array<Record<string, unknown>> {
   return socket.sent.map((raw) => JSON.parse(raw) as Record<string, unknown>)
 }
 
-let Channel: typeof import('../ws-manager').Channel
+let Channel: typeof ChannelClass
 
 beforeEach(async () => {
   FakeWebSocket.instances = []
