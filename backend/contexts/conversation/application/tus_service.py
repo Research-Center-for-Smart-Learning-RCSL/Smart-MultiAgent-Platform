@@ -1,15 +1,15 @@
-"""TUS v1.0.0 resumable upload orchestration (R22.15.01–R22.15.07).
+"""TUS v1.0.0 resumable upload orchestration (R22.15.01?22.15.07).
 
 Scope split:
 
   - Protocol handling (header parsing, offsets, 409/413 translation) lives
     in this file.
-  - Byte storage during upload → local disk (staging_dir) so PATCH can
+  - Byte storage during upload ??local disk (staging_dir) so PATCH can
     append without buffering the whole file in Redis.
   - Finalisation (MinIO put + DB row + scan enqueue) delegates to
     `AttachmentService.finalize_tus`.
 
-The module deliberately does not depend on FastAPI — routers in
+The module deliberately does not depend on FastAPI ??routers in
 `app/api/v1/tus.py` translate method/headers into these calls.
 """
 
@@ -35,6 +35,7 @@ from contexts.conversation.domain.errors import (
     AttachmentTooLarge,
     TusMetadataInvalid,
     TusOffsetMismatch,
+    TusSizeMismatch,
     TusUploadNotFound,
 )
 from contexts.conversation.domain.models import MessageAttachment
@@ -63,6 +64,17 @@ def _staging_dir() -> str:
 
 def _staging_path(upload_id: uuid.UUID) -> str:
     return os.path.join(_staging_dir(), f"{upload_id}.part")
+
+
+def _append_chunk(path: str, chunk: bytes) -> None:
+    """Blocking append, run in a worker thread by `patch`.
+
+    Module-level rather than a closure so a partial-write fault can be injected
+    in tests -- the corruption this guards against needs a disk fault to occur,
+    which is not otherwise reproducible.
+    """
+    with open(path, "ab") as fh:
+        fh.write(chunk)
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +138,7 @@ class TusService:
                 "Upload-Metadata must include filename and mime",
             )
         # project_id is authoritative (derived by the caller from the chatroom /
-        # rag config / knowmap config), NOT taken from client metadata — a forged
+        # rag config / knowmap config), NOT taken from client metadata ??a forged
         # or empty value in Upload-Metadata is ignored.
         chatroom_id = _optional_uuid(meta, "chatroom_id")
         rag_config_id = _optional_uuid(meta, "rag_config_id")
@@ -147,7 +159,7 @@ class TusService:
         upload_id = uuid.uuid4()
         path = _staging_path(upload_id)
         # Pre-allocate the file so subsequent PATCHes can open for append.
-        with open(path, "ab") as fh:  # — local staging
+        with open(path, "ab") as fh:  # ??local staging
             fh.truncate(0)
 
         upload = TusUpload(
@@ -183,7 +195,7 @@ class TusService:
         if upload is None:
             raise TusUploadNotFound(str(upload_id))
         if upload.user_id != user_id:
-            # Keep the 404 shape — don't leak that someone else's upload
+            # Keep the 404 shape ??don't leak that someone else's upload
             # exists at this id.
             raise TusUploadNotFound(str(upload_id))
         return TusHeadResult(
@@ -221,30 +233,45 @@ class TusService:
                 f"chunk would overflow declared length {upload.upload_length}",
             )
 
-        # CAS first — claim the offset atomically before touching the file so a
+        # CAS first ??claim the offset atomically before touching the file so a
         # concurrent PATCH with the same offset cannot append stale bytes.
         if not await self._store.update_offset(upload_id, offset, new_offset):
             raise TusOffsetMismatch("concurrent upload detected")
 
-        def _append() -> None:
-            with open(upload.staging_path, "ab") as fh:
-                fh.write(chunk)
-
         try:
-            await asyncio.to_thread(_append)
+            await asyncio.to_thread(_append_chunk, upload.staging_path, chunk)
         except OSError:
-            # Disk write failed (full, permissions, …).  Roll back the Redis
-            # offset so the client can retry this PATCH instead of being stuck
-            # with an advanced offset and a short file.
-            rolled_back = await self._store.update_offset(upload_id, new_offset, offset)
-            if not rolled_back:
+            # Disk write failed (full, permissions, ?? ??possibly after flushing
+            # an arbitrary prefix of the chunk. Truncate back to `offset` BEFORE
+            # restoring it: the client may retry the moment the offset is
+            # restored, and a retry appending onto the partial write is exactly
+            # how a file longer than its declared length, with duplicated bytes
+            # mid-stream, gets produced.
+            truncated = True
+            try:
+                await asyncio.to_thread(os.truncate, upload.staging_path, offset)
+            except OSError:
+                truncated = False
                 _log.error(
-                    "TUS upload %s: disk write failed AND offset rollback failed "
-                    "(expected=%d, target=%d) — upload is now unrecoverable",
+                    "TUS upload %s: disk write failed AND truncate back to %d failed ??"
+                    "leaving the offset advanced at %d so no retry can append onto the "
+                    "dirty staging file; upload is now unrecoverable",
                     upload_id,
-                    new_offset,
                     offset,
+                    new_offset,
                 )
+            if truncated:
+                # Only invite a retry once the file actually matches the offset
+                # the retry will append at.
+                rolled_back = await self._store.update_offset(upload_id, new_offset, offset)
+                if not rolled_back:
+                    _log.error(
+                        "TUS upload %s: disk write failed AND offset rollback failed "
+                        "(expected=%d, target=%d) ??upload is now unrecoverable",
+                        upload_id,
+                        new_offset,
+                        offset,
+                    )
             raise
         TUS_UPLOAD_BYTES.inc(len(chunk))
 
@@ -255,12 +282,23 @@ class TusService:
                 attachment=None,
             )
 
-        # Final PATCH — finalize + clean up.  Cleanup runs in `finally` so a
+        # Final PATCH ??finalize + clean up.  Cleanup runs in `finally` so a
         # failing finalize never orphans the staging file or Redis state.
         attachment = None
         rag_document_id: uuid.UUID | None = None
         knowmap_document_id: uuid.UUID | None = None
         try:
+            # The offset states intent: the CAS claims it before the bytes are
+            # written. The file is the only authority on what was actually
+            # stored, and nothing on this path has asked it until now. Reconcile
+            # above the purpose branch so all three arms are covered, and inside
+            # this `try` so the `finally` below reclaims the staging file and the
+            # Redis record on refusal (R22.15.04).
+            staged_bytes = await asyncio.to_thread(os.path.getsize, upload.staging_path)
+            if staged_bytes != upload.upload_length:
+                raise TusSizeMismatch(
+                    f"staged file holds {staged_bytes} bytes, declared length is " f"{upload.upload_length}",
+                )
             if upload.purpose == "chat_attachment":
                 assert upload.chatroom_id is not None  # guaranteed by create()
                 attachment = await self._attachments.finalize_tus(
@@ -271,7 +309,7 @@ class TusService:
                     filename=upload.filename,
                     mime=upload.mime,
                     staging_path=upload.staging_path,
-                    size_bytes=upload.upload_length,
+                    size_bytes=staged_bytes,
                     actor_ip=actor_ip,
                     request_id=request_id,
                 )
@@ -294,7 +332,7 @@ class TusService:
                     filename=upload.filename,
                     mime=upload.mime,
                     staging_path=upload.staging_path,
-                    size_bytes=upload.upload_length,
+                    size_bytes=staged_bytes,
                     uploaded_by=user_id,
                     actor_ip=actor_ip,
                     agent_ids=km_agent_ids,
@@ -321,7 +359,7 @@ class TusService:
                     filename=upload.filename,
                     mime=upload.mime,
                     staging_path=upload.staging_path,
-                    size_bytes=upload.upload_length,
+                    size_bytes=staged_bytes,
                     uploaded_by=user_id,
                     actor_ip=actor_ip,
                     agent_ids=agent_ids,
@@ -351,7 +389,7 @@ class TusService:
     ) -> None:
         upload = await self._store.get(upload_id)
         if upload is None or upload.user_id != user_id:
-            # Idempotent terminate — 204 either way.
+            # Idempotent terminate ??204 either way.
             return
         with contextlib.suppress(OSError):  # pragma: no cover
             os.remove(upload.staging_path)
