@@ -25,13 +25,6 @@ parallel.
   half an hour. **Deviates from the a2a triage**, which grouped five findings here: only one is
   actionable today, the other four are latent until sub-agent execution is built and are recorded
   as follow-ups for that feature dossier.
-- `2026-07-22-compaction-scoping-and-durability` (bugfix, draft) — `depends_on: []`. From
-  `docs/audits/2026-07-22-agent-config-runtime/` F-5, F-7, F-15 (all major): one agent's
-  compaction truncates every other agent's history in the room (violating `[R9.09]`), an empty
-  summary is accepted and permanently elides its range, and the compaction lock is released
-  before the summary commits. Three independent defects on one change surface; includes a
-  dry-run repair command. Two open decisions for the user in §3 (Q-7 legacy rows, Q-8 the
-  room-level `/compact` flag). Coordinate with the a2a audit's turn-locking dossier.
 - `2026-07-22-tool-dispatch-failure-categories` (bugfix, draft) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-config-runtime/` F-6, F-16, F-17 (all major): a tool's DB
   failure poisons the turn session and destroys an already-streamed reply, truncated tool-call

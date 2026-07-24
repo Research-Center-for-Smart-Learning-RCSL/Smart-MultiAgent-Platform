@@ -1,8 +1,8 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-22
-requirements: [R9.09, R9.10, R9.11, R13.16, R13.24, R13.25]
+requirements: [R9.09, R9.10, R9.11, R13.16, R13.24, R13.25, R13.26]
 depends_on: []
 ---
 
@@ -109,8 +109,13 @@ the turn lock is per `(agent, room)` —
 | Q-4 | What counts as an unacceptable summary in B? | `not summary.strip()`. | Exactly the predicate the reply path already uses (`turn_engine.py:2117`, "never persist an empty agent message"), so the codebase gains one rule rather than two. `""`-only is too narrow — a lone whitespace token still destroys the range. A minimum-length floor is rejected as a *rejection* criterion: a genuinely short summary of a short range is legitimate, and a floor invents a threshold with no spec basis. If a signal is wanted there, log it, do not reject. |
 | Q-5 | On an unacceptable summary, fold anyway or skip? | **Skip and keep the original history**, raising `CompactFailed`. | `[R9.11]` is explicit: on failure the system keeps the original context and logs to audit. The consequence to state plainly: in compact mode a failed compaction means the turn proceeds over-cap. That is already the existing behaviour for a raising summariser, and it is bounded by the pre-dispatch guard at `turn_engine.py:2006-2036`. |
 | Q-6 | For C, commit inside the lock or hold the lock across the whole pre-stream phase? | **Commit inside the lock**, immediately after a successful `run_compact`. | Holding the lock from `:1868` through `:2104` is also correct but serialises every agent's turn in a busy room behind the slowest retrieval — the blast radius is far wider than the bug. The heartbeat (`shared_kernel/realtime/distributed_lock.py:98-107`, `ttl/3`) makes a long hold *safe*, not *free*. |
-| Q-7 | **What should happen to summary rows written before the fix, which carry no producer?** | **User decision — see §7.** Recommended: treat a summary with no producer as belonging to no one (do not elide, do not inject its text). | This is the one genuine open decision in the dossier. Treating legacy rows as room-wide silently preserves today's wrong behaviour for every existing room, which is very likely not what anyone wants after paying for this fix. Treating them as belonging to no one restores full history to every agent immediately — changing what models see in existing rooms, though never what users see. |
-| Q-8 | Should the room-level `/compact` flag keep its current first-agent-wins behaviour under per-agent scoping? | **User decision — see §7.** | `compact:pending:{chatroom_id}` is set by a room-level user action (`backend/app/api/v1/chatrooms.py:618`) and consumed by whichever agent turns first (`turn_engine.py:2607-2621`), with `conversation.py:286-290` stating outright that "the first live bound agent's config drives the pass". Under per-agent scoping, whose scoped summary does a room-level `/compact` produce? Recommend: the agent that consumed the flag, with the worker loop keeping first-binding-wins — which is at least then *documented* as a per-agent effect rather than silently one. |
+| Q-7 | **What should happen to summary rows written before the fix, which carry no producer?** | **Decided 2026-07-24: a summary with no `producer_agent_id` belongs to no one** — do not elide its range, do not inject its text. | Treating legacy rows as room-wide silently preserves today's wrong behaviour for every existing room, which is not what anyone wants after paying for this fix. Belonging-to-no-one restores full history to every agent immediately — changing what models see in existing rooms, though never what users see. Compact-mode agents simply re-fold correctly on their next turn; the re-summarisation cost is the accepted price. Fail-open-to-truth, consistent with `[R9.09]`. |
+| Q-8 | Should the room-level `/compact` flag keep its current first-agent-wins behaviour under per-agent scoping? | **Decided 2026-07-24: no — a room-level `/compact` folds once for every `context_mode=compact` agent bound to the room**, each producing its own scoped summary. | `compact:pending:{chatroom_id}` is set by a room-level user action (`backend/app/api/v1/chatrooms.py:618`) and consumed by whichever agent turns first (`turn_engine.py:2607-2621`), with `conversation.py:286-290` stating outright that "the first live bound agent's config drives the pass". Under per-agent scoping, first-agent-wins would mean a user pressing a room-level control gets exactly one agent's view compacted and every other agent's untouched — a room-level affordance with an arbitrary per-agent effect. Folding for each compact agent is what the control visibly promises. **Accepted costs, stated plainly:** up to *k* summarisation calls on the user's own key per `/compact` in a *k*-compact-agent room, and a change to the one-shot flag's consumption model (it can no longer be a single room key consumed by the first turner — see §7 Q-8) plus the worker loop's return-on-first-`ok` at `conversation.py:321-324`. `general`-mode agents are unaffected: they have no compact behaviour to invoke. |
+| Q-11 | **D (V-1): what policy governs content that survives inside a summary after its source message is deleted?** | **Decided 2026-07-24: D3 — accept and disclose, for user-initiated deletion only.** Deletion does not chase summaries; the limit is stated in the SRS (Q-13) and surfaced at the point of deletion (Q-14). D1 and D2 are recorded as rejected. | D1 was the dossier's recommendation and is rejected on cost: one unrelated deletion discards a summary covering hundreds of messages and forces a re-fold, so a room with routine message hygiene would re-pay for compaction repeatedly. D2 is rejected on both cost and honesty — it spends the user's BYO key on a deletion and still yields an LLM paraphrase of content that included the deleted message. D3 is chosen with the trade-off understood: the copy persists, and the mitigation is that the user is told before they delete rather than after. |
+| Q-12 | Does D3 also govern the `[R13.25]` retention purge? | **Decided 2026-07-24: no.** The nightly purge **does** void any summary whose `compacted_ids` reference purged rows, using the D1 mechanism restricted to the purge path. | Manual deletion and retention purge are different promises. Manual deletion is an action a user takes and can be warned about at the moment they take it (Q-14); the 5-year retention window is a platform-level commitment with no user in the loop to disclose to. Without this, a summary — always newer than everything it folds — would carry pre-horizon content indefinitely past the retention boundary, and `[R13.25]` would be defeated by construction rather than by policy. AC-13 therefore stands as written. |
+| Q-13 | How is the D3 carve-out recorded in the SRS? | **Decided 2026-07-24: a new `[R13.26]` in a new subsection `13.10 Derived content and deletion`**, leaving `[R13.24]` untouched. | `[R13.24]`'s literal text enumerates the content row, the search index, and edit history — it does not name summaries; §7's earlier claim that it is "explicit that deletion reaches derived copies" was an interpretation, and the whole point of this decision is to stop relying on one. A dedicated requirement states the exemption, its retention-purge exception (Q-12) and the disclosure obligation (Q-14) in one place, where a reader looking for deletion semantics will find it, rather than as a qualifier appended to a requirement that otherwise reads as unconditional. |
+| Q-14 | Where does the D3 disclosure land, so that it is verifiable rather than aspirational? | **Decided 2026-07-24: the message-deletion confirmation dialog.** All strings through `$t()`, added to both locale files. | The only surface that reaches the user at the moment the decision is made. A `docs/` note or a badge on the summary bubble informs someone already past the choice; a confirmation dialog informs someone still making it. AC-12 is rewritten against this surface. |
+| Q-15 | Is the AC-10 repair command in scope for this task? | **Decided 2026-07-24: yes, in full** — all three repairs of §7 plus D's anti-join detection, dry-run by default. | §7 already argues the empty-summary un-fold is the highest-value repair and should happen regardless of what is decided for A: it restores real conversation content that agents currently cannot see. Shipping the runtime fix without it leaves every existing room carrying empty summaries and cross-agent folds that the new code will never clean up on its own. |
 | Q-9 | Should the 500-row history window issue (the a2a audit's FU-2) be folded in? | **No — keep it separate.** | Different root cause (a fixed pagination bound on an unbounded-growth table), different fix (a query-strategy change in `load_model_history`, likely plus an index), different risk profile — a two-query change affects *every* turn in *every* room, including rooms with none of these three defects. Folding it in would triple this dossier's blast radius. But note the interaction: Q-1 makes it worse in degree, since up to *k* summary rows per fold in a *k*-compact-agent room fills the window faster. It should be scheduled soon after. See FU-1. |
 | Q-10 | Does this depend on any open dossier, or overlap the a2a orchestration audit? | No hard dependency, but **coordinate on C**. `depends_on: []`. | The a2a audit's `2026-07-22-turn-idempotency-and-locking/` touches turn locking, and `docs/implement/N-conversation-a2a-fixes.md` (FIX-11) is live work on this same block. Not an overlap prerequisite — different lock, different lines — but the C change should be sequenced with awareness of it. |
 
@@ -264,9 +269,25 @@ race.
 - *Also fixed for free*: `choose_range_to_compact` (`context.py:186-193`) receives per-agent
   filtered history, so agent B no longer skips past A's summary as if it were its own.
 
-**Legacy rows — Q-7, the open decision.** Recommended: a summary with no `producer_agent_id`
-belongs to no one — do not elide, do not inject its text. Fail-open-to-truth, consistent with
-`[R9.09]`.
+**Legacy rows — Q-7, decided.** A summary with no `producer_agent_id` belongs to no one — do not
+elide, do not inject its text. Fail-open-to-truth, consistent with `[R9.09]`. The loader must
+treat a *missing* key and a *null* value identically; neither is a match for any reader.
+
+**Room-level `/compact` — Q-8, decided: fold once per compact-mode agent.** The one-shot flag can
+no longer be a single room key consumed by the first turner, because "consumed" must now happen
+*k* times. The flag becomes per-agent at the point it is set: `chatrooms.py:618` resolves the
+room's `context_mode=compact` bound agents and arms one entry per agent, and each agent's turn
+consumes only its own (`turn_engine.py:2607-2621`). This keeps consumption one-shot per agent —
+the property `_restore_compact_flag` and §7 C-2 depend on — while making the room-level action
+mean what it appears to mean.
+
+Two consequences the implementer must carry through:
+
+- `run_compaction`'s worker loop returns on the first `ok` (`conversation.py:321-324`) and its
+  comment at `:286-290` asserts room-level compaction outright. Both must change: iterate every
+  compact-mode bound agent, and correct the comment rather than leaving it contradicting the code.
+- A room with no `context_mode=compact` agent arms nothing. `/compact` must then be a visible
+  no-op with a reason, not a silent one — it is a user action that did nothing.
 
 **Data repair — and the good news is that nothing was destroyed.** `replace_range_with_summary`
 (`transcript.py:182-192`) performs a single INSERT. It does not UPDATE, does not set
@@ -312,33 +333,42 @@ package exists and is the established home):
 Retain `original_compacted_ids` in every void — it is what makes the repair itself
 rollback-safe.
 
-**D, last, and it needs a decision before it needs code.** The mechanism is settled; the policy
-is not, and it should not be chosen by an implementer. Three shapes, in increasing cost:
+**D, last. Decided 2026-07-24 (Q-11, Q-12): D3 for user-initiated deletion, D1's mechanism for
+the retention purge.** The two paths get different answers because they make different promises —
+see Q-12. Rejected alternatives, recorded so the reasoning survives: **D1 everywhere** (void on
+every deletion) fails on cost — one unrelated deletion discards a summary covering hundreds of
+messages and forces a re-fold; **D2** (re-summarise without the deleted message) spends the user's
+BYO key on a deletion and still yields a paraphrase of content that included the message moments
+earlier, so it does not actually guarantee removal.
 
-- **D1 — void the summary on deletion.** When a message is deleted, find any summary whose
-  `compacted_ids` contains it and rename its `type` so it stops eliding and stops being injected
-  (the same one-edit mechanism the repair plan already uses). Cheapest, no LLM call, and it fails
-  in the safe direction — the room loses a summary and regains the un-folded remainder. Cost: an
-  unrelated deletion discards a summary covering hundreds of messages, and the next turn re-folds
-  and re-pays.
-- **D2 — re-summarise the range without the deleted message.** Correct in principle, but it
-  spends the user's BYO key on a deletion, and the new summary is still an LLM's paraphrase of
-  content that included the deleted message moments earlier — so it does not actually guarantee
-  removal.
-- **D3 — accept and disclose.** Document that compaction summaries are derived content not
-  covered by message deletion, and surface that where deletion is offered. Honest, but it
-  contradicts `[R13.24]`, which is explicit that deletion reaches derived copies ("edit history
-  for that message is also purged").
+Three pieces, none of them large:
 
-**Recommend D1**, on the grounds that `[R13.24]` states the requirement and only D1 satisfies it
-without spending the user's money or relying on a paraphrase. D2 and D3 should be recorded as
-rejected with reasons rather than left unmentioned. **Flag to the user before implementing** —
-this is a data-lifecycle policy question, not an engineering detail, and D1 has a real cost the
-product may not want to pay.
+1. **User deletion — disclose, do not chase.** `message_service.py:339-383` is unchanged. The
+   deletion confirmation dialog gains a line stating that content already folded into a
+   compaction summary may persist there; strings via `$t()`, added to **both** locale files.
+   This is the whole of AC-12.
+2. **Retention purge — delete.** `retention_service.py:52-93` selects victims by
+   `created_at < horizon`; after hard-deleting them, hard-delete every summary in the affected
+   rooms whose `compacted_ids` intersects the purged ids. A summary is always newer than
+   everything it folds, so it is never a victim itself — without this step `[R13.25]` is defeated
+   by construction. This is AC-13.
+
+   **Corrected during implementation (D-1).** This step originally specified the metadata-rename
+   void used by the repair plan. That mechanism cannot satisfy Q-12: it stops the summary being
+   applied to any model-facing view, but the summary row is itself user-visible —
+   `MessageRepository.list` serves it and `ChatroomMessageBubble.vue` renders it, and
+   `all_for_chatroom` exports it (see the §9 correction) — so the derived copy of the purged
+   content would remain readable. Removal is the only mechanism that achieves what Q-12 decided.
+   Retaining `original_compacted_ids` is not applicable to a deleted row, and rollback-safety is
+   not a property the purge offers for anything else it deletes either.
+3. **SRS — state the exemption.** New `[R13.26]`, §11. Without it the code relies on an unwritten
+   reading of `[R13.24]`, which is the ambiguity that produced this decision in the first place.
 
 Detection for the existing population: summaries whose `compacted_ids` reference message ids that
 no longer exist. That is a straightforward anti-join and it is exact — unlike A's attribution
-problem, no audit correlation is needed. Fold it into the same maintenance command.
+problem, no audit correlation is needed. Fold it into the same maintenance command; under D3 it
+reports rather than repairs for user-deleted ids, but the purge-orphaned rows it finds are
+genuine pre-fix breakage of piece 2 and are voided.
 
 ## 8. Regression Test Plan
 
@@ -432,51 +462,136 @@ provided `original_compacted_ids` is preserved; insist on that field.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: `test_run_compact_raises_compact_failed_on_empty_summary` (§8) fails against
+- [x] AC-1: `test_run_compact_raises_compact_failed_on_empty_summary` (§8) fails against
       current code and passes after the fix.
-- [ ] AC-2: a summarisation returning 200 with empty or whitespace-only text raises
+- [x] AC-2: a summarisation returning 200 with empty or whitespace-only text raises
       `CompactFailed`, no summary row is written, the original history is returned, and
       `agent.compact_failed` is audited per `[R9.11]`.
-- [ ] AC-3: the summary row is committed before the compaction lock is released — pinned by an
-      ordering test and by the integration test asserting exactly one summary row after a
-      contended fold.
-- [ ] AC-4: a committed fold does not re-arm the one-shot `/compact` flag.
-- [ ] AC-5: a summary row records its producing agent.
-- [ ] AC-6: **`[R9.09]`** — an agent configured `context_mode=general` receives every original
+- [x] AC-3: the summary row is committed before the compaction lock is released, pinned by an
+      ordering test asserting the trace `lock_enter → create_message → commit → lock_exit`.
+      (Reworded per **D-1**'s sibling **D-2**: the original "exactly one summary row after a
+      contended fold" ceased to be the correct invariant once A scoped summaries per producer.)
+- [x] AC-4: a committed fold does not re-arm the one-shot `/compact` flag.
+- [x] AC-5: a summary row records its producing agent.
+- [x] AC-6: **`[R9.09]`** — an agent configured `context_mode=general` receives every original
       message in the room, regardless of what any other agent compacted.
-- [ ] AC-7: an agent's own summary is applied to its own view, both eliding its range and
+- [x] AC-7: an agent's own summary is applied to its own view, both eliding its range and
       injecting its text; another agent's summary is applied to neither.
-- [ ] AC-8: legacy summaries with no producer behave per the Q-7 decision, pinned by a test.
-- [ ] AC-9: no **originally-posted** message changes visibility in the feed as a result of A, B
+- [x] AC-8: legacy summaries with no producer behave per the Q-7 decision, pinned by a test.
+- [x] AC-9: no **originally-posted** message changes visibility in the feed as a result of A, B
       or C — `MessageRepository.list` returns the same non-summary rows before and after, for
       every room. (Summary rows themselves are user-visible and D may deliberately change them;
-      see the correction in §9.)
-- [ ] AC-12: **D** — deleting a message that has already been folded leaves no copy of its
-      content reachable by any reader: not in the feed, not in an export, and not in the next
-      turn's prompt. Pinned by a test that folds a message, deletes it, and asserts on all three
-      surfaces.
-- [ ] AC-13: **D** — the retention purge cannot leave a summary covering messages it has just
-      deleted; a room purged past its horizon retains no summary whose `compacted_ids` reference
-      purged rows.
-- [ ] AC-10: the repair command is dry-run by default, preserves `original_compacted_ids` on
+      see the correction in §9.) **Verified by inspection, not by a new test**: the feed path is
+      `ConversationFacade.list_messages` → `MessageRepository.list`, and the task diff touches
+      neither, nor anything they call. The elision lives entirely in the model-facing loader.
+- [x] AC-12: **D3 (Q-11, Q-14)** — user-initiated deletion does not alter any summary, and the
+      deletion confirmation dialog discloses that content already folded into a compaction
+      summary may persist there. Pinned by a frontend test asserting the dialog renders the
+      disclosure, by both locale files carrying the key, and by a backend test asserting that
+      deleting a folded message leaves its covering summary untouched (the *deliberate*
+      behaviour under D3, so that a future change to it is a visible test change).
+- [x] AC-13: **D (Q-12, amended by D-1)** — the retention purge cannot leave a summary covering
+      messages it has just deleted; a room purged past its horizon retains no summary whose
+      `compacted_ids` reference purged rows, the removal is a hard delete (not a metadata edit,
+      which would leave the derived text readable in the feed and in exports), and the purge
+      audit records how many summaries it removed.
+- [x] AC-14: **Q-8** — a room-level `/compact` folds once for every `context_mode=compact` agent
+      bound to the room, each producing its own scoped summary; each agent consumes its own
+      one-shot arming exactly once; a room with no compact-mode agent reports the no-op rather
+      than silently succeeding.
+- [x] AC-10: the repair command is dry-run by default, preserves `original_compacted_ids` on
       every void, and emits an audit row per mutated row.
-- [ ] AC-11: `pytest -q`, `ruff check .`, `ruff format --check .` and `mypy .` pass in
-      `backend/`.
+- [x] AC-11: `pytest -q`, `ruff check .`, `ruff format --check .` and `mypy .` pass in
+      `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck` and `pnpm build` pass in
+      `frontend/` (the AC-12 disclosure is the only frontend change).
 
 ## 11. SRS Delta
 
-None required by the recommended option — Q-1 makes the code match `[R9.09]`/`[R9.10]` as
+**Non-empty.** A, B and C require nothing — Q-1 makes the code match `[R9.09]`/`[R9.10]` as
 written, and `[R9.10]` already frames compaction as an agent action ("Use the same Agent's Key
-Group"). A one-line clarification in `[R9.10]` that the summary is scoped to the producing
-agent's model-facing view would be a documentation improvement, not a spec change; propose it
-at approval if the user wants the invariant stated rather than merely implied.
+Group"). The delta comes entirely from the Q-11 D3 decision: without it the implementation would
+rest on an unwritten reading of `[R13.24]`.
 
-Note for the record: Q-2's rejected option **would** have required an amendment, and Q-3's
-would have required describing a behaviour that is not describable.
+Added verbatim at approval, as a new subsection after `13.9 Retention purge`:
+
+> ### 13.10 Derived content and deletion
+>
+> - **[R13.26]** **Compaction summaries** (R9.10) are **derived content**: a summary's text is
+>   generated from the messages it folds and may reproduce parts of them. Deletion (R13.16,
+>   R13.24) removes the message row, its search index entry and its edit history, but does **not**
+>   rewrite or remove any summary that folded it — the folded content may persist inside that
+>   summary. The UI must disclose this at the point of deletion. **Exception:** the retention
+>   purge (R13.25) *does* void every summary whose folded set intersects the purged messages, so
+>   that no content survives its retention horizon in derived form; a voided summary stops being
+>   applied to any model-facing view and the messages it folded become visible again to agents
+>   that can still see them.
+
+Rejected alternatives are recorded in Q-13 (amending `[R13.24]` in place; no SRS change at all)
+and in Q-11 (D1 and D2, which would have required no delta but were rejected on cost and
+honesty respectively).
+
+Note for the record: Q-2's rejected option **would** have required a far wider amendment, and
+Q-3's would have required describing a behaviour that is not describable.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — the retention purge deletes the summary row instead of voiding its metadata.**
+  §7's D piece 2 originally reused the repair plan's metadata rename. That cannot satisfy Q-12:
+  a summary row is itself user-visible (`MessageRepository.list` serves it,
+  `ChatroomMessageBubble.vue` renders it, `all_for_chatroom` exports it — the §9 correction), so
+  renaming its `type` hides it from the model and from nobody else, leaving the purged content
+  readable. Raised with the user before implementing; hard delete chosen. `[R13.26]` and AC-13
+  were amended in the same step. `original_compacted_ids` is not retained on this path — it
+  cannot be, and the purge offers no rollback for anything else it deletes either.
+
+- **D-2 — the §8 integration test was not written.** Two reasons, the first decisive. (a) The
+  invariant it was specified to assert — "exactly one summary row after a contended fold" — is
+  **no longer correct after A**: two agents concurrently compacting the same room now
+  legitimately produce two summaries, one scoped to each. The remaining same-agent case is
+  already excluded by the per-`(agent, room)` turn lock, so it is unreachable through the turn
+  path. What is left of C is precisely "the row is committed before the lock is released", and
+  `test_compaction_commits_before_releasing_the_room_lock` pins that exactly, by asserting the
+  ordered trace `lock_enter → create_message → commit → lock_exit`. (b) Secondary: this project's
+  compose does not publish Postgres or Redis to the host, so an integration test could not have
+  been executed here — writing one that has never run would have been worse than not writing it.
+  AC-3 was reworded to the invariant that survives.
+
+- **D-3 — the room-level `/compact` arming is an epoch token claimed by readers, not a set of
+  per-agent keys written by the endpoint.** §7's Q-8 note proposed resolving the room's
+  compact-mode agents at the point the flag is set. That is `chatroom_service.request_compaction`
+  (`chatroom_service.py:273-283`) — the conversation context — and making it read agent
+  `context_mode` would give the conversation context a dependency on agent configuration for the
+  first time. Instead the writer stores an opaque epoch and each agent claims it once via
+  `SET NX compact:consumed:{room}:{epoch}:{agent}`. Same observable behaviour, no new
+  cross-context dependency, and the one-shot-per-agent property `_restore_compact_flag` needs is
+  preserved. `_compact_forced_rooms` became `dict[room, marker_key]` for the same reason.
+
+- **D-4 — `_consume_compact_flag` takes the agent and refuses for `context_mode=general`.** Not
+  in the spec, but required by Q-8: the forced path bypasses the mode/cap check entirely, so a
+  `general` agent that turned first would have been made to fold its own history — the exact
+  violation of `[R9.09]` this dossier exists to fix.
+
+- **D-5 — `MessagesTranscriptStore` routes through `ConversationFacade.insert_system_message`
+  rather than `create_message`.** §7 listed this as "consider"; taken, so `metadata["type"]` is
+  service-stamped in one place rather than in each caller.
+
+- **D-7 — the `CompactFailed` branch now releases the forced-`/compact` claim.** Found by the
+  quality gate, not by the spec. `turn_engine.py:2601` audited the failure and returned without
+  releasing the claim, so a user's explicit `/compact` was consumed and never served. The shape
+  is pre-existing, but B converts this branch from effectively unreachable into the *normal*
+  outcome for a provider returning blank text, which makes the worsening this change's to own.
+  Fixed with `test_a_failed_compaction_releases_the_forced_compact_claim`, matching what the
+  adjacent `if not did` branch already did.
+
+- **D-6 — the repair command's third repair (cross-agent folds) was dropped, and its first
+  changed meaning.** Both follow from Q-7 rather than from any new discovery: a summary with no
+  producer is already applied to no reader, so every pre-fix cross-agent fold is *already*
+  neutralised at read time and there is nothing left to repair — those rows are counted and left
+  alone, because their text is still readable by users in the feed and deleting it would destroy
+  content. For the same reason the empty-summary repair no longer "restores history to every
+  reader" (Q-7 did that); what it still does, and why it is kept, is remove a blank system
+  divider that users can see and cannot read. The overlap repair is scoped to one producer,
+  since two producers folding the same range is now normal rather than evidence of the race.
 
 ## 13. Follow-ups
 
@@ -496,6 +611,32 @@ Appended by /build.
   any surviving message". That holds per-producer but is what C violates across producers and
   what A quietly breaks for a `general` reader. It is the best statement of intent in the file
   and should be made true.
+- **FU-6** — A room-level `/compact` in a room with no `context_mode=compact` agent now reports
+  `skipped:no_compact_agents` in the worker log, but the endpoint already returned 202 and the
+  user sees nothing. A user-visible signal needs a notification or a status endpoint; out of
+  scope here, but it is the honest completion of AC-14's "reports the no-op".
+- **FU-7** — `repair_compaction_summaries._load_summaries` pages with `LIMIT`/`OFFSET` over an
+  unindexed JSONB predicate, so it re-scans per page. Acceptable for a one-off maintenance run
+  against the expected population; if this ever becomes routine it wants keyset pagination or a
+  partial index on `(metadata->>'type')`.
+- **FU-8** — The repair command reports summaries covering deleted messages and deliberately does
+  not repair them (see its module docstring). Pre-fix retention purges may have left some that
+  `[R13.26]` now says should not exist, but after the fact they are indistinguishable from the
+  traces a user deletion legitimately leaves. Cleaning those up needs its own decision and its
+  own evidence.
+- **FU-9** — *(quality gate, Introduced-Warning, deferred with the user's knowledge)* The
+  compact-summary metadata contract — the `"compact_summary"` type value and the
+  `compacted_ids` / `producer_agent_id` keys — is now read in four modules across two bounded
+  contexts (`transcript.py:63`, `context.py:197`, `retention_service.py:30`,
+  `repair_compaction_summaries.py:73`) with no owner. This work added two of the four. Deferred
+  rather than fixed because the string is a *persisted* value: it exists in `messages.metadata`
+  rows, so it cannot be renamed freely whether or not it is centralised, which removes the usual
+  hazard of a duplicated constant. The right home is the conversation context, which owns the
+  message row; the agents context would import it, matching the existing import direction.
+- **FU-10** — *(security gate, MEDIUM)* `retention_service._delete_summaries_covering` issues an
+  unbounded `SELECT` over the affected rooms' summaries. Bounded in practice by the 500-message
+  purge chunk, and it is a background job rather than a request path, but it should chunk its
+  scan the way `_live_message_ids` chunks its `IN` list.
 - **FU-5** — `_assemble_history` (`turn_engine.py:2483-2585`) loads history, consumes a Redis
   flag, decides two compaction policies, takes a distributed lock, re-checks staleness,
   constructs a summariser and store, runs compaction, handles failure, audits and reloads.
