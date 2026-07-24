@@ -20,7 +20,7 @@ directly.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -34,7 +34,7 @@ class _RecordingPublisher:
     def __init__(self, *_a: object, **_k: object) -> None:
         pass
 
-    emitted: list[tuple[str, dict[str, Any]]] = []
+    emitted: ClassVar[list[tuple[str, dict[str, Any]]]] = []
 
     async def emit(self, event_type: str, payload: dict[str, Any]) -> None:
         _RecordingPublisher.emitted.append((event_type, payload))
