@@ -59,7 +59,16 @@ class RouterSummariser:
         result = await self._router.call(group_id=self._key_group_id, request=request)
         if result.http_status != 200:
             raise RuntimeError(f"summariser provider returned HTTP {result.http_status}")
-        return str(result.body.get("text", ""))
+        text = str(result.body.get("text", ""))
+        # A 200 carrying blank text is a semantic failure the status check cannot
+        # see: adapters build "text" by joining the response's text parts, so a
+        # refusal or an all-tool-use reply yields "". Returning it would fold the
+        # range behind a summary that says nothing — irreversibly, since the
+        # loader then elides those messages forever. Same predicate the reply path
+        # uses to never persist an empty agent message.
+        if not text.strip():
+            raise RuntimeError("summariser provider returned empty text at HTTP 200")
+        return text
 
 
 __all__ = ["RouterSummariser"]

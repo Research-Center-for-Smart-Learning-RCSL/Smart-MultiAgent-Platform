@@ -259,6 +259,14 @@ async def run_compact(
     except Exception as exc:  # — summariser surface is open-ended
         raise CompactFailed(str(exc)) from exc
 
+    # `Summariser` is an open extension point: the production implementation
+    # rejects blank text at the provider boundary, but a second implementation
+    # could repeat the mistake, and folding a range behind an empty summary is
+    # not recoverable. Whitespace-only counts as empty — a lone token still
+    # destroys the range (R9.11).
+    if not summary.strip():
+        raise CompactFailed("summariser returned an empty summary")
+
     await store.replace_range_with_summary(
         message_ids=plan.message_ids,
         summary_text=summary,
