@@ -43,7 +43,14 @@ class _RecordingPublisher:
 class _SiblingConnectionPresence:
     """PresenceTracker whose `leave` reports that another connection of the
     same user is still in the room (presence.py:139-141) — the case that
-    suppresses `presence.left` and, before the fix, every other publish."""
+    suppresses `presence.left` and, before the fix, every other publish.
+
+    The sibling is present but NOT typing, so `typing_stop` reports this was the
+    user's last typing connection. ``sibling_typing`` flips that, which is the
+    distinct case covered further down.
+    """
+
+    sibling_typing: ClassVar[bool] = False
 
     def __init__(self, *_a: object, **_k: object) -> None:
         pass
@@ -55,6 +62,15 @@ class _SiblingConnectionPresence:
         return (False, -1)
 
     async def heartbeat(self, **_k: object) -> None:
+        return None
+
+    async def typing_start(self, **_k: object) -> bool:
+        return not _SiblingConnectionPresence.sibling_typing
+
+    async def typing_stop(self, **_k: object) -> bool:
+        return not _SiblingConnectionPresence.sibling_typing
+
+    async def typing_heartbeat(self, **_k: object) -> None:
         return None
 
 
@@ -96,6 +112,7 @@ class _FakeConnection:
 def callbacks(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Drive the route far enough to capture the callbacks it registers."""
     _RecordingPublisher.emitted = []
+    _SiblingConnectionPresence.sibling_typing = False
     captured: dict[str, Any] = {}
 
     auth = _FakeAuth()
@@ -168,3 +185,37 @@ async def test_explicit_typing_stop_clears_the_retraction_flag(
     await callbacks["on_close"](conn)
 
     assert _emitted_types() == ["typing.start", "typing.stop"]
+
+
+async def test_close_does_not_retract_while_a_sibling_connection_is_typing(
+    callbacks: dict[str, Any],
+) -> None:
+    """The residual of F-18's fix: the retraction was per connection but the
+    event is per user.
+
+    `typing.stop` carries a user id and nothing else, so retracting on one
+    connection's behalf blanks the indicator for a sibling tab that is still
+    mid-burst. The client sends `typing.start` once per burst rather than per
+    keystroke, so it would stay blank until the user paused and began a new one.
+    """
+    _SiblingConnectionPresence.sibling_typing = True
+    conn = await _drive(callbacks)
+
+    await callbacks["on_client_message"](conn, {"type": "typing.start"})
+    await callbacks["on_close"](conn)
+
+    assert _emitted_types() == ["typing.start"]
+
+
+async def test_explicit_stop_does_not_retract_while_a_sibling_is_typing(
+    callbacks: dict[str, Any],
+) -> None:
+    """Same rule on the client-driven path — one tab finishing its burst must
+    not speak for the other."""
+    _SiblingConnectionPresence.sibling_typing = True
+    conn = await _drive(callbacks)
+
+    await callbacks["on_client_message"](conn, {"type": "typing.start"})
+    await callbacks["on_client_message"](conn, {"type": "typing.stop"})
+
+    assert _emitted_types() == ["typing.start"]

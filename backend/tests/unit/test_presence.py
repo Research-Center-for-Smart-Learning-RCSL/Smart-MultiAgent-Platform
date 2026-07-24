@@ -174,3 +174,67 @@ async def test_scrub_does_not_report_room_still_holding_a_live_user(fake_redis: 
     assert removed == 1
     assert emptied_rooms == set()
     assert await p.list_room(room) == [live_user]
+
+
+# ---------------------------------------------------------------------------
+# Typing refcount — the same multi-tab problem, on a different signal.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_typing_retracts_only_when_the_last_typing_connection_stops(
+    fake_redis: _FakeRedis,
+) -> None:
+    # `typing.stop` carries a user id and nothing else, so it is read as "this
+    # user stopped typing". Only the last of a user's typing connections may
+    # publish it; otherwise one tab ending its burst blanks the indicator for a
+    # sibling that is still mid-burst.
+    p = PresenceTracker()
+    room, user = uuid.uuid4(), uuid.uuid4()
+    c1, c2 = uuid.uuid4(), uuid.uuid4()
+
+    assert await p.typing_start(room_id=room, user_id=user, connection_id=c1) is True
+    assert await p.typing_start(room_id=room, user_id=user, connection_id=c2) is False
+
+    assert await p.typing_stop(room_id=room, user_id=user, connection_id=c1) is False
+    assert await p.typing_stop(room_id=room, user_id=user, connection_id=c2) is True
+
+
+@pytest.mark.asyncio
+async def test_typing_state_is_scoped_per_user_and_room(fake_redis: _FakeRedis) -> None:
+    p = PresenceTracker()
+    room_a, room_b = uuid.uuid4(), uuid.uuid4()
+    user_a, user_b = uuid.uuid4(), uuid.uuid4()
+    conn = uuid.uuid4()
+
+    await p.typing_start(room_id=room_a, user_id=user_a, connection_id=conn)
+
+    # A different user, and the same user in a different room, are unaffected.
+    assert await p.typing_start(room_id=room_a, user_id=user_b, connection_id=conn) is True
+    assert await p.typing_start(room_id=room_b, user_id=user_a, connection_id=conn) is True
+
+
+@pytest.mark.asyncio
+async def test_typing_stop_without_a_start_still_reports_last(fake_redis: _FakeRedis) -> None:
+    # A burst whose assertion lapsed (long burst, expired TTL) must still be
+    # able to retract: reporting False here would pin the indicator on, which
+    # is the F-18 failure mode this must not reintroduce.
+    p = PresenceTracker()
+
+    assert await p.typing_stop(room_id=uuid.uuid4(), user_id=uuid.uuid4(), connection_id=uuid.uuid4()) is True
+
+
+@pytest.mark.asyncio
+async def test_typing_keys_are_not_swept_by_the_stale_presence_scrub(fake_redis: _FakeRedis) -> None:
+    # `scrub_stale_presence` scans `ws:presence:*` and tells roster keys from
+    # conns keys by counting ':'. A typing key under that prefix would be
+    # misread as a room roster; it deliberately lives under `ws:typing:`.
+    p = PresenceTracker()
+    room, user = uuid.uuid4(), uuid.uuid4()
+    await p.join(room_id=room, user_id=user, connection_id=uuid.uuid4())
+    await p.typing_start(room_id=room, user_id=user, connection_id=uuid.uuid4())
+
+    removed, emptied = await presence_mod.scrub_stale_presence()
+
+    assert (removed, emptied) == (0, set())
+    assert f"ws:typing:{room}:{user}" in fake_redis.sets

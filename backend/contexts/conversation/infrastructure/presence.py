@@ -34,6 +34,13 @@ from shared_kernel.auth.clients import get_redis
 # entry expires within one window and is scrubbed.
 _CONN_TTL_SECONDS: Final = 150
 _SET_TTL_SECONDS: Final = 300  # roster/reverse-index safety net (volatile-lru)
+# Typing assertions share the connection-liveness bound rather than getting a
+# shorter one of their own. Erring long risks pinning the indicator (F-18) for
+# one window after an unclean death; erring short risks retracting it while a
+# sibling tab is genuinely typing. The connection TTL is the horizon at which we
+# already stop believing a connection exists, so it is the honest bound for
+# anything that connection asserted.
+_TYPING_TTL_SECONDS: Final = _CONN_TTL_SECONDS
 
 
 def _room_key(room_id: uuid.UUID) -> str:
@@ -46,6 +53,12 @@ def _user_rooms_key(user_id: uuid.UUID) -> str:
 
 def _conns_key(room_id: uuid.UUID, user_id: uuid.UUID) -> str:
     return f"ws:presence:{room_id}:{user_id}:conns"
+
+
+def _typing_key(room_id: uuid.UUID, user_id: uuid.UUID) -> str:
+    # Deliberately NOT under `ws:presence:` — `scrub_stale_presence` scans that
+    # prefix and discriminates roster keys from conns keys by counting ':'.
+    return f"ws:typing:{room_id}:{user_id}"
 
 
 # Per-user conns SET: add/remove a connection and report cardinality atomically.
@@ -145,6 +158,74 @@ class PresenceTracker:
         pipe.srem(_user_rooms_key(user_id), str(room_id))
         await pipe.execute()
         return True, roster_size
+
+    async def typing_start(
+        self,
+        *,
+        room_id: uuid.UUID,
+        user_id: uuid.UUID,
+        connection_id: uuid.UUID,
+    ) -> bool:
+        """Record that this connection is typing. Returns whether it is the
+        user's FIRST typing connection in the room.
+
+        Typing is asserted per connection but rendered per *user*: the
+        `typing.start` / `typing.stop` events carry only a user id. Without this
+        refcount, one tab ending its typing burst retracts the indicator for a
+        sibling tab that is still mid-burst — and the client sends `typing.start`
+        once per burst, not per keystroke, so the indicator stays wrong until
+        the user pauses and starts a new burst.
+        """
+        r = get_redis()
+        size = await r.eval(
+            _CONN_JOIN_LUA,
+            1,
+            _typing_key(room_id, user_id),
+            str(connection_id),
+            str(_TYPING_TTL_SECONDS),
+        )
+        return int(size) == 1
+
+    async def typing_stop(
+        self,
+        *,
+        room_id: uuid.UUID,
+        user_id: uuid.UUID,
+        connection_id: uuid.UUID,
+    ) -> bool:
+        """Drop this connection's typing assertion. Returns whether that was the
+        user's LAST typing connection — i.e. whether the indicator may now be
+        retracted for everyone."""
+        r = get_redis()
+        remaining = await r.eval(
+            _CONN_LEAVE_LUA,
+            1,
+            _typing_key(room_id, user_id),
+            str(connection_id),
+        )
+        return int(remaining) == 0
+
+    async def typing_heartbeat(
+        self,
+        *,
+        room_id: uuid.UUID,
+        user_id: uuid.UUID,
+        connection_id: uuid.UUID,
+    ) -> None:
+        """Keep a still-typing connection's assertion alive.
+
+        A burst has no periodic client signal — `typing.start` is sent once —
+        so without this a long burst's entry would lapse and a sibling's close
+        would retract the indicator anyway. Called only while this connection is
+        actually typing, so a dead connection's entry still expires rather than
+        pinning the indicator on (the F-18 failure mode).
+        """
+        r = get_redis()
+        tk = _typing_key(room_id, user_id)
+        pipe = r.pipeline(transaction=False)
+        pipe.sadd(tk, str(connection_id))
+        pipe.expire(tk, _TYPING_TTL_SECONDS)
+        await pipe.execute()
 
     async def list_room(self, room_id: uuid.UUID) -> list[uuid.UUID]:
         raw = await get_redis().smembers(_room_key(room_id))
