@@ -36,9 +36,13 @@ export function usePolling<T>(
   const intervalMs = options.intervalMs ?? 3000
   const maxAttempts = options.maxAttempts ?? 40
   // One timer per active key, so cancelling a key clears exactly its pending
-  // tick. Membership also gates delivery: a key absent from the map is
-  // cancelled, which is what makes an in-flight fetch drop instead of writing.
+  // tick. A key may be active with no pending timer (between start() and the
+  // first reschedule, or while a fetch is in flight), so activeness is tracked
+  // separately from the timer handle.
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
+  // Membership gates delivery: a key absent here is cancelled, which is what
+  // makes an in-flight fetch drop instead of writing to a single-slot consumer.
+  const active = new Set<string>()
   let disposed = false
 
   function schedule(key: string, attempts: number): void {
@@ -59,6 +63,7 @@ export function usePolling<T>(
       if (disposed || !isActive(key)) return
       options.onResult(key, value)
       if (options.isTerminal(value)) {
+        active.delete(key)
         timers.delete(key)
         return
       }
@@ -71,17 +76,17 @@ export function usePolling<T>(
   }
 
   function isActive(key: string): boolean {
-    return timers.has(key)
+    return active.has(key)
   }
 
   function start(key: string): void {
     if (disposed) return
-    // Mark the key active before the first tick so an immediate in-flight
-    // fetch is delivered; the placeholder is replaced by the real timer once
-    // the tick reschedules.
+    // Mark the key active before the first tick so an immediate in-flight fetch
+    // is delivered; the timer handle is set once the tick reschedules.
     const existing = timers.get(key)
     if (existing !== undefined) clearTimeout(existing)
-    timers.set(key, 0 as unknown as ReturnType<typeof setTimeout>)
+    timers.delete(key)
+    active.add(key)
     void tick(key, 0)
   }
 
@@ -89,12 +94,14 @@ export function usePolling<T>(
     const timer = timers.get(key)
     if (timer !== undefined) clearTimeout(timer)
     timers.delete(key)
+    active.delete(key)
   }
 
   function stop(): void {
     disposed = true
     timers.forEach((t) => clearTimeout(t))
     timers.clear()
+    active.clear()
   }
 
   onScopeDispose(stop)
