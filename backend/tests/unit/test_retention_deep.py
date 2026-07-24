@@ -133,6 +133,47 @@ class TestRetentionServicePurgeOnce:
 
     @patch("contexts.conversation.application.retention_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.conversation.application.retention_service.now", return_value=_NOW)
+    async def test_purge_also_removes_a_voided_summary_covering_purged_messages(self, _now, _audit) -> None:
+        # A void is a projection change: it stops the row being applied to any
+        # model, but it does not rewrite the summariser's text, and the repair
+        # command only soft-deletes the row. Matching live summaries alone would
+        # leave a voided paraphrase of purged content in the table forever,
+        # which is exactly what R13.26 forbids.
+        db = AsyncMock()
+        svc = RetentionService(db, minio=AsyncMock())
+
+        room = uuid.uuid4()
+        purged = uuid.uuid4()
+        db.execute.side_effect = [
+            MagicMock(all=MagicMock(return_value=[MagicMock(id=purged, chatroom_id=room)])),
+            MagicMock(all=MagicMock(return_value=[])),
+            MagicMock(rowcount=1),
+            MagicMock(
+                all=MagicMock(
+                    return_value=[
+                        MagicMock(
+                            id=uuid.uuid4(),
+                            chatroom_id=room,
+                            metadata={
+                                # Voided: the key moved aside and the type changed,
+                                # but the text this row holds did not.
+                                "type": "compact_summary_voided",
+                                "original_compacted_ids": [str(purged)],
+                                "voided_reason": "empty_summary",
+                            },
+                        )
+                    ]
+                )
+            ),
+            MagicMock(rowcount=1),
+        ]
+
+        report = await svc.purge_once()
+
+        assert report.summaries_deleted == 1
+
+    @patch("contexts.conversation.application.retention_service.audit.emit", new_callable=AsyncMock)
+    @patch("contexts.conversation.application.retention_service.now", return_value=_NOW)
     async def test_purge_pages_the_summary_scan_and_does_not_reread_deleted_rows(
         self, _now, _audit, monkeypatch
     ) -> None:

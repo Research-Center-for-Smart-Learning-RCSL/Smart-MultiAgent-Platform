@@ -38,13 +38,20 @@ PRODUCER_AGENT_ID_KEY = "producer_agent_id"
 # Where `compacted_ids` is moved on a void, so the void can be undone.
 ORIGINAL_COMPACTED_IDS_KEY = "original_compacted_ids"
 
+# Every type value a summary row can carry. A voided row still holds the text
+# the summariser produced, so anything reasoning about *content* — as opposed to
+# about the model-facing projection — has to consider both.
+SUMMARY_TYPES = (COMPACT_SUMMARY_TYPE, VOIDED_SUMMARY_TYPE)
+
 __all__ = [
     "COMPACTED_IDS_KEY",
     "COMPACT_SUMMARY_TYPE",
     "ORIGINAL_COMPACTED_IDS_KEY",
     "PRODUCER_AGENT_ID_KEY",
+    "SUMMARY_TYPES",
     "VOIDED_SUMMARY_TYPE",
     "compacted_ids",
+    "folded_ids",
     "is_compact_summary",
     "summary_metadata",
     "summary_producer",
@@ -73,6 +80,23 @@ def compacted_ids(metadata: Any) -> list[str]:
     if not isinstance(metadata, dict):
         return []
     return [str(c) for c in (metadata.get(COMPACTED_IDS_KEY) or [])]
+
+
+def folded_ids(metadata: Any) -> list[str]:
+    """Every message id this row's text was generated from, live or voided.
+
+    Distinct from :func:`compacted_ids`, and the distinction is load-bearing.
+    `compacted_ids` answers "what does this summary currently elide" — a voided
+    row elides nothing, so it correctly returns []. This answers "what content
+    could this row's text reproduce", which a void does not change: voiding
+    moves the key aside, it does not rewrite the summary. Retention has to ask
+    the second question (R13.26), because a voided row is only soft-deleted and
+    its text would otherwise outlive the messages it paraphrases.
+    """
+    if not isinstance(metadata, dict):
+        return []
+    raw = metadata.get(COMPACTED_IDS_KEY) or metadata.get(ORIGINAL_COMPACTED_IDS_KEY) or []
+    return [str(c) for c in raw]
 
 
 def summary_metadata(*, message_ids: list[Any], producer_agent_id: Any) -> dict[str, Any]:

@@ -19,7 +19,7 @@ from datetime import timedelta
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.conversation.domain.compaction import COMPACT_SUMMARY_TYPE, compacted_ids
+from contexts.conversation.domain.compaction import SUMMARY_TYPES, folded_ids
 from contexts.conversation.infrastructure import tables as t
 from shared_kernel import audit
 from shared_kernel.auth.clients import now
@@ -137,7 +137,13 @@ class RetentionService:
         Messages the deleted summary folded that are still inside the horizon
         are untouched; a compacting agent re-folds them on its next turn.
 
-        Scanned in keyset pages rather than one statement: `compacted_ids` can
+        Matches **voided** summaries too, and asks `folded_ids` rather than
+        `compacted_ids`. A void is a projection change — it stops the row being
+        applied to any model — but it does not rewrite the text, and the repair
+        command only soft-deletes the row. Matching live rows alone would let a
+        voided summary's paraphrase of purged content sit in the table forever.
+
+        Scanned in keyset pages rather than one statement: the folded ids can
         only be filtered in Python, so an unpaged scan would pull every summary
         in every affected room into memory at once. Keyset rather than OFFSET
         because rows are deleted as we go, which shifts an offset window and
@@ -152,7 +158,7 @@ class RetentionService:
         while True:
             page_query = sa.select(t.messages.c.id, t.messages.c.chatroom_id, t.messages.c.metadata).where(
                 t.messages.c.chatroom_id.in_(chatroom_ids),
-                t.messages.c.metadata["type"].astext == COMPACT_SUMMARY_TYPE,
+                t.messages.c.metadata["type"].astext.in_(SUMMARY_TYPES),
             )
             if after is not None:
                 page_query = page_query.where(t.messages.c.id > after)
@@ -163,7 +169,7 @@ class RetentionService:
 
             doomed: list[uuid.UUID] = []
             for r in rows:
-                if not purged.intersection(compacted_ids(r.metadata)):
+                if not purged.intersection(folded_ids(r.metadata)):
                     continue
                 doomed.append(r.id)
                 by_room[r.chatroom_id] = by_room.get(r.chatroom_id, 0) + 1
