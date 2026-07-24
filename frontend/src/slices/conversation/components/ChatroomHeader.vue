@@ -66,6 +66,7 @@
         <Cog6ToothIcon class="w-5 h-5" />
       </SButton>
       <SButton
+        v-if="showExport"
         variant="ghost"
         icon-only
         size="sm"
@@ -130,13 +131,20 @@ import {
 import { SButton, SDropdown } from '@shared/ui'
 import ObserverDisclosureChip from './ObserverDisclosureChip.vue'
 
-const props = defineProps<{
-  roomName: string
-  connectionState: 'connecting' | 'live' | 'reconnecting' | 'degraded'
-  isMobile: boolean
-  isDesktop: boolean
-  observersPresent?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    roomName: string
+    connectionState: 'connecting' | 'live' | 'reconnecting' | 'degraded'
+    isMobile: boolean
+    isDesktop: boolean
+    observersPresent?: boolean
+    // Advisory (R5.05): guests may not export (docs/UI/07-conversation.md); the
+    // server enforces the 403 regardless. Defaults to shown — an absent Boolean
+    // prop is coerced to false by Vue, so the default must be explicit.
+    canExport?: boolean
+  }>(),
+  { canExport: true },
+)
 
 const emit = defineEmits<{
   back: []
@@ -148,6 +156,8 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+const showExport = computed(() => props.canExport)
 
 // 'connecting' (never opened yet) reuses the Offline visual — the channel is
 // not yet usable; 'reconnecting' (was live, dropped) gets its own spinning,
@@ -190,7 +200,9 @@ const pill = computed(() => {
 const overflowItems = computed(() => [
   { key: 'search', label: t('conversation.chatroom.search'), icon: MagnifyingGlassIcon },
   { key: 'settings', label: t('conversation.chatroom.settingsLabel'), icon: Cog6ToothIcon },
-  { key: 'export', label: t('conversation.chatroom.export'), icon: ArrowDownTrayIcon },
+  ...(showExport.value
+    ? [{ key: 'export', label: t('conversation.chatroom.export'), icon: ArrowDownTrayIcon }]
+    : []),
 ])
 
 function onOverflow(key: string): void {

@@ -11,6 +11,7 @@
       :is-mobile="isMobile"
       :is-desktop="isDesktop"
       :observers-present="roomQuery.data.value?.observers_present ?? false"
+      :can-export="!(roomQuery.data.value?.viewer_is_guest ?? false)"
       @back="goBack"
       @search="searchOpen = true"
       @settings="goSettings"
