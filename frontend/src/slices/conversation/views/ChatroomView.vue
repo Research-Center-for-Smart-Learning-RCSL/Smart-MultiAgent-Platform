@@ -592,7 +592,7 @@ const {
 const { streamingEntries } = useAgentStreams(chatroomId)
 
 const { searchQuery, searchHits, renderedSnippets, runSearch } = useChatroomSearch(chatroomId)
-const { exportJob, runExport } = useChatroomExport(chatroomId)
+const { exportJob, runExport, reset: resetExport } = useChatroomExport(chatroomId)
 const messageCount = computed(() => messages.value.length)
 const {
   showPill,
@@ -772,7 +772,9 @@ async function onLoadEarlier(): Promise<void> {
 }
 
 function openExport(): void {
-  exportJob.value = null
+  // Cancel any earlier job's poller as well as clearing the slot, so its
+  // completion cannot render into the fresh configuration form (F-16).
+  resetExport()
   exportOpen.value = true
 }
 

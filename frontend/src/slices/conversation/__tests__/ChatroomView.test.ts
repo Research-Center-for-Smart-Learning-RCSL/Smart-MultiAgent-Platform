@@ -164,6 +164,47 @@ describe('ChatroomView', () => {
     expect(wrapper.find('[data-testid="export-status"]').exists()).toBe(true)
   })
 
+  it('reopening the export modal cancels the in-flight poller (F-16)', async () => {
+    // The job never reaches a terminal state, so its poller keeps ticking and
+    // would otherwise repopulate the freshly-reopened modal.
+    server.use(
+      http.post('/api/chatrooms/cr_1/export', () =>
+        HttpResponse.json({ job_id: 'job_1', status: 'queued' }),
+      ),
+      http.get('/api/exports/job_1', () =>
+        HttpResponse.json({
+          job_id: 'job_1',
+          chatroom_id: 'cr_1',
+          status: 'running',
+          url: null,
+          error: null,
+        }),
+      ),
+    )
+    const wrapper = await renderView(ChatroomView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1',
+    })
+
+    // Run job A; the modal switches to its running status view.
+    await wrapper.find('[data-testid="open-export"]').trigger('click')
+    await nextTick()
+    await wrapper.find('[data-testid="submit-export"]').trigger('click')
+    await settle()
+    expect(wrapper.find('[data-testid="export-status"]').exists()).toBe(true)
+
+    // Reopen the modal to configure a new export; it must return to the form.
+    await wrapper.find('[data-testid="open-export"]').trigger('click')
+    await nextTick()
+    expect(wrapper.find('[data-testid="export-status"]').exists()).toBe(false)
+
+    // Let a full poll interval (3s default) elapse: the superseded job's tick
+    // must not render back into the modal.
+    await new Promise((r) => setTimeout(r, 3200))
+    await nextTick()
+    expect(wrapper.find('[data-testid="export-status"]').exists()).toBe(false)
+  })
+
   it('renders the streaming draft bubble while agent tokens accumulate', async () => {
     const wrapper = await renderView(ChatroomView, {
       routes,
