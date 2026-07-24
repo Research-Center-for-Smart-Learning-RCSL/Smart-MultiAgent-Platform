@@ -103,10 +103,6 @@ parallel.
 - `2026-07-22-observation-binding-cleanup` (bugfix, draft) — `depends_on: []`. a2u F-10: removing
   the last observer binding hides the Observer tab entirely, stranding the creator's own analyses
   with no route to read, release or delete them. Frontend only; **no migration permitted**.
-- `2026-07-22-chat-export-authz-and-polling` (bugfix, draft) — `depends_on: []`. a2u F-2, F-16.
-  Permission-matrix row 19 is dead code: any room reader, including a guest, can export every
-  participant's messages and edit history. **Four blocking questions (Q-1..Q-4) must be answered
-  before implementation.** `check-security` referral in parallel.
 - `2026-07-22-wait-for-event-timer-and-join-ports` (bugfix, draft) — `depends_on: []`. a2a F-2,
   F-36: a `timer` wait — the editor's seeded default — parks until its timeout and exits the
   failure port, and the join `timeout` port is documented, linted, rendered and produced by
@@ -135,6 +131,9 @@ Nothing blocked.
 
 ## In progress
 
+- `2026-07-22-chat-export-authz-and-polling` (bugfix) — `depends_on: []`. a2u F-2, F-16.
+  Q-1..Q-4 answered 2026-07-24: narrowed export = own user messages plus all agent/system
+  messages; guests may not export at all; historical exports purged as the final deploy step.
 - `2026-07-22-activity-session-authz-and-validation` (bugfix) — `depends_on: []`. a2u F-12,
   F-20 plus verification-gap V-7: activity-session AuthZ + watchdog notification + optional
   enum-array assembly.

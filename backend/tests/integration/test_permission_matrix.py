@@ -99,12 +99,13 @@ _EXPECTED_ALLOW: dict[Capability, set[Role]] = {
         Role.GUEST,
     },
     Capability.GUEST_LINK_MANAGE: {Role.ORG_OWNER, Role.PROJECT_OWNER},
+    # Row 19 grants Guest nothing: the SRS `∘` cell was corrected to `✗` in
+    # favour of docs/UI/07-conversation.md ("no export" for guest sessions).
     Capability.CHAT_EXPORT: {
         Role.ORG_OWNER,
         Role.ORG_MEMBER,
         Role.PROJECT_OWNER,
         Role.PROJECT_MEMBER,
-        Role.GUEST,
     },
     Capability.MESSAGE_DELETE: {
         Role.ORG_OWNER,

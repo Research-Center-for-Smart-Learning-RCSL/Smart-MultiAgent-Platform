@@ -231,12 +231,16 @@ _MATRIX: dict[Capability, dict[Role, Outcome]] = {
         Role.ORG_OWNER: Outcome.ALLOW,
         Role.PROJECT_OWNER: Outcome.ALLOW,
     },
+    # Row 19. No GUEST entry: the SRS table once granted guests `∘`, but
+    # docs/UI/07-conversation.md ("Guest sessions have limited permissions: …
+    # no export") is authoritative and the SRS row was corrected to `✗`.
+    # Interpreted by conversation.application.access.export_sender_scope, which
+    # reads these cells via `outcome_for` rather than re-stating them.
     Capability.CHAT_EXPORT: {
         Role.ORG_OWNER: Outcome.ALLOW,
         Role.ORG_MEMBER: Outcome.OWN_ONLY,
         Role.PROJECT_OWNER: Outcome.ALLOW,
         Role.PROJECT_MEMBER: Outcome.OWN_ONLY,
-        Role.GUEST: Outcome.OWN_ONLY,
     },
     Capability.MESSAGE_DELETE: {
         Role.ORG_OWNER: Outcome.ALLOW,
