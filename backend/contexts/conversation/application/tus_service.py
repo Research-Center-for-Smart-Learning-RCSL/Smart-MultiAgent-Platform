@@ -1,15 +1,15 @@
-"""TUS v1.0.0 resumable upload orchestration (R22.15.01?22.15.07).
+"""TUS v1.0.0 resumable upload orchestration (R22.15.01–R22.15.07).
 
 Scope split:
 
   - Protocol handling (header parsing, offsets, 409/413 translation) lives
     in this file.
-  - Byte storage during upload ??local disk (staging_dir) so PATCH can
+  - Byte storage during upload → local disk (staging_dir) so PATCH can
     append without buffering the whole file in Redis.
   - Finalisation (MinIO put + DB row + scan enqueue) delegates to
     `AttachmentService.finalize_tus`.
 
-The module deliberately does not depend on FastAPI ??routers in
+The module deliberately does not depend on FastAPI — routers in
 `app/api/v1/tus.py` translate method/headers into these calls.
 """
 
@@ -138,7 +138,7 @@ class TusService:
                 "Upload-Metadata must include filename and mime",
             )
         # project_id is authoritative (derived by the caller from the chatroom /
-        # rag config / knowmap config), NOT taken from client metadata ??a forged
+        # rag config / knowmap config), NOT taken from client metadata — a forged
         # or empty value in Upload-Metadata is ignored.
         chatroom_id = _optional_uuid(meta, "chatroom_id")
         rag_config_id = _optional_uuid(meta, "rag_config_id")
@@ -159,7 +159,7 @@ class TusService:
         upload_id = uuid.uuid4()
         path = _staging_path(upload_id)
         # Pre-allocate the file so subsequent PATCHes can open for append.
-        with open(path, "ab") as fh:  # ??local staging
+        with open(path, "ab") as fh:  # — local staging
             fh.truncate(0)
 
         upload = TusUpload(
@@ -195,7 +195,7 @@ class TusService:
         if upload is None:
             raise TusUploadNotFound(str(upload_id))
         if upload.user_id != user_id:
-            # Keep the 404 shape ??don't leak that someone else's upload
+            # Keep the 404 shape — don't leak that someone else's upload
             # exists at this id.
             raise TusUploadNotFound(str(upload_id))
         return TusHeadResult(
@@ -233,7 +233,7 @@ class TusService:
                 f"chunk would overflow declared length {upload.upload_length}",
             )
 
-        # CAS first ??claim the offset atomically before touching the file so a
+        # CAS first — claim the offset atomically before touching the file so a
         # concurrent PATCH with the same offset cannot append stale bytes.
         if not await self._store.update_offset(upload_id, offset, new_offset):
             raise TusOffsetMismatch("concurrent upload detected")
@@ -241,7 +241,7 @@ class TusService:
         try:
             await asyncio.to_thread(_append_chunk, upload.staging_path, chunk)
         except OSError:
-            # Disk write failed (full, permissions, ?? ??possibly after flushing
+            # Disk write failed (full, permissions, …) — possibly after flushing
             # an arbitrary prefix of the chunk. Truncate back to `offset` BEFORE
             # restoring it: the client may retry the moment the offset is
             # restored, and a retry appending onto the partial write is exactly
@@ -253,7 +253,7 @@ class TusService:
             except OSError:
                 truncated = False
                 _log.error(
-                    "TUS upload %s: disk write failed AND truncate back to %d failed ??"
+                    "TUS upload %s: disk write failed AND truncate back to %d failed — "
                     "leaving the offset advanced at %d so no retry can append onto the "
                     "dirty staging file; upload is now unrecoverable",
                     upload_id,
@@ -267,7 +267,7 @@ class TusService:
                 if not rolled_back:
                     _log.error(
                         "TUS upload %s: disk write failed AND offset rollback failed "
-                        "(expected=%d, target=%d) ??upload is now unrecoverable",
+                        "(expected=%d, target=%d) — upload is now unrecoverable",
                         upload_id,
                         new_offset,
                         offset,
@@ -282,7 +282,7 @@ class TusService:
                 attachment=None,
             )
 
-        # Final PATCH ??finalize + clean up.  Cleanup runs in `finally` so a
+        # Final PATCH — finalize + clean up.  Cleanup runs in `finally` so a
         # failing finalize never orphans the staging file or Redis state.
         attachment = None
         rag_document_id: uuid.UUID | None = None
@@ -297,7 +297,7 @@ class TusService:
             staged_bytes = await asyncio.to_thread(os.path.getsize, upload.staging_path)
             if staged_bytes != upload.upload_length:
                 raise TusSizeMismatch(
-                    f"staged file holds {staged_bytes} bytes, declared length is " f"{upload.upload_length}",
+                    f"staged file holds {staged_bytes} bytes, " f"declared length is {upload.upload_length}",
                 )
             if upload.purpose == "chat_attachment":
                 assert upload.chatroom_id is not None  # guaranteed by create()
@@ -389,7 +389,7 @@ class TusService:
     ) -> None:
         upload = await self._store.get(upload_id)
         if upload is None or upload.user_id != user_id:
-            # Idempotent terminate ??204 either way.
+            # Idempotent terminate — 204 either way.
             return
         with contextlib.suppress(OSError):  # pragma: no cover
             os.remove(upload.staging_path)
