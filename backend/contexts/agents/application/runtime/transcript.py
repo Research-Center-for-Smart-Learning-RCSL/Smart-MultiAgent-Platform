@@ -67,9 +67,9 @@ class HistoryMessage:
     metadata: dict[str, Any]
     token_count: int
     # Bounded replay text for an older message's extracted attachment content
-    # (None when the message has no active/extracted attachment, or when it's
-    # the turn's own triggering message — that one carries live content
-    # blocks instead, spliced in by the turn engine).
+    # (None when the message has no replayable attachment, or when it's the
+    # turn's own triggering message — that one carries live content blocks
+    # instead, spliced in by the turn engine).
     attachment_excerpt: str | None = None
 
 
@@ -79,7 +79,14 @@ def _attachment_excerpt(attachments: Sequence[MessageAttachment] | None) -> str 
     parts: list[str] = []
     budget = HISTORY_ATTACHMENT_EXCERPT_CHARS
     for a in attachments:
-        if a.status is not AttachmentStatus.ACTIVE:
+        # Quarantine is a scan verdict: the file is dangerous and must not be
+        # described to the model at all. Expiry is not the same judgement --
+        # `extracted_text` lives in Postgres and does not depend on the object
+        # the bucket lifecycle deleted, and the model was already shown it on
+        # earlier turns, so dropping it once the row flips to EXPIRED would
+        # retroactively erase history the model has seen for every attachment
+        # older than the TTL.
+        if a.status is AttachmentStatus.QUARANTINED:
             continue
         if a.extraction_status is AttachmentExtractionStatus.EXTRACTED and a.extracted_text:
             if budget <= 0:
@@ -93,8 +100,13 @@ def _attachment_excerpt(attachments: Sequence[MessageAttachment] | None) -> str 
             # rather than going silent. Without this, an attachment type that
             # can never durably replay (images) becomes permanently invisible
             # the moment it's no longer the triggering message, and the model
-            # has no grounding to even acknowledge it was shared.
-            parts.append(f"[Attached file: {a.filename} — content not available on this turn]")
+            # has no grounding to even acknowledge it was shared. "expired" is
+            # distinguished from "not available on this turn" because the
+            # latter implies it might be available on the next one.
+            reason = (
+                "expired" if a.status is AttachmentStatus.EXPIRED else "content not available on this turn"
+            )
+            parts.append(f"[Attached file: {a.filename} — {reason}]")
     return "\n\n".join(parts) if parts else None
 
 

@@ -130,8 +130,9 @@ async def test_load_model_history_excerpt_truncates_at_budget(monkeypatch) -> No
 
 @pytest.mark.asyncio
 async def test_load_model_history_no_excerpt_when_quarantined(monkeypatch) -> None:
-    # A quarantined/expired attachment must never surface, not even as a
-    # placeholder -- it's not something the model should be told about.
+    # A quarantined attachment must never surface, not even as a placeholder --
+    # it's not something the model should be told about. Expiry is treated
+    # differently; see the two tests below.
     m1 = _msg(SenderType.USER, "a message")
     att = _attachment(
         message_id=m1.id,
@@ -177,6 +178,49 @@ async def test_load_model_history_placeholder_note_when_active_but_not_extracted
 
     assert history[0].attachment_excerpt == "[Attached file: notes.txt — content not available on this turn]"
     assert history[0].token_count > tx.estimate_tokens("a message")
+
+
+@pytest.mark.asyncio
+async def test_load_model_history_still_replays_text_of_an_expired_attachment(monkeypatch) -> None:
+    # `extracted_text` lives in Postgres and does not depend on the object the
+    # bucket lifecycle deleted, and the model was already shown it on earlier
+    # turns. Dropping it once the row flips to EXPIRED would retroactively erase
+    # history the model has seen, for every attachment older than three days.
+    m1 = _msg(SenderType.USER, "a message")
+    att = _attachment(
+        message_id=m1.id,
+        status=AttachmentStatus.EXPIRED,
+        extraction_status=AttachmentExtractionStatus.EXTRACTED,
+        extracted_text="extracted body",
+    )
+    monkeypatch.setattr(tx, "ConversationFacade", _fake_facade([m1], {m1.id: [att]}))
+
+    history = await tx.load_model_history(object(), chatroom_id=uuid.uuid4())
+
+    assert history[0].attachment_excerpt is not None
+    assert "extracted body" in history[0].attachment_excerpt
+
+
+@pytest.mark.asyncio
+async def test_load_model_history_notes_an_expired_attachment_with_no_text_as_expired(
+    monkeypatch,
+) -> None:
+    # An image has no replayable text, so once its bytes are gone the only
+    # honest note is that it expired -- not "not available on this turn", which
+    # implies it might be available on the next one.
+    m1 = _msg(SenderType.USER, "a message")
+    att = _attachment(
+        message_id=m1.id,
+        status=AttachmentStatus.EXPIRED,
+        extraction_status=AttachmentExtractionStatus.UNSUPPORTED,
+        extracted_text=None,
+        filename="chart.png",
+    )
+    monkeypatch.setattr(tx, "ConversationFacade", _fake_facade([m1], {m1.id: [att]}))
+
+    history = await tx.load_model_history(object(), chatroom_id=uuid.uuid4())
+
+    assert history[0].attachment_excerpt == "[Attached file: chart.png — expired]"
 
 
 def test_estimate_tokens_monotonic() -> None:
