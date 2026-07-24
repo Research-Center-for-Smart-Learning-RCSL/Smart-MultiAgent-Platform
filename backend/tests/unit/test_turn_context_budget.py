@@ -676,6 +676,22 @@ async def test_compaction_commits_before_releasing_the_room_lock(monkeypatch) ->
 
 
 @pytest.mark.asyncio
+async def test_the_compaction_lock_is_scoped_to_the_producing_agent(monkeypatch) -> None:
+    # Once a fold is scoped to its producer, two agents folding concurrently
+    # write independent rows and cannot conflict — a room-wide key would make
+    # the second agent abandon legitimate work instead of serialising. What
+    # still needs excluding is one agent folding twice at once, which the turn
+    # lock misses because `run_compaction` runs headless without it.
+    engine, agent, log, _audits = _compaction_harness(monkeypatch)
+    room = uuid.uuid4()
+
+    await _run_assemble(engine, agent, room)
+
+    enter = next(e for e in log if e.startswith("lock_enter"))
+    assert enter == f"lock_enter:compact:lock:{room}:{agent.id}"
+
+
+@pytest.mark.asyncio
 async def test_forced_compact_flag_is_not_restored_after_a_committed_fold(monkeypatch) -> None:
     # Pins the hazard the commit-inside-the-lock fix introduces: the fold is now
     # durable, so a later rollback cannot undo it. Re-arming the one-shot flag
@@ -693,10 +709,12 @@ async def test_forced_compact_flag_is_not_restored_after_a_committed_fold(monkey
 
 
 @pytest.mark.asyncio
-async def test_a_failed_compaction_releases_the_forced_compact_claim(monkeypatch) -> None:
-    # Rejecting empty summaries turns this branch from unreachable into the
-    # normal outcome for a provider returning blank text. Nothing was folded, so
-    # the user's explicit /compact was not served and the claim must go back.
+async def test_a_failed_compaction_keeps_the_forced_compact_claim(monkeypatch) -> None:
+    # The claim is deliberately consumed on failure. Releasing it would re-arm
+    # this agent against an epoch that lives for an hour, and the forced path
+    # skips the cap check — so a persistently blank summariser would issue a
+    # fresh billed call on every turn of that agent for the rest of the hour.
+    # The request is not lost silently: agent.compact_failed records it (R9.11).
     engine, agent, log, audits = _compaction_harness(monkeypatch, summary_text="", forced=True)
     room = uuid.uuid4()
     restored: list = []
@@ -710,7 +728,7 @@ async def test_a_failed_compaction_releases_the_forced_compact_claim(monkeypatch
 
     assert "create_message" not in log
     assert [a for a, _ in audits] == ["agent.compact_failed"]
-    assert restored == [room]
+    assert restored == []
 
 
 @pytest.mark.asyncio

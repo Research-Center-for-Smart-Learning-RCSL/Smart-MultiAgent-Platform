@@ -2559,9 +2559,14 @@ class TurnEngine:
             compact_projected = projected + extra_projected_tokens
         else:
             return history
-        # FIX-11: room-scoped lock prevents duplicate summaries when two agents'
-        # turns in the same room both cross the cap concurrently.
-        async with distributed_lock(f"compact:lock:{chatroom_id}", ttl_s=300) as acquired:
+        # FIX-11 kept this lock room-scoped, which was right when a fold applied
+        # to the whole room. Now that a summary is scoped to its producer, two
+        # agents folding concurrently write two independent rows and cannot
+        # conflict — a room-wide key would make the second agent abandon
+        # legitimate work rather than serialise it. What still needs excluding
+        # is one *agent* folding twice at once, which the per-(agent, room) turn
+        # lock does not cover because `run_compaction` runs headless without it.
+        async with distributed_lock(f"compact:lock:{chatroom_id}:{agent.id}", ttl_s=300) as acquired:
             if not acquired:
                 if forced:
                     await self._restore_compact_flag(chatroom_id)
@@ -2601,14 +2606,16 @@ class TurnEngine:
             except ctxmod.CompactFailed as exc:
                 _log.warning("compaction failed agent=%s: %s", agent.id, exc)
                 await self._audit(agent, chatroom_id, "agent.compact_failed", {"error": str(exc)})
-                # Nothing was folded, so the user's one-shot /compact was not
-                # served — release the claim as the `not did` path below does.
-                # This branch used to be unreachable in practice; rejecting empty
-                # summaries makes it the normal outcome for a provider returning
-                # blank text, and swallowing the claim there would silently drop
-                # the request the user explicitly made.
-                if forced:
-                    await self._restore_compact_flag(chatroom_id)
+                # The claim is deliberately NOT released here, unlike the `not
+                # did` path below. Releasing it re-arms this agent against an
+                # epoch that lives for an hour, and the forced path bypasses the
+                # cap check — so a summariser that fails persistently (a provider
+                # returning blank text is now the common case) would issue a
+                # fresh, billed summarisation call on every turn of that agent
+                # for the rest of the hour. `not did` cannot spin that way: it
+                # means there was nothing to fold, which costs no provider call.
+                # The user's request is not silently lost — `agent.compact_failed`
+                # records why it was not served (R9.11).
                 return history
             if not did:
                 if forced:
