@@ -296,6 +296,12 @@ class ConversationFacade:
 
         Exists for the read-only size reconciliation command, which has to
         examine every row and so has no predicate any other method offers.
+
+        **Unscoped by construction: this crosses every org, project and room.**
+        It is safe only for operator-run maintenance with no request context.
+        Never call it from a route -- an API surface built on it would return
+        other tenants' attachments. Anything user-facing must go through a
+        method that filters on the caller's chatroom or message.
         """
         return await self._attachments.list_after(after_id=after_id, limit=limit)
 
