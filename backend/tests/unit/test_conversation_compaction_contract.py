@@ -64,6 +64,37 @@ def test_a_missing_and_a_null_producer_are_the_same_answer(absent) -> None:
     assert c.summary_producer(absent) is None
 
 
+def test_folded_ids_still_answers_for_a_voided_row_where_compacted_ids_does_not() -> None:
+    # The two ask different questions and the difference is load-bearing.
+    # `compacted_ids` is "what does this row currently elide" — a voided row
+    # elides nothing. `folded_ids` is "what content could this row's text
+    # reproduce", which voiding does not change: it moves the key aside, it does
+    # not rewrite the summary. Retention needs the second (R13.26), because a
+    # voided row is only soft-deleted and its text would outlive the originals.
+    folded = [str(uuid.uuid4())]
+    voided = {
+        "type": c.VOIDED_SUMMARY_TYPE,
+        "original_compacted_ids": folded,
+        "voided_reason": "empty_summary",
+    }
+
+    assert c.is_compact_summary(voided) is False
+    assert c.compacted_ids(voided) == []
+    assert c.folded_ids(voided) == folded
+
+
+def test_folded_ids_matches_compacted_ids_on_a_live_row() -> None:
+    live = c.summary_metadata(message_ids=[uuid.uuid4()], producer_agent_id=uuid.uuid4())
+    live["type"] = c.COMPACT_SUMMARY_TYPE
+    assert c.folded_ids(live) == c.compacted_ids(live)
+
+
+def test_both_summary_types_are_covered_by_the_retention_filter() -> None:
+    # What the purge filters on. A value missing here is a row the purge stops
+    # seeing, and the failure is silent until content outlives its horizon.
+    assert set(c.SUMMARY_TYPES) == {c.COMPACT_SUMMARY_TYPE, c.VOIDED_SUMMARY_TYPE}
+
+
 def test_compacted_ids_tolerates_a_malformed_list() -> None:
     # Read defensively: these rows are years old in some deployments and the
     # purge must not crash on one bad row and skip every room behind it.
