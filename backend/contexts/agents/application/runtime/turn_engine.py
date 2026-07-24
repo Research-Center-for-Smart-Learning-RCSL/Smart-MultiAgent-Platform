@@ -2602,6 +2602,19 @@ class TurnEngine:
                 if forced:
                     await self._restore_compact_flag(chatroom_id)
                 return history
+            # The lock exists to stop a second agent folding an overlapping
+            # range, but `replace_range_with_summary` only stages the row and
+            # the caller owns commit — a staged row is invisible to another
+            # session under READ COMMITTED, so the exclusion only holds if the
+            # row is durable before the lock is released. Committing here also
+            # commits what the turn staged earlier (turn_started audit,
+            # notification drain, workspace staging); that boundary already
+            # existed later in the turn and only moves earlier.
+            await self._db.commit()
+            # The fold is now durable, so the turn's rollback path can no longer
+            # undo it. Re-arming the one-shot /compact flag from there would
+            # force a second fold of a request that was already served.
+            self._compact_forced_rooms.discard(chatroom_id)
         # Reload so the summary replaces the folded range.
         reloaded = await tx.load_model_history(self._db, chatroom_id=chatroom_id)
         await self._audit(

@@ -73,12 +73,23 @@ class TranscriptStore(Protocol):
         message_ids: list[Any],
         summary_text: str,
     ) -> Any:
-        """Atomic: delete the range from the *model-facing* view, insert a
-        ``system`` role message with ``metadata={"type":"compact_summary"}``
-        carrying ``summary_text``, and return the new message id.
+        """Insert a ``system`` role message with
+        ``metadata={"type":"compact_summary"}`` carrying ``summary_text``, and
+        return the new message id.
 
         Implementations must NOT touch user-visible copies (R9.10) —
         user-facing rendering pulls from a separate projection.
+
+        Two guarantees this deliberately does **not** make, because an earlier
+        wording claimed both and neither was ever true:
+
+        - It does not *delete* anything. The folded rows stay; "replacement" is
+          entirely a read-time projection in the history loader. That is what
+          makes a bad fold repairable by editing the summary's metadata.
+        - It is not atomic with respect to other sessions. It only stages the
+          insert; the caller owns commit, so the row is invisible to a
+          concurrent reader until that commit lands. A caller relying on this
+          for mutual exclusion must commit before releasing its lock.
         """
 
 
