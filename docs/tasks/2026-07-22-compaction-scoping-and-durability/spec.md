@@ -575,6 +575,36 @@ Q-3's would have required describing a behaviour that is not describable.
   rather than `create_message`.** §7 listed this as "consider"; taken, so `metadata["type"]` is
   service-stamped in one place rather than in each caller.
 
+- **D-9 — D-7 is reverted: the `CompactFailed` branch consumes the forced-`/compact` claim
+  after all.** Raised by `/code-review`. D-7 released the claim so an unserved request would not
+  be silently swallowed, and that reasoning was incomplete: releasing it re-arms the agent
+  against an epoch that lives a full hour, and the forced path bypasses the cap check — so a
+  summariser that fails persistently (a provider returning blank text, now the *common* failure
+  after B) issues a fresh billed summarisation call on every turn of that agent for the rest of
+  the hour, on the user's own key. The `not did` branch cannot spin that way, because "nothing to
+  fold" costs no provider call; that asymmetry is why only one of the two releases. The request
+  is still not lost silently — `agent.compact_failed` records why it was not served, per
+  `[R9.11]`. The turn-level failure path (`turn_engine.py:2278`) still re-arms, which is correct:
+  a turn that died is a different thing from a summarisation that failed.
+
+- **D-10 — the compaction lock is keyed per `(room, agent)`, not per room.** Raised by
+  `/code-review`. FIX-11's room-wide key was right while a fold applied to the whole room; once
+  A scoped summaries to their producer, two agents folding concurrently write independent rows
+  and cannot conflict, so a room-wide key made the second agent *abandon* legitimate work — its
+  `/compact` pass returned unfolded history while the worker still reported `completed`. The
+  exclusion that is still needed is one agent folding twice at once, which the per-`(agent, room)`
+  turn lock does not provide because `run_compaction` runs headless without it.
+
+- **D-11 — the retention purge matches voided summaries too.** Raised by `/code-review`, and it
+  defeated `[R13.26]` exactly as written. `_delete_summaries_covering` filtered
+  `type = 'compact_summary'` and read `compacted_ids`; the repair command's void changes the type
+  to `compact_summary_voided`, moves the key to `original_compacted_ids`, and only *soft*-deletes
+  the row. A repaired summary therefore became invisible to the purge while still holding the
+  summariser's text, so its paraphrase of purged content would sit in the table indefinitely. The
+  filter now covers `SUMMARY_TYPES` and asks the new `folded_ids`, which answers "what content
+  could this row's text reproduce" rather than "what does this row currently elide" — voiding
+  changes the second and not the first.
+
 - **D-8 — FU-9 and FU-10 were closed inside this task rather than left as follow-ups.** Both were
   gate findings recorded as deferred at close-out, with reasons; the user then asked for them to
   be done. Their entries in §13 carry what was actually built. One thing found while closing
@@ -655,6 +685,25 @@ Q-3's would have required describing a behaviour that is not describable.
   tuple, not `sa.tuple_(*cursor)`, so each bind parameter inherits its column's own type
   (`pg.UUID`, `TIMESTAMP`) instead of a generic `Uuid`/`DateTime` — the asyncpg bind mismatch
   this codebase has hit before.
+
+  *Amended after `/code-review`*: the repair's first cut paged the query but still accumulated
+  every row — including `content_md` — into one list, which put the whole summary population's
+  text in memory and made the paging cosmetic. It now classifies and probes for orphans per page,
+  so nothing accumulates across the scan except the findings themselves. Overlap detection is
+  stateful, so the `claimed` map is threaded across pages; that is sound only because the scan is
+  ordered by `(chatroom_id, created_at)`, which delivers one producer's summaries oldest-first
+  and contiguous. `test_classification_carries_across_pages` pins it.
+- **Rejected review findings**, recorded so they are not re-raised. `/code-review` also reported
+  two that do not survive verification. (a) *"`_classify` skips `seen.update(covered)` for an
+  empty summary, so an overlap involving an empty first fold is never flagged."* That is the
+  intended behaviour: the empty row is voided in the same pass, so the later summary is the only
+  one left covering the range — flagging it too would void both and lose the range entirely. Now
+  commented in place. (b) *"`_live_message_ids` counts soft-deleted messages as live, so the
+  orphan report misses the user-deletion case."* Its premise is false for messages: `[R13.16]`
+  removes the row immediately, `MessageService.delete` calls `hard_delete`, and a repo-wide search
+  finds no writer of `messages.deleted_at` other than the repair command's own void — the
+  `message_repo` only ever reads the column. A user-deleted message is therefore correctly
+  reported missing.
 - **FU-5** — `_assemble_history` (`turn_engine.py:2483-2585`) loads history, consumes a Redis
   flag, decides two compaction policies, takes a distributed lock, re-checks staleness,
   constructs a summariser and store, runs compaction, handles failure, audits and reloads.
