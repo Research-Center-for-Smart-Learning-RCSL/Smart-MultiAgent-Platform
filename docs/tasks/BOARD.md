@@ -85,12 +85,10 @@ parallel.
   config F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read
   by nothing. **Blocked on Q-8** (migration posture) — enforcing without a backfill breaks every
   working approval gate on deploy.
-- `2026-07-22-chatroom-socket-lifecycle` (bugfix, draft) — `depends_on: []`. a2u F-1, F-4, F-18.
-  **Ordering conflict with `reconnect-reconciliation`** — the two dossiers reached opposite
-  conclusions about which lands first; see that dossier's §3 conflict note. User decides.
 - `2026-07-22-reconnect-reconciliation` (bugfix, draft) — `depends_on: []`. a2u F-11, F-13, F-17,
   F-19 plus verification-gap V-2. Adds a nullable `approvals.chatroom_id` and a room-scoped list
-  endpoint. Same ordering conflict as above.
+  endpoint. **Sequenced second** by the 2026-07-24 tie-break; must re-derive F-11/F-13 severity
+  against the post-fix baseline and owns the Q-1a `onStatus` textual conflict as second merger.
 - `2026-07-22-settings-form-reconciliation` (bugfix, draft) — `depends_on: []`. a2u F-7, F-8 plus
   verification-gap V-4. **Corrects the a2u audit's own §3 coupling note**: F-8 is not contingent on
   F-1, and the evidence is in its Q-1.
@@ -131,6 +129,10 @@ Nothing blocked.
 
 ## In progress
 
+- `2026-07-22-chatroom-socket-lifecycle` (bugfix) — `depends_on: []`. a2u F-1, F-4, F-18.
+  **Ordering conflict resolved 2026-07-24: this one lands before `reconnect-reconciliation`**
+  (its Q-1). Q-5 answered "build it", so scope also includes a distinct connection-limit pill
+  state and close code 4429 (Q-7).
 - `2026-07-22-activity-session-authz-and-validation` (bugfix) — `depends_on: []`. a2u F-12,
   F-20 plus verification-gap V-7: activity-session AuthZ + watchdog notification + optional
   enum-array assembly.
