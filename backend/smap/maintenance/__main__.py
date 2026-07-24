@@ -6,6 +6,7 @@ import typer
 from loguru import logger
 
 from . import purge_session_dirs as _purge_session_dirs
+from . import reconcile_attachment_sizes as _reconcile_attachment_sizes
 
 app = typer.Typer(
     help="SMAP one-shot maintenance CLI. Every destructive command is dry-run until armed.",
@@ -61,6 +62,48 @@ def purge_session_dirs_cmd() -> None:
         # A partial repair leaves some volumes still exposed, so this must not
         # exit 0 -- an operator scripting it needs the failure to surface.
         raise typer.Exit(code=1)
+
+
+@app.command("reconcile-attachment-sizes")
+def reconcile_attachment_sizes_cmd() -> None:
+    """Report attachments whose stored object size disagrees with `size_bytes`.
+
+    Surfaces what the TUS partial-write defect fixed by
+    2026-07-22-attachment-lifecycle-and-rendering may already have written: a
+    staged file longer than declared, recorded with the client-declared length.
+
+    Read-only -- no delete, no re-derive, no status change, so it needs no
+    arming. Detection is partial: no content digest is stored for chat
+    attachments, so a corrupt file whose length matches the declared length is
+    undetectable. A clean report means no length disagreement was found, not
+    that no corruption exists. Escalate any finding for manual review.
+    """
+    report = _reconcile_attachment_sizes.run()
+    logger.info(
+        "reconcile-attachment-sizes complete examined={} mismatched={} "
+        "missing_unexpectedly={} unreadable={}",
+        report.examined,
+        len(report.mismatched),
+        len(report.missing_unexpectedly),
+        report.unreadable,
+    )
+    for m in report.mismatched:
+        logger.warning(
+            "size mismatch attachment={} path={} recorded={} stored={}",
+            m.attachment_id,
+            m.minio_path,
+            m.recorded_bytes,
+            m.stored_bytes,
+        )
+    for attachment_id in report.missing_unexpectedly:
+        logger.warning("object missing while row is still live attachment={}", attachment_id)
+    if report.unreadable:
+        # Not a failure exit: the examined rows still produced a usable report,
+        # and an operator needs to see it rather than a traceback.
+        logger.warning(
+            "{} object(s) could not be read; those rows were not reconciled",
+            report.unreadable,
+        )
 
 
 if __name__ == "__main__":
