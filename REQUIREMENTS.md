@@ -194,7 +194,7 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
 | 16 | Create Workspace, Chat Room, Workflow | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ |
 | 17 | Send messages in Chat Room | ✓ (any) | per room ACL | per room ACL | per room ACL | per room ACL | per room ACL |
 | 18 | Create / revoke Guest invite link | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ |
-| 19 | Export chat history | ✓ | ✓ | ∘ (own messages) | ✓ | ∘ (own messages) | ∘ (own messages) |
+| 19 | Export chat history | ✓ | ✓ | ∘ (own messages) | ✓ | ∘ (own messages) | ✗ |
 | 20 | Manually delete chat message | ✓ | ✓ | ∘ (own) | ✓ | ∘ (own) | ∘ (own) |
 | 21 | View audit log | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | 22 | Ban user / IP | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
@@ -203,6 +203,8 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
 | 25 | Configure org prompt assistant / org templates (§29) | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
 | 26 | Configure personal prompt assistant / personal templates (§29) | ✓ (own) | ✓ (own) | ✓ (own) | ✓ (own) | ✓ (own) | ✗ |
 | 27 | Configure org skills (§31) | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+
+**Row 19 — what a narrowed export contains.** A `∘` export contains the caller's own messages plus all agent and system messages in the room; messages sent by *other users*, together with their edit histories and attachments, are excluded. The narrowing is applied in the query predicate, so excluded rows are never read. Guests cannot export at all: the Guest cell is `✗`, matching `docs/UI/07-conversation.md` ("Guest sessions have limited permissions: … no export").
 
 **[R5.05]** All authorization MUST be enforced server-side in a single `permissions` service. Frontend visibility is advisory only.
 

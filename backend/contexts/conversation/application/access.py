@@ -1,10 +1,16 @@
 """Room-scoped ACL evaluation (§21.1 flags + R13.04).
 
-Permission-matrix rows 17 (chat.send), 19 (chat.export), 20 (message.delete)
-resolve as `ROOM_ACL` (§5.2). Matrix delegates to here so the four independent
-boolean flags can gate access in one authoritative place.
+Only permission-matrix row 17 (chat.send) resolves as `ROOM_ACL` (§5.2);
+rows 19 (chat.export) and 20 (message.delete) resolve as `OWN_ONLY`. The matrix
+delegates the ROOM_ACL row to here so the four independent boolean flags can gate
+access in one authoritative place.
 
-SoC: this helper only decides "may this principal read/send here?" using the
+`ensure_can_read` / `ensure_can_send` are therefore *not* row-19 or row-20
+enforcement: they answer "may this caller see this room", not "how much of it may
+this caller take away". Row 19's narrowing lives in `export_sender_scope` below;
+row 20's is inline at `app/api/v1/messages.py`.
+
+SoC: these helpers only decide "may this principal read/send here?" using the
 tenancy role resolver (no cross-context FK joins) and the room's own flags.
 """
 
