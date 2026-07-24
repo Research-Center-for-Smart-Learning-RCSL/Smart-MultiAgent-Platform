@@ -93,6 +93,13 @@ _MAP: ErrorMap = {
         404,
         "Upload not found",
     ),
+    # 409 so a TUS client resyncs with HEAD; the upload record is already gone
+    # by then, so the 404 it gets back sends it into a clean restart.
+    errors.TusSizeMismatch: (
+        "conversation/tus-size-mismatch",
+        409,
+        "Staged upload size does not match the declared length",
+    ),
     errors.TusMetadataInvalid: (
         "conversation/tus-metadata-invalid",
         400,

@@ -88,6 +88,15 @@ class TusUploadNotFound(ConversationError):
     code = "conversation/tus-upload-not-found"
 
 
+class TusSizeMismatch(ConversationError):
+    """R22.15.04 — the staged file's size disagrees with the declared
+    Upload-Length at finalize, so the bytes on disk are not the bytes the
+    client declared. Not repairable: truncating to the declared length would
+    keep a file corrupt in the middle. The upload must be restarted."""
+
+    code = "conversation/tus-size-mismatch"
+
+
 class AttachmentBindingFailed(ConversationError):
     """Some requested attachment_ids could not be bound (wrong room, wrong user, or expired)."""
 
@@ -156,6 +165,7 @@ __all__ = [
     "ObservationNotFound",
     "TusMetadataInvalid",
     "TusOffsetMismatch",
+    "TusSizeMismatch",
     "TusUploadNotFound",
     "VersionMismatch",
     "WorkspaceNotFound",
