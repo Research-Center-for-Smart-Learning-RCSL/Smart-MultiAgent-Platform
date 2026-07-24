@@ -87,6 +87,11 @@ class ChatroomOut(BaseModel):
     # "You are notified that observers are enabled" — false whenever
     # disclosure is off, regardless of actual bindings (R28.09).
     observers_present: bool
+    # Advisory only (R5.05): lets the client hide guest-forbidden controls
+    # (export, settings, agent binding — docs/UI/07-conversation.md) rather than
+    # offer a control that 403s. A pure guest holds a guest link but no
+    # org/project role; every enforcement is still server-side.
+    viewer_is_guest: bool = False
 
 
 class GuestLinkOut(BaseModel):
@@ -131,6 +136,7 @@ def _to_out(r, *, has_observers: bool = False, viewer_is_pure_guest: bool = Fals
         created_by_user_id=None if viewer_is_pure_guest else r.created_by_user_id,
         disclose_observers=False if viewer_is_pure_guest else r.disclose_observers,
         observers_present=bool(not viewer_is_pure_guest and r.disclose_observers and has_observers),
+        viewer_is_guest=viewer_is_pure_guest,
     )
 
 

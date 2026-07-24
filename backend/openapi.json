@@ -1,4 +1,4 @@
-{
+﻿{
   "components": {
     "schemas": {
       "AcceptByTokenIn": {
@@ -3253,6 +3253,11 @@
           "version": {
             "title": "Version",
             "type": "integer"
+          },
+          "viewer_is_guest": {
+            "default": false,
+            "title": "Viewer Is Guest",
+            "type": "boolean"
           },
           "workspace_id": {
             "format": "uuid",
