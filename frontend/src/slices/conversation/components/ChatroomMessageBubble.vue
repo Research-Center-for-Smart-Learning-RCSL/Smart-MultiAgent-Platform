@@ -108,7 +108,8 @@
           v-for="att in message.attachments"
           :key="att.id"
         >
-          <!-- Image attachments (incl. agent-produced charts) render inline. -->
+          <!-- Raster images the backend will serve inline (incl. agent-produced
+               charts) render inline; everything else takes the chip below. -->
           <AttachmentImage
             v-if="att.status === 'active' && isImage(att.mime)"
             :attachment-id="att.id"
@@ -306,10 +307,24 @@ function formatScore(score: unknown): string {
   return typeof score === 'number' ? score.toFixed(2) : '--'
 }
 
-// Image attachments (user uploads + agent-produced charts) render inline; the
-// presign endpoint forces a safe inline content-type for these MIME types.
+// Mirrors the raster entries of the backend's _INLINE_SAFE_MIME allowlist
+// (contexts/conversation/application/attachment_service.py). Anything absent
+// from it -- image/svg+xml above all, which is scriptable markup -- is presigned
+// as application/octet-stream with an attachment disposition by design, so an
+// <img> could never decode it. Those fall through to the download chip below.
+// Normalised the same way the backend normalises, so a parameter suffix cannot
+// route a type past the list.
+const INLINE_IMAGE_MIME = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/bmp',
+])
+
 function isImage(mime: string): boolean {
-  return mime.startsWith('image/')
+  const base = mime.split(';', 1)[0] ?? ''
+  return INLINE_IMAGE_MIME.has(base.trim().toLowerCase())
 }
 </script>
 
