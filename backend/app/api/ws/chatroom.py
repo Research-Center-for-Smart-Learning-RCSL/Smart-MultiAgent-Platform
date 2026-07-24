@@ -71,9 +71,16 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
 
     _last_typing_ts: float = 0.0
     _typing_throttle_s: float = 2.0
+    # F-18: typing is asserted per connection but was never retracted when that
+    # connection ended, so a typist with a second tab open left the indicator
+    # pinned for every other member — `presence.leave` reports left=False while
+    # a sibling connection remains, which suppressed the only publish `on_close`
+    # made, and nothing else expires typing state. This route body runs once per
+    # connection, so the flag is correctly connection-scoped.
+    _typing_active: bool = False
 
     async def on_client_message(conn: ChannelConnection, msg: dict) -> None:
-        nonlocal _last_typing_ts
+        nonlocal _last_typing_ts, _typing_active
         msg_type = msg.get("type")
         if msg_type in ("typing.start", "typing.stop"):
             if msg_type == "typing.start":
@@ -82,6 +89,9 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
                     return
                 _last_typing_ts = now
             await publisher.emit(msg_type, {"user_id": str(conn.principal.user_id)})
+            # Tracks what was actually published — a throttled `typing.start`
+            # returns above without emitting, so it must not arm the retraction.
+            _typing_active = msg_type == "typing.start"
 
     async def on_heartbeat(conn: ChannelConnection) -> None:
         # Every inbound frame proves the socket is alive — keep this user's
@@ -128,11 +138,22 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
                 await _notify_presence(chatroom_id, has_live_users=True)
 
     async def on_close(conn: ChannelConnection) -> None:
+        nonlocal _typing_active
         left, roster_size = await presence.leave(
             room_id=chatroom_id,
             user_id=conn.principal.user_id,
             connection_id=conn.connection_id,
         )
+        # F-18: a connection that goes away has stopped typing by definition.
+        # Deliberately outside the `left` guard below — that guard is False
+        # exactly in the case this fixes, where a sibling connection of the
+        # same user keeps the roster entry alive.
+        if _typing_active:
+            _typing_active = False
+            await publisher.emit(
+                "typing.stop",
+                {"user_id": str(conn.principal.user_id)},
+            )
         if left:
             await publisher.emit(
                 "presence.left",
