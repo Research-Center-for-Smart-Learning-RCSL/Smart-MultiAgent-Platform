@@ -369,3 +369,192 @@ def test_knowledge_budget_floors_at_zero_under_a_low_cap() -> None:
     )
 
     assert budget == 0
+
+
+# --------------------------------------------------------------------------- #
+# _assemble_history compaction execution — the block inside the room lock.
+# No test reached it before this harness: every existing case short-circuits at
+# `should_compact`.
+# --------------------------------------------------------------------------- #
+
+
+class _CompactSession:
+    """Session double recording the ordered events the compaction block emits."""
+
+    def __init__(self, log: list[str]) -> None:
+        self._log = log
+
+    async def commit(self) -> None:
+        self._log.append("commit")
+
+    async def rollback(self) -> None:  # pragma: no cover — failure paths only
+        self._log.append("rollback")
+
+
+def _compaction_harness(
+    monkeypatch,
+    *,
+    summary_text: str = "SUMMARY",
+    history=None,
+    forced: bool = False,
+):
+    """Wire ``_assemble_history`` so its in-lock block actually runs.
+
+    Returns ``(engine, agent, log, audits)``. ``log`` is the ordered event trace
+    (lock enter/exit, the summary insert, commits); ``audits`` collects
+    ``(action, metadata)`` pairs.
+    """
+    import shared_kernel.realtime.distributed_lock as dlock
+
+    log: list[str] = []
+    audits: list[tuple[str, dict]] = []
+
+    history = history or [
+        SimpleNamespace(
+            role="user", content="x", token_count=900, id=uuid.uuid4(), sender_id=uuid.uuid4(), metadata={}
+        )
+    ]
+    monkeypatch.setattr(te.tx, "load_model_history", _async_return(history))
+
+    class _Lock:
+        def __init__(self, key, ttl_s=300) -> None:
+            self._key = key
+
+        async def __aenter__(self) -> bool:
+            log.append(f"lock_enter:{self._key}")
+            return True
+
+        async def __aexit__(self, *_exc) -> bool:
+            log.append("lock_exit")
+            return False
+
+    monkeypatch.setattr(dlock, "distributed_lock", _Lock)
+
+    class _Summariser:
+        def __init__(self, **_kw) -> None:
+            pass
+
+        async def summarise(self, messages, *, max_tokens: int = 2000) -> str:
+            return summary_text
+
+    monkeypatch.setattr(te, "RouterSummariser", _Summariser)
+
+    class _Store:
+        def __init__(self, _db, *, chatroom_id, agent_id=None) -> None:
+            self.agent_id = agent_id
+
+        async def replace_range_with_summary(self, *, message_ids, summary_text):
+            log.append("create_message")
+            return uuid.uuid4()
+
+    monkeypatch.setattr(te.tx, "MessagesTranscriptStore", _Store)
+
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = _CompactSession(log)  # type: ignore[attr-defined]
+    engine._router = object()  # type: ignore[attr-defined]
+    engine._compact_forced_rooms = set()  # type: ignore[attr-defined]
+
+    async def _consume(cid, _agent=None):
+        # Mirrors the real implementation: a consumed flag is tracked so a
+        # failed turn can re-arm it.
+        if forced:
+            engine._compact_forced_rooms.add(cid)
+        return forced
+
+    engine._consume_compact_flag = _consume  # type: ignore[attr-defined]
+
+    async def _audit(_agent, _room, action, extra):
+        audits.append((action, extra))
+
+    engine._audit = _audit  # type: ignore[attr-defined]
+
+    agent = SimpleNamespace(
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        context_mode=SimpleNamespace(value="compact"),
+        context_token_cap=100,
+    )
+    return engine, agent, log, audits
+
+
+async def _run_assemble(engine, agent, room):
+    return await engine._assemble_history(agent, room, 128_000, ApiKeyProvider.CLAUDE, "claude-opus-4-8")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("empty", ["", "   "])
+async def test_empty_summary_audits_compact_failed_and_keeps_history(monkeypatch, empty: str) -> None:
+    # R9.11: a summarisation that produces nothing usable must leave the history
+    # alone and be audited as a failure, not recorded as a successful run.
+    engine, agent, log, audits = _compaction_harness(monkeypatch, summary_text=empty)
+    history = await te.tx.load_model_history(None, chatroom_id=uuid.uuid4())
+
+    out = await _run_assemble(engine, agent, uuid.uuid4())
+
+    assert out is history
+    assert "create_message" not in log
+    assert [a for a, _ in audits] == ["agent.compact_failed"]
+
+
+@pytest.mark.asyncio
+async def test_compaction_commits_before_releasing_the_room_lock(monkeypatch) -> None:
+    # The room lock guards against two agents folding overlapping ranges, but a
+    # staged row is invisible to another session under READ COMMITTED. The
+    # exclusion only holds if the commit happens inside the lock.
+    engine, agent, log, audits = _compaction_harness(monkeypatch)
+
+    await _run_assemble(engine, agent, uuid.uuid4())
+
+    trimmed = [e.split(":")[0] for e in log]
+    assert trimmed == ["lock_enter", "create_message", "commit", "lock_exit"]
+    assert [a for a, _ in audits] == ["agent.compact_run"]
+
+
+@pytest.mark.asyncio
+async def test_forced_compact_flag_is_not_restored_after_a_committed_fold(monkeypatch) -> None:
+    # Pins the hazard the commit-inside-the-lock fix introduces: the fold is now
+    # durable, so a later rollback cannot undo it. Re-arming the one-shot flag
+    # would force a second fold of a request already served.
+    engine, agent, log, _audits = _compaction_harness(monkeypatch, forced=True)
+    room = uuid.uuid4()
+
+    await _run_assemble(engine, agent, room)
+
+    assert "create_message" in log
+    assert room not in engine._compact_forced_rooms
+    # `_restore_compact_flag` no-ops on a room absent from that set, so the
+    # turn's own failure path can no longer re-arm this one.
+    await engine._restore_compact_flag(room)
+
+
+@pytest.mark.asyncio
+async def test_a_fold_that_does_nothing_still_re_arms_the_forced_flag(monkeypatch) -> None:
+    # Complement to the test above: when `run_compact` declines (nothing left to
+    # fold), no row was committed, so the user's one-shot /compact must survive.
+    engine, agent, log, _audits = _compaction_harness(
+        monkeypatch,
+        forced=True,
+        history=[
+            SimpleNamespace(
+                role="system",
+                content="S",
+                token_count=900,
+                id=uuid.uuid4(),
+                sender_id=None,
+                metadata={"type": "compact_summary", "compacted_ids": []},
+            )
+        ],
+    )
+    room = uuid.uuid4()
+    restored: list = []
+
+    async def _restore(cid) -> None:
+        restored.append(cid)
+
+    engine._restore_compact_flag = _restore  # type: ignore[attr-defined]
+
+    await _run_assemble(engine, agent, room)
+
+    assert "create_message" not in log
+    assert "commit" not in log
+    assert restored == [room]
