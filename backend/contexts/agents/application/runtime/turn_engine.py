@@ -561,9 +561,13 @@ class TurnEngine:
         # §30 (R30.15): recent structured activity events for an OBSERVER turn.
         # Coverage-gated (only present when the room has activities); built once.
         self._activity_provider = ActivityContextProvider(db)
-        # Rooms whose one-shot POST /compact flag this engine consumed — used
-        # to re-arm the flag if the turn that consumed it fails.
-        self._compact_forced_rooms: set[uuid.UUID] = set()
+        # Rooms whose one-shot POST /compact arming this engine consumed, mapped
+        # to the Redis key that records the consumption — used to release the
+        # claim if the turn that made it fails. Keyed by room alone: a turn
+        # engine serves one agent per turn, and `run_compaction`'s loop over a
+        # room's compact-mode agents clears the entry (commit or restore) before
+        # the next agent runs, so a room never holds two agents' claims at once.
+        self._compact_forced_rooms: dict[uuid.UUID, str] = {}
 
     async def run_turn(
         self,
@@ -2100,7 +2104,7 @@ class TurnEngine:
                 await self._db.commit()
                 # Committed, so the consumed /compact flag stays consumed: the
                 # compaction it asked for did happen and is kept.
-                self._compact_forced_rooms.discard(chatroom_id)
+                self._compact_forced_rooms.pop(chatroom_id, None)
                 if is_observer:
                     await self._emit_observation_event(
                         chatroom_id, agent.id, "observation.failed", {"kind": "knowledge_starved"}
@@ -2122,7 +2126,7 @@ class TurnEngine:
                     )
                 await self._audit(agent, chatroom_id, "agent.turn_finished", {"empty": True})
                 await self._db.commit()
-                self._compact_forced_rooms.discard(chatroom_id)
+                self._compact_forced_rooms.pop(chatroom_id, None)
                 # The drained notifications were folded into a prompt that will
                 # never reach the provider — restore them for the next turn.
                 await self._requeue_notifications(agent, pending_notes)
@@ -2156,7 +2160,7 @@ class TurnEngine:
                     {"tool_rounds": rounds, "reason": "empty_reply"},
                 )
                 await self._db.commit()
-                self._compact_forced_rooms.discard(chatroom_id)
+                self._compact_forced_rooms.pop(chatroom_id, None)
                 if room is not None:
                     await Publisher(room).emit(
                         "agent.finished", {"reason": "empty_reply", "agent_id": str(agent.id)}
@@ -2197,7 +2201,7 @@ class TurnEngine:
                     {"tool_rounds": rounds, "observer": True},
                 )
                 await self._db.commit()
-                self._compact_forced_rooms.discard(chatroom_id)
+                self._compact_forced_rooms.pop(chatroom_id, None)
                 # Post-commit, mirroring message.created: the creator's refetch
                 # must see the committed row.
                 await self._emit_observation_event(
@@ -2220,7 +2224,7 @@ class TurnEngine:
             )
             await self._audit(agent, chatroom_id, "agent.turn_finished", {"tool_rounds": rounds})
             await self._db.commit()
-            self._compact_forced_rooms.discard(chatroom_id)
+            self._compact_forced_rooms.pop(chatroom_id, None)
             # Persist any code_exec artifacts (charts/files) and bind them to the
             # reply BEFORE the WS event so the client's refetch hydrates them.
             await self._persist_artifacts(agent, chatroom_id, msg.id, artifact_sink)
@@ -2537,11 +2541,11 @@ class TurnEngine:
         """
         from shared_kernel.realtime.distributed_lock import distributed_lock
 
-        history = await tx.load_model_history(self._db, chatroom_id=chatroom_id)
+        history = await tx.load_model_history(self._db, chatroom_id=chatroom_id, for_agent_id=agent.id)
         projected = sum(h.token_count for h in history)
         # A POST /compact sets a one-shot flag (G.10); honour it regardless of
         # mode/cap by capping at half the current projection so a range is shed.
-        forced = await self._consume_compact_flag(chatroom_id)
+        forced = await self._consume_compact_flag(chatroom_id, agent)
         if forced:
             cap: int | None = max(1, projected // 2)
             compact_projected = projected
@@ -2563,7 +2567,7 @@ class TurnEngine:
                     await self._restore_compact_flag(chatroom_id)
                 return history
             # Re-check staleness: another turn may have compacted while we waited.
-            history = await tx.load_model_history(self._db, chatroom_id=chatroom_id)
+            history = await tx.load_model_history(self._db, chatroom_id=chatroom_id, for_agent_id=agent.id)
             projected = sum(h.token_count for h in history)
             if forced:
                 cap = max(1, projected // 2)
@@ -2584,7 +2588,7 @@ class TurnEngine:
                 model=model,
                 agent_id=agent.id,
             )
-            store = tx.MessagesTranscriptStore(self._db, chatroom_id=chatroom_id)
+            store = tx.MessagesTranscriptStore(self._db, chatroom_id=chatroom_id, agent_id=agent.id)
             try:
                 did = await ctxmod.run_compact(
                     messages=cast("list[ctxmod.MessageLike]", history),
@@ -2614,9 +2618,9 @@ class TurnEngine:
             # The fold is now durable, so the turn's rollback path can no longer
             # undo it. Re-arming the one-shot /compact flag from there would
             # force a second fold of a request that was already served.
-            self._compact_forced_rooms.discard(chatroom_id)
+            self._compact_forced_rooms.pop(chatroom_id, None)
         # Reload so the summary replaces the folded range.
-        reloaded = await tx.load_model_history(self._db, chatroom_id=chatroom_id)
+        reloaded = await tx.load_model_history(self._db, chatroom_id=chatroom_id, for_agent_id=agent.id)
         await self._audit(
             agent,
             chatroom_id,
@@ -2645,7 +2649,7 @@ class TurnEngine:
             provider, model = _resolve_provider_and_model(agent)
             await self._assemble_history(agent, chatroom_id, context_limit, provider, model)
             await self._db.commit()
-            self._compact_forced_rooms.discard(chatroom_id)
+            self._compact_forced_rooms.pop(chatroom_id, None)
             return True
         except Exception:
             _log.exception("headless compaction failed agent=%s room=%s", agent_id, chatroom_id)
@@ -2653,32 +2657,57 @@ class TurnEngine:
             await self._restore_compact_flag(chatroom_id)
             return False
 
-    async def _consume_compact_flag(self, chatroom_id: uuid.UUID) -> bool:
-        """Atomically read-and-clear (GETDEL) the forced-compaction flag set by
-        POST /compact. Consumed rooms are tracked so a failed turn can re-arm
-        the flag via :meth:`_restore_compact_flag`."""
+    async def _consume_compact_flag(self, chatroom_id: uuid.UUID, agent: Agent) -> bool:
+        """Claim this agent's share of the forced-compaction arming set by POST
+        /compact, once.
+
+        A room-level `/compact` folds once for every `context_mode=compact`
+        agent bound to the room, each producing its own scoped summary (R9.09),
+        so the arming cannot be a single key the first turner deletes. The
+        endpoint writes an *epoch* token and each agent claims it by winning a
+        `SET NX` on its own marker — one-shot per agent, without the writer
+        needing to know which agents are bound.
+
+        A `general` agent never claims: forcing it to produce a summary would
+        fold its own history, which is exactly what R9.09 forbids.
+        """
+        if agent.context_mode.value != "compact":
+            return False
         try:
             from shared_kernel.auth.clients import get_redis
 
-            val = await get_redis().getdel(f"compact:pending:{chatroom_id}")
-            if val:
-                self._compact_forced_rooms.add(chatroom_id)
-                return True
-            return False
+            redis = get_redis()
+            epoch = await redis.get(f"compact:pending:{chatroom_id}")
+            if not epoch:
+                return False
+            if isinstance(epoch, bytes):
+                epoch = epoch.decode()
+            marker = f"compact:consumed:{chatroom_id}:{epoch}:{agent.id}"
+            # Same TTL as the arming, so a marker never outlives the epoch it
+            # guards.
+            if not await redis.set(marker, "1", ex=3600, nx=True):
+                return False
+            self._compact_forced_rooms[chatroom_id] = marker
+            return True
         except Exception:
             _log.warning("Failed to read compact flag", exc_info=True)
             return False
 
     async def _restore_compact_flag(self, chatroom_id: uuid.UUID) -> None:
-        """Re-arm the one-shot /compact flag if this engine consumed it but the
-        consuming turn failed before committing a compaction. Best-effort."""
-        if chatroom_id not in self._compact_forced_rooms:
+        """Release this agent's claim when the turn that made it failed before
+        committing a compaction, so the agent can still serve the user's
+        one-shot `/compact`. Best-effort."""
+        marker = self._compact_forced_rooms.get(chatroom_id)
+        if marker is None:
             return
         try:
             from shared_kernel.auth.clients import get_redis
 
-            await get_redis().set(f"compact:pending:{chatroom_id}", "1", ex=3600)
-            self._compact_forced_rooms.discard(chatroom_id)
+            # Drop this agent's claim rather than re-writing the arming: the
+            # epoch key is still live under its own TTL, and re-writing it would
+            # re-arm every *other* agent that already folded for this epoch.
+            await get_redis().delete(marker)
+            self._compact_forced_rooms.pop(chatroom_id, None)
         except Exception:
             _log.warning("failed to restore compact flag for room %s", chatroom_id, exc_info=True)
 

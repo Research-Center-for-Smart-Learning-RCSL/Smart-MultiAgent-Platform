@@ -271,15 +271,20 @@ class ChatroomService:
 
     @staticmethod
     async def request_compaction(chatroom_id: uuid.UUID) -> None:
-        """Record a one-shot compact intent flag (K.2) and enqueue a job.
+        """Record a one-shot compact intent (K.2) and enqueue a job.
 
-        The next agent turn in this room reads + clears the flag and forces
-        a compaction pass before its provider call.
+        The value is an *epoch* token, not a presence marker. Compaction is
+        scoped to the agent that produced it (R9.09), so this room-level action
+        must fold once for each `context_mode=compact` agent bound to the room;
+        each claims this epoch exactly once via its own marker key (see
+        `turn_engine._consume_compact_flag`). Writing a token rather than
+        resolving the bound agents here keeps the conversation context free of
+        any dependency on agent configuration.
         """
         from shared_kernel.auth.clients import get_redis
         from shared_kernel.queue import enqueue as enqueue_job
 
-        await get_redis().set(f"compact:pending:{chatroom_id}", "1", ex=3600)
+        await get_redis().set(f"compact:pending:{chatroom_id}", uuid.uuid4().hex, ex=3600)
         await enqueue_job("compact_chatroom", str(chatroom_id))
 
     # ---- agent registry --------------------------------------------------

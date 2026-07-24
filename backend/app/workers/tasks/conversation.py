@@ -282,19 +282,24 @@ async def chat_export(
 async def compact_chatroom(ctx: dict[str, Any], chatroom_id: str) -> str:
     """Run the forced compaction requested by POST /compact (G.10).
 
-    The endpoint sets the one-shot ``compact:pending:{room}`` flag *and*
-    enqueues this job, so compaction happens promptly even if no agent turn
-    fires within the flag's 1-hour TTL. Compaction is room-level (one summary
-    row in ``messages``), so the first live bound agent's config drives the
-    pass — the engine consumes the flag, summarises via the agent's key group,
-    and commits. If a racing turn already consumed the flag this run is a
-    cheap no-op (the engine's normal mode/cap check applies).
+    The endpoint arms a one-shot ``compact:pending:{room}`` epoch *and* enqueues
+    this job, so compaction happens promptly even if no agent turn fires within
+    the arming's 1-hour TTL.
+
+    Compaction is **per-agent**, not room-level: ``context_mode`` is an Agent
+    field and a summary applies only to its producer's model-facing view
+    (R9.09), so a room-level ``/compact`` runs a pass for every bound
+    ``context_mode=compact`` agent, each folding its own view via its own key
+    group. Each agent claims the epoch once, so a racing turn that already
+    compacted for one agent makes that agent's pass here a cheap no-op without
+    suppressing the others.
 
     Moved here from orchestration.py (M19) — compaction is a conversation
     context concern.
     """
     from app.config.settings import get_settings
     from contexts.agents.application.runtime.turn_engine import TurnEngine
+    from contexts.agents.interfaces.facade import AgentsFacade
     from contexts.conversation.infrastructure.repositories import (
         ChatroomAgentRepository,
         ChatroomRepository,
@@ -311,6 +316,17 @@ async def compact_chatroom(ctx: dict[str, Any], chatroom_id: str) -> str:
         if not bindings:
             logger.bind(room_id=chatroom_id).info("compact skipped: no bound agents")
             return "skipped:no_agents"
+        agents_facade = AgentsFacade(db)
+        targets = []
+        for binding in bindings:
+            agent = await agents_facade.get_agent(binding.agent_id)
+            if agent is not None and agent.context_mode.value == "compact":
+                targets.append(binding.agent_id)
+        if not targets:
+            # A room-level action that cannot do anything must say so rather
+            # than report success: nothing in the room is configured to compact.
+            logger.bind(room_id=chatroom_id).warning("compact skipped: no compact-mode agents bound")
+            return "skipped:no_compact_agents"
         settings = get_settings()
         engine = TurnEngine(
             db,
@@ -318,12 +334,14 @@ async def compact_chatroom(ctx: dict[str, Any], chatroom_id: str) -> str:
             qdrant_api_key=settings.qdrant.api_key,
             bge_reranker_url=settings.knowledge.bge_reranker_url,
         )
-        for binding in bindings:
-            ok = await engine.run_compaction(agent_id=binding.agent_id, chatroom_id=rid)
-            if ok:
-                logger.bind(room_id=chatroom_id, agent_id=str(binding.agent_id)).info("compact pass run")
-                return "completed"
-        return "failed"
+        ran = 0
+        for agent_id in targets:
+            # No early return: every compact-mode agent has its own view to
+            # fold, and one agent's failure must not deny the others theirs.
+            if await engine.run_compaction(agent_id=agent_id, chatroom_id=rid):
+                ran += 1
+                logger.bind(room_id=chatroom_id, agent_id=str(agent_id)).info("compact pass run")
+        return "completed" if ran else "failed"
 
 
 _ = BytesIO  # reserved for future streaming path

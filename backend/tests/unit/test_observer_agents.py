@@ -845,7 +845,7 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
 
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = _FakeDB()  # type: ignore[attr-defined]
-    engine._compact_forced_rooms = set()  # type: ignore[attr-defined]
+    engine._compact_forced_rooms = {}  # type: ignore[attr-defined]
 
     async def _noop(*a, **k):
         return None
