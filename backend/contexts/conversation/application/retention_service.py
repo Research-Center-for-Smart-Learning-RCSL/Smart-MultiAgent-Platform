@@ -19,6 +19,7 @@ from datetime import timedelta
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.conversation.domain.compaction import COMPACT_SUMMARY_TYPE, compacted_ids
 from contexts.conversation.infrastructure import tables as t
 from shared_kernel import audit
 from shared_kernel.auth.clients import now
@@ -26,8 +27,6 @@ from shared_kernel.storage import MinioClient, get_minio_client
 
 RETENTION = timedelta(days=5 * 365 + 1)  # 5 yrs, incl. leap day
 PURGE_CHUNK = 500
-
-_COMPACT_TYPE = "compact_summary"
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,30 +136,41 @@ class RetentionService:
 
         Messages the deleted summary folded that are still inside the horizon
         are untouched; a compacting agent re-folds them on its next turn.
+
+        Scanned in keyset pages rather than one statement: `compacted_ids` can
+        only be filtered in Python, so an unpaged scan would pull every summary
+        in every affected room into memory at once. Keyset rather than OFFSET
+        because rows are deleted as we go, which shifts an offset window and
+        would skip rows.
         """
         if not chatroom_ids:
             return {}
         purged = {str(mid) for mid in purged_ids}
-        rows = (
-            await self._db.execute(
-                sa.select(t.messages.c.id, t.messages.c.chatroom_id, t.messages.c.metadata).where(
-                    t.messages.c.chatroom_id.in_(chatroom_ids),
-                    t.messages.c.metadata["type"].astext == _COMPACT_TYPE,
-                )
-            )
-        ).all()
-
-        doomed: list[uuid.UUID] = []
         by_room: dict[uuid.UUID, int] = {}
-        for r in rows:
-            covered = (r.metadata or {}).get("compacted_ids") or []
-            if not purged.intersection(str(c) for c in covered):
-                continue
-            doomed.append(r.id)
-            by_room[r.chatroom_id] = by_room.get(r.chatroom_id, 0) + 1
-        if doomed:
-            await self._db.execute(t.messages.delete().where(t.messages.c.id.in_(doomed)))
-        return by_room
+        after: uuid.UUID | None = None
+
+        while True:
+            page_query = sa.select(t.messages.c.id, t.messages.c.chatroom_id, t.messages.c.metadata).where(
+                t.messages.c.chatroom_id.in_(chatroom_ids),
+                t.messages.c.metadata["type"].astext == COMPACT_SUMMARY_TYPE,
+            )
+            if after is not None:
+                page_query = page_query.where(t.messages.c.id > after)
+            rows = (await self._db.execute(page_query.order_by(t.messages.c.id).limit(PURGE_CHUNK))).all()
+            if not rows:
+                return by_room
+            after = rows[-1].id
+
+            doomed: list[uuid.UUID] = []
+            for r in rows:
+                if not purged.intersection(compacted_ids(r.metadata)):
+                    continue
+                doomed.append(r.id)
+                by_room[r.chatroom_id] = by_room.get(r.chatroom_id, 0) + 1
+            if doomed:
+                await self._db.execute(t.messages.delete().where(t.messages.c.id.in_(doomed)))
+            if len(rows) < PURGE_CHUNK:
+                return by_room
 
 
 __all__ = ["PurgeReport", "RETENTION", "RetentionService"]
