@@ -98,6 +98,11 @@ parallel.
 - `2026-07-22-turn-outcome-reporting` (bugfix, draft) — `depends_on: []`. a2u F-6, F-9, F-15 plus
   a2a F-40. A committed reply is recorded as a failed turn when the post-commit publish raises.
   Names two test-locked decisions that must be decided, not silently edited.
+  **PRIORITISE — its C3 was meant to merge before or with `chatroom-socket-lifecycle`, which
+  landed first on 2026-07-24.** F-15 is therefore unmasked: the socket churn used to cancel the
+  client thinking-watchdog on every reconnect, so a pre-stream assembly window over 120s now
+  reports a healthy turn as `timeout` every time instead of intermittently. See that dossier's
+  FU-8.
 - `2026-07-22-observation-binding-cleanup` (bugfix, draft) — `depends_on: []`. a2u F-10: removing
   the last observer binding hides the Observer tab entirely, stranding the creator's own analyses
   with no route to read, release or delete them. Frontend only; **no migration permitted**.
@@ -129,10 +134,6 @@ Nothing blocked.
 
 ## In progress
 
-- `2026-07-22-chatroom-socket-lifecycle` (bugfix) — `depends_on: []`. a2u F-1, F-4, F-18.
-  **Ordering conflict resolved 2026-07-24: this one lands before `reconnect-reconciliation`**
-  (its Q-1). Q-5 answered "build it", so scope also includes a distinct connection-limit pill
-  state and close code 4429 (Q-7).
 - `2026-07-22-activity-session-authz-and-validation` (bugfix) — `depends_on: []`. a2u F-12,
   F-20 plus verification-gap V-7: activity-session AuthZ + watchdog notification + optional
   enum-array assembly.
