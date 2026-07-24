@@ -36,7 +36,7 @@ from loguru import logger
 
 from contexts.conversation.domain.models import AttachmentStatus
 from contexts.conversation.infrastructure import tables as t
-from shared_kernel.auth.clients import now
+from shared_kernel.auth.clients import as_utc, now
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.storage import get_minio_client
 
@@ -104,7 +104,7 @@ async def _reconcile() -> ReconcileReport:
 
             if stat is None:
                 still_live = row.status == AttachmentStatus.ACTIVE.value and (
-                    row.expires_at is None or row.expires_at > horizon
+                    row.expires_at is None or as_utc(row.expires_at) > horizon
                 )
                 if still_live:
                     report.missing_unexpectedly.append(row.id)

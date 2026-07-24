@@ -47,6 +47,7 @@ from contexts.conversation.domain.models import (
     ScanStatus,
     SenderType,
 )
+from shared_kernel.auth.clients import now
 
 _NOW = datetime(2026, 6, 23, 12, 0, 0)
 _USER = uuid.uuid4()
@@ -108,7 +109,12 @@ def _attachment(
         status=status,
         scan_status=ScanStatus.CLEAN,
         scan_at=_NOW,
-        expires_at=_NOW + timedelta(days=3),
+        # Relative to the real clock, unlike the other timestamps here: the
+        # download path refuses a row past its horizon (R13.11a), so an
+        # attachment pinned three days after a fixed `_NOW` in the past would
+        # describe an expired file and no longer exercise the disposition
+        # behaviour these tests are about.
+        expires_at=now() + timedelta(days=3),
         chatroom_id=_ROOM,
         uploaded_by_user_id=_USER,
     )

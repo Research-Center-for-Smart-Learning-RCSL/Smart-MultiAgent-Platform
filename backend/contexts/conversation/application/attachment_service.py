@@ -40,7 +40,7 @@ from contexts.conversation.infrastructure.repositories import (
     MessageAttachmentRepository,
 )
 from shared_kernel import audit
-from shared_kernel.auth.clients import now
+from shared_kernel.auth.clients import as_utc, now
 from shared_kernel.storage import (
     MinioClient,
     chat_upload_key,
@@ -281,7 +281,9 @@ class AttachmentService:
         # between MinIO deleting the object and the next sweep the row still
         # reads ACTIVE; presigning inside that window hands the client a URL
         # that resolves to a NoSuchKey body (R13.11a).
-        if row.status is AttachmentStatus.EXPIRED or (row.expires_at is not None and row.expires_at <= now()):
+        if row.status is AttachmentStatus.EXPIRED or (
+            row.expires_at is not None and as_utc(row.expires_at) <= now()
+        ):
             raise AttachmentExpired(str(attachment_id))
         bucket, _, key = row.minio_path.partition("/")
         # Override the served Content-Type/Disposition rather than trusting the
