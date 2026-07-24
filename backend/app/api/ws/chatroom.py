@@ -79,19 +79,50 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
     # connection, so the flag is correctly connection-scoped.
     _typing_active: bool = False
 
+    async def _retract_typing(conn: ChannelConnection) -> None:
+        """Publish `typing.stop` only once this user has no typing connection left.
+
+        The event carries a user id and nothing else, so it is read as "this
+        user stopped typing" by every client. Retracting on one connection's
+        behalf would blank the indicator while a sibling tab is still mid-burst
+        — and since the client sends `typing.start` once per burst rather than
+        per keystroke, it would stay blank until the user paused and began a new
+        one. The refcount lives in Redis because the two connections may be on
+        different backend workers.
+        """
+        nonlocal _typing_active
+        _typing_active = False
+        last = await presence.typing_stop(
+            room_id=chatroom_id,
+            user_id=conn.principal.user_id,
+            connection_id=conn.connection_id,
+        )
+        if last:
+            await publisher.emit("typing.stop", {"user_id": str(conn.principal.user_id)})
+
     async def on_client_message(conn: ChannelConnection, msg: dict) -> None:
         nonlocal _last_typing_ts, _typing_active
         msg_type = msg.get("type")
-        if msg_type in ("typing.start", "typing.stop"):
-            if msg_type == "typing.start":
-                now = time.monotonic()
-                if now - _last_typing_ts < _typing_throttle_s:
-                    return
-                _last_typing_ts = now
+        if msg_type == "typing.start":
+            now = time.monotonic()
+            if now - _last_typing_ts < _typing_throttle_s:
+                return
+            _last_typing_ts = now
+            await presence.typing_start(
+                room_id=chatroom_id,
+                user_id=conn.principal.user_id,
+                connection_id=conn.connection_id,
+            )
+            # Emitted unconditionally rather than only on the first typing
+            # connection: a client that joined mid-burst has no other way to
+            # learn the indicator should be on, and a repeat start is idempotent
+            # for every receiver.
             await publisher.emit(msg_type, {"user_id": str(conn.principal.user_id)})
-            # Tracks what was actually published — a throttled `typing.start`
-            # returns above without emitting, so it must not arm the retraction.
-            _typing_active = msg_type == "typing.start"
+            # Tracks what was actually published — a throttled start returns
+            # above without emitting, so it must not arm the retraction.
+            _typing_active = True
+        elif msg_type == "typing.stop":
+            await _retract_typing(conn)
 
     async def on_heartbeat(conn: ChannelConnection) -> None:
         # Every inbound frame proves the socket is alive — keep this user's
@@ -101,6 +132,14 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
             user_id=conn.principal.user_id,
             connection_id=conn.connection_id,
         )
+        if _typing_active:
+            # A burst sends no periodic frame of its own, so the typing
+            # assertion would otherwise lapse mid-burst on a long one.
+            await presence.typing_heartbeat(
+                room_id=chatroom_id,
+                user_id=conn.principal.user_id,
+                connection_id=conn.connection_id,
+            )
 
     async def authorize(conn: ChannelConnection) -> bool:
         # Re-resolve room access mid-socket so a revoked guest link / lost
@@ -147,13 +186,10 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
         # F-18: a connection that goes away has stopped typing by definition.
         # Deliberately outside the `left` guard below — that guard is False
         # exactly in the case this fixes, where a sibling connection of the
-        # same user keeps the roster entry alive.
+        # same user keeps the roster entry alive. The retraction itself is
+        # refcounted, so a sibling that is *also* typing keeps the indicator up.
         if _typing_active:
-            _typing_active = False
-            await publisher.emit(
-                "typing.stop",
-                {"user_id": str(conn.principal.user_id)},
-            )
+            await _retract_typing(conn)
         if left:
             await publisher.emit(
                 "presence.left",
