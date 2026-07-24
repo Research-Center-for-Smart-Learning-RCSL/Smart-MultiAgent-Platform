@@ -7,11 +7,23 @@ message repository.
 
 Design (R9.10): the user-visible transcript is **never** mutated. Compaction
 inserts a ``system`` message tagged ``{"type": "compact_summary",
-"compacted_ids": [...]}``; the *model-facing* history loader then omits any
-message id listed in a summary's ``compacted_ids`` while keeping the summary
-itself. Because compaction always folds the oldest un-compacted range, every
-summary represents strictly older content than any surviving message — so the
-model-facing order is ``[summaries…oldest-first] + [survivors…chronological]``.
+"compacted_ids": [...], "producer_agent_id": "..."}``; the *model-facing*
+history loader then omits any message id listed in a summary's
+``compacted_ids`` while keeping the summary itself. Because compaction always
+folds the oldest un-compacted range, every summary represents strictly older
+content than any surviving message — so the model-facing order is
+``[summaries…oldest-first] + [survivors…chronological]``.
+
+Scope (R9.09): ``context_mode`` is an **agent** setting, so a fold is scoped to
+the agent that produced it. The loader takes a reader and applies only that
+reader's own summaries — eliding their range and injecting their text. Another
+agent's summary is applied to neither, so an agent configured ``general`` keeps
+receiving the entire history no matter what any other agent compacted. Summary
+rows written before this scoping carry no producer and belong to no one: they
+are neither applied nor injected, which restores full history rather than
+silently preserving a room-wide fold. That per-producer scoping is also what
+makes the "strictly older content" invariant above true — it holds within one
+producer's view, which is the only view that ever exists.
 """
 
 from __future__ import annotations
@@ -114,6 +126,18 @@ def _is_summary(metadata: Any) -> bool:
     return isinstance(metadata, dict) and metadata.get("type") == _COMPACT_TYPE
 
 
+def _summary_producer(metadata: Any) -> str | None:
+    """The agent a summary belongs to, or None for a pre-scoping row.
+
+    A missing key and an explicit null are the same answer — belongs to no one —
+    so neither can match a reader.
+    """
+    if not isinstance(metadata, dict):
+        return None
+    producer = metadata.get("producer_agent_id")
+    return str(producer) if producer else None
+
+
 def _to_history(msg: Message, attachments: Sequence[MessageAttachment] | None = None) -> HistoryMessage:
     role = "system" if _is_summary(msg.metadata) else _ROLE_BY_SENDER.get(msg.sender_type, "user")
     # Excerpt only for user rows — an agent/system row never carries an
@@ -151,17 +175,29 @@ async def load_model_history(
     db: AsyncSession,
     *,
     chatroom_id: uuid.UUID,
+    for_agent_id: uuid.UUID,
     window: int = DEFAULT_HISTORY_WINDOW,
 ) -> list[HistoryMessage]:
-    """Build the model-facing history for ``chatroom_id`` (compacted ranges elided)."""
+    """Build ``for_agent_id``'s model-facing history for ``chatroom_id``.
+
+    Only summaries produced by ``for_agent_id`` are applied (R9.09): theirs
+    elide their range and contribute their text; every other summary — another
+    agent's, or a pre-scoping row with no producer — is applied to neither, so
+    its folded messages are returned intact.
+    """
     facade = ConversationFacade(db)
     rows = await facade.list_messages(chatroom_id, limit=window)
     chronological = list(reversed(rows))  # repo returns newest-first
     attachments_by_msg = await facade.list_attachments_for_messages([m.id for m in chronological])
 
+    reader = str(for_agent_id)
+
+    def _is_own_summary(metadata: Any) -> bool:
+        return _is_summary(metadata) and _summary_producer(metadata) == reader
+
     compacted: set[uuid.UUID] = set()
     for m in chronological:
-        if _is_summary(m.metadata):
+        if _is_own_summary(m.metadata):
             for cid in m.metadata.get("compacted_ids") or []:
                 try:
                     compacted.add(uuid.UUID(str(cid)))
@@ -172,18 +208,29 @@ async def load_model_history(
     survivors: list[HistoryMessage] = []
     for m in chronological:
         if _is_summary(m.metadata):
-            summaries.append(_to_history(m))
+            # The elision set and this list must use the same predicate: admit a
+            # foreign summary's text here and the reader would get both the
+            # paraphrase and the originals, which is worse than the room-wide
+            # behaviour this replaces.
+            if _is_own_summary(m.metadata):
+                summaries.append(_to_history(m))
         elif m.id not in compacted:
             survivors.append(_to_history(m, attachments_by_msg.get(m.id)))
     return summaries + survivors
 
 
 class MessagesTranscriptStore:
-    """Production ``TranscriptStore`` — folds a range into a summary row."""
+    """Production ``TranscriptStore`` — folds a range into a summary row.
 
-    def __init__(self, db: AsyncSession, *, chatroom_id: uuid.UUID) -> None:
+    ``agent_id`` is the *producing* agent and is mandatory: the summary is a
+    projection over that agent's model-facing view only (R9.09), and a row that
+    does not record its producer cannot be scoped by the loader.
+    """
+
+    def __init__(self, db: AsyncSession, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> None:
         self._facade = ConversationFacade(db)
         self._chatroom_id = chatroom_id
+        self._agent_id = agent_id
 
     async def replace_range_with_summary(
         self,
@@ -191,14 +238,17 @@ class MessagesTranscriptStore:
         message_ids: list[Any],
         summary_text: str,
     ) -> uuid.UUID:
-        msg = await self._facade.create_message(
+        # `sender_id` stays NULL: the row is a service-owned system message, not
+        # a message *from* the agent, and the user-visible feed renders it as a
+        # system divider. The producer lives in metadata, which the conversation
+        # context stamps server-side and no client can supply.
+        msg = await self._facade.insert_system_message(
             chatroom_id=self._chatroom_id,
-            sender_type=SenderType.SYSTEM,
-            sender_id=None,
             content_md=summary_text,
+            message_type=_COMPACT_TYPE,
             metadata={
-                "type": _COMPACT_TYPE,
                 "compacted_ids": [str(m) for m in message_ids],
+                "producer_agent_id": str(self._agent_id),
             },
         )
         return msg.id

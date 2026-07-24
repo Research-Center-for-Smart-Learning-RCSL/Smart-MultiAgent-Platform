@@ -159,7 +159,7 @@ async def test_assemble_history_budgets_the_next_request_not_history_alone(monke
     ]
     monkeypatch.setattr(te.tx, "load_model_history", _async_return(history))
 
-    async def _no_flag(_cid):
+    async def _no_flag(_cid, _agent):
         return False
 
     engine._consume_compact_flag = _no_flag  # type: ignore[attr-defined]
@@ -173,6 +173,7 @@ async def test_assemble_history_budgets_the_next_request_not_history_alone(monke
     monkeypatch.setattr(te.ctxmod, "should_compact", _spy_should)
 
     agent = SimpleNamespace(
+        id=uuid.uuid4(),
         context_mode=SimpleNamespace(value="compact"),
         context_token_cap=1000,
     )
@@ -452,13 +453,13 @@ def _compaction_harness(
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = _CompactSession(log)  # type: ignore[attr-defined]
     engine._router = object()  # type: ignore[attr-defined]
-    engine._compact_forced_rooms = set()  # type: ignore[attr-defined]
+    engine._compact_forced_rooms = {}  # type: ignore[attr-defined]
 
     async def _consume(cid, _agent=None):
-        # Mirrors the real implementation: a consumed flag is tracked so a
-        # failed turn can re-arm it.
+        # Mirrors the real implementation: a claim is tracked so a failed turn
+        # can release it.
         if forced:
-            engine._compact_forced_rooms.add(cid)
+            engine._compact_forced_rooms[cid] = f"compact:consumed:{cid}:epoch:{_agent.id}"
         return forced
 
     engine._consume_compact_flag = _consume  # type: ignore[attr-defined]
@@ -494,6 +495,170 @@ async def test_empty_summary_audits_compact_failed_and_keeps_history(monkeypatch
     assert out is history
     assert "create_message" not in log
     assert [a for a, _ in audits] == ["agent.compact_failed"]
+
+
+# --------------------------------------------------------------------------- #
+# The one-shot /compact arming is claimed per agent (R9.09)
+# --------------------------------------------------------------------------- #
+
+
+class _FakeRedis:
+    def __init__(self, initial=None) -> None:
+        self.store: dict = dict(initial or {})
+
+    async def get(self, key):
+        return self.store.get(key)
+
+    async def set(self, key, value, ex=None, nx=False):
+        if nx and key in self.store:
+            return None
+        self.store[key] = value
+        return True
+
+    async def delete(self, key):
+        self.store.pop(key, None)
+        return 1
+
+
+def _flag_engine(monkeypatch, redis):
+    import shared_kernel.auth.clients as clients
+
+    monkeypatch.setattr(clients, "get_redis", lambda: redis)
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._compact_forced_rooms = {}  # type: ignore[attr-defined]
+    return engine
+
+
+def _mode_agent(mode: str):
+    return SimpleNamespace(id=uuid.uuid4(), context_mode=SimpleNamespace(value=mode))
+
+
+@pytest.mark.asyncio
+async def test_each_compact_agent_claims_the_room_arming_exactly_once(monkeypatch) -> None:
+    # A room-level /compact must fold once per compact-mode agent, so the
+    # arming cannot be a single key the first turner deletes; and it must stay
+    # one-shot per agent, so a second turn by the same agent claims nothing.
+    room = uuid.uuid4()
+    redis = _FakeRedis({f"compact:pending:{room}": "epoch-1"})
+    engine = _flag_engine(monkeypatch, redis)
+    a, b = _mode_agent("compact"), _mode_agent("compact")
+
+    assert await engine._consume_compact_flag(room, a) is True
+    assert await engine._consume_compact_flag(room, b) is True
+    assert await engine._consume_compact_flag(room, a) is False
+
+
+@pytest.mark.asyncio
+async def test_general_mode_agent_never_claims_the_arming(monkeypatch) -> None:
+    # Forcing a `general` agent to compact would fold its own history, which is
+    # exactly what R9.09 forbids.
+    room = uuid.uuid4()
+    redis = _FakeRedis({f"compact:pending:{room}": "epoch-1"})
+    engine = _flag_engine(monkeypatch, redis)
+
+    assert await engine._consume_compact_flag(room, _mode_agent("general")) is False
+    assert engine._compact_forced_rooms == {}
+
+
+@pytest.mark.asyncio
+async def test_no_arming_means_no_claim(monkeypatch) -> None:
+    engine = _flag_engine(monkeypatch, _FakeRedis())
+
+    assert await engine._consume_compact_flag(uuid.uuid4(), _mode_agent("compact")) is False
+
+
+@pytest.mark.asyncio
+async def test_releasing_a_claim_restores_only_that_agents_share(monkeypatch) -> None:
+    # A failed turn must give its own agent another chance at the user's
+    # one-shot /compact without re-arming agents that already folded for it.
+    room = uuid.uuid4()
+    redis = _FakeRedis({f"compact:pending:{room}": "epoch-1"})
+    engine = _flag_engine(monkeypatch, redis)
+    a, b = _mode_agent("compact"), _mode_agent("compact")
+    await engine._consume_compact_flag(room, a)
+
+    engine_b = _flag_engine(monkeypatch, redis)
+    await engine_b._consume_compact_flag(room, b)
+
+    await engine._restore_compact_flag(room)
+
+    assert engine._compact_forced_rooms == {}
+    assert await engine._consume_compact_flag(room, a) is True
+    # b already folded for this epoch and must not be re-armed by a's failure.
+    assert await engine_b._consume_compact_flag(room, b) is False
+
+
+@pytest.mark.asyncio
+async def test_releasing_without_a_claim_is_a_no_op(monkeypatch) -> None:
+    room = uuid.uuid4()
+    redis = _FakeRedis({f"compact:pending:{room}": "epoch-1"})
+    engine = _flag_engine(monkeypatch, redis)
+
+    await engine._restore_compact_flag(room)
+
+    assert redis.store == {f"compact:pending:{room}": "epoch-1"}
+
+
+@pytest.mark.asyncio
+async def test_general_mode_agent_never_sees_a_folded_range(monkeypatch) -> None:
+    # R9.09 acceptance: a `general` agent sends the entire chat history. It has
+    # no cap and never compacts, so whatever a compact-mode agent folded in the
+    # same room must not reach its loader as an elision. Pinned at the turn
+    # engine because the defect was that `_assemble_history` passed no reader
+    # identity to the loader at all.
+    from contexts.conversation.interfaces.facade import Message, SenderType
+
+    room, compactor = uuid.uuid4(), uuid.uuid4()
+
+    def _m(content, **meta):
+        return Message(
+            id=uuid.uuid4(),
+            chatroom_id=room,
+            sender_type=SenderType.USER,
+            sender_id=None,
+            content_md=content,
+            metadata=meta,
+        )
+
+    m1, m2 = _m("one"), _m("two")
+    summary = Message(
+        id=uuid.uuid4(),
+        chatroom_id=room,
+        sender_type=SenderType.SYSTEM,
+        sender_id=None,
+        content_md="SUMMARY",
+        metadata={
+            "type": "compact_summary",
+            "compacted_ids": [str(m1.id), str(m2.id)],
+            "producer_agent_id": str(compactor),
+        },
+    )
+
+    class _Facade:
+        def __init__(self, _db) -> None:
+            pass
+
+        async def list_messages(self, chatroom_id, *, limit=100, before_id=None):
+            return [summary, m2, m1]  # newest-first
+
+        async def list_attachments_for_messages(self, message_ids):
+            return {}
+
+    monkeypatch.setattr(te.tx, "ConversationFacade", _Facade)
+
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+
+    general = SimpleNamespace(
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        context_mode=SimpleNamespace(value="general"),
+        context_token_cap=None,
+    )
+    out = await _run_assemble(engine, general, room)
+
+    assert [h.id for h in out] == [m1.id, m2.id]
+    assert all(h.content != "SUMMARY" for h in out)
 
 
 @pytest.mark.asyncio
