@@ -720,6 +720,30 @@ class TestMessageDelete:
         msgs.hard_delete.assert_awaited_once_with(_MSG)
         assert _audit.call_args[0][1].action == "message.deleted"
 
+    @patch("contexts.conversation.application.message_service.audit.emit", new_callable=AsyncMock)
+    async def test_delete_leaves_a_covering_compaction_summary_untouched(self, _audit) -> None:
+        # R13.26, deliberate: a compaction summary is derived content and is NOT
+        # rewritten by deletion - the confirm dialog discloses that instead. The
+        # retention purge is the one path that does reach summaries. Pinned so a
+        # future change to this policy shows up as a test change, not a silent one.
+        msgs = AsyncMock()
+        msgs.get.return_value = _message()
+        msgs.hard_delete.return_value = 1
+        svc = _make_message_service(messages=msgs)
+        exec_result = MagicMock()
+        exec_result.all.return_value = []
+        svc._db.execute.return_value = exec_result
+
+        await svc.delete(
+            message_id=_MSG,
+            authority=EditAuthority(actor_user_id=_USER, is_admin=False, is_moderator=False),
+            actor_ip=None,
+        )
+
+        # Exactly one statement: the attachment-path lookup. No summary query,
+        # no summary update.
+        assert svc._db.execute.await_count == 1
+
     async def test_delete_not_found(self) -> None:
         msgs = AsyncMock()
         msgs.get.return_value = None

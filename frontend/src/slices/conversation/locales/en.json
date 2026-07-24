@@ -98,6 +98,7 @@
       "editFailed": "Could not edit — it may be past the 5-minute window or changed elsewhere.",
       "deleteTitle": "Delete Message",
       "deleteConfirm": "Delete this message? This removes it for everyone and cannot be undone.",
+      "deleteSummaryNotice": "If this message has already been folded into a conversation summary, that summary keeps its own wording of it and is not rewritten.",
       "deleteFailed": "Failed to delete message.",
       "attachmentExpired": "[attachment expired] {name}",
       "attachmentLoading": "Loading image...",
