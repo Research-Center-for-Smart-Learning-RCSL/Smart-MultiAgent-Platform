@@ -262,6 +262,7 @@ async def chat_export(
                 export_format=state.export_format,
                 created_after=state.created_after,
                 created_before=state.created_before,
+                recorded_sender_scope=state.sender_scope,
             )
         await export_service.mark_ready(
             job_id=jid,

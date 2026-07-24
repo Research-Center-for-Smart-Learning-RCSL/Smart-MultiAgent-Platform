@@ -15,24 +15,45 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from contexts.conversation.application.access import RoomAccess
 from contexts.conversation.application.chat_export_service import (
     _EXPORT_MAX_MESSAGES,
     ChatExportService,
 )
 from contexts.conversation.domain.models import (
     AttachmentStatus,
+    ExportSenderScope,
     Message,
     MessageAttachment,
     MessageEdit,
     ScanStatus,
     SenderType,
 )
+from shared_kernel.auth.permissions import Role
 
 _NOW = datetime(2026, 6, 23, 12, 0, 0)
 _USER = uuid.uuid4()
 _ROOM = uuid.uuid4()
 _JOB = uuid.uuid4()
 _MSG = uuid.uuid4()
+
+
+def _moderator_access() -> RoomAccess:
+    """The unnarrowed path these tests have always exercised.
+
+    Previously a bare MagicMock, which stood in for a room access of no
+    particular role. Row 19 now reads `roles`, so the moderator assumption these
+    cases were relying on is stated rather than implied. See test_export_authz.py
+    for the narrowed (member) and denied (guest) paths.
+    """
+    room = MagicMock()
+    room.name = "general"
+    return RoomAccess(
+        chatroom=room,
+        project_id=uuid.uuid4(),
+        roles=frozenset({Role.PROJECT_OWNER}),
+        is_guest=False,
+    )
 
 
 def _message(
@@ -150,7 +171,7 @@ class TestChatExportBuildAndUpload:
         identity.is_admin.return_value = False
         MockIdentity.return_value = identity
 
-        mock_resolve.return_value = MagicMock()
+        mock_resolve.return_value = _moderator_access()
 
         room = MagicMock()
         room.name = "general"
@@ -184,6 +205,7 @@ class TestChatExportBuildAndUpload:
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_USER,
+            recorded_sender_scope=ExportSenderScope.ALL,
             exported_at=_NOW.isoformat(),
             export_format="json",
         )
@@ -229,7 +251,7 @@ class TestChatExportBuildAndUpload:
         identity.is_admin.return_value = True
         MockIdentity.return_value = identity
 
-        mock_resolve.return_value = MagicMock()
+        mock_resolve.return_value = _moderator_access()
 
         room = MagicMock()
         room.name = "admin-room"
@@ -249,6 +271,7 @@ class TestChatExportBuildAndUpload:
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_USER,
+            recorded_sender_scope=ExportSenderScope.ALL,
         )
 
         assert bucket == "exports"
@@ -264,7 +287,7 @@ class TestChatExportBuildAndUpload:
         identity.is_admin.return_value = False
         MockIdentity.return_value = identity
 
-        mock_resolve.return_value = MagicMock()
+        mock_resolve.return_value = _moderator_access()
         mock_ensure.side_effect = PermissionError("no read access")
 
         db = AsyncMock()
@@ -275,6 +298,7 @@ class TestChatExportBuildAndUpload:
                 job_id=_JOB,
                 chatroom_id=_ROOM,
                 owner_user_id=_USER,
+                recorded_sender_scope=ExportSenderScope.ALL,
             )
 
     @patch("contexts.conversation.application.chat_export_service.get_minio_client")
@@ -300,7 +324,7 @@ class TestChatExportBuildAndUpload:
         identity.is_admin.return_value = False
         MockIdentity.return_value = identity
 
-        mock_resolve.return_value = MagicMock()
+        mock_resolve.return_value = _moderator_access()
 
         room = MagicMock()
         room.name = "empty-room"
@@ -320,6 +344,7 @@ class TestChatExportBuildAndUpload:
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_USER,
+            recorded_sender_scope=ExportSenderScope.ALL,
             export_format="json",
         )
 
@@ -350,7 +375,7 @@ class TestChatExportBuildAndUpload:
         identity = AsyncMock()
         identity.is_admin.return_value = False
         MockIdentity.return_value = identity
-        mock_resolve.return_value = MagicMock()
+        mock_resolve.return_value = _moderator_access()
 
         room = MagicMock()
         room.name = "big-room"
@@ -373,10 +398,14 @@ class TestChatExportBuildAndUpload:
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_USER,
+            recorded_sender_scope=ExportSenderScope.ALL,
         )
 
         call_kwargs = msgs_repo.all_for_chatroom.call_args
         assert call_kwargs[1]["limit"] == _EXPORT_MAX_MESSAGES
+        # The `✓` cells stay room-wide: the additive sender predicate must not
+        # change the moderator path's default.
+        assert call_kwargs[1]["own_user_id"] is None
 
     @patch("contexts.conversation.application.chat_export_service.get_minio_client")
     @patch("contexts.conversation.application.chat_export_service.ChatroomRepository")
@@ -398,7 +427,7 @@ class TestChatExportBuildAndUpload:
         mock_minio_fn,
     ) -> None:
         MockIdentity.return_value = AsyncMock(is_admin=AsyncMock(return_value=False))
-        mock_resolve.return_value = MagicMock()
+        mock_resolve.return_value = _moderator_access()
         room = MagicMock()
         room.name = "general"
         MockRooms.return_value = AsyncMock(get=AsyncMock(return_value=room))
@@ -415,6 +444,7 @@ class TestChatExportBuildAndUpload:
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_USER,
+            recorded_sender_scope=ExportSenderScope.ALL,
             export_format="markdown",
         )
 
@@ -445,7 +475,7 @@ class TestChatExportBuildAndUpload:
         mock_minio_fn,
     ) -> None:
         MockIdentity.return_value = AsyncMock(is_admin=AsyncMock(return_value=False))
-        mock_resolve.return_value = MagicMock()
+        mock_resolve.return_value = _moderator_access()
         room = MagicMock()
         room.name = "general"
         MockRooms.return_value = AsyncMock(get=AsyncMock(return_value=room))
@@ -464,6 +494,7 @@ class TestChatExportBuildAndUpload:
                 job_id=_JOB,
                 chatroom_id=_ROOM,
                 owner_user_id=_USER,
+                recorded_sender_scope=ExportSenderScope.ALL,
                 export_format="pdf",
             )
 
@@ -495,7 +526,7 @@ class TestChatExportBuildAndUpload:
         mock_minio_fn,
     ) -> None:
         MockIdentity.return_value = AsyncMock(is_admin=AsyncMock(return_value=False))
-        mock_resolve.return_value = MagicMock()
+        mock_resolve.return_value = _moderator_access()
         room = MagicMock()
         room.name = "general"
         MockRooms.return_value = AsyncMock(get=AsyncMock(return_value=room))
@@ -514,6 +545,7 @@ class TestChatExportBuildAndUpload:
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_USER,
+            recorded_sender_scope=ExportSenderScope.ALL,
             export_format="json",
             created_after=after,
             created_before=before,
@@ -522,6 +554,7 @@ class TestChatExportBuildAndUpload:
         call_kwargs = msgs_repo.all_for_chatroom.call_args.kwargs
         assert call_kwargs["created_after"] == after
         assert call_kwargs["created_before"] == before
+        assert call_kwargs["own_user_id"] is None
 
 
 class TestUploadManifest:

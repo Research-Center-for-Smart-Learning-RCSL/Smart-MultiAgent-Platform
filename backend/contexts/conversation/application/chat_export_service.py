@@ -19,8 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.application.access import (
     ensure_can_read,
+    export_sender_scope,
     resolve_room_access,
 )
+from contexts.conversation.domain.models import ExportSenderScope
 from contexts.conversation.infrastructure.repositories import (
     ChatroomRepository,
     MessageAttachmentRepository,
@@ -28,6 +30,7 @@ from contexts.conversation.infrastructure.repositories import (
     MessageRepository,
 )
 from contexts.identity.interfaces.facade import IdentityFacade
+from shared_kernel import audit
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.markdown import render_safe_html
 from shared_kernel.storage import export_key, get_minio_client
@@ -51,6 +54,7 @@ class ChatExportService:
         job_id: uuid.UUID,
         chatroom_id: uuid.UUID,
         owner_user_id: uuid.UUID,
+        recorded_sender_scope: ExportSenderScope,
         exported_at: str | None = None,
         export_format: str = "markdown",
         created_after: datetime | None = None,
@@ -63,8 +67,19 @@ class ChatExportService:
         sanitised HTML rendered via WeasyPrint). *created_after* /
         *created_before* bound the message window for date-ranged exports.
 
+        *recorded_sender_scope* is what the API authorized at request time, read
+        back from the job record. It is a *description*, never an authority: the
+        row-19 scope is re-derived here from the database, and a re-derivation
+        that comes out **wider** than the record fails the job rather than
+        widening it. That keeps a compromised or stale job record unable to
+        enlarge an export, matching the no-trust posture the ``chat_export`` task
+        already applies to its enqueued arguments. A *narrower* re-derivation is
+        honoured: it means the caller lost a role between enqueue and execution.
+
         Returns ``(bucket, object_key)`` on success.
-        Raises ``PermissionError`` if the owner lacks read access.
+        Raises ``PermissionError`` if the owner lacks read access or the job
+        record describes a narrower export than the caller now qualifies for;
+        ``ForbiddenInRoom`` if row 19 grants the caller no export at all.
         """
         # Re-fetch admin status from DB so legitimate admin exports of
         # rooms they aren't a member of still succeed.
@@ -81,6 +96,14 @@ class ChatExportService:
         )
         ensure_can_read(access, is_admin=is_admin)
 
+        sender_scope = export_sender_scope(access, principal=principal)
+        if sender_scope is ExportSenderScope.ALL and recorded_sender_scope is not ExportSenderScope.ALL:
+            raise PermissionError(
+                f"export job {job_id} re-derived a wider sender scope "
+                f"({sender_scope.value}) than the job record authorized "
+                f"({recorded_sender_scope.value})"
+            )
+
         rooms = ChatroomRepository(self._db)
         messages = MessageRepository(self._db)
         edits = MessageEditRepository(self._db)
@@ -92,6 +115,7 @@ class ChatExportService:
             limit=_EXPORT_MAX_MESSAGES,
             created_after=created_after,
             created_before=created_before,
+            own_user_id=(owner_user_id if sender_scope is ExportSenderScope.OWN_PLUS_NON_USER else None),
         )
         serialized: list[dict[str, Any]] = []
         for m in rows:
@@ -145,7 +169,31 @@ class ChatExportService:
         # _EXPORT_PUT_TIMEOUT_SECONDS.
         await self._db.flush()
 
-        return await self._render_and_upload(job_id, manifest, export_format)
+        bucket, key = await self._render_and_upload(job_id, manifest, export_format)
+
+        # R17 / REQUIREMENTS.md "Chat audit actions": emit only after the
+        # artifact exists, so the trail never describes an export that was not
+        # delivered. Records what was taken and under which scope -- never the
+        # message content, and never the presigned URL (which is a bearer
+        # credential for the archive).
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="message.exported",
+                actor_user_id=owner_user_id,
+                resource_type="chatroom",
+                resource_id=chatroom_id,
+                metadata={
+                    "job_id": str(job_id),
+                    "export_format": export_format,
+                    "sender_scope": sender_scope.value,
+                    "created_after": created_after.isoformat() if created_after else None,
+                    "created_before": created_before.isoformat() if created_before else None,
+                    "message_count": len(serialized),
+                },
+            ),
+        )
+        return bucket, key
 
     @classmethod
     async def _render_and_upload(
