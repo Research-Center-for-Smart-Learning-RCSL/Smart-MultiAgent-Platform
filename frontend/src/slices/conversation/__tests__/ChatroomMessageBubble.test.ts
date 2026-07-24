@@ -184,4 +184,54 @@ describe('ChatroomMessageBubble attachments', () => {
     expect(chips.some((c) => c.text().includes('data.csv'))).toBe(true)
     expect(chips.some((c) => c.text().includes('chart.png'))).toBe(false)
   })
+
+  // The inline-image predicate must mirror the backend's _INLINE_SAFE_MIME
+  // allowlist, not the broader `image/*` category: a type the backend serves as
+  // `application/octet-stream` with an attachment disposition cannot be decoded
+  // by an <img>, and asking for it costs two failed presign round-trips before
+  // the component collapses to an unlabelled fallback button.
+  it('renders an svg attachment as a download chip, not an inline image', async () => {
+    const message: DisplayMessage = {
+      ...agentMessage({}),
+      attachments: [attachment({ id: 'svg1', filename: 'chart.svg', mime: 'image/svg+xml' })],
+    }
+    const wrapper = await renderView(ChatroomMessageBubble, { props: { ...baseProps, message } })
+    const chips = wrapper.findAll('.attachment-link')
+    expect(chips.some((c) => c.text().includes('chart.svg'))).toBe(true)
+  })
+
+  it('treats a parameterised svg mime identically', async () => {
+    // Mirrors the backend normalisation pinned in
+    // test_attachment_download_disposition.py, so the two sides stay aligned on
+    // parameter handling rather than only on the bare type.
+    const message: DisplayMessage = {
+      ...agentMessage({}),
+      attachments: [
+        attachment({ id: 'svg2', filename: 'plot.svg', mime: 'image/svg+xml; charset=utf-8' }),
+      ],
+    }
+    const wrapper = await renderView(ChatroomMessageBubble, { props: { ...baseProps, message } })
+    const chips = wrapper.findAll('.attachment-link')
+    expect(chips.some((c) => c.text().includes('plot.svg'))).toBe(true)
+  })
+
+  it('still renders a png inline', async () => {
+    // A guard, not a failing test: pins that narrowing the predicate did not
+    // take raster rendering with it.
+    server.use(
+      http.get('/api/attachments/img2', () =>
+        HttpResponse.json({
+          ...attachment({ id: 'img2', filename: 'raster.png', mime: 'image/png' }),
+          url: 'https://store/raster.png',
+        }),
+      ),
+    )
+    const message: DisplayMessage = {
+      ...agentMessage({}),
+      attachments: [attachment({ id: 'img2', filename: 'raster.png', mime: 'image/png' })],
+    }
+    const wrapper = await renderView(ChatroomMessageBubble, { props: { ...baseProps, message } })
+    const chips = wrapper.findAll('.attachment-link')
+    expect(chips.some((c) => c.text().includes('raster.png'))).toBe(false)
+  })
 })
