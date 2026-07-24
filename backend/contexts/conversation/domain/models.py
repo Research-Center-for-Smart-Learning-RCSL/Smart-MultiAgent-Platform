@@ -15,6 +15,22 @@ class SenderType(str, enum.Enum):
     SYSTEM = "system"
 
 
+class ExportSenderScope(str, enum.Enum):
+    """How much of a readable room a chat export may carry (matrix row 19).
+
+    ALL                — every sender, for owners and admins (the `✓` cells).
+    OWN_PLUS_NON_USER  — the caller's own messages plus all agent and system
+                         messages, for members (the `∘` cells). Other users'
+                         messages, edit histories and attachments are excluded.
+
+    Ordering matters: ALL is strictly wider than OWN_PLUS_NON_USER, and the
+    export worker refuses to widen past the scope recorded at request time.
+    """
+
+    ALL = "all"
+    OWN_PLUS_NON_USER = "own_plus_non_user"
+
+
 class ChatroomAgentRole(str, enum.Enum):
     NORMAL = "normal"
     OBSERVER = "observer"

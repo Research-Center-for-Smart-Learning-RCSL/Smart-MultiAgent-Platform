@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Final
 
+from contexts.conversation.domain.models import ExportSenderScope
 from shared_kernel.auth.clients import get_redis, now
 
 _JOB_TTL_SECONDS: Final = 24 * 3600
@@ -54,6 +55,10 @@ class ExportJobState:
     export_format: str = "markdown"  # "markdown" | "json" | "pdf"
     created_after: datetime | None = None
     created_before: datetime | None = None
+    # Permission-matrix row 19 scope the API authorized. Recorded so the worker
+    # can detect a widening, not so it can skip re-deriving: the worker treats
+    # this as a description and the database as the authority.
+    sender_scope: ExportSenderScope = ExportSenderScope.OWN_PLUS_NON_USER
     error: str | None = None
 
 
@@ -64,6 +69,7 @@ async def create(
     export_format: str = "markdown",
     created_after: datetime | None = None,
     created_before: datetime | None = None,
+    sender_scope: ExportSenderScope = ExportSenderScope.OWN_PLUS_NON_USER,
 ) -> ExportJobState:
     job_id = uuid.uuid4()
     state = ExportJobState(
@@ -77,6 +83,7 @@ async def create(
         export_format=export_format,
         created_after=created_after,
         created_before=created_before,
+        sender_scope=sender_scope,
     )
     await _store(state)
     return state
@@ -126,6 +133,11 @@ async def get(job_id: uuid.UUID) -> ExportJobState | None:
         export_format=data.get("export_format", "markdown"),
         created_after=datetime.fromisoformat(after) if after else None,
         created_before=datetime.fromisoformat(before) if before else None,
+        # A record written before sender scoping existed has no key. Default to
+        # the *narrowest* scope so a pre-deploy job can never widen an export;
+        # such a job either fails closed on the widen check or produces a
+        # narrowed archive, both of which are safe outcomes.
+        sender_scope=ExportSenderScope(data.get("sender_scope", ExportSenderScope.OWN_PLUS_NON_USER.value)),
         error=data.get("error"),
     )
 
@@ -142,6 +154,7 @@ async def _store(state: ExportJobState) -> None:
         "export_format": state.export_format,
         "created_after": state.created_after.isoformat() if state.created_after else None,
         "created_before": state.created_before.isoformat() if state.created_before else None,
+        "sender_scope": state.sender_scope.value,
         "error": state.error,
     }
     await get_redis().set(
@@ -163,6 +176,7 @@ def _replace(state: ExportJobState, **kwargs: object) -> ExportJobState:
         export_format=state.export_format,
         created_after=state.created_after,
         created_before=state.created_before,
+        sender_scope=state.sender_scope,
         error=kwargs.get("error", state.error),  # type: ignore[arg-type]
     )
 

@@ -386,6 +386,25 @@ _SELF_SERVICE_CAPABILITIES: frozenset[Capability] = frozenset(
 )
 
 
+def outcome_for(capability: Capability, role: Role) -> Outcome | None:
+    """Return the raw §5.2 cell for `(capability, role)`, or None if the row is
+    empty for that role.
+
+    Escape hatch for room-scoped rows that `decide()` structurally cannot
+    resolve: `TenancyRoleResolver.roles_for` reads `org_members` and
+    `project_members` only, so it never emits `Role.GUEST`, and
+    `is_chatroom_participant` raises by design rather than fail open. Rows 19
+    and 20 must therefore be interpreted by the conversation context against its
+    own `RoomAccess`. Reading the cell keeps the matrix the single declarative
+    statement of intent (R5.05) instead of growing another hand-copied rule.
+
+    This returns a *cell*, not a decision: the caller implements the outcome and
+    is responsible for the admin bypass and for any side-condition the outcome
+    carries. Use `decide()` wherever the scope resolves.
+    """
+    return _MATRIX.get(capability, {}).get(role)
+
+
 __all__ = [
     "Capability",
     "Decision",
@@ -395,4 +414,5 @@ __all__ = [
     "RoleResolver",
     "Scope",
     "decide",
+    "outcome_for",
 ]

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.conversation.application import export_service
 from contexts.conversation.application.access import (
     ensure_can_read,
+    export_sender_scope,
     resolve_room_access,
 )
 from contexts.conversation.application.export_service import ExportJobStatus
@@ -100,6 +101,9 @@ async def create_export(
         chatroom_id=chatroom_id,
     )
     ensure_can_read(access, is_admin=principal.is_admin)
+    # Row 19 narrows within a room the caller may already read; the read gate
+    # above stays in the path and is not replaced by this.
+    sender_scope = export_sender_scope(access, principal=principal)
 
     body = body or ExportCreateIn()
     created_after, created_before = _resolve_window(body)
@@ -109,6 +113,7 @@ async def create_export(
         export_format=body.format,
         created_after=created_after,
         created_before=created_before,
+        sender_scope=sender_scope,
     )
     from shared_kernel.queue import enqueue
 

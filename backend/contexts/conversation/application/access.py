@@ -27,7 +27,7 @@ from contexts.conversation.domain.errors import (
     NotRoomCreator,
     WorkspaceNotFound,
 )
-from contexts.conversation.domain.models import Chatroom
+from contexts.conversation.domain.models import Chatroom, ExportSenderScope
 from contexts.conversation.infrastructure.repositories import (
     ChatroomGuestRepository,
     ChatroomRepository,
@@ -35,7 +35,14 @@ from contexts.conversation.infrastructure.repositories import (
 )
 from contexts.tenancy.interfaces.facade import TenancyFacade
 from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
-from shared_kernel.auth.permissions import Principal, Role, Scope
+from shared_kernel.auth.permissions import (
+    Capability,
+    Outcome,
+    Principal,
+    Role,
+    Scope,
+    outcome_for,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +149,38 @@ def ensure_can_read(access: RoomAccess, *, is_admin: bool) -> None:
         raise ForbiddenInRoom("caller cannot read this chatroom")
 
 
+def export_sender_scope(access: RoomAccess, *, principal: Principal) -> ExportSenderScope:
+    """Matrix row 19 (chat.export) — how much of a readable room may the caller
+    take away? Raises `ForbiddenInRoom` when the row grants them nothing.
+
+    Decided semantics (dossier 2026-07-22-chat-export-authz-and-polling, Q-1a and
+    Q-3): a narrowed export contains the caller's own messages plus all agent and
+    system messages in the room; messages sent by *other users*, together with
+    their edit histories and attachments, are excluded. Per Q-2, guests may not
+    export at all.
+
+    This is row 19's only interpreter, and it reads the row's cells through
+    `outcome_for` rather than restating them, so the matrix stays authoritative
+    (R5.05). `decide()` cannot serve this row: the tenancy resolver never emits
+    `Role.GUEST`, so a `decide()`-based check would deny every guest by accident
+    rather than by decision, and `Outcome.OWN_ONLY` there compares a stored
+    resource owner, which an aggregate like an export does not have.
+
+    Callers must still run `ensure_can_read` first. Row 19 narrows *within* a
+    room the caller may read; it is not a substitute for the four-flag room gate.
+    """
+    if principal.is_admin:
+        return ExportSenderScope.ALL
+    outcomes = {outcome_for(Capability.CHAT_EXPORT, role) for role in access.roles}
+    if Outcome.ALLOW in outcomes:
+        return ExportSenderScope.ALL
+    if Outcome.OWN_ONLY in outcomes:
+        return ExportSenderScope.OWN_PLUS_NON_USER
+    # Reached by pure guests: they hold no org/project role, so the row offers
+    # them no cell at all.
+    raise ForbiddenInRoom("caller cannot export this chatroom")
+
+
 def is_room_creator(access: RoomAccess, *, principal: Principal) -> bool:
     """R28.02 — who may see observer surfaces (observations, roles, disclosure).
 
@@ -186,6 +225,7 @@ __all__ = [
     "ensure_can_read",
     "ensure_can_send",
     "ensure_room_creator",
+    "export_sender_scope",
     "is_room_creator",
     "resolve_room_access",
 ]

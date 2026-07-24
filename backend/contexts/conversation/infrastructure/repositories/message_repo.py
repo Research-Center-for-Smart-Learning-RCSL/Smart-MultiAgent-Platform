@@ -276,6 +276,7 @@ class MessageRepository:
         limit: int | None = None,
         created_after: datetime | None = None,
         created_before: datetime | None = None,
+        own_user_id: uuid.UUID | None = None,
     ) -> Sequence[Message]:
         """Full dump of a room's live messages, ordered chronologically --
         used by the export worker. Always streams from the primary index so
@@ -285,11 +286,25 @@ class MessageRepository:
         large rooms. *created_after* / *created_before* bound the window for
         date-ranged exports (inclusive lower, exclusive upper); ``None`` on
         either side leaves that edge open.
+
+        *own_user_id* narrows the dump to that user's own messages plus every
+        non-user (agent, system) message, which is permission-matrix row 19's
+        `∘` scope. It belongs in the WHERE clause rather than in a post-filter
+        so another participant's rows -- their markdown, edit history and
+        attachment object paths -- are never read into process memory. ``None``
+        (the default) leaves the dump room-wide, which is the `✓` scope.
         """
         conditions = [
             t.messages.c.chatroom_id == chatroom_id,
             t.messages.c.deleted_at.is_(None),
         ]
+        if own_user_id is not None:
+            conditions.append(
+                sa.or_(
+                    t.messages.c.sender_type != SenderType.USER.value,
+                    t.messages.c.sender_id == own_user_id,
+                )
+            )
         if created_after is not None:
             conditions.append(t.messages.c.created_at >= created_after)
         if created_before is not None:
