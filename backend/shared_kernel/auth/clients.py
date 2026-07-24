@@ -78,6 +78,20 @@ def now() -> datetime:
     return _clock()
 
 
+def as_utc(value: datetime) -> datetime:
+    """Read a stored timestamp as UTC-aware so it can be compared against `now()`.
+
+    Every timestamp column in the schema is `TIMESTAMP(timezone=True)`, so
+    asyncpg hands back aware values and this is a no-op on the real read path.
+    It exists because comparing an aware value against a naive one raises
+    TypeError rather than returning a wrong answer: on a request path that is a
+    500, and the values reaching these comparisons come from rows that outlive
+    any single migration. Naive is interpreted as UTC, which is what the column
+    stores.
+    """
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
 def set_clock(fn: Callable[[], datetime]) -> None:
     global _clock
     _clock = fn
@@ -88,6 +102,7 @@ def monotonic() -> float:
 
 
 __all__ = [
+    "as_utc",
     "close_redis",
     "get_redis",
     "get_vault_client",

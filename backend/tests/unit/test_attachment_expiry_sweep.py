@@ -246,6 +246,23 @@ async def test_download_of_a_live_attachment_still_presigns() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("naive", [False, True], ids=["aware", "naive"])
+async def test_horizon_comparison_tolerates_a_naive_timestamp(naive: bool) -> None:
+    # Comparing a naive datetime against an aware one raises TypeError rather
+    # than returning a wrong answer, and on this path that is a 500 on every
+    # download. The schema stores TIMESTAMP(timezone=True) so the real read path
+    # is always aware, but the guard costs nothing and the failure mode is loud.
+    expires = now() - timedelta(hours=1)
+    row = _row(expires_at=expires.replace(tzinfo=None) if naive else expires)
+    svc, _, minio = _service([row])
+
+    with pytest.raises(AttachmentExpired):
+        await svc.get_for_download(attachment_id=row.id)
+
+    assert minio.calls == []
+
+
+@pytest.mark.asyncio
 async def test_quarantine_is_refused_ahead_of_expiry() -> None:
     # A row that is both quarantined and past its horizon must still report the
     # quarantine: 403 with the scan verdict, not 410 with "it aged out".
