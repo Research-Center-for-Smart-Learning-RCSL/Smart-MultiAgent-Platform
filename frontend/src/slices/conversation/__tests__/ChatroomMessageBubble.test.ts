@@ -215,6 +215,33 @@ describe('ChatroomMessageBubble attachments', () => {
     expect(chips.some((c) => c.text().includes('plot.svg'))).toBe(true)
   })
 
+  // Until the expiry sweep existed nothing ever wrote `expired`, so this branch
+  // was unreachable and the two placeholder states were indistinguishable in
+  // practice. They must stay distinct: quarantine is a scan verdict and expiry
+  // is not, and the sweep deliberately never overwrites one with the other.
+  it('renders the expired placeholder for an expired attachment', async () => {
+    const message: DisplayMessage = {
+      ...agentMessage({}),
+      attachments: [attachment({ id: 'e1', filename: 'old.pdf', status: 'expired' })],
+    }
+    const wrapper = await renderView(ChatroomMessageBubble, { props: { ...baseProps, message } })
+    const gone = wrapper.find('.attachment-gone')
+    expect(gone.exists()).toBe(true)
+    expect(gone.text()).toContain('conversation.chatroom.attachmentExpired')
+    expect(wrapper.findAll('.attachment-link')).toHaveLength(0)
+  })
+
+  it('renders the quarantined placeholder for a quarantined attachment', async () => {
+    const message: DisplayMessage = {
+      ...agentMessage({}),
+      attachments: [attachment({ id: 'q1', filename: 'bad.exe', status: 'quarantined' })],
+    }
+    const wrapper = await renderView(ChatroomMessageBubble, { props: { ...baseProps, message } })
+    expect(wrapper.find('.attachment-gone').text()).toContain(
+      'conversation.chatroom.attachmentQuarantined',
+    )
+  })
+
   it('still renders a png inline', async () => {
     // A guard, not a failing test: pins that narrowing the predicate did not
     // take raster rendering with it.
