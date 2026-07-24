@@ -134,7 +134,7 @@ import ObserverDisclosureChip from './ObserverDisclosureChip.vue'
 const props = withDefaults(
   defineProps<{
     roomName: string
-    connectionState: 'connecting' | 'live' | 'reconnecting' | 'degraded'
+    connectionState: 'connecting' | 'live' | 'reconnecting' | 'degraded' | 'limited'
     isMobile: boolean
     isDesktop: boolean
     observersPresent?: boolean
@@ -186,6 +186,16 @@ const pill = computed(() => {
         label: t('conversation.chatroom.degraded'),
         cls: 'chat-header__pill--off',
         spin: true,
+      }
+    case 'limited':
+      // The server is refusing this user's excess connections (R19.03).
+      // Deliberately not spinning: the socket does keep retrying, but waiting
+      // is not what resolves this — closing another tab is.
+      return {
+        icon: SignalSlashIcon,
+        label: t('conversation.chatroom.limited'),
+        cls: 'chat-header__pill--reconnecting',
+        spin: false,
       }
     default:
       return {

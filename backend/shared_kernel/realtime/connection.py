@@ -46,6 +46,11 @@ _OUTBOUND_QUEUE_MAX = 256  # bounded per connection
 _CLOSE_POLICY_VIOLATION = 1008
 _CLOSE_TRY_AGAIN_LATER = 1013
 _CLOSE_AUTH_FAILED = 4401  # app-level code, see §22.14
+# App-level code for the per-user connection cap (R19.03). Deliberately not
+# 1013: the idle reaper and the slow-consumer path use that code too, and the
+# client surfaces this condition distinctly because — unlike a network fault —
+# the user can cure it by closing a tab.
+_CLOSE_CAP_REACHED = 4429
 # ASYNC-7: a live client sends periodic `ping` frames (and presence
 # heartbeats); silence past this window means the socket is half-open (the
 # client vanished without a TCP FIN). The server reaps it so the connection
@@ -211,10 +216,13 @@ async def connection_loop(
     # Per-user cap — check before accepting so the accept+close path is rare.
     if not await _register_user_connection(principal.user_id, conn.connection_id):
         WS_PER_USER_REJECTIONS.inc()
-        # Must accept before sending a close frame; HTTP-upgrade is already
-        # complete by this point so we cannot reject at the transport level.
+        # Accept first, then close: a pre-accept reject is possible (the route
+        # handshake does exactly that, e.g. chatroom.py's 4403 on room-ACL
+        # denial) but cannot carry a close code or reason, and
+        # docs/implement/F-chat-realtime.md requires the excess connection be
+        # refused with a structured error the client can act on.
         await ws.accept(subprotocol=subprotocol)
-        await ws.close(code=_CLOSE_TRY_AGAIN_LATER, reason="per-user WS cap reached")
+        await ws.close(code=_CLOSE_CAP_REACHED, reason="per-user WS cap reached")
         return
 
     try:

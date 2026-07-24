@@ -32,15 +32,23 @@ export function useChatroomSocket(roomId: string) {
   const activitiesStore = useActivitiesStore()
   const connected = ref(false)
   // Pill state (07-conversation / §7.1): 'connecting' before the first open,
-  // 'live' while open, 'reconnecting' after a drop, and 'degraded' once the
-  // socket has failed to reconnect enough times that we fall back to REST
-  // polling. The transport exposes a boolean (open/closed) plus an advisory
-  // degraded flag; the richer pill state is derived from both here.
+  // 'live' while open, 'reconnecting' after a drop, 'degraded' once the socket
+  // has failed to reconnect enough times that we fall back to REST polling, and
+  // 'limited' when the server is refusing this user's excess connections
+  // (R19.03). The transport exposes a boolean (open/closed) plus two advisory
+  // flags; the richer pill state is derived from all three here.
   const baseState = ref<'connecting' | 'live' | 'reconnecting'>('connecting')
   const degraded = ref(false)
-  const connectionState = computed<'connecting' | 'live' | 'reconnecting' | 'degraded'>(
-    () => (degraded.value && baseState.value !== 'live' ? 'degraded' : baseState.value),
-  )
+  const capReached = ref(false)
+  const connectionState = computed<
+    'connecting' | 'live' | 'reconnecting' | 'degraded' | 'limited'
+  >(() => {
+    if (baseState.value === 'live') return 'live'
+    // 'limited' outranks 'degraded': both mean pushes are dark, but only this
+    // one names something the user can act on.
+    if (capReached.value) return 'limited'
+    return degraded.value ? 'degraded' : baseState.value
+  })
   let everConnected = false
   const lastSeenMessageId = ref<string | null>(null)
 
@@ -399,6 +407,12 @@ export function useChatroomSocket(roomId: string) {
     else stopPolling()
   })
 
+  // Only feeds the pill — the polling fallback stays keyed off `degraded`,
+  // which a capped channel also reaches on its third refused attempt.
+  const unsubscribeCapReached = channel.onCapReached((isCapReached) => {
+    capReached.value = isCapReached
+  })
+
   onMounted(() => {
     channel.connect()
     startApprovalReconcile()
@@ -426,6 +440,7 @@ export function useChatroomSocket(roomId: string) {
     unsubscribeEvent()
     unsubscribeStatus()
     unsubscribeDegraded()
+    unsubscribeCapReached()
     unsubCache()
     wsManager.close(`/chatroom/${roomId}`)
     store.resetRoom(roomId)

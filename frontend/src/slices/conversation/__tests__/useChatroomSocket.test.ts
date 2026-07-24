@@ -16,6 +16,7 @@ import type * as ActivitiesSlice from '@slices/activities'
 const subscribedHandlers: Array<(ev: ChannelEvent) => void> = []
 const statusHandlers: Array<(connected: boolean) => void> = []
 const degradedHandlers: Array<(degraded: boolean) => void> = []
+const capReachedHandlers: Array<(capReached: boolean) => void> = []
 
 vi.mock('@shared/transport', () => {
   const channel = {
@@ -29,6 +30,11 @@ vi.mock('@shared/transport', () => {
     },
     onDegraded: (handler: (degraded: boolean) => void) => {
       degradedHandlers.push(handler)
+      handler(false)
+      return () => {}
+    },
+    onCapReached: (handler: (capReached: boolean) => void) => {
+      capReachedHandlers.push(handler)
       handler(false)
       return () => {}
     },
