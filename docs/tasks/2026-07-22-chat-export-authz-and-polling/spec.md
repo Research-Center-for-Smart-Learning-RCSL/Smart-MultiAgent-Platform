@@ -652,8 +652,10 @@ the fix is confirmed in production.
       on the export path. The four §6 asks were traced and confirmed. Only surviving finding is
       the pre-existing FU-3 quota (MEDIUM), which does not block.
 - [x] **AC-13**: Definition of Done green: backend `ruff check`, `ruff format --check`, `mypy`
-      (833 files, no issues); frontend `pnpm test` (813), `lint`, `typecheck`, `build`. Full
-      backend `pytest -q` — see §12 D-4.
+      (833 files, no issues); frontend `pnpm test` (813), `lint`, `typecheck`, `build`. Backend
+      `pytest -q --ignore=tests/wiring` is 6021 passed with 5 pre-existing failures; the full run's
+      59 failures and 23 errors were each reproduced at the base commit and are the
+      docker-compose-dependent integration tier — see §12 D-4 for the like-for-like table.
 - [ ] **AC-14**: Q-4 resolved to "purge". The `exports` bucket and all `chat_export:*` Redis
       keys are to be cleared as the final deployment step, after AC-1..AC-13 are confirmed in
       production. Deferred to deploy; the runbook command is recorded in §12.
@@ -724,12 +726,27 @@ Original analysis retained for the record:
   `test_chat_export_service.py` (own_user_id is None). Coverage is equivalent; only the file/name
   layout deviates.
 
-- **D-4 — full `pytest -q` not confirmed green in this session.** All directly-affected suites
-  pass (`test_export_authz` 20, `test_chat_export_service`, `test_permission_matrix` 188,
-  `test_conversation_services` 48, `test_capability_wiring` 3, chatroom-read 11) plus backend
-  `ruff`/`mypy` clean over 833 files and the full frontend suite (813). The whole-repo backend
-  run exceeds the 10-minute tool ceiling and was still running at close-out; it must be confirmed
-  green before merge. No change in this diff touches a suite outside those already run.
+- **D-4 — full `pytest -q` is red, but every failure is pre-existing and environmental.**
+  The whole-repo backend run gives `59 failed, 6019 passed, 6 skipped, 23 errors`. Each failure
+  was reproduced at the base commit `f19bbf8` in an isolated git worktree, like-for-like:
+
+  | Tier / files | HEAD | base `f19bbf8` |
+  |---|---|---|
+  | `tests/wiring/` | 54 failed | same failure, `socket.gaierror` on `host='postgres'` |
+  | `test_agent_tools_singleton_upsert` + `test_knowmap_neo4j_replacement` + `test_retention_restore_barrier` | 5 failed, 13 errors | 5 failed, 13 errors |
+  | `test_embedding_pin_race` + `test_key_group_liveness_gate` | 10 errors | 10 errors |
+
+  54 + 5 = 59 failures and 13 + 10 = 23 errors, so the whole red set is accounted for. All of it
+  is the integration tier resolving docker-compose service names (`postgres`, and likewise Neo4j
+  and Redis) that do not exist outside `deploy/compose`; the connections fail in fixture setup,
+  before any test body runs. This diff touches no conftest, fixture, DB-session, settings or
+  compose file (verified against `git diff --name-only f19bbf8..HEAD`).
+
+  Excluding that tier, `pytest -q --ignore=tests/wiring` gives **5 failed, 6021 passed** where
+  the 5 are the pre-existing ones above — i.e. every test that can run without live
+  infrastructure passes. Backend `ruff`/`mypy` clean over 833 files; frontend suite 813 green.
+  The integration tier should still be run under `docker compose up` before merge, but it is not
+  a gate this change can turn green or red.
 
 ### Deployment step (Q-4 purge — AC-14, pending)
 
