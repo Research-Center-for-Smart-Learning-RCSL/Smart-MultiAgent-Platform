@@ -187,6 +187,41 @@ describe('Channel superseded-socket handling', () => {
     await vi.advanceTimersByTimeAsync(30_000)
     expect(framesOf(live)).toEqual([{ type: 'ping' }])
   })
+
+  it('a deliberately closed socket does not inflate the reconnect backoff', async () => {
+    // `disconnect()` resets the failure run because a KeepAlive pause is not a
+    // network problem. But the closed socket reports asynchronously, and if
+    // `connect()` has already cleared `paused` by then, that close lands with
+    // `socket === null` — past the supersession guard — and schedules a
+    // reconnect, doubling the backoff for a socket nobody lost. Cycling faster
+    // than the stability window (tab switching) walks it up to MAX_BACKOFF_MS,
+    // so the next genuine drop takes up to 30s to recover instead of 1s.
+    const channel = await openChannel('/chatroom/room-pause')
+    const stale = latest()
+    stale.triggerOpen()
+
+    channel.disconnect()
+    channel.connect()
+    // The window: `paused` is already false and the replacement socket does not
+    // exist yet, so `this.socket` is null when the old socket reports.
+    stale.triggerClose(1000, 'channel deactivated')
+    await vi.advanceTimersByTimeAsync(0)
+
+    const live = latest()
+    expect(live).not.toBe(stale)
+    live.triggerOpen()
+    // Long enough for any reconnect the stale close scheduled to fire and
+    // no-op, short of the stability window that would legitimately reset it.
+    await vi.advanceTimersByTimeAsync(1_000)
+    const beforeDrop = FakeWebSocket.instances.length
+
+    // A genuine drop must now retry at the initial backoff.
+    live.triggerClose(1006)
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(FakeWebSocket.instances).toHaveLength(beforeDrop + 1)
+  })
 })
 
 describe('Channel connection stability (F-4)', () => {
