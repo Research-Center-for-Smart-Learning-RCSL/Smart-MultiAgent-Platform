@@ -65,16 +65,20 @@ services:
     # Dev bootstrap: generate a self-signed cert on first boot if none mounted.
     # Operators replace the `nginx_certs` volume contents with real certs in
     # prod (see deploy/compose/nginx/README.md).
+    # Every line must sit at the SAME indent. A YAML folded scalar only folds
+    # newlines into spaces for lines at the block's base indent -- a deeper
+    # indent is preserved verbatim, which split the openssl invocation across
+    # lines and made sh report "-keyout: not found".
     command: >
       sh -c "if [ ! -f /etc/nginx/certs/smap.crt ]; then
-               apk add --no-cache openssl >/dev/null &&
-               openssl req -x509 -newkey rsa:2048 -nodes -days 365
-                 -keyout /etc/nginx/certs/smap.key
-                 -out    /etc/nginx/certs/smap.crt
-                 -subj   '/CN=smap.local' &&
-               chmod 600 /etc/nginx/certs/smap.key;
-             fi &&
-             exec nginx -g 'daemon off;'"
+      apk add --no-cache openssl >/dev/null &&
+      openssl req -x509 -newkey rsa:2048 -nodes -days 365
+      -keyout /etc/nginx/certs/smap.key
+      -out /etc/nginx/certs/smap.crt
+      -subj '/CN=smap.local' &&
+      chmod 600 /etc/nginx/certs/smap.key;
+      fi &&
+      exec nginx -g 'daemon off;'"
     networks: [frontend_net, backend_net]
     logging: *log-rotation
     healthcheck:
@@ -88,7 +92,13 @@ services:
     image: node:20.18.1-alpine
     container_name: smap_frontend
     working_dir: /app
-    command: sh -c "corepack enable && pnpm install && pnpm --filter @smap/frontend run dev -- --host 0.0.0.0"
+    # The corepack bundled with node:20.18.1 ships signing keys that have since
+    # expired, so its registry lookup dies with "Cannot find matching keyid"
+    # before pnpm is ever resolved. Upgrading corepack first fixes it while
+    # keeping signature verification on -- do not reach for
+    # COREPACK_INTEGRITY_KEYS=0, which disables that verification instead.
+    # The pnpm version itself stays pinned by packageManager in package.json.
+    command: sh -c "npm install -g corepack@latest && corepack enable && pnpm install && pnpm --filter @smap/frontend run dev -- --host 0.0.0.0"
     networks: [frontend_net]
     logging: *log-rotation
     healthcheck:

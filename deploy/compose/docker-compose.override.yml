@@ -4,9 +4,10 @@ services:
     container_name: smap_backend_web
     # Build the dev stage so pytest/mypy/ruff are available for in-container
     # test runs; the base compose.yml builds the slim `runtime` stage.
+    # Only `target` is overridden — `context` and `dockerfile` must stay
+    # inherited. The Dockerfile COPYs `backend/...` and `docs/...`, so it only
+    # builds from the repo root; naming a context here silently re-breaks it.
     build:
-      context: ../../backend
-      dockerfile: Dockerfile
       target: dev
     command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
     environment:
@@ -20,9 +21,8 @@ services:
 
   backend-worker:
     container_name: smap_backend_worker
+    # See backend-web: inherit context/dockerfile, override only the target.
     build:
-      context: ../../backend
-      dockerfile: Dockerfile
       target: dev
     environment:
       SMAP_APP_ENV: dev
@@ -54,6 +54,12 @@ services:
   frontend:
     volumes:
       - ../../:/app
+      # Keep the host's node_modules out of the container. pnpm's layout is a
+      # tree of symlinks into a store, and one installed from a Windows host is
+      # not usable under Linux -- the container found no vite binary and exited.
+      # These anonymous volumes let the in-container `pnpm install` own them.
+      - /app/node_modules
+      - /app/frontend/node_modules
 
   neo4j:
     ports:
