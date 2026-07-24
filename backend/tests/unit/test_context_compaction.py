@@ -95,12 +95,15 @@ def test_choose_range_no_uncompacted_returns_none() -> None:
 
 
 class _FakeSummariser:
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(self, *, fail: bool = False, text: str | None = None) -> None:
         self._fail = fail
+        self._text = text
 
     async def summarise(self, messages, *, max_tokens: int = 2000) -> str:
         if self._fail:
             raise RuntimeError("boom")
+        if self._text is not None:
+            return self._text
         return f"summary of {len(messages)} msgs"
 
 
@@ -144,4 +147,24 @@ async def test_run_compact_raises_compact_failed_on_summariser_error() -> None:
             store=store,
         )
     # Per R9.11 — on failure, nothing was written.
+    assert store.called_with is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("empty", ["", "   ", "\n\t"])
+async def test_run_compact_raises_compact_failed_on_empty_summary(empty: str) -> None:
+    # A 200 carrying blank text is a *semantic* failure the transport-level
+    # check cannot see. Folding on it would elide the range behind a summary
+    # that says nothing, permanently and irreversibly (R9.11).
+    msgs = [_m(1, 900)]
+    store = _FakeStore()
+    with pytest.raises(CompactFailed):
+        await run_compact(
+            messages=msgs,  # type: ignore[arg-type]
+            projected_tokens=1000,
+            context_token_cap=500,
+            provider_context_limit=1200,
+            summariser=_FakeSummariser(text=empty),
+            store=store,
+        )
     assert store.called_with is None
