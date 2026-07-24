@@ -15,6 +15,7 @@ export type ChatroomOut = {
     name: string;
     observers_present: boolean;
     version: number;
+    viewer_is_guest?: boolean;
     workspace_id: string;
 };
 
