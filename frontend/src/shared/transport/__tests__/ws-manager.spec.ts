@@ -166,6 +166,29 @@ describe('Channel heartbeat (F-1)', () => {
   })
 })
 
+describe('Channel superseded-socket handling', () => {
+  it('a late close from a replaced socket does not stop the live socket pinging', async () => {
+    const channel = await openChannel()
+    const stale = latest()
+    stale.triggerOpen()
+
+    // Force a replacement: pause, then reconnect. The ticket fetch means the
+    // new socket can exist before the old one's close event lands.
+    channel.disconnect()
+    channel.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const live = latest()
+    expect(live).not.toBe(stale)
+    live.triggerOpen()
+
+    // Only now does the replaced socket report its close.
+    stale.triggerClose(1000)
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(framesOf(live)).toEqual([{ type: 'ping' }])
+  })
+})
+
 describe('Channel connection stability (F-4)', () => {
   it('an accepted socket that closes immediately does not reset the backoff', async () => {
     await openChannel()

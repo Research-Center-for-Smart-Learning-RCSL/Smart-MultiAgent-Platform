@@ -188,6 +188,13 @@ export class Channel {
       }
 
       socket.onclose = (ev) => {
+        // A close can land after the channel already replaced this socket —
+        // `disconnect()` closes asynchronously while `connect()` awaits an HTTP
+        // ticket, so the two can interleave. Tearing down here would clear the
+        // *live* socket's heartbeat and leave it silent until the server's idle
+        // reaper collected it, which is the very defect this file fixes. A null
+        // `socket` means a deliberate disconnect/close, which still reports.
+        if (this.socket !== null && this.socket !== socket) return
         this.emitStatus(false)
         this.clearRefreshTimer()
         this.clearHeartbeatTimer()
