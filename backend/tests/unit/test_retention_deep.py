@@ -133,6 +133,51 @@ class TestRetentionServicePurgeOnce:
 
     @patch("contexts.conversation.application.retention_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.conversation.application.retention_service.now", return_value=_NOW)
+    async def test_purge_pages_the_summary_scan_and_does_not_reread_deleted_rows(
+        self, _now, _audit, monkeypatch
+    ) -> None:
+        # `compacted_ids` can only be filtered in Python, so an unpaged scan
+        # would pull every summary in every affected room into memory. Paged by
+        # keyset rather than OFFSET because rows are deleted as we go, which
+        # would shift an offset window and skip rows.
+        import contexts.conversation.application.retention_service as mod
+
+        monkeypatch.setattr(mod, "PURGE_CHUNK", 2)
+
+        room = uuid.uuid4()
+        purged = uuid.uuid4()
+
+        def _summary(msg_id, covers):
+            return MagicMock(
+                id=msg_id,
+                chatroom_id=room,
+                metadata={"type": "compact_summary", "compacted_ids": [str(c) for c in covers]},
+            )
+
+        a, b, c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        db = AsyncMock()
+        db.execute.side_effect = [
+            MagicMock(all=MagicMock(return_value=[MagicMock(id=purged, chatroom_id=room)])),
+            MagicMock(all=MagicMock(return_value=[])),
+            MagicMock(rowcount=1),
+            # full page -> another page must be requested
+            MagicMock(all=MagicMock(return_value=[_summary(a, [purged]), _summary(b, [])])),
+            MagicMock(rowcount=1),  # delete of page 1's hit
+            # short page -> stop
+            MagicMock(all=MagicMock(return_value=[_summary(c, [purged])])),
+            MagicMock(rowcount=1),
+        ]
+        svc = RetentionService(db, minio=AsyncMock())
+
+        report = await svc.purge_once()
+
+        assert report.summaries_deleted == 2  # `a` and `c`; `b` covered nothing purged
+        # Seven statements: had the scan not paged, the second page would never
+        # have been requested and `c` would have survived the purge.
+        assert db.execute.await_count == 7
+
+    @patch("contexts.conversation.application.retention_service.audit.emit", new_callable=AsyncMock)
+    @patch("contexts.conversation.application.retention_service.now", return_value=_NOW)
     async def test_purge_issues_no_delete_when_no_summary_is_affected(self, _now, _audit) -> None:
         db = AsyncMock()
         svc = RetentionService(db, minio=AsyncMock())

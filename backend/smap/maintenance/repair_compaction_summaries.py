@@ -65,13 +65,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.workers.agent_fs_gc import _TRUTHY
 from contexts.conversation.infrastructure import tables as t
+from contexts.conversation.interfaces import (
+    COMPACT_SUMMARY_TYPE,
+    COMPACTED_IDS_KEY,
+    ORIGINAL_COMPACTED_IDS_KEY,
+    VOIDED_SUMMARY_TYPE,
+    compacted_ids,
+    summary_producer,
+)
 from shared_kernel import audit
 from shared_kernel.auth.clients import now
 from shared_kernel.db.session import get_sessionmaker
 
 _ARMED_ENV = "SMAP_REPAIR_COMPACTION_SUMMARIES_ARMED"
-_COMPACT_TYPE = "compact_summary"
-_VOIDED_TYPE = "compact_summary_voided"
 _PAGE = 500
 
 
@@ -107,40 +113,43 @@ class RepairReport:
         return len(self.empty) + len(self.overlapping)
 
 
-def _covered(metadata: dict[str, Any]) -> list[str]:
-    return [str(c) for c in (metadata.get("compacted_ids") or [])]
-
-
 async def _load_summaries(session: AsyncSession) -> list[Any]:
     """Every live compaction summary, oldest-first within a room.
 
     Ordered by `(chatroom_id, created_at)` so the overlap pass can keep the
-    *earlier* summary of an overlapping pair without a second sort.
+    *earlier* summary of an overlapping pair without a second sort. Paged by
+    that same ordering as a keyset, not by OFFSET, so the cost stays linear in
+    the population rather than quadratic in the page count.
     """
     rows: list[Any] = []
-    offset = 0
+    cursor: tuple[Any, Any, Any] | None = None
+    order = (t.messages.c.chatroom_id, t.messages.c.created_at, t.messages.c.id)
     while True:
-        page = (
-            await session.execute(
-                sa.select(
-                    t.messages.c.id,
-                    t.messages.c.chatroom_id,
-                    t.messages.c.content_md,
-                    t.messages.c.metadata,
-                )
-                .where(
-                    t.messages.c.metadata["type"].astext == _COMPACT_TYPE,
-                    t.messages.c.deleted_at.is_(None),
-                )
-                .order_by(t.messages.c.chatroom_id, t.messages.c.created_at, t.messages.c.id)
-                .limit(_PAGE)
-                .offset(offset)
-            )
-        ).all()
+        query = sa.select(
+            t.messages.c.id,
+            t.messages.c.chatroom_id,
+            t.messages.c.content_md,
+            t.messages.c.metadata,
+            t.messages.c.created_at,
+        ).where(
+            t.messages.c.metadata["type"].astext == COMPACT_SUMMARY_TYPE,
+            t.messages.c.deleted_at.is_(None),
+        )
+        if cursor is not None:
+            # Compared against a plain tuple, not `sa.tuple_(*cursor)`: the
+            # plain form propagates each column's own type to its bind param
+            # (pg.UUID, TIMESTAMP), while `tuple_` infers generic Uuid/DateTime
+            # from the values — the same shape of type mismatch asyncpg refuses
+            # to bind elsewhere in this codebase.
+            query = query.where(sa.tuple_(*order) > cursor)
+        page = (await session.execute(query.order_by(*order).limit(_PAGE))).all()
         if not page:
             return rows
         rows.extend(page)
-        offset += _PAGE
+        last = page[-1]
+        cursor = (last.chatroom_id, last.created_at, last.id)
+        if len(page) < _PAGE:
+            return rows
 
 
 async def _live_message_ids(session: AsyncSession, ids: set[str]) -> set[str]:
@@ -169,9 +178,8 @@ def _classify(rows: Sequence[Any]) -> RepairReport:
     claimed: dict[tuple[uuid.UUID, str], set[str]] = {}
 
     for row in rows:
-        meta = dict(row.metadata or {})
-        producer = meta.get("producer_agent_id")
-        covered = _covered(meta)
+        producer = summary_producer(row.metadata)
+        covered = compacted_ids(row.metadata)
 
         if not (row.content_md or "").strip():
             report.empty.append(Void(row.id, row.chatroom_id, "empty_summary"))
@@ -180,7 +188,7 @@ def _classify(rows: Sequence[Any]) -> RepairReport:
             report.producerless += 1
             continue
 
-        key = (row.chatroom_id, str(producer))
+        key = (row.chatroom_id, producer)
         seen = claimed.setdefault(key, set())
         if seen.intersection(covered):
             report.overlapping.append(Void(row.id, row.chatroom_id, "overlapping_fold"))
@@ -206,8 +214,8 @@ async def _void(session: AsyncSession, voids: list[Void]) -> None:
         if row is None:
             continue
         meta = dict(row.metadata or {})
-        meta["original_compacted_ids"] = meta.pop("compacted_ids", [])
-        meta["type"] = _VOIDED_TYPE
+        meta[ORIGINAL_COMPACTED_IDS_KEY] = meta.pop(COMPACTED_IDS_KEY, [])
+        meta["type"] = VOIDED_SUMMARY_TYPE
         meta["voided_reason"] = v.reason
         await session.execute(
             t.messages.update().where(t.messages.c.id == v.message_id).values(metadata=meta, deleted_at=stamp)
@@ -231,10 +239,10 @@ async def _repair() -> RepairReport:
 
         wanted: set[str] = set()
         for row in rows:
-            wanted.update(_covered(dict(row.metadata or {})))
+            wanted.update(compacted_ids(row.metadata))
         live = await _live_message_ids(session, wanted)
         for row in rows:
-            missing = [c for c in _covered(dict(row.metadata or {})) if c not in live]
+            missing = [c for c in compacted_ids(row.metadata) if c not in live]
             if missing:
                 report.orphaned.append(Void(row.id, row.chatroom_id, f"missing:{len(missing)}"))
 
