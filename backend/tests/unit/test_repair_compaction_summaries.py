@@ -172,6 +172,26 @@ async def test_void_preserves_original_compacted_ids_and_audits_each_row(monkeyp
     assert emitted[0].resource_id == target.message_id
 
 
+async def test_classification_carries_across_pages(monkeypatch) -> None:
+    # The scan yields pages so a large population never sits in memory at once,
+    # but overlap detection is stateful. `claimed` is threaded across pages, and
+    # the scan's (chatroom_id, created_at) ordering is what makes that sound:
+    # one producer's summaries arrive oldest-first and contiguous.
+    monkeypatch.delenv(repair._ARMED_ENV, raising=False)
+    room, producer = uuid.uuid4(), uuid.uuid4()
+    m1, m2 = uuid.uuid4(), uuid.uuid4()
+    report = repair.RepairReport(dry_run=True)
+    claimed: dict = {}
+
+    first = [_row(room=room, producer=producer, covered=[m1, m2])]
+    second = [_row(room=room, producer=producer, covered=[m2])]
+    repair._classify_page(first, report, claimed)
+    repair._classify_page(second, report, claimed)
+
+    assert report.examined == 2
+    assert [v.message_id for v in report.overlapping] == [second[0].id]
+
+
 def test_report_is_dry_run_unless_armed(monkeypatch) -> None:
     monkeypatch.delenv(repair._ARMED_ENV, raising=False)
     assert repair._classify([]).dry_run is True

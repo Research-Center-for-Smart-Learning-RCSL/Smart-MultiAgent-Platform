@@ -55,7 +55,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -113,15 +113,18 @@ class RepairReport:
         return len(self.empty) + len(self.overlapping)
 
 
-async def _load_summaries(session: AsyncSession) -> list[Any]:
-    """Every live compaction summary, oldest-first within a room.
+async def _iter_summary_pages(session: AsyncSession) -> AsyncIterator[Sequence[Any]]:
+    """Yield live compaction summaries a page at a time, oldest-first per room.
 
     Ordered by `(chatroom_id, created_at)` so the overlap pass can keep the
     *earlier* summary of an overlapping pair without a second sort. Paged by
     that same ordering as a keyset, not by OFFSET, so the cost stays linear in
     the population rather than quadratic in the page count.
+
+    Yields pages rather than returning the whole population because the rows
+    carry `content_md`: accumulating them would put every summary's full text in
+    memory at once, which is the thing the paging exists to avoid.
     """
-    rows: list[Any] = []
     cursor: tuple[Any, Any, Any] | None = None
     order = (t.messages.c.chatroom_id, t.messages.c.created_at, t.messages.c.id)
     while True:
@@ -144,12 +147,12 @@ async def _load_summaries(session: AsyncSession) -> list[Any]:
             query = query.where(sa.tuple_(*order) > cursor)
         page = (await session.execute(query.order_by(*order).limit(_PAGE))).all()
         if not page:
-            return rows
-        rows.extend(page)
+            return
+        yield page
         last = page[-1]
         cursor = (last.chatroom_id, last.created_at, last.id)
         if len(page) < _PAGE:
-            return rows
+            return
 
 
 async def _live_message_ids(session: AsyncSession, ids: set[str]) -> set[str]:
@@ -170,21 +173,33 @@ async def _live_message_ids(session: AsyncSession, ids: set[str]) -> set[str]:
     return live
 
 
-def _classify(rows: Sequence[Any]) -> RepairReport:
-    report = RepairReport(examined=len(rows), dry_run=not is_armed())
-    # (chatroom, producer) -> ids already claimed by an earlier summary. Overlap
-    # is only meaningful within one producer's view: two producers folding the
-    # same range is normal under per-agent scoping, not a race.
-    claimed: dict[tuple[uuid.UUID, str], set[str]] = {}
+# (chatroom, producer) -> ids already claimed by an earlier summary. Overlap is
+# only meaningful within one producer's view: two producers folding the same
+# range is normal under per-agent scoping, not a race.
+_Claimed = dict[tuple[uuid.UUID, str], set[str]]
 
+
+def _classify_page(rows: Sequence[Any], report: RepairReport, claimed: _Claimed) -> None:
+    """Fold one page into ``report``. ``claimed`` carries across pages.
+
+    Safe to run per page because the scan is ordered by `(chatroom_id,
+    created_at)`, so a producer's summaries arrive oldest-first and contiguous.
+    """
+    report.examined += len(rows)
     for row in rows:
         producer = summary_producer(row.metadata)
         covered = compacted_ids(row.metadata)
 
         if not (row.content_md or "").strip():
             report.empty.append(Void(row.id, row.chatroom_id, "empty_summary"))
+            # Deliberately does NOT register `covered`. This row is voided in
+            # the same pass, so a later summary covering the same range is the
+            # only one left holding it — flagging that one as overlapping too
+            # would void both and lose the range entirely.
             continue
         if not producer:
+            # Same reasoning, different cause: a producerless row is already
+            # applied to no reader, so its range is not claimed by anyone.
             report.producerless += 1
             continue
 
@@ -195,6 +210,11 @@ def _classify(rows: Sequence[Any]) -> RepairReport:
             continue
         seen.update(covered)
 
+
+def _classify(rows: Sequence[Any]) -> RepairReport:
+    """Whole-population convenience wrapper over :func:`_classify_page`."""
+    report = RepairReport(dry_run=not is_armed())
+    _classify_page(rows, report, {})
     return report
 
 
@@ -233,18 +253,22 @@ async def _void(session: AsyncSession, voids: list[Void]) -> None:
 
 async def _repair() -> RepairReport:
     sm = get_sessionmaker()
+    report = RepairReport(dry_run=not is_armed())
+    claimed: _Claimed = {}
     async with sm() as session:
-        rows = await _load_summaries(session)
-        report = _classify(rows)
+        # Classify and probe per page, so nothing accumulates across the scan
+        # except the findings themselves — which are the output, and small.
+        async for page in _iter_summary_pages(session):
+            _classify_page(page, report, claimed)
 
-        wanted: set[str] = set()
-        for row in rows:
-            wanted.update(compacted_ids(row.metadata))
-        live = await _live_message_ids(session, wanted)
-        for row in rows:
-            missing = [c for c in compacted_ids(row.metadata) if c not in live]
-            if missing:
-                report.orphaned.append(Void(row.id, row.chatroom_id, f"missing:{len(missing)}"))
+            wanted: set[str] = set()
+            for row in page:
+                wanted.update(compacted_ids(row.metadata))
+            live = await _live_message_ids(session, wanted)
+            for row in page:
+                missing = [c for c in compacted_ids(row.metadata) if c not in live]
+                if missing:
+                    report.orphaned.append(Void(row.id, row.chatroom_id, f"missing:{len(missing)}"))
 
         if not report.dry_run and report.would_void:
             await _void(session, report.empty + report.overlapping)
