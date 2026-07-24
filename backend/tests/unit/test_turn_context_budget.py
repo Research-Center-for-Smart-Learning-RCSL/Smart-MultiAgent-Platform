@@ -693,6 +693,27 @@ async def test_forced_compact_flag_is_not_restored_after_a_committed_fold(monkey
 
 
 @pytest.mark.asyncio
+async def test_a_failed_compaction_releases_the_forced_compact_claim(monkeypatch) -> None:
+    # Rejecting empty summaries turns this branch from unreachable into the
+    # normal outcome for a provider returning blank text. Nothing was folded, so
+    # the user's explicit /compact was not served and the claim must go back.
+    engine, agent, log, audits = _compaction_harness(monkeypatch, summary_text="", forced=True)
+    room = uuid.uuid4()
+    restored: list = []
+
+    async def _restore(cid) -> None:
+        restored.append(cid)
+
+    engine._restore_compact_flag = _restore  # type: ignore[attr-defined]
+
+    await _run_assemble(engine, agent, room)
+
+    assert "create_message" not in log
+    assert [a for a, _ in audits] == ["agent.compact_failed"]
+    assert restored == [room]
+
+
+@pytest.mark.asyncio
 async def test_a_fold_that_does_nothing_still_re_arms_the_forced_flag(monkeypatch) -> None:
     # Complement to the test above: when `run_compact` declines (nothing left to
     # fold), no row was committed, so the user's one-shot /compact must survive.
