@@ -76,6 +76,13 @@ _MAP: ErrorMap = {
         403,
         "Attachment quarantined",
     ),
+    # 410 rather than 404: the resource existed and was deliberately removed, and
+    # the client renders that differently from a bad id (R13.11).
+    errors.AttachmentExpired: (
+        "conversation/attachment-expired",
+        410,
+        "Attachment expired",
+    ),
     errors.TusOffsetMismatch: (
         "conversation/tus-offset-mismatch",
         409,

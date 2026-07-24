@@ -605,6 +605,13 @@ class TestFacadeDelegatingPolicies:
         assert count == 15
         facade.purge_old_attachments.assert_awaited_once_with(max_age_days=3)
 
+    async def test_expire_attachments_policy_is_registered_in_the_sweep(self) -> None:
+        # R13.11a: the `[attachment expired]` UI state is only reachable if the
+        # nightly sweep actually runs, so registration is part of the contract.
+        from app.workers.tasks.retention import _POLICIES, _expire_attachments
+
+        assert ("attachment_expiry", _expire_attachments) in _POLICIES
+
     @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
     async def test_purge_audit_logs(self, _audit) -> None:
         from app.workers.tasks.retention import _purge_audit_logs

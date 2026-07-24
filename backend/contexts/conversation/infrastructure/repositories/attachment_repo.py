@@ -270,6 +270,19 @@ class MessageAttachmentRepository:
         horizon: datetime,
         limit: int = 500,
     ) -> Sequence[MessageAttachment]:
+        """Message-bound rows past *horizon* that the expiry sweep should mark.
+
+        Two exclusions carry decisions rather than mechanics:
+
+        - ``status == ACTIVE`` rather than ``!= EXPIRED``, so a QUARANTINED row
+          is never downgraded to EXPIRED. Quarantine is a scan verdict and
+          outranks the horizon; overwriting it would lose the reason the file
+          is unavailable.
+        - ``message_id IS NOT NULL``, because unbound rows belong to
+          ``ConversationFacade.purge_old_attachments``, which deletes them.
+          Expiring a row no message ever pointed at is not what R13.11
+          describes and only produces audit noise for a row about to vanish.
+        """
         rows = (
             await self._db.execute(
                 t.message_attachments.select()
@@ -277,7 +290,8 @@ class MessageAttachmentRepository:
                     sa.and_(
                         t.message_attachments.c.expires_at.is_not(None),
                         t.message_attachments.c.expires_at < horizon,
-                        t.message_attachments.c.status != AttachmentStatus.EXPIRED.value,
+                        t.message_attachments.c.status == AttachmentStatus.ACTIVE.value,
+                        t.message_attachments.c.message_id.is_not(None),
                     )
                 )
                 .limit(limit)
@@ -293,8 +307,8 @@ class MessageAttachmentRepository:
     ) -> Sequence[MessageAttachment]:
         """Used by the retention sweep: find attachments belonging to messages
         older than the retention horizon. Joins via message_id so orphan rows
-        (message_id NULL) are left alone -- those are handled by `list_expired`
-        driven by the bucket's 3-day lifecycle."""
+        (message_id NULL) are left alone -- those are deleted by
+        `ConversationFacade.purge_old_attachments`."""
         rows = (
             await self._db.execute(
                 t.message_attachments.select()

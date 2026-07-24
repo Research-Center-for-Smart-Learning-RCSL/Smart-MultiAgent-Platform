@@ -286,6 +286,18 @@ class ConversationFacade:
 
     # -- Retention helpers (H4) ------------------------------------------------
 
+    async def expire_attachments(self, *, limit: int = 500) -> int:
+        """Mark one batch of message-bound attachments past their TTL EXPIRED.
+
+        Deliberately separate from `purge_old_attachments`, which *deletes*.
+        The row is what R13.11 requires the client to keep so it can render
+        `[attachment expired]`, so expiring and purging are different
+        operations over disjoint row sets (bound versus never-bound).
+        """
+        from contexts.conversation.application.attachment_service import AttachmentService
+
+        return await AttachmentService(self._db).expire_due(limit=limit)
+
     async def purge_old_attachments(self, *, max_age_days: int = 3) -> int:
         """Delete orphaned message_attachments older than *max_age_days*.
 

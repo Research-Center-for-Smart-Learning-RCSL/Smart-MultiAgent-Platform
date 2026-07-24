@@ -70,6 +70,14 @@ class AttachmentQuarantined(ConversationError):
     code = "conversation/attachment-quarantined"
 
 
+class AttachmentExpired(ConversationError):
+    """R13.11a — the object is past its TTL, so the bucket lifecycle has (or is
+    about to have) deleted the bytes. Distinct from `AttachmentNotFound`: the
+    attachment existed and the client renders `[attachment expired]` for it."""
+
+    code = "conversation/attachment-expired"
+
+
 class TusOffsetMismatch(ConversationError):
     """PATCH Upload-Offset didn't match the server's record (TUS 409 case)."""
 
@@ -128,6 +136,7 @@ class ExportJobNotReady(ConversationError):
 
 __all__ = [
     "AttachmentBindingFailed",
+    "AttachmentExpired",
     "AttachmentNotFound",
     "AttachmentQuarantined",
     "AttachmentTooLarge",

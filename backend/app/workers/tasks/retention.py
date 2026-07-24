@@ -120,6 +120,33 @@ async def _purge_message_attachments(session: AsyncSession) -> int:
     return count
 
 
+async def _expire_attachments(session: AsyncSession) -> int:
+    """Mark message-bound attachments past their TTL as EXPIRED (R13.11a).
+
+    The `chat-uploads` bucket lifecycle deletes the bytes on day four; this is
+    the application-side counterpart that makes the row agree, so the client
+    can render `[attachment expired]` (R13.11) instead of a live link over
+    deleted bytes.
+
+    Chunked with its own short-lived transactions: the first run after deploy
+    sweeps the entire historical backlog at once, not one night's worth, so it
+    must not be attempted in a single transaction. Expect a correspondingly
+    large one-time burst of `attachment.expired` audit rows on that run.
+    """
+    from contexts.conversation.interfaces.facade import ConversationFacade
+
+    sm = get_sessionmaker()
+    total = 0
+    for _ in range(100):
+        async with sm() as chunk, chunk.begin():
+            marked = await ConversationFacade(chunk).expire_attachments(limit=500)
+        if marked == 0:
+            break
+        total += marked
+    await _emit_summary(session, "retention.attachments.expired", total)
+    return total
+
+
 async def _purge_audit_logs(session: AsyncSession) -> int:
     """Delete audit_logs older than 365 days via AuditFacade."""
     from contexts.audit.interfaces.facade import AuditFacade
@@ -719,6 +746,7 @@ async def _purge_read_notifications(session: AsyncSession) -> int:
 _POLICIES = [
     ("messages", _purge_messages),
     ("message_attachments", _purge_message_attachments),
+    ("attachment_expiry", _expire_attachments),
     ("notifications", _purge_read_notifications),
     ("audit_logs", _purge_audit_logs),
     ("workflow_runs", _archive_workflow_runs),
