@@ -252,4 +252,22 @@ describe('useChatroomMessages optimistic delete', () => {
     expect(composable.messages.value.some((m) => m.id === 'm_del')).toBe(true)
     expect(toast.error).toHaveBeenCalledTimes(1)
   })
+
+  it('discloses that a compaction summary keeps its own wording (R13.26)', async () => {
+    // Deletion does not rewrite a summary the message was folded into, so the
+    // limit has to reach the user while they can still decide - the confirm
+    // dialog is the only surface that does.
+    const target = msg({ id: 'm_del' })
+    api.listMessages.mockResolvedValue([target])
+    api.deleteMessage.mockResolvedValue(undefined)
+    dialog.confirm.mockResolvedValue(false)
+
+    mountHost()
+    await flushPromises()
+    await composable.confirmDelete(target)
+
+    const { message } = dialog.confirm.mock.calls[0]![0] as { message: string }
+    expect(message).toContain('conversation.chatroom.deleteSummaryNotice')
+    expect(message).toContain('conversation.chatroom.deleteConfirm')
+  })
 })

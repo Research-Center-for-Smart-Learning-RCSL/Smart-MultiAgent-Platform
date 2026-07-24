@@ -258,7 +258,12 @@ export function useChatroomMessages(
   async function confirmDelete(m: Message): Promise<void> {
     const ok = await confirm({
       title: t('conversation.chatroom.deleteTitle'),
-      message: t('conversation.chatroom.deleteConfirm'),
+      // R13.26: a compaction summary is derived content and is not rewritten by
+      // deletion, so the folded wording can outlive the message. The user has to
+      // hear that while they can still decide, not after.
+      message: `${t('conversation.chatroom.deleteConfirm')} ${t(
+        'conversation.chatroom.deleteSummaryNotice',
+      )}`,
       variant: 'warning',
     })
     if (!ok) return

@@ -46,12 +46,14 @@ class TestRetentionServicePurgeOnce:
             MagicMock(all=MagicMock(return_value=msg_rows)),
             MagicMock(all=MagicMock(return_value=att_rows)),
             MagicMock(rowcount=2),
+            MagicMock(all=MagicMock(return_value=[])),  # no summaries in the room
         ]
 
         report = await svc.purge_once()
 
         assert report.messages_deleted == 2
         assert report.attachments_objects_removed == 1
+        assert report.summaries_deleted == 0
         minio.remove.assert_awaited_once_with(bucket="chat-uploads", key="key1/file.png")
         _audit.assert_awaited_once()
         event = _audit.call_args[0][1]
@@ -76,6 +78,7 @@ class TestRetentionServicePurgeOnce:
             MagicMock(all=MagicMock(return_value=msg_rows)),
             MagicMock(all=MagicMock(return_value=[])),
             MagicMock(rowcount=3),
+            MagicMock(all=MagicMock(return_value=[])),
         ]
 
         report = await svc.purge_once()
@@ -84,6 +87,79 @@ class TestRetentionServicePurgeOnce:
         assert _audit.await_count == 2
         actions = [c[0][1].action for c in _audit.call_args_list]
         assert all(a == "message.purged_by_retention" for a in actions)
+
+    @patch("contexts.conversation.application.retention_service.audit.emit", new_callable=AsyncMock)
+    @patch("contexts.conversation.application.retention_service.now", return_value=_NOW)
+    async def test_purge_deletes_summaries_that_folded_purged_messages(self, _now, _audit) -> None:
+        # R13.26: a summary's text may reproduce the messages it folded, and it
+        # is always newer than all of them, so a `created_at < horizon` sweep
+        # never reaches it. Leaving it would keep purged content readable past
+        # the retention horizon - in the room and in exports, since the summary
+        # row is served like any other message.
+        db = AsyncMock()
+        svc = RetentionService(db, minio=AsyncMock())
+
+        room = uuid.uuid4()
+        purged, kept = uuid.uuid4(), uuid.uuid4()
+        covering = uuid.uuid4()
+        summary_rows = [
+            MagicMock(
+                id=covering,
+                chatroom_id=room,
+                metadata={"type": "compact_summary", "compacted_ids": [str(purged), str(kept)]},
+            ),
+            MagicMock(
+                id=uuid.uuid4(),
+                chatroom_id=room,
+                metadata={"type": "compact_summary", "compacted_ids": [str(kept)]},
+            ),
+        ]
+        db.execute.side_effect = [
+            MagicMock(all=MagicMock(return_value=[MagicMock(id=purged, chatroom_id=room)])),
+            MagicMock(all=MagicMock(return_value=[])),
+            MagicMock(rowcount=1),
+            MagicMock(all=MagicMock(return_value=summary_rows)),
+            MagicMock(rowcount=1),
+        ]
+
+        report = await svc.purge_once()
+
+        assert report.summaries_deleted == 1
+        assert _audit.call_args[0][1].metadata["summaries_deleted"] == 1
+        # Five statements: victims, attachments, delete messages, summaries,
+        # delete summaries. A summary covering only surviving messages is left
+        # alone.
+        assert db.execute.await_count == 5
+
+    @patch("contexts.conversation.application.retention_service.audit.emit", new_callable=AsyncMock)
+    @patch("contexts.conversation.application.retention_service.now", return_value=_NOW)
+    async def test_purge_issues_no_delete_when_no_summary_is_affected(self, _now, _audit) -> None:
+        db = AsyncMock()
+        svc = RetentionService(db, minio=AsyncMock())
+
+        room = uuid.uuid4()
+        purged = uuid.uuid4()
+        db.execute.side_effect = [
+            MagicMock(all=MagicMock(return_value=[MagicMock(id=purged, chatroom_id=room)])),
+            MagicMock(all=MagicMock(return_value=[])),
+            MagicMock(rowcount=1),
+            MagicMock(
+                all=MagicMock(
+                    return_value=[
+                        MagicMock(
+                            id=uuid.uuid4(),
+                            chatroom_id=room,
+                            metadata={"type": "compact_summary", "compacted_ids": []},
+                        )
+                    ]
+                )
+            ),
+        ]
+
+        report = await svc.purge_once()
+
+        assert report.summaries_deleted == 0
+        assert db.execute.await_count == 4
 
     @patch("contexts.conversation.application.retention_service.now", return_value=_NOW)
     async def test_purge_empty_returns_oldest_kept(self, _now) -> None:
@@ -118,6 +194,7 @@ class TestRetentionServicePurgeOnce:
             MagicMock(all=MagicMock(return_value=msg_rows)),
             MagicMock(all=MagicMock(return_value=att_rows)),
             MagicMock(rowcount=1),
+            MagicMock(all=MagicMock(return_value=[])),
         ]
 
         report = await svc.purge_once()

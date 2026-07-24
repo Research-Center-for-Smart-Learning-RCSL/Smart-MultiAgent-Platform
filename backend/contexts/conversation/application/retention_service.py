@@ -27,12 +27,15 @@ from shared_kernel.storage import MinioClient, get_minio_client
 RETENTION = timedelta(days=5 * 365 + 1)  # 5 yrs, incl. leap day
 PURGE_CHUNK = 500
 
+_COMPACT_TYPE = "compact_summary"
+
 
 @dataclass(frozen=True, slots=True)
 class PurgeReport:
     messages_deleted: int
     attachments_objects_removed: int
     oldest_kept_at: object  # datetime | None
+    summaries_deleted: int = 0
 
 
 class RetentionService:
@@ -92,6 +95,8 @@ class RetentionService:
             t.messages.delete().where(t.messages.c.id.in_(victim_ids)),
         )
 
+        summaries_by_room = await self._delete_summaries_covering(list(by_room), victim_ids)
+
         for chatroom_id, mids in by_room.items():
             await audit.emit(
                 self._db,
@@ -102,6 +107,7 @@ class RetentionService:
                     metadata={
                         "count": len(mids),
                         "oldest_kept_at": horizon.isoformat(),
+                        "summaries_deleted": summaries_by_room.get(chatroom_id, 0),
                     },
                 ),
             )
@@ -110,7 +116,51 @@ class RetentionService:
             messages_deleted=len(victim_ids),
             attachments_objects_removed=removed_objects,
             oldest_kept_at=horizon,
+            summaries_deleted=sum(summaries_by_room.values()),
         )
+
+    async def _delete_summaries_covering(
+        self,
+        chatroom_ids: list[uuid.UUID],
+        purged_ids: list[uuid.UUID],
+    ) -> dict[uuid.UUID, int]:
+        """Remove compaction summaries that folded any of ``purged_ids`` (R13.26).
+
+        A summary's text is generated from the messages it folds and may
+        reproduce them, and it is always created *after* everything it folds —
+        so a ``created_at < horizon`` sweep never reaches it, and purging only
+        the originals would leave a readable copy alive past the retention
+        horizon. Deleting rather than voiding the metadata is required because
+        the summary row is itself user-visible: it renders in the room and is
+        included in exports, so a metadata edit would hide it from the model and
+        from nobody else.
+
+        Messages the deleted summary folded that are still inside the horizon
+        are untouched; a compacting agent re-folds them on its next turn.
+        """
+        if not chatroom_ids:
+            return {}
+        purged = {str(mid) for mid in purged_ids}
+        rows = (
+            await self._db.execute(
+                sa.select(t.messages.c.id, t.messages.c.chatroom_id, t.messages.c.metadata).where(
+                    t.messages.c.chatroom_id.in_(chatroom_ids),
+                    t.messages.c.metadata["type"].astext == _COMPACT_TYPE,
+                )
+            )
+        ).all()
+
+        doomed: list[uuid.UUID] = []
+        by_room: dict[uuid.UUID, int] = {}
+        for r in rows:
+            covered = (r.metadata or {}).get("compacted_ids") or []
+            if not purged.intersection(str(c) for c in covered):
+                continue
+            doomed.append(r.id)
+            by_room[r.chatroom_id] = by_room.get(r.chatroom_id, 0) + 1
+        if doomed:
+            await self._db.execute(t.messages.delete().where(t.messages.c.id.in_(doomed)))
+        return by_room
 
 
 __all__ = ["PurgeReport", "RETENTION", "RetentionService"]

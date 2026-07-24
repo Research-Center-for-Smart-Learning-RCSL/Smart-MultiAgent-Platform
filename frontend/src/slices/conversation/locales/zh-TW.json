@@ -98,6 +98,7 @@
       "editFailed": "無法編輯——可能已超過 5 分鐘期限或已在他處變更。",
       "deleteTitle": "刪除訊息",
       "deleteConfirm": "刪除此訊息？這會對所有人移除且無法復原。",
+      "deleteSummaryNotice": "若此訊息已被摺疊進對話摘要，該摘要仍保有自己的敘述，不會一併改寫。",
       "deleteFailed": "刪除訊息失敗。",
       "attachmentExpired": "［附件已過期］{name}",
       "attachmentLoading": "載入圖片中...",

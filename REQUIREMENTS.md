@@ -732,6 +732,10 @@ Four composable flags per chat room:
 
 - **[R13.25]** Messages older than **5 years** (R13.15) are hard-deleted nightly. Each purge emits an audit event `message.purged_by_retention` with `{chatroom_id, count, oldest_kept_at}`. Associated attachments (if still in MinIO) are likewise deleted. The 5-year window is a platform default and is not user-configurable in v1.
 
+### 13.10 Derived content and deletion
+
+- **[R13.26]** **Compaction summaries** (R9.10) are **derived content**: a summary's text is generated from the messages it folds and may reproduce parts of them. Deletion (R13.16, R13.24) removes the message row, its search index entry and its edit history, but does **not** rewrite or remove any summary that folded it — the folded content may persist inside that summary. The UI must disclose this at the point of deletion. **Exception:** the retention purge (R13.25) *does* reach derived copies — every summary whose folded set intersects the purged messages is hard-deleted in the same sweep, so no content survives its retention horizon in derived form. Removal rather than a metadata edit is required because a summary row is itself user-visible (it renders in the room and is included in exports), so anything short of deleting it would leave the derived content readable. Messages the deleted summary folded that are still inside the horizon are unaffected — they were never removed, and a compacting agent re-folds them on its next turn.
+
 ---
 
 ## 14. Workflow Engine
