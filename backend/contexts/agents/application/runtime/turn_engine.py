@@ -2601,6 +2601,14 @@ class TurnEngine:
             except ctxmod.CompactFailed as exc:
                 _log.warning("compaction failed agent=%s: %s", agent.id, exc)
                 await self._audit(agent, chatroom_id, "agent.compact_failed", {"error": str(exc)})
+                # Nothing was folded, so the user's one-shot /compact was not
+                # served — release the claim as the `not did` path below does.
+                # This branch used to be unreachable in practice; rejecting empty
+                # summaries makes it the normal outcome for a provider returning
+                # blank text, and swallowing the claim there would silently drop
+                # the request the user explicitly made.
+                if forced:
+                    await self._restore_compact_flag(chatroom_id)
                 return history
             if not did:
                 if forced:

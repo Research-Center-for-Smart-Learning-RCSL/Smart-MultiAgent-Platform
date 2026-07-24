@@ -127,6 +127,51 @@ def test_consecutive_non_overlapping_folds_are_left_alone(monkeypatch) -> None:
     assert report.examined == 2
 
 
+class _VoidSession:
+    """Session double: answers the metadata lookup, records the update."""
+
+    def __init__(self, metadata: dict) -> None:
+        self._metadata = metadata
+        self.updates: list = []
+
+    async def execute(self, statement):
+        if statement.is_select:
+            return SimpleNamespace(first=lambda: SimpleNamespace(metadata=self._metadata))
+        self.updates.append(statement.compile().params)
+        return SimpleNamespace(rowcount=1)
+
+
+async def test_void_preserves_original_compacted_ids_and_audits_each_row(monkeypatch) -> None:
+    # The void must be reversible - `original_compacted_ids` is what makes the
+    # repair itself rollback-safe - and every mutated row must leave a trail.
+    emitted: list = []
+
+    async def _emit(_session, event):
+        emitted.append(event)
+
+    monkeypatch.setattr(repair.audit, "emit", _emit)
+
+    folded = [str(uuid.uuid4()), str(uuid.uuid4())]
+    session = _VoidSession({"type": "compact_summary", "compacted_ids": folded})
+    target = repair.Void(uuid.uuid4(), uuid.uuid4(), "empty_summary")
+
+    await repair._void(session, [target])  # type: ignore[arg-type]
+
+    assert len(session.updates) == 1
+    written = session.updates[0]["metadata"]
+    assert written["original_compacted_ids"] == folded
+    assert "compacted_ids" not in written
+    assert written["type"] == "compact_summary_voided"
+    assert written["voided_reason"] == "empty_summary"
+    # Soft-deleted so the blank divider stops rendering, not hard-deleted, so
+    # the text survives if the void turns out to be wrong.
+    assert session.updates[0]["deleted_at"] is not None
+
+    assert len(emitted) == 1
+    assert emitted[0].action == "message.compaction_summary_voided"
+    assert emitted[0].resource_id == target.message_id
+
+
 def test_report_is_dry_run_unless_armed(monkeypatch) -> None:
     monkeypatch.delenv(repair._ARMED_ENV, raising=False)
     assert repair._classify([]).dry_run is True
