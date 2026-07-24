@@ -90,6 +90,12 @@ export class Channel {
   private closed = false
   private paused = false
   private connecting = false
+  // Sockets this channel closed on purpose. A close event is asynchronous, so
+  // one can land after `disconnect()`/`close()` already nulled `this.socket` and
+  // `connect()` already cleared `paused` — past the supersession guard below,
+  // where it would be counted as a connection failure. Weak so an abandoned
+  // socket is still collectable.
+  private abandoned = new WeakSet<WebSocket>()
 
   constructor(private readonly path: string) {}
 
@@ -195,12 +201,21 @@ export class Channel {
         // reaper collected it, which is the very defect this file fixes. A null
         // `socket` means a deliberate disconnect/close, which still reports.
         if (this.socket !== null && this.socket !== socket) return
+        // We closed this one on purpose. It still reports status — consumers
+        // asked for the socket to go away and the pill should say so — but it
+        // is not a failure, so it must not bump the failure run or double the
+        // backoff. Without this, `disconnect()` resets that bookkeeping and the
+        // close it just triggered immediately undoes the reset; cycling faster
+        // than the stability window walks the backoff to its ceiling, so the
+        // next genuine drop takes 30s to recover instead of 1s.
+        const deliberate = this.abandoned.delete(socket)
         this.emitStatus(false)
         this.clearRefreshTimer()
         this.clearHeartbeatTimer()
         // Before scheduleReconnect, so a socket that died inside the stability
         // window is counted as one more consecutive failure.
         this.clearStableTimer()
+        if (deliberate) return
         if (ev.code === CAP_CLOSE_CODE) this.setCapReached(true)
         if (!this.closed && !this.paused) this.scheduleReconnect()
       }
@@ -233,6 +248,7 @@ export class Channel {
     this.clearHeartbeatTimer()
     this.clearStableTimer()
     if (this.socket && this.socket.readyState <= WebSocket.OPEN) {
+      this.abandoned.add(this.socket)
       this.socket.close(1000, 'channel deactivated')
     }
     this.socket = null
@@ -245,6 +261,7 @@ export class Channel {
     this.clearHeartbeatTimer()
     this.clearStableTimer()
     if (this.socket && this.socket.readyState <= WebSocket.OPEN) {
+      this.abandoned.add(this.socket)
       this.socket.close(1000, 'channel closed')
     }
     this.socket = null
