@@ -29,9 +29,30 @@ export interface ChannelEvent {
 type EventHandler = (event: ChannelEvent) => void
 type StatusHandler = (connected: boolean) => void
 type DegradedHandler = (degraded: boolean) => void
+type CapReachedHandler = (capReached: boolean) => void
 
 const INITIAL_BACKOFF_MS = 1_000
 const MAX_BACKOFF_MS = 30_000
+// F-1: the server reaps a socket that sends nothing for 120s
+// (`connection.py:_IDLE_TIMEOUT_SECONDS`) — it treats silence as a half-open
+// connection. Four intervals fit inside that window, so three consecutive lost
+// or delayed pings are survivable; a hidden tab throttled to ~60s still clears
+// it. Any change here must also stay under the presence conns TTL of 150s
+// (`presence.py:_CONN_TTL_SECONDS`), which is sized against this heartbeat.
+const HEARTBEAT_INTERVAL_MS = 30_000
+// F-4: a socket rejected after `accept` (per-user cap, slow consumer, revoked
+// auth) completes the HTTP upgrade first, so `onopen` fires for a connection
+// the server never intended to keep. Treating that as success reset the backoff
+// and the failure counter on every rejection, producing an unbounded 1Hz retry
+// that never reached the degraded state. A connection counts as successful only
+// once it has survived this window — far longer than a rejection's
+// accept-then-close round trip, far shorter than MAX_BACKOFF_MS.
+const STABLE_CONNECTION_MS = 5_000
+// App-level close code for the per-user connection cap (R19.03,
+// `connection.py:_CLOSE_CAP_REACHED`). Distinct from 1013, which the idle
+// reaper and the slow-consumer path also use, so the client can tell a
+// self-inflicted, self-curable condition from a network problem.
+const CAP_CLOSE_CODE = 4429
 // After this many consecutive failed connect attempts the channel is declared
 // "degraded" (§12 Shared Patterns §7.1) so consumers can fall back to REST
 // polling. The socket keeps retrying underneath; degraded is purely advisory.
@@ -57,11 +78,15 @@ export class Channel {
   private handlers = new Map<string, Set<EventHandler>>()
   private statusHandlers = new Set<StatusHandler>()
   private degradedHandlers = new Set<DegradedHandler>()
+  private capReachedHandlers = new Set<CapReachedHandler>()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  private stableTimer: ReturnType<typeof setTimeout> | null = null
   private backoff = INITIAL_BACKOFF_MS
   private consecutiveFailures = 0
   private degraded = false
+  private capReached = false
   private closed = false
   private paused = false
   private connecting = false
@@ -90,6 +115,16 @@ export class Channel {
     this.degradedHandlers.add(handler)
     handler(this.degraded)
     return () => this.degradedHandlers.delete(handler)
+  }
+
+  // The last close was the server refusing this user's excess connection
+  // (R19.03). Unlike `degraded` this names a condition the user can cure —
+  // close a tab — so consumers surface it distinctly. Pushes the current value
+  // on subscribe, for the same reason `onDegraded` does.
+  onCapReached(handler: CapReachedHandler): () => void {
+    this.capReachedHandlers.add(handler)
+    handler(this.capReached)
+    return () => this.capReachedHandlers.delete(handler)
   }
 
   send(payload: Record<string, unknown>): void {
@@ -133,11 +168,14 @@ export class Channel {
       this.socket = socket
 
       socket.onopen = () => {
-        this.backoff = INITIAL_BACKOFF_MS
-        this.consecutiveFailures = 0
-        this.setDegraded(false)
         this.emitStatus(true)
         this.scheduleTokenRefresh()
+        this.startHeartbeat()
+        // Recovery state is deliberately NOT reset here — see
+        // STABLE_CONNECTION_MS. `emitStatus(true)` still fires immediately, so
+        // the pill reads live at once; only the backoff/failure bookkeeping
+        // waits for proof that the server kept the connection.
+        this.armStableTimer()
       }
 
       socket.onmessage = (msg) => {
@@ -149,9 +187,14 @@ export class Channel {
         }
       }
 
-      socket.onclose = () => {
+      socket.onclose = (ev) => {
         this.emitStatus(false)
         this.clearRefreshTimer()
+        this.clearHeartbeatTimer()
+        // Before scheduleReconnect, so a socket that died inside the stability
+        // window is counted as one more consecutive failure.
+        this.clearStableTimer()
+        if (ev.code === CAP_CLOSE_CODE) this.setCapReached(true)
         if (!this.closed && !this.paused) this.scheduleReconnect()
       }
 
@@ -175,8 +218,13 @@ export class Channel {
     // reset the failure run so reactivation starts clean and not mid-degrade.
     this.consecutiveFailures = 0
     this.setDegraded(false)
+    // A deactivated channel releases its socket, so whatever cap pressure it
+    // was reporting no longer applies.
+    this.setCapReached(false)
     this.clearReconnectTimer()
     this.clearRefreshTimer()
+    this.clearHeartbeatTimer()
+    this.clearStableTimer()
     if (this.socket && this.socket.readyState <= WebSocket.OPEN) {
       this.socket.close(1000, 'channel deactivated')
     }
@@ -187,6 +235,8 @@ export class Channel {
     this.closed = true
     this.clearReconnectTimer()
     this.clearRefreshTimer()
+    this.clearHeartbeatTimer()
+    this.clearStableTimer()
     if (this.socket && this.socket.readyState <= WebSocket.OPEN) {
       this.socket.close(1000, 'channel closed')
     }
@@ -194,6 +244,7 @@ export class Channel {
     this.handlers.clear()
     this.statusHandlers.clear()
     this.degradedHandlers.clear()
+    this.capReachedHandlers.clear()
   }
 
   private dispatch(event: ChannelEvent): void {
@@ -212,6 +263,49 @@ export class Channel {
     if (this.degraded === value) return
     this.degraded = value
     this.degradedHandlers.forEach((h) => h(value))
+  }
+
+  private setCapReached(value: boolean): void {
+    if (this.capReached === value) return
+    this.capReached = value
+    this.capReachedHandlers.forEach((h) => h(value))
+  }
+
+  // F-1: the server's idle reaper is written around a client that sends
+  // periodic frames; `send` already no-ops unless the socket is OPEN.
+  private startHeartbeat(): void {
+    this.clearHeartbeatTimer()
+    this.heartbeatTimer = setInterval(() => {
+      this.send({ type: 'ping' })
+    }, HEARTBEAT_INTERVAL_MS)
+  }
+
+  private clearHeartbeatTimer(): void {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
+    }
+  }
+
+  // F-4: the recovery bookkeeping that used to run at `onopen`. It runs here
+  // instead, so only a connection the server actually kept clears the backoff,
+  // the failure run, and the degraded/cap signals.
+  private armStableTimer(): void {
+    this.clearStableTimer()
+    this.stableTimer = setTimeout(() => {
+      this.stableTimer = null
+      this.backoff = INITIAL_BACKOFF_MS
+      this.consecutiveFailures = 0
+      this.setDegraded(false)
+      this.setCapReached(false)
+    }, STABLE_CONNECTION_MS)
+  }
+
+  private clearStableTimer(): void {
+    if (this.stableTimer !== null) {
+      clearTimeout(this.stableTimer)
+      this.stableTimer = null
+    }
   }
 
   private scheduleReconnect(): void {
