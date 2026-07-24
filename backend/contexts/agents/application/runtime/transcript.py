@@ -36,6 +36,16 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.application.runtime.model_attachments import format_attachment_text
+
+# The summary metadata contract is owned by the context that owns the row it
+# lives on; this module is one of its readers, not its definition.
+from contexts.conversation.interfaces import (
+    COMPACT_SUMMARY_TYPE,
+    compacted_ids,
+    is_compact_summary,
+    summary_metadata,
+    summary_producer,
+)
 from contexts.conversation.interfaces.facade import (
     AttachmentExtractionStatus,
     AttachmentStatus,
@@ -60,7 +70,6 @@ DEFAULT_HISTORY_WINDOW = 500
 # deliberately small relative to the live-turn inlining budget.
 HISTORY_ATTACHMENT_EXCERPT_CHARS = 4_000
 
-_COMPACT_TYPE = "compact_summary"
 _ROLE_BY_SENDER = {
     SenderType.USER: "user",
     SenderType.AGENT: "agent",
@@ -122,24 +131,8 @@ def _attachment_excerpt(attachments: Sequence[MessageAttachment] | None) -> str 
     return "\n\n".join(parts) if parts else None
 
 
-def _is_summary(metadata: Any) -> bool:
-    return isinstance(metadata, dict) and metadata.get("type") == _COMPACT_TYPE
-
-
-def _summary_producer(metadata: Any) -> str | None:
-    """The agent a summary belongs to, or None for a pre-scoping row.
-
-    A missing key and an explicit null are the same answer — belongs to no one —
-    so neither can match a reader.
-    """
-    if not isinstance(metadata, dict):
-        return None
-    producer = metadata.get("producer_agent_id")
-    return str(producer) if producer else None
-
-
 def _to_history(msg: Message, attachments: Sequence[MessageAttachment] | None = None) -> HistoryMessage:
-    role = "system" if _is_summary(msg.metadata) else _ROLE_BY_SENDER.get(msg.sender_type, "user")
+    role = "system" if is_compact_summary(msg.metadata) else _ROLE_BY_SENDER.get(msg.sender_type, "user")
     # Excerpt only for user rows — an agent/system row never carries an
     # uploaded attachment. Folded into token_count (so compaction budgeting
     # stays accurate) but deliberately NOT into `.content`, so RAG query
@@ -193,21 +186,21 @@ async def load_model_history(
     reader = str(for_agent_id)
 
     def _is_own_summary(metadata: Any) -> bool:
-        return _is_summary(metadata) and _summary_producer(metadata) == reader
+        return is_compact_summary(metadata) and summary_producer(metadata) == reader
 
     compacted: set[uuid.UUID] = set()
     for m in chronological:
         if _is_own_summary(m.metadata):
-            for cid in m.metadata.get("compacted_ids") or []:
+            for cid in compacted_ids(m.metadata):
                 try:
-                    compacted.add(uuid.UUID(str(cid)))
-                except (ValueError, AttributeError):
+                    compacted.add(uuid.UUID(cid))
+                except ValueError:
                     continue
 
     summaries: list[HistoryMessage] = []
     survivors: list[HistoryMessage] = []
     for m in chronological:
-        if _is_summary(m.metadata):
+        if is_compact_summary(m.metadata):
             # The elision set and this list must use the same predicate: admit a
             # foreign summary's text here and the reader would get both the
             # paraphrase and the originals, which is worse than the room-wide
@@ -245,11 +238,8 @@ class MessagesTranscriptStore:
         msg = await self._facade.insert_system_message(
             chatroom_id=self._chatroom_id,
             content_md=summary_text,
-            message_type=_COMPACT_TYPE,
-            metadata={
-                "compacted_ids": [str(m) for m in message_ids],
-                "producer_agent_id": str(self._agent_id),
-            },
+            message_type=COMPACT_SUMMARY_TYPE,
+            metadata=summary_metadata(message_ids=message_ids, producer_agent_id=self._agent_id),
         )
         return msg.id
 

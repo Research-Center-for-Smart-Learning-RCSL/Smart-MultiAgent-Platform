@@ -194,6 +194,12 @@ def choose_range_to_compact(
     started = False
 
     for msg in messages:
+        # Deliberately repeats the literal instead of importing
+        # `conversation.domain.compaction.is_compact_summary`, which is where
+        # this contract is defined. This module's design property is that it
+        # imports nothing concrete (see the SoC note in the module docstring) —
+        # that is what keeps the circular-import risk at zero, and it is worth
+        # more than deduplicating one persisted string.
         is_compact = isinstance(msg.metadata, dict) and msg.metadata.get("type") == "compact_summary"
         if is_compact and not started:
             # Skip over earlier summaries until we find fresh material.
