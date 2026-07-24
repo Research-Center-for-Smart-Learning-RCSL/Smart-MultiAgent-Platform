@@ -131,9 +131,6 @@ Nothing blocked.
 
 ## In progress
 
-- `2026-07-22-chat-export-authz-and-polling` (bugfix) — `depends_on: []`. a2u F-2, F-16.
-  Q-1..Q-4 answered 2026-07-24: narrowed export = own user messages plus all agent/system
-  messages; guests may not export at all; historical exports purged as the final deploy step.
 - `2026-07-22-activity-session-authz-and-validation` (bugfix) — `depends_on: []`. a2u F-12,
   F-20 plus verification-gap V-7: activity-session AuthZ + watchdog notification + optional
   enum-array assembly.

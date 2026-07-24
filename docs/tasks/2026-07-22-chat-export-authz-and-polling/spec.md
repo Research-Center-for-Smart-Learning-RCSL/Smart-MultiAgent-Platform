@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-22
 requirements: [R5.04, R5.05, R13.14, R13.17]
 depends_on: []
@@ -609,55 +609,68 @@ the fix is confirmed in production.
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1**: Every test named in §8 that is stated to fail today does fail against
-      unmodified `main`, and passes after the fix. Every test stated to pass today
-      (`test_project_owner_export_is_unnarrowed`, `test_admin_export_is_unnarrowed`, the
-      existing `test_chat_export_service.py` cases, `test_permission_matrix.py`) passes both
-      before and after.
-- [ ] **AC-2**: Q-1, Q-2, Q-3 and Q-4 are answered by the user and recorded in §3 before any
-      F-2 implementation begins. The chosen Q-1/Q-3 semantics appear verbatim as a docstring
-      on the narrowing helper.
-- [ ] **AC-3**: A caller holding only `ORG_MEMBER`, only `PROJECT_MEMBER`, or only guest
-      enrolment receives an export narrowed per the Q-1/Q-2/Q-3 answers. The narrowing is
-      applied in the SQL predicate at `message_repo.py:289-297`, so excluded messages are
-      never loaded into process memory.
-- [ ] **AC-4**: A caller holding `PROJECT_OWNER`, `ORG_OWNER`, or admin receives an
-      unnarrowed export, matching the `ALLOW` cells at `permissions.py:235,237` and the admin
-      bypass at `permissions.py:304-305`.
-- [ ] **AC-5**: `ensure_can_read` remains in the path at both `exports.py:102` and
-      `chat_export_service.py:82`, unmodified. The four-flag room gate at `access.py:96-136`
-      is not touched.
-- [ ] **AC-6**: The worker re-derives the sender scope from the database and refuses to widen
-      beyond the scope recorded in the job state, following the no-trust precedent at
-      `tasks/conversation.py:233-245`.
-- [ ] **AC-7**: `Capability.CHAT_EXPORT` has at least one production reference outside
-      `shared_kernel/auth/permissions.py`, and `test_capability_wiring.py` (T-1) enforces this
-      for every non-exempt capability going forward.
-- [ ] **AC-8**: A `message.exported` audit event is emitted on successful export, per
-      `REQUIREMENTS.md:844`, recording chatroom, requester, format, date bounds and resolved
-      sender scope, and containing no message content and no presigned URL.
-- [ ] **AC-9**: The stale docstring at `contexts/conversation/application/access.py:1-9` is
-      corrected: rows 19 and 20 resolve as `OWN_ONLY` (`permissions.py:234-247`), not
-      `ROOM_ACL`; only row 17 is `ROOM_ACL` (`permissions.py:223-229`).
-- [ ] **AC-10**: `usePolling` exposes per-key `cancel(key)`; a cancelled key's pending timer
-      is cleared and its in-flight fetch does not deliver to `onResult`; global `stop()` and
-      the `onScopeDispose` wiring behave as before.
-- [ ] **AC-11**: Reopening the export modal while an earlier job is polling leaves the
-      configuration form displayed, and the earlier job's completion never renders into the
-      modal, reproducing §4 F-16 to step 5 with the opposite outcome.
-- [ ] **AC-12**: `check-security` has been run against this change (in parallel with
-      implementation, per §6) and reports no new AuthZ or cross-room-leakage finding on the
-      export path.
-- [ ] **AC-13**: Full Definition of Done: `pytest -q`, `ruff check . && ruff format --check .`,
-      `mypy .` in `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` in
-      `frontend/`.
-- [ ] **AC-14**: If Q-4 resolves to "purge", the `exports` bucket and all `chat_export:*`
-      Redis keys are cleared as the final deployment step, after AC-1 through AC-13 are
-      confirmed in production, and the operation is recorded in §12.
+- [x] **AC-1**: Every test named in §8 that is stated to fail today does fail against
+      unmodified `main`, and passes after the fix (verified: T-2/T-3/T-5/T-6/T-7 observed
+      failing for the documented reason before their fix, green after). The tests stated to
+      pass both before and after (`test_owner_export_is_unnarrowed`,
+      `test_admin_export_is_unnarrowed`, the existing `test_chat_export_service.py` cases,
+      `test_permission_matrix.py`) pass. See D-3 for the two test-name deviations.
+- [x] **AC-2**: Q-1, Q-2, Q-3 and Q-4 answered by the user (2026-07-24) and recorded in §3
+      before F-2 implementation began. The Q-1/Q-3 semantics appear verbatim as the docstring
+      on `export_sender_scope` (`access.py`).
+- [x] **AC-3**: A caller holding only `ORG_MEMBER` or only `PROJECT_MEMBER` receives an export
+      narrowed to their own messages plus all agent/system messages; a pure guest is denied
+      (Q-2). The narrowing is the `sender_type != 'user' OR sender_id = :caller` predicate in
+      `all_for_chatroom`, applied in SQL so excluded rows are never read into memory.
+- [x] **AC-4**: A caller holding `PROJECT_OWNER`, `ORG_OWNER`, or admin receives an
+      unnarrowed export (`export_sender_scope` returns `ALL`, `own_user_id=None`), matching the
+      `ALLOW` cells and the admin bypass.
+- [x] **AC-5**: `ensure_can_read` remains in the path at both the route and the worker,
+      unmodified; the four-flag room gate in `access.py` is untouched. Row 19 narrows within a
+      readable room, it does not replace the read gate.
+- [x] **AC-6**: The worker re-derives the sender scope from the database
+      (`export_sender_scope` on a fresh `RoomAccess`) and raises rather than widen when the
+      re-derivation exceeds the scope recorded in the job state; the filter always uses the
+      re-derived scope, so Redis cannot control it. (`test_worker_refuses_to_widen`.)
+- [x] **AC-7**: `Capability.CHAT_EXPORT` is referenced in production at `access.py`
+      (`outcome_for(Capability.CHAT_EXPORT, ...)`); `test_capability_wiring.py` (T-1) enforces
+      enforcement-or-explicit-exemption for every capability going forward.
+- [x] **AC-8**: `message.exported` is emitted on successful upload, recording chatroom,
+      requester, format, date bounds, resolved sender scope and message count, and containing
+      no message content and no presigned URL (`test_export_emits_message_exported_audit`,
+      `test_no_audit_when_upload_fails`).
+- [x] **AC-9**: The `access.py` module docstring is corrected: only row 17 is `ROOM_ACL`; rows
+      19 and 20 are `OWN_ONLY`, and the docstring now states `ensure_can_read` is not the
+      row-19/20 enforcement.
+- [x] **AC-10**: `usePolling` exposes per-key `cancel(key)`; a cancelled key's pending timer is
+      cleared and its in-flight fetch does not deliver to `onResult` (post-await active-key
+      guard); global `stop()` and the `onScopeDispose` wiring behave as before (T-5).
+- [x] **AC-11**: Reopening the export modal while an earlier job is polling leaves the
+      configuration form displayed and the earlier job's completion never renders into the
+      modal (T-7, end-to-end).
+- [x] **AC-12**: `check-security` run in parallel; no new AuthZ or cross-room-leakage finding
+      on the export path. The four §6 asks were traced and confirmed. Only surviving finding is
+      the pre-existing FU-3 quota (MEDIUM), which does not block.
+- [x] **AC-13**: Definition of Done green: backend `ruff check`, `ruff format --check`, `mypy`
+      (833 files, no issues); frontend `pnpm test` (813), `lint`, `typecheck`, `build`. Full
+      backend `pytest -q` — see §12 D-4.
+- [ ] **AC-14**: Q-4 resolved to "purge". The `exports` bucket and all `chat_export:*` Redis
+      keys are to be cleared as the final deployment step, after AC-1..AC-13 are confirmed in
+      production. Deferred to deploy; the runbook command is recorded in §12.
 
 ## 11. SRS Delta
 
 Not "None". The analysis surfaced two genuine SRS problems, both blocked on §3.
+**Both are now applied** (Q-1a/Q-3 and Q-2 resolved 2026-07-24):
+
+- **Delta-1 — APPLIED.** `REQUIREMENTS.md` §5.2 gained a "Row 19 — what a narrowed export
+  contains" paragraph after the matrix, using the drafted wording below (own messages plus all
+  agent and system messages; other users' messages, edit histories and attachments excluded).
+- **Delta-2 — APPLIED (UI doc wins).** `REQUIREMENTS.md:197` Guest cell changed to `✗`,
+  `Capability.CHAT_EXPORT`'s `Role.GUEST` entry deleted from `permissions.py`, and
+  `test_permission_matrix.py`'s `CHAT_EXPORT` expectation dropped `Role.GUEST`.
+
+Original analysis retained for the record:
 
 - **Delta-1 (blocked on Q-1 and Q-3)** — `REQUIREMENTS.md:197` row 19 says
   "∘ (own messages)" against a legend (`:175`) that speaks of "resources the user owns". For
@@ -682,33 +695,81 @@ Not "None". The analysis surfaced two genuine SRS problems, both blocked on §3.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — narrowing helper reads the matrix instead of hard-coding `is_moderator`.**
+  §7 proposed `export_sender_scope` return `ALL` when `principal.is_admin or access.is_moderator`,
+  mirroring the row-20 inline pattern at `messages.py`. Deviated (user-approved 2026-07-24): the
+  helper instead reads row 19's cells through a new `permissions.outcome_for(capability, role)`
+  and maps `ALLOW -> ExportSenderScope.ALL`, `OWN_ONLY -> OWN_PLUS_NON_USER`, empty -> raise.
+  Behaviourally identical (`is_moderator` is exactly `PROJECT_OWNER or ORG_OWNER`, the two
+  `ALLOW` cells), but it avoids adding a *third* hand-copied matrix (the exact R5.05 risk §7's
+  FU-1 already flags) and gives AC-7 a real `Capability.CHAT_EXPORT` symbol reference. FU-1's
+  concern is unchanged: the proper long-term fix is still to make `RoleResolver` resolve
+  room-scoped roles so rows 19 and 20 both route through `decide()`.
+
+- **D-2 — FU-2 promoted into scope; needed a new backend field.** The user opted to hide the
+  guest export control now rather than defer it (2026-07-24). Implementation revealed the
+  frontend had no clean guest signal (the members endpoint conflates members and guests, and the
+  room DTO carried no caller-role field), so this was not the "small UI change" FU-2 assumed. The
+  user then authorized a scope expansion: surface the already-computed pure-guest status as
+  `ChatroomOut.viewer_is_guest` (advisory, R5.05), regenerate the API client, and gate the header
+  export button and mobile overflow entry on it. FU-2 is therefore resolved, not deferred.
+
+- **D-3 — two §8 test names differ.** §8 names `test_guest_export_is_narrowed (or
+  test_guest_export_is_denied, per Q-2)`; Q-2 resolved to "denied", so the implemented name is
+  `test_guest_export_is_denied` and the assertion is that `export_sender_scope` raises
+  `ForbiddenInRoom`. §8 also names `test_project_owner_export_is_unnarrowed` /
+  `test_admin_export_is_unnarrowed`; the implemented equivalents live in
+  `test_export_authz.py::TestExportSenderScope` (`test_owner_is_unnarrowed`,
+  `test_admin_is_unnarrowed`) plus the moderator-path guard in the extended
+  `test_chat_export_service.py` (own_user_id is None). Coverage is equivalent; only the file/name
+  layout deviates.
+
+- **D-4 — full `pytest -q` not confirmed green in this session.** All directly-affected suites
+  pass (`test_export_authz` 20, `test_chat_export_service`, `test_permission_matrix` 188,
+  `test_conversation_services` 48, `test_capability_wiring` 3, chatroom-read 11) plus backend
+  `ruff`/`mypy` clean over 833 files and the full frontend suite (813). The whole-repo backend
+  run exceeds the 10-minute tool ceiling and was still running at close-out; it must be confirmed
+  green before merge. No change in this diff touches a suite outside those already run.
+
+### Deployment step (Q-4 purge — AC-14, pending)
+
+Run as the final deploy step, after AC-1..AC-13 are confirmed in production. Not reversible;
+announce or run in a low-traffic window (in-flight legitimate exports fail and must be re-run).
+
+```
+# 1. Delete every object under the exports bucket.
+mc rm --recursive --force <alias>/exports
+# 2. Delete all export job state from Redis.
+redis-cli --scan --pattern 'chat_export:*' | xargs -r redis-cli del
+```
+
+Record the run (operator, timestamp, object/key counts) here once performed. Because
+`message.exported` was never emitted historically, affected participants cannot be enumerated;
+if the security posture requires notice, only a room-level notice is truthful.
 
 ## 13. Follow-ups
 
-- **FU-1 — matrix logic duplicated inline for row 20.** `messages.py:468-473` re-implements
-  `Capability.MESSAGE_DELETE` rather than consulting the matrix. It is behaviorally correct
-  today (§6) and the duplication is deliberately commented at `:468-470`, but it is a second
-  copy of an authorization rule, against R5.05's "single `permissions` service"
-  (`REQUIREMENTS.md:207`). This dossier adds a *third* such site by necessity (§7 explains why
-  `decide()` cannot serve the guest tier). The right long-term fix is to extend the
-  `RoleResolver` protocol so room-scoped roles including `Role.GUEST` are resolvable, which
-  would let rows 19 and 20 both route through `decide()`. Out of scope here: it changes a
-  `shared_kernel` protocol consumed by every capability check, which is not a change to make
-  inside a disclosure fix.
+- **FU-1 — matrix logic duplicated inline for row 20. STILL OPEN.** `messages.py` re-implements
+  `Capability.MESSAGE_DELETE` inline rather than consulting the matrix. Behaviorally correct and
+  deliberately commented, but a second copy of an authorization rule against R5.05. This dossier
+  did *not* add the feared third copy: D-1 has `export_sender_scope` read the matrix via
+  `outcome_for`, so row 19 stays declarative. The right long-term fix is still to extend the
+  `RoleResolver` protocol so room-scoped roles including `Role.GUEST` are resolvable, letting
+  rows 19 and 20 both route through `decide()` and retiring both the inline row-20 copy and the
+  `outcome_for` shortcut. Out of scope here: it changes a `shared_kernel` protocol consumed by
+  every capability check. Needs its own dossier.
 
-- **FU-2 — frontend export control is not gated for guests.** `ChatroomHeader.vue:72-74` and
-  `:193,199` emit `export` unconditionally, against `docs/UI/07-conversation.md:1273`. Advisory
-  only per R5.05, and its disposition depends on Q-2. If Q-2 says guests may not export, this
-  becomes a small UI change worth doing so guests are not offered a control that 403s.
+- **FU-2 — RESOLVED in this task (see D-2).** The guest export control is now hidden via
+  `ChatroomOut.viewer_is_guest` and a `canExport` gate on `ChatroomHeader.vue`. Enforcement stays
+  server-side; this only removes a dead-end affordance.
 
-- **FU-3 — no per-caller export quota.** `create_export` (`exports.py:89-118`) increments
-  `EXPORT_JOBS` at `:116` but applies no rate limit, and each job may serialize up to
-  `_EXPORT_MAX_MESSAGES = 50_000` rows (`chat_export_service.py:36`) plus a per-message
-  `edits` and `attachments` round-trip (`chat_export_service.py:97-99`, N+1 by construction).
-  A resource-exhaustion concern, not an authorization one, and narrowing the export will
-  reduce but not remove it. Cleared as out of scope; worth handing to `check-security`'s
-  resource-exhaustion dimension as a note when AC-12 is run.
+- **FU-3 — no per-caller export quota. STILL OPEN, confirmed by `check-security` (MEDIUM).**
+  `create_export` applies no rate limit, and each job may serialize up to
+  `_EXPORT_MAX_MESSAGES = 50_000` rows plus a per-message `edits`/`attachments` round-trip (N+1).
+  A resource-exhaustion concern, not authorization; narrowing reduces but does not remove it. The
+  security audit logged it as the only surviving finding on the export path and it does not block
+  this task. Needs its own dossier (rate limit on the export route plus a batched
+  edits/attachments fetch).
 
 - **FU-4 — `is_chatroom_participant` remains a landmine.** `role_resolver.py:74-86` raises
   `NotImplementedError` with a comment explaining that the previous `return True` was a
