@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-22
 requirements: [R13.11, R22.15.04]
 depends_on: []
@@ -657,47 +657,72 @@ the warning in §7 and AC-11.
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1**: Every regression test named in §8 is written first, fails against current
-      code for the reason stated there, and passes after the fix.
-- [ ] **AC-2**: A nightly policy marks every attachment whose `expires_at` has passed as
-      `EXPIRED`, is registered in `_POLICIES` (`retention.py:728-752`), covers both user
+- [x] **AC-1**: Every regression test named in §8 is written first, fails against current
+      code for the reason stated there, and passes after the fix. Two documented exceptions:
+      D-6 (an AC-9 guard that cannot fail once AC-8 holds) and D-7 (the truncation tests
+      need a seam the fix introduces, so their fail-first evidence is a mutation check).
+- [x] **AC-2**: A nightly policy marks every attachment whose `expires_at` has passed as
+      `EXPIRED`, is registered in `_POLICIES` (`retention.py:719-753`), covers both user
       uploads and agent artifacts, and is idempotent across consecutive runs.
-- [ ] **AC-3**: Each row expired by that policy emits one `attachment.expired` audit event
-      (`REQUIREMENTS.md:844`) carrying the attachment id and chatroom id.
-- [ ] **AC-4**: `get_for_download` refuses an attachment that is `EXPIRED` or whose
+      `_expire_attachments`; `test_expire_attachments_policy_is_registered_in_the_sweep`,
+      `test_sweep_marks_rows_past_their_horizon_expired[user_upload|agent_artifact]`,
+      `test_sweep_leaves_rows_that_are_already_expired_alone`. Narrowed to message-bound
+      rows per D-1.
+- [x] **AC-3**: Each row expired by that policy emits one `attachment.expired` audit event
+      (`REQUIREMENTS.md:877`) carrying the attachment id and chatroom id.
+      `test_sweep_emits_an_attachment_expired_audit_per_row`.
+- [x] **AC-4**: `get_for_download` refuses an attachment that is `EXPIRED` or whose
       `expires_at` has passed, without issuing a presign, mapped to 410 through
-      `interfaces/error_mapping.py`.
-- [ ] **AC-5**: `ConversationFacade.purge_old_attachments` (`facade.py:272-295`) is
+      `interfaces/error_mapping.py`. `test_download_of_an_expired_attachment_is_refused`,
+      `test_download_of_a_row_marked_expired_is_refused`, plus
+      `test_download_of_a_live_attachment_still_presigns` against the §9 over-refusal risk
+      and `test_horizon_comparison_tolerates_a_naive_timestamp[aware|naive]`.
+- [x] **AC-5**: `ConversationFacade.purge_old_attachments` (`facade.py:301-324`) is
       unchanged and still scoped to `message_id IS NULL`, so bound rows survive for the
-      R13.11 affordance.
-- [ ] **AC-6**: A failed chunk write leaves the staging file at exactly the pre-write
+      R13.11 affordance. `git diff a6a38d3...HEAD -- facade.py` shows additions only.
+- [x] **AC-6**: A failed chunk write leaves the staging file at exactly the pre-write
       offset, and a subsequent successful retry of the same chunk yields a byte-exact file.
-- [ ] **AC-7**: If truncation after a failed write cannot be completed, the Redis offset is
-      not rolled back and the failure is logged at the existing unrecoverable severity
-      (`tus_service.py:240-247`).
-- [ ] **AC-8**: Finalization refuses to hand off a staging file whose size disagrees with
+      `test_a_failed_chunk_write_truncates_the_staging_file_back_to_the_prior_offset`,
+      `test_a_retry_after_a_failed_write_produces_a_byte_exact_file`.
+- [x] **AC-7**: If truncation after a failed write cannot be completed, the Redis offset is
+      not rolled back and the failure is logged at the existing unrecoverable severity.
+      `test_a_failed_truncation_does_not_roll_the_offset_back`.
+- [x] **AC-8**: Finalization refuses to hand off a staging file whose size disagrees with
       `upload_length`, for **all three** purposes, with the check placed above the purpose
-      branch at `tus_service.py:263-264`, and the staging file and Redis record are still
-      cleaned up by the existing `finally` at `:331-334`.
-- [ ] **AC-9**: The persisted `size_bytes` is the size observed on disk, not
-      `upload.upload_length`, on all three arms.
-- [ ] **AC-10**: An SVG attachment renders as a download chip, including when its MIME
+      branch, and the staging file and Redis record are still cleaned up by the existing
+      `finally`. `test_finalize_refuses_a_staging_file_whose_size_disagrees_with_the_declared_length`
+      (which also asserts the file is gone and the Redis record deleted) and
+      `test_finalize_size_check_covers_the_rag_and_knowmap_arms_too`. Refusal carries the
+      new `TusSizeMismatch` (D-3).
+- [x] **AC-9**: The persisted `size_bytes` is the size observed on disk, not
+      `upload.upload_length`, on all three arms. Verified by inspection per D-6: all three
+      arms pass `size_bytes=staged_bytes`, where `staged_bytes` is
+      `os.path.getsize(upload.staging_path)`.
+- [x] **AC-10**: An SVG attachment renders as a download chip, including when its MIME
       carries a parameter suffix, and raster images still render inline.
-- [ ] **AC-11**: `_INLINE_SAFE_MIME` (`attachment_service.py:64-74`) is unchanged, and
-      `backend/tests/unit/test_attachment_download_disposition.py:80-86` and `:103-108` are
-      green and unmodified.
-- [ ] **AC-12**: The false comment at `ChatroomMessageBubble.vue:309-310` is replaced with
-      one that names the backend allowlist it mirrors.
-- [ ] **AC-13**: A read-only reconciliation script exists that reports attachments whose
+      `renders an svg attachment as a download chip, not an inline image`,
+      `treats a parameterised svg mime identically`, `still renders a png inline`.
+- [x] **AC-11**: `_INLINE_SAFE_MIME` (`attachment_service.py:65-75`) is unchanged, and
+      `backend/tests/unit/test_attachment_download_disposition.py` is green and unmodified.
+      That file does not appear in `git diff --name-only a6a38d3...HEAD`, which is the
+      proof of "unmodified"; its 12 tests pass.
+- [x] **AC-12**: The false comment is replaced with one that names the backend allowlist it
+      mirrors (`ChatroomMessageBubble.vue:315-320`).
+- [x] **AC-13**: A read-only reconciliation script exists that reports attachments whose
       stored object size disagrees with `size_bytes`; it performs no writes and is not
       scheduled. Its output is recorded in §12, including a clean result.
-- [ ] **AC-14**: No new user-facing string is introduced; if one becomes necessary it goes
-      through `$t()` with entries in both `en.json` and `zh-TW.json`.
-- [ ] **AC-15**: Full Definition of Done: `pytest -q`, `ruff check . && ruff format --check .`,
+      Run against the local dev stack; output and read-only proof in D-9.
+- [x] **AC-14**: No new user-facing string is introduced. The SVG case falls through to the
+      already-localised download chip; the only new strings are a model-facing prompt
+      fragment and server-side log/audit text, none of which route through `$t()`.
+- [x] **AC-15**: Full Definition of Done: `pytest -q`, `ruff check . && ruff format --check .`,
       `mypy .` in `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` in
       `frontend/`.
-- [ ] **AC-16**: The three fixes land as three separate commits so each is independently
-      revertible.
+- [x] **AC-16**: The three fixes land as three separate commits so each is independently
+      revertible: `da15aff` (F-3), `0d31429` (F-14), `72b171b` (V-3). Five further commits
+      carry the consequences and audit fixes found afterwards (`1b4af40`, `cffc85b`,
+      `0f857e5`, `9e71376`, `a2d8a70`, `86cbd8e`); none of them re-touch another fix's
+      subject, so each of the three stays independently revertible.
 
 ## 11. SRS Delta
 
@@ -736,7 +761,125 @@ each location is unchanged, so this is line drift only.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — the expiry sweep is scoped to message-bound rows; §7's "disjoint row sets" claim
+  was wrong.** §7 asserts that the new policy and `purge_old_attachments` "operate on
+  disjoint row sets (`message_id IS NULL` versus all expired rows not yet `EXPIRED`)". They
+  did not: `list_expired` (`attachment_repo.py:267-286`) carried no `message_id` predicate at
+  all, so every unbound expired row was in both sets, separated only in time by
+  `purge_old_attachments`'s `now() - 3 days` cutoff (`facade.py:297`). An orphan would have
+  been marked `EXPIRED` with an `attachment.expired` audit row, then deleted three days
+  later. `list_expired` now requires `message_id IS NOT NULL`, which makes the sets genuinely
+  disjoint and matches what R13.11 describes: a *message* keeping a pointer to expired bytes.
+  A row no message ever pointed at has no affordance to restore. Agreed with the user before
+  implementation.
+- **D-2 — the sweep skips `QUARANTINED` rows.** `list_expired`'s predicate excluded only
+  `EXPIRED` (`attachment_repo.py:280`), so a quarantined row past its horizon would have been
+  flipped to `EXPIRED`, with two consequences the spec did not consider: the bubble's
+  quarantine branch (`ChatroomMessageBubble.vue:127-133`) would stop matching and the user
+  would be told the file aged out rather than that it was flagged, and `get_for_download`'s
+  quarantine refusal (`attachment_service.py:273`) would be replaced by the expiry refusal,
+  erasing the scan verdict from the reason. The predicate now matches `status == ACTIVE`,
+  which excludes both. Quarantine outranks the horizon because it carries strictly more
+  information. Pinned by `test_sweep_leaves_quarantined_rows_alone` and
+  `test_quarantine_is_refused_ahead_of_expiry`. Agreed with the user before implementation.
+- **D-3 — F-14's refusal needed a new domain error, `TusSizeMismatch`.** §7 specifies "assert
+  ... and raise on mismatch" without naming what is raised. Reusing `TusOffsetMismatch` would
+  have conflated a recoverable protocol disagreement with an unrecoverable corrupt staging
+  file. `TusSizeMismatch` (`domain/errors.py`) maps to 409 in `error_mapping.py`: a TUS client
+  resyncs with HEAD on 409, and by then the `finally` has deleted the Redis record, so the
+  404 it gets back sends it into a clean restart, which is the only correct recovery.
+- **D-4 — `isImage` normalisation uses `?? ''` rather than a bare index.** §7 specifies
+  splitting on `;` and trimming, mirroring `attachment_service.py:280`. The frontend compiles
+  under `noUncheckedIndexedAccess`, so `split(';', 1)[0]` is `string | undefined`; the split
+  result is bound through `?? ''` rather than asserted. Behaviourally identical, and no
+  typechecker suppression was used.
+- **D-5 — the F-3 sweep's per-row audit lives in `AttachmentService`, not the facade.** §7
+  places the batching and the audit emission in "a new facade method on `ConversationFacade`".
+  Written as `AttachmentService.expire_due` with `ConversationFacade.expire_attachments`
+  delegating to it, matching how `facade.restore_chatroom` delegates to `ChatroomService`
+  (`facade.py:54-70`) and keeping audit emission in the application layer where every other
+  attachment audit is emitted. The facade surface §7 asked for exists and behaves as
+  specified; only the layer the work runs in differs.
+- **D-6 — `test_finalize_records_the_size_observed_on_disk` passes without the fix, by
+  construction.** §8 does not list a test for AC-9, and one cannot be written that fails:
+  once the reconciliation (AC-8) holds, the observed and declared sizes are equal, so no
+  behavioural assertion can distinguish them. The test is kept and labelled in-file as a
+  guard rather than a regression test, in the same spirit as §8's `still renders a png
+  inline`. AC-9 is verified by inspection: `size_bytes=staged_bytes` on all three arms, where
+  `staged_bytes` is `os.path.getsize(upload.staging_path)`.
+- **D-7 — `_append_chunk` extracted to module level.** §8 anticipates "patching the
+  module-level file write"; the write was a closure inside `patch`. Extracted verbatim so the
+  partial-write fault can be injected, since the corruption requires a disk fault that is not
+  otherwise reproducible. Consequence recorded honestly: the three truncation tests cannot
+  run against pre-fix code (the patch target does not exist there), so their
+  fail-first evidence is a mutation check instead — removing only the
+  `os.truncate` call from the fixed code fails exactly those three and no others.
+- **D-9 — AC-13 reconciliation run, and what it actually proves.** Run against the local
+  dev stack (`docker compose up -d postgres minio backend-web`, migrations to head,
+  `smap bootstrap minio-init`), invoked in-container because `data_net` is
+  `internal: true`, so the published ports in the dev overlay bind to nothing and the
+  command is unreachable from the host. This is how an operator has to run it; worth
+  knowing before someone tries it from a laptop shell.
+
+  Against an empty table: `examined=0 mismatched=0 missing_unexpectedly=0 unreadable=0`.
+  A clean result on an empty table proves the walk connects and terminates and nothing
+  else, so three rows were then seeded to exercise the detector: an object matching its
+  `size_bytes`, an object five bytes longer, and a row whose object was never written.
+  Result `examined=3 mismatched=1 missing_unexpectedly=1 unreadable=0`, naming the long
+  object with `recorded=40 stored=45` — the F-14 signature — and the missing one
+  separately, with the matching row reported by neither. Read-only confirmed after the
+  run: all three rows still `status=active` with `size_bytes` unchanged.
+- **D-10 — the F-3 sweep was additionally verified against real Postgres, and this was
+  not optional.** The unit tests drive a fake repo that re-implements `list_expired`'s
+  predicate in Python, so nothing in them executes the query. `list_expired` had zero
+  callers before this task, meaning its SQL had never run against Postgres at all, and
+  `message_attachments.status` is a PG ENUM (`message_attachment_status`) — the exact
+  ORM/PG type-match shape that has produced asyncpg 500s in this repo. Verified on real
+  rows: the bound active row past its horizon flips to `expired`; the quarantined row
+  past its horizon stays `quarantined` (D-2); all three unbound rows stay `active` (D-1);
+  a second run marks zero; exactly one `attachment.expired` audit row is written for the
+  swept attachment, with `resource_type=attachment` and the chatroom id in metadata
+  (AC-3). No enum-adaptation error occurred.
+- **D-11 — live-UI observation was not performed; here is the substitute and the reason.**
+  The dev `backend-web` image is missing `pyjwt`, which `pyproject.toml:32` declares —
+  a stale cached image layer locally, not a repo defect, and unrelated to this task. The
+  app therefore could not be driven end-to-end. Rather than repair an unrelated image,
+  the two user-visible changes were pinned at the rendered-DOM level, which is what a
+  screenshot would have shown: the SVG chip and raster-inline cases
+  (`ChatroomMessageBubble.test.ts`), and the previously-unreachable `[attachment expired]`
+  branch, which until this task nothing could write the status for. That last branch had
+  only been covered by an assertion on `.attachment-gone`, a class both the expired and
+  quarantined placeholders share, so it could not tell them apart — a distinction D-2
+  makes load-bearing. Two tests were added to pin each status to its own i18n key.
+  Neither change alters template structure, so no new visual surface exists for a browser
+  to catch. The backend half of the behaviour was verified against the real stack instead
+  (D-9, D-10), which is stronger evidence than a screenshot.
+- **D-12 — one behaviour change this dossier caused but did not anticipate, and the user's
+  ruling on it.** `_attachment_excerpt` (`transcript.py`) skipped any attachment that was
+  not `ACTIVE`. That filter was inert while `EXPIRED` was unreachable, so in practice it
+  only ever excluded `QUARANTINED`. The moment the sweep started writing `EXPIRED`, every
+  attachment older than the TTL dropped out of agent history along with its
+  `extracted_text` — text that lives in Postgres, does not depend on the deleted object,
+  and had already been shown to the model on earlier turns. It also contradicted the
+  stated intent of the surrounding code, which goes out of its way not to let an
+  attachment become invisible. Raised rather than absorbed, since it was a regression this
+  work introduced and not a spec decision. The user chose to keep replaying the text and
+  to distinguish the placeholder: only `QUARANTINED` is skipped now, and an expired
+  attachment with no replayable text is noted as `expired` rather than `content not
+  available on this turn`, because the latter implies it might return.
+
+  Recorded because it cuts against an existing comment: the test at
+  `test_load_model_history_no_excerpt_when_quarantined` was annotated "a
+  quarantined/expired attachment must never surface". That intent was written for a state
+  no code could reach, so it was never exercised, and its reasoning ("not something the
+  model should be told about") transfers to malware but not to a file that merely aged
+  out. Its assertion only ever covered `QUARANTINED` and is unchanged; only the comment
+  was corrected.
+- **D-8 — spec citation drift, corrected in §11.** All `REQUIREMENTS.md` line numbers in this
+  dossier were offset by roughly 28-33 lines; `retention.py`'s `_POLICIES` is at `:719-752`,
+  not `:728-752`; `facade.py`'s `purge_old_attachments` is at `:289-312`, not `:272-295`. The
+  quoted text at every location matched, so this was line drift only and did not affect the
+  design. Backend and frontend source citations were verified exact.
 
 ## 13. Follow-ups
 
@@ -766,6 +909,32 @@ Appended by /build.
   still unconditional for any future mismatch. A comment recording that the retry exists for
   presign expiry only, or a narrower condition, would prevent the next such mismatch costing
   a wasted round-trip.
+- **FU-6** — A staging file whose truncation fails leaves the Redis offset deliberately
+  advanced (AC-7), which is correct in that it refuses to invite a retry onto a dirty file,
+  but the client is given no way to learn the upload is dead: every subsequent PATCH gets a
+  409 offset mismatch until the 24h TTL (`tus_store.py:35`) reclaims the record. Deleting the
+  record outright, or returning a distinct terminal error, would let the client restart
+  immediately instead of retrying into a wall. Out of scope here because it changes the
+  protocol surface rather than the integrity guarantee this dossier is about.
+- **FU-7** — `_purge_message_attachments` (`retention.py:114-120`) deletes unbound rows whose
+  `expires_at` passed more than three days ago, so an orphan lingers for six days total
+  (three to expiry, three to the cutoff) while its bytes were deleted on day four. Nothing
+  reads those rows, so this is waste rather than a defect, but the two horizons look like they
+  were meant to be the same one. Worth checking whether the `max_age_days=3` cutoff is
+  intentional or a mis-derivation of the TTL.
+- **FU-8** — The failed-write handler truncates the staging file *before* attempting the
+  offset rollback, which §7 mandates and which is right for the single-writer case the
+  defect actually occurs in. If a client violates the TUS protocol by pipelining two
+  PATCHes on one upload, and the first one's write then fails part-way, the truncation
+  discards bytes the second PATCH had already written, and only afterwards does the CAS
+  rollback fail and reveal that this PATCH no longer owned the file. Inverting the order
+  to check ownership first would reintroduce the original defect (a retry appending onto
+  an uncleaned file), so the ordering stays. The outcome is an unrecoverable upload that
+  the new finalize size check refuses rather than records, which is the same class of
+  outcome the pre-fix code produced for the same scenario — it fails closed, and loudly.
+  Closing it properly means making the handler ownership-aware (for example, a
+  compare-and-truncate that verifies the offset is still the one this PATCH claimed),
+  which is wider than this dossier.
 - **FU-5, cross-reference, not scope** — Two findings from
   `docs/audits/2026-07-22-conversation-verification-gap/findings.md` live in the very files
   this dossier edits and were routed elsewhere. **V-8** (TUS room authorization is proved

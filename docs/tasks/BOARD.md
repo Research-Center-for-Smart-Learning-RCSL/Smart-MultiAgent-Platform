@@ -85,10 +85,6 @@ parallel.
   config F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read
   by nothing. **Blocked on Q-8** (migration posture) — enforcing without a backfill breaks every
   working approval gate on deploy.
-- `2026-07-22-attachment-lifecycle-and-rendering` (bugfix, approved) — `depends_on: []`. a2u F-3, F-14
-  plus verification-gap V-3. Carries an explicit **do-not-do warning**: the SVG finding's one-line
-  description misattributes the defect to the backend allowlist, and following it would delete a
-  security control.
 - `2026-07-22-chatroom-socket-lifecycle` (bugfix, draft) — `depends_on: []`. a2u F-1, F-4, F-18.
   **Ordering conflict with `reconnect-reconciliation`** — the two dossiers reached opposite
   conclusions about which lands first; see that dossier's §3 conflict note. User decides.
