@@ -25,6 +25,7 @@ from datetime import timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.errors import (
+    AttachmentExpired,
     AttachmentNotFound,
     AttachmentQuarantined,
     AttachmentTooLarge,
@@ -270,8 +271,18 @@ class AttachmentService:
         row = await self._repo.get(attachment_id)
         if row is None:
             raise AttachmentNotFound(str(attachment_id))
+        # Quarantine is checked first deliberately: a row can be both
+        # quarantined and past its horizon, and the scan verdict is the more
+        # informative refusal.
         if row.status is AttachmentStatus.QUARANTINED:
             raise AttachmentQuarantined(str(attachment_id))
+        # `expires_at` is checked alongside the status, not instead of it. The
+        # bucket lifecycle and the nightly sweep run on independent clocks, so
+        # between MinIO deleting the object and the next sweep the row still
+        # reads ACTIVE; presigning inside that window hands the client a URL
+        # that resolves to a NoSuchKey body (R13.11a).
+        if row.status is AttachmentStatus.EXPIRED or (row.expires_at is not None and row.expires_at <= now()):
+            raise AttachmentExpired(str(attachment_id))
         bucket, _, key = row.minio_path.partition("/")
         # Override the served Content-Type/Disposition rather than trusting the
         # uploader-declared `mime` stored on the object (SEC-M2). Known-safe
@@ -293,6 +304,37 @@ class AttachmentService:
             response_content_disposition=disposition,
         )
         return AttachmentPointer(attachment=row, url=url)
+
+    # ---- expiry sweep ------------------------------------------------------
+
+    async def expire_due(self, *, limit: int = 500) -> int:
+        """Mark one batch of message-bound attachments past their TTL EXPIRED.
+
+        R13.11a: the `chat-uploads` bucket deletes the bytes on its own
+        schedule, and this is what makes the row say so, which is the only way
+        the client can render `[attachment expired]` (R13.11) and the only
+        thing that emits the `attachment.expired` audit action.
+
+        One batch per call. The caller loops so a large historical backlog is
+        spread over short transactions rather than one long-held one.
+        """
+        rows = await self._repo.list_expired(horizon=now(), limit=limit)
+        for row in rows:
+            await self._repo.mark_expired(row.id)
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="attachment.expired",
+                    resource_type="attachment",
+                    resource_id=row.id,
+                    metadata={
+                        "chatroom_id": str(row.chatroom_id) if row.chatroom_id else None,
+                        "filename": row.filename,
+                        "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+                    },
+                ),
+            )
+        return len(rows)
 
     async def bind_to_message(
         self,
