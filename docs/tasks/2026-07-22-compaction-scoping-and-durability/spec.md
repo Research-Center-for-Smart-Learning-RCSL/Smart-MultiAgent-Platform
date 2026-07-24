@@ -575,6 +575,15 @@ Q-3's would have required describing a behaviour that is not describable.
   rather than `create_message`.** §7 listed this as "consider"; taken, so `metadata["type"]` is
   service-stamped in one place rather than in each caller.
 
+- **D-8 — FU-9 and FU-10 were closed inside this task rather than left as follow-ups.** Both were
+  gate findings recorded as deferred at close-out, with reasons; the user then asked for them to
+  be done. Their entries in §13 carry what was actually built. One thing found while closing
+  FU-10 is worth surfacing on its own: the obvious keyset spelling, `sa.tuple_(*cursor)`, binds
+  generic `Uuid`/`DateTime` parameters, whereas comparing against a plain Python tuple propagates
+  each column's own `pg.UUID`/`TIMESTAMP`. Both compile; only the second is safe against
+  asyncpg's refusal to bind a mismatched type, which is a defect this repo has shipped before.
+  It is commented at the call site because nothing about the code makes it visible.
+
 - **D-7 — the `CompactFailed` branch now releases the forced-`/compact` claim.** Found by the
   quality gate, not by the spec. `turn_engine.py:2601` audited the failure and returned without
   releasing the claim, so a user's explicit `/compact` was consumed and never served. The shape
@@ -624,19 +633,28 @@ Q-3's would have required describing a behaviour that is not describable.
   `[R13.26]` now says should not exist, but after the fact they are indistinguishable from the
   traces a user deletion legitimately leaves. Cleaning those up needs its own decision and its
   own evidence.
-- **FU-9** — *(quality gate, Introduced-Warning, deferred with the user's knowledge)* The
-  compact-summary metadata contract — the `"compact_summary"` type value and the
-  `compacted_ids` / `producer_agent_id` keys — is now read in four modules across two bounded
-  contexts (`transcript.py:63`, `context.py:197`, `retention_service.py:30`,
-  `repair_compaction_summaries.py:73`) with no owner. This work added two of the four. Deferred
-  rather than fixed because the string is a *persisted* value: it exists in `messages.metadata`
-  rows, so it cannot be renamed freely whether or not it is centralised, which removes the usual
-  hazard of a duplicated constant. The right home is the conversation context, which owns the
-  message row; the agents context would import it, matching the existing import direction.
-- **FU-10** — *(security gate, MEDIUM)* `retention_service._delete_summaries_covering` issues an
-  unbounded `SELECT` over the affected rooms' summaries. Bounded in practice by the 500-message
-  purge chunk, and it is a background job rather than a request path, but it should chunk its
-  scan the way `_live_message_ids` chunks its `IN` list.
+- **FU-9 — CLOSED** *(quality gate, Introduced-Warning; deferred at close-out, then fixed on the
+  user's instruction)* The compact-summary metadata contract — the `"compact_summary"` type value
+  and the `compacted_ids` / `producer_agent_id` keys — was read in four modules across two
+  bounded contexts with no owner, two of them added by this work. It now lives in
+  `contexts/conversation/domain/compaction.py`, with the row it describes, re-exported from that
+  context's `interfaces/` for the agents context and the maintenance CLI; `summary_metadata` is
+  the single writer. `agents/application/context.py` deliberately keeps its literal with a
+  comment pointing here — that module's zero-concrete-import property is what keeps the
+  circular-import risk at zero and is worth more than one deduplicated string. Pinned by
+  `test_conversation_compaction_contract.py`, which also records that the values are a persisted
+  wire format: breaking that test is a data migration, not a rename.
+- **FU-10 — CLOSED** *(security gate, MEDIUM; same)* Both `compacted_ids` scans read every
+  candidate row before deciding anything, because that key can only be filtered in Python.
+  `retention_service._delete_summaries_covering` did so in one unbounded `SELECT` per nightly
+  run and now pages by keyset; `repair_compaction_summaries._load_summaries` paged by `OFFSET`
+  (re-scanning the prefix each page) and now does the same. For the purge, keyset is a
+  *correctness* requirement rather than only a cost one: it deletes rows as it goes, which shifts
+  an offset window and would skip summaries — `test_purge_pages_the_summary_scan_and_does_not_reread_deleted_rows`
+  fails that way if the second page is never requested. The cursor is compared against a plain
+  tuple, not `sa.tuple_(*cursor)`, so each bind parameter inherits its column's own type
+  (`pg.UUID`, `TIMESTAMP`) instead of a generic `Uuid`/`DateTime` — the asyncpg bind mismatch
+  this codebase has hit before.
 - **FU-5** — `_assemble_history` (`turn_engine.py:2483-2585`) loads history, consumes a Redis
   flag, decides two compaction policies, takes a distributed lock, re-checks staleness,
   constructs a summariser and store, runs compaction, handles failure, audits and reloads.
