@@ -328,13 +328,32 @@ consistency with the provider-call path, which already draws the line at 2xx. Se
 
 ## 12. Deviation Log
 
-None. Implementation followed the approved Fix Design (§7) as written: headers threaded
-onto `EgressOutcome` as an immutable `tuple[tuple[str, str], ...]` with a case-insensitive
-`header()`/`location` accessor, `ok` narrowed to `200 <= status < 300`, `_probe_function`
-consulting the same classification via a new `EgressOutcome.from_proxy_response(...)`
-constructor (an implementation detail, not a design change — it is what "consults it
-rather than re-deriving the range" resolves to), and the `activities.py:77` alignment
-narrowed to 2xx. All 9 ACs verified; `backend/services/egress_proxy/` untouched (AC-7).
+None at initial close-out. Implementation followed the approved Fix Design (§7) as
+written: headers threaded onto `EgressOutcome` as an immutable `tuple[tuple[str, str],
+...]` with a case-insensitive `header()`/`location` accessor, `ok` narrowed to `200 <=
+status < 300`, `_probe_function` consulting the same classification via a new
+`EgressOutcome.from_proxy_response(...)` constructor (an implementation detail, not a
+design change — it is what "consults it rather than re-deriving the range" resolves to),
+and the `activities.py:77` alignment narrowed to 2xx. All 9 ACs verified;
+`backend/services/egress_proxy/` untouched (AC-7).
+
+**D-1** — A post-close-out `/code-review` pass found two genuine gaps this task's own
+§6 blast-radius table had already named but the Fix Design (§7) and ACs never closed, plus
+one style nit; fixed with the user's agreement:
+- `EgressResponse` (`contexts/agents/interfaces/facade.py`) still discarded response
+  headers, so the activities webhook-validator path stayed `Location`-blind after this
+  task — exactly the "validator path is equally Location-blind" gap §6 flagged but never
+  routed to a fix. Added a `location` field (not the full headers tuple — the validator
+  only ever needs the redirect target, so the narrower field keeps the facade DTO minimal
+  per Interface Segregation) and threaded it through `egress_request` and
+  `activities.py`'s webhook branch.
+- `_probe_function`'s no-`Location` 3xx message (`agent_service.py`) was byte-identical to
+  a generic 4xx/5xx failure, unlike the sibling `builtin_tools.py:672` path, which already
+  distinguished "redirect with no Location header" from a generic failure. Mirrored that
+  wording.
+- `EgressOutcome.headers`'s `field(default=())` (`egress.py`) was equivalent to a plain
+  `= ()` default (an empty tuple needs no `default_factory`) — simplified, dropping the
+  now-unused `field` import.
 
 ## 13. Follow-ups
 
