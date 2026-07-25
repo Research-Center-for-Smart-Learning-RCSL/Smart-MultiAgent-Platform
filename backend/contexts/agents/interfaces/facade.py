@@ -70,6 +70,12 @@ class EgressResponse:
     blocked: str | None
     location: str | None = None
 
+    @property
+    def redirect_detail(self) -> str:
+        from contexts.agents.application.egress import format_redirect_detail
+
+        return format_redirect_detail(self.location)
+
 
 class AgentsFacade:
     def __init__(self, db: AsyncSession) -> None:
