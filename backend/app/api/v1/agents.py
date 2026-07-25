@@ -506,25 +506,55 @@ def _to_tool_out(t, *, config_warnings: list[str] | None = None) -> AgentToolOut
     )
 
 
-async def _function_warnings(db: AsyncSession, project_id: uuid.UUID, tool: Any) -> list[str]:
+async def _tool_warnings(db: AsyncSession, project_id: uuid.UUID, tool: Any) -> list[str]:
+    """Non-blocking config warnings for the tools whose egress the project's
+    allowlist gates: a local function's configured URL, the project's active
+    search-key provider (R12.16 -- normally self-healing via activation, but
+    an operator can remove the seeded host afterwards), and a URL-sourced
+    ``hosted_mcp`` binding's reference. Package-sourced ``hosted_mcp`` has no
+    single knowable host to check and is skipped."""
+    from contexts.agents.application.runtime.builtin_tools import function_egress_allowed
     from contexts.agents.domain.models import AgentToolType
 
-    if not hasattr(tool, "tool_type") or tool.tool_type != AgentToolType.LOCAL_FUNCTION:
+    if not hasattr(tool, "tool_type"):
         return []
-    http = (tool.config or {}).get("http", {})
-    url = http.get("url", "")
-    if not url:
-        return []
-    from urllib.parse import urlsplit
 
-    from contexts.agents.infrastructure.mcp_repositories import EgressAllowlistRepository
-
-    host = (urlsplit(url).hostname or "").lower()
-    if not host:
+    if tool.tool_type == AgentToolType.LOCAL_FUNCTION:
+        http = (tool.config or {}).get("http", {})
+        url = http.get("url", "")
+        if not url:
+            return []
+        host, allowed = await function_egress_allowed(db, project_id=project_id, url=url)
+        if host and not allowed:
+            return [f"host {host} is not on the project egress allowlist"]
         return []
-    repo = EgressAllowlistRepository(db)
-    if not await repo.is_allowed(project_id=project_id, hostname=host):
-        return [f"host {host} is not on the project egress allowlist"]
+
+    if tool.tool_type == AgentToolType.HOSTED_WEB_SEARCH:
+        from contexts.keys.domain.search import SEARCH_PROVIDER_HOSTS
+        from contexts.keys.infrastructure.search_repository import SearchKeyRepository
+
+        keys = await SearchKeyRepository(db).list_for_project(project_id)
+        active = next((k for k in keys if k.is_active), None)
+        if active is None:
+            return []
+        host = SEARCH_PROVIDER_HOSTS[active.provider]
+        _, allowed = await function_egress_allowed(db, project_id=project_id, url=f"https://{host}")
+        if not allowed:
+            return [f"host {host} is not on the project egress allowlist"]
+        return []
+
+    if tool.tool_type == AgentToolType.HOSTED_MCP:
+        cfg = tool.config or {}
+        if cfg.get("source") != "url":
+            return []
+        reference = str(cfg.get("reference", ""))
+        if not reference:
+            return []
+        host, allowed = await function_egress_allowed(db, project_id=project_id, url=reference)
+        if host and not allowed:
+            return [f"host {host} is not on the project egress allowlist"]
+        return []
+
     return []
 
 
@@ -552,7 +582,7 @@ async def list_agent_tools(
     )
     results: list[AgentToolOut] = []
     for t in tools:
-        warnings = await _function_warnings(db, agent.project_id, t)
+        warnings = await _tool_warnings(db, agent.project_id, t)
         results.append(_to_tool_out(t, config_warnings=warnings))
     return results
 
@@ -595,7 +625,7 @@ async def add_agent_tool(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    warnings = await _function_warnings(db, agent.project_id, tool)
+    warnings = await _tool_warnings(db, agent.project_id, tool)
     return _to_tool_out(tool, config_warnings=warnings)
 
 
@@ -641,7 +671,7 @@ async def patch_agent_tool(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    warnings = await _function_warnings(db, agent.project_id, tool)
+    warnings = await _tool_warnings(db, agent.project_id, tool)
     return _to_tool_out(tool, config_warnings=warnings)
 
 

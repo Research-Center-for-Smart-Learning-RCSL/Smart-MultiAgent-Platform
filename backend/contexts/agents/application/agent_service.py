@@ -1010,9 +1010,25 @@ class AgentService:
     async def _probe_mcp(self, agent: Agent, tool: AgentTool, runner: Any) -> ToolProbeResult:
         import time
 
-        from contexts.agents.application.runtime.builtin_tools import resolve_tool_auth
+        from contexts.agents.application.runtime.builtin_tools import (
+            function_egress_allowed,
+            resolve_tool_auth,
+        )
 
         cfg = tool.config or {}
+
+        # Mirrors _probe_function's pre-check. Package-sourced bindings have no
+        # single knowable host (the installed server decides what it calls at
+        # runtime, all still gated by the proxy allowlist), so only a
+        # url-sourced reference can be checked ahead of time.
+        if cfg.get("source", "url") == "url":
+            reference = str(cfg.get("reference", ""))
+            host, allowed = await function_egress_allowed(
+                self._db, project_id=agent.project_id, url=reference
+            )
+            if host and not allowed:
+                return ToolProbeResult(ok=False, error=f"host {host} is not on the project egress allowlist")
+
         auth, unsealable = resolve_tool_auth(tool)
         if unsealable:
             return ToolProbeResult(ok=False, error="stored credentials could not be unsealed")
