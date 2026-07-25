@@ -1,8 +1,11 @@
 """Unit tests for the local_function reachability probe (AgentService._probe_function).
 
 Exercises the probe with the egress allowlist repo and proxy client faked out.
-A 2xx/3xx is a pass; a 4xx/5xx is reachable but a failure; allowlist rejection,
-unsealable credentials, and transport errors are reported as ok=False.
+Only a 2xx is a pass; a 3xx/4xx/5xx is reachable but not a pass (the egress
+proxy never follows redirects, so a 3xx body is empty by construction, and a
+4xx/5xx e.g. 401 means the configured credential is being rejected);
+allowlist rejection, unsealable credentials, and transport errors are
+reported as ok=False.
 """
 
 from __future__ import annotations
@@ -61,21 +64,22 @@ class _DenyRepo:
 
 
 class _FakeProxy:
-    def __init__(self, status: int) -> None:
+    def __init__(self, status: int, headers: dict[str, str] | None = None) -> None:
         self._status = status
+        self._headers = headers or {}
 
     async def request(self, **_kw):
-        return self._status, {}, b""
+        return self._status, self._headers, b""
 
 
 def _patch_allowlist(monkeypatch, repo) -> None:
     monkeypatch.setattr("contexts.agents.infrastructure.mcp_repositories.EgressAllowlistRepository", repo)
 
 
-def _patch_proxy(monkeypatch, status: int) -> None:
+def _patch_proxy(monkeypatch, status: int, headers: dict[str, str] | None = None) -> None:
     monkeypatch.setattr(
         "contexts.agents.infrastructure.egress_client.egress_proxy_client_from_settings",
-        lambda: _FakeProxy(status),
+        lambda: _FakeProxy(status, headers),
     )
 
 
@@ -102,6 +106,21 @@ async def test_4xx_is_reachable_but_fails(monkeypatch) -> None:
     assert res.ok is False
     assert res.status == 401
     assert "401" in (res.error or "")
+
+
+async def test_3xx_is_a_failure(monkeypatch) -> None:
+    _patch_allowlist(monkeypatch, _AllowRepo)
+    _patch_proxy(monkeypatch, 301, {"location": "https://api.example.com/x/"})
+    res = await _service()._probe_function(_agent(), _fn_tool())
+    assert res.ok is False
+    assert res.status == 301
+
+
+async def test_3xx_error_names_redirect_target(monkeypatch) -> None:
+    _patch_allowlist(monkeypatch, _AllowRepo)
+    _patch_proxy(monkeypatch, 301, {"location": "https://api.example.com/x/"})
+    res = await _service()._probe_function(_agent(), _fn_tool())
+    assert "https://api.example.com/x/" in (res.error or "")
 
 
 async def test_fails_closed_when_unseal_fails(monkeypatch) -> None:

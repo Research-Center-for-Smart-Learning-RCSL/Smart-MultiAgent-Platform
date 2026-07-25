@@ -961,6 +961,7 @@ class AgentService:
     async def _probe_function(self, agent: Agent, tool: AgentTool) -> ToolProbeResult:
         import time
 
+        from contexts.agents.application.egress import EgressOutcome
         from contexts.agents.application.runtime.builtin_tools import (
             _auth_pair,
             function_egress_allowed,
@@ -985,7 +986,7 @@ class AgentService:
         headers = dict(http_cfg.get("headers") or {})
         start = time.monotonic()
         try:
-            status, _h, _b = await proxy.request(
+            status, resp_headers, body = await proxy.request(
                 method=method,
                 url=url,
                 project_id=agent.project_id,
@@ -1000,12 +1001,19 @@ class AgentService:
                 error=str(exc) or exc.__class__.__name__,
             )
         duration = int((time.monotonic() - start) * 1000)
-        # Only a 2xx/3xx counts as a passing test; a 4xx/5xx is reachable but a
-        # failure (e.g. 401 = the configured credential is being rejected).
-        ok = 200 <= status < 400
-        return ToolProbeResult(
-            ok=ok, status=status, duration_ms=duration, error=None if ok else f"HTTP {status}"
-        )
+        outcome = EgressOutcome.from_proxy_response(status, resp_headers, body)
+        # Only a 2xx counts as a passing test; a 3xx/4xx/5xx is reachable but not
+        # a pass (a 3xx body is empty by construction — the egress proxy never
+        # follows redirects — and e.g. a 401 means the configured credential is
+        # being rejected).
+        if outcome.ok:
+            error = None
+        elif 300 <= status < 400:
+            location = outcome.location
+            error = f"HTTP {status} — redirect to {location}" if location else f"HTTP {status}"
+        else:
+            error = f"HTTP {status}"
+        return ToolProbeResult(ok=outcome.ok, status=status, duration_ms=duration, error=error)
 
     async def _probe_mcp(self, agent: Agent, tool: AgentTool, runner: Any) -> ToolProbeResult:
         import time
