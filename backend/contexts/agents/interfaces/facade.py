@@ -60,11 +60,15 @@ class EgressResponse:
 
     ``blocked`` is ``None`` on a completed round-trip (``status``/``body`` set);
     otherwise it names why the call was refused (``allowlist`` / ``rate_limit`` /
-    ``rate_limiter_offline`` / ``policy``) and ``status`` is ``None``."""
+    ``rate_limiter_offline`` / ``policy``) and ``status`` is ``None``. ``location``
+    surfaces the response's ``Location`` header (set only on a 3xx round-trip) so
+    a redirecting validator can be diagnosed with its target rather than just a
+    bare status."""
 
     status: int | None
     body: bytes
     blocked: str | None
+    location: str | None = None
 
 
 class AgentsFacade:
@@ -342,4 +346,6 @@ class AgentsFacade:
             return EgressResponse(status=None, body=b"", blocked=blocked.kind)
         except McpEgressDenied:
             return EgressResponse(status=None, body=b"", blocked="policy")
-        return EgressResponse(status=outcome.status, body=outcome.body, blocked=None)
+        return EgressResponse(
+            status=outcome.status, body=outcome.body, blocked=None, location=outcome.location
+        )

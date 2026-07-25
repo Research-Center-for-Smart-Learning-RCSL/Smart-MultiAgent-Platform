@@ -225,11 +225,29 @@ class TestRunRemoteValidator:
         activity_type = _type(ValidatorKind.WEBHOOK, {"url": "https://validator.example.com/score"})
         sub = _submission(ValidationStatus.PENDING)
         agents = MagicMock()
-        agents.egress_request = AsyncMock(return_value=SimpleNamespace(blocked=None, status=301, body=b""))
+        agents.egress_request = AsyncMock(
+            return_value=SimpleNamespace(blocked=None, status=301, body=b"", location=None)
+        )
 
         with (
             patch("contexts.agents.interfaces.facade.AgentsFacade", return_value=agents),
             pytest.raises(ValidatorUnavailable, match="301"),
+        ):
+            await worker._run_remote_validator(MagicMock(), activity_type, sub)
+
+    async def test_webhook_redirect_names_the_target_when_location_present(self) -> None:
+        activity_type = _type(ValidatorKind.WEBHOOK, {"url": "https://validator.example.com/score"})
+        sub = _submission(ValidationStatus.PENDING)
+        agents = MagicMock()
+        agents.egress_request = AsyncMock(
+            return_value=SimpleNamespace(
+                blocked=None, status=301, body=b"", location="https://validator.example.com/score/"
+            )
+        )
+
+        with (
+            patch("contexts.agents.interfaces.facade.AgentsFacade", return_value=agents),
+            pytest.raises(ValidatorUnavailable, match=r"https://validator\.example\.com/score/"),
         ):
             await worker._run_remote_validator(MagicMock(), activity_type, sub)
 

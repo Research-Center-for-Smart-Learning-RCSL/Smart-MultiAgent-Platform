@@ -161,6 +161,27 @@ class TestPerformEgressRequest:
 
 
 class TestFacadeEgressSeam:
+    async def test_egress_request_maps_location(self) -> None:
+        deps = MagicMock()
+        outcome = EgressOutcome(
+            status=301, body=b"", headers=(("Location", "https://validator.example.com/score/"),)
+        )
+        with (
+            patch(
+                "contexts.agents.application.runtime.builtin_tools.default_builtin_deps",
+                return_value=deps,
+            ),
+            patch(
+                "contexts.agents.application.egress.perform_egress_request",
+                new=AsyncMock(return_value=outcome),
+            ),
+        ):
+            resp = await AgentsFacade(MagicMock()).egress_request(
+                project_id=uuid.uuid4(), method="POST", url="https://validator.example.com/score"
+            )
+        assert resp.status == 301
+        assert resp.location == "https://validator.example.com/score/"
+
     async def test_egress_request_maps_success(self) -> None:
         deps = MagicMock()
         with (
