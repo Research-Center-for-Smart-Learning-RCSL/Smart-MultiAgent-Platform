@@ -30,6 +30,7 @@ from contexts.orchestration.infrastructure.tables import (
     instructions,
     workflow_runs,
 )
+from shared_kernel.db.cas import cas_update
 
 
 async def _project_id_for_run(
@@ -122,15 +123,15 @@ class ApprovalRepository:
         concurrent votes cannot both resolve+publish).
         """
         ended = datetime.now(UTC) if state != ApprovalState.PENDING else None
-        result = await self._db.execute(
-            approvals.update()
-            .where(
-                approvals.c.id == approval_id,
-                approvals.c.state == ApprovalState.PENDING.value,
-            )
-            .values(state=state.value, ended_at=ended),
+        return await cas_update(
+            self._db,
+            approvals,
+            id_column=approvals.c.id,
+            row_id=approval_id,
+            state_column=approvals.c.state,
+            allowed_from=[ApprovalState.PENDING.value],
+            values={"state": state.value, "ended_at": ended},
         )
-        return (result.rowcount or 0) > 0
 
     async def get_project_id(self, approval_id: uuid.UUID) -> uuid.UUID | None:
         """Resolve approval → workflow_run → project for the authz scope check.
@@ -347,15 +348,16 @@ class InstructionRepository:
         resolved = (
             datetime.now(UTC) if state not in (InstructionState.ISSUED, InstructionState.DELIVERED) else None
         )
-        result = await self._db.execute(
-            instructions.update()
-            .where(
-                instructions.c.id == instruction_id,
-                instructions.c.state.in_([s.value for s in allowed_from]),
-            )
-            .values(state=state.value, resolved_at=resolved),
+        won = await cas_update(
+            self._db,
+            instructions,
+            id_column=instructions.c.id,
+            row_id=instruction_id,
+            state_column=instructions.c.state,
+            allowed_from=[s.value for s in allowed_from],
+            values={"state": state.value, "resolved_at": resolved},
         )
-        if (result.rowcount or 0) > 0:
+        if won:
             return True
         if await self.get(instruction_id) is None:
             raise ValueError(f"instruction {instruction_id} not found")
