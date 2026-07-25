@@ -269,6 +269,26 @@ def _sanitize_captured_description(desc: str) -> str:
     return cleaned[:_MCP_CAPTURE_DESCRIPTION_MAX]
 
 
+def _sanitize_schema_strings(value: Any) -> Any:
+    """Recursively strip control characters + bound length on every string
+    embedded in a captured ``inputSchema`` (property descriptions, ``enum``,
+    ``pattern``, ``title``, ``default``, ...) -- the same treatment
+    :func:`_sanitize_captured_description` gives the top-level description.
+    These are equally prompt-adjacent third-party text and were previously
+    passed through unmodified while only ``description`` was sanitised.
+
+    Dict *keys* (property names) are left untouched -- altering them would
+    change what the schema actually describes, not just how it reads.
+    """
+    if isinstance(value, str):
+        return _sanitize_captured_description(value)
+    if isinstance(value, dict):
+        return {k: _sanitize_schema_strings(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_schema_strings(v) for v in value]
+    return value
+
+
 def _sanitize_captured_tools(tools: Sequence[McpToolSpec]) -> tuple[tuple[McpToolSpec, ...], list[str]]:
     """Bound + validate a probe's captured tool contract before persisting.
 
@@ -276,8 +296,12 @@ def _sanitize_captured_tools(tools: Sequence[McpToolSpec]) -> tuple[tuple[McpToo
     tool to the permissive fallback rather than failing the whole capture --
     consistent with this fix's core principle that one bad entry must never
     brick everything (that was defect B). Total count/bytes are capped by
-    truncation, not rejection, for the same reason. Returns (specs, warnings)
-    for the caller to persist and surface via config_warnings respectively.
+    truncation, not rejection, for the same reason. The total counts every
+    persisted byte (name + description + schema), not schema alone, and
+    ``name`` is bounded the same way a client-declared allowed_tools entry is
+    (:func:`_validate_mcp_tool_name`'s cap) -- a captured name comes from the
+    same untrusted server. Returns (specs, warnings) for the caller to persist
+    and surface via config_warnings respectively.
     """
     import json as _json
 
@@ -291,24 +315,27 @@ def _sanitize_captured_tools(tools: Sequence[McpToolSpec]) -> tuple[tuple[McpToo
     specs: list[McpToolSpec] = []
     total_size = 0
     for spec in truncated:
+        name = spec.name[:_MCP_TOOL_NAME_MAX]
         description = _sanitize_captured_description(spec.description)
-        schema = spec.input_schema if isinstance(spec.input_schema, dict) else {}
-        size = len(_json.dumps(schema, separators=(",", ":")))
+        raw_schema = spec.input_schema if isinstance(spec.input_schema, dict) else {}
+        schema = _sanitize_schema_strings(raw_schema)
         try:
             _validate_captured_schema(schema)
+            schema_size = len(_json.dumps(schema, separators=(",", ":")))
         except ValueError:
             warnings.append(f"captured schema for tool {spec.name!r} exceeded limits; using fallback schema")
             schema = {"type": "object", "additionalProperties": True}
-            size = 0
-        if total_size + size > _MCP_CAPTURE_MAX_TOTAL_BYTES:
+            schema_size = 0
+        entry_size = schema_size + len(name.encode("utf-8")) + len(description.encode("utf-8"))
+        if total_size + entry_size > _MCP_CAPTURE_MAX_TOTAL_BYTES:
             warnings.append(
                 f"captured tool contract exceeded the total {_MCP_CAPTURE_MAX_TOTAL_BYTES}-byte cap; "
                 f"tool {spec.name!r} and later entries fell back to the permissive schema"
             )
             schema = {"type": "object", "additionalProperties": True}
-        else:
-            total_size += size
-        specs.append(McpToolSpec(name=spec.name, description=description, input_schema=schema))
+            entry_size = len(name.encode("utf-8")) + len(description.encode("utf-8"))
+        total_size += entry_size
+        specs.append(McpToolSpec(name=name, description=description, input_schema=schema))
     return tuple(specs), warnings
 
 

@@ -9,10 +9,13 @@ form an older image would still emit.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from contexts.agents.domain.models import McpToolSpec
 from contexts.agents.infrastructure.sandbox.docker_runsc import (
     _parse_probed_tool,
     _probed_tool_name,
+    _read_capped_logs,
 )
 
 
@@ -46,3 +49,22 @@ def test_probed_tool_name_reads_both_forms() -> None:
     assert _probed_tool_name({"name": "read_file"}) == "read_file"
     assert _probed_tool_name("read_file") == "read_file"
     assert _probed_tool_name({}) == ""
+
+
+def _fake_container(chunks: list[bytes]) -> SimpleNamespace:
+    return SimpleNamespace(logs=lambda **_kw: iter(chunks))
+
+
+def test_read_capped_logs_returns_full_stream_under_the_cap() -> None:
+    container = _fake_container([b'{"tools":', b"[]}"])
+    assert _read_capped_logs(container, max_bytes=1000) == b'{"tools":[]}'
+
+
+def test_read_capped_logs_stops_reading_past_the_cap() -> None:
+    # A hostile/misconfigured server's stdout must never be fully buffered --
+    # the read stops as soon as it crosses max_bytes, and the result is
+    # trimmed to exactly max_bytes.
+    container = _fake_container([b"a" * 10, b"b" * 10, b"c" * 10])
+    out = _read_capped_logs(container, max_bytes=15)
+    assert len(out) == 15
+    assert out == (b"a" * 10 + b"b" * 5)

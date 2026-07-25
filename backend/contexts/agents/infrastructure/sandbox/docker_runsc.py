@@ -659,6 +659,35 @@ def _get_container_quietly(client: Any, ref: str) -> Any | None:
         return None
 
 
+# Byte cap on a probe container's stdout, read BEFORE json.loads ever runs (not
+# just before persisting -- quality/security audit finding, 2026-07-22-mcp-tool-contract).
+# Generous headroom over the downstream persisted cap (agent_service.py
+# _MCP_CAPTURE_MAX_TOTAL_BYTES = 200_000): a legitimate multi-tool server's raw,
+# pre-truncation response can exceed that before client-side caps trim it, but a
+# hostile/misconfigured server returning hundreds of MB must not be fully
+# buffered into host memory first.
+_MCP_PROBE_LOG_MAX_BYTES = 5_000_000
+
+
+def _read_capped_logs(container: Any, *, max_bytes: int) -> bytes:
+    """Read a container's stdout capped at ``max_bytes``, never buffering more.
+
+    ``container.logs()`` has no native byte limit (only ``tail=N`` lines), so an
+    uncapped read lets a probe container's guest process (running an untrusted
+    MCP server) force the host to materialize an arbitrarily large payload.
+    Streaming and stopping past the cap bounds that regardless of what the
+    guest actually sends.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in container.logs(stdout=True, stderr=False, stream=True):
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > max_bytes:
+            break
+    return b"".join(chunks)[:max_bytes]
+
+
 def _probed_tool_name(entry: Any) -> str:
     """Name of one raw ``tools`` entry, accepting both probe wire forms."""
     if isinstance(entry, dict):
@@ -932,21 +961,26 @@ class DockerRunscSandbox:
                         await asyncio.to_thread(container.kill)
                     raise TimeoutError(f"probe container did not exit within {timeout_s:.1f}s") from exc
                 status_code = int(exit_status.get("StatusCode", 1))
-                raw_logs = await asyncio.to_thread(container.logs, stdout=True, stderr=False)
+                raw_logs = await asyncio.to_thread(
+                    _read_capped_logs, container, max_bytes=_MCP_PROBE_LOG_MAX_BYTES
+                )
                 logs = raw_logs.decode("utf-8", errors="replace")
             finally:
                 await self._remove_quietly(container)
-        if status_code == 42:
-            raise McpEgressDenied("egress proxy denied MCP probe")
-        if status_code != 0:
-            # Last-ditch — surface exit code in the raised message.
-            raise RuntimeError(f"probe container exited {status_code}: {logs[:512]}")
-        try:
-            parsed = json.loads(logs)
-            raw_tools = parsed.get("tools", [])
-        except ValueError as exc:
-            raise RuntimeError(f"probe container returned non-JSON: {logs[:512]}") from exc
-        return tuple(_parse_probed_tool(t) for t in raw_tools if _probed_tool_name(t))
+            # Parsing stays inside the semaphore too: an untrusted guest's stdout
+            # is what's being decoded here, so the same concurrency throttle that
+            # bounds container count must bound this CPU work as well.
+            if status_code == 42:
+                raise McpEgressDenied("egress proxy denied MCP probe")
+            if status_code != 0:
+                # Last-ditch — surface exit code in the raised message.
+                raise RuntimeError(f"probe container exited {status_code}: {logs[:512]}")
+            try:
+                parsed = await asyncio.to_thread(json.loads, logs)
+            except ValueError as exc:
+                raise RuntimeError(f"probe container returned non-JSON: {logs[:512]}") from exc
+            raw_tools = parsed.get("tools", []) if isinstance(parsed, dict) else []
+            return tuple(_parse_probed_tool(t) for t in raw_tools if _probed_tool_name(t))
 
     async def invoke_mcp_tool(
         self,
