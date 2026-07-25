@@ -668,10 +668,9 @@ def _build_function_tool(
         ok = outcome.ok
         await _audit_tool_invoke(db, agent, tool, fn_name, ok=ok)
         if not ok and 300 <= outcome.status < 400:
-            location = outcome.location
-            detail = f"redirect to {location}" if location else "redirect with no Location header"
             content = (
-                f"HTTP {outcome.status} — {detail}; retry with that URL if the host is on the allowlist."
+                f"HTTP {outcome.status} — {outcome.redirect_detail}; "
+                "retry with that URL if the host is on the allowlist."
             )
         else:
             text = outcome.body.decode("utf-8", "replace")

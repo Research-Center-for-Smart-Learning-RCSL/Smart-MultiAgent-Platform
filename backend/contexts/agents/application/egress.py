@@ -29,6 +29,16 @@ DEFAULT_EGRESS_RATE_LIMIT_PER_MINUTE = 60
 BlockKind = Literal["allowlist", "rate_limit", "rate_limiter_offline"]
 
 
+def format_redirect_detail(location: str | None) -> str:
+    """Human-readable detail for a 3xx round-trip's error/probe message.
+
+    Shared by ``EgressOutcome`` here and the neutral ``EgressResponse`` DTO
+    (``contexts.agents.interfaces.facade``) so a wording change is one edit,
+    not a re-sync across every layer that surfaces a redirect to a caller.
+    """
+    return f"redirect to {location}" if location else "redirect with no Location header"
+
+
 def _normalize_headers(headers: Mapping[str, str]) -> tuple[tuple[str, str], ...]:
     """Freeze proxy response headers onto the outcome.
 
@@ -67,6 +77,10 @@ class EgressOutcome:
     @property
     def location(self) -> str | None:
         return self.header("location")
+
+    @property
+    def redirect_detail(self) -> str:
+        return format_redirect_detail(self.location)
 
 
 class EgressBlocked(Exception):

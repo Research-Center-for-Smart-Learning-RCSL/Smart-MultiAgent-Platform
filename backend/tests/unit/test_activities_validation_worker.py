@@ -23,6 +23,7 @@ from contexts.activities.domain.models import (
     ValidationStatus,
     ValidatorKind,
 )
+from contexts.agents.interfaces.facade import EgressResponse
 
 _NOW = dt.datetime(2026, 7, 13, tzinfo=dt.UTC)
 
@@ -226,7 +227,7 @@ class TestRunRemoteValidator:
         sub = _submission(ValidationStatus.PENDING)
         agents = MagicMock()
         agents.egress_request = AsyncMock(
-            return_value=SimpleNamespace(blocked=None, status=301, body=b"", location=None)
+            return_value=EgressResponse(status=301, body=b"", blocked=None, location=None)
         )
 
         with (
@@ -240,8 +241,8 @@ class TestRunRemoteValidator:
         sub = _submission(ValidationStatus.PENDING)
         agents = MagicMock()
         agents.egress_request = AsyncMock(
-            return_value=SimpleNamespace(
-                blocked=None, status=301, body=b"", location="https://validator.example.com/score/"
+            return_value=EgressResponse(
+                status=301, body=b"", blocked=None, location="https://validator.example.com/score/"
             )
         )
 
