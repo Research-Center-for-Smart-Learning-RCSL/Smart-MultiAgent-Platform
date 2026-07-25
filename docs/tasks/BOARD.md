@@ -43,10 +43,6 @@ parallel.
   `docs/audits/2026-07-22-agent-config-runtime/` F-11 (major): re-uploading a document discards
   the submitted per-agent allowlist on all four ingestion entry points, so the retry path cannot
   correct a wrong binding. Backend plus a frontend 409 handler.
-- `2026-07-22-join-epoch-loop-reentry` (bugfix, approved) — `depends_on: []`. a2a F-11: an `any`/`count`
-  join reached by a loop back-edge fires once and stalls, because the one-shot latch is claimed at
-  `fire_threshold` arrivals and released only at `total_branches`. Folds in an ALL-mode deadlock the
-  audit did not name. **Recommended to land before** `wait-for-event-timer-and-join-ports`.
 - `2026-07-22-wakeup-trigger-state-and-bounds` (bugfix, draft) — `depends_on: []`. **a2a** F-3, F-12,
   F-14, F-21, F-38 plus config F-24. (This row previously read "a2u"; corrected — the a2u audit has
   no F-38, and its F-3/F-12 belong to `attachment-lifecycle-and-rendering` and
@@ -112,6 +108,10 @@ Nothing blocked.
 
 ## In progress
 
+- `2026-07-22-join-epoch-loop-reentry` (bugfix) — `depends_on: []`. a2a F-11: an `any`/`count`
+  join reached by a loop back-edge fires once and stalls, because the one-shot latch is claimed at
+  `fire_threshold` arrivals and released only at `total_branches`. Folds in an ALL-mode deadlock the
+  audit did not name. **Recommended to land before** `wait-for-event-timer-and-join-ports`.
 - `2026-07-22-activity-session-authz-and-validation` (bugfix) — `depends_on: []`. a2u F-12,
   F-20 plus verification-gap V-7: activity-session AuthZ + watchdog notification + optional
   enum-array assembly.
