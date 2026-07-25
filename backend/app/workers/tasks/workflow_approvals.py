@@ -246,6 +246,11 @@ async def workflow_instruct_timeout(ctx: dict[str, Any], instruction_id: str) ->
     resume. The enqueue must run on every attempt, including a retry of this
     same job, or a poisoned retry reads its own committed TIMEOUT and gives up
     without ever resuming the run (F-16). Only an absent row skips both.
+
+    No separate existence pre-check: mark_instruct_timeout's own CAS already
+    distinguishes absent (raises ValueError) from rejected (returns False) in
+    one round trip, so a preliminary ``get_instruction`` here would only
+    duplicate that read for a result this function immediately discards.
     """
     from contexts.orchestration.interfaces.facade import OrchestrationFacade
     from shared_kernel.db.session import async_session
@@ -253,10 +258,10 @@ async def workflow_instruct_timeout(ctx: dict[str, Any], instruction_id: str) ->
     iid = uuid.UUID(instruction_id)
     async with async_session() as db:
         facade = OrchestrationFacade(db)
-        instruction = await facade.get_instruction(iid)
-        if instruction is None:
+        try:
+            timed_out = await facade.mark_instruct_timeout(iid)
+        except ValueError:
             return "noop:gone"
-        timed_out = await facade.mark_instruct_timeout(iid)
         await db.commit()
 
     await ctx["redis"].enqueue_job("workflow_resume_instruct", instruction_id)
