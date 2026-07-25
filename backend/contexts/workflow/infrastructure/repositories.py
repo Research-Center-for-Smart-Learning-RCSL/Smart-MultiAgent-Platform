@@ -321,9 +321,7 @@ class WorkflowRunRepository:
         return await cas_update(
             self._db,
             workflow_runs,
-            id_column=workflow_runs.c.id,
             row_id=run_id,
-            state_column=workflow_runs.c.state,
             allowed_from=allowed_from,
             values=values,
         )
