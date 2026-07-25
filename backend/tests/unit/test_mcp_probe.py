@@ -12,10 +12,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from contexts.agents.application.agent_service import AgentService
-from contexts.agents.domain.models import AgentTool, AgentToolType
+from contexts.agents.domain.models import AgentTool, AgentToolType, McpToolSpec
 
 _NOW = datetime(2026, 6, 22, 12, 0, 0)
 
@@ -98,3 +98,63 @@ async def test_probe_mcp_skips_allowlist_check_for_package_source(monkeypatch) -
 
     assert res.ok is True
     runner.probe.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# probe_tool (2026-07-22-mcp-tool-contract): "Test" is a re-capture, not just
+# a read-only reachability check -- a successful MCP probe persists the tool
+# contract; a failed one must not touch whatever was captured previously.
+# ---------------------------------------------------------------------------
+
+
+async def test_probe_tool_persists_capture_on_success(monkeypatch) -> None:
+    _patch_allowlist(monkeypatch, _AllowRepo)
+    runner = AsyncMock()
+    runner.probe.return_value = SimpleNamespace(
+        ok=True,
+        tool_names=["x"],
+        tools=(McpToolSpec(name="x", description="d", input_schema={"type": "object"}),),
+        duration_ms=1,
+        error=None,
+    )
+    svc = _service()
+    svc._tools = AsyncMock()
+    tool = _mcp_tool()
+
+    with patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock):
+        result = await svc.probe_tool(
+            agent=_agent(),
+            tool=tool,
+            runner=runner,
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
+        )
+
+    assert result.ok is True
+    svc._tools.capture_mcp_tools.assert_awaited_once()
+    kwargs = svc._tools.capture_mcp_tools.await_args.kwargs
+    assert kwargs["tool_id"] == tool.id
+    assert kwargs["tools"][0].name == "x"
+
+
+async def test_probe_tool_skips_capture_on_failed_probe(monkeypatch) -> None:
+    _patch_allowlist(monkeypatch, _AllowRepo)
+    runner = AsyncMock()
+    runner.probe.return_value = SimpleNamespace(
+        ok=False, tool_names=[], tools=(), duration_ms=1, error="boom"
+    )
+    svc = _service()
+    svc._tools = AsyncMock()
+    tool = _mcp_tool()
+
+    with patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock):
+        result = await svc.probe_tool(
+            agent=_agent(),
+            tool=tool,
+            runner=runner,
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
+        )
+
+    assert result.ok is False
+    svc._tools.capture_mcp_tools.assert_not_awaited()

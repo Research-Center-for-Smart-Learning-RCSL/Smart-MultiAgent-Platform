@@ -545,15 +545,36 @@ async def _tool_warnings(db: AsyncSession, project_id: uuid.UUID, tool: Any) -> 
 
     if tool.tool_type == AgentToolType.HOSTED_MCP:
         cfg = tool.config or {}
-        if cfg.get("source") != "url":
-            return []
-        reference = str(cfg.get("reference", ""))
-        if not reference:
-            return []
-        host, allowed = await function_egress_allowed(db, project_id=project_id, url=reference)
-        if host and not allowed:
-            return [f"host {host} is not on the project egress allowlist"]
-        return []
+        warnings: list[str] = []
+
+        # Capture-staleness advisories (Q-7 / Fix Design §7 piece 2): a tool
+        # bound in config but absent from (or never in) the last capture must
+        # surface, never silently drop -- the model still gets the permissive
+        # fallback schema for it, this is purely informational.
+        allowed_tools = [n for n in cfg.get("allowed_tools") or [] if isinstance(n, str) and n]
+        if allowed_tools:
+            if tool.mcp_captured_at is None:
+                warnings.append(
+                    "MCP tool contract has not been captured yet; using the permissive "
+                    "fallback schema until Test is run."
+                )
+            else:
+                captured_names = {spec.name for spec in tool.mcp_captured_tools}
+                for name in allowed_tools:
+                    if name not in captured_names:
+                        warnings.append(
+                            f"tool {name!r} was not found in the last capture; it may no "
+                            "longer be offered by the server. Re-run Test to confirm."
+                        )
+
+        if cfg.get("source") == "url":
+            reference = str(cfg.get("reference", ""))
+            if reference:
+                host, allowed = await function_egress_allowed(db, project_id=project_id, url=reference)
+                if host and not allowed:
+                    warnings.append(f"host {host} is not on the project egress allowlist")
+
+        return warnings
 
     return []
 
@@ -727,6 +748,9 @@ class AgentToolTestOut(BaseModel):
     error: str | None = None
     # HTTP status from a local_function reachability probe (None for MCP tests).
     status: int | None = None
+    # Non-blocking advisories from a successful hosted_mcp re-capture (e.g. a
+    # schema exceeded the size/property/$ref caps and fell back to permissive).
+    warnings: list[str] = []
 
 
 @agent_router.post("/{agent_id}/tools/{tool_id}/test")
@@ -777,6 +801,7 @@ async def test_agent_tool(
         status=result.status,
         duration_ms=result.duration_ms,
         error=result.error,
+        warnings=list(result.warnings),
     )
 
 

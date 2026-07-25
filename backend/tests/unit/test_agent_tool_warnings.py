@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from app.api.v1.agents import _tool_warnings
-from contexts.agents.domain.models import AgentToolType
+from contexts.agents.domain.models import AgentToolType, McpToolSpec
 from contexts.keys.domain.probe_status import ProbeStatus
 from contexts.keys.domain.search import SearchKey, SearchProvider
 
@@ -39,8 +39,19 @@ def _search_key(project_id: uuid.UUID, *, is_active: bool) -> SearchKey:
     )
 
 
-def _tool(tool_type: AgentToolType, config: dict) -> SimpleNamespace:
-    return SimpleNamespace(tool_type=tool_type, config=config)
+def _tool(
+    tool_type: AgentToolType,
+    config: dict,
+    *,
+    mcp_captured_tools: tuple = (),
+    mcp_captured_at: datetime | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        tool_type=tool_type,
+        config=config,
+        mcp_captured_tools=mcp_captured_tools,
+        mcp_captured_at=mcp_captured_at,
+    )
 
 
 async def test_web_search_tool_warns_when_provider_host_not_allowlisted(monkeypatch) -> None:
@@ -121,6 +132,49 @@ async def test_hosted_mcp_tool_no_warning_for_package_source(monkeypatch) -> Non
     # No allowlist patch: a package reference has no single knowable host, so
     # the check must be skipped entirely rather than probing a bogus host.
     tool = _tool(AgentToolType.HOSTED_MCP, {"source": "package", "reference": "left-pad@1.0.0"})
+    warnings = await _tool_warnings(AsyncMock(), uuid.uuid4(), tool)
+
+    assert warnings == []
+
+
+# ---------------------------------------------------------------------------
+# Capture-staleness advisories (2026-07-22-mcp-tool-contract Q-7): a bound
+# tool absent from -- or never covered by -- the last capture must surface,
+# never silently drop.
+# ---------------------------------------------------------------------------
+
+
+async def test_hosted_mcp_warns_when_never_captured() -> None:
+    tool = _tool(
+        AgentToolType.HOSTED_MCP,
+        {"source": "package", "reference": "left-pad@1.0.0", "allowed_tools": ["alpha"]},
+    )
+    warnings = await _tool_warnings(AsyncMock(), uuid.uuid4(), tool)
+
+    assert len(warnings) == 1
+    assert "not been captured" in warnings[0]
+
+
+async def test_hosted_mcp_warns_when_bound_tool_absent_from_capture() -> None:
+    tool = _tool(
+        AgentToolType.HOSTED_MCP,
+        {"source": "package", "reference": "left-pad@1.0.0", "allowed_tools": ["alpha", "beta"]},
+        mcp_captured_tools=(McpToolSpec(name="alpha"),),
+        mcp_captured_at=datetime.now(tz=UTC),
+    )
+    warnings = await _tool_warnings(AsyncMock(), uuid.uuid4(), tool)
+
+    assert len(warnings) == 1
+    assert "'beta'" in warnings[0]
+
+
+async def test_hosted_mcp_no_capture_warning_when_all_bound_tools_captured() -> None:
+    tool = _tool(
+        AgentToolType.HOSTED_MCP,
+        {"source": "package", "reference": "left-pad@1.0.0", "allowed_tools": ["alpha"]},
+        mcp_captured_tools=(McpToolSpec(name="alpha"),),
+        mcp_captured_at=datetime.now(tz=UTC),
+    )
     warnings = await _tool_warnings(AsyncMock(), uuid.uuid4(), tool)
 
     assert warnings == []

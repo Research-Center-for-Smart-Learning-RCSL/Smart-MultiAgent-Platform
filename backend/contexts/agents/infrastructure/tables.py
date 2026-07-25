@@ -92,6 +92,10 @@ agent_tools = sa.Table(
     sa.Column("enabled", sa.Boolean, nullable=False, server_default=sa.text("true")),
     sa.Column("display_name", sa.Text, nullable=True),
     sa.Column("config", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
+    # Server-written MCP tool contract captured at probe ("Test") time -- never
+    # reachable through AgentToolCreateIn/AgentToolPatchIn (migration 0066).
+    sa.Column("mcp_captured_tools", pg.JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")),
+    sa.Column("mcp_captured_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )
 

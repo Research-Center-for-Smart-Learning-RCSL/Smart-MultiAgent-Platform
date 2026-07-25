@@ -186,6 +186,11 @@ class AgentTool:
     display_name: str | None
     config: dict[str, Any]
     created_at: datetime
+    # Server-written MCP tool contract captured at probe ("Test") time --
+    # never reachable through AgentToolCreateIn/AgentToolPatchIn. Empty/None
+    # degrades to the permissive fallback schema, never an error.
+    mcp_captured_tools: tuple[McpToolSpec, ...] = ()
+    mcp_captured_at: datetime | None = None
 
     def is_singleton(self) -> bool:
         return self.tool_type in SINGLETON_TOOL_TYPES
@@ -204,6 +209,10 @@ class AgentTool:
         if isinstance(raw, (list | tuple)):
             return tuple(str(t) for t in raw)
         return ()
+
+    def mcp_captured_tool(self, mcp_tool: str) -> McpToolSpec | None:
+        """The captured contract for one upstream tool name, if captured."""
+        return next((spec for spec in self.mcp_captured_tools if spec.name == mcp_tool), None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +241,10 @@ class ToolProbeResult:
     status: int | None = None
     duration_ms: int = 0
     error: str | None = None
+    # Non-blocking advisories from persisting a captured MCP tool contract
+    # (e.g. a schema exceeded the size/property/$ref caps and fell back to
+    # permissive) -- always empty for local_function probes.
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

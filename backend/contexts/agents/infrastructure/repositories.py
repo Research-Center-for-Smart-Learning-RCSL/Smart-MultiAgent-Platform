@@ -32,6 +32,7 @@ from contexts.agents.domain.models import (
     AgentTool,
     AgentToolType,
     ContextMode,
+    McpToolSpec,
     WorkspaceFile,
 )
 from contexts.agents.infrastructure import tables as t
@@ -441,6 +442,30 @@ class AgentRepository:
         return [r.id for r in rows]
 
 
+def _captured_tools_from_json(raw: Any) -> tuple[McpToolSpec, ...]:
+    if not isinstance(raw, list):
+        return ()
+    specs = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        schema = entry.get("input_schema")
+        if not isinstance(schema, dict):
+            schema = {"type": "object", "additionalProperties": True}
+        specs.append(
+            McpToolSpec(
+                name=str(entry.get("name", "")),
+                description=str(entry.get("description", "")),
+                input_schema=schema,
+            )
+        )
+    return tuple(specs)
+
+
+def _captured_tools_to_json(specs: Sequence[McpToolSpec]) -> list[dict[str, Any]]:
+    return [{"name": s.name, "description": s.description, "input_schema": s.input_schema} for s in specs]
+
+
 def _row_to_tool(row: Any) -> AgentTool:
     return AgentTool(
         id=row.id,
@@ -450,6 +475,8 @@ def _row_to_tool(row: Any) -> AgentTool:
         display_name=row.display_name,
         config=dict(row.config or {}),
         created_at=row.created_at,
+        mcp_captured_tools=_captured_tools_from_json(row.mcp_captured_tools),
+        mcp_captured_at=row.mcp_captured_at,
     )
 
 
@@ -598,6 +625,36 @@ class AgentToolRepository:
                     )
                 )
                 .values(**values)
+                .returning(t.agent_tools)
+            )
+        ).first()
+        if row is None:
+            raise AgentToolNotFound(str(tool_id))
+        return _row_to_tool(row)
+
+    async def capture_mcp_tools(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        tool_id: uuid.UUID,
+        tools: Sequence[McpToolSpec],
+    ) -> AgentTool:
+        """Overwrite the server-written MCP tool contract captured at probe time.
+
+        Bypasses ``patch()``'s config merge entirely -- this is a separate
+        column, never reachable through AgentToolCreateIn/AgentToolPatchIn, so
+        it does not participate in the client-supplied ``config`` at all.
+        """
+        row = (
+            await self._db.execute(
+                t.agent_tools.update()
+                .where(
+                    sa.and_(
+                        t.agent_tools.c.id == tool_id,
+                        t.agent_tools.c.agent_id == agent_id,
+                    )
+                )
+                .values(mcp_captured_tools=_captured_tools_to_json(tools), mcp_captured_at=now())
                 .returning(t.agent_tools)
             )
         ).first()
