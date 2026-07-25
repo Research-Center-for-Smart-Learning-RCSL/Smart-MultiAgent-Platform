@@ -156,7 +156,9 @@ async def workflow_resume_instruct(ctx: dict[str, Any], instruction_id: str, att
 
     Enqueued post-commit by the A2A handler (completion) and by
     ``workflow_instruct_timeout`` (deadline). The committed instruction state
-    decides the port, so completion and timeout can't disagree; ``GETDEL`` on
+    decides the port; completion and timeout cannot disagree *because* the
+    terminal write is a compare-and-set (F-15) — whichever settles first wins
+    and the other is rejected, not silently applied. ``GETDEL`` on
     ``wf:instruct:{id}`` makes the resume single-shot. Non-workflow instructs
     carry no claim key and no-op.
 
@@ -237,8 +239,14 @@ async def workflow_resume_instruct(ctx: dict[str, Any], instruction_id: str, att
 
 
 async def workflow_instruct_timeout(ctx: dict[str, Any], instruction_id: str) -> str:
-    """Deadline for a parked ``instruct`` node — mark timeout, then resume (K.4)."""
-    from contexts.orchestration.domain.models import InstructionState
+    """Deadline for a parked ``instruct`` node — mark timeout, then resume (K.4).
+
+    Two effects, only one of which is idempotent by nature: settling the row
+    (a CAS — a no-op if another writer already settled it) and starting the
+    resume. The enqueue must run on every attempt, including a retry of this
+    same job, or a poisoned retry reads its own committed TIMEOUT and gives up
+    without ever resuming the run (F-16). Only an absent row skips both.
+    """
     from contexts.orchestration.interfaces.facade import OrchestrationFacade
     from shared_kernel.db.session import async_session
 
@@ -246,18 +254,19 @@ async def workflow_instruct_timeout(ctx: dict[str, Any], instruction_id: str) ->
     async with async_session() as db:
         facade = OrchestrationFacade(db)
         instruction = await facade.get_instruction(iid)
-        if instruction is None or instruction.state in (
-            InstructionState.COMPLETED,
-            InstructionState.TIMEOUT,
-            InstructionState.REJECTED_LOOP,
-        ):
-            return "noop"
-        await facade.mark_instruct_timeout(iid)
+        if instruction is None:
+            return "noop:gone"
+        timed_out = await facade.mark_instruct_timeout(iid)
         await db.commit()
 
     await ctx["redis"].enqueue_job("workflow_resume_instruct", instruction_id)
-    logger.bind(instruction_id=instruction_id).info("instruct deadline: marked timeout")
-    return "timed_out"
+    if timed_out:
+        logger.bind(instruction_id=instruction_id).info("instruct deadline: marked timeout")
+        return "timed_out"
+    logger.bind(instruction_id=instruction_id).info(
+        "instruct deadline: already settled by another writer, resuming anyway"
+    )
+    return "already_settled"
 
 
 async def _store_instruct_output(db: Any, run_id: str, node_id: str, instruction_id: str) -> None:

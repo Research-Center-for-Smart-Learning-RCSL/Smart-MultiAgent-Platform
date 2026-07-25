@@ -537,6 +537,53 @@ class TestInstructExecutor:
         assert outcome.port == "failure"
         assert "connection lost" in (outcome.error or "")
 
+    @patch("contexts.workflow.application.executors.instruct.interpolate", return_value="t")
+    async def test_instruct_logs_when_deadline_arm_fails(self, _interp, caplog) -> None:
+        """T-12: a failed deadline arm must not be silent (F-16 aggravating factor)
+        — the node still parks, but a warning is logged so an unarmed deadline is
+        distinguishable from one that hasn't fired yet."""
+        import logging
+
+        from loguru import logger
+
+        from contexts.workflow.application.executors.instruct import execute
+
+        ctx = _make_ctx()
+        node = _make_node(
+            NodeType.INSTRUCT,
+            {
+                "issuer_agent_id": str(uuid.uuid4()),
+                "target_agent_id": str(uuid.uuid4()),
+                "instruction_template": "t",
+                "wait_for_completion": True,
+            },
+        )
+
+        instruction = MagicMock()
+        instruction.id = uuid.uuid4()
+        facade_mock = AsyncMock()
+        facade_mock.issue_instruct.return_value = instruction
+        mock_redis = _RecordingRedis()
+
+        handler_id = logger.add(caplog.handler, format="{message}", level="WARNING")
+        try:
+            with (
+                patch(
+                    "contexts.orchestration.interfaces.facade.OrchestrationFacade",
+                    return_value=facade_mock,
+                ),
+                patch("shared_kernel.auth.clients.get_redis", return_value=mock_redis),
+                patch("shared_kernel.queue.enqueue", side_effect=RuntimeError("redis unreachable")),
+                caplog.at_level(logging.WARNING),
+            ):
+                outcome = await execute(ctx, node, AsyncMock())
+        finally:
+            logger.remove(handler_id)
+
+        assert outcome.state == StepState.RUNNING
+        assert outcome.park is True
+        assert any("deadline arm failed" in record.message for record in caplog.records)
+
 
 # ===========================================================================
 # agent_invocation executor

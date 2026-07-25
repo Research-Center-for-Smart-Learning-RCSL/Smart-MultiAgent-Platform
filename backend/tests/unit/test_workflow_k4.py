@@ -868,6 +868,116 @@ async def test_resume_instruct_pending_does_not_claim(monkeypatch) -> None:
     assert f"wf:instruct:{iid}" in redis.kv
 
 
+# --------------------------------------------------------------------------- #
+# F-16 — workflow_instruct_timeout must survive its own retry                  #
+# --------------------------------------------------------------------------- #
+
+
+async def test_instruct_timeout_enqueues_resume_when_row_already_timed_out(monkeypatch) -> None:
+    """T-6: the job must resume even when it finds the row already TIMEOUT — its
+    own prior committed effect on a retry — instead of hard no-op'ing (F-16)."""
+    from app.workers.tasks import workflow as wf
+    from contexts.orchestration.domain.models import InstructionState
+
+    iid = uuid.uuid4()
+    facade = SimpleNamespace(
+        get_instruction=AsyncMock(return_value=SimpleNamespace(state=InstructionState.TIMEOUT)),
+        mark_instruct_timeout=AsyncMock(return_value=False),
+    )
+    db = MagicMock()
+    db.commit = AsyncMock()
+    monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db))
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade)
+
+    pool = AsyncMock()
+    result = await wf.workflow_instruct_timeout({"redis": pool}, str(iid))
+
+    pool.enqueue_job.assert_awaited_once_with("workflow_resume_instruct", str(iid))
+    assert result != "noop"
+    assert result == "already_settled"
+
+
+async def test_instruct_timeout_retry_after_enqueue_failure_still_resumes(monkeypatch) -> None:
+    """T-7: an enqueue raise on the first attempt must propagate (so arq retries),
+    and the retry — reading its own committed TIMEOUT — must still reach the
+    enqueue instead of returning "noop" and stalling the run forever."""
+    from app.workers.tasks import workflow as wf
+    from contexts.orchestration.domain.models import InstructionState
+
+    iid = uuid.uuid4()
+
+    facade_1 = SimpleNamespace(
+        get_instruction=AsyncMock(return_value=SimpleNamespace(state=InstructionState.ISSUED)),
+        mark_instruct_timeout=AsyncMock(return_value=True),
+    )
+    db_1 = MagicMock()
+    db_1.commit = AsyncMock()
+    monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db_1))
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade_1)
+
+    pool_1 = AsyncMock()
+    pool_1.enqueue_job.side_effect = RuntimeError("redis fault")
+    with pytest.raises(RuntimeError):
+        await wf.workflow_instruct_timeout({"redis": pool_1}, str(iid))
+
+    # Retry: the row is now committed TIMEOUT from the first attempt's write.
+    facade_2 = SimpleNamespace(
+        get_instruction=AsyncMock(return_value=SimpleNamespace(state=InstructionState.TIMEOUT)),
+        mark_instruct_timeout=AsyncMock(return_value=False),
+    )
+    db_2 = MagicMock()
+    db_2.commit = AsyncMock()
+    monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db_2))
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade_2)
+
+    pool_2 = AsyncMock()
+    result = await wf.workflow_instruct_timeout({"redis": pool_2}, str(iid))
+
+    pool_2.enqueue_job.assert_awaited_once_with("workflow_resume_instruct", str(iid))
+    assert result == "already_settled"
+
+
+async def test_instruct_timeout_completed_row_enqueues_resume_without_writing_state(monkeypatch) -> None:
+    """T-8: belt for a lost a2a_handler.py:151 enqueue — a COMPLETED row still gets
+    its resume enqueued. Harmless: workflow_resume_instruct is single-shot via GETDEL."""
+    from app.workers.tasks import workflow as wf
+    from contexts.orchestration.domain.models import InstructionState
+
+    iid = uuid.uuid4()
+    facade = SimpleNamespace(
+        get_instruction=AsyncMock(return_value=SimpleNamespace(state=InstructionState.COMPLETED)),
+        mark_instruct_timeout=AsyncMock(return_value=False),
+    )
+    db = MagicMock()
+    db.commit = AsyncMock()
+    monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db))
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade)
+
+    pool = AsyncMock()
+    result = await wf.workflow_instruct_timeout({"redis": pool}, str(iid))
+
+    pool.enqueue_job.assert_awaited_once_with("workflow_resume_instruct", str(iid))
+    assert result == "already_settled"
+
+
+async def test_instruct_timeout_absent_row_is_noop_gone(monkeypatch) -> None:
+    """T-9: an absent row is the only case that skips both effects — guards the
+    fall-through from becoming unconditional."""
+    from app.workers.tasks import workflow as wf
+
+    iid = uuid.uuid4()
+    facade = SimpleNamespace(get_instruction=AsyncMock(return_value=None))
+    db = MagicMock()
+    monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db))
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade)
+
+    pool = AsyncMock()
+    result = await wf.workflow_instruct_timeout({"redis": pool}, str(iid))
+
+    pool.enqueue_job.assert_not_awaited()
+    assert result == "noop:gone"
+
+
 async def test_resume_approval_retries_while_pending(monkeypatch) -> None:
     from app.workers.tasks import workflow as wf
     from contexts.orchestration.domain.models import ApprovalState
