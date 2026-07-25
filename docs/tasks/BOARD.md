@@ -43,7 +43,7 @@ parallel.
   `docs/audits/2026-07-22-agent-config-runtime/` F-11 (major): re-uploading a document discards
   the submitted per-agent allowlist on all four ingestion entry points, so the retry path cannot
   correct a wrong binding. Backend plus a frontend 409 handler.
-- `2026-07-22-egress-redirect-classification` (bugfix, draft) — `depends_on: []`. From
+- `2026-07-22-egress-redirect-classification` (bugfix, approved) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-config-runtime/` F-10 (major): a 3xx from a function tool is
   delivered to the model as a successful empty result, because the proxy deliberately does not
   follow redirects and the caller drops the `Location` header. Application-layer only; the
