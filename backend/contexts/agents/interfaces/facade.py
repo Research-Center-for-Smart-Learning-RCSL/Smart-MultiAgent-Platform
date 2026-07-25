@@ -268,6 +268,38 @@ class AgentsFacade:
             duration_ms=res.duration_ms,
         )
 
+    async def add_egress_allowlist_host(
+        self,
+        *,
+        project_id: uuid.UUID,
+        hostname: str,
+        note: str | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        """Upsert one hostname onto the project's egress allowlist (R12.16).
+
+        The sanctioned seam for other contexts to grant egress on demonstrated
+        intent (e.g. keys → agents on search-key activation). Routes through
+        :class:`EgressAllowlistService` so the write is hostname-validated and
+        audited exactly like a manual addition; never calls ``replace``, which
+        would delete every existing row for the project. Lazy-imports to keep
+        the import graph acyclic.
+        """
+        from contexts.agents.application.egress_allowlist_service import (
+            EgressAllowlistService,
+        )
+
+        await EgressAllowlistService(self._db).add(
+            project_id=project_id,
+            hostname=hostname,
+            note=note,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
     async def egress_request(
         self,
         *,

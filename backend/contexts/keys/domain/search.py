@@ -6,6 +6,7 @@ import enum
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 from typing import Any
 
 from contexts.keys.domain.probe_status import ProbeStatus
@@ -16,6 +17,20 @@ class SearchProvider(str, enum.Enum):
     SERPER = "serper"
     TAVILY = "tavily"
     GOOGLE_CSE = "google_cse"
+
+
+# Single authoritative provider -> documented-hostname map (R12.16). Adapter
+# endpoints, key-activation probes and the egress-allowlist seed all read this
+# instead of carrying their own copy, so a fifth provider cannot drift them
+# apart the way three separate copies already had.
+SEARCH_PROVIDER_HOSTS: MappingProxyType[SearchProvider, str] = MappingProxyType(
+    {
+        SearchProvider.BRAVE: "api.search.brave.com",
+        SearchProvider.SERPER: "google.serper.dev",
+        SearchProvider.TAVILY: "api.tavily.com",
+        SearchProvider.GOOGLE_CSE: "www.googleapis.com",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,4 +50,4 @@ class SearchKey:
     deleted_at: datetime | None
 
 
-__all__ = ["SearchKey", "SearchProvider"]
+__all__ = ["SEARCH_PROVIDER_HOSTS", "SearchKey", "SearchProvider"]

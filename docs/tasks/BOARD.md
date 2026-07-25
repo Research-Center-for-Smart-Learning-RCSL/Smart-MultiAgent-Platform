@@ -35,12 +35,6 @@ parallel.
   opaque strings, so tools are advertised with no parameter schema and an unvalidated tool name
   can brick every turn for an agent. One shared root cause; migration 0062 plus a driver change.
   Ship driver-first.
-- `2026-07-22-egress-allowlist-provisioning` (bugfix, approved) — `depends_on: []`. From
-  `docs/audits/2026-07-22-agent-config-runtime/` F-9 (major): nothing ever seeds the egress
-  allowlist, so `web_search` — enabled by default — is denied on first use in every new
-  project. **Carries a non-empty SRS Delta**: the fix seeds one hostname on search-key
-  activation rather than four per project, which requires amending `[R12.16]` at approval.
-  Includes a derived, insert-only backfill migration.
 - `2026-07-22-prompt-assistant-delivery-recovery` (bugfix, draft) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-config-runtime/` F-13 (major): the prompt-assistant channel has
   no durable read side, so a lost frame loses a paid-for reply and can permanently disable the
@@ -133,3 +127,8 @@ Nothing blocked.
 - `2026-07-22-model-hint-provider-routing` (bugfix) — `depends_on: []`.
 - `2026-07-22-workflow-run-cancellation` (bugfix) — `depends_on: []`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+- `2026-07-22-egress-allowlist-provisioning` (bugfix) — `depends_on: []`. From
+  `docs/audits/2026-07-22-agent-config-runtime/` F-9 (major): nothing ever seeds the egress
+  allowlist, so `web_search` — enabled by default — is denied on first use in every new
+  project. Carried a non-empty SRS Delta, applied at approval (`[R12.16]` now describes
+  activation-time seeding). Includes a derived, insert-only backfill migration.

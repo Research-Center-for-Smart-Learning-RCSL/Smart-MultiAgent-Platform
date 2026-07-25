@@ -15,8 +15,9 @@ from typing import Any, Literal
 
 from contexts.agents.application.mcp_ports import EgressProxyClient
 from contexts.agents.domain.mcp import SearchResult
+from contexts.keys.domain.search import SEARCH_PROVIDER_HOSTS, SearchProvider
 
-_CSE_ENDPOINT = "https://www.googleapis.com/customsearch/v1"
+_CSE_ENDPOINT = f"https://{SEARCH_PROVIDER_HOSTS[SearchProvider.GOOGLE_CSE]}/customsearch/v1"
 
 _FRESHNESS_MAP: dict[str, str | None] = {
     "any": None,
