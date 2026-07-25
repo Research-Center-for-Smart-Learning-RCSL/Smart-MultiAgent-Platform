@@ -75,6 +75,11 @@ async def _run_remote_validator(
             body=envelope,
         )
         if resp.blocked is not None or resp.status is None or not (200 <= resp.status < 300):
+            if resp.blocked is None and resp.status is not None and 300 <= resp.status < 400:
+                detail = (
+                    f"redirect to {resp.location}" if resp.location else "redirect with no Location header"
+                )
+                raise ValidatorUnavailable(f"webhook status {resp.status} — {detail}")
             raise ValidatorUnavailable(resp.blocked or f"webhook status {resp.status}")
         return result_from_json(resp.body)
 
