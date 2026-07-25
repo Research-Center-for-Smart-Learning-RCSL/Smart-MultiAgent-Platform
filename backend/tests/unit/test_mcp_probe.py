@@ -72,7 +72,9 @@ async def test_probe_mcp_reports_allowlist_miss_without_calling_runner(monkeypat
 async def test_probe_mcp_calls_runner_when_host_allowed(monkeypatch) -> None:
     _patch_allowlist(monkeypatch, _AllowRepo)
     runner = AsyncMock()
-    runner.probe.return_value = SimpleNamespace(ok=True, tool_names=["x"], duration_ms=1, error=None)
+    runner.probe.return_value = SimpleNamespace(
+        ok=True, tool_names=["x"], tools=(), duration_ms=1, error=None
+    )
 
     res = await _service()._probe_mcp(_agent(), _mcp_tool(), runner)
 
@@ -86,7 +88,9 @@ async def test_probe_mcp_skips_allowlist_check_for_package_source(monkeypatch) -
     # rather than passed, since an unpatched EgressAllowlistRepository would
     # error on a real DB call from the AsyncMock session).
     runner = AsyncMock()
-    runner.probe.return_value = SimpleNamespace(ok=True, tool_names=["x"], duration_ms=1, error=None)
+    runner.probe.return_value = SimpleNamespace(
+        ok=True, tool_names=["x"], tools=(), duration_ms=1, error=None
+    )
 
     res = await _service()._probe_mcp(
         _agent(), _mcp_tool(source="package", reference="left-pad@1.0.0"), runner

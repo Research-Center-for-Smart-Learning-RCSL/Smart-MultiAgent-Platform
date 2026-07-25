@@ -6,7 +6,7 @@ reads one JSON/text result on **stdout**, and maps **exit 42** to egress-denied.
 Subcommands (host contract):
 
   probe   — start an MCP server, ``initialize`` + ``tools/list``; print
-            ``{"tools": [...]}`` on stdout.
+            ``{"tools": [{"name", "description", "inputSchema"}, ...]}`` on stdout.
   invoke  — call one MCP tool; print the tool's text result on stdout
             (diagnostics on stderr); exit code is the tool's success.
   file    — list / read / write inside ``/workspace`` (the per-agent volume).
@@ -171,6 +171,21 @@ async def _proxy_jsonrpc(
 # --------------------------------------------------------------------------- #
 
 
+def _tool_to_dict(raw: Any) -> dict[str, Any]:
+    """Normalise one ``tools/list`` entry (URL JSON dict or stdio SDK object)."""
+    if isinstance(raw, dict):
+        name = str(raw.get("name", ""))
+        description = str(raw.get("description") or "")
+        input_schema = raw.get("inputSchema")
+    else:
+        name = str(getattr(raw, "name", ""))
+        description = str(getattr(raw, "description", "") or "")
+        input_schema = getattr(raw, "inputSchema", None)
+    if not isinstance(input_schema, dict):
+        input_schema = {"type": "object", "additionalProperties": True}
+    return {"name": name, "description": description, "inputSchema": input_schema}
+
+
 async def cmd_probe() -> int:
     source = _env("SMAP_MCP_SOURCE")
     reference = _env("SMAP_MCP_REFERENCE")
@@ -178,16 +193,17 @@ async def cmd_probe() -> int:
 
     if source == "url":
         result = await _proxy_jsonrpc("tools/list", {}, request_id=1)
-        names = [str(t.get("name", "")) for t in result.get("tools", [])]
+        raw_tools = result.get("tools", [])
     else:  # package (and any stdio-style source)
 
-        async def _list(session: Any) -> list[str]:
+        async def _list(session: Any) -> list[Any]:
             listed = await session.list_tools()
-            return [t.name for t in listed.tools]
+            return list(listed.tools)
 
-        names = await _with_stdio_session(reference, auth, _list)
+        raw_tools = await _with_stdio_session(reference, auth, _list)
 
-    sys.stdout.write(frame_tools([n for n in names if n]))
+    tools = [_tool_to_dict(t) for t in raw_tools]
+    sys.stdout.write(frame_tools([t for t in tools if t["name"]]))
     return EXIT_OK
 
 

@@ -52,6 +52,7 @@ from contexts.agents.domain.errors import (
     SandboxRuntimeViolation,
 )
 from contexts.agents.domain.mcp import McpTestResult, StagedFile, ToolCallResult
+from contexts.agents.domain.models import McpToolSpec
 
 # Pinned by digest in production; the tag here is a placeholder used only as
 # a repr. Ops-side rebuild pipeline re-stamps the digest per agent-version
@@ -658,6 +659,33 @@ def _get_container_quietly(client: Any, ref: str) -> Any | None:
         return None
 
 
+def _probed_tool_name(entry: Any) -> str:
+    """Name of one raw ``tools`` entry, accepting both probe wire forms."""
+    if isinstance(entry, dict):
+        return str(entry.get("name", ""))
+    return str(entry)
+
+
+def _parse_probed_tool(entry: Any) -> McpToolSpec:
+    """Parse one raw ``tools`` entry into a domain spec.
+
+    Accepts both the object form (``driver.py`` current output: name +
+    description + inputSchema) and the legacy bare-string form, so a deployed
+    ``mcp_image`` that lags this backend still probes successfully instead of
+    raising.
+    """
+    if isinstance(entry, dict):
+        input_schema = entry.get("inputSchema")
+        if not isinstance(input_schema, dict):
+            input_schema = {"type": "object", "additionalProperties": True}
+        return McpToolSpec(
+            name=str(entry.get("name", "")),
+            description=str(entry.get("description") or ""),
+            input_schema=input_schema,
+        )
+    return McpToolSpec(name=str(entry))
+
+
 @dataclass(frozen=True, slots=True)
 class DockerRunscSandbox:
     """Concrete :class:`SandboxRunner` backed by the local Docker daemon."""
@@ -850,10 +878,11 @@ class DockerRunscSandbox:
         allowed_set = set(allowed_tools)
         # If the caller pre-declared an allowlist, intersect; else accept all.
         if allowed_set:
-            tools = tuple(t for t in tools if t in allowed_set)
+            tools = tuple(t for t in tools if t.name in allowed_set)
         return McpTestResult(
             ok=True,
-            tool_names=tuple(tools),
+            tool_names=tuple(t.name for t in tools),
+            tools=tools,
             duration_ms=duration_ms,
         )
 
@@ -866,7 +895,7 @@ class DockerRunscSandbox:
         auth: dict[str, Any] | None,
         project_id: uuid.UUID,
         timeout_s: float,
-    ) -> tuple[str, ...]:
+    ) -> tuple[McpToolSpec, ...]:
         """Invoke ``initialize`` + ``tools/list`` inside a one-shot container.
 
         The actual MCP wire-protocol driver is shipped inside ``mcp_image``
@@ -914,9 +943,10 @@ class DockerRunscSandbox:
             raise RuntimeError(f"probe container exited {status_code}: {logs[:512]}")
         try:
             parsed = json.loads(logs)
-            return tuple(str(t) for t in parsed.get("tools", []))
+            raw_tools = parsed.get("tools", [])
         except ValueError as exc:
             raise RuntimeError(f"probe container returned non-JSON: {logs[:512]}") from exc
+        return tuple(_parse_probed_tool(t) for t in raw_tools if _probed_tool_name(t))
 
     async def invoke_mcp_tool(
         self,

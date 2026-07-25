@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from contexts.agents.domain.models import McpSource
+from contexts.agents.domain.models import McpSource, McpToolSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +49,7 @@ class McpTestResult:
     tool_names: tuple[str, ...]
     duration_ms: int
     error: str | None = None
+    tools: tuple[McpToolSpec, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
