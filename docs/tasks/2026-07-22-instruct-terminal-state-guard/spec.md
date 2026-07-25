@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-07-22
 requirements: [R15.15, R15.16, R15.17, R14.08]
 depends_on: []

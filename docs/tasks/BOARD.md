@@ -47,7 +47,7 @@ parallel.
   join reached by a loop back-edge fires once and stalls, because the one-shot latch is claimed at
   `fire_threshold` arrivals and released only at `total_branches`. Folds in an ALL-mode deadlock the
   audit did not name. **Recommended to land before** `wait-for-event-timer-and-join-ports`.
-- `2026-07-22-instruct-terminal-state-guard` (bugfix, draft) — `depends_on: []`. a2a F-15, F-16:
+- `2026-07-22-instruct-terminal-state-guard` (bugfix, approved) — `depends_on: []`. a2a F-15, F-16:
   the instruct terminal state is an unguarded `UPDATE`, so a completed instruct can be persisted
   as `TIMEOUT`; and the deadline job commits before enqueueing its resume, so its own retry reads
   its own write and gives up. Carries a **deliberate behaviour change** (Q-2, timeout wins).
