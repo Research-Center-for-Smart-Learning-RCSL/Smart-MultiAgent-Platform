@@ -15,8 +15,9 @@ from typing import Any, Literal
 
 from contexts.agents.application.mcp_ports import EgressProxyClient
 from contexts.agents.domain.mcp import SearchResult
+from contexts.keys.domain.search import SEARCH_PROVIDER_HOSTS, SearchProvider
 
-_TAVILY_ENDPOINT = "https://api.tavily.com/search"
+_TAVILY_ENDPOINT = f"https://{SEARCH_PROVIDER_HOSTS[SearchProvider.TAVILY]}/search"
 
 
 def _parse_published(value: Any) -> datetime | None:

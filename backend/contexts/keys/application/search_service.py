@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.keys.domain.errors import KeyNotFound, SearchActivationConflict
 from contexts.keys.domain.models import mask_preview
-from contexts.keys.domain.search import SearchKey, SearchProvider
+from contexts.keys.domain.search import SEARCH_PROVIDER_HOSTS, SearchKey, SearchProvider
 from contexts.keys.infrastructure.probes.base import ProbeStatus
 from contexts.keys.infrastructure.search_probes import probe_search
 from contexts.keys.infrastructure.search_repository import SearchKeyRepository
@@ -179,8 +179,30 @@ class SearchKeyService:
                 request_id=request_id,
             ),
         )
+
+        # Seed the Egress Proxy allowlist with this provider's one documented
+        # hostname (R12.16). Shares this method's session/transaction, so a
+        # write failure here fails the whole activation closed (Q-5) instead
+        # of leaving a key active that cannot actually search. Lazy-imports
+        # AgentsFacade: contexts/keys -> contexts/agents is a write across a
+        # context boundary and must go through the public facade, never the
+        # agents repository directly.
+        from contexts.agents.interfaces.facade import AgentsFacade
+
+        await AgentsFacade(self._db).add_egress_allowlist_host(
+            project_id=project_id,
+            hostname=SEARCH_PROVIDER_HOSTS[sk.provider],
+            note="auto-added: search-key activation (R12.16)",
+            actor_user_id=actor_user_id,
+            actor_ip=None,
+            request_id=request_id,
+        )
+
         # Cache keys include the project, key identity, and canonical configuration,
         # so activation makes entries written by the prior key unreachable.
+        # Non-transactional by design (existing behaviour) — must run after the
+        # allowlist write above, never before, so a failed write cannot leave
+        # this publish fired for a key that isn't actually usable yet.
         await get_redis().publish("search_key.activated", f"{project_id}:{key_id}")
 
     async def delete(

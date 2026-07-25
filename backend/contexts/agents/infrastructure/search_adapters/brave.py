@@ -14,8 +14,9 @@ from typing import Any, Literal
 
 from contexts.agents.application.mcp_ports import EgressProxyClient
 from contexts.agents.domain.mcp import SearchResult
+from contexts.keys.domain.search import SEARCH_PROVIDER_HOSTS, SearchProvider
 
-_BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
+_BRAVE_ENDPOINT = f"https://{SEARCH_PROVIDER_HOSTS[SearchProvider.BRAVE]}/res/v1/web/search"
 
 _FRESHNESS_MAP: dict[str, str | None] = {
     "any": None,

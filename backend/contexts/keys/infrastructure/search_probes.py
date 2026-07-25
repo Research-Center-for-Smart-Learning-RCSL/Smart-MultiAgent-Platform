@@ -1,9 +1,13 @@
 """Search-provider probes (D.11, mirrors D.3).
 
 Each probe hits a minimal-surface endpoint — the same shape the agent tool
-will use in Phase E, so a green probe actually guarantees the downstream
-tool call will authenticate. Configurable fields (``google_cse.cx``,
-``tavily.search_depth``) travel through the probe via `config`.
+will use in Phase E. A green probe verifies the credential authenticates
+against the provider; it does NOT guarantee the downstream tool call will
+succeed, because the probe calls the provider directly and the tool call
+egresses through the project's Egress Proxy allowlist (R12.16), which is
+seeded only on key activation — after this probe runs. Configurable fields
+(``google_cse.cx``, ``tavily.search_depth``) travel through the probe via
+`config`.
 """
 
 from __future__ import annotations
@@ -12,7 +16,7 @@ from typing import Any
 
 import httpx
 
-from contexts.keys.domain.search import SearchProvider
+from contexts.keys.domain.search import SEARCH_PROVIDER_HOSTS, SearchProvider
 from contexts.keys.infrastructure.probes.base import (
     ProbeResult,
     new_http_client,
@@ -21,7 +25,7 @@ from contexts.keys.infrastructure.probes.base import (
 
 
 async def _probe_brave(secret: str, _config: dict[str, Any]) -> ProbeResult:
-    url = "https://api.search.brave.com/res/v1/web/search"
+    url = f"https://{SEARCH_PROVIDER_HOSTS[SearchProvider.BRAVE]}/res/v1/web/search"
     try:
         async with new_http_client() as c:
             resp = await c.get(
@@ -39,7 +43,7 @@ async def _probe_brave(secret: str, _config: dict[str, Any]) -> ProbeResult:
 
 
 async def _probe_serper(secret: str, _config: dict[str, Any]) -> ProbeResult:
-    url = "https://google.serper.dev/search"
+    url = f"https://{SEARCH_PROVIDER_HOSTS[SearchProvider.SERPER]}/search"
     try:
         async with new_http_client() as c:
             resp = await c.post(
@@ -57,7 +61,7 @@ async def _probe_serper(secret: str, _config: dict[str, Any]) -> ProbeResult:
 
 
 async def _probe_tavily(secret: str, config: dict[str, Any]) -> ProbeResult:
-    url = "https://api.tavily.com/search"
+    url = f"https://{SEARCH_PROVIDER_HOSTS[SearchProvider.TAVILY]}/search"
     depth = config.get("search_depth", "basic")
     try:
         async with new_http_client() as c:
@@ -79,7 +83,7 @@ async def _probe_google_cse(secret: str, config: dict[str, Any]) -> ProbeResult:
     cx = config.get("cx")
     if not cx:
         return ProbeResult.failed("missing_cx")
-    url = "https://www.googleapis.com/customsearch/v1"
+    url = f"https://{SEARCH_PROVIDER_HOSTS[SearchProvider.GOOGLE_CSE]}/customsearch/v1"
     try:
         async with new_http_client() as c:
             resp = await c.get(url, params={"key": secret, "cx": cx, "q": "ping", "num": 1})
