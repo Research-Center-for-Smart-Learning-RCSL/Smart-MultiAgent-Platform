@@ -3,8 +3,9 @@
 Exercises the migration's ``upgrade()``/``downgrade()`` functions directly
 against real fixtures, sharing the alembic ``op`` proxy via
 ``Operations.context()`` -- the standard way to drive migration code from a
-test without a full ``alembic upgrade`` CLI invocation. Requires the real DB
-(``integration`` marker, auto-applied by tests/integration/conftest.py).
+test without a full ``alembic upgrade`` CLI invocation. Requires a real,
+provisioned Postgres (``db`` marker) -- the ``sessionmaker`` fixture connects
+to the real DSN, which only resolves inside the backend-db CI job.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+
+pytestmark = pytest.mark.db
 
 _MIGRATION_PATH = (
     Path(__file__).resolve().parents[2] / "alembic" / "versions" / "0064_egress_allowlist_seed_backfill.py"
