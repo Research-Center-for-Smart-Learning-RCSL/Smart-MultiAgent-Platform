@@ -58,8 +58,13 @@ class ActivityType:
     retention_days: int | None
     version: int
     created_at: dt.datetime
-    # Presentation-only gates on the already-persisted ``agent_digest`` (never
-    # affect what is stored, only what each channel is allowed to show).
+    # Presentation gates on the already-persisted ``agent_digest`` (never affect
+    # what is stored, only what each channel is allowed to show).
+    # expose_payload_to_agent is the master switch (no channel shows content
+    # when false). echo_includes_content only takes effect when
+    # expose_payload_to_agent is ALSO true: a chat message visible to humans is
+    # necessarily visible to any agent reading that same transcript, so the two
+    # cannot be fully independent (submission_service.py::submit's echo gate).
     expose_payload_to_agent: bool = True
     echo_includes_content: bool = False
     deleted_at: dt.datetime | None = None

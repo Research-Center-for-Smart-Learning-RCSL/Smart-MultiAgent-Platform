@@ -71,7 +71,7 @@
       "exposePayloadToAgentHelp": "When on, every agent in the room (and observers) can read a summary of what was submitted, not just whether it was valid. Turn this off for sensitive or research activities where submissions must stay outside the AI's context.",
       "echoIncludesContent": "Participant visibility",
       "echoIncludesContentLabel": "Show submitted content to other participants in the room",
-      "echoIncludesContentHelp": "When on, the room's chat log shows what was submitted, not just the result. Independent of agent visibility above — leave off for quizzes or graded work so participants can't see each other's answers.",
+      "echoIncludesContentHelp": "When on, the room's chat log shows what was submitted, not just the result. Only takes effect when agent visibility above is also on — a chat message visible to participants is visible to every agent reading the same room, so this can only add to what agents already see, never hide it from them. Leave off for quizzes or graded work so participants can't see each other's answers.",
       "payloadSchema": "Submission fields",
       "payloadSchemaHelp": "The fields a participant fills in and submits.",
       "schemaMode": {
@@ -166,7 +166,7 @@
       },
       "visibility": {
         "title": "6. Who can see a submission's content",
-        "body": "Two independent switches on each activity type control this. Agent visibility decides whether agents in the room (as context, not as a visible chat message) can read a summary of what was submitted. Participant visibility decides whether the room's chat log shows the content to other human participants. Both default sensibly — agents on, other participants off — but either can be flipped per activity type."
+        "body": "Two switches on each activity type control this, but they are not fully independent. Agent visibility decides whether agents in the room (as context, not as a visible chat message) can read a summary of what was submitted — this is the master switch. Participant visibility decides whether the room's chat log also shows the content to other human participants, but only takes effect when agent visibility is on: a chat message visible to participants is necessarily visible to every agent reading that same room, so it can only add participants to what agents already see, never hide content from agents while showing it to people. Both default sensibly — agents on, other participants off."
       },
       "retention": {
         "title": "7. Data retention",
