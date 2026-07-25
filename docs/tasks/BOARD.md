@@ -127,8 +127,3 @@ Nothing blocked.
 - `2026-07-22-model-hint-provider-routing` (bugfix) — `depends_on: []`.
 - `2026-07-22-workflow-run-cancellation` (bugfix) — `depends_on: []`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
-- `2026-07-22-egress-allowlist-provisioning` (bugfix) — `depends_on: []`. From
-  `docs/audits/2026-07-22-agent-config-runtime/` F-9 (major): nothing ever seeds the egress
-  allowlist, so `web_search` — enabled by default — is denied on first use in every new
-  project. Carried a non-empty SRS Delta, applied at approval (`[R12.16]` now describes
-  activation-time seeding). Includes a derived, insert-only backfill migration.
