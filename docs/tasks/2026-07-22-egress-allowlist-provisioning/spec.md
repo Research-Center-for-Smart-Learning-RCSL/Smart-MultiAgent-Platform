@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-07-22
 requirements: [R12.16]
 depends_on: []
@@ -56,7 +56,7 @@ Source: `docs/audits/2026-07-22-agent-config-runtime/findings.md` F-9 (major, co
     `backend/contexts/agents/application/tools/web_search.py:133-140` **before** the doomed
     egress, so failed searches still exhaust the project's quota.
 
-- **Expected.** `[R12.16]` (`REQUIREMENTS.md:628`), restated in
+- **Expected.** `[R12.16]` (`REQUIREMENTS.md:658`), restated in
   `docs/implement/E-agents-knowledge.md:283`, promises that `web_search` works without a
   manual operator step. That intent is correct; §3 Q-1 argues its literal mechanism is not,
   and §11 amends it.
@@ -118,7 +118,7 @@ screen — i.e. every new project. Nothing is persisted incorrectly; the defect 
 
 | Claim | Location | Verdict |
 |---|---|---|
-| Allowlist seeded with four hostnames | `REQUIREMENTS.md:628` `[R12.16]` | **Confirmed defect** |
+| Allowlist seeded with four hostnames | `REQUIREMENTS.md:658` `[R12.16]` | **Confirmed defect** |
 | Same claim restated in the design note | `docs/implement/E-agents-knowledge.md:283` | **Confirmed** — must be amended with the SRS |
 | Admin seeded via bootstrap CLI or a `seed_admins` env list | `REQUIREMENTS.md:168` `[R5.01]` | **Cleared (partial).** No `seed_admins` env var exists anywhere in the repo, but the requirement is disjunctive and the CLI branch ships (`backend/smap/bootstrap/create_admin.py`). Not a defect; the wording could be tightened. See FU-1. |
 | Every workspace has at least one chat room | `[R13.02]` | **Cleared** — genuinely provisioned (`backend/contexts/conversation/application/workspace_service.py:27,72,94`), and the delete path re-creates it (`chatroom_service.py:199`). |
@@ -150,7 +150,7 @@ auto-added, emitting the existing `mcp.egress_allowlist_added` audit action
 **2. Collapse the provider→hostname mapping to one authoritative map.** It is currently
 triplicated — adapter endpoints (`tavily.py:19`, `brave.py:18`, `serper.py:18`,
 `google_cse.py:19`), probe URLs (`search_probes.py:24,42,60,82`), and prose in
-`REQUIREMENTS.md:628` / `E-agents-knowledge.md:283`. Adding a fourth copy in a migration
+`REQUIREMENTS.md:658` / `E-agents-knowledge.md:283`. Adding a fourth copy in a migration
 would be the worst possible outcome. Put the map beside `SearchProvider` in
 `backend/contexts/keys/domain/search.py` and have adapters, probes and the seed all read it,
 with a test asserting each adapter's endpoint host equals its map entry.
@@ -278,7 +278,7 @@ literal behaviour `[R12.16]` describes; it implements a narrower mechanism for t
 intent, and the requirement must say so before the code does. Per the contract, this delta is
 applied to `REQUIREMENTS.md` at approval, not before.
 
-Replace `REQUIREMENTS.md:628`:
+Replace `REQUIREMENTS.md:658`:
 
 > **[R12.16]** The Proxy's allowlist receives a provider's documented hostname automatically
 > when a search key for that provider is activated for the Project — `api.search.brave.com`,
