@@ -140,17 +140,43 @@ async def test_straggler_fan_in_suppressed_after_early_loop_pass(
     assert await client.get(f"wf:join:{run_id}:{node_id}:fan:epoch") == "1"
 
 
-async def test_multi_back_edge_any_fires_and_drains(join_redis: tuple[Redis, str]) -> None:
-    """Regression test for Q-8: the first back-edge in a pass fires; a second
-    back-edge in the same pass is a suppressed duplicate, not a rendezvous
-    requirement."""
+async def test_multi_back_edge_each_fires_independently(join_redis: tuple[Redis, str]) -> None:
+    """Contract test for Q-8's corrected design: called with the fixed
+    total_branches=1 the executor now always passes for the pass track,
+    every back-edge arrival fires and drains on its own -- distinct
+    back-edges are distinct loop-completion signals, not duplicates of each
+    other. The historical bug (total_branches computed as the count of
+    distinct back-edges) lived entirely in the executor's Python argument
+    computation, not in this script, so it is caught by
+    test_multiple_back_edges_pass_total_is_fixed_at_one in
+    tests/unit/test_workflow_executors.py, not here -- this test instead
+    pins the script's behavior for the arguments the fixed executor sends."""
     client, run_id = join_redis
     node_id = "join1"
 
-    _, is_finalizer = await _arrive(client, run_id, node_id, "pass", "loopA", 1, 2)
+    _, is_finalizer = await _arrive(client, run_id, node_id, "pass", "loopA", 1, 1)
     assert is_finalizer is True
-    assert await client.get(f"wf:join:{run_id}:{node_id}:pass:epoch") is None
-
-    _, is_finalizer = await _arrive(client, run_id, node_id, "pass", "loopB", 1, 2)
-    assert is_finalizer is False
     assert await client.get(f"wf:join:{run_id}:{node_id}:pass:epoch") == "1"
+
+    _, is_finalizer = await _arrive(client, run_id, node_id, "pass", "loopB", 1, 1)
+    assert is_finalizer is True
+    assert await client.get(f"wf:join:{run_id}:{node_id}:pass:epoch") == "2"
+
+
+async def test_same_back_edge_retaken_does_not_stall_waiting_for_sibling(
+    join_redis: tuple[Redis, str],
+) -> None:
+    """Contract test for the sequential-alternation case: a join fed by two
+    back-edges (e.g. an if/else in the loop body) must not wait for the
+    sibling that a given run may never take. Same caveat as the test above:
+    the bug this guards against was in the executor's Python argument
+    computation (see test_multiple_back_edges_pass_total_is_fixed_at_one),
+    not in this script -- this test pins the script's behavior at
+    total_branches=1 across repeated arrivals of the same edge."""
+    client, run_id = join_redis
+    node_id = "join1"
+
+    for expected_epoch in ("1", "2", "3"):
+        _, is_finalizer = await _arrive(client, run_id, node_id, "pass", "loopA", 1, 1)
+        assert is_finalizer is True
+        assert await client.get(f"wf:join:{run_id}:{node_id}:pass:epoch") == expected_epoch

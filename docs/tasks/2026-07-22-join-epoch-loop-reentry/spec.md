@@ -267,11 +267,17 @@ completely unchanged in structure, and parameterize its key names by a `track` a
   - Arrived via a fan-in edge: `track = "fan"`, `total_branches = total_fan_branches`,
     `fire_threshold` from the join's configured mode exactly as today (`any` → `1`,
     `count` → `required_count`, `all` → `total_fan_branches`).
-  - Arrived via a back-edge: `track = "pass"`, `total_branches = total_back_edges`,
-    `fire_threshold = 1` fixed — confirmed by Q-8: the first back-edge to arrive in a pass
-    restarts the loop, and the pass track's own latch suppresses any others in the same
-    pass, mirroring `any` fan-in semantics rather than the join's configured `mode` (mode
-    governs fan-in aggregation, not loop continuation).
+  - Arrived via a back-edge: `track = "pass"`, `fire_threshold = 1` **and**
+    `total_branches = 1` — both fixed, regardless of how many distinct back-edges the
+    join has. **Corrected post-close (D-3):** the design first shipped with
+    `total_branches = total_back_edges` (requiring every distinct back-edge to arrive
+    before draining), matching Q-8's original preview. A post-close review found that
+    this deadlocks a join whose back-edges are sequential alternatives rather than
+    concurrent siblings (e.g. an if/else inside the loop body): if the same edge is
+    retaken before its sibling ever arrives — which it may never, in a given run — the
+    pass epoch never drains and the second traversal finds the latch still held. Fixing
+    it means every back-edge arrival fires and drains in the same call, independent of
+    the others; see D-3 for the accepted behavior change this implies.
 - `branch_id` (ASYNC-9's idempotent dedup by incoming-edge id) is unchanged and applies to
   whichever track's SET the arrival lands in, so a retried fan-in step and a retried
   back-edge step are each deduped within their own track.
@@ -301,11 +307,19 @@ Under C-1 and the revised C-2:
   `is_finalizer = 0` — B is correctly suppressed regardless of how many loop passes ran on
   the `pass` track in between — and the fan-in drains normally once B's arrival brings the
   count to `total_fan_branches`.
-- **Q-8's multi-back-edge case:** two back-edges (loopA, loopB) into the same join,
-  `total_back_edges = 2`. loopA arrives first: `pass` arrivals `1 >= fire_threshold(1)` →
-  fires, does not yet drain (`1 < 2`). loopB arrives in the same pass: arrivals `2 >= 1` but
-  `pass:0:fired` is already claimed → suppressed (`is_finalizer = 0`); drain condition
-  `2 >= total_back_edges(2)` is now met, so the pass epoch advances for the next pass.
+- **Q-8's multi-back-edge case, as shipped (post D-3):** two back-edges (loopA, loopB)
+  into the same join. loopA arrives: `pass` arrivals `1 >= fire_threshold(1)` → fires;
+  drain condition `1 >= total_branches(1)` is also met, so the pass epoch advances
+  immediately. loopB then arrives in a *fresh* epoch: it also fires (arrivals `1 >= 1`
+  against the new epoch's own latch) and also drains immediately. Distinct back-edges are
+  distinct loop-completion signals, not duplicates of each other, so neither suppresses
+  the other — this is a deliberate narrowing of Q-8's original answer; see D-3.
+- **The sequential-alternation case D-3 fixes:** the same two-back-edge join, but the
+  loop body only ever takes `loopA` (an if/else that never reaches the `loopB` branch in
+  this run). Every `loopA` arrival lands in a freshly-drained epoch (per the bullet
+  above), fires, and drains again — indefinitely. Under the original `total_branches =
+  total_back_edges = 2` design this deadlocked on the second `loopA` arrival, because
+  the epoch never drains without a `loopB` arrival that this run will never produce.
 
 **Why this corrects rather than masks.** The symptom could be suppressed by shortening
 `_JOIN_TTL_SECONDS` (`join.py:67`), by clearing the latch whenever `is_finalizer` is false,
@@ -447,10 +461,13 @@ script goes back to reading only the old (pre-track) key names, ignoring whateve
       an `any` join after a fast loop pass has already looped back, asserted by
       `test_straggler_fan_in_suppressed_after_early_loop_pass` (T-2). This closes Q-6 as a
       fixed defect rather than deferring it as a follow-up.
-- [x] AC-7: a join fed by more than one back-edge fires on the first back-edge to arrive
-      each pass and treats additional same-pass back-edges as duplicates, asserted by
-      `test_multiple_back_edges_pass_total_counts_only_back_edges` (T-1) and
-      `test_multi_back_edge_any_fires_and_drains` (T-2), per Q-8.
+- [x] AC-7: a join fed by more than one back-edge fires and drains independently on every
+      single back-edge arrival, regardless of how many distinct back-edges exist or
+      whether the same one repeats across passes, asserted by
+      `test_multiple_back_edges_pass_total_is_fixed_at_one` (T-1) and
+      `test_multi_back_edge_each_fires_independently` +
+      `test_same_back_edge_retaken_does_not_stall_waiting_for_sibling` (T-2), per Q-8 as
+      corrected in D-3.
 - [x] AC-8: the §4 reproduction runs at least three loop passes and terminates through its
       own `end` node, with no `idle_max_seconds` force-fail
       (`workflow_watchdog.py:71-75`) and no reliance on `_JOIN_TTL_SECONDS` expiry. Verified
@@ -491,6 +508,31 @@ and back-edges respectively and never share a counter (AC-9).
   tests. Standing up the full stack for one behavioral confirmation was judged
   disproportionate given T-3's own note that engine-level coverage is unnecessary for a
   defect entirely inside the executor.
+- **D-3 — pass track's drain threshold fixed at 1, not `total_back_edges` (post-close
+  correction).** A code review after this dossier was first closed as implemented found
+  that the shipped design — `total_branches = total_back_edges` for the pass track,
+  matching Q-8's confirmed preview — deadlocks a join whose back-edges are sequential
+  alternatives rather than concurrent siblings: an if/else inside the loop body that
+  retakes the same edge before its sibling ever arrives (which it may never, in a given
+  run) leaves the pass epoch open forever, reproducing this dossier's own defect on a
+  rarer topology. Neither `test_multiple_back_edges_pass_total_counts_only_back_edges`
+  (T-1) nor `test_multi_back_edge_any_fires_and_drains` (T-2) caught it, since both only
+  sent each back-edge once. Confirmed with the user 2026-07-25: fixed by hardcoding
+  `total_branches = 1` for the pass track (matching `fire_threshold = 1`), so every
+  back-edge arrival fires and drains independently regardless of how many distinct
+  back-edges exist. **Accepted behavior change from the original Q-8 answer:** two
+  distinct back-edges arriving close together no longer suppress one another as
+  same-pass duplicates — each independently fires a pass. Distinct back-edges are
+  distinct loop-completion signals, not retries of the same one, so this is judged more
+  correct, not merely expedient. Renamed/replaced the affected tests:
+  `test_multiple_back_edges_pass_total_counts_only_back_edges` →
+  `test_multiple_back_edges_pass_total_is_fixed_at_one` (T-1);
+  `test_multi_back_edge_any_fires_and_drains` →
+  `test_multi_back_edge_each_fires_independently` plus new
+  `test_same_back_edge_retaken_does_not_stall_waiting_for_sibling` (T-2). Also corrected
+  a docstring in `_classify_incoming_edges` that mis-cited `linter.py:602-604` (a
+  different, narrower backward-walk algorithm) as precedent for the forward-reachability
+  walk actually used.
 
 ## 13. Follow-ups
 
