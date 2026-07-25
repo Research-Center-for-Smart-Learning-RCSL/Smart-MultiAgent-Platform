@@ -10,6 +10,7 @@ import {
   PuzzlePieceIcon,
   EllipsisVerticalIcon,
   ExclamationTriangleIcon,
+  InformationCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 import {
@@ -24,6 +25,7 @@ import { useConfirmDialog, useToast } from '@shared/composables'
 import { useProjectRole } from '@slices/tenancy'
 import type { Column } from '@shared/ui/STable.vue'
 
+import ActivityHelpPanel from '../components/ActivityHelpPanel.vue'
 import ActivityTypeForm from '../components/ActivityTypeForm.vue'
 import { listActivityTypes, deleteActivityType } from '../api'
 import { activityKeys } from '../queries'
@@ -40,6 +42,7 @@ const { decided, isAuthorized } = useProjectRole(projectId)
 
 const showModal = ref(false)
 const editType = ref<ActivityType | null>(null)
+const showHelp = ref(false)
 
 const typesQuery = useQuery({
   queryKey: activityKeys.types(projectId),
@@ -132,6 +135,15 @@ const ActivityTypeTable = typedTable<ActivityType>()
         v-if="decided && isAuthorized"
         #actions
       >
+        <SButton
+          variant="secondary"
+          @click="showHelp = true"
+        >
+          <template #icon-left>
+            <InformationCircleIcon class="w-4 h-4" />
+          </template>
+          {{ t('activities.typesList.help') }}
+        </SButton>
         <SButton
           variant="primary"
           @click="openCreate"
@@ -242,6 +254,11 @@ const ActivityTypeTable = typedTable<ActivityType>()
       @close="closeModal"
       @created="onCreated"
       @updated="onUpdated"
+    />
+
+    <ActivityHelpPanel
+      :open="showHelp"
+      @close="showHelp = false"
     />
   </main>
 </template>

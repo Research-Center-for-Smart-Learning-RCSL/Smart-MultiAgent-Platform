@@ -54,6 +54,8 @@ const EDIT_TYPE = {
   validator_kind: 'webhook',
   validator_config: { url: 'https://x.test/score' },
   retention_days: 7,
+  expose_payload_to_agent: true,
+  echo_includes_content: false,
   created_at: null,
 }
 
@@ -127,6 +129,60 @@ describe('ActivityTypeForm', () => {
     await wrapper.find('[data-testid="type-validator"]').setValue('mcp')
     expect(wrapper.find('[data-testid="type-webhook-url"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="type-mcp-agent"]').exists()).toBe(true)
+  })
+
+  it('defaults agent visibility on and participant visibility off (agent-visibility follow-up)', async () => {
+    registerMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await mountForm()
+    await fillValidWebhook(wrapper)
+
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(registerMock).toHaveBeenCalled())
+    expect(registerMock).toHaveBeenCalledWith(
+      'p1',
+      expect.objectContaining({ expose_payload_to_agent: true, echo_includes_content: false }),
+    )
+  })
+
+  it('submits toggled agent/participant visibility (agent-visibility follow-up)', async () => {
+    registerMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await mountForm()
+    await fillValidWebhook(wrapper)
+
+    await wrapper
+      .find('[data-testid="type-expose-payload-to-agent"] input[type="checkbox"]')
+      .trigger('change')
+    await wrapper
+      .find('[data-testid="type-echo-includes-content"] input[type="checkbox"]')
+      .trigger('change')
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(registerMock).toHaveBeenCalled())
+    expect(registerMock).toHaveBeenCalledWith(
+      'p1',
+      expect.objectContaining({ expose_payload_to_agent: false, echo_includes_content: true }),
+    )
+  })
+
+  it('pre-fills agent/participant visibility from the row in edit mode (agent-visibility follow-up)', async () => {
+    const wrapper = await renderView(ActivityTypeForm, {
+      props: {
+        projectId: 'p1',
+        open: true,
+        editType: { ...EDIT_TYPE, expose_payload_to_agent: false, echo_includes_content: true },
+      },
+    })
+    await flushPromises()
+
+    const exposeInput = wrapper.find(
+      '[data-testid="type-expose-payload-to-agent"] input[type="checkbox"]',
+    ).element as HTMLInputElement
+    const echoInput = wrapper.find(
+      '[data-testid="type-echo-includes-content"] input[type="checkbox"]',
+    ).element as HTMLInputElement
+    expect(exposeInput.checked).toBe(false)
+    expect(echoInput.checked).toBe(true)
   })
 
   it('registers a webhook type with the assembled body (AC-3)', async () => {

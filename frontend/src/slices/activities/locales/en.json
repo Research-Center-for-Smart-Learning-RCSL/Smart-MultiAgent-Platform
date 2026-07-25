@@ -37,6 +37,7 @@
       "title": "Activity types",
       "subtitle": "Templates a facilitator can start in a chatroom. Each type defines the fields participants submit and how each submission is scored.",
       "create": "New activity type",
+      "help": "Help",
       "colName": "Name",
       "colKey": "Key",
       "colValidator": "Validator",
@@ -65,6 +66,12 @@
       "nameHelp": "The label facilitators see when they start this activity.",
       "retentionDays": "Retention (days)",
       "retentionHelp": "How long submissions are kept. Leave blank for no limit.",
+      "exposePayloadToAgent": "Agent visibility",
+      "exposePayloadToAgentLabel": "Agents can see submitted content",
+      "exposePayloadToAgentHelp": "When on, every agent in the room (and observers) can read a summary of what was submitted, not just whether it was valid. Turn this off for sensitive or research activities where submissions must stay outside the AI's context.",
+      "echoIncludesContent": "Participant visibility",
+      "echoIncludesContentLabel": "Show submitted content to other participants in the room",
+      "echoIncludesContentHelp": "When on, the room's chat log shows what was submitted, not just the result. Independent of agent visibility above — leave off for quizzes or graded work so participants can't see each other's answers.",
       "payloadSchema": "Submission fields",
       "payloadSchemaHelp": "The fields a participant fills in and submits.",
       "schemaMode": {
@@ -133,6 +140,38 @@
       "addField": "Add field",
       "removeField": "Remove field",
       "previewLabel": "JSON Schema preview"
+    },
+    "helpPanel": {
+      "title": "Activities guide",
+      "intro": "Activities let a facilitator run structured, scored tasks inside a chatroom — quizzes, creative prompts, or research probes. This page covers the whole feature.",
+      "types": {
+        "title": "1. Activity types",
+        "body": "An activity type is a reusable template: a key, a name, the fields participants submit, and how each submission is scored. Create one here, then a facilitator starts it in any room the type's project can see."
+      },
+      "schema": {
+        "title": "2. Designing the submission form",
+        "body": "The Submission fields section defines what a participant fills in. Use the builder to add simple text/number/integer/yes-no fields, or switch to raw JSON Schema for nested objects, arrays, or enums the builder can't express."
+      },
+      "validators": {
+        "title": "3. Choosing a validator",
+        "body": "Every submission is scored server-side — never by the client. Built-in runs a scorer that ships with the platform and returns a verdict instantly. Webhook sends the submission to your own URL (through the egress proxy) and waits for a JSON verdict. MCP tool runs an MCP tool hosted on one of the project's agents. Webhook and MCP score asynchronously, so a submission is 'pending' until the verdict arrives."
+      },
+      "activation": {
+        "title": "4. Starting and ending an activity",
+        "body": "Only the room's creator (the facilitator) can start or end an activity type in that room. Participants can only submit while it is active; the platform enforces this server-side even if the UI is bypassed."
+      },
+      "plugins": {
+        "title": "5. Customizing the submission UI",
+        "body": "Without a registered plugin, the room shows a form generated automatically from the submission fields — this covers most activity types with no extra work. A developer can register a fully custom plugin (e.g. a drawing canvas) for a type's key; the plugin only ever submits through a fixed host bridge, so it can't fake a score."
+      },
+      "visibility": {
+        "title": "6. Who can see a submission's content",
+        "body": "Two independent switches on each activity type control this. Agent visibility decides whether agents in the room (as context, not as a visible chat message) can read a summary of what was submitted. Participant visibility decides whether the room's chat log shows the content to other human participants. Both default sensibly — agents on, other participants off — but either can be flipped per activity type."
+      },
+      "retention": {
+        "title": "7. Data retention",
+        "body": "By default, submissions are removed on the same schedule as the room they belong to. Setting a retention period on the activity type keeps its submissions for that many days instead, independent of the room's own lifecycle — useful when the activity is part of a research study."
+      }
     }
   }
 }

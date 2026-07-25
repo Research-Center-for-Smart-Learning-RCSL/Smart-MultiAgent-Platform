@@ -26,6 +26,13 @@ vi.mock('@slices/tenancy', async (importOriginal) => {
 vi.mock('../components/ActivityTypeForm.vue', () => ({
   default: { name: 'ActivityTypeForm', template: '<div data-testid="type-form-stub" />' },
 }))
+vi.mock('../components/ActivityHelpPanel.vue', () => ({
+  default: {
+    name: 'ActivityHelpPanel',
+    props: ['open'],
+    template: '<div v-if="open" data-testid="help-panel-stub" />',
+  },
+}))
 
 const routes = [{ path: '/at/:projectId', name: 'at', component: { template: '<div />' } }]
 
@@ -52,6 +59,8 @@ describe('ActivityTypesView', () => {
         validator_kind: 'webhook',
         validator_config: {},
         retention_days: null,
+        expose_payload_to_agent: true,
+        echo_includes_content: false,
         created_at: null,
       },
     ])
@@ -82,6 +91,21 @@ describe('ActivityTypesView', () => {
     expect(wrapper.text()).toContain('activities.typesList.errorTitle')
     expect(wrapper.text()).toContain('activities.typesList.retry')
     expect(wrapper.text()).not.toContain('activities.typesList.emptyTitle')
+  })
+
+  it('opens the help panel from the header action (agent-visibility follow-up)', async () => {
+    listMock.mockResolvedValue([])
+
+    const wrapper = await mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="help-panel-stub"]').exists()).toBe(false)
+    const buttons = wrapper.findAll('button').filter((b) => b.text().includes('activities.typesList.help'))
+    expect(buttons).toHaveLength(1)
+
+    await buttons[0].trigger('click')
+
+    expect(wrapper.find('[data-testid="help-panel-stub"]').exists()).toBe(true)
   })
 
   it('hides the page and never queries for a non-owner (AC-1)', async () => {
