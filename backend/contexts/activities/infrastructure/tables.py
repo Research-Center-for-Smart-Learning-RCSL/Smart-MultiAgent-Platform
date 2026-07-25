@@ -36,7 +36,9 @@ activity_types = sa.Table(
     sa.Column("retention_days", sa.Integer, nullable=True),
     sa.Column("version", sa.Integer, nullable=False, server_default=sa.text("1")),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
-    # Presentation-only gates on ActivitySubmission.agent_digest — 0060.
+    # Presentation gates on ActivitySubmission.agent_digest — 0065. Not fully
+    # independent: echo_includes_content only takes effect when
+    # expose_payload_to_agent is also true (submission_service.py::submit).
     sa.Column("expose_payload_to_agent", sa.Boolean, nullable=False, server_default=sa.text("true")),
     sa.Column("echo_includes_content", sa.Boolean, nullable=False, server_default=sa.text("false")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
@@ -143,7 +145,7 @@ activity_submissions = sa.Table(
     sa.Column("latency_ms", sa.Integer, nullable=True),
     sa.Column("retain_until", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
-    # Agent-visible digest of ``payload`` — 0060; NULL only for pre-migration rows.
+    # Agent-visible digest of ``payload`` — 0065; NULL only for pre-migration rows.
     sa.Column("agent_digest", sa.Text, nullable=True),
     sa.Column("validated_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),

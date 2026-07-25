@@ -639,6 +639,37 @@ class TestAgentDigest:
 
         assert 'Content: {"answer":"x"}' in echo_kwargs["content_md"]
 
+    async def test_echo_omits_content_when_agent_visibility_is_off_even_if_echo_opts_in(self) -> None:
+        """Adversarial-review fix: echo_includes_content cannot show content the
+        type owner turned off for agents — a chat message visible to humans is
+        visible to every agent reading the same room transcript, so
+        expose_payload_to_agent=False must win over echo_includes_content=True."""
+        activity_type = _make_type(
+            project_id=uuid.uuid4(), expose_payload_to_agent=False, echo_includes_content=True
+        )
+        registry.register_in_process_validator("vid", lambda p, a, *, db: ValidationResult(is_valid=True))
+        svc, _sub_repo, session = _wire_submission_service(activity_type)
+
+        with (
+            patch.object(ss, "ConversationFacade") as conv,
+            patch.object(ss.audit, "emit", new=AsyncMock()),
+        ):
+            conv.return_value.insert_system_message = AsyncMock()
+            await svc.submit(
+                project_id=activity_type.project_id,
+                activity_type_id=activity_type.id,
+                chatroom_id=session.chatroom_id,
+                producer_user_id=session.subject_user_id,
+                subject_user_id=session.subject_user_id,
+                caller_user_id=session.subject_user_id,
+                payload={"answer": "x"},
+                actor_user_id=session.subject_user_id,
+                actor_ip=None,
+            )
+            echo_kwargs = conv.return_value.insert_system_message.await_args.kwargs
+
+        assert "Content:" not in echo_kwargs["content_md"]
+
 
 def _make_submission(**over: Any) -> ActivitySubmission:
     base: dict[str, Any] = {

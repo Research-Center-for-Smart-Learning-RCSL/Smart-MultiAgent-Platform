@@ -183,6 +183,16 @@ class SubmissionService:
             agent_digest=agent_digest,
         )
 
+        # Adversarial-review fix: a chat message visible to human participants
+        # is necessarily visible to every agent reading that same room
+        # transcript (SYSTEM-sender rows flow into every agent's history the
+        # same as any other message — there is no agent-invisible chat
+        # channel). So echo_includes_content can only ever ADD the digest to
+        # what expose_payload_to_agent already allows agents to see; it must
+        # never show content the type owner turned off for agents by putting
+        # it in the shared transcript instead. Both flags must be true.
+        show_in_echo = activity_type.echo_includes_content and activity_type.expose_payload_to_agent
+        echo_agent_digest = agent_digest if show_in_echo else None
         await ConversationFacade(self._db).insert_system_message(
             chatroom_id=chatroom_id,
             content_md=_echo_text(
@@ -191,7 +201,7 @@ class SubmissionService:
                 validation_status,
                 is_valid,
                 error_class,
-                agent_digest if activity_type.echo_includes_content else None,
+                echo_agent_digest,
             ),
             message_type=_ECHO_TYPE,
             metadata={
