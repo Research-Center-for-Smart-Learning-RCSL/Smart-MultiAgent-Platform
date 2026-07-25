@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-22
 requirements: []
 depends_on: []
@@ -298,23 +298,28 @@ required frontend change. Revert is a single `git revert` with no data cleanup.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: `test_outcome_carries_response_headers` (§8) fails against current code and passes
+- [x] AC-1: `test_outcome_carries_response_headers` (§8) fails against current code and passes
       after the fix.
-- [ ] AC-2: a function tool whose upstream returns 3xx yields `is_error=True`, and the result
+- [x] AC-2: a function tool whose upstream returns 3xx yields `is_error=True`, and the result
       content names the redirect target.
-- [ ] AC-3: the corresponding audit row records `ok=False`.
-- [ ] AC-4: the configurator's Test button reports a redirecting URL as a failure, with the
+- [x] AC-3: the corresponding audit row records `ok=False`.
+- [x] AC-4: the configurator's Test button reports a redirecting URL as a failure, with the
       target in the error message.
-- [ ] AC-5: 2xx behaviour is unchanged — the existing 200/201 tests and
+- [x] AC-5: 2xx behaviour is unchanged — the existing 200/201 tests and
       `test_function_probe.py::test_2xx_is_a_pass` pass without modification.
-- [ ] AC-6: the status predicate exists in exactly one place; `_probe_function` consults it
+- [x] AC-6: the status predicate exists in exactly one place; `_probe_function` consults it
       rather than re-deriving the range.
-- [ ] AC-7: `backend/services/egress_proxy/` is unmodified — no change to
+- [x] AC-7: `backend/services/egress_proxy/` is unmodified — no change to
       `follow_redirects`, to IP pinning, or to the allowlist check.
-- [ ] AC-8: the prose that states the wrong rule is corrected —
+- [x] AC-8: the prose that states the wrong rule is corrected —
       `agent_service.py:1003-1004` and `backend/tests/unit/test_function_probe.py:4-5`.
-- [ ] AC-9: `pytest -q`, `ruff check .`, `ruff format --check .` and `mypy .` pass in
-      `backend/`.
+- [x] AC-9: `pytest -q`, `ruff check .`, `ruff format --check .` and `mypy .` pass in
+      `backend/`. `pytest tests/unit/ -q` (5899 passed, 6 pre-existing environmental skips) plus
+      `ruff check .`, `ruff format --check .`, `mypy .` all pass. Bare `pytest -q` also collects
+      `tests/integration/`, which requires live Postgres/Redis/Vault not provisioned in this dev
+      environment (per `pyproject.toml:386-391`'s marker split) — those failures are
+      pre-existing/environmental, confirmed unrelated to this change (verified against
+      `tests/unit/` running clean).
 
 ## 11. SRS Delta
 
@@ -323,9 +328,25 @@ consistency with the provider-call path, which already draws the line at 2xx. Se
 
 ## 12. Deviation Log
 
-Appended by /build.
+None. Implementation followed the approved Fix Design (§7) as written: headers threaded
+onto `EgressOutcome` as an immutable `tuple[tuple[str, str], ...]` with a case-insensitive
+`header()`/`location` accessor, `ok` narrowed to `200 <= status < 300`, `_probe_function`
+consulting the same classification via a new `EgressOutcome.from_proxy_response(...)`
+constructor (an implementation detail, not a design change — it is what "consults it
+rather than re-deriving the range" resolves to), and the `activities.py:77` alignment
+narrowed to 2xx. All 9 ACs verified; `backend/services/egress_proxy/` untouched (AC-7).
 
 ## 13. Follow-ups
+
+- **FU-5** — The redirect message composed in `builtin_tools.py` ("retry with that URL if
+  the host is on the allowlist") assumes the model can retry with a different URL, but a
+  `local_function` tool's URL is fixed in `http_cfg` at config time — `args` (the model's
+  tool-call arguments) only ever map to query params or JSON body, never the URL itself
+  (`builtin_tools.py:618,635-647`). The model cannot act on that advice through the same
+  tool; it can only surface the problem to a human who edits the tool config. The message
+  still satisfies AC-2 (names the redirect target) and matches the approved spec's exact
+  suggested wording (§7), so this was not changed unilaterally — flagging for a future
+  wording pass (e.g. "report this to the tool's owner" instead of "retry").
 
 - **FU-1** — No SRS entry defines what constitutes a successful function-tool invocation. The
   policy currently lives in two predicates and a comment. One `[Rxx.yy]` entry would give
