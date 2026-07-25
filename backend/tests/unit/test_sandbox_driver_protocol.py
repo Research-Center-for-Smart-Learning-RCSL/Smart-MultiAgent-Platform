@@ -138,8 +138,23 @@ def test_egress_denied_detection() -> None:
 
 def test_frame_tools_matches_host_reader() -> None:
     # Host does json.loads(stdout).get("tools", []).
-    framed = protocol.frame_tools(["a", "b"])
-    assert json.loads(framed)["tools"] == ["a", "b"]
+    framed = protocol.frame_tools([{"name": "a", "description": "", "inputSchema": {}}])
+    assert json.loads(framed)["tools"] == [{"name": "a", "description": "", "inputSchema": {}}]
+
+
+def test_frame_tools_carries_input_schema() -> None:
+    # 2026-07-22-mcp-tool-contract: the probe carries the MCP tools/list
+    # contract (name + description + inputSchema), not just bare names.
+    tools = [
+        {
+            "name": "read_file",
+            "description": "Read a file from the workspace.",
+            "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}},
+        }
+    ]
+    framed = json.loads(protocol.frame_tools(tools))
+    assert framed["tools"][0]["inputSchema"]["properties"]["path"]["type"] == "string"
+    assert framed["tools"][0]["description"] == "Read a file from the workspace."
 
 
 def test_exit_codes() -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import enum
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -207,11 +207,28 @@ class AgentTool:
 
 
 @dataclass(frozen=True, slots=True)
+class McpToolSpec:
+    """One tool's contract as captured from an MCP server's ``tools/list``.
+
+    ``input_schema`` defaults to the permissive shape so a caller that only
+    has the legacy bare-name probe form (backend/image version skew) can
+    still construct a spec without inventing a schema.
+    """
+
+    name: str
+    description: str = ""
+    input_schema: dict[str, Any] = field(
+        default_factory=lambda: {"type": "object", "additionalProperties": True}
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class ToolProbeResult:
     """Outcome of a tool reachability/test probe (hosted_mcp or local_function)."""
 
     ok: bool
     tool_names: tuple[str, ...] = ()
+    tools: tuple[McpToolSpec, ...] = ()
     status: int | None = None
     duration_ms: int = 0
     error: str | None = None
@@ -281,6 +298,7 @@ __all__ = [
     "ContextMode",
     "McpBinding",
     "McpSource",
+    "McpToolSpec",
     "SINGLETON_TOOL_TYPES",
     "WorkspaceFile",
     "chat_model_catalog",

@@ -19,6 +19,7 @@ import json
 import posixpath
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 # Exit codes the host (docker_runsc.py) interprets. 0 = ok, 42 = egress denied
 # (McpEgressDenied), anything else = generic failure surfaced in logs.
@@ -147,9 +148,16 @@ def is_egress_denied_response(status_code: int, content_type: str, body: bytes) 
     return str(parsed.get("type", "")).endswith("mcp-egress-denied")
 
 
-def frame_tools(tool_names: list[str]) -> str:
-    """The host's probe reader does ``json.loads(stdout).get('tools', [])``."""
-    return json.dumps({"tools": list(tool_names)})
+def frame_tools(tools: list[dict[str, Any]]) -> str:
+    """The host's probe reader does ``json.loads(stdout).get('tools', [])``.
+
+    Each entry carries ``name``, ``description`` and ``inputSchema`` — the MCP
+    ``tools/list`` contract — so the host can persist the real tool schema
+    instead of discarding it. ``docker_runsc._run_mcp_probe`` also accepts the
+    legacy bare-string form, for a deployed ``mcp_image`` that lags this
+    driver.
+    """
+    return json.dumps({"tools": list(tools)})
 
 
 __all__ = [

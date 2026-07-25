@@ -1060,6 +1060,7 @@ class AgentService:
         return ToolProbeResult(
             ok=result.ok,
             tool_names=tuple(result.tool_names),
+            tools=tuple(result.tools),
             duration_ms=result.duration_ms,
             error=result.error,
         )
