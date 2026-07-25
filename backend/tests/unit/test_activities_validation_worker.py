@@ -13,7 +13,10 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from app.workers.tasks import activities as worker
+from contexts.activities.application.validators.base import ValidatorUnavailable
 from contexts.activities.domain.models import (
     ActivitySubmission,
     ActivityType,
@@ -212,6 +215,23 @@ class TestValidateActivitySubmission:
         assert result == "not-pending"
         af.record_validation.assert_not_awaited()
         af.record_validation_error.assert_not_awaited()
+
+
+class TestRunRemoteValidator:
+    async def test_webhook_redirect_raises_validator_unavailable(self) -> None:
+        # The egress proxy never follows redirects, so a 3xx body is empty by
+        # construction — narrowed to 2xx so this is diagnosed as a redirect
+        # rather than falling through to result_from_json on an empty body.
+        activity_type = _type(ValidatorKind.WEBHOOK, {"url": "https://validator.example.com/score"})
+        sub = _submission(ValidationStatus.PENDING)
+        agents = MagicMock()
+        agents.egress_request = AsyncMock(return_value=SimpleNamespace(blocked=None, status=301, body=b""))
+
+        with (
+            patch("contexts.agents.interfaces.facade.AgentsFacade", return_value=agents),
+            pytest.raises(ValidatorUnavailable, match="301"),
+        ):
+            await worker._run_remote_validator(MagicMock(), activity_type, sub)
 
 
 class TestActivitySignalEmit:
