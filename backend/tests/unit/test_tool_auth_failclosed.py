@@ -67,6 +67,7 @@ async def test_mcp_fails_closed_when_unseal_raises(monkeypatch) -> None:
         agent=_agent(),
         tool=_mcp_tool(with_auth=True),
         mcp_tool="alpha",
+        runtime_name="mcp__x__alpha",
         deps=_deps(runner=runner),
     )
 
@@ -87,6 +88,7 @@ async def test_mcp_invokes_when_no_auth_configured(monkeypatch) -> None:
         agent=_agent(),
         tool=_mcp_tool(with_auth=False),
         mcp_tool="alpha",
+        runtime_name="mcp__x__alpha",
         deps=_deps(runner=runner),
     )
 
