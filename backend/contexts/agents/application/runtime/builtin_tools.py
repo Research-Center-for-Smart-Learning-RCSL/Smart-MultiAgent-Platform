@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from hashlib import sha256
 from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -548,8 +550,44 @@ async def _audit_tool_invoke(
         logger.warning("Failed to write tool audit event", exc_info=True)
 
 
-def _mcp_tool_name_from_agent_tool(tool: AgentTool, mcp_tool: str) -> str:
-    return f"mcp__{str(tool.id)[:8]}__{mcp_tool}"
+# Provider function-name limit both OpenAI and Anthropic enforce (F-12). MCP
+# itself allows any of `.`/`:`/etc. in a tool name (Q-3) -- this is the
+# composition-time backstop that makes the *runtime* name legal regardless,
+# unconditionally, so a pre-existing illegal row or any bypass of bind-time
+# validation (agent_service._validate_mcp_tool_name) cannot brick a turn.
+_MCP_PROVIDER_NAME_MAX = 64
+_MCP_NAME_ILLEGAL_RE = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+def _mcp_tool_name_from_agent_tool(tool: AgentTool, mcp_tool: str, seen: set[str]) -> str:
+    """Provider-legal runtime name for one upstream MCP tool, unique within `seen`.
+
+    `seen` is the caller's turn-scoped set of already-assigned names (across
+    every MCP binding on the agent) -- mutated in place so a second call for a
+    different `mcp_tool` never collides. This is what makes the registry's own
+    dedup-and-drop (tool_registry.ToolRegistry.__init__) unreachable for MCP
+    names: collisions are resolved here, deterministically, not discovered
+    there and silently dropped.
+    """
+    prefix = f"mcp__{str(tool.id)[:8]}__"
+    sanitized = _MCP_NAME_ILLEGAL_RE.sub("_", mcp_tool) or "_"
+    candidate = prefix + sanitized
+    if len(candidate) > _MCP_PROVIDER_NAME_MAX:
+        # Two upstream names sharing a long common prefix would otherwise both
+        # truncate to the same string; key the digest off the full original
+        # name so that's astronomically unlikely, then still fall through to
+        # the numeric-suffix loop below for a hard uniqueness guarantee.
+        digest = sha256(mcp_tool.encode("utf-8")).hexdigest()[:8]
+        budget = _MCP_PROVIDER_NAME_MAX - len(prefix) - len(digest) - 1
+        candidate = f"{prefix}{sanitized[: max(budget, 0)]}_{digest}"
+    final = candidate
+    suffix = 2
+    while final in seen:
+        tail = f"_{suffix}"
+        final = candidate[: _MCP_PROVIDER_NAME_MAX - len(tail)] + tail
+        suffix += 1
+    seen.add(final)
+    return final
 
 
 def _build_mcp_tool_from_agent_tool(
@@ -558,6 +596,7 @@ def _build_mcp_tool_from_agent_tool(
     agent: Agent,
     tool: AgentTool,
     mcp_tool: str,
+    runtime_name: str,
     deps: BuiltinToolDeps,
 ) -> Tool:
     async def _invoke(args: dict[str, Any]) -> ToolResult:
@@ -587,10 +626,23 @@ def _build_mcp_tool_from_agent_tool(
         body = res.stdout if res.ok else f"{res.stdout}\n[stderr]\n{res.stderr}".strip()
         return ToolResult(content=clip_tool_output(body or "(no output)"), is_error=not res.ok)
 
+    # A captured contract (probed via "Test", 2026-07-22-mcp-tool-contract) gives
+    # the model the server's real parameter schema and description instead of the
+    # permissive fallback; absent one (never tested, or a legacy row) this degrades
+    # to exactly today's behaviour -- never an error.
+    captured = tool.mcp_captured_tool(mcp_tool)
+    description = (
+        captured.description
+        if captured is not None and captured.description
+        else f"MCP tool '{mcp_tool}' from bound server {tool.mcp_reference()}."
+    )
+    input_schema = (
+        captured.input_schema if captured is not None else {"type": "object", "additionalProperties": True}
+    )
     return Tool(
-        name=_mcp_tool_name_from_agent_tool(tool, mcp_tool),
-        description=f"MCP tool '{mcp_tool}' from bound server {tool.mcp_reference()}.",
-        input_schema={"type": "object", "additionalProperties": True},
+        name=runtime_name,
+        description=description,
+        input_schema=input_schema,
         invoke=_invoke,
     )
 
@@ -698,6 +750,10 @@ def build_agent_tools(
     # registry's first-registration-wins backstop always keeps a built-in over a
     # same-named user function even if the reserved-name guard ever drifts.
     functions: list[Tool] = []
+    # Turn-scoped: collision resolution in _mcp_tool_name_from_agent_tool must see
+    # every MCP name assigned so far across every binding on this agent, not just
+    # within one binding's own allowed_tools.
+    mcp_names_seen: set[str] = set()
     for t in tools:
         if not t.enabled:
             continue
@@ -720,12 +776,14 @@ def build_agent_tools(
                 out.append(_build_file_search_tool(db, agent=agent, deps=deps, config=t.config))
             case AgentToolType.HOSTED_MCP:
                 for mcp_tool_name in t.mcp_allowed_tools():
+                    runtime_name = _mcp_tool_name_from_agent_tool(t, mcp_tool_name, mcp_names_seen)
                     out.append(
                         _build_mcp_tool_from_agent_tool(
                             db,
                             agent=agent,
                             tool=t,
                             mcp_tool=mcp_tool_name,
+                            runtime_name=runtime_name,
                             deps=deps,
                         )
                     )

@@ -17,6 +17,9 @@ from sqlalchemy.exc import IntegrityError
 from contexts.agents.application.agent_service import (
     _AGENT_CAP_PER_PROJECT,
     AgentService,
+    _sanitize_captured_description,
+    _sanitize_captured_tools,
+    _validate_captured_schema,
     _validate_function_config,
     _validate_mcp_config,
 )
@@ -35,6 +38,7 @@ from contexts.agents.domain.models import (
     AgentTool,
     AgentToolType,
     ContextMode,
+    McpToolSpec,
 )
 from shared_kernel.db.restore import RestoreConflict
 
@@ -842,6 +846,127 @@ class TestValidateMcpConfig:
         with pytest.raises(ValueError, match="allowed_tools"):
             _validate_mcp_config({"source": "url", "reference": "https://x", "allowed_tools": [""]})
 
+    def test_accepts_dot_and_colon_in_tool_name(self) -> None:
+        # Q-3: `.` and `:` are legal MCP characters and common in the wild (e.g.
+        # "filesystem.read_file", "ns:tool") -- rejecting them at bind time would
+        # make legitimate MCP servers unbindable. Composition-time sanitisation
+        # (builtin_tools.py) is what makes these provider-legal, not this gate.
+        _validate_mcp_config(
+            {
+                "source": "url",
+                "reference": "https://x",
+                "allowed_tools": ["filesystem.read_file", "ns:tool"],
+            }
+        )
+
+    def test_rejects_illegal_charset_entry(self) -> None:
+        # A raw control character is not legal MCP under any interpretation.
+        with pytest.raises(ValueError, match="allowed_tools"):
+            _validate_mcp_config(
+                {"source": "url", "reference": "https://x", "allowed_tools": ["read\x00file"]}
+            )
+
+    def test_rejects_whitespace_in_tool_name(self) -> None:
+        with pytest.raises(ValueError, match="allowed_tools"):
+            _validate_mcp_config({"source": "url", "reference": "https://x", "allowed_tools": ["read file"]})
+
+    def test_rejects_overlong_allowed_tool_entry(self) -> None:
+        with pytest.raises(ValueError, match="allowed_tools"):
+            _validate_mcp_config({"source": "url", "reference": "https://x", "allowed_tools": ["a" * 501]})
+
+    def test_accepts_51_char_entry(self) -> None:
+        # Legal MCP but unusable after the mcp__{id8}__ prefix (14 chars) -- still
+        # bindable; composition-time truncation + digest is what handles the fit,
+        # not a bind-time reject (Q-3).
+        _validate_mcp_config({"source": "url", "reference": "https://x", "allowed_tools": ["a" * 51]})
+
+    def test_patch_grandfathers_preexisting_illegal_entry(self) -> None:
+        # Q-5: editing an unrelated field on a binding whose stored allowed_tools
+        # already contains an illegal entry must not 422 -- the exact
+        # allow_empty_allowlist regression class (:188-189).
+        _validate_mcp_config(
+            {"source": "url", "reference": "https://x", "allowed_tools": ["read\x00file"]},
+            preexisting_allowed_tools=frozenset({"read\x00file"}),
+        )
+
+    def test_patch_rejects_newly_added_illegal_entry(self) -> None:
+        with pytest.raises(ValueError, match="allowed_tools"):
+            _validate_mcp_config(
+                {
+                    "source": "url",
+                    "reference": "https://x",
+                    "allowed_tools": ["read\x00file", "new bad name"],
+                },
+                preexisting_allowed_tools=frozenset({"read\x00file"}),
+            )
+
+
+# ---------------------------------------------------------------------------
+# Captured MCP tool contract (2026-07-22-mcp-tool-contract)
+# ---------------------------------------------------------------------------
+
+
+class TestValidateCapturedSchema:
+    def test_accepts_plain_object_schema(self) -> None:
+        _validate_captured_schema({"type": "object", "properties": {"path": {"type": "string"}}})
+
+    def test_captured_schema_rejects_ref(self) -> None:
+        with pytest.raises(ValueError, match="\\$ref"):
+            _validate_captured_schema({"type": "object", "properties": {"x": {"$ref": "#/defs/x"}}})
+
+    def test_captured_schema_rejects_oversize(self) -> None:
+        huge_props = {f"p{i}": {"type": "string", "description": "x" * 200} for i in range(100)}
+        with pytest.raises(ValueError, match="10 KB"):
+            _validate_captured_schema({"type": "object", "properties": huge_props})
+
+    def test_captured_schema_rejects_too_many_properties(self) -> None:
+        props = {f"p{i}": {"type": "string"} for i in range(51)}
+        with pytest.raises(ValueError, match="properties"):
+            _validate_captured_schema({"type": "object", "properties": props})
+
+
+class TestSanitizeCapturedDescription:
+    def test_strips_control_characters(self) -> None:
+        assert _sanitize_captured_description("hi\x00\x1fthere\n") == "hithere\n"
+
+    def test_bounds_length(self) -> None:
+        assert len(_sanitize_captured_description("x" * 5000)) == 1000
+
+
+class TestSanitizeCapturedTools:
+    def test_valid_tool_passes_through_unchanged(self) -> None:
+        specs = (McpToolSpec(name="read_file", description="Read a file.", input_schema={"type": "object"}),)
+        result, warnings = _sanitize_captured_tools(specs)
+        assert result == specs
+        assert warnings == []
+
+    def test_oversized_schema_degrades_to_fallback_with_warning(self) -> None:
+        huge_props = {f"p{i}": {"type": "string", "description": "x" * 200} for i in range(100)}
+        specs = (McpToolSpec(name="bad_tool", input_schema={"type": "object", "properties": huge_props}),)
+        result, warnings = _sanitize_captured_tools(specs)
+        assert len(result) == 1
+        assert result[0].input_schema == {"type": "object", "additionalProperties": True}
+        assert "bad_tool" in warnings[0]
+
+    def test_ref_schema_degrades_to_fallback_with_warning(self) -> None:
+        specs = (McpToolSpec(name="bad_tool", input_schema={"$ref": "#/x"}),)
+        result, warnings = _sanitize_captured_tools(specs)
+        assert result[0].input_schema == {"type": "object", "additionalProperties": True}
+        assert len(warnings) == 1
+
+    def test_one_bad_tool_does_not_drop_the_others(self) -> None:
+        good = McpToolSpec(name="good_tool", input_schema={"type": "object"})
+        bad = McpToolSpec(name="bad_tool", input_schema={"$ref": "#/x"})
+        result, warnings = _sanitize_captured_tools((good, bad))
+        assert {r.name for r in result} == {"good_tool", "bad_tool"}
+        assert len(warnings) == 1
+
+    def test_over_200_tools_truncated_with_warning(self) -> None:
+        specs = tuple(McpToolSpec(name=f"t{i}") for i in range(250))
+        result, warnings = _sanitize_captured_tools(specs)
+        assert len(result) == 200
+        assert any("250" in w for w in warnings)
+
 
 # ---------------------------------------------------------------------------
 # add_tool
@@ -960,6 +1085,54 @@ class TestPatchTool:
                 agent_id=agent.id,
                 tool_id=existing.id,
                 config={"allowed_tools": []},
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        tools.patch.assert_not_awaited()
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_grandfathers_preexisting_illegal_entry(self, _audit) -> None:
+        # Q-5, end-to-end through patch_tool (not just the validator directly):
+        # a legacy row already carries an illegal stored entry (predates this
+        # fix); editing an unrelated field must not 422 on it.
+        agent = _make_agent()
+        existing = _make_mcp_tool(agent_id=agent.id, with_auth=False)
+        existing.config["allowed_tools"] = ["read\x00file"]
+        agents = AsyncMock()
+        agents.get.return_value = agent
+        tools = AsyncMock()
+        tools.get.return_value = existing
+        tools.patch.return_value = existing
+        svc = _make_service(agent_repo=agents, tool_repo=tools)
+
+        await svc.patch_tool(
+            agent_id=agent.id,
+            tool_id=existing.id,
+            display_name="renamed",
+            config={"allowed_tools": ["read\x00file"]},
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        tools.patch.assert_awaited_once()
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_rejects_newly_added_illegal_entry(self, _audit) -> None:
+        agent = _make_agent()
+        existing = _make_mcp_tool(agent_id=agent.id, with_auth=False)
+        existing.config["allowed_tools"] = ["read\x00file"]
+        agents = AsyncMock()
+        agents.get.return_value = agent
+        tools = AsyncMock()
+        tools.get.return_value = existing
+        svc = _make_service(agent_repo=agents, tool_repo=tools)
+
+        with pytest.raises(ValueError, match="allowed_tools"):
+            await svc.patch_tool(
+                agent_id=agent.id,
+                tool_id=existing.id,
+                config={"allowed_tools": ["read\x00file", "new bad name"]},
                 actor_user_id=_USER_ID,
                 actor_ip=None,
             )

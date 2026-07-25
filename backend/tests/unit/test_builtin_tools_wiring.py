@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 import uuid
 from datetime import datetime
 from hashlib import sha256
@@ -18,7 +19,7 @@ from unittest.mock import AsyncMock
 
 from contexts.agents.application.runtime import builtin_tools as bt
 from contexts.agents.domain.mcp import SearchResult, ToolCallResult
-from contexts.agents.domain.models import AgentTool, AgentToolType
+from contexts.agents.domain.models import AgentTool, AgentToolType, McpToolSpec
 
 _NOW = datetime(2026, 6, 22, 12, 0, 0)
 
@@ -65,11 +66,18 @@ def _mcp(
     *,
     source: str = "package",
     reference: str = "npx:@scope/srv",
+    captured_tools: tuple[McpToolSpec, ...] = (),
+    captured_at: datetime | None = None,
 ) -> AgentTool:
-    return _tool(
+    tool = _tool(
         AgentToolType.HOSTED_MCP,
         config={"source": source, "reference": reference, "allowed_tools": list(allowed)},
     )
+    if captured_tools or captured_at is not None:
+        from dataclasses import replace
+
+        tool = replace(tool, mcp_captured_tools=captured_tools, mcp_captured_at=captured_at or _NOW)
+    return tool
 
 
 def _function(name: str = "lookup") -> AgentTool:
@@ -657,6 +665,113 @@ async def test_mcp_tool_degrades_on_error() -> None:
     res = await tools[name].invoke({})
     assert res.is_error is True
     assert "daemon down" in res.content
+
+
+def test_mcp_tool_advertises_captured_schema() -> None:
+    # 2026-07-22-mcp-tool-contract defect A: a captured contract must reach the
+    # provider-facing Tool instead of the hardcoded permissive schema/description.
+    captured = McpToolSpec(
+        name="alpha",
+        description="Reads a file from the workspace.",
+        input_schema={"type": "object", "properties": {"path": {"type": "string"}}},
+    )
+    tools = {
+        t.name: t
+        for t in bt.build_agent_tools(
+            AsyncMock(),
+            agent=_agent(),
+            tools=[_mcp(("alpha",), captured_tools=(captured,))],
+            deps=_deps(),
+        )
+    }
+    name = next(n for n in tools if n.startswith("mcp__"))
+    assert tools[name].input_schema == captured.input_schema
+    assert tools[name].description == captured.description
+
+
+def test_mcp_tool_falls_back_when_schema_absent() -> None:
+    # No capture (fresh binding, or a legacy row predating this fix) must still
+    # build a working tool with today's permissive schema -- never an error.
+    tools = {
+        t.name: t
+        for t in bt.build_agent_tools(AsyncMock(), agent=_agent(), tools=[_mcp(("alpha",))], deps=_deps())
+    }
+    name = next(n for n in tools if n.startswith("mcp__"))
+    assert tools[name].input_schema == {"type": "object", "additionalProperties": True}
+    assert "alpha" in tools[name].description
+
+
+# --------------------------------------------------------------------------- #
+# MCP name sanitisation (2026-07-22-mcp-tool-contract defect B)                #
+# --------------------------------------------------------------------------- #
+
+_PROVIDER_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+
+def test_mcp_advertised_name_is_provider_legal() -> None:
+    tools = bt.build_agent_tools(
+        AsyncMock(),
+        agent=_agent(),
+        tools=[_mcp(("a" * 80, "fs.read_file", "ns:tool"))],
+        deps=_deps(),
+    )
+    mcp_names = [t.name for t in tools if t.name.startswith("mcp__")]
+    assert len(mcp_names) == 3
+    for name in mcp_names:
+        assert _PROVIDER_NAME_RE.match(name), name
+
+
+def test_mcp_sanitised_names_stay_unique() -> None:
+    # Two upstream names sharing a 50-character prefix: a naive truncate would
+    # collapse both to the same composed name; the digest + numeric-suffix
+    # backstop must keep them distinct registry entries.
+    shared_prefix = "a" * 50
+    tools = bt.build_agent_tools(
+        AsyncMock(),
+        agent=_agent(),
+        tools=[_mcp((shared_prefix + "_one", shared_prefix + "_two"))],
+        deps=_deps(),
+    )
+    mcp_names = {t.name for t in tools if t.name.startswith("mcp__")}
+    assert len(mcp_names) == 2
+
+
+async def test_mcp_invoke_uses_the_real_upstream_name() -> None:
+    # Round-trip guard for the whole sanitise design (Q-4): the advertised name
+    # is sanitised, but invocation must still send the server the unsanitised
+    # original -- no mapping table needed since the closure carries it directly.
+    runner = AsyncMock()
+    runner.invoke_mcp_tool.return_value = _ok("ok")
+    tools = bt.build_agent_tools(
+        AsyncMock(),
+        agent=_agent(),
+        tools=[_mcp(("filesystem.read_file",))],
+        deps=_deps(runner=runner),
+    )
+    mcp_tool = next(t for t in tools if t.name.startswith("mcp__"))
+    assert _PROVIDER_NAME_RE.match(mcp_tool.name)
+
+    await mcp_tool.invoke({})
+
+    assert runner.invoke_mcp_tool.await_args.kwargs["tool_name"] == "filesystem.read_file"
+
+
+def test_mcp_sanitised_name_never_collides_with_a_builtin() -> None:
+    # Drift guard in the style of test_hosted_builtin_names_are_all_reserved:
+    # the mcp__ prefix must survive sanitisation intact, so no possible output
+    # can land inside BUILTIN_TOOL_NAMES.
+    from contexts.agents.application.runtime.tool_registry import BUILTIN_TOOL_NAMES
+
+    tools = bt.build_agent_tools(
+        AsyncMock(),
+        agent=_agent(),
+        tools=[_mcp(("web_search", "code_exec", "file", "a.b:c\x01d " + "x" * 80))],
+        deps=_deps(),
+    )
+    mcp_names = [t.name for t in tools if t.name.startswith("mcp__")]
+    assert mcp_names
+    for name in mcp_names:
+        assert name not in BUILTIN_TOOL_NAMES
 
 
 # --------------------------------------------------------------------------- #

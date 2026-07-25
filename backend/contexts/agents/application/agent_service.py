@@ -31,6 +31,7 @@ import re
 import struct
 import uuid
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -59,6 +60,7 @@ from contexts.agents.domain.models import (
     AgentTool,
     AgentToolType,
     ContextMode,
+    McpToolSpec,
     ToolProbeResult,
 )
 from contexts.agents.infrastructure.repositories import (
@@ -171,7 +173,33 @@ def _validate_function_config(config: dict[str, Any]) -> None:
                 raise ValueError(f"function config.http.headers must not include {k}")
 
 
-def _validate_mcp_config(config: dict[str, Any], *, allow_empty_allowlist: bool = False) -> None:
+# Name-legality caps for a raw MCP allowed_tools entry (Fix Design §7 piece 3,
+# 2026-07-22-mcp-tool-contract defect B). Deliberately looser than the 64-char
+# provider function-name limit: `.` and `:` are legal MCP and common in the
+# wild (Q-3), and an upstream name over the composed-prefix budget is still
+# bindable -- composition-time sanitisation (builtin_tools.py) truncates and
+# appends a digest. This is a sanity/DoS bound plus a reject on characters no
+# legitimate MCP tool name uses, not the provider-fit check.
+_MCP_TOOL_NAME_MAX = 500
+_MCP_TOOL_NAME_CONTROL_OR_WS_RE = re.compile(r"[\x00-\x20\x7f]")  # C0 controls, space, DEL
+
+
+def _validate_mcp_tool_name(name: str) -> None:
+    if len(name) > _MCP_TOOL_NAME_MAX:
+        raise ValueError(f"hosted_mcp config.allowed_tools entry {name!r} exceeds {_MCP_TOOL_NAME_MAX} chars")
+    if _MCP_TOOL_NAME_CONTROL_OR_WS_RE.search(name):
+        raise ValueError(
+            f"hosted_mcp config.allowed_tools entry {name!r} must not contain control "
+            "characters or whitespace"
+        )
+
+
+def _validate_mcp_config(
+    config: dict[str, Any],
+    *,
+    allow_empty_allowlist: bool = False,
+    preexisting_allowed_tools: frozenset[str] = frozenset(),
+) -> None:
     src = config.get("source")
     if src not in ("url", "package"):
         raise ValueError("hosted_mcp config.source must be 'url' or 'package'")
@@ -191,6 +219,97 @@ def _validate_mcp_config(config: dict[str, Any], *, allow_empty_allowlist: bool 
         raise ValueError("hosted_mcp config.allowed_tools must have at most 200 entries")
     if not all(isinstance(name, str) and name for name in allowed):
         raise ValueError("hosted_mcp config.allowed_tools entries must be non-empty strings")
+    # Name-legality: only newly-added entries (Q-5 grandfathering) -- a stricter
+    # validator must never 422 an operator editing an unrelated field on a
+    # legacy row whose stored allowed_tools already contains an illegal entry
+    # (the exact allow_empty_allowlist regression class, :188-189 above).
+    for name in allowed:
+        if name in preexisting_allowed_tools:
+            continue
+        _validate_mcp_tool_name(name)
+
+
+# Captured MCP tool contract caps (2026-07-22-mcp-tool-contract). The per-schema
+# size/property/$ref caps mirror _validate_function_config's local_function caps
+# verbatim (agent_service.py:109-121) -- reuse rather than a second policy to drift
+# from. The total-count/total-bytes caps are new: a captured contract comes from a
+# third-party server's tools/list response, which for a legacy grandfathered row
+# (empty allowlist -> capture everything) is otherwise unbounded.
+_MCP_CAPTURE_MAX_TOOLS = 200
+_MCP_CAPTURE_MAX_TOTAL_BYTES = 200_000
+_MCP_CAPTURE_SCHEMA_MAX_BYTES = 10_000
+_MCP_CAPTURE_MAX_PROPERTIES = 50
+_MCP_CAPTURE_DESCRIPTION_MAX = 1000
+
+
+def _validate_captured_schema(schema: dict[str, Any]) -> None:
+    """Reject a captured ``inputSchema`` that violates the caps.
+
+    Reuses ``_has_ref_key`` and the 10 KB / 50-property caps
+    ``_validate_function_config`` already enforces for ``local_function``
+    (:109-121) verbatim, rather than a second policy that could drift from it.
+    """
+    import json as _json
+
+    size = len(_json.dumps(schema, separators=(",", ":")))
+    if size > _MCP_CAPTURE_SCHEMA_MAX_BYTES:
+        raise ValueError("captured tool inputSchema JSON too large (max 10 KB)")
+    props = schema.get("properties")
+    if isinstance(props, dict) and len(props) > _MCP_CAPTURE_MAX_PROPERTIES:
+        raise ValueError("captured tool inputSchema has too many properties (max 50)")
+    if _has_ref_key(schema):
+        raise ValueError("captured tool inputSchema must not use $ref")
+
+
+def _sanitize_captured_description(desc: str) -> str:
+    """Bound length and strip control characters (the description is untrusted
+    third-party text placed in a prompt-adjacent field -- a prompt-injection
+    vector, not just a display string)."""
+    cleaned = "".join(ch for ch in desc if ch in ("\n", "\t") or (ch >= " " and ch != "\x7f"))
+    return cleaned[:_MCP_CAPTURE_DESCRIPTION_MAX]
+
+
+def _sanitize_captured_tools(tools: Sequence[McpToolSpec]) -> tuple[tuple[McpToolSpec, ...], list[str]]:
+    """Bound + validate a probe's captured tool contract before persisting.
+
+    A schema that fails :func:`_validate_captured_schema` degrades that single
+    tool to the permissive fallback rather than failing the whole capture --
+    consistent with this fix's core principle that one bad entry must never
+    brick everything (that was defect B). Total count/bytes are capped by
+    truncation, not rejection, for the same reason. Returns (specs, warnings)
+    for the caller to persist and surface via config_warnings respectively.
+    """
+    import json as _json
+
+    warnings: list[str] = []
+    truncated = list(tools[:_MCP_CAPTURE_MAX_TOOLS])
+    if len(tools) > _MCP_CAPTURE_MAX_TOOLS:
+        warnings.append(
+            f"server reported {len(tools)} tools; only the first {_MCP_CAPTURE_MAX_TOOLS} were captured"
+        )
+
+    specs: list[McpToolSpec] = []
+    total_size = 0
+    for spec in truncated:
+        description = _sanitize_captured_description(spec.description)
+        schema = spec.input_schema if isinstance(spec.input_schema, dict) else {}
+        size = len(_json.dumps(schema, separators=(",", ":")))
+        try:
+            _validate_captured_schema(schema)
+        except ValueError:
+            warnings.append(f"captured schema for tool {spec.name!r} exceeded limits; using fallback schema")
+            schema = {"type": "object", "additionalProperties": True}
+            size = 0
+        if total_size + size > _MCP_CAPTURE_MAX_TOTAL_BYTES:
+            warnings.append(
+                f"captured tool contract exceeded the total {_MCP_CAPTURE_MAX_TOTAL_BYTES}-byte cap; "
+                f"tool {spec.name!r} and later entries fell back to the permissive schema"
+            )
+            schema = {"type": "object", "additionalProperties": True}
+        else:
+            total_size += size
+        specs.append(McpToolSpec(name=spec.name, description=description, input_schema=schema))
+    return tuple(specs), warnings
 
 
 # Sentinel for system-initiated wakeup patches (§22.6). Never maps to a real
@@ -831,6 +950,9 @@ class AgentService:
                 _validate_mcp_config(
                     merged,
                     allow_empty_allowlist=not existing.config.get("allowed_tools"),
+                    preexisting_allowed_tools=frozenset(
+                        str(n) for n in existing.config.get("allowed_tools") or []
+                    ),
                 )
             # Preserve the stored credential unless the caller replaces or clears it.
             if sealed_auth is not None and not clear_auth:
@@ -932,11 +1054,18 @@ class AgentService:
 
         Houses the egress + auth-resolution + probe orchestration (kept out of the
         route, which only knows facades) and audits the test action either way.
+        For hosted_mcp this is also a re-capture (Fix Design §7 piece 2): a
+        successful probe overwrites the server-written tool contract so "Test"
+        is the explicit refresh path Q-1 chose over an implicit turn-time fetch.
         """
         if tool.tool_type == AgentToolType.LOCAL_FUNCTION:
             result = await self._probe_function(agent, tool)
         elif tool.tool_type == AgentToolType.HOSTED_MCP:
             result = await self._probe_mcp(agent, tool, runner)
+            if result.ok:
+                captured, warnings = _sanitize_captured_tools(result.tools)
+                await self._tools.capture_mcp_tools(agent_id=agent.id, tool_id=tool.id, tools=captured)
+                result = replace(result, warnings=tuple(warnings))
         else:
             raise ToolNotAvailable("only hosted_mcp and local_function tools can be tested")
 
