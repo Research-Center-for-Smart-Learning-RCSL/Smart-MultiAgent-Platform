@@ -26,6 +26,7 @@ from contexts.workflow.infrastructure.tables import (
     workflow_steps,
     workflows,
 )
+from shared_kernel.db.cas import cas_update
 
 # ---------------------------------------------------------------------------
 # Row → domain helpers
@@ -317,17 +318,15 @@ class WorkflowRunRepository:
             values["ended_at"] = ended_at
         if variables is not None:
             values["variables"] = variables
-        result = await self._db.execute(
-            workflow_runs.update()
-            .where(
-                sa.and_(
-                    workflow_runs.c.id == run_id,
-                    workflow_runs.c.state.in_(allowed_from),
-                ),
-            )
-            .values(**values),
+        return await cas_update(
+            self._db,
+            workflow_runs,
+            id_column=workflow_runs.c.id,
+            row_id=run_id,
+            state_column=workflow_runs.c.state,
+            allowed_from=allowed_from,
+            values=values,
         )
-        return result.rowcount > 0
 
     async def update_variables(
         self,
