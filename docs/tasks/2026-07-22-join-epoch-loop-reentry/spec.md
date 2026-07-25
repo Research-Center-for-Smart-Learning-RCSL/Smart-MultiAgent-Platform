@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-22
 requirements: [R14.01, R14.02]
 depends_on: []
@@ -432,35 +432,37 @@ script goes back to reading only the old (pre-track) key names, ignoring whateve
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: every T-1 test listed as failing in §8 fails against current code and passes
+- [x] AC-1: every T-1 test listed as failing in §8 fails against current code and passes
       after the fix; `test_pure_fan_in_unchanged` passes both before and after.
-- [ ] AC-2: `test_any_join_fires_on_every_loop_pass` (T-2) fails before and passes after,
+- [x] AC-2: `test_any_join_fires_on_every_loop_pass` (T-2) fails before and passes after,
       per the Q-5 decision to add a Redis-backed integration fixture.
-- [ ] AC-3: `test_any_fan_in_fires_once_and_drains` and
+- [x] AC-3: `test_any_fan_in_fires_once_and_drains` and
       `test_retried_branch_does_not_inflate_arrivals` (T-2) pass both before and after — the
       OBS-5 one-shot guarantee and the ASYNC-9 dedupe are not regressed.
-- [ ] AC-4: the four existing cases at `tests/unit/test_workflow_executors.py:383-412` pass
+- [x] AC-4: the four existing cases at `tests/unit/test_workflow_executors.py:383-412` pass
       unmodified.
-- [ ] AC-5: an `all`-mode join with one fan-in edge and one back-edge fires on its fan-in
+- [x] AC-5: an `all`-mode join with one fan-in edge and one back-edge fires on its fan-in
       arrival (S-1), asserted by `test_all_mode_fan_track_fire_threshold_matches_fan_total`.
-- [ ] AC-6: a multi-branch fan-in with a back-edge does not let a fan-in straggler re-fire
+- [x] AC-6: a multi-branch fan-in with a back-edge does not let a fan-in straggler re-fire
       an `any` join after a fast loop pass has already looped back, asserted by
       `test_straggler_fan_in_suppressed_after_early_loop_pass` (T-2). This closes Q-6 as a
       fixed defect rather than deferring it as a follow-up.
-- [ ] AC-7: a join fed by more than one back-edge fires on the first back-edge to arrive
+- [x] AC-7: a join fed by more than one back-edge fires on the first back-edge to arrive
       each pass and treats additional same-pass back-edges as duplicates, asserted by
       `test_multiple_back_edges_pass_total_counts_only_back_edges` (T-1) and
       `test_multi_back_edge_any_fires_and_drains` (T-2), per Q-8.
-- [ ] AC-8: the §4 reproduction runs at least three loop passes and terminates through its
+- [x] AC-8: the §4 reproduction runs at least three loop passes and terminates through its
       own `end` node, with no `idle_max_seconds` force-fail
-      (`workflow_watchdog.py:71-75`) and no reliance on `_JOIN_TTL_SECONDS` expiry.
-- [ ] AC-9: the module docstring (`join.py:8-12`) and the script header (`:33-40`) describe
+      (`workflow_watchdog.py:71-75`) and no reliance on `_JOIN_TTL_SECONDS` expiry. Verified
+      via the equivalent executor/Lua-level evidence recorded in D-2, not a live end-to-end
+      trigger.
+- [x] AC-9: the module docstring (`join.py:8-12`) and the script header (`:33-40`) describe
       the implemented rule, including that drain accounting counts fan-in edges only for the
       `fan` track and back-edges only for the `pass` track, and that the two tracks never
       share a counter.
-- [ ] AC-10: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
+- [x] AC-10: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
       `backend/`.
-- [ ] AC-11: no change to `docs/workflow.schema.md`, `linter.py`, `run_engine.py`, or any
+- [x] AC-11: no change to `docs/workflow.schema.md`, `linter.py`, `run_engine.py`, or any
       migration — the fix is confined to `executors/join.py` plus tests. A diff touching
       anything else means the design in §7 was not followed.
 
@@ -473,7 +475,22 @@ and back-edges respectively and never share a counter (AC-9).
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — Redis fixture kept local to the test file, not promoted to `conftest.py`.**
+  Q-5 called for adding a Redis-backed integration fixture; `join_redis` in
+  `backend/tests/integration/test_workflow_join_epoch.py` is defined in that file rather
+  than in `tests/integration/conftest.py`, since it is the only consumer today. Trivial
+  to promote if a second Redis-backed integration test appears; avoids adding
+  speculative shared-fixture surface for a hypothetical second caller.
+- **D-2 — AC-8 verified via executor/Lua-level evidence, not a live end-to-end trigger.**
+  The full §4 reproduction (trigger a real workflow through the API, observe it run
+  against postgres+vault+neo4j+worker+backend-web) was not performed. Confirmed with the
+  user 2026-07-25: `test_any_join_fires_on_every_loop_pass` (T-2) already demonstrates the
+  exact fixed mechanism — three consecutive fires with no stall, against the same
+  `_JOIN_ARRIVE_LUA` script the engine calls — and `run_engine.py` is provably unmodified
+  (AC-11), with its join-advancement wiring pinned by the four unchanged executor unit
+  tests. Standing up the full stack for one behavioral confirmation was judged
+  disproportionate given T-3's own note that engine-level coverage is unnecessary for a
+  defect entirely inside the executor.
 
 ## 13. Follow-ups
 

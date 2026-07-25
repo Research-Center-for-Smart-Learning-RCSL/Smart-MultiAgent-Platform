@@ -108,10 +108,6 @@ Nothing blocked.
 
 ## In progress
 
-- `2026-07-22-join-epoch-loop-reentry` (bugfix) — `depends_on: []`. a2a F-11: an `any`/`count`
-  join reached by a loop back-edge fires once and stalls, because the one-shot latch is claimed at
-  `fire_threshold` arrivals and released only at `total_branches`. Folds in an ALL-mode deadlock the
-  audit did not name. **Recommended to land before** `wait-for-event-timer-and-join-ports`.
 - `2026-07-22-activity-session-authz-and-validation` (bugfix) — `depends_on: []`. a2u F-12,
   F-20 plus verification-gap V-7: activity-session AuthZ + watchdog notification + optional
   enum-array assembly.
