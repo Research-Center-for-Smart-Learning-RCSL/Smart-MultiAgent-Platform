@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-22
 requirements: []
 depends_on: []
@@ -326,24 +326,26 @@ reversible.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: `test_rejects_illegal_charset_entry` (§8) fails against current code and passes
-      after the fix.
-- [ ] AC-2: every advertised MCP tool name matches `^[a-zA-Z0-9_-]{1,64}$`, whatever the stored
+- [x] AC-1: `test_rejects_illegal_charset_entry` (§8) fails against current code and passes
+      after the fix. (Value changed from the spec's `"filesystem.read_file"` to a real
+      control-character example — see D-2.)
+- [x] AC-2: every advertised MCP tool name matches `^[a-zA-Z0-9_-]{1,64}$`, whatever the stored
       `allowed_tools` contains — including legacy rows that predate validation.
-- [ ] AC-3: sanitised names are unique within a turn's registry; no tool is silently dropped.
-- [ ] AC-4: invoking a sanitised-name tool sends the **unsanitised** upstream name to the MCP
+- [x] AC-3: sanitised names are unique within a turn's registry; no tool is silently dropped.
+- [x] AC-4: invoking a sanitised-name tool sends the **unsanitised** upstream name to the MCP
       server.
-- [ ] AC-5: a bound MCP tool is advertised with the parameter schema and description its server
+- [x] AC-5: a bound MCP tool is advertised with the parameter schema and description its server
       declared; absent a capture it falls back to today's permissive schema without error.
-- [ ] AC-6: a captured schema exceeding the size, property or `$ref` limits is rejected before
+- [x] AC-6: a captured schema exceeding the size, property or `$ref` limits is rejected before
       persisting, and a captured description is length-bounded.
-- [ ] AC-7: adding an illegal entry to an existing binding is rejected; editing an unrelated
+- [x] AC-7: adding an illegal entry to an existing binding is rejected; editing an unrelated
       field on a binding whose stored entries are already illegal is **not**.
-- [ ] AC-8: a tool absent from a re-probe is surfaced as a warning, not dropped.
-- [ ] AC-9: the probe parses both the new object form and the legacy bare-string form.
-- [ ] AC-10: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`;
+- [x] AC-8: a tool absent from a re-probe is surfaced as a warning, not dropped.
+- [x] AC-9: the probe parses both the new object form and the legacy bare-string form.
+- [x] AC-10: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`;
       `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm run check:openapi-drift` pass in
-      `frontend/`.
+      `frontend/`. (`check:openapi-drift`'s bash wrapper could not resolve `python` in this
+      environment's shell; verified by running its two steps manually instead — see D-5.)
 
 ## 11. SRS Delta
 
@@ -352,7 +354,55 @@ None. No `[Rxx.yy]` governs the MCP binding contract; this brings it to parity w
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1** — Migration renumbered from the spec's **0062** to **0066**. 0062–0065 were taken by
+  other work (`workflow_run_participants`, `auth_identities`, `egress_allowlist_seed_backfill`,
+  `activity_agent_visibility`) that landed on `main` between spec approval (2026-07-22) and
+  implementation (2026-07-25). No design impact — the migration is pure DDL either way. Confirmed
+  via `git log`/directory listing before implementation started (build skill Step 2 freshness
+  check); BOARD.md's Ready-now row updated to match.
+- **D-2** — §8's `test_rejects_illegal_charset_entry` named `"filesystem.read_file"` as the
+  example that should raise at bind time. That directly contradicts Q-3's own decision (`.` and
+  `:` are legal MCP and must not be bind-time-rejected) and the sibling composition-time test
+  (`test_mcp_advertised_name_is_provider_legal`), which uses the near-identical `"fs.read_file"`
+  as an example that must **not** raise, only sanitise. Judged a copy-paste slip in §8 (it likely
+  reused reproduction-B's example string without re-checking it against Q-3, decided later in the
+  same document). Raised to the user before implementing M3; resolved in favour of Q-3 — bind-time
+  rejects control characters/whitespace/overlong names only, never `.`/`:`. The regression test
+  was rewritten to use an actual illegal-charset value (`"read\x00file"}`); AC-1 is satisfied by
+  the rewritten test, not the spec's literal string.
+- **D-3** — Fix Design §7 piece 3 called for "Generalise `_function_warnings` to `_tool_warnings`
+  with an MCP branch." `_tool_warnings` (`app/api/v1/agents.py`) was already generalised beyond
+  function-only — including an MCP egress-allowlist branch — by unrelated work that landed after
+  the spec was written (its docstring cites "R12.16"). No rename was needed; only the two new
+  MCP capture-staleness warnings (never-captured, absent-from-last-capture) were added to the
+  existing MCP branch.
+- **D-4** — After M1–M3 landed, a quality + security audit pass (9 parallel dimension-scoped
+  reviews) surfaced two HIGH-severity findings beyond the approved design and two related
+  quality warnings; fixed in a fourth milestone with the user's explicit agreement rather than
+  deferred, since both HIGH findings sit squarely in this task's own threat model (a hostile or
+  misconfigured MCP server):
+  - `docker_runsc._run_mcp_probe` read a probe container's entire stdout via `container.logs()`
+    with no byte cap, then `json.loads()`'d it outside the concurrency semaphore — unbounded
+    memory/CPU from a hostile server, un-throttled by the 8-concurrent-container limit. Fixed
+    with `_read_capped_logs` (5 MB, streamed) and by keeping status-check + JSON parsing inside
+    the semaphore.
+  - Captured `description` got control-character stripping, but strings embedded in the captured
+    `inputSchema` (property descriptions, `enum`, `pattern`, ...) did not, despite being equally
+    prompt-adjacent third-party text. Fixed with `_sanitize_schema_strings`, applied recursively
+    to schema values only (never keys).
+  - (Folded in, same pass) the 200 KB total-byte cap only counted schema bytes, not
+    name/description; a captured tool's `name` had no length bound at all. Both fixed in
+    `_sanitize_captured_tools`.
+  A DRY finding (the schema cap's "verbatim reuse" claim is actually copy-pasted constants) and
+  an SoC finding (`_tool_warnings`' new MCP branch deepens an existing domain-object-in-API-layer
+  leak) were judged lower-severity and deferred — see FU-5/FU-6.
+- **D-5** — `frontend/scripts/check-openapi-drift.sh` invokes `python -m scripts.export_openapi`
+  from a bash subshell in which `python` was not on `PATH` in this sandboxed environment (a
+  local-shell-alias gap, not a real drift signal). Verified the same two steps manually instead:
+  `python scripts/export_openapi.py` (backend) regenerated `openapi.json` with only the expected
+  diff (the M2 `warnings` field), and `pnpm run gen:api` (frontend) regenerated only
+  `AgentToolTestOut.ts` to match — `git status` showed no other drift. AC-10 is marked satisfied
+  on that basis.
 
 ## 13. Follow-ups
 
@@ -369,4 +419,24 @@ Appended by /build.
   that this exact surface has already shipped one retroactive-validation incident. Cited here as
   prior art; worth a short note in the module docstring so the next author finds it before
   repeating it.
+- **FU-5** — `_tool_warnings`' HOSTED_MCP branch (`app/api/v1/agents.py`) reads `AgentTool`
+  domain fields (`mcp_captured_at`, `mcp_captured_tools`) and iterates raw `McpToolSpec` objects
+  directly inside the API layer, deepening a pre-existing abstraction leak in that function
+  (`tool.config` was already touched there). Move the staleness computation into `AgentService`
+  (e.g. a `tool_warnings()` method) or onto `AgentTool` as a domain method.
+- **FU-6** — `_validate_captured_schema`'s size/property caps (`agent_service.py`) claim to reuse
+  `_validate_function_config`'s local_function caps "verbatim," but only `_has_ref_key` is
+  actually shared — the byte-size and property-count checks are independent copies of the same
+  literals (`10_000` / `50`) with nothing enforcing they stay equal. Extract a shared
+  `_validate_bounded_schema(schema, *, max_bytes, max_properties)` helper used by both.
+- **FU-7** — `invoke_mcp_tool` (`docker_runsc.py`, the tool-*call* path, not probe) has the same
+  uncapped `container.logs()` read that `_read_capped_logs` now fixes for the probe path (D-4).
+  Lower risk today — its output flows through `clip_tool_output` and is never persisted or
+  `json.loads`'d — but worth the same treatment for consistency and defense in depth.
+- **FU-8** — No recursion/nesting-depth cap exists anywhere in the captured-schema validation
+  pipeline, only a serialized-byte-size cap (`_MCP_CAPTURE_SCHEMA_MAX_BYTES`). A schema built
+  from many thin nesting levels could stay under the byte cap while still being deep enough to
+  stress `json.loads`'s recursive descent. Flagged MEDIUM/plausible by the security audit, not
+  confirmed exploitable in this environment; worth a depth-walking check before persisting if it
+  proves reachable.
 </content>

@@ -30,11 +30,6 @@ parallel.
   failure poisons the turn session and destroys an already-streamed reply, truncated tool-call
   JSON silently becomes empty arguments, and a failed final synthesis is persisted as the
   answer. Six sequenced commits; needs one empirical check before the design is fixed (§3 Q-2).
-- `2026-07-22-mcp-tool-contract` (bugfix, approved) — `depends_on: []`. From
-  `docs/audits/2026-07-22-agent-config-runtime/` F-12, F-14 (both major): MCP bindings store
-  opaque strings, so tools are advertised with no parameter schema and an unvalidated tool name
-  can brick every turn for an agent. One shared root cause; migration 0062 plus a driver change.
-  Ship driver-first.
 - `2026-07-22-prompt-assistant-delivery-recovery` (bugfix, draft) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-config-runtime/` F-13 (major): the prompt-assistant channel has
   no durable read side, so a lost frame loses a paid-for reply and can permanently disable the
