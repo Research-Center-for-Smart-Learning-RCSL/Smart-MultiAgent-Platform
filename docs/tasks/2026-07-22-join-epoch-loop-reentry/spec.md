@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-07-22
 requirements: [R14.01, R14.02]
 depends_on: []
@@ -60,9 +60,10 @@ run many passes. The intent source is the executor contract plus R14.01, not a p
 | Q-2 | Should `total_branches` keep counting back-edges? | No — drain accounting counts fan-in edges only. | `join.py:79-81` counts every incoming edge. A back-edge cannot arrive before the join fires, so including it makes the drain condition at `:56` unsatisfiable for `any`/`count` and makes `fire_threshold` unsatisfiable for `all` (`:90-91`) — see the confirmed ALL-mode sibling in §6. |
 | Q-3 | Is the `all`-mode deadlock in scope for this dossier? | Yes. | It is the same expression (`join.py:79-81`) and the same edit. Splitting it would leave the fix touching one arm of a two-arm bug and force a second pass over the same file. |
 | Q-4 | Does the fix need a schema or linter change? | No. | Back-edge classification is derived from the definition at execution time. Rule 14 (`linter.py:563-626`) already accepts a two-edge join, and `docs/workflow.schema.md:144` requires exactly that. Nothing an author writes changes. |
-| Q-5 | **OPEN — needs user.** The bug lives in Lua (`join.py:41-63`), which no current test tier executes: `TestJoinExecutor` mocks `redis.eval` (`tests/unit/test_workflow_executors.py:377-378`), `tests/integration/conftest.py` exposes no Redis fixture, and `fakeredis` is not a dependency (same constraint recorded at `docs/tasks/2026-07-22-turn-idempotency-and-locking/spec.md`). Add a Redis-backed integration fixture, or accept unit coverage of the Python-side arguments only? | Proposed: do both — unit tests on the computed `eval` arguments (no Redis, fails today) plus one new integration test that runs the real script. | The argument computation carries the topology fix and is unit-testable today; the Lua carries the epoch fix and is not. Covering only the arguments would let a Lua regression through. Needs a decision because it adds an integration fixture the tier does not currently have. |
-| Q-6 | **OPEN — needs user.** Residual case: a back-edge that arrives *before* the fan-in has drained (a loop faster than a straggler branch) closes the epoch early; the straggler then lands in the new epoch and can re-fire an `any` join. Accept as a documented limitation, or extend the design to seal per-epoch straggler sets? | Proposed: accept and document; file as a follow-up. | It requires a topology with both a multi-branch fan-in *and* a back-edge into the same join, plus a loop body faster than the slowest sibling branch. Sealing straggler sets roughly doubles the script's state. Recording the limit is honest; silently shipping it is not. |
+| Q-5 | The bug lives in Lua (`join.py:41-63`), which no current test tier executes: `TestJoinExecutor` mocks `redis.eval` (`tests/unit/test_workflow_executors.py:377-378`), `tests/integration/conftest.py` exposes no Redis fixture, and `fakeredis` is not a dependency (same constraint recorded at `docs/tasks/2026-07-22-turn-idempotency-and-locking/spec.md`). Add a Redis-backed integration fixture, or accept unit coverage of the Python-side arguments only? | Both — unit tests on the computed `eval` arguments (no Redis, fails today) plus new integration tests that run the real script against a Redis fixture. | The argument computation carries the topology fix and is unit-testable today; the Lua carries the epoch fix and is not. Covering only the arguments would let a Lua regression through. Confirmed with the user 2026-07-25. |
+| Q-6 | Residual case: a back-edge that arrives *before* the fan-in has drained (a loop faster than a straggler branch) closes the epoch early; the straggler then lands in the new epoch and can re-fire an `any` join. Accept as a documented limitation, or extend the design to seal per-epoch straggler sets? | Extend the design now: split arrival tracking into two independent Redis tracks, `fan` (fan-in edges, existing mode-derived threshold) and `pass` (back-edges, fixed `fire_threshold=1`), each with its own epoch counter (revised §7 C-2). A back-edge arrival never touches the fan track's keys, so a fan-in straggler is evaluated against the same still-open fan epoch it always would have been, no matter how many loop passes ran on the pass track meanwhile. | Confirmed with the user 2026-07-25. Sealing did not need *more* state than the drafted design — it needed the fan-in and loop-pass dimensions to stop sharing one counter. That also makes the originally-drafted drain-on-reentry step (which caused this very race by forcing the back-edge's arrival into the fan track) unnecessary; the corrected Lua body is a smaller diff than the draft, not a larger one. |
 | Q-7 | Relationship to F-36's dossier — `depends_on` or coordination note? | Coordination note, `depends_on: []`. | See the end of §6 for the line ranges. No semantic dependency exists in either direction; the risk is a textual conflict in two `StepOutcome` returns and a semantic coupling in what "the current fan-in is still open" means. |
+| Q-8 | Should a join fed by more than one back-edge (multiple loop bodies converging on the same join) require *all* of them to arrive before restarting a pass (rendezvous), or does any one restart it? | Any back-edge fires; the pass track's one-shot latch suppresses the rest for that pass — the same `any` semantics already used for fan-in-mode `ANY`, just applied to the pass dimension. | Confirmed with the user 2026-07-25. The join's `mode` config governs fan-in aggregation, not loop continuation. A rendezvous requirement would need new config surface and would stall the loop indefinitely if one loop body never completed a given pass; nothing in R14.01/R14.02 asks for that, and no topology in this dossier's scope needs it. |
 
 ## 4. Reproduction
 
@@ -227,32 +228,84 @@ Split the incoming edges of the join into fan-in edges and back-edges: an incomi
 back-edge when its `from` node is reachable from `node.id` by following `edges` forward. A
 plain forward reachability walk over `ctx.workflow_def["edges"]` decides this; the linter
 already performs an equivalent bounded graph walk with a `visited` set at
-`linter.py:602-604`, so the technique is established in this codebase. Then:
+`linter.py:602-604`, so the technique is established in this codebase. This is unchanged
+from the earlier draft; what changes is what the classification feeds into (C-2 below).
 
-- `total_branches = max(len(fan_in_edges), 1)` — the drain condition at `join.py:56` becomes
-  reachable in one pass, and `all` mode's `fire_threshold` (`:90-91`) becomes satisfiable.
-  This is the single change that fixes both the primary defect and S-1.
-- Pass a per-arrival `is_reentry` flag (whether `ctx.arrived_via` is a back-edge) as a new
-  script argument at `join.py:100-109`.
+- `total_fan_branches = max(len(fan_in_edges), 1)` — the fan-in drain condition becomes
+  reachable in one pass, and `all` mode's `fire_threshold` becomes satisfiable. This is the
+  single change that fixes S-1.
+- `total_back_edges = max(len(back_edges), 1)` — new; used only by the pass track below, and
+  only ever consulted on an arrival where `ctx.arrived_via` classifies as a back-edge.
 
-**C-2 — close the epoch on re-entry (`join.py:41-63`).**
-Before registering the arrival, if `is_reentry` is set, drain the current epoch: `DEL` the
-set and the `fired` key, `INCR` the epoch, and recompute `set_key` / `fired_key` from the
-new epoch. The arrival is then registered in the fresh epoch and evaluated against a latch
-that belongs to it. The existing threshold and drain logic at `:51-61` is unchanged in
-structure.
+**C-2 — split arrival tracking into two independent tracks, `fan` and `pass`
+(`join.py:41-63`, `:100-109`).**
 
-Under C-1 and C-2:
+The earlier draft of C-2 closed the *shared* epoch whenever a back-edge arrived (`DEL` the
+set and `fired` key, `INCR` the epoch, re-register the back-edge's own arrival in the fresh
+epoch). Working through Q-6 showed why that races: it forces the back-edge's own arrival
+into the *same* counter used for fan-in aggregation, so closing that epoch early discards
+whatever fan-in state was still in flight — a straggler fan-in branch then lands in the
+wrong epoch and can re-fire the join. The fix is not to add more state on top of that
+design; it is to stop conflating two arrival populations that were never the same
+dimension: "how many fan-in branches have shown up this wave" and "has the loop looped
+back yet" are independent questions, and the original bug (root cause link 1) was already
+exactly this conflation — the draft's C-2 reintroduced a narrower version of the same
+mistake it was fixing.
 
-- `any` loop (entry + back-edge): pass 1 has `total_branches = 1`, so the entry arrival both
-  fires and drains. The back-edge arrival opens epoch 1 and fires. The loop runs.
-- `any` fan-in of three, no loop: `total_branches = 3`, `fire_threshold = 1`. Branch 1 fires
-  and claims the latch; branches 2 and 3 are suppressed by the latch exactly as today; the
-  third arrival drains. The one-shot guarantee that OBS-5 (`join.py:8-12`) was written for is
-  preserved.
-- `count(2 of 4)`: fires at 2, drains at 4. Unchanged.
-- `all` loop: `total_branches = 1` (fan-in only), so it fires on the entry arrival instead of
-  deadlocking (S-1).
+Instead, keep the Lua script's existing one-shot-latch-and-drain body (`join.py:41-63`)
+completely unchanged in structure, and parameterize its key names by a `track` argument
+(`"fan"` or `"pass"`) so the two populations never share a counter:
+
+- Key shape becomes `wf:join:{run_id}:{node_id}:{track}:epoch` for the epoch counter,
+  `wf:join:{run_id}:{node_id}:{track}:{epoch}` for the arrival SET, and
+  `...:{track}:{epoch}:fired` for the one-shot latch — each `track` gets its own
+  independent epoch, SET, and latch. The Lua diff is one new ARGV segment (the track
+  name) concatenated into the two key-building lines; no new conditional logic inside
+  the script.
+- Python decides, per arrival, which track and which `(fire_threshold, total_branches)`
+  pair to pass, in place of the single computation at `join.py:83-91`:
+  - Arrived via a fan-in edge: `track = "fan"`, `total_branches = total_fan_branches`,
+    `fire_threshold` from the join's configured mode exactly as today (`any` → `1`,
+    `count` → `required_count`, `all` → `total_fan_branches`).
+  - Arrived via a back-edge: `track = "pass"`, `total_branches = total_back_edges`,
+    `fire_threshold = 1` fixed — confirmed by Q-8: the first back-edge to arrive in a pass
+    restarts the loop, and the pass track's own latch suppresses any others in the same
+    pass, mirroring `any` fan-in semantics rather than the join's configured `mode` (mode
+    governs fan-in aggregation, not loop continuation).
+- `branch_id` (ASYNC-9's idempotent dedup by incoming-edge id) is unchanged and applies to
+  whichever track's SET the arrival lands in, so a retried fan-in step and a retried
+  back-edge step are each deduped within their own track.
+- The `is_reentry` flag from the earlier draft is no longer needed as a Lua argument — the
+  `track` string is the only new argument, and Python already knows which track applies
+  before calling `eval`.
+
+Under C-1 and the revised C-2:
+
+- `any` loop (single entry + single back-edge): `total_fan_branches = 1`, so the entry
+  arrival fires and drains the fan track (epoch 0 → 1). The back-edge arrival fires and
+  drains the pass track independently (its own epoch 0 → 1). The loop runs; each pass drains
+  its own pass epoch.
+- `any` fan-in of three, no loop: only the `fan` track is ever touched (no back-edges to
+  classify). Branch 1 fires and claims the fan latch; branches 2 and 3 are suppressed by the
+  same latch exactly as today; the third arrival drains. The OBS-5 one-shot guarantee
+  (`join.py:8-12`) is preserved, and the key shape for a plain acyclic join is a strict
+  superset of today's (adds the `fan` segment) with identical arrival semantics.
+- `count(2 of 4)`, no loop: unaffected, `fan` track only.
+- `all` loop: `total_fan_branches = 1`, so it fires on the entry arrival instead of
+  deadlocking (S-1); the pass track handles every subsequent loop pass independently.
+- **Q-6's straggler race, closed:** two fan-in edges (A, B) plus one back-edge, mode `any`.
+  A arrives (`fan` epoch 0): fires, does not drain (`1 < total_fan_branches=2`). The loop
+  runs and loops back before B arrives: the back-edge arrival is on the `pass` track — it
+  never touches the `fan` track's keys. B finally arrives: it lands in the *same*
+  still-open `fan` epoch 0 as A, `SET NX` on `fan:0:fired` fails (already claimed by A), so
+  `is_finalizer = 0` — B is correctly suppressed regardless of how many loop passes ran on
+  the `pass` track in between — and the fan-in drains normally once B's arrival brings the
+  count to `total_fan_branches`.
+- **Q-8's multi-back-edge case:** two back-edges (loopA, loopB) into the same join,
+  `total_back_edges = 2`. loopA arrives first: `pass` arrivals `1 >= fire_threshold(1)` →
+  fires, does not yet drain (`1 < 2`). loopB arrives in the same pass: arrivals `2 >= 1` but
+  `pass:0:fired` is already claimed → suppressed (`is_finalizer = 0`); drain condition
+  `2 >= total_back_edges(2)` is now met, so the pass epoch advances for the next pass.
 
 **Why this corrects rather than masks.** The symptom could be suppressed by shortening
 `_JOIN_TTL_SECONDS` (`join.py:67`), by clearing the latch whenever `is_finalizer` is false,
@@ -261,8 +314,11 @@ TTL makes a slow legitimate fan-in re-fire; clearing the latch on a non-finalize
 destroys the one-shot guarantee for every `any` fan-in; dropping `skip_edges` makes every
 straggler branch advance the workflow. All three preserve the root cause — an executor with
 no notion of a loop pass — and merely move which topology breaks. C-1 gives the executor
-that notion, derived from the definition it already holds, and C-2 spends it. After the fix
-the invariant the module docstring claims at `join.py:10-12` is actually true.
+that notion, derived from the definition it already holds, and the revised C-2 spends it by
+giving the fan-in wave and the loop pass their own independent counters instead of
+overloading one counter for both. After the fix the invariant the module docstring claims
+at `join.py:10-12` is actually true, including across the straggler interleaving Q-6
+identified.
 
 **Data repair.** None required, and none possible. All affected state is Redis with a TTL
 (`join.py:48,52,60`, bounded by `_JOIN_TTL_SECONDS` at `:67`), so stale latches from before
@@ -284,44 +340,73 @@ sources with no outgoing edges (`:370`), so no existing test exercises a cycle, 
 `mock_redis.eval` is stubbed at `:377-378`, so **no existing test can fail on this bug** —
 they assert only the Python branch on `lua_result`.
 
-- `test_loop_back_edge_excluded_from_total_branches`: definition
-  `join1 -> body`, `body -> join1`, `entry -> join1`, mode `any`, arriving via the entry
-  edge. Assert the `total_branches` argument passed to `eval` is `"1"`.
-  **Fails today**: `join.py:79-81` counts both incoming edges and passes `"2"`.
-- `test_all_mode_in_loop_fires_on_fan_in_only`: same definition, mode `all`. Assert the
-  `fire_threshold` argument is `"1"`. **Fails today**: `:90-91` derives it from the
-  all-edges count and passes `"2"` — the S-1 deadlock.
-- `test_reentry_flag_set_for_back_edge` / `..._clear_for_fan_in_edge`: same definition,
-  arriving via the back-edge and via the entry edge respectively. Assert the re-entry
-  argument is `"1"` and `"0"`. **Fails today**: `eval` is called with exactly six arguments
-  (`join.py:100-109`) and no such argument exists, so the lookup raises `IndexError`.
-- `test_pure_fan_in_unchanged`: the existing three-source shape at `:370`. Assert
-  `total_branches == "3"` and the re-entry argument is `"0"`. **Passes after the fix** —
-  this is the guard that C-1 does not disturb acyclic joins, and it must be written
-  alongside the failing ones.
+- `test_fan_in_edge_uses_fan_track_with_fan_only_total`: definition `join1 -> body`,
+  `body -> join1`, `entry -> join1`, mode `any`, arriving via the entry edge. Assert the
+  `track` argument is `"fan"` and `total_branches` is `"1"`. **Fails today**: `join.py:79-81`
+  counts both incoming edges and passes `"2"`, and no `track` argument exists at all.
+- `test_all_mode_fan_track_fire_threshold_matches_fan_total`: same definition, mode `all`.
+  Assert `track == "fan"` and `fire_threshold == "1"`. **Fails today**: `:90-91` derives the
+  threshold from the all-edges count and passes `"2"` — the S-1 deadlock.
+- `test_back_edge_uses_pass_track_with_fixed_threshold_one`: same definition, arriving via
+  the back-edge. Assert `track == "pass"`, `fire_threshold == "1"`, `total_branches == "1"`.
+  **Fails today**: `eval` is called with exactly six positional arguments (`join.py:100-109`)
+  and no `track` concept exists — the back-edge is computed identically to a fan-in arrival.
+- `test_multiple_back_edges_pass_total_counts_only_back_edges`: definition with two
+  back-edges (`loopA -> join1`, `loopB -> join1`) plus one entry edge, mode `any`, arriving
+  via `loopA`. Assert `track == "pass"`, `total_branches == "2"`, `fire_threshold == "1"`
+  (Q-8 — fixed at 1 regardless of how many back-edges exist). **Fails today**: same
+  IndexError/no-track failure as the previous case, and even a naive fix that reused the
+  join's configured `mode` for back-edges would fail this — the pass track's threshold is
+  fixed, not mode-derived.
+- `test_pure_fan_in_unchanged`: the existing three-source acyclic shape at `:370` (no
+  back-edges present). Assert `track == "fan"`, `total_branches == "3"`, and
+  `fire_threshold` per mode exactly as today. **Passes after the fix** — the guard that C-1
+  and the revised C-2 do not disturb a join with no back-edges, written alongside the
+  failing cases.
 
 The four existing cases at `:383-412` must continue to pass unmodified; they pin the
 `is_finalizer` → `skip_edges` / `port` mapping at `join.py:125-140`, which this fix does not
 change.
 
 **T-2 (integration, real Redis) — new
-`backend/tests/integration/test_workflow_join_epoch.py`, marked `integration`.** Pending Q-5:
+`backend/tests/integration/test_workflow_join_epoch.py`, marked `integration`.** Per Q-5:
 this tier has no Redis fixture today (`tests/integration/conftest.py` contains no Redis
-setup; `fakeredis` is not a dependency), so this test requires adding one. It runs
-`_JOIN_ARRIVE_LUA` (`join.py:41-63`) directly against Redis:
+setup; `fakeredis` is not a dependency), so this task adds one. Tests run
+`_JOIN_ARRIVE_LUA` (`join.py:41-63`) directly against Redis, passing `track` explicitly:
 
-- `test_any_join_fires_on_every_loop_pass`: arrive on the entry edge
-  (`is_reentry=0`, `total=1`), assert `is_finalizer == 1`; arrive on the back-edge
-  (`is_reentry=1`), assert `is_finalizer == 1` again and that the epoch key incremented.
-  **Fails today**: the second call returns `is_finalizer = 0` because the epoch-0 `fired`
-  key is still live (`join.py:52`), which is the defect verbatim.
-- `test_any_fan_in_fires_once_and_drains`: three arrivals on three distinct edges with
-  `total=3`, `threshold=1`, `is_reentry=0`. Assert `is_finalizer` is `1, 0, 0`, and that
-  after the third the set and `fired` keys are gone and the epoch is `1`.
-  **Passes today and must keep passing** — the anti-regression guard on OBS-5.
-- `test_retried_branch_does_not_inflate_arrivals`: the same edge id twice. Assert
-  `arrivals` stays at 1. Guards the ASYNC-9 idempotence property (`join.py:47`, `:93-97`)
-  against the C-2 rewrite.
+- `test_any_join_fires_on_every_loop_pass`: arrive on the entry edge (`track="fan"`,
+  `total="1"`), assert `is_finalizer == 1`; arrive on the back-edge (`track="pass"`,
+  `total="1"`), assert `is_finalizer == 1` again and that the `pass` epoch key incremented
+  while the `fan` epoch key is untouched. Repeat the back-edge arrival for a third pass and
+  assert it fires again. **Fails today**: there is no `track` dimension at all, and the
+  second call returns `is_finalizer = 0` because the single shared epoch-0 `fired` key is
+  still live — the defect verbatim.
+- `test_any_fan_in_fires_once_and_drains`: three arrivals on three distinct fan-in edges
+  (`track="fan"`, `total="3"`, `threshold="1"`). Assert `is_finalizer` is `1, 0, 0`, and that
+  after the third the `fan` set and `fired` keys are gone and the `fan` epoch is `1`.
+  **Passes today (under the pre-track key shape) and must keep passing** — the
+  anti-regression guard on OBS-5.
+- `test_retried_branch_does_not_inflate_arrivals`: the same fan-in edge id twice on the
+  `fan` track. Assert `arrivals` stays at 1. Guards the ASYNC-9 idempotence property
+  (`join.py:47`, `:93-97`) against the track-split rewrite.
+- `test_straggler_fan_in_suppressed_after_early_loop_pass` — **direct regression test for
+  Q-6.** Topology: two fan-in edges (A, B) plus one back-edge, mode `any`
+  (`total_fan_branches=2`, `total_back_edges=1`). Sequence: A arrives on `fan` epoch 0 →
+  `is_finalizer == 1`, `fan` epoch stays `0` (only 1 of 2 fan-in arrivals seen). The
+  back-edge arrives on `pass` epoch 0 → `is_finalizer == 1`, `pass` epoch advances to `1`;
+  assert the `fan` epoch and its `fired` key are **untouched** by this call. B (the
+  straggler) then arrives on `fan` epoch 0 → assert `is_finalizer == 0` (correctly
+  suppressed, not a second fire) and that the `fan` epoch now advances to `1` (drain
+  completes on `total_fan_branches`). **Fails today**: with no track split, the back-edge
+  arrival would collide with the single shared epoch counter and either re-arm a spurious
+  fire or corrupt the drain count — this test would also fail against the originally
+  drafted drain-on-reentry version of C-2, which is the version Q-6 was raised against.
+- `test_multi_back_edge_any_fires_and_drains` — **regression test for Q-8.** Topology: one
+  entry edge plus two back-edges (`loopA`, `loopB`), mode `any` (`total_back_edges=2`).
+  loopA arrives → `is_finalizer == 1`, `pass` epoch stays at its current value (`1 < 2`
+  arrivals). loopB arrives in the same pass → `is_finalizer == 0` (latch already claimed,
+  correctly suppressed as a duplicate for this pass) and the `pass` epoch advances
+  (`2 >= total_back_edges`). **Fails today**: no `track`/multi-back-edge concept exists.
 
 **T-3 (unit) — `backend/tests/unit/test_workflow_run_engine.py`.** No change required; the
 engine side (`run_engine.py:656-657`) is untouched by this fix. Listed so /build does not
@@ -333,46 +418,58 @@ add engine-level coverage for a defect that is entirely inside the executor.
 |---|---|
 | Back-edge classification misreads a topology and treats a genuine fan-in edge as a back-edge, causing an `any` join to re-fire per straggler | The walk is pure forward reachability over `edges`; T-1's `test_pure_fan_in_unchanged` and T-2's `test_any_fan_in_fires_once_and_drains` pin the acyclic behavior in both the argument computation and the script |
 | The reachability walk is O(V+E) per join arrival on a large definition | Bounded by the definition size, which is already fully parsed on every node execution (`run_engine.py:562`, `:705-706`); no new I/O. Memoization is available if a profile shows it matters |
-| C-2 changes a Lua script under concurrent branch arrivals | The script stays a single atomic `eval` (`join.py:100-109`); the re-entry drain is added inside the same indivisible unit, so no new interleaving is introduced |
-| Deploy straddles the change: in-flight runs hold epoch state written by the old script | Key shapes are unchanged (`join.py:42,45-46`); the worst case is one already-stalled run behaving as it does today, and its keys expire within `_JOIN_TTL_SECONDS` (`:67`) |
+| The revised C-2 changes the Lua script's key names and adds a `track` argument under concurrent branch arrivals | The script stays a single atomic `eval` per call, and each track's key namespace is fully independent (`fan` calls never touch `pass` keys and vice versa), so no new cross-track interleaving is introduced; T-2's `test_straggler_fan_in_suppressed_after_early_loop_pass` asserts the two tracks stay isolated under concurrent-style interleaving |
+| Deploy straddles the change: in-flight runs hold epoch state written by the old script | Key shapes change (old: `wf:join:{run}:{node}:epoch`/`:{epoch}`/`:{epoch}:fired`; new: same prefix plus a `fan`/`pass` track segment before `epoch`/`{epoch}`), so the new script does not read or reinterpret old-shape keys — it simply starts fresh under the new names. The worst case is one already-stalled run's old-shape keys sitting unread until they expire within `_JOIN_TTL_SECONDS` (`:67`); no wrong-shape read occurs in either direction |
 | S-1's fix turns a previously-deadlocked `all`-in-loop workflow into one that actually runs, with real agent invocations on the user's key | Correct by intent (R14.01), but it is a behavior change for any definition that was silently dead. Release-note it |
-| Q-6's residual (back-edge before drain) re-fires an `any` join | Documented limitation, FU-3; requires a fan-in and a back-edge into the same join plus a loop faster than the slowest sibling |
+| A join fed by more than one back-edge behaves under Q-8's "any back-edge fires" rule rather than a rendezvous of all loop bodies | Confirmed with the user 2026-07-25 as the intended semantics, not a residual gap; a future topology genuinely needing rendezvous is a product decision requiring new config surface, not a defect in this fix |
 
 **Rollback.** Revert the single file `backend/contexts/workflow/application/executors/join.py`.
-No migration, no schema change, no key-shape change, so a revert needs no cleanup; stale
-epoch keys written by the fixed script are read correctly by the old script (it reads the
-epoch and treats it as an opaque suffix, `join.py:42-45`).
+No migration, no schema change. The key shape changes (new `track` segment, split epoch
+counters — see the deploy-straddle row above), but a revert needs no cleanup: the reverted
+script goes back to reading only the old (pre-track) key names, ignoring whatever `fan`/
+`pass`-prefixed keys the fixed script wrote; those simply expire within
+`_JOIN_TTL_SECONDS` unread.
 
 ## 10. Acceptance Criteria
 
 - [ ] AC-1: every T-1 test listed as failing in §8 fails against current code and passes
       after the fix; `test_pure_fan_in_unchanged` passes both before and after.
 - [ ] AC-2: `test_any_join_fires_on_every_loop_pass` (T-2) fails before and passes after,
-      subject to the Q-5 decision on the Redis fixture.
+      per the Q-5 decision to add a Redis-backed integration fixture.
 - [ ] AC-3: `test_any_fan_in_fires_once_and_drains` and
       `test_retried_branch_does_not_inflate_arrivals` (T-2) pass both before and after — the
       OBS-5 one-shot guarantee and the ASYNC-9 dedupe are not regressed.
 - [ ] AC-4: the four existing cases at `tests/unit/test_workflow_executors.py:383-412` pass
       unmodified.
 - [ ] AC-5: an `all`-mode join with one fan-in edge and one back-edge fires on its fan-in
-      arrival (S-1), asserted by `test_all_mode_in_loop_fires_on_fan_in_only`.
-- [ ] AC-6: the §4 reproduction runs at least three loop passes and terminates through its
+      arrival (S-1), asserted by `test_all_mode_fan_track_fire_threshold_matches_fan_total`.
+- [ ] AC-6: a multi-branch fan-in with a back-edge does not let a fan-in straggler re-fire
+      an `any` join after a fast loop pass has already looped back, asserted by
+      `test_straggler_fan_in_suppressed_after_early_loop_pass` (T-2). This closes Q-6 as a
+      fixed defect rather than deferring it as a follow-up.
+- [ ] AC-7: a join fed by more than one back-edge fires on the first back-edge to arrive
+      each pass and treats additional same-pass back-edges as duplicates, asserted by
+      `test_multiple_back_edges_pass_total_counts_only_back_edges` (T-1) and
+      `test_multi_back_edge_any_fires_and_drains` (T-2), per Q-8.
+- [ ] AC-8: the §4 reproduction runs at least three loop passes and terminates through its
       own `end` node, with no `idle_max_seconds` force-fail
       (`workflow_watchdog.py:71-75`) and no reliance on `_JOIN_TTL_SECONDS` expiry.
-- [ ] AC-7: the module docstring (`join.py:8-12`) and the script header (`:33-40`) describe
-      the implemented rule, including that drain accounting counts fan-in edges only.
-- [ ] AC-8: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
+- [ ] AC-9: the module docstring (`join.py:8-12`) and the script header (`:33-40`) describe
+      the implemented rule, including that drain accounting counts fan-in edges only for the
+      `fan` track and back-edges only for the `pass` track, and that the two tracks never
+      share a counter.
+- [ ] AC-10: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
       `backend/`.
-- [ ] AC-9: no change to `docs/workflow.schema.md`, `linter.py`, `run_engine.py`, or any
+- [ ] AC-11: no change to `docs/workflow.schema.md`, `linter.py`, `run_engine.py`, or any
       migration — the fix is confined to `executors/join.py` plus tests. A diff touching
       anything else means the design in §7 was not followed.
 
 ## 11. SRS Delta
 
 None. R14.01 already makes self-looping topologies normative and R14.02 already lists
-`join`; the fix restores the behavior `join.py:10-12` claims. Two documentation notes belong
-in the code, not the SRS: that drain accounting counts fan-in edges only (AC-7), and the
-Q-6 residual (FU-3).
+`join`; the fix restores the behavior `join.py:10-12` claims. One documentation note
+belongs in the code, not the SRS: that the `fan` and `pass` tracks account for fan-in edges
+and back-edges respectively and never share a counter (AC-9).
 
 ## 12. Deviation Log
 
@@ -393,10 +490,7 @@ Appended by /build.
   any finding in the source audit. Requires choosing a durable store for the counter; note
   the interaction with this dossier — fixing the join makes more loops actually loop, which
   raises the value of a working guard.
-- **FU-3 — early epoch close (Q-6).** A back-edge arriving before its fan-in has drained
-  closes the epoch early and lets a straggler re-fire an `any` join. Requires per-epoch
-  straggler sealing. Document the limitation in `join.py` as part of this fix (AC-7).
-- **FU-4 — misleading watchdog failure reasons.** `workflow_watchdog.py:64-72` can only
+- **FU-3 — misleading watchdog failure reasons.** `workflow_watchdog.py:64-72` can only
   report `idle_max_seconds exceeded`, which reads as a timeout for what may be a stalled
   engine. A reason that names the last executed node and its outcome would have surfaced
   this defect years earlier. Cleared-but-fragile; worth hardening.
