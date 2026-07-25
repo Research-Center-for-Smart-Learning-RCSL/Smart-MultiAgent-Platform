@@ -515,12 +515,17 @@ class TestJoinExecutor:
         assert argv["fire_threshold"] == "1"
         assert argv["total_branches"] == "1"
 
-    async def test_multiple_back_edges_pass_total_counts_only_back_edges(self) -> None:
+    async def test_multiple_back_edges_pass_total_is_fixed_at_one(self) -> None:
         # entry -> join1; join1 -> loopA -> join1; join1 -> loopB -> join1.
         # Two back-edges, one fan-in edge. mode="all" on purpose: if the pass
         # track's threshold were mode-derived like the fan track's, "all"
-        # would require both back-edges (fire_threshold == total_back_edges
-        # == "2"); the confirmed design (Q-8) fixes it at "1" regardless.
+        # would require both back-edges (fire_threshold == "2"); the
+        # confirmed design (Q-8) fixes it at "1" regardless. total_branches
+        # is *also* fixed at "1" (not the distinct-back-edge count): a join
+        # can be fed by back-edges that are sequential alternatives (an
+        # if/else in the loop body) rather than concurrent siblings, and
+        # requiring both to show up before draining deadlocks the moment one
+        # alternative repeats before its sibling ever arrives.
         edges = [
             {"id": "e_entry", "from": "entry", "to": "join1"},
             {"id": "e_outA", "from": "join1", "to": "loopA"},
@@ -539,7 +544,7 @@ class TestJoinExecutor:
 
         argv = _join_argv(calls[0])
         assert argv["track"] == "pass"
-        assert argv["total_branches"] == "2"
+        assert argv["total_branches"] == "1"
         assert argv["fire_threshold"] == "1"
 
     async def test_pure_fan_in_unchanged(self) -> None:

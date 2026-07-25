@@ -16,9 +16,17 @@ the two populations never share a counter:
 
 - ``fan`` — fan-in edges only. Drains (and its epoch advances) once every
   fan-in edge has arrived, exactly as before back-edges existed.
-- ``pass`` — back-edges only, fixed ``fire_threshold=1``: the first back-edge
-  in a loop pass restarts the loop, and its one-shot latch suppresses any
-  other back-edges arriving in the same pass. The join's configured ``mode``
+- ``pass`` — back-edges only, fixed ``fire_threshold=1`` *and* a fixed drain
+  threshold of 1: every single back-edge arrival fires and immediately
+  drains its own epoch, independent of how many distinct back-edges the
+  join has. A join can have back-edges that are concurrent siblings (two
+  loop bodies that both finish) or sequential alternatives (an if/else
+  inside the loop body that can take the same edge many times in a row);
+  requiring *all* distinct back-edges to show up before draining — as an
+  earlier revision of this fix did — deadlocks the moment one alternative
+  is retaken before its sibling ever arrives, since the sibling may never
+  arrive in a given run. Firing once per back-edge arrival, always, is the
+  only rule that has no such stalling case. The join's configured ``mode``
   governs fan-in aggregation only, never loop continuation.
 
 Each track has its own epoch, arrival SET and latch (``wf:join:{run}:{node}:
@@ -94,8 +102,9 @@ def _classify_incoming_edges(node_id: str, edges: list[dict]) -> tuple[int, set[
 
     An incoming edge is a back-edge when its source is reachable *from*
     node_id by following `edges` forward — i.e. the arrival closes a loop
-    rather than feeding a fan-in wave. Plain forward reachability, same
-    technique as the bounded walk in the linter (linter.py:602-604).
+    rather than feeding a fan-in wave. Plain forward reachability over an
+    adjacency map built from `edges`, the same shape of walk `linter.py`'s
+    `_build_adjacency` + traversal rules use for its own graph checks.
     """
     adjacency: dict[str, list[str]] = {}
     for e in edges:
@@ -127,7 +136,6 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
     edges = ctx.workflow_def.get("edges", [])
     fan_in_count, back_edge_ids = _classify_incoming_edges(node.id, edges)
     total_fan_branches = max(fan_in_count, 1)
-    total_back_edges = max(len(back_edge_ids), 1)
 
     # ASYNC-9: dedupe arrivals by the incoming-edge id. A retried / re-delivered
     # branch step traverses the same edge, so SADD is idempotent and the count
@@ -137,12 +145,15 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
     is_reentry = branch_id in back_edge_ids
 
     if is_reentry:
-        # Q-8: any back-edge restarts the loop; the pass track's own latch
-        # suppresses any other back-edges arriving in the same pass. Mode
-        # governs fan-in aggregation only, never loop continuation.
+        # Q-8: any back-edge restarts the loop. total_branches is fixed at 1
+        # (not the count of distinct back-edges) so every arrival fires and
+        # drains in the same call — see the module docstring for why waiting
+        # on all back-edges to show up deadlocks a sequential-alternation
+        # topology. Mode governs fan-in aggregation only, never loop
+        # continuation.
         track = "pass"
         fire_threshold = 1
-        total_branches = total_back_edges
+        total_branches = 1
     else:
         track = "fan"
         total_branches = total_fan_branches
