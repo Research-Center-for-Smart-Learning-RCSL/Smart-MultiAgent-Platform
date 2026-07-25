@@ -801,7 +801,12 @@ class _FakeContainer:
         self.waited = True
         return {"StatusCode": self._exit_code}
 
-    def logs(self, *, stdout: bool = True, stderr: bool = False) -> bytes:
+    def logs(self, *, stdout: bool = True, stderr: bool = False, stream: bool = False) -> bytes:
+        # Mirrors docker-py: stream=True returns a generator of chunks instead
+        # of the full bytes (2026-07-22-mcp-tool-contract's _read_capped_logs
+        # always streams so it can cap the read).
+        if stream:
+            return iter([b""])  # type: ignore[return-value]
         return b""
 
     def remove(self, *, force: bool = False) -> None:
