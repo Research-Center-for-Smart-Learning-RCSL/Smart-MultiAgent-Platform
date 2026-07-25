@@ -160,6 +160,37 @@ async def test_remove_returns_false_when_missing() -> None:
 
 
 @pytest.mark.asyncio
+async def test_facade_seeding_path_never_clobbers_via_replace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pins the R12.16 seeding path (AgentsFacade.add_egress_allowlist_host ->
+    EgressAllowlistService.add) to upsert, never replace -- replace deletes
+    every existing row for the project first and would destroy operator-added
+    hosts on every search-key activation."""
+    import contexts.agents.application.egress_allowlist_service as egress_allowlist_service
+    from contexts.agents.interfaces.facade import AgentsFacade
+
+    facade = AgentsFacade(_FakeSession())  # type: ignore[arg-type]
+    repo = _FakeRepo()
+    project_id = uuid.uuid4()
+    # Pre-existing operator row, to prove it isn't wiped by the seeding call.
+    await repo.upsert(
+        project_id=project_id, hostname="operator.example.com", added_by_user_id=None, note="manual"
+    )
+    monkeypatch.setattr(egress_allowlist_service, "EgressAllowlistRepository", lambda _db: repo)
+
+    await facade.add_egress_allowlist_host(
+        project_id=project_id,
+        hostname="api.tavily.com",
+        note="auto-added",
+        actor_user_id=uuid.uuid4(),
+        actor_ip=None,
+    )
+
+    assert repo.replaced_with == []
+    hosts = sorted(e.hostname for e in await repo.list_for_project(project_id))
+    assert hosts == ["api.tavily.com", "operator.example.com"]
+
+
+@pytest.mark.asyncio
 async def test_non_owner_guard_is_router_concern_not_service() -> None:
     """The service trusts the caller; the guard lives in the router.
 
