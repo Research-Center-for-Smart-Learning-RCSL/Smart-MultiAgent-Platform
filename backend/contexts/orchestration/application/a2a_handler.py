@@ -127,9 +127,14 @@ async def _handle_instruct(envelope: A2AEnvelope) -> None:
         if instruction_id is not None:
             delivered = await OrchestrationFacade(db).mark_instruct_delivered(instruction_id)
             if not delivered:
-                # Already terminal (settled or clobbered by a faster writer) — not
-                # an error. The resume enqueue below reads whatever state won.
-                logger.warning("instruct %s: delivered transition rejected, already settled", instruction_id)
+                # Not an error either way: an ordinary at-least-once redelivery
+                # retry lands here just as often as a genuine race with a faster
+                # terminal writer — the row is already DELIVERED or later. The
+                # resume enqueue below reads whatever state actually won.
+                logger.warning(
+                    "instruct %s: delivered transition rejected (already delivered or later)",
+                    instruction_id,
+                )
             await db.commit()
         # F-25: bind the delivered envelope's chain for the turn so an instruct
         # this turn issues continues the chain (loop/depth/budget guards stay

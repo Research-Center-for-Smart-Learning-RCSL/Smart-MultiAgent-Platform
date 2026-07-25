@@ -32,6 +32,8 @@ from contexts.orchestration.domain.models import (
     INSTRUCT_MAX_CHAIN_DEPTH_HARD,
     INSTRUCT_MAX_CHAIN_SECONDS,
     INSTRUCT_MAX_PER_WAKEUP,
+    INSTRUCTION_ALLOWED_PREDECESSORS,
+    INSTRUCTION_TERMINAL_STATES,
     A2AEnvelope,
     A2AMessageType,
     Instruction,
@@ -40,14 +42,6 @@ from contexts.orchestration.domain.models import (
 from contexts.orchestration.infrastructure.metrics import INSTRUCT_CHAIN_DEPTH
 from contexts.orchestration.infrastructure.repositories import InstructionRepository
 from shared_kernel import audit
-
-# Allowed predecessors per target state, mirroring the state machine in
-# domain/models.py's InstructionState and docs/implement/G-orchestration.md.
-# REJECTED_LOOP is never a target of update_state — it is only ever set at
-# INSERT, so it needs no transition set.
-_DELIVERED_FROM = frozenset({InstructionState.ISSUED})
-_COMPLETED_FROM = frozenset({InstructionState.ISSUED, InstructionState.DELIVERED})
-_TIMEOUT_FROM = frozenset({InstructionState.ISSUED, InstructionState.DELIVERED})
 
 
 class InstructService:
@@ -256,7 +250,7 @@ class InstructService:
         won = await self._instructions.update_state(
             instruction_id,
             InstructionState.DELIVERED,
-            allowed_from=_DELIVERED_FROM,
+            allowed_from=INSTRUCTION_ALLOWED_PREDECESSORS[InstructionState.DELIVERED],
         )
         if not won:
             await self._audit_terminal_conflict(instruction_id, InstructionState.DELIVERED)
@@ -266,7 +260,7 @@ class InstructService:
         won = await self._instructions.update_state(
             instruction_id,
             InstructionState.COMPLETED,
-            allowed_from=_COMPLETED_FROM,
+            allowed_from=INSTRUCTION_ALLOWED_PREDECESSORS[InstructionState.COMPLETED],
         )
         if not won:
             await self._audit_terminal_conflict(instruction_id, InstructionState.COMPLETED)
@@ -276,7 +270,7 @@ class InstructService:
         won = await self._instructions.update_state(
             instruction_id,
             InstructionState.TIMEOUT,
-            allowed_from=_TIMEOUT_FROM,
+            allowed_from=INSTRUCTION_ALLOWED_PREDECESSORS[InstructionState.TIMEOUT],
         )
         if not won:
             await self._audit_terminal_conflict(instruction_id, InstructionState.TIMEOUT)
@@ -294,7 +288,7 @@ class InstructService:
         won = await self._instructions.update_state(
             instruction_id,
             InstructionState.TIMEOUT,
-            allowed_from=_TIMEOUT_FROM,
+            allowed_from=INSTRUCTION_ALLOWED_PREDECESSORS[InstructionState.TIMEOUT],
         )
         if not won:
             await self._audit_terminal_conflict(instruction_id, InstructionState.TIMEOUT)
@@ -315,12 +309,20 @@ class InstructService:
         instruction_id: uuid.UUID,
         attempted: InstructionState,
     ) -> None:
-        """A rejected CAS is a normal, monitored outcome, not a silent no-op.
+        """A rejected CAS that lost to a *terminal* state is a normal, monitored
+        outcome, not a silent no-op — carries the state the row actually
+        settled at so operators can tell a legitimate race (F-15) from a
+        caller bug.
 
-        Carries the state the row actually settled at so operators can tell a
-        legitimate race (F-15) from a caller bug.
+        A rejection whose actual state is non-terminal (only reachable via
+        mark_delivered, rejected because the row is already DELIVERED) is an
+        ordinary redelivery retry, not a race — skip the audit so it doesn't
+        pollute the terminal_conflict signal with expected at-least-once
+        retries.
         """
         current = await self._instructions.get(instruction_id)
+        if current is not None and current.state not in INSTRUCTION_TERMINAL_STATES:
+            return
         await audit.emit(
             self._db,
             audit.AuditEvent(
