@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.deps import PaginationParams
 from contexts.keys.application.search_service import SearchKeyService
 from contexts.keys.domain.probe_status import ProbeStatus
-from contexts.keys.domain.search import SearchKey, SearchProvider
+from contexts.keys.domain.search import SEARCH_PROVIDER_HOSTS, SearchKey, SearchProvider
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
@@ -145,10 +145,28 @@ async def activate_search_key(
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    await SearchKeyService(db).activate(
+    provider = await SearchKeyService(db).activate(
         project_id=project_id,
         key_id=key_id,
         actor_user_id=principal.user_id,
+        request_id=ctx.request_id,
+    )
+
+    # Seed the Egress Proxy allowlist with this provider's one documented
+    # hostname (R12.16). Orchestrated here rather than inside
+    # SearchKeyService.activate() so contexts/keys never has to depend on
+    # contexts/agents -- this route already sits above both. Shares `db`
+    # with the activation above, so a write failure here rolls the whole
+    # request back (Q-5: fail closed rather than leave a key active that
+    # cannot actually search).
+    from contexts.agents.interfaces.facade import AgentsFacade
+
+    await AgentsFacade(db).add_egress_allowlist_host(
+        project_id=project_id,
+        hostname=SEARCH_PROVIDER_HOSTS[provider],
+        note="auto-added: search-key activation (R12.16)",
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
 

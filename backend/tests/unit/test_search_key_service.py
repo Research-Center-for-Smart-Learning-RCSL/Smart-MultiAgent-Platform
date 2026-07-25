@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any, ClassVar
+from typing import Any
 
 import pytest
 
-import contexts.agents.interfaces.facade as facade_module
 from contexts.keys.application.search_service import SearchKeyService
 from contexts.keys.domain.probe_status import ProbeStatus
-from contexts.keys.domain.search import SEARCH_PROVIDER_HOSTS, SearchKey, SearchProvider
+from contexts.keys.domain.search import SearchKey, SearchProvider
 
 
 class _FakeSession:
@@ -23,30 +22,6 @@ class _FakeRedis:
     async def publish(self, channel: str, message: str) -> int:
         self.published.append((channel, message))
         return 1
-
-
-class _RecordingFacade:
-    """Fake ``AgentsFacade`` capturing ``add_egress_allowlist_host`` calls.
-
-    Class-level ``calls`` because :meth:`SearchKeyService.activate`
-    instantiates the facade itself; the test cannot reach into that instance.
-    """
-
-    calls: ClassVar[list[dict[str, Any]]] = []
-
-    def __init__(self, db: Any) -> None:
-        self.db = db
-
-    async def add_egress_allowlist_host(self, **kwargs: Any) -> None:
-        _RecordingFacade.calls.append(kwargs)
-
-
-class _RaisingFacade:
-    def __init__(self, db: Any) -> None:
-        self.db = db
-
-    async def add_egress_allowlist_host(self, **_: Any) -> None:
-        raise RuntimeError("allowlist write failed")
 
 
 def _key(
@@ -71,6 +46,31 @@ def _key(
     )
 
 
+class _Repo:
+    """Minimal ``SearchKeyRepository`` stand-in for a fixed provider's key."""
+
+    def __init__(
+        self,
+        project_id: uuid.UUID,
+        provider: SearchProvider = SearchProvider.TAVILY,
+        *,
+        deactivated: list[uuid.UUID] | None = None,
+    ) -> None:
+        self._project_id = project_id
+        self._provider = provider
+        self._deactivated = deactivated or []
+
+    async def get_active(self, key_id: uuid.UUID) -> SearchKey | None:
+        return _key(self._project_id, key_id, self._provider)
+
+    async def atomic_activate(self, **_: Any) -> list[uuid.UUID]:
+        return self._deactivated
+
+
+async def _noop_emit(_db: Any, _event: Any) -> None:
+    return None
+
+
 @pytest.mark.asyncio
 async def test_activate_audits_each_deactivated_key(monkeypatch: pytest.MonkeyPatch) -> None:
     import contexts.keys.application.search_service as search_service
@@ -80,21 +80,13 @@ async def test_activate_audits_each_deactivated_key(monkeypatch: pytest.MonkeyPa
     deactivated_key_id = uuid.uuid4()
     events: list[Any] = []
 
-    class _Repo:
-        async def get_active(self, key_id: uuid.UUID) -> SearchKey | None:
-            return _key(project_id, key_id)
-
-        async def atomic_activate(self, **_: Any) -> list[uuid.UUID]:
-            return [deactivated_key_id]
-
     async def _emit(_db: Any, event: Any) -> None:
         events.append(event)
 
     service = SearchKeyService(_FakeSession())  # type: ignore[arg-type]
-    service._repo = _Repo()  # type: ignore[assignment]
+    service._repo = _Repo(project_id, deactivated=[deactivated_key_id])  # type: ignore[assignment]
     monkeypatch.setattr(search_service.audit, "emit", _emit)
     monkeypatch.setattr(search_service, "get_redis", lambda: _FakeRedis())
-    monkeypatch.setattr(facade_module, "AgentsFacade", _RecordingFacade)
 
     await service.activate(
         project_id=project_id,
@@ -108,77 +100,18 @@ async def test_activate_audits_each_deactivated_key(monkeypatch: pytest.MonkeyPa
     ]
 
 
-class _Repo:
-    """Minimal ``SearchKeyRepository`` stand-in for a fixed provider's key."""
-
-    def __init__(self, project_id: uuid.UUID, provider: SearchProvider) -> None:
-        self._project_id = project_id
-        self._provider = provider
-
-    async def get_active(self, key_id: uuid.UUID) -> SearchKey | None:
-        return _key(self._project_id, key_id, self._provider)
-
-    async def atomic_activate(self, **_: Any) -> list[uuid.UUID]:
-        return []
-
-
-async def _noop_emit(_db: Any, _event: Any) -> None:
-    return None
-
-
 @pytest.mark.asyncio
-async def test_activate_adds_provider_host_to_egress_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
-    import contexts.keys.application.search_service as search_service
-
-    _RecordingFacade.calls.clear()
-    project_id = uuid.uuid4()
-    key_id = uuid.uuid4()
-
-    service = SearchKeyService(_FakeSession())  # type: ignore[arg-type]
-    service._repo = _Repo(project_id, SearchProvider.TAVILY)  # type: ignore[assignment]
-    monkeypatch.setattr(search_service.audit, "emit", _noop_emit)
-    monkeypatch.setattr(search_service, "get_redis", lambda: _FakeRedis())
-    monkeypatch.setattr(facade_module, "AgentsFacade", _RecordingFacade)
-
-    await service.activate(project_id=project_id, key_id=key_id, actor_user_id=uuid.uuid4())
-
-    assert len(_RecordingFacade.calls) == 1
-    call = _RecordingFacade.calls[0]
-    assert call["project_id"] == project_id
-    assert call["hostname"] == "api.tavily.com"
-
-
-@pytest.mark.asyncio
-async def test_activate_is_idempotent_when_host_already_present(monkeypatch: pytest.MonkeyPatch) -> None:
-    import contexts.keys.application.search_service as search_service
-
-    _RecordingFacade.calls.clear()
-    project_id = uuid.uuid4()
-    key_id = uuid.uuid4()
-
-    service = SearchKeyService(_FakeSession())  # type: ignore[arg-type]
-    service._repo = _Repo(project_id, SearchProvider.TAVILY)  # type: ignore[assignment]
-    monkeypatch.setattr(search_service.audit, "emit", _noop_emit)
-    monkeypatch.setattr(search_service, "get_redis", lambda: _FakeRedis())
-    monkeypatch.setattr(facade_module, "AgentsFacade", _RecordingFacade)
-
-    await service.activate(project_id=project_id, key_id=key_id, actor_user_id=uuid.uuid4())
-    await service.activate(project_id=project_id, key_id=key_id, actor_user_id=uuid.uuid4())
-
-    # No error on repeat activation; the same host is submitted both times.
-    # Real duplicate-suppression is the repository's ON CONFLICT DO UPDATE
-    # (pinned in test_egress_allowlist.py), which this fake does not model.
-    assert [c["hostname"] for c in _RecordingFacade.calls] == ["api.tavily.com", "api.tavily.com"]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(("provider", "expected_host"), list(SEARCH_PROVIDER_HOSTS.items()))
-async def test_activate_does_not_add_other_providers_hosts(
-    monkeypatch: pytest.MonkeyPatch, provider: SearchProvider, expected_host: str
+@pytest.mark.parametrize("provider", list(SearchProvider))
+async def test_activate_returns_the_activated_keys_provider(
+    monkeypatch: pytest.MonkeyPatch, provider: SearchProvider
 ) -> None:
+    """The router (app/api/v1/search_keys.py) seeds the egress allowlist from
+    this return value -- see test_search_keys_activate_route.py. activate()
+    itself must not reach into contexts.agents (that edge, combined with the
+    pre-existing contexts.agents -> contexts.keys edge in web_search.py and
+    the search adapters, would close a cycle between the two contexts)."""
     import contexts.keys.application.search_service as search_service
 
-    _RecordingFacade.calls.clear()
     project_id = uuid.uuid4()
     key_id = uuid.uuid4()
 
@@ -186,18 +119,14 @@ async def test_activate_does_not_add_other_providers_hosts(
     service._repo = _Repo(project_id, provider)  # type: ignore[assignment]
     monkeypatch.setattr(search_service.audit, "emit", _noop_emit)
     monkeypatch.setattr(search_service, "get_redis", lambda: _FakeRedis())
-    monkeypatch.setattr(facade_module, "AgentsFacade", _RecordingFacade)
 
-    await service.activate(project_id=project_id, key_id=key_id, actor_user_id=uuid.uuid4())
+    result = await service.activate(project_id=project_id, key_id=key_id, actor_user_id=uuid.uuid4())
 
-    seeded_hosts = {c["hostname"] for c in _RecordingFacade.calls}
-    other_hosts = set(SEARCH_PROVIDER_HOSTS.values()) - {expected_host}
-    assert seeded_hosts == {expected_host}
-    assert not seeded_hosts & other_hosts
+    assert result is provider
 
 
 @pytest.mark.asyncio
-async def test_activate_fails_closed_when_allowlist_write_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_activate_publishes_after_all_audit_events(monkeypatch: pytest.MonkeyPatch) -> None:
     import contexts.keys.application.search_service as search_service
 
     project_id = uuid.uuid4()
@@ -205,14 +134,10 @@ async def test_activate_fails_closed_when_allowlist_write_fails(monkeypatch: pyt
     redis = _FakeRedis()
 
     service = SearchKeyService(_FakeSession())  # type: ignore[arg-type]
-    service._repo = _Repo(project_id, SearchProvider.TAVILY)  # type: ignore[assignment]
+    service._repo = _Repo(project_id)  # type: ignore[assignment]
     monkeypatch.setattr(search_service.audit, "emit", _noop_emit)
     monkeypatch.setattr(search_service, "get_redis", lambda: redis)
-    monkeypatch.setattr(facade_module, "AgentsFacade", _RaisingFacade)
 
-    with pytest.raises(RuntimeError, match="allowlist write failed"):
-        await service.activate(project_id=project_id, key_id=key_id, actor_user_id=uuid.uuid4())
+    await service.activate(project_id=project_id, key_id=key_id, actor_user_id=uuid.uuid4())
 
-    # The non-transactional Redis publish must not fire once the transactional
-    # allowlist write has failed (Q-5 — fail closed).
-    assert redis.published == []
+    assert redis.published == [("search_key.activated", f"{project_id}:{key_id}")]
