@@ -27,12 +27,14 @@ _REDIS = "shared_kernel.auth.clients.get_redis"
 
 
 class _FakeProxy:
-    def __init__(self) -> None:
+    def __init__(self, status: int = 200, headers: dict[str, str] | None = None) -> None:
         self.calls: list[dict[str, Any]] = []
+        self._status = status
+        self._headers = headers or {}
 
     async def request(self, **kwargs: Any) -> tuple[int, dict[str, str], bytes]:
         self.calls.append(kwargs)
-        return 200, {}, b"ok"
+        return self._status, self._headers, b"ok"
 
 
 def _redis_returning(count: int) -> MagicMock:
@@ -126,6 +128,36 @@ class TestPerformEgressRequest:
                 proxy=_FakeProxy(),  # type: ignore[arg-type]
             )
         assert ei.value.kind == "rate_limiter_offline"
+
+    async def test_outcome_carries_response_headers(self) -> None:
+        proxy = _FakeProxy(status=301, headers={"location": "https://api.example.com/y/"})
+        with (
+            patch(_ALLOW, new=AsyncMock(return_value=("api.example.com", True))),
+            patch(_REDIS, return_value=_redis_returning(1)),
+        ):
+            outcome = await perform_egress_request(
+                MagicMock(),
+                project_id=uuid.uuid4(),
+                method="GET",
+                url="https://api.example.com/x",
+                proxy=proxy,  # type: ignore[arg-type]
+            )
+        assert outcome.location == "https://api.example.com/y/"
+
+    async def test_3xx_is_not_ok(self) -> None:
+        assert EgressOutcome(status=301, body=b"").ok is False
+
+    async def test_header_lookup_is_case_insensitive(self) -> None:
+        outcome = EgressOutcome(status=301, body=b"", headers=(("Location", "https://x/y/"),))
+        assert outcome.header("location") == "https://x/y/"
+
+    async def test_2xx_still_ok(self) -> None:
+        assert EgressOutcome(status=200, body=b"").ok is True
+        assert EgressOutcome(status=204, body=b"").ok is True
+
+    async def test_4xx_5xx_not_ok(self) -> None:
+        assert EgressOutcome(status=404, body=b"").ok is False
+        assert EgressOutcome(status=500, body=b"").ok is False
 
 
 class TestFacadeEgressSeam:

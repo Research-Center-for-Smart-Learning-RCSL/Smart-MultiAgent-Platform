@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,16 +29,44 @@ DEFAULT_EGRESS_RATE_LIMIT_PER_MINUTE = 60
 BlockKind = Literal["allowlist", "rate_limit", "rate_limiter_offline"]
 
 
+def _normalize_headers(headers: Mapping[str, str]) -> tuple[tuple[str, str], ...]:
+    """Freeze proxy response headers onto the outcome.
+
+    ``egress_client.py`` returns ``dict(resp.headers)`` and httpx lowercases
+    keys on that conversion, but the port protocol only promises
+    ``dict[str, str]`` — lookup normalises case defensively rather than
+    relying on that implementation detail.
+    """
+    return tuple((str(k), str(v)) for k, v in headers.items())
+
+
 @dataclass(frozen=True, slots=True)
 class EgressOutcome:
     """A completed egress round-trip."""
 
     status: int
     body: bytes
+    headers: tuple[tuple[str, str], ...] = field(default=())
+
+    @classmethod
+    def from_proxy_response(cls, status: int, headers: Mapping[str, str], body: bytes) -> EgressOutcome:
+        return cls(status=status, body=body, headers=_normalize_headers(headers))
 
     @property
     def ok(self) -> bool:
-        return 200 <= self.status < 400
+        return 200 <= self.status < 300
+
+    def header(self, name: str) -> str | None:
+        """Case-insensitive header lookup."""
+        needle = name.lower()
+        for key, value in self.headers:
+            if key.lower() == needle:
+                return value
+        return None
+
+    @property
+    def location(self) -> str | None:
+        return self.header("location")
 
 
 class EgressBlocked(Exception):
@@ -104,7 +133,7 @@ async def perform_egress_request(
     method_u = method.upper()
     payload = dict(args or {})
     if method_u in ("GET", "DELETE"):
-        status, _headers, body = await proxy.request(
+        status, resp_headers, body = await proxy.request(
             method=method_u,
             url=url,
             project_id=project_id,
@@ -114,7 +143,7 @@ async def perform_egress_request(
             timeout_s=timeout_s,
         )
     else:
-        status, _headers, body = await proxy.request(
+        status, resp_headers, body = await proxy.request(
             method=method_u,
             url=url,
             project_id=project_id,
@@ -123,7 +152,7 @@ async def perform_egress_request(
             upstream_auth=upstream_auth,
             timeout_s=timeout_s,
         )
-    return EgressOutcome(status=status, body=body)
+    return EgressOutcome.from_proxy_response(status, resp_headers, body)
 
 
 __all__ = [
