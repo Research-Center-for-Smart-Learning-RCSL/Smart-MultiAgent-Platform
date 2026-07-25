@@ -255,4 +255,30 @@ describe('AgentToolsView — JSON field syntax highlighting (AC-1/AC-2/AC-3/AC-5
     expect(textarea.attributes('readonly')).toBeDefined()
     expect(wrapper.find('.cm-content').exists()).toBe(false)
   })
+
+  // 2026-07-22-mcp-tool-contract: capture-staleness advisories (Q-7) ride the
+  // same config_warnings channel the function-tools list already renders --
+  // the MCP table had no equivalent indicator at all before this fix.
+  it('renders a warning indicator for an MCP tool carrying config_warnings', async () => {
+    seed([
+      {
+        ...MCP_TOOL,
+        config_warnings: [
+          "tool 'beta' was not found in the last capture; it may no longer be offered by the server. Re-run Test to confirm.",
+        ],
+      },
+    ])
+    const wrapper = await renderView(AgentToolsView, { routes, initialRoute: '/agents/agent_1/tools' })
+    await settle()
+
+    expect(wrapper.find('[title*="was not found in the last capture"]').exists()).toBe(true)
+  })
+
+  it('renders no warning indicator for an MCP tool with an empty config_warnings', async () => {
+    seed([MCP_TOOL])
+    const wrapper = await renderView(AgentToolsView, { routes, initialRoute: '/agents/agent_1/tools' })
+    await settle()
+
+    expect(wrapper.find('[title*="was not found in the last capture"]').exists()).toBe(false)
+  })
 })

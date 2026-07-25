@@ -330,6 +330,9 @@ export interface ToolTestResult {
   error: string | null
   // HTTP status from a local_function reachability probe (null for MCP tests).
   status?: number | null
+  // Non-blocking advisories from a successful hosted_mcp re-capture (e.g. a
+  // schema exceeded the size caps and fell back to permissive).
+  warnings: string[]
 }
 
 // Mirrors backend `WorkspaceFileOut` — designer-uploaded file for Code Interpreter.
@@ -354,15 +357,15 @@ export interface EgressAllowlistEntry {
 
 // Response bridges — the only generated `*Out` models not directly assignable to
 // the slice's hand-rolled types (surfaced by pnpm typecheck at the api boundary):
-// AgentToolOut.config_warnings and AgentToolTestOut.error are optional in the
-// contract but always emitted; the slice types them required. (RagDocumentOut needed
-// a bridge until its status/scan_status were enum-swept server-side to match
-// KnowmapDocumentOut — it is now directly assignable, so no bridge.)
+// AgentToolOut.config_warnings, AgentToolTestOut.error and AgentToolTestOut.warnings
+// are optional in the contract but always emitted; the slice types them required.
+// (RagDocumentOut needed a bridge until its status/scan_status were enum-swept
+// server-side to match KnowmapDocumentOut — it is now directly assignable, so no bridge.)
 function toAgentTool(o: AgentToolOut): AgentTool {
   return { ...o, config_warnings: o.config_warnings ?? [] }
 }
 function toToolTestResult(o: AgentToolTestOut): ToolTestResult {
-  return { ...o, error: o.error ?? null }
+  return { ...o, error: o.error ?? null, warnings: o.warnings ?? [] }
 }
 
 // Thin wrappers over the generated services (R24.13). Auth and problem+json
