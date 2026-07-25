@@ -864,7 +864,15 @@ function fnLabel(tool: AgentTool): string {
           </template>
 
           <template #cell-reference="{ row }">
-            <span class="font-mono text-sm break-all">{{ (row.config as Record<string, unknown>).reference ?? row.display_name }}</span>
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="font-mono text-sm break-all">{{ (row.config as Record<string, unknown>).reference ?? row.display_name }}</span>
+              <span
+                v-if="row.config_warnings?.length"
+                :title="row.config_warnings.join(', ')"
+              >
+                <ExclamationTriangleIcon class="w-4 h-4 shrink-0 text-[var(--color-warning)]" />
+              </span>
+            </div>
           </template>
 
           <template #cell-tools="{ row }">

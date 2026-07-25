@@ -216,12 +216,27 @@ describe('agents api wire contract', () => {
     })
   })
 
-  it('testTool defaults error to null (bridge toToolTestResult)', async () => {
+  it('testTool defaults error to null and warnings to [] (bridge toToolTestResult)', async () => {
     const cap = captureAll()
     const res = await agentsApi.testTool('ag_1', 'tool_1')
     expect(cap.value).toMatchObject({ method: 'POST', path: '/api/agents/ag_1/tools/tool_1/test' })
     expect(res.error).toBeNull()
     expect(res.ok).toBe(true)
+    expect(res.warnings).toEqual([])
+  })
+
+  it('testTool passes through server warnings', async () => {
+    const { on } = createRequestCapture()
+    server.use(
+      on('post', '/api/agents/:aid/tools/:tid/test', {
+        ...toolTestOut,
+        warnings: ["captured schema for tool 'search' exceeded limits; using fallback schema"],
+      }),
+    )
+    const res = await agentsApi.testTool('ag_1', 'tool_1')
+    expect(res.warnings).toEqual([
+      "captured schema for tool 'search' exceeded limits; using fallback schema",
+    ])
   })
 
   // ---- rag (incl. multipart) ----

@@ -8,5 +8,6 @@ export type AgentToolTestOut = {
     ok: boolean;
     status?: (number | null);
     tool_names: Array<string>;
+    warnings?: Array<string>;
 };
 

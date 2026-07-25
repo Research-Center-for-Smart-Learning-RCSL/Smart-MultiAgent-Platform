@@ -44,6 +44,13 @@ export function useToolTest(agentId: string) {
               ms: res.duration_ms,
             }),
           )
+          // Non-blocking capture advisories (e.g. a schema exceeded the size
+          // caps and fell back to permissive) -- generated once by this Test
+          // call and never persisted elsewhere, so this is the only chance to
+          // surface them (2026-07-22-mcp-tool-contract "surface, don't silence").
+          for (const warning of res.warnings ?? []) {
+            toast.warning(warning)
+          }
         }
       } else if (vars.kind === 'function') {
         toast.error(res.error ?? t('agents.tools.functions.testFailed'))
