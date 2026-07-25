@@ -7,6 +7,7 @@ Each executor follows the signature: execute(ctx, node, db) -> StepOutcome.
 from __future__ import annotations
 
 import uuid
+from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from contexts.workflow.domain.models import (
@@ -379,6 +380,25 @@ class TestTriggerExecutor:
 # ===========================================================================
 
 
+_JOIN_ARGV_FIELDS = (
+    "run_id",
+    "node_id",
+    "track",
+    "branch_id",
+    "fire_threshold",
+    "total_branches",
+    "ttl_seconds",
+)
+
+
+def _join_argv(call) -> dict[str, str]:
+    """Map a captured mock_redis.eval() call to its named ARGV values.
+
+    call.args is (script, numkeys, *ARGV); numkeys is always 0 for this script.
+    """
+    return dict(zip(_JOIN_ARGV_FIELDS, call.args[2:], strict=True))
+
+
 class TestJoinExecutor:
     async def _run_join(
         self,
@@ -386,12 +406,15 @@ class TestJoinExecutor:
         mode: str = "all",
         count: int = 1,
         incoming_edges: int = 3,
+        edges: list[dict] | None = None,
         lua_result: list[int],
         arrived_via: str = "e1",
+        capture_eval_calls: list | None = None,
     ):
         from contexts.workflow.application.executors.join import execute
 
-        edges = [{"id": f"e{i}", "from": f"src{i}", "to": "join1"} for i in range(incoming_edges)]
+        if edges is None:
+            edges = [{"id": f"e{i}", "from": f"src{i}", "to": "join1"} for i in range(incoming_edges)]
         ctx = _make_ctx(
             workflow_def={"nodes": [], "edges": edges},
             arrived_via=arrived_via,
@@ -402,7 +425,12 @@ class TestJoinExecutor:
         mock_redis.eval.return_value = lua_result
 
         with patch("shared_kernel.auth.clients.get_redis", return_value=mock_redis):
-            return await execute(ctx, node, AsyncMock())
+            outcome = await execute(ctx, node, AsyncMock())
+
+        if capture_eval_calls is not None:
+            capture_eval_calls.append(mock_redis.eval.call_args)
+
+        return outcome
 
     async def test_all_mode_not_yet_finalized(self) -> None:
         outcome = await self._run_join(mode="all", incoming_edges=3, lua_result=[1, 0])
@@ -434,6 +462,99 @@ class TestJoinExecutor:
         outcome = await self._run_join(mode="count", count=2, incoming_edges=4, lua_result=[1, 0])
 
         assert outcome.skip_edges is True
+
+    # Loop topology: entry -> join1, join1 -> body, body -> join1. "body" is
+    # reachable from join1, so e_back is a back-edge; "entry" is not, so
+    # e_entry is a fan-in edge.
+    _LOOP_EDGES: ClassVar[list[dict[str, str]]] = [
+        {"id": "e_entry", "from": "entry", "to": "join1"},
+        {"id": "e_out", "from": "join1", "to": "body"},
+        {"id": "e_back", "from": "body", "to": "join1"},
+    ]
+
+    async def test_fan_in_edge_uses_fan_track_with_fan_only_total(self) -> None:
+        calls: list = []
+        await self._run_join(
+            mode="any",
+            edges=self._LOOP_EDGES,
+            arrived_via="e_entry",
+            lua_result=[1, 1],
+            capture_eval_calls=calls,
+        )
+
+        argv = _join_argv(calls[0])
+        assert argv["track"] == "fan"
+        assert argv["total_branches"] == "1"
+
+    async def test_all_mode_fan_track_fire_threshold_matches_fan_total(self) -> None:
+        calls: list = []
+        await self._run_join(
+            mode="all",
+            edges=self._LOOP_EDGES,
+            arrived_via="e_entry",
+            lua_result=[1, 1],
+            capture_eval_calls=calls,
+        )
+
+        argv = _join_argv(calls[0])
+        assert argv["track"] == "fan"
+        assert argv["fire_threshold"] == "1"
+
+    async def test_back_edge_uses_pass_track_with_fixed_threshold_one(self) -> None:
+        calls: list = []
+        await self._run_join(
+            mode="any",
+            edges=self._LOOP_EDGES,
+            arrived_via="e_back",
+            lua_result=[1, 1],
+            capture_eval_calls=calls,
+        )
+
+        argv = _join_argv(calls[0])
+        assert argv["track"] == "pass"
+        assert argv["fire_threshold"] == "1"
+        assert argv["total_branches"] == "1"
+
+    async def test_multiple_back_edges_pass_total_counts_only_back_edges(self) -> None:
+        # entry -> join1; join1 -> loopA -> join1; join1 -> loopB -> join1.
+        # Two back-edges, one fan-in edge. mode="all" on purpose: if the pass
+        # track's threshold were mode-derived like the fan track's, "all"
+        # would require both back-edges (fire_threshold == total_back_edges
+        # == "2"); the confirmed design (Q-8) fixes it at "1" regardless.
+        edges = [
+            {"id": "e_entry", "from": "entry", "to": "join1"},
+            {"id": "e_outA", "from": "join1", "to": "loopA"},
+            {"id": "e_backA", "from": "loopA", "to": "join1"},
+            {"id": "e_outB", "from": "join1", "to": "loopB"},
+            {"id": "e_backB", "from": "loopB", "to": "join1"},
+        ]
+        calls: list = []
+        await self._run_join(
+            mode="all",
+            edges=edges,
+            arrived_via="e_backA",
+            lua_result=[1, 1],
+            capture_eval_calls=calls,
+        )
+
+        argv = _join_argv(calls[0])
+        assert argv["track"] == "pass"
+        assert argv["total_branches"] == "2"
+        assert argv["fire_threshold"] == "1"
+
+    async def test_pure_fan_in_unchanged(self) -> None:
+        calls: list = []
+        await self._run_join(
+            mode="all",
+            incoming_edges=3,
+            lua_result=[3, 1],
+            capture_eval_calls=calls,
+        )
+
+        argv = _join_argv(calls[0])
+        assert argv["track"] == "fan"
+        assert argv["total_branches"] == "3"
+        assert argv["fire_threshold"] == "3"
 
 
 # ===========================================================================
