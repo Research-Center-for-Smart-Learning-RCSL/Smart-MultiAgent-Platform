@@ -1010,7 +1010,8 @@ class AgentService:
             error = None
         elif 300 <= status < 400:
             location = outcome.location
-            error = f"HTTP {status} — redirect to {location}" if location else f"HTTP {status}"
+            detail = f"redirect to {location}" if location else "redirect with no Location header"
+            error = f"HTTP {status} — {detail}"
         else:
             error = f"HTTP {status}"
         return ToolProbeResult(ok=outcome.ok, status=status, duration_ms=duration, error=error)

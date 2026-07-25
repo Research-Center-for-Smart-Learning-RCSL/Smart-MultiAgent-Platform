@@ -123,6 +123,17 @@ async def test_3xx_error_names_redirect_target(monkeypatch) -> None:
     assert "https://api.example.com/x/" in (res.error or "")
 
 
+async def test_3xx_with_no_location_is_distinguishable_from_a_generic_failure(monkeypatch) -> None:
+    # A redirect with no Location header must not read identically to a plain
+    # 4xx/5xx failure — the operator needs to know it's a redirect at all.
+    _patch_allowlist(monkeypatch, _AllowRepo)
+    _patch_proxy(monkeypatch, 301, {})
+    res = await _service()._probe_function(_agent(), _fn_tool())
+    assert res.ok is False
+    assert "redirect" in (res.error or "").lower()
+    assert res.error != "HTTP 301"
+
+
 async def test_fails_closed_when_unseal_fails(monkeypatch) -> None:
     _patch_allowlist(monkeypatch, _AllowRepo)
     monkeypatch.setattr(
