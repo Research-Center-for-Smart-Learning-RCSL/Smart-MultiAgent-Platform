@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-22
 requirements: [R15.15, R15.16, R15.17, R14.08]
 depends_on: []
@@ -455,27 +455,27 @@ change**, so no `pnpm run gen:api` and no openapi-drift risk. **No frontend chan
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1**: T-1 (`test_timeout_does_not_overwrite_completed`, §8) fails against current code
+- [x] **AC-1**: T-1 (`test_timeout_does_not_overwrite_completed`, §8) fails against current code
       and passes after the fix.
-- [ ] **AC-2**: a terminal instruction state (`completed`, `timeout`, `rejected_loop`) is never
+- [x] **AC-2**: a terminal instruction state (`completed`, `timeout`, `rejected_loop`) is never
       overwritten by any subsequent write, in either direction and from any of the four writers
       (`a2a_handler.py:128,134,141`; `workflow_approvals.py:223`).
-- [ ] **AC-3**: the guard is enforced in the `UPDATE`'s `WHERE` clause, not in application code
+- [x] **AC-3**: the guard is enforced in the `UPDATE`'s `WHERE` clause, not in application code
       between a read and a write; no `update_state` call site can bypass it.
-- [ ] **AC-4**: a rejected transition returns `False`, does not raise, and emits an
+- [x] **AC-4**: a rejected transition returns `False`, does not raise, and emits an
       `instruct.terminal_conflict` audit event; an absent row still raises `ValueError`.
-- [ ] **AC-5**: T-6 fails against current code and passes after the fix — `workflow_instruct_timeout`
+- [x] **AC-5**: T-6 fails against current code and passes after the fix — `workflow_instruct_timeout`
       enqueues `workflow_resume_instruct` when it finds the row already in `TIMEOUT`.
-- [ ] **AC-6**: a `workflow_instruct_timeout` whose enqueue fails resumes the run on retry; the
+- [x] **AC-6**: a `workflow_instruct_timeout` whose enqueue fails resumes the run on retry; the
       run reaches the instruct node's `failure` port rather than a watchdog force-fail
       (`run_engine.py:414`).
-- [ ] **AC-7**: a failed deadline arm in `executors/instruct.py` is logged at warning; the node
+- [x] **AC-7**: a failed deadline arm in `executors/instruct.py` is logged at warning; the node
       still parks.
-- [ ] **AC-8**: no `depends_on` violation and no edits to `workflow_common.py`,
+- [x] **AC-8**: no `depends_on` violation and no edits to `workflow_common.py`,
       `instruct_service.py:128-156`, or `executors/instruct.py:39-43` — those belong to the
       dossiers named in Q-5 and Q-6.
-- [ ] **AC-9**: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`.
-- [ ] **AC-10**: release notes record the Q-2 behaviour change and the §7 data-repair position.
+- [x] **AC-9**: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`.
+- [x] **AC-10**: release notes record the Q-2 behaviour change and the §7 data-repair position.
 
 ## 11. SRS Delta
 
@@ -492,7 +492,23 @@ explicitly rather than leaving the original claim in place.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (test marker).** §8 headed the new integration file "`-m integration`, real
+  Postgres". The repo's actual convention for a real-Postgres test (`pyproject.toml`'s
+  marker table, and the two precedent files `test_embedding_pin_race.py` and
+  `test_agent_tools_singleton_upsert.py`) is `pytest.mark.db` — `integration` alone means
+  "no live infra" (`backend-integration` CI job) and `db` is the marker that routes to
+  `backend-db`, which provisions Postgres. `tests/integration/test_instruct_terminal_state_race.py`
+  is marked `pytestmark = pytest.mark.db` (the auto-applied `integration` marker from
+  `tests/integration/conftest.py` still applies too). Verified locally against a real
+  Postgres (migrations applied through `0065_activity_agent_visibility`): T-1..T-5 all
+  pass, and the pre-existing `db`-marked suite shows no regression (33 passed; the 4
+  pre-existing failures are `test_knowmap_neo4j_replacement.py`, unrelated — no Neo4j was
+  provisioned for this check).
+- **D-2 (release notes).** AC-10 has no dedicated `RELEASE_NOTES.md` in this repo (checked
+  — none exists). The Q-2 behaviour change and the §7 forward-only data-repair position
+  are recorded in this spec's §3 Q-2/Q-8 and §7, and now in this commit's message —
+  matching how the sibling `a2a-scope-context-wiring` dossier (`:295`) handled the same
+  requirement.
 
 ## 13. Follow-ups
 
