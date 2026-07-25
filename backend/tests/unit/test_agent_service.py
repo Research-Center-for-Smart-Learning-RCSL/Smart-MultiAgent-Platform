@@ -967,6 +967,47 @@ class TestSanitizeCapturedTools:
         assert len(result) == 200
         assert any("250" in w for w in warnings)
 
+    def test_strips_control_characters_from_nested_schema_strings(self) -> None:
+        # A captured description gets control-char stripping, but a schema's
+        # own embedded strings (property descriptions, enum, etc.) are equally
+        # prompt-adjacent and previously passed through unmodified.
+        schema = {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "bad\x00text"},
+                "mode": {"enum": ["read\x1f", "write"]},
+            },
+        }
+        specs = (McpToolSpec(name="t", input_schema=schema),)
+        result, warnings = _sanitize_captured_tools(specs)
+        assert warnings == []
+        cleaned = result[0].input_schema
+        assert cleaned["properties"]["path"]["description"] == "badtext"
+        assert cleaned["properties"]["mode"]["enum"] == ["read", "write"]
+        # Property names (dict keys) are structural, not content -- untouched.
+        assert set(cleaned["properties"]) == {"path", "mode"}
+
+    def test_captured_name_is_bounded(self) -> None:
+        specs = (McpToolSpec(name="a" * 900),)
+        result, _warnings = _sanitize_captured_tools(specs)
+        assert len(result[0].name) == 500
+
+    def test_total_byte_cap_counts_name_and_description(self, monkeypatch) -> None:
+        # A tool with an empty/trivial schema but a large description must
+        # still trip the total-bytes cap -- proves the counter sums
+        # name+description bytes, not schema bytes alone.
+        import contexts.agents.application.agent_service as svc_mod
+
+        monkeypatch.setattr(svc_mod, "_MCP_CAPTURE_MAX_TOTAL_BYTES", 100)
+        specs = (
+            McpToolSpec(name="first", description="d" * 90, input_schema={}),
+            McpToolSpec(name="second", description="d" * 90, input_schema={}),
+        )
+        result, warnings = _sanitize_captured_tools(specs)
+        assert len(result) == 2
+        assert result[1].input_schema == {"type": "object", "additionalProperties": True}
+        assert any("total" in w for w in warnings)
+
 
 # ---------------------------------------------------------------------------
 # add_tool
