@@ -125,7 +125,11 @@ async def _handle_instruct(envelope: A2AEnvelope) -> None:
 
     async with async_session() as db:
         if instruction_id is not None:
-            await OrchestrationFacade(db).mark_instruct_delivered(instruction_id)
+            delivered = await OrchestrationFacade(db).mark_instruct_delivered(instruction_id)
+            if not delivered:
+                # Already terminal (settled or clobbered by a faster writer) — not
+                # an error. The resume enqueue below reads whatever state won.
+                logger.warning("instruct %s: delivered transition rejected, already settled", instruction_id)
             await db.commit()
         # F-25: bind the delivered envelope's chain for the turn so an instruct
         # this turn issues continues the chain (loop/depth/budget guards stay
@@ -140,14 +144,20 @@ async def _handle_instruct(envelope: A2AEnvelope) -> None:
         if instruction_id is not None:
             facade = OrchestrationFacade(db)
             if result.status == "completed":
-                await facade.mark_instruct_completed(instruction_id)
+                won = await facade.mark_instruct_completed(instruction_id)
+                if not won:
+                    logger.warning(
+                        "instruct %s: completed transition rejected, already settled", instruction_id
+                    )
             else:
                 # Provider/turn failure — not a deadline timeout. mark_failed
                 # records the real cause (instruct.failed audit) while keeping
                 # a settled state the workflow resume task maps to ``failure``.
                 from contexts.orchestration.application.instruct_service import InstructService
 
-                await InstructService(db).mark_failed(instruction_id)
+                won = await InstructService(db).mark_failed(instruction_id)
+                if not won:
+                    logger.warning("instruct %s: failed transition rejected, already settled", instruction_id)
             await db.commit()
 
     # K.4: resume any workflow run parked on this instruct node — post-commit so

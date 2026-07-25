@@ -542,29 +542,76 @@ class TestInstructStateTransitions:
     @patch("contexts.orchestration.application.instruct_service.audit.emit", new_callable=AsyncMock)
     async def test_mark_delivered(self, _audit) -> None:
         instructions = AsyncMock()
+        instructions.update_state.return_value = True
         svc = _make_instruct_service(instructions=instructions)
 
-        await svc.mark_delivered(uuid.uuid4())
+        won = await svc.mark_delivered(uuid.uuid4())
+        assert won is True
         instructions.update_state.assert_awaited_once()
         assert instructions.update_state.call_args[0][1] is InstructionState.DELIVERED
+        assert instructions.update_state.call_args.kwargs["allowed_from"] == {InstructionState.ISSUED}
+        _audit.assert_not_awaited()
 
     @patch("contexts.orchestration.application.instruct_service.audit.emit", new_callable=AsyncMock)
     async def test_mark_completed(self, _audit) -> None:
         instructions = AsyncMock()
+        instructions.update_state.return_value = True
         svc = _make_instruct_service(instructions=instructions)
 
-        await svc.mark_completed(uuid.uuid4())
+        won = await svc.mark_completed(uuid.uuid4())
+        assert won is True
         assert instructions.update_state.call_args[0][1] is InstructionState.COMPLETED
+        assert instructions.update_state.call_args.kwargs["allowed_from"] == {
+            InstructionState.ISSUED,
+            InstructionState.DELIVERED,
+        }
 
     @patch("contexts.orchestration.application.instruct_service.audit.emit", new_callable=AsyncMock)
     async def test_mark_failed_uses_timeout_state(self, _audit) -> None:
         instructions = AsyncMock()
+        instructions.update_state.return_value = True
         svc = _make_instruct_service(instructions=instructions)
 
-        await svc.mark_failed(uuid.uuid4())
+        won = await svc.mark_failed(uuid.uuid4())
+        assert won is True
         assert instructions.update_state.call_args[0][1] is InstructionState.TIMEOUT
+        assert instructions.update_state.call_args.kwargs["allowed_from"] == {
+            InstructionState.ISSUED,
+            InstructionState.DELIVERED,
+        }
         _audit.assert_awaited_once()
         assert _audit.call_args[0][1].action == "instruct.failed"
+
+    @patch("contexts.orchestration.application.instruct_service.audit.emit", new_callable=AsyncMock)
+    async def test_mark_completed_reports_rejection_and_audits_conflict(self, _audit) -> None:
+        """T-10: a lost CAS returns False, does not raise, and is audited (Q-3/AC-4)."""
+        instructions = AsyncMock()
+        instructions.update_state.return_value = False
+        instructions.get.return_value = _instruction(state=InstructionState.TIMEOUT)
+        svc = _make_instruct_service(instructions=instructions)
+
+        won = await svc.mark_completed(uuid.uuid4())
+
+        assert won is False
+        _audit.assert_awaited_once()
+        event = _audit.call_args[0][1]
+        assert event.action == "instruct.terminal_conflict"
+        assert event.metadata["attempted"] == "completed"
+        assert event.metadata["actual"] == "timeout"
+
+    @patch("contexts.orchestration.application.instruct_service.audit.emit", new_callable=AsyncMock)
+    async def test_mark_failed_reports_rejection_without_failed_audit(self, _audit) -> None:
+        """A rejected mark_failed emits only the conflict audit, never instruct.failed."""
+        instructions = AsyncMock()
+        instructions.update_state.return_value = False
+        instructions.get.return_value = _instruction(state=InstructionState.COMPLETED)
+        svc = _make_instruct_service(instructions=instructions)
+
+        won = await svc.mark_failed(uuid.uuid4())
+
+        assert won is False
+        _audit.assert_awaited_once()
+        assert _audit.call_args[0][1].action == "instruct.terminal_conflict"
 
 
 class TestInstructResolveProject:

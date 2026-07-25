@@ -329,17 +329,37 @@ class InstructionRepository:
         self,
         instruction_id: uuid.UUID,
         state: InstructionState,
-    ) -> None:
+        *,
+        allowed_from: frozenset[InstructionState],
+    ) -> bool:
+        """Compare-and-set: ``state in allowed_from`` -> ``state``.
+
+        Returns True iff this call won the transition. Terminal states
+        (completed/timeout/rejected_loop) are never overwritten — the
+        predicate lives in the ``WHERE`` clause, so the invariant holds
+        regardless of interleaving and no caller can bypass it (F-15).
+
+        ``rowcount == 0`` is ambiguous between "row absent" and "transition
+        not allowed from the current state"; a follow-up ``SELECT``
+        distinguishes them only on this rare miss path, preserving the
+        existing absent-row contract (raise) while a lost race is reported.
+        """
         resolved = (
             datetime.now(UTC) if state not in (InstructionState.ISSUED, InstructionState.DELIVERED) else None
         )
         result = await self._db.execute(
             instructions.update()
-            .where(instructions.c.id == instruction_id)
+            .where(
+                instructions.c.id == instruction_id,
+                instructions.c.state.in_([s.value for s in allowed_from]),
+            )
             .values(state=state.value, resolved_at=resolved),
         )
-        if (result.rowcount or 0) == 0:
+        if (result.rowcount or 0) > 0:
+            return True
+        if await self.get(instruction_id) is None:
             raise ValueError(f"instruction {instruction_id} not found")
+        return False
 
     async def count_issued_by_agent_since(
         self,

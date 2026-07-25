@@ -170,6 +170,9 @@ By phase close:
   4. Chain has wall-clock `max_chain_seconds` default **120 s**; exceeding aborts the root workflow_run.
 - Every instruct row captures `chain_id, path, issuer, target, payload_hash, result, depth_at_issue` (R15.17).
 - Static cycle pre-check (H.5 linter rule 10) catches design-time loops in workflows.
+- `completed`, `timeout` and `rejected_loop` are terminal: once written, a terminal state is never
+  overwritten by a later writer (first-writer-wins), enforced as a compare-and-set predicate on the
+  transition's `WHERE` clause rather than in application code.
 
 **Key IDs.** `[R15.15]`–`[R15.17]`.
 

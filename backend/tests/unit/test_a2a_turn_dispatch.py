@@ -967,6 +967,52 @@ async def test_handle_instruct_failed_turn_marks_failed(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_handle_instruct_tolerates_rejected_completion(monkeypatch) -> None:
+    """T-11: Q-2 behaviour — a rejected completion (the deadline already committed
+    TIMEOUT) must not raise, and the post-commit resume enqueue must still run so
+    the resume task reads whatever state actually won."""
+    calls: list = []
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def mark_instruct_delivered(self, iid):
+            calls.append(("delivered", iid))
+            return True
+
+        async def mark_instruct_completed(self, iid):
+            calls.append(("completed", iid))
+            return False  # rejected — the deadline already won (Q-2)
+
+        async def mark_instruct_timeout(self, iid):
+            calls.append(("timeout", iid))
+            return True
+
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade)
+
+    @asynccontextmanager
+    async def _sess():
+        yield _FakeDB()
+
+    monkeypatch.setattr(h, "async_session", _sess)
+    monkeypatch.setattr(
+        h, "_run_turn_with_db", _async_return(SimpleNamespace(status="completed", text="x", reason=None))
+    )
+    enqueue_mock = AsyncMock()
+    monkeypatch.setattr("shared_kernel.queue.enqueue", enqueue_mock)
+
+    iid = uuid.uuid4()
+    await h.handle_envelope(_env(A2AMessageType.INSTRUCT, {"instruction_id": str(iid), "input": "go"}))
+
+    assert ("completed", iid) in calls
+    # _dispatch_a2a_workflow_signal (handle_envelope's first step) also calls
+    # enqueue for unrelated a2a triggers, so assert the instruct resume call
+    # specifically rather than the mock's total call count.
+    enqueue_mock.assert_any_await("workflow_resume_instruct", str(iid))
+
+
+@pytest.mark.asyncio
 async def test_run_turn_with_db_passes_parent_agent_id(monkeypatch) -> None:
     captured: dict = {}
 
