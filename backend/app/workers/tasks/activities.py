@@ -74,7 +74,7 @@ async def _run_remote_validator(
             url=str(url),
             body=envelope,
         )
-        if resp.blocked is not None or resp.status is None or not (200 <= resp.status < 400):
+        if resp.blocked is not None or resp.status is None or not (200 <= resp.status < 300):
             raise ValidatorUnavailable(resp.blocked or f"webhook status {resp.status}")
         return result_from_json(resp.body)
 
