@@ -875,15 +875,13 @@ async def test_resume_instruct_pending_does_not_claim(monkeypatch) -> None:
 
 async def test_instruct_timeout_enqueues_resume_when_row_already_timed_out(monkeypatch) -> None:
     """T-6: the job must resume even when it finds the row already TIMEOUT — its
-    own prior committed effect on a retry — instead of hard no-op'ing (F-16)."""
+    own prior committed effect on a retry — instead of hard no-op'ing (F-16).
+    No preliminary get_instruction: mark_instruct_timeout's own CAS is the only
+    read (code-review follow-up — the prior version discarded a redundant one)."""
     from app.workers.tasks import workflow as wf
-    from contexts.orchestration.domain.models import InstructionState
 
     iid = uuid.uuid4()
-    facade = SimpleNamespace(
-        get_instruction=AsyncMock(return_value=SimpleNamespace(state=InstructionState.TIMEOUT)),
-        mark_instruct_timeout=AsyncMock(return_value=False),
-    )
+    facade = SimpleNamespace(mark_instruct_timeout=AsyncMock(return_value=False))
     db = MagicMock()
     db.commit = AsyncMock()
     monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db))
@@ -902,14 +900,10 @@ async def test_instruct_timeout_retry_after_enqueue_failure_still_resumes(monkey
     and the retry — reading its own committed TIMEOUT — must still reach the
     enqueue instead of returning "noop" and stalling the run forever."""
     from app.workers.tasks import workflow as wf
-    from contexts.orchestration.domain.models import InstructionState
 
     iid = uuid.uuid4()
 
-    facade_1 = SimpleNamespace(
-        get_instruction=AsyncMock(return_value=SimpleNamespace(state=InstructionState.ISSUED)),
-        mark_instruct_timeout=AsyncMock(return_value=True),
-    )
+    facade_1 = SimpleNamespace(mark_instruct_timeout=AsyncMock(return_value=True))
     db_1 = MagicMock()
     db_1.commit = AsyncMock()
     monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db_1))
@@ -921,10 +915,7 @@ async def test_instruct_timeout_retry_after_enqueue_failure_still_resumes(monkey
         await wf.workflow_instruct_timeout({"redis": pool_1}, str(iid))
 
     # Retry: the row is now committed TIMEOUT from the first attempt's write.
-    facade_2 = SimpleNamespace(
-        get_instruction=AsyncMock(return_value=SimpleNamespace(state=InstructionState.TIMEOUT)),
-        mark_instruct_timeout=AsyncMock(return_value=False),
-    )
+    facade_2 = SimpleNamespace(mark_instruct_timeout=AsyncMock(return_value=False))
     db_2 = MagicMock()
     db_2.commit = AsyncMock()
     monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db_2))
@@ -941,13 +932,9 @@ async def test_instruct_timeout_completed_row_enqueues_resume_without_writing_st
     """T-8: belt for a lost a2a_handler.py:151 enqueue — a COMPLETED row still gets
     its resume enqueued. Harmless: workflow_resume_instruct is single-shot via GETDEL."""
     from app.workers.tasks import workflow as wf
-    from contexts.orchestration.domain.models import InstructionState
 
     iid = uuid.uuid4()
-    facade = SimpleNamespace(
-        get_instruction=AsyncMock(return_value=SimpleNamespace(state=InstructionState.COMPLETED)),
-        mark_instruct_timeout=AsyncMock(return_value=False),
-    )
+    facade = SimpleNamespace(mark_instruct_timeout=AsyncMock(return_value=False))
     db = MagicMock()
     db.commit = AsyncMock()
     monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db))
@@ -962,11 +949,13 @@ async def test_instruct_timeout_completed_row_enqueues_resume_without_writing_st
 
 async def test_instruct_timeout_absent_row_is_noop_gone(monkeypatch) -> None:
     """T-9: an absent row is the only case that skips both effects — guards the
-    fall-through from becoming unconditional."""
+    fall-through from becoming unconditional. Absence now surfaces as
+    mark_instruct_timeout's own ValueError (the repository's existing
+    absent-row contract), not a separate get_instruction pre-check."""
     from app.workers.tasks import workflow as wf
 
     iid = uuid.uuid4()
-    facade = SimpleNamespace(get_instruction=AsyncMock(return_value=None))
+    facade = SimpleNamespace(mark_instruct_timeout=AsyncMock(side_effect=ValueError("not found")))
     db = MagicMock()
     monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db))
     monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade)
