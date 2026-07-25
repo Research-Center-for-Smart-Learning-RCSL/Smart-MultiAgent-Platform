@@ -43,7 +43,7 @@ parallel.
   `docs/audits/2026-07-22-agent-config-runtime/` F-11 (major): re-uploading a document discards
   the submitted per-agent allowlist on all four ingestion entry points, so the retry path cannot
   correct a wrong binding. Backend plus a frontend 409 handler.
-- `2026-07-22-join-epoch-loop-reentry` (bugfix, draft) — `depends_on: []`. a2a F-11: an `any`/`count`
+- `2026-07-22-join-epoch-loop-reentry` (bugfix, approved) — `depends_on: []`. a2a F-11: an `any`/`count`
   join reached by a loop back-edge fires once and stalls, because the one-shot latch is claimed at
   `fire_threshold` arrivals and released only at `total_branches`. Folds in an ALL-mode deadlock the
   audit did not name. **Recommended to land before** `wait-for-event-timer-and-join-ports`.
