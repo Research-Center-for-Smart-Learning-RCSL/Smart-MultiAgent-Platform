@@ -298,14 +298,14 @@ class OrchestrationFacade:
             trigger_path=trigger_path,
         )
 
-    async def mark_instruct_delivered(self, instruction_id: uuid.UUID) -> None:
-        await self._instruct.mark_delivered(instruction_id)
+    async def mark_instruct_delivered(self, instruction_id: uuid.UUID) -> bool:
+        return await self._instruct.mark_delivered(instruction_id)
 
-    async def mark_instruct_completed(self, instruction_id: uuid.UUID) -> None:
-        await self._instruct.mark_completed(instruction_id)
+    async def mark_instruct_completed(self, instruction_id: uuid.UUID) -> bool:
+        return await self._instruct.mark_completed(instruction_id)
 
-    async def mark_instruct_timeout(self, instruction_id: uuid.UUID) -> None:
-        await self._instruct.mark_timeout(instruction_id)
+    async def mark_instruct_timeout(self, instruction_id: uuid.UUID) -> bool:
+        return await self._instruct.mark_timeout(instruction_id)
 
     async def get_instruction(self, instruction_id: uuid.UUID) -> Instruction | None:
         return await self._instruct.get_instruction(instruction_id)

@@ -41,6 +41,14 @@ from contexts.orchestration.infrastructure.metrics import INSTRUCT_CHAIN_DEPTH
 from contexts.orchestration.infrastructure.repositories import InstructionRepository
 from shared_kernel import audit
 
+# Allowed predecessors per target state, mirroring the state machine in
+# domain/models.py's InstructionState and docs/implement/G-orchestration.md.
+# REJECTED_LOOP is never a target of update_state — it is only ever set at
+# INSERT, so it needs no transition set.
+_DELIVERED_FROM = frozenset({InstructionState.ISSUED})
+_COMPLETED_FROM = frozenset({InstructionState.ISSUED, InstructionState.DELIVERED})
+_TIMEOUT_FROM = frozenset({InstructionState.ISSUED, InstructionState.DELIVERED})
+
 
 class InstructService:
     """Application-level instruct chain management (G.7)."""
@@ -244,37 +252,53 @@ class InstructService:
         run = await WorkflowFacade(self._db).get_run(workflow_run_id)
         return run.started_at if run else None
 
-    async def mark_delivered(self, instruction_id: uuid.UUID) -> None:
-        await self._instructions.update_state(
+    async def mark_delivered(self, instruction_id: uuid.UUID) -> bool:
+        won = await self._instructions.update_state(
             instruction_id,
             InstructionState.DELIVERED,
+            allowed_from=_DELIVERED_FROM,
         )
+        if not won:
+            await self._audit_terminal_conflict(instruction_id, InstructionState.DELIVERED)
+        return won
 
-    async def mark_completed(self, instruction_id: uuid.UUID) -> None:
-        await self._instructions.update_state(
+    async def mark_completed(self, instruction_id: uuid.UUID) -> bool:
+        won = await self._instructions.update_state(
             instruction_id,
             InstructionState.COMPLETED,
+            allowed_from=_COMPLETED_FROM,
         )
+        if not won:
+            await self._audit_terminal_conflict(instruction_id, InstructionState.COMPLETED)
+        return won
 
-    async def mark_timeout(self, instruction_id: uuid.UUID) -> None:
-        await self._instructions.update_state(
+    async def mark_timeout(self, instruction_id: uuid.UUID) -> bool:
+        won = await self._instructions.update_state(
             instruction_id,
             InstructionState.TIMEOUT,
+            allowed_from=_TIMEOUT_FROM,
         )
+        if not won:
+            await self._audit_terminal_conflict(instruction_id, InstructionState.TIMEOUT)
+        return won
 
-    async def mark_failed(self, instruction_id: uuid.UUID) -> None:
+    async def mark_failed(self, instruction_id: uuid.UUID) -> bool:
         """Record a provider/turn failure — distinct from a deadline timeout.
 
         The DB ``instruction_state`` enum has no ``failed`` member (adding one
         needs a migration plus a resume-port mapping change), so the row
         settles as TIMEOUT — which the workflow resume task already maps to
         the ``failure`` port — and the actual cause is preserved as an
-        ``instruct.failed`` audit event.
+        ``instruct.failed`` audit event, emitted only when the transition wins.
         """
-        await self._instructions.update_state(
+        won = await self._instructions.update_state(
             instruction_id,
             InstructionState.TIMEOUT,
+            allowed_from=_TIMEOUT_FROM,
         )
+        if not won:
+            await self._audit_terminal_conflict(instruction_id, InstructionState.TIMEOUT)
+            return False
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -282,6 +306,31 @@ class InstructService:
                 resource_type="instruction",
                 resource_id=instruction_id,
                 metadata={"reason": "turn_failed"},
+            ),
+        )
+        return True
+
+    async def _audit_terminal_conflict(
+        self,
+        instruction_id: uuid.UUID,
+        attempted: InstructionState,
+    ) -> None:
+        """A rejected CAS is a normal, monitored outcome, not a silent no-op.
+
+        Carries the state the row actually settled at so operators can tell a
+        legitimate race (F-15) from a caller bug.
+        """
+        current = await self._instructions.get(instruction_id)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="instruct.terminal_conflict",
+                resource_type="instruction",
+                resource_id=instruction_id,
+                metadata={
+                    "attempted": attempted.value,
+                    "actual": current.state.value if current else None,
+                },
             ),
         )
 
