@@ -531,6 +531,115 @@ class TestSubmitInProcess:
         assert kwargs["error_class"] == "validator_error"
 
 
+class TestAgentDigest:
+    """Agent-visibility follow-up: submit-time digest computation + echo gating."""
+
+    def teardown_method(self) -> None:
+        registry.clear_registry()
+
+    async def test_submit_stores_payload_fallback_digest_when_no_detail(self) -> None:
+        activity_type = _make_type(project_id=uuid.uuid4())
+        registry.register_in_process_validator("vid", lambda p, a, *, db: ValidationResult(is_valid=True))
+        svc, sub_repo, session = _wire_submission_service(activity_type)
+
+        with (
+            patch.object(ss, "ConversationFacade") as conv,
+            patch.object(ss.audit, "emit", new=AsyncMock()),
+        ):
+            conv.return_value.insert_system_message = AsyncMock()
+            await svc.submit(
+                project_id=activity_type.project_id,
+                activity_type_id=activity_type.id,
+                chatroom_id=session.chatroom_id,
+                producer_user_id=session.subject_user_id,
+                subject_user_id=session.subject_user_id,
+                caller_user_id=session.subject_user_id,
+                payload={"answer": "x"},
+                actor_user_id=session.subject_user_id,
+                actor_ip=None,
+            )
+
+        kwargs = sub_repo.insert.await_args.kwargs
+        assert kwargs["agent_digest"] == '{"answer":"x"}'
+
+    async def test_submit_prefers_validator_detail_over_payload(self) -> None:
+        activity_type = _make_type(project_id=uuid.uuid4())
+        registry.register_in_process_validator(
+            "vid", lambda p, a, *, db: ValidationResult(is_valid=True, detail="drew a red circle")
+        )
+        svc, sub_repo, session = _wire_submission_service(activity_type)
+
+        with (
+            patch.object(ss, "ConversationFacade") as conv,
+            patch.object(ss.audit, "emit", new=AsyncMock()),
+        ):
+            conv.return_value.insert_system_message = AsyncMock()
+            await svc.submit(
+                project_id=activity_type.project_id,
+                activity_type_id=activity_type.id,
+                chatroom_id=session.chatroom_id,
+                producer_user_id=session.subject_user_id,
+                subject_user_id=session.subject_user_id,
+                caller_user_id=session.subject_user_id,
+                payload={"answer": "x"},
+                actor_user_id=session.subject_user_id,
+                actor_ip=None,
+            )
+
+        kwargs = sub_repo.insert.await_args.kwargs
+        assert kwargs["agent_digest"] == "drew a red circle"
+
+    async def test_echo_omits_content_by_default(self) -> None:
+        activity_type = _make_type(project_id=uuid.uuid4())  # echo_includes_content defaults False
+        registry.register_in_process_validator("vid", lambda p, a, *, db: ValidationResult(is_valid=True))
+        svc, _sub_repo, session = _wire_submission_service(activity_type)
+
+        with (
+            patch.object(ss, "ConversationFacade") as conv,
+            patch.object(ss.audit, "emit", new=AsyncMock()),
+        ):
+            conv.return_value.insert_system_message = AsyncMock()
+            await svc.submit(
+                project_id=activity_type.project_id,
+                activity_type_id=activity_type.id,
+                chatroom_id=session.chatroom_id,
+                producer_user_id=session.subject_user_id,
+                subject_user_id=session.subject_user_id,
+                caller_user_id=session.subject_user_id,
+                payload={"answer": "x"},
+                actor_user_id=session.subject_user_id,
+                actor_ip=None,
+            )
+            echo_kwargs = conv.return_value.insert_system_message.await_args.kwargs
+
+        assert "Content:" not in echo_kwargs["content_md"]
+
+    async def test_echo_includes_content_when_type_opts_in(self) -> None:
+        activity_type = _make_type(project_id=uuid.uuid4(), echo_includes_content=True)
+        registry.register_in_process_validator("vid", lambda p, a, *, db: ValidationResult(is_valid=True))
+        svc, _sub_repo, session = _wire_submission_service(activity_type)
+
+        with (
+            patch.object(ss, "ConversationFacade") as conv,
+            patch.object(ss.audit, "emit", new=AsyncMock()),
+        ):
+            conv.return_value.insert_system_message = AsyncMock()
+            await svc.submit(
+                project_id=activity_type.project_id,
+                activity_type_id=activity_type.id,
+                chatroom_id=session.chatroom_id,
+                producer_user_id=session.subject_user_id,
+                subject_user_id=session.subject_user_id,
+                caller_user_id=session.subject_user_id,
+                payload={"answer": "x"},
+                actor_user_id=session.subject_user_id,
+                actor_ip=None,
+            )
+            echo_kwargs = conv.return_value.insert_system_message.await_args.kwargs
+
+        assert 'Content: {"answer":"x"}' in echo_kwargs["content_md"]
+
+
 def _make_submission(**over: Any) -> ActivitySubmission:
     base: dict[str, Any] = {
         "id": uuid.uuid4(),
@@ -646,6 +755,43 @@ class TestBuildActivitySignal:
         svc._sub_repo.get = AsyncMock(return_value=None)
 
         assert await svc.build_activity_signal(submission_id=uuid.uuid4()) is None
+
+
+class TestRecordValidationDigest:
+    """Agent-visibility follow-up: async write-back refines the digest only when
+    the remote validator supplied ``detail``."""
+
+    async def test_overwrites_digest_when_detail_present(self) -> None:
+        activity_type = _make_type()
+        submission = _make_submission(activity_type_id=activity_type.id)
+        svc, sub_repo = _wire_signal_service(activity_type=activity_type, submission=submission)
+        sub_repo.record_validation = AsyncMock(return_value=True)
+
+        with patch.object(ss.audit, "emit", new=AsyncMock()):
+            await svc.record_validation(
+                submission_id=submission.id,
+                result=ValidationResult(is_valid=True, detail="a rich description"),
+                latency_ms=5,
+            )
+
+        kwargs = sub_repo.record_validation.await_args.kwargs
+        assert kwargs["agent_digest"] == "a rich description"
+
+    async def test_leaves_digest_untouched_when_no_detail(self) -> None:
+        activity_type = _make_type()
+        submission = _make_submission(activity_type_id=activity_type.id)
+        svc, sub_repo = _wire_signal_service(activity_type=activity_type, submission=submission)
+        sub_repo.record_validation = AsyncMock(return_value=True)
+
+        with patch.object(ss.audit, "emit", new=AsyncMock()):
+            await svc.record_validation(
+                submission_id=submission.id,
+                result=ValidationResult(is_valid=True),
+                latency_ms=5,
+            )
+
+        kwargs = sub_repo.record_validation.await_args.kwargs
+        assert kwargs["agent_digest"] is None
 
 
 class TestOpenSessionTenantIsolation:

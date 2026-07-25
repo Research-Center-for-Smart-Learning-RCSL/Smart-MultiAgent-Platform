@@ -1,10 +1,14 @@
-"""Observer context provider — recent structured activity as a system block (§30, R30.15).
+"""Activity context provider — recent structured activity as a system block (§30, R30.15).
 
 Mirrors the RAG/knowledge-map context providers (their home is
 ``<context>/application/``, imported directly by the turn engine): a ``query(...)
 -> str | None`` returning a formatted ``[Recent room activity]`` block or ``None``.
-Best-effort: any failure degrades to ``None`` and never breaks the observer turn
-(R30.16). Reads only deterministic, server-computed facts — no LLM inference.
+Best-effort: any failure degrades to ``None`` and never breaks the calling turn
+(R30.16). Given to every agent's turn, not just observers (agent-visibility
+follow-up) — each row's submission content is included only when that row's
+``ActivityType.expose_payload_to_agent`` allows it; outcome fields (attempt#,
+valid/invalid, error class) are always deterministic, server-computed facts, never
+LLM inference.
 """
 
 from __future__ import annotations
@@ -48,7 +52,10 @@ def _format_row(row: RecentActivityRow) -> str:
     subject = f"u:{str(row.subject_user_id)[:8]}"
     outcome = _outcome(row.validation_status, row.is_valid)
     suffix = f" [{row.error_class}]" if row.error_class else ""
-    return f"- ({ts}) {subject} #{row.attempt_no} {row.type_key}: {outcome}{suffix}"
+    line = f"- ({ts}) {subject} #{row.attempt_no} {row.type_key}: {outcome}{suffix}"
+    if row.expose_payload_to_agent and row.agent_digest:
+        line += f" — {row.agent_digest}"
+    return line
 
 
 def _outcome(status: ValidationStatus, is_valid: bool | None) -> str:

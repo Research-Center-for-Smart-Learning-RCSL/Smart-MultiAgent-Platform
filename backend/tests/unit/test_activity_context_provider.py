@@ -1,8 +1,9 @@
 """ActivityContextProvider — block formatting, coverage gate, best-effort (AC-1,2,4).
 
-The provider is where the observer block is built; these cover the deterministic
-formatting, the None-on-empty coverage gate, and the None-on-exception
-degradation. Engine-level gating (observer vs non-observer) is covered in
+The provider is where the activity block is built; these cover the deterministic
+formatting, the per-row agent-digest gate (``expose_payload_to_agent``), the
+None-on-empty coverage gate, and the None-on-exception degradation. Engine-level
+wiring (every agent's turn, not just observer) is covered in
 ``test_turn_engine_observer_activity.py``.
 """
 
@@ -70,6 +71,38 @@ class TestFormatting:
         with patch(_FACADE, return_value=facade):
             await ActivityContextProvider(MagicMock()).query(chatroom_id=uuid.uuid4(), limit=5)
         assert facade.list_recent_activity.await_args.args[1] == 5
+
+    async def test_digest_included_when_type_exposes_it(self) -> None:
+        """Agent-visibility follow-up: a row whose type opts in surfaces its
+        digest inline."""
+        rows = [_row(agent_digest="drew a red circle", expose_payload_to_agent=True)]
+        with patch(_FACADE, return_value=_facade_returning(rows)):
+            block = await ActivityContextProvider(MagicMock()).query(chatroom_id=uuid.uuid4())
+
+        assert block is not None
+        assert "drew a red circle" in block
+
+    async def test_digest_omitted_when_type_opts_out(self) -> None:
+        rows = [_row(agent_digest="should not leak", expose_payload_to_agent=False)]
+        with patch(_FACADE, return_value=_facade_returning(rows)):
+            block = await ActivityContextProvider(MagicMock()).query(chatroom_id=uuid.uuid4())
+
+        assert block is not None
+        assert "should not leak" not in block
+
+    async def test_mixed_type_room_gates_per_row(self) -> None:
+        """A room with two activity types gates independently per submission's
+        own type, not room-wide."""
+        rows = [
+            _row(attempt_no=1, agent_digest="visible content", expose_payload_to_agent=True),
+            _row(attempt_no=2, agent_digest="hidden content", expose_payload_to_agent=False),
+        ]
+        with patch(_FACADE, return_value=_facade_returning(rows)):
+            block = await ActivityContextProvider(MagicMock()).query(chatroom_id=uuid.uuid4())
+
+        assert block is not None
+        assert "visible content" in block
+        assert "hidden content" not in block
 
 
 class TestCoverageGateAndFailure:

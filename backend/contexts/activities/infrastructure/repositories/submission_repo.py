@@ -43,6 +43,7 @@ _SUB_COLS = (
     _SUB.c.latency_ms,
     _SUB.c.retain_until,
     _SUB.c.created_at,
+    _SUB.c.agent_digest,
     _SUB.c.validated_at,
     _SUB.c.deleted_at,
 )
@@ -64,6 +65,7 @@ def _row_to_submission(row: object) -> ActivitySubmission:
         latency_ms=row.latency_ms,  # type: ignore[attr-defined]
         retain_until=row.retain_until,  # type: ignore[attr-defined]
         created_at=row.created_at,  # type: ignore[attr-defined]
+        agent_digest=row.agent_digest,  # type: ignore[attr-defined]
         validated_at=row.validated_at,  # type: ignore[attr-defined]
         deleted_at=row.deleted_at,  # type: ignore[attr-defined]
     )
@@ -103,6 +105,7 @@ class ActivitySubmissionRepository:
         latency_ms: int | None,
         retain_until: dt.datetime | None,
         validated_at: dt.datetime | None,
+        agent_digest: str | None,
     ) -> uuid.UUID:
         row = await self._db.execute(
             _SUB.insert()
@@ -120,6 +123,7 @@ class ActivitySubmissionRepository:
                 latency_ms=latency_ms,
                 retain_until=retain_until,
                 validated_at=validated_at,
+                agent_digest=agent_digest,
             )
             .returning(_SUB.c.id)
         )
@@ -163,10 +167,23 @@ class ActivitySubmissionRepository:
         sub_scores: dict[str, Any],
         latency_ms: int | None,
         validated_at: dt.datetime,
+        agent_digest: str | None = None,
     ) -> bool:
         """Write a completed verdict — idempotent: transitions **only** from
         ``pending``, so a redelivered/retried job or a race with the watchdog is
-        a no-op (0 rows)."""
+        a no-op (0 rows). ``agent_digest`` is omitted from the update (leaving the
+        submit-time payload-fallback digest in place) unless the caller has a
+        richer ``ValidationResult.detail`` to replace it with."""
+        values: dict[str, Any] = {
+            "validation_status": ValidationStatus.VALIDATED.value,
+            "is_valid": is_valid,
+            "error_class": error_class,
+            "sub_scores": sub_scores,
+            "latency_ms": latency_ms,
+            "validated_at": validated_at,
+        }
+        if agent_digest is not None:
+            values["agent_digest"] = agent_digest
         result = await self._db.execute(
             _SUB.update()
             .where(
@@ -175,14 +192,7 @@ class ActivitySubmissionRepository:
                     _SUB.c.validation_status == ValidationStatus.PENDING.value,
                 )
             )
-            .values(
-                validation_status=ValidationStatus.VALIDATED.value,
-                is_valid=is_valid,
-                error_class=error_class,
-                sub_scores=sub_scores,
-                latency_ms=latency_ms,
-                validated_at=validated_at,
-            )
+            .values(**values)
         )
         return bool(rowcount(result))
 
@@ -261,6 +271,8 @@ class ActivitySubmissionRepository:
                     _SUB.c.validation_status,
                     _SUB.c.is_valid,
                     _SUB.c.error_class,
+                    _SUB.c.agent_digest,
+                    _TYPE.c.expose_payload_to_agent,
                 )
                 .select_from(
                     _SUB.join(_SESS, _SESS.c.id == _SUB.c.session_id).join(
@@ -281,6 +293,8 @@ class ActivitySubmissionRepository:
                 validation_status=ValidationStatus(r.validation_status),
                 is_valid=r.is_valid,
                 error_class=r.error_class,
+                agent_digest=r.agent_digest,
+                expose_payload_to_agent=r.expose_payload_to_agent,
             )
             for r in rows
         ]

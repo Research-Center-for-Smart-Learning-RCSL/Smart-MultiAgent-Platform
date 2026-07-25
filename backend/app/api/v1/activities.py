@@ -64,6 +64,8 @@ class ActivityTypeIn(BaseModel):
     validator_kind: ValidatorKind
     validator_config: dict[str, Any] = Field(default_factory=dict)
     retention_days: int | None = Field(default=None, ge=1)
+    expose_payload_to_agent: bool = True
+    echo_includes_content: bool = False
 
 
 class ActivityTypeUpdateIn(BaseModel):
@@ -76,6 +78,8 @@ class ActivityTypeUpdateIn(BaseModel):
     validator_kind: ValidatorKind
     validator_config: dict[str, Any] = Field(default_factory=dict)
     retention_days: int | None = Field(default=None, ge=1)
+    expose_payload_to_agent: bool = True
+    echo_includes_content: bool = False
 
 
 class ActivityTypeOut(BaseModel):
@@ -87,6 +91,8 @@ class ActivityTypeOut(BaseModel):
     validator_kind: ValidatorKind
     validator_config: dict[str, Any]
     retention_days: int | None
+    expose_payload_to_agent: bool
+    echo_includes_content: bool
     created_at: str | None
 
 
@@ -173,6 +179,8 @@ def _type_out(t: ActivityType) -> ActivityTypeOut:
         validator_kind=t.validator_kind,
         validator_config=t.validator_config,
         retention_days=t.retention_days,
+        expose_payload_to_agent=t.expose_payload_to_agent,
+        echo_includes_content=t.echo_includes_content,
         created_at=t.created_at.isoformat() if t.created_at else None,
     )
 
@@ -254,6 +262,8 @@ async def register_activity_type(
         validator_kind=body.validator_kind,
         validator_config=body.validator_config,
         retention_days=body.retention_days,
+        expose_payload_to_agent=body.expose_payload_to_agent,
+        echo_includes_content=body.echo_includes_content,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
@@ -312,6 +322,8 @@ async def update_activity_type(
         validator_kind=body.validator_kind,
         validator_config=body.validator_config,
         retention_days=body.retention_days,
+        expose_payload_to_agent=body.expose_payload_to_agent,
+        echo_includes_content=body.echo_includes_content,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,

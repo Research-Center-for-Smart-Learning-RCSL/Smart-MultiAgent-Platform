@@ -58,6 +58,10 @@ class ActivityType:
     retention_days: int | None
     version: int
     created_at: dt.datetime
+    # Presentation-only gates on the already-persisted ``agent_digest`` (never
+    # affect what is stored, only what each channel is allowed to show).
+    expose_payload_to_agent: bool = True
+    echo_includes_content: bool = False
     deleted_at: dt.datetime | None = None
 
 
@@ -107,6 +111,10 @@ class ActivitySubmission:
     latency_ms: int | None
     retain_until: dt.datetime | None
     created_at: dt.datetime
+    # Always computed at submit (payload-JSON fallback) and refined once a
+    # validator supplies ``ValidationResult.detail``; presentation is gated by
+    # the type's ``expose_payload_to_agent``/``echo_includes_content``, not here.
+    agent_digest: str | None = None
     validated_at: dt.datetime | None = None
     deleted_at: dt.datetime | None = None
 
@@ -134,6 +142,8 @@ class RecentActivityRow:
     validation_status: ValidationStatus
     is_valid: bool | None
     error_class: str | None
+    agent_digest: str | None = None
+    expose_payload_to_agent: bool = True
 
 
 @dataclass(frozen=True, slots=True)

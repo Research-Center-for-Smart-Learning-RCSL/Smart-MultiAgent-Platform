@@ -31,6 +31,8 @@ _TYPE_COLS = (
     t.activity_types.c.retention_days,
     t.activity_types.c.version,
     t.activity_types.c.created_at,
+    t.activity_types.c.expose_payload_to_agent,
+    t.activity_types.c.echo_includes_content,
     t.activity_types.c.deleted_at,
 )
 
@@ -47,6 +49,8 @@ def _row_to_type(row: object) -> ActivityType:
         retention_days=row.retention_days,  # type: ignore[attr-defined]
         version=row.version,  # type: ignore[attr-defined]
         created_at=row.created_at,  # type: ignore[attr-defined]
+        expose_payload_to_agent=row.expose_payload_to_agent,  # type: ignore[attr-defined]
+        echo_includes_content=row.echo_includes_content,  # type: ignore[attr-defined]
         deleted_at=row.deleted_at,  # type: ignore[attr-defined]
     )
 
@@ -65,6 +69,8 @@ class ActivityTypeRepository:
         validator_kind: ValidatorKind,
         validator_config: dict[str, Any],
         retention_days: int | None,
+        expose_payload_to_agent: bool,
+        echo_includes_content: bool,
     ) -> uuid.UUID:
         """Insert a type and return its id (caller owns commit).
 
@@ -84,6 +90,8 @@ class ActivityTypeRepository:
                     validator_kind=validator_kind.value,
                     validator_config=validator_config,
                     retention_days=retention_days,
+                    expose_payload_to_agent=expose_payload_to_agent,
+                    echo_includes_content=echo_includes_content,
                 )
                 .returning(t.activity_types.c.id)
             )
@@ -135,6 +143,8 @@ class ActivityTypeRepository:
         validator_kind: ValidatorKind,
         validator_config: dict[str, Any],
         retention_days: int | None,
+        expose_payload_to_agent: bool,
+        echo_includes_content: bool,
         bump_version: bool,
     ) -> bool:
         """Replace a live type's editable fields (``key`` excluded); the
@@ -147,6 +157,8 @@ class ActivityTypeRepository:
             "validator_kind": validator_kind.value,
             "validator_config": validator_config,
             "retention_days": retention_days,
+            "expose_payload_to_agent": expose_payload_to_agent,
+            "echo_includes_content": echo_includes_content,
         }
         if bump_version:
             values["version"] = t.activity_types.c.version + 1

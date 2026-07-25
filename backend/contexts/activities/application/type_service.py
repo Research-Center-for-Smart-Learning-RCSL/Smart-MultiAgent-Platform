@@ -44,6 +44,8 @@ class ActivityTypeService:
         retention_days: int | None,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
+        expose_payload_to_agent: bool = True,
+        echo_includes_content: bool = False,
         request_id: uuid.UUID | None = None,
     ) -> ActivityType:
         validate_schema_wellformed(payload_schema)
@@ -56,6 +58,8 @@ class ActivityTypeService:
             validator_kind=validator_kind,
             validator_config=validator_config,
             retention_days=retention_days,
+            expose_payload_to_agent=expose_payload_to_agent,
+            echo_includes_content=echo_includes_content,
         )
         await audit.emit(
             self._db,
@@ -86,16 +90,19 @@ class ActivityTypeService:
         retention_days: int | None,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
+        expose_payload_to_agent: bool = True,
+        echo_includes_content: bool = False,
         request_id: uuid.UUID | None = None,
     ) -> ActivityType:
         """Edit an existing type's fields (``key`` is never editable, R30.23).
 
-        Safe metadata (``name``, ``retention_days``) may change any time. A change
-        to a behavioral field (``payload_schema``/``validator_kind``/
-        ``validator_config``) re-runs registration's validators, bumps ``version``,
-        and is rejected while any active activation references the type — otherwise
-        an in-flight activation would desync. The ``project_id`` guard keeps this
-        tenant-safe (mirrors ``delete_type``).
+        Safe metadata (``name``, ``retention_days``, ``expose_payload_to_agent``,
+        ``echo_includes_content``) may change any time. A change to a behavioral
+        field (``payload_schema``/``validator_kind``/``validator_config``) re-runs
+        registration's validators, bumps ``version``, and is rejected while any
+        active activation references the type — otherwise an in-flight activation
+        would desync. The ``project_id`` guard keeps this tenant-safe (mirrors
+        ``delete_type``).
         """
         existing = await self._repo.get(type_id)
         if existing is None or existing.project_id != project_id:
@@ -119,6 +126,8 @@ class ActivityTypeService:
             validator_kind=validator_kind,
             validator_config=validator_config,
             retention_days=retention_days,
+            expose_payload_to_agent=expose_payload_to_agent,
+            echo_includes_content=echo_includes_content,
             bump_version=behavioral_changed,
         )
         await audit.emit(
