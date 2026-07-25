@@ -558,7 +558,7 @@ class TurnEngine:
             qdrant_url=qdrant_url,
             qdrant_api_key=qdrant_api_key,
         )
-        # §30 (R30.15): recent structured activity events for an OBSERVER turn.
+        # §30 (R30.15): recent structured activity events, for every agent's turn.
         # Coverage-gated (only present when the room has activities); built once.
         self._activity_provider = ActivityContextProvider(db)
         # Rooms whose one-shot POST /compact arming this engine consumed, mapped
@@ -1861,9 +1861,12 @@ class TurnEngine:
             # to run a file that is not there. Reported once, with the tap's own drops.
             bound_skills = bound_skills.without(unstaged)
             await self._report_skill_drops(agent, chatroom_id, room, bound_skills)
-            # §30 (R30.15): an observer also sees the room's recent structured
-            # activity events. Coverage-gated: None when the room has no activities.
-            activity_block = await self._activity_context(chatroom_id) if is_observer else None
+            # §30 (R30.15, agent-visibility follow-up): every agent's turn sees the
+            # room's recent structured activity events, not just observers — the
+            # provider itself gates per-submission content on that row's
+            # ActivityType.expose_payload_to_agent. Coverage-gated: None when the
+            # room has no activities.
+            activity_block = await self._activity_context(chatroom_id)
             skills_note = SkillsFacade.render_index(bound_skills.skills)
             # AC-19 / [R31.17]: the tool appends one entry per served body read, and the
             # reply's metadata carries them. Collected here rather than inside the tool so
@@ -3011,7 +3014,7 @@ class TurnEngine:
 
         Coverage-gated inside the provider (returns ``None`` when the room has no
         activity events) and best-effort (``None`` on any failure), so a broken
-        activities read never breaks the observer turn."""
+        activities read never breaks the calling turn — observer or not."""
         return await self._activity_provider.query(chatroom_id=chatroom_id)
 
     async def _audit(

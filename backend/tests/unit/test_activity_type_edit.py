@@ -117,6 +117,21 @@ class TestUpdateService:
         svc._activation_repo.list_active_for_type.assert_not_awaited()
         svc._emit.assert_awaited_once()  # type: ignore[attr-defined]  # AC-3
 
+    async def test_agent_visibility_toggles_are_safe_metadata(self) -> None:
+        """Agent-visibility follow-up: flipping expose_payload_to_agent/
+        echo_includes_content alone is metadata-only — no version bump, no active
+        guard, even while an activation is live."""
+        existing = _make_type()
+        svc = _wire_service(existing, active=[_active(existing.id)])
+
+        await _update(svc, existing, expose_payload_to_agent=False, echo_includes_content=True)
+
+        kwargs = svc._repo.update.await_args.kwargs
+        assert kwargs["bump_version"] is False
+        assert kwargs["expose_payload_to_agent"] is False
+        assert kwargs["echo_includes_content"] is True
+        svc._activation_repo.list_active_for_type.assert_not_awaited()
+
     async def test_behavioral_edit_bumps_version(self) -> None:
         """AC-6: a payload_schema change bumps version and re-runs validation."""
         existing = _make_type()

@@ -408,6 +408,16 @@
       },
       "ActivityTypeIn": {
         "properties": {
+          "echo_includes_content": {
+            "default": false,
+            "title": "Echo Includes Content",
+            "type": "boolean"
+          },
+          "expose_payload_to_agent": {
+            "default": true,
+            "title": "Expose Payload To Agent",
+            "type": "boolean"
+          },
           "key": {
             "maxLength": 128,
             "minLength": 1,
@@ -466,6 +476,14 @@
             ],
             "title": "Created At"
           },
+          "echo_includes_content": {
+            "title": "Echo Includes Content",
+            "type": "boolean"
+          },
+          "expose_payload_to_agent": {
+            "title": "Expose Payload To Agent",
+            "type": "boolean"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -516,6 +534,8 @@
           "validator_kind",
           "validator_config",
           "retention_days",
+          "expose_payload_to_agent",
+          "echo_includes_content",
           "created_at"
         ],
         "title": "ActivityTypeOut",
@@ -524,6 +544,16 @@
       "ActivityTypeUpdateIn": {
         "description": "Full editable representation for an edit; ``key`` is intentionally absent\n(never editable, R30.23). The edit form pre-fills and resubmits every field,\nso the service diffs this against the stored row to decide the version bump.",
         "properties": {
+          "echo_includes_content": {
+            "default": false,
+            "title": "Echo Includes Content",
+            "type": "boolean"
+          },
+          "expose_payload_to_agent": {
+            "default": true,
+            "title": "Expose Payload To Agent",
+            "type": "boolean"
+          },
           "name": {
             "maxLength": 256,
             "minLength": 1,

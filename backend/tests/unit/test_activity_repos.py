@@ -42,6 +42,10 @@ class TestSubmissionRepoScoping:
         assert "deleted_at IS NULL" in compiled
         assert "ORDER BY activity_submissions.created_at DESC" in compiled
         assert "LIMIT 7" in compiled
+        # Agent-visibility follow-up: the row carries the digest and its type's
+        # exposure flag so the context provider can gate per-row.
+        assert "activity_submissions.agent_digest" in compiled
+        assert "activity_types.expose_payload_to_agent" in compiled
 
     async def test_record_validation_transitions_only_from_pending(self) -> None:
         db = AsyncMock()
@@ -66,6 +70,51 @@ class TestSubmissionRepoScoping:
         ]
         assert "pending" in str_values
         assert "validated" in str_values
+
+    async def test_record_validation_omits_agent_digest_when_not_given(self) -> None:
+        """Agent-visibility follow-up: no ``agent_digest`` kwarg -> the SET clause
+        must not touch that column, so the submit-time fallback digest survives."""
+        db = AsyncMock()
+        result = MagicMock()
+        result.rowcount = 1
+        db.execute.return_value = result
+
+        await ActivitySubmissionRepository(db).record_validation(
+            submission_id=uuid.uuid4(),
+            is_valid=True,
+            error_class=None,
+            sub_scores={},
+            latency_ms=12,
+            validated_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        stmt = db.execute.await_args_list[0].args[0]
+        sql = str(stmt.compile(dialect=postgresql.dialect()))
+        assert "agent_digest" not in sql
+
+    async def test_record_validation_writes_agent_digest_when_given(self) -> None:
+        db = AsyncMock()
+        result = MagicMock()
+        result.rowcount = 1
+        db.execute.return_value = result
+
+        await ActivitySubmissionRepository(db).record_validation(
+            submission_id=uuid.uuid4(),
+            is_valid=True,
+            error_class=None,
+            sub_scores={},
+            latency_ms=12,
+            validated_at=datetime(2026, 1, 1, tzinfo=UTC),
+            agent_digest="a rich description",
+        )
+
+        stmt = db.execute.await_args_list[0].args[0]
+        sql = str(stmt.compile(dialect=postgresql.dialect()))
+        assert "agent_digest" in sql
+        str_values = [
+            v for v in stmt.compile(dialect=postgresql.dialect()).params.values() if isinstance(v, str)
+        ]
+        assert "a rich description" in str_values
 
     async def test_sweep_stalled_touches_only_pending(self) -> None:
         db = AsyncMock()

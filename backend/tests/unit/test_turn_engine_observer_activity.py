@@ -3,9 +3,13 @@
 Building a full TurnEngine needs settings/router/qdrant wiring, so these exercise
 the delegating ``_activity_context`` as an unbound method over a stub — proving it
 forwards to the provider and returns ``None`` when the room has no activities (the
-coverage gate the observer fold-in relies on). The ``if is_observer:`` fold-in
-placement (AC-3, non-observer never adds a block) is enforced structurally in
-``turn_engine.py`` and exercised end-to-end by the integration suite.
+coverage gate every turn relies on). Agent-visibility follow-up: the call site in
+``turn_engine.py`` (``run_turn``) no longer gates this behind ``is_observer`` —
+every agent's turn gets the block now, observer or not; per-row content gating
+lives entirely in the provider (``ActivityContextProvider``/
+``RecentActivityRow.expose_payload_to_agent``, covered in
+``test_activity_context_provider.py``). The unconditional call-site placement is
+exercised end-to-end by the integration suite, not here.
 """
 
 from __future__ import annotations

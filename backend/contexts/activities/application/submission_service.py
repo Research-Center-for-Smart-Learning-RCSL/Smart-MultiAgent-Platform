@@ -20,6 +20,7 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.activities.application.agent_digest import build_agent_digest
 from contexts.activities.application.ports import ActivityActivationRepository
 from contexts.activities.application.session_service import _ensure_subject_is_caller
 from contexts.activities.application.validators.in_process import InProcessValidator
@@ -119,6 +120,7 @@ class SubmissionService:
         latency_ms: int | None
         is_valid: bool | None
         error_class: str | None
+        detail: str | None
         if activity_type.validator_kind is ValidatorKind.IN_PROCESS:
             start = time.monotonic()
             try:
@@ -141,6 +143,7 @@ class SubmissionService:
                 error_class = "validator_error"
                 sub_scores = {}
                 validated_at = created_ts
+                detail = None
             else:
                 latency_ms = int((time.monotonic() - start) * 1000)
                 validation_status = ValidationStatus.VALIDATED
@@ -148,6 +151,7 @@ class SubmissionService:
                 error_class = result.error_class
                 sub_scores = result.sub_scores
                 validated_at = created_ts
+                detail = result.detail
         else:
             latency_ms = None
             validation_status = ValidationStatus.PENDING
@@ -155,6 +159,12 @@ class SubmissionService:
             error_class = None
             sub_scores = {}
             validated_at = None
+            detail = None
+
+        # Always computed (payload-JSON fallback when no validator ``detail`` is
+        # available yet); the two ActivityType flags gate presentation per
+        # channel, not this write (agent_digest.py docstring).
+        agent_digest = build_agent_digest(payload=dict(payload), detail=detail)
 
         submission_id = await self._sub_repo.insert(
             session_id=session.id,
@@ -170,11 +180,19 @@ class SubmissionService:
             latency_ms=latency_ms,
             retain_until=retain_until,
             validated_at=validated_at,
+            agent_digest=agent_digest,
         )
 
         await ConversationFacade(self._db).insert_system_message(
             chatroom_id=chatroom_id,
-            content_md=_echo_text(activity_type, attempt_no, validation_status, is_valid, error_class),
+            content_md=_echo_text(
+                activity_type,
+                attempt_no,
+                validation_status,
+                is_valid,
+                error_class,
+                agent_digest if activity_type.echo_includes_content else None,
+            ),
             message_type=_ECHO_TYPE,
             metadata={
                 "submission_id": str(submission_id),
@@ -224,7 +242,12 @@ class SubmissionService:
         result: ValidationResult,
         latency_ms: int | None,
     ) -> bool:
-        """Worker write-back for a completed async verdict — idempotent."""
+        """Worker write-back for a completed async verdict — idempotent.
+
+        ``result.detail`` (when the mcp/webhook validator supplied one) replaces
+        the submit-time payload-fallback ``agent_digest`` with the richer
+        description; a capped copy is passed so a large remote payload can never
+        grow the stored digest past the shared limit."""
         changed = await self._sub_repo.record_validation(
             submission_id=submission_id,
             is_valid=result.is_valid,
@@ -232,6 +255,7 @@ class SubmissionService:
             sub_scores=result.sub_scores,
             latency_ms=latency_ms,
             validated_at=now(),
+            agent_digest=build_agent_digest(payload={}, detail=result.detail) if result.detail else None,
         )
         if changed:
             await audit.emit(
@@ -391,8 +415,13 @@ def _echo_text(
     status: ValidationStatus,
     is_valid: bool | None,
     error_class: str | None,
+    agent_digest: str | None,
 ) -> str:
-    """Neutral for pending; renders the deterministic outcome for in-process."""
+    """Neutral for pending; renders the deterministic outcome for in-process.
+
+    ``agent_digest`` is the caller's *already-gated* value (``None`` unless the
+    type's ``echo_includes_content`` opts in) — this function does not re-check
+    the flag, it just appends what it is given."""
     if status is ValidationStatus.VALIDATED:
         if is_valid:
             outcome = "valid"
@@ -400,8 +429,12 @@ def _echo_text(
             outcome = f"invalid ({error_class})"
         else:
             outcome = "invalid"
-        return f"Submitted attempt #{attempt_no} to {activity_type.name}: {outcome}."
-    return f"Submitted attempt #{attempt_no} to {activity_type.name}."
+        text = f"Submitted attempt #{attempt_no} to {activity_type.name}: {outcome}."
+    else:
+        text = f"Submitted attempt #{attempt_no} to {activity_type.name}."
+    if agent_digest:
+        text = f"{text}\nContent: {agent_digest}"
+    return text
 
 
 __all__ = ["SubmissionService"]

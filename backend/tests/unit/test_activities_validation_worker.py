@@ -142,6 +142,37 @@ class TestValidateActivitySubmission:
         assert verdict.is_valid is False
         assert verdict.error_class == "wrong"
 
+    async def test_webhook_detail_is_parsed_onto_the_verdict(self) -> None:
+        """Agent-visibility follow-up: ``result_from_json`` carries a remote
+        validator's optional ``detail`` through to the verdict handed to
+        ``record_validation`` — ``SubmissionService`` is what turns it into the
+        persisted digest (covered in ``test_activities_services.py``)."""
+        sub = _submission(ValidationStatus.PENDING)
+        af = MagicMock()
+        af.get_submission = AsyncMock(return_value=sub)
+        af.get_type = AsyncMock(
+            return_value=_type(ValidatorKind.WEBHOOK, {"url": "https://validator.example.com/score"})
+        )
+        af.record_validation = AsyncMock(return_value=True)
+        agents = MagicMock()
+        agents.egress_request = AsyncMock(
+            return_value=SimpleNamespace(
+                blocked=None,
+                status=200,
+                body=b'{"is_valid": true, "detail": "matched the rubric on 3/3 criteria"}',
+            )
+        )
+        db = MagicMock()
+        db.commit = AsyncMock()
+
+        p1, p2, p3, p4, p5 = _patches(af, agents, db)
+        with p1, p2, p3, p4, p5:
+            result = await worker.validate_activity_submission({}, str(sub.id))
+
+        assert result == "validated"
+        verdict = af.record_validation.await_args.kwargs["result"]
+        assert verdict.detail == "matched the rubric on 3/3 criteria"
+
     async def test_unavailable_validator_records_error(self) -> None:
         sub = _submission(ValidationStatus.PENDING)
         af = MagicMock()
