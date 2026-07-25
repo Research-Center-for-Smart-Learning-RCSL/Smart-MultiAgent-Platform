@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.workflow.application.executors.registry import register
@@ -80,7 +81,6 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             # that never answers eventually frees the run at the failure port —
             # deferred well past commit, mirroring the approval-gate timeout arm.
             import json
-            from contextlib import suppress
             from datetime import timedelta
 
             from shared_kernel.auth.clients import get_redis
@@ -94,13 +94,21 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
                 ex=initial_claim_ttl(timeout_seconds, GATE_CLAIM_GRACE_S),
             )
             # Best-effort: if the deadline job can't be armed, the A2A path's
-            # mark_timeout still resumes the run on a failed/absent reply.
-            with suppress(Exception):
+            # mark_timeout still resumes the run on a failed/absent reply. But an
+            # unarmed deadline must not be silent (F-16 aggravating factor) — an
+            # unarmed deadline is indistinguishable from one that hasn't fired yet.
+            try:
                 await enqueue(
                     "workflow_instruct_timeout",
                     str(instruction.id),
                     _defer_by=timedelta(seconds=timeout_seconds),
                 )
+            except Exception:
+                logger.bind(
+                    instruction_id=str(instruction.id),
+                    run_id=str(ctx.run_id),
+                    node_id=node.id,
+                ).warning("instruct deadline arm failed; node parked without an active deadline")
             if output_variable:
                 ctx.variables[output_variable] = str(instruction.id)
             return StepOutcome(
