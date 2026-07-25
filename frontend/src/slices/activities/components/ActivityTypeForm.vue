@@ -44,6 +44,8 @@ function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateIn
       key: '',
       name: '',
       retention_days: null,
+      expose_payload_to_agent: true,
+      echo_includes_content: false,
       payload_schema: { type: 'object', properties: {} },
       validator_kind: 'webhook',
       webhook_url: '',
@@ -61,6 +63,8 @@ function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateIn
     key: row.key,
     name: row.name,
     retention_days: row.retention_days,
+    expose_payload_to_agent: row.expose_payload_to_agent,
+    echo_includes_content: row.echo_includes_content,
     payload_schema: row.payload_schema,
     validator_kind: row.validator_kind as ValidatorKindOption,
     webhook_url: typeof cfg.url === 'string' ? cfg.url : '',
@@ -83,6 +87,8 @@ const { handleSubmit, errors, defineField, resetForm, setErrors, setFieldError }
 const [key] = defineField('key')
 const [name] = defineField('name')
 const [retentionDays] = defineField('retention_days')
+const [exposePayloadToAgent] = defineField('expose_payload_to_agent')
+const [echoIncludesContent] = defineField('echo_includes_content')
 const [payloadSchema] = defineField('payload_schema')
 const [validatorKind] = defineField('validator_kind')
 const [webhookUrl] = defineField('webhook_url')
@@ -254,6 +260,8 @@ const onSubmit = handleSubmit((formValues) => {
     validator_kind: formValues.validator_kind as ValidatorKind,
     validator_config: assembleValidatorConfig(formValues),
     retention_days: formValues.retention_days,
+    expose_payload_to_agent: formValues.expose_payload_to_agent,
+    echo_includes_content: formValues.echo_includes_content,
   }
   if (isEdit.value && props.editType) {
     updateMutation.mutate(shared)
@@ -325,6 +333,32 @@ function onClose(): void {
           type="number"
           min="1"
         />
+      </SFormField>
+
+      <SFormField
+        :label="t('activities.typeForm.exposePayloadToAgent')"
+        name="expose_payload_to_agent"
+        :help="t('activities.typeForm.exposePayloadToAgentHelp')"
+      >
+        <SCheckbox
+          v-model="exposePayloadToAgent"
+          data-testid="type-expose-payload-to-agent"
+        >
+          {{ t('activities.typeForm.exposePayloadToAgentLabel') }}
+        </SCheckbox>
+      </SFormField>
+
+      <SFormField
+        :label="t('activities.typeForm.echoIncludesContent')"
+        name="echo_includes_content"
+        :help="t('activities.typeForm.echoIncludesContentHelp')"
+      >
+        <SCheckbox
+          v-model="echoIncludesContent"
+          data-testid="type-echo-includes-content"
+        >
+          {{ t('activities.typeForm.echoIncludesContentLabel') }}
+        </SCheckbox>
       </SFormField>
 
       <SFormField

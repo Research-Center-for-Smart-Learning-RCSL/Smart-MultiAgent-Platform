@@ -67,6 +67,8 @@ export const activityTypeCreateSchema = z
       emptyToNull,
       z.number().int().min(1).nullable().default(null),
     ),
+    expose_payload_to_agent: z.boolean().default(true),
+    echo_includes_content: z.boolean().default(false),
     payload_schema: payloadSchema,
     validator_kind: z.enum(VALIDATOR_KINDS),
     // Validator sub-form fields — validated conditionally below and folded into

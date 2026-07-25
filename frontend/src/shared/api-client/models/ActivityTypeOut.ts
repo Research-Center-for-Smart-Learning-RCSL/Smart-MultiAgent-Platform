@@ -5,6 +5,8 @@
 import type { ValidatorKind } from './ValidatorKind';
 export type ActivityTypeOut = {
     created_at: (string | null);
+    echo_includes_content: boolean;
+    expose_payload_to_agent: boolean;
     id: string;
     key: string;
     name: string;
