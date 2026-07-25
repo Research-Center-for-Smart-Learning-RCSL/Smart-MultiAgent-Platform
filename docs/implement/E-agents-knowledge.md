@@ -280,7 +280,7 @@ fetched via `read_skill`. See `docs/tasks/2026-07-16-agent-skills/`.
   - Rate limit: 60 searches / min / project, admin-tunable (R12.14).
   - Missing active search key (R12.10): agents that list `web_search` in `allowed_tools` get structured `tool_unavailable: search_key_not_configured`.
   - Audit each call as `mcp.tool_invoked` with `tool="web_search"` and truncated query ≤256 chars (R12.15). Built-in tools (`file`, `web_search`, `code_exec`) share the `mcp.tool_invoked` audit event name because they flow through the same MCP tool surface per §12; disambiguate by the `tool` field.
-  - Outbound via Egress Proxy with seeded hosts `api.search.brave.com`, `google.serper.dev`, `api.tavily.com`, `www.googleapis.com` (R12.16).
+  - Outbound via Egress Proxy; the active provider's hostname is seeded onto the project's allowlist at search-key activation, not at project creation (R12.16).
 - **Initial adapter rollout** (R12.17): v1 ships **Tavily** end-to-end plus the plug-in framework; Brave / Serper / Google CSE ship behind the same Protocol after parity tests.
 - **`code_exec`** see E.10; 30s wall cap (exceed returns `https://smap.local/problems/mcp-timeout`); stdout/stderr/exit captured.
 

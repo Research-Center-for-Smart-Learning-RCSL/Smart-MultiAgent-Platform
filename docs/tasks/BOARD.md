@@ -35,7 +35,7 @@ parallel.
   opaque strings, so tools are advertised with no parameter schema and an unvalidated tool name
   can brick every turn for an agent. One shared root cause; migration 0062 plus a driver change.
   Ship driver-first.
-- `2026-07-22-egress-allowlist-provisioning` (bugfix, draft) — `depends_on: []`. From
+- `2026-07-22-egress-allowlist-provisioning` (bugfix, approved) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-config-runtime/` F-9 (major): nothing ever seeds the egress
   allowlist, so `web_search` — enabled by default — is denied on first use in every new
   project. **Carries a non-empty SRS Delta**: the fix seeds one hostname on search-key

@@ -655,7 +655,7 @@ Because Neo4j and Qdrant are independent systems, a naïve "write both" sequence
 - **[R12.13]** Caching. The adapter caches `(provider, query_normalized, top_k, locale, freshness)` → results in Redis for 10 minutes (key `search:{hash}`) to avoid billing duplicate user questions. Cache is scoped per Project; no cross-Project cache hits.
 - **[R12.14]** Rate limiting. Per Project, max 60 searches / minute (configurable by Admin) to shield against runaway agents. Exceeding the rate returns `tool_rate_limited`.
 - **[R12.15]** All search calls are audit-logged as `mcp.tool_invoked` with `tool="web_search"`, truncated query preview (≤ 256 chars), provider name, HTTP status, result count.
-- **[R12.16]** Outbound search HTTP requests leave the platform through the **Egress Proxy** (§12.3), not from within any user-facing container. The Proxy's allowlist is seeded with the four providers' documented hostnames (`api.search.brave.com`, `google.serper.dev`, `api.tavily.com`, `www.googleapis.com`).
+- **[R12.16]** The Proxy's allowlist receives a provider's documented hostname automatically when a search key for that provider is activated for the Project — `api.search.brave.com`, `google.serper.dev`, `api.tavily.com`, or `www.googleapis.com` respectively. The entry is attributed to the activating user and audited as any manual addition is, and a Project Owner may remove it. Hostnames for `hosted_mcp` bindings are not added automatically, because they are operator-supplied; the agent tool list warns when a bound host is absent from the allowlist.
 
 ### 12.5 Initial adapter rollout
 
