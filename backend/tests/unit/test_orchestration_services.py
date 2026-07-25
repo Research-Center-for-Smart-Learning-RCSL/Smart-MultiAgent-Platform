@@ -613,6 +613,42 @@ class TestInstructStateTransitions:
         _audit.assert_awaited_once()
         assert _audit.call_args[0][1].action == "instruct.terminal_conflict"
 
+    @patch("contexts.orchestration.application.instruct_service.audit.emit", new_callable=AsyncMock)
+    async def test_mark_delivered_redelivery_retry_is_not_audited_as_conflict(self, _audit) -> None:
+        """Code-review follow-up: a rejected mark_delivered whose actual state is
+        DELIVERED (not terminal) is an ordinary at-least-once redelivery retry —
+        a2a_consumer re-runs the handler after a post-commit failure — not a
+        race. Must not pollute instruct.terminal_conflict, which exists to make
+        genuine F-15 races visible and countable."""
+        instructions = AsyncMock()
+        instructions.update_state.return_value = False
+        instructions.get.return_value = _instruction(state=InstructionState.DELIVERED)
+        svc = _make_instruct_service(instructions=instructions)
+
+        won = await svc.mark_delivered(uuid.uuid4())
+
+        assert won is False
+        _audit.assert_not_awaited()
+
+    @patch("contexts.orchestration.application.instruct_service.audit.emit", new_callable=AsyncMock)
+    async def test_mark_delivered_reports_genuine_terminal_conflict(self, _audit) -> None:
+        """The third F-15 instance (spec §2): a deadline settles TIMEOUT before the
+        consumer delivers. That rejection's actual state IS terminal, so it must
+        still be audited."""
+        instructions = AsyncMock()
+        instructions.update_state.return_value = False
+        instructions.get.return_value = _instruction(state=InstructionState.TIMEOUT)
+        svc = _make_instruct_service(instructions=instructions)
+
+        won = await svc.mark_delivered(uuid.uuid4())
+
+        assert won is False
+        _audit.assert_awaited_once()
+        event = _audit.call_args[0][1]
+        assert event.action == "instruct.terminal_conflict"
+        assert event.metadata["attempted"] == "delivered"
+        assert event.metadata["actual"] == "timeout"
+
 
 class TestInstructResolveProject:
     async def test_resolve_instruction_project(self) -> None:

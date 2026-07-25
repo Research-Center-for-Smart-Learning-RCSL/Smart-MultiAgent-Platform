@@ -320,6 +320,23 @@ class InstructionState(str, enum.Enum):
     TIMEOUT = "timeout"
 
 
+#: Terminal — once written, never overwritten (F-15). REJECTED_LOOP is only
+#: ever set at INSERT, never the target of a transition.
+INSTRUCTION_TERMINAL_STATES: frozenset[InstructionState] = frozenset(
+    {InstructionState.COMPLETED, InstructionState.TIMEOUT, InstructionState.REJECTED_LOOP}
+)
+
+#: Allowed predecessors per target state — the instruct state machine (G.7),
+#: mirrored in docs/implement/G-orchestration.md. Co-located with the enum
+#: so a new member can't silently desync the CAS predicate from the states
+#: it's meant to guard.
+INSTRUCTION_ALLOWED_PREDECESSORS: dict[InstructionState, frozenset[InstructionState]] = {
+    InstructionState.DELIVERED: frozenset({InstructionState.ISSUED}),
+    InstructionState.COMPLETED: frozenset({InstructionState.ISSUED, InstructionState.DELIVERED}),
+    InstructionState.TIMEOUT: frozenset({InstructionState.ISSUED, InstructionState.DELIVERED}),
+}
+
+
 @dataclass(frozen=True, slots=True)
 class Instruction:
     id: uuid.UUID
