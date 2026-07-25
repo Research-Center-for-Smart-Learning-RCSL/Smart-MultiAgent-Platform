@@ -15,7 +15,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,7 +46,7 @@ class EgressOutcome:
 
     status: int
     body: bytes
-    headers: tuple[tuple[str, str], ...] = field(default=())
+    headers: tuple[tuple[str, str], ...] = ()
 
     @classmethod
     def from_proxy_response(cls, status: int, headers: Mapping[str, str], body: bytes) -> EgressOutcome:
