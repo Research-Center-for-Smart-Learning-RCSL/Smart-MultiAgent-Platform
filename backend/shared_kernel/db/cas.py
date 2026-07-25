@@ -18,25 +18,33 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared_kernel.db.rowcount import rowcount
+
 
 async def cas_update(
     db: AsyncSession,
     table: sa.Table,
     *,
-    id_column: sa.ColumnElement[Any],
     row_id: Any,
-    state_column: sa.ColumnElement[Any],
     allowed_from: Iterable[str],
     values: dict[str, Any],
+    id_column: sa.ColumnElement[Any] | None = None,
+    state_column: sa.ColumnElement[Any] | None = None,
 ) -> bool:
     """``UPDATE table SET **values WHERE id_column == row_id AND state_column IN allowed_from``.
 
+    ``id_column`` / ``state_column`` default to ``table.c.id`` / ``table.c.state`` — every
+    current caller's table uses those names; pass them explicitly only when a table's
+    primary key or state column is named differently.
+
     Returns whether the write happened.
     """
+    id_col = table.c.id if id_column is None else id_column
+    state_col = table.c.state if state_column is None else state_column
     result = await db.execute(
-        table.update().where(id_column == row_id, state_column.in_(list(allowed_from))).values(**values),
+        table.update().where(id_col == row_id, state_col.in_(list(allowed_from))).values(**values),
     )
-    return (result.rowcount or 0) > 0
+    return bool(rowcount(result))
 
 
 __all__ = ["cas_update"]

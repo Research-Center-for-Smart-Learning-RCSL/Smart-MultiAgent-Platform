@@ -126,9 +126,7 @@ class ApprovalRepository:
         return await cas_update(
             self._db,
             approvals,
-            id_column=approvals.c.id,
             row_id=approval_id,
-            state_column=approvals.c.state,
             allowed_from=[ApprovalState.PENDING.value],
             values={"state": state.value, "ended_at": ended},
         )
@@ -351,9 +349,7 @@ class InstructionRepository:
         won = await cas_update(
             self._db,
             instructions,
-            id_column=instructions.c.id,
             row_id=instruction_id,
-            state_column=instructions.c.state,
             allowed_from=[s.value for s in allowed_from],
             values={"state": state.value, "resolved_at": resolved},
         )
