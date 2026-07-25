@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-22
 requirements: [R12.16]
 depends_on: []
@@ -293,7 +293,20 @@ in the same change.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1** — Fix Design part 1 placed the allowlist seed call inside
+  `SearchKeyService.activate()`. Implemented there first, then moved to the seed's only
+  caller, `app/api/v1/search_keys.py::activate_search_key`, after `/build`'s quality gate
+  found that a `contexts/keys` -> `contexts/agents` call from `activate()` closes a
+  dependency cycle with the pre-existing `contexts/agents` -> `contexts/keys` edge
+  (`web_search.py`, and this fix's own search-adapter changes importing
+  `SEARCH_PROVIDER_HOSTS`). `activate()` now returns the activated key's `SearchProvider`
+  instead of `None`; the router resolves the hostname and calls `AgentsFacade` itself. The
+  router already sits above both contexts, so `contexts.keys` no longer imports anything
+  from `contexts.agents`. `shared_kernel/db/session.py`'s `db_session` dependency commits
+  once at the end of the request and rolls back on any exception, so Q-5's fail-closed
+  guarantee is unaffected — a write failure still rolls back the whole activation. Seeded
+  host, attribution, audit trail, and one-host-per-activation behaviour are all unchanged.
+  Landed in commit `22407e8`.
 
 ## 13. Follow-ups
 
@@ -311,4 +324,22 @@ Appended by /build.
 - **FU-4** — `backend/app/bootstrap/seed.py` creates the E2E fixture project and agent with no
   allowlist row and no search key, so the fixture is a standing reproduction of this bug. If
   an E2E ever asserts `web_search` works, it must seed a key; otherwise leave it as-is.
+- **FU-5** — `app/api/v1/agents.py` bypasses `AgentsFacade` and calls `AgentService` directly
+  for every route in the file (a pre-existing, file-wide pattern this fix's `_tool_warnings`
+  extends rather than departs from). The `HOSTED_WEB_SEARCH` branch additionally reaches into
+  `contexts.keys.infrastructure.search_repository` directly from the route file — one layer
+  and one context deeper than the pre-existing `LOCAL_FUNCTION` branch ever went. Found by
+  `/build`'s quality gate; not fixed here because fixing only this branch would leave the file
+  inconsistent (every other route in it still bypasses the facade). Candidate for a dedicated
+  "route all of agents.py's tool endpoints through AgentsFacade" task.
+- **FU-6** — `app/api/v1/mcp.py`'s `_require_owner` (guards the manual egress-allowlist
+  endpoints) checks only project-level `ProjectMemberRole.OWNER`; it does not recognise Org
+  Owner, unlike every capability in `shared_kernel/auth/permissions.py`'s matrix including
+  `KEY_CONFIGURE` (which `activate_search_key`, and therefore this fix's auto-seed path, is
+  gated by). An Org Owner with no `ProjectMember` row on a given project can now cause an
+  allowlist mutation via key activation that `mcp.py`'s endpoints would refuse them
+  directly — not a tenant-boundary breach (the actor genuinely owns the org), and the grant
+  is narrow, audited, and attributable, but the two checks disagree on the same resource.
+  Found by `/build`'s security gate (MEDIUM, not blocking). Candidate fix: broaden
+  `_require_owner` to recognise Org Owner, for consistency with the rest of the matrix.
 </content>
