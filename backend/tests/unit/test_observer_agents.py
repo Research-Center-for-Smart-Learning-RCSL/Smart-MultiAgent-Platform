@@ -277,6 +277,71 @@ async def test_creator_unbind_is_unrestricted(monkeypatch) -> None:
     assert removed[0]["restrict_to_normal"] is False
 
 
+@pytest.mark.asyncio
+async def test_unbind_observer_leaves_observations_readable(monkeypatch) -> None:
+    """T-5 (docs/tasks/2026-07-22-observation-binding-cleanup): removing the
+    last observer binding never touches ``agent_observations`` —
+    ChatroomService.remove_agent mutates only ``chatroom_agents`` and audits,
+    and the rows stay fully listable through ObservationService afterward.
+    Pins the root-cause boundary: this part of the stack is already correct
+    per §5 of the dossier; the defect is confined to the frontend read path."""
+    from contexts.conversation.application import chatroom_service as cs
+
+    chatroom_id = uuid.uuid4()
+    agent_id = uuid.uuid4()
+    obs = _observation(chatroom_id, agent_id)
+
+    obs_repo_calls: list[str] = []
+
+    class _SpyObsRepo:
+        def __init__(self, db) -> None:
+            pass
+
+        async def list(self, *, chatroom_id, before=None, limit=50):
+            obs_repo_calls.append("list")
+            return [obs]
+
+    monkeypatch.setattr(obs_svc, "ObservationRepository", _SpyObsRepo)
+    monkeypatch.setattr(obs_svc, "ChatroomAgentRepository", lambda db: _FakeBindings())
+    monkeypatch.setattr(obs_svc, "ChatroomRepository", lambda db: _FakeRooms())
+    monkeypatch.setattr(obs_svc, "MessageRepository", lambda db: _FakeMessages())
+    observation_service = obs_svc.ObservationService(object())
+
+    class _AgentRepo:
+        def __init__(self, db) -> None:
+            pass
+
+        async def remove(self, *, chatroom_id, agent_id, only_role=None):
+            return True
+
+    monkeypatch.setattr(cs, "ChatroomAgentRepository", _AgentRepo)
+    monkeypatch.setattr(cs, "ChatroomRepository", lambda db: object())
+    monkeypatch.setattr(cs, "ChatroomGuestRepository", lambda db: object())
+    monkeypatch.setattr(cs, "WorkspaceRepository", lambda db: object())
+
+    audits: list[str] = []
+
+    async def _emit(db, event):
+        audits.append(event.action)
+
+    monkeypatch.setattr(cs.audit, "emit", _emit)
+
+    chatroom_service = cs.ChatroomService(object())
+    await chatroom_service.remove_agent(
+        chatroom_id=chatroom_id,
+        agent_id=agent_id,
+        actor_user_id=uuid.uuid4(),
+        actor_ip=None,
+    )
+
+    assert audits == ["chatroom.agent_removed"]
+    assert obs_repo_calls == []  # unbind never touches agent_observations
+
+    rows = await observation_service.list(chatroom_id=chatroom_id)
+    assert rows == [obs]
+    assert obs_repo_calls == ["list"]
+
+
 def _wire_patch_handler(monkeypatch, *, access, cap_calls, patched):
     import app.api.v1.chatrooms as chatrooms_mod
 
