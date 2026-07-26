@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-22
 requirements: [R9.16, R15.10, R15.13, R28.07]
 depends_on: [2026-07-22-a2a-delivery-idempotency]
@@ -594,31 +594,31 @@ no frontend change.
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1**: T-1 (§8) fails against current code and passes after C1.
-- [ ] **AC-2**: a note carrying a `chatroom_id` is requeued, not rendered, in any turn whose room
+- [x] **AC-1**: T-1 (§8) fails against current code and passes after C1.
+- [x] **AC-2**: a note carrying a `chatroom_id` is requeued, not rendered, in any turn whose room
       differs — including a headless turn — **regardless of its `kind`**; and a note carrying no
       `chatroom_id` is rendered in every turn, also regardless of kind.
-- [ ] **AC-3**: no foreign gate's `question` text appears in any rendered notify block (T-2).
-- [ ] **AC-4**: the three existing `released_observation` tests
+- [x] **AC-3**: no foreign gate's `question` text appears in any rendered notify block (T-2).
+- [x] **AC-4**: the three existing `released_observation` tests
       (`test_observer_agents.py:1102-1120`, `:1123-1150`, `:1153-1177`) and the in-room approval test
       (`test_a2a_turn_dispatch.py:686-718`) pass **unmodified** — C1 is a strict generalisation.
-- [ ] **AC-5**: the driven approver turn still receives and renders its own gate's note and still
+- [x] **AC-5**: the driven approver turn still receives and renders its own gate's note and still
       obtains `cast_approval_vote`, for both a room-bearing and a headless gate (T-4, T-12).
-- [ ] **AC-6**: T-8 fails against current code and passes after C2: a completed turn that drained an
+- [x] **AC-6**: T-8 fails against current code and passes after C2: a completed turn that drained an
       `approval_request` and cast no vote requeues that note while the gate is PENDING.
-- [ ] **AC-7**: a cast vote consumes its note (T-9), and an unvoted note for a resolved gate is
+- [x] **AC-7**: a cast vote consumes its note (T-9), and an unvoted note for a resolved gate is
       dropped rather than requeued (T-10).
-- [ ] **AC-8**: the re-arm is applied at **all three** completed returns — `turn_engine.py:883`,
+- [x] **AC-8**: the re-arm is applied at **all three** completed returns — `turn_engine.py:883`,
       `:2179`, `:2218` — not only the room path.
-- [ ] **AC-9**: `drive_approver_turn` distinguishes a voting turn from a voteless completion and warns
+- [x] **AC-9**: `drive_approver_turn` distinguishes a voting turn from a voteless completion and warns
       on the latter (T-11); `TurnResult.approvals_voted` defaults to `0` so no existing construction
       site breaks.
-- [ ] **AC-10**: `pending_notify.py` is **unmodified by this dossier** (Q-2) — the file's only pending
+- [x] **AC-10**: `pending_notify.py` is **unmodified by this dossier** (Q-2) — the file's only pending
       change is `2026-07-22-a2a-delivery-idempotency`'s C1.
-- [ ] **AC-11**: **no Alembic revision, no backfill, no data-mutating script** is added.
-- [ ] **AC-12**: the `_pending_context_and_tools` docstring (`:1566-1581`) states the general rule
+- [x] **AC-11**: **no Alembic revision, no backfill, no data-mutating script** is added.
+- [x] **AC-12**: the `_pending_context_and_tools` docstring (`:1566-1581`) states the general rule
       (§11); no comment still describes the room check as `released_observation`-specific.
-- [ ] **AC-13**: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`.
+- [x] **AC-13**: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`.
 
 ## 11. SRS Delta
 
@@ -647,7 +647,36 @@ amendment.
 
 ## 12. Deviation Log
 
-Appended by /build.
+**D-1 — `run_input_turn` hardcoded `chatroom_id=None` into `_pending_context_and_tools`; fixed in this dossier's scope, not deferred.**
+§7 C1's own verification paragraph claims: "The driven approver turn is unaffected in the
+room-bearing case: `approvals.py:93` passes the gate's room into `run_input_turn`, which
+threads it to `_pending_context_and_tools` at `:716`." Freshness re-verification at
+`/build` Step 2 found this false against current code: `run_input_turn`
+(`turn_engine.py:725` at spec time, now `:734`) called
+`self._pending_context_and_tools(agent, None)` — hardcoded, ignoring the `chatroom_id`
+parameter the function receives and already threads to knowledge resolution three lines
+later. `git log -L` confirmed this predates the source audits this dossier is built from
+(present since at least 2026-07-17) — not a regression introduced by a dossier that
+landed since the spec was written.
+
+This was silent under the pre-fix code because `approval_request` notes were never
+room-checked at all (F-8's own bug), so the hardcoded `None` never mattered. Once C1's
+generalized predicate applies the room check to every kind that carries a room, this
+hardcoding would have made every driven approver turn for a **room-bound** gate treat its
+own gate's note as foreign to itself (`chatroom_id=None` passed in, but the note carries a
+real room) and requeue it instead of rendering it — breaking AC-5 outright: a driven turn
+for a room-bound gate would never obtain `cast_approval_vote`, and (compounding with C2)
+the note would simply cycle via `_settle_pending_approvals` until the gate's timeout.
+
+Presented to the user as a stop-and-report per Step 2's hard rule (a design assumption
+this dossier's own correctness argument depends on did not hold). User chose to expand
+scope now (2026-07-26) rather than defer to a follow-up or send back to `/spec`, given the
+fix is a one-line correction (thread `chatroom_id` instead of `None`) directly load-bearing
+for this dossier's own AC-5, in the same function family C1 already touches. Fixed at
+`turn_engine.py`'s `run_input_turn` (the `_pending_context_and_tools` call site) plus its
+docstring; regression test `test_run_input_turn_renders_own_gate_approval_in_matching_room`
+added to `test_a2a_turn_dispatch.py`, asserting both the rendered question and the
+`cast_approval_vote` tool's presence in the registry snapshot for a room-bound gate.
 
 ## 13. Follow-ups
 
@@ -681,4 +710,9 @@ Appended by /build.
   (`approval_service.py:241-267`). `approvals.py:109` already records this as FU-5 of its own work.
   C3 makes the condition observable, which is the prerequisite for acting on it — the natural next
   step is letting a genuinely-abstaining approver settle its slot early.
+- **FU-6** — `_settle_pending_approvals` (`turn_engine.py`) calls `OrchestrationFacade.get_approval`
+  once per unvoted approval note in a loop rather than batching. Flagged by the Definition of Done's
+  quality gate (Info-level, not blocking): realistic cardinality is 1-2 notes per turn, so the N+1
+  shape has negligible practical cost today. If a future change raises that cardinality
+  (e.g. an agent bound to many concurrent gates), add a facade method that accepts a list of ids.
 </content>
