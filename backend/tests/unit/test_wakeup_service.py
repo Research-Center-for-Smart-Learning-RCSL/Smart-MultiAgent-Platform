@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from contexts.orchestration.application.wakeup_service import WakeupService
+from contexts.orchestration.domain.models import WakeupConfig
 
 
 def _async_return(value):
@@ -130,6 +131,54 @@ async def test_normal_silence_still_respects_paused_flag(monkeypatch) -> None:
     assert fired is False
 
 
+async def test_silence_seeds_its_clock_for_a_binding_created_after_the_join_edge(monkeypatch) -> None:
+    agent = _agent(wakeup_config=_silence_config(allow_self_open=False))
+    svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
+    room_id = uuid.uuid4()
+    timestamps = [None, datetime.now(UTC) - timedelta(minutes=10)]
+    touched: list[tuple[uuid.UUID, uuid.UUID]] = []
+
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.is_silence_active",
+        _async_return(False),
+    )
+
+    async def _get_timestamp(*_args):
+        return timestamps.pop(0)
+
+    async def _touch(agent_id, touched_room_id):
+        touched.append((agent_id, touched_room_id))
+
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.get_silence_timestamp",
+        _get_timestamp,
+    )
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.touch_silence_timestamp",
+        _touch,
+    )
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.get_autostop_count",
+        _async_return(0),
+    )
+
+    assert not await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=room_id)
+    assert touched == [(agent.id, room_id)]
+    assert await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=room_id)
+
+
+async def test_normal_silence_follows_the_live_roster_not_the_cached_flag(monkeypatch) -> None:
+    agent = _agent(wakeup_config=_silence_config(allow_self_open=False))
+    svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
+    _stub_stale_but_ready_silence_state(monkeypatch)
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.is_silence_active",
+        _async_return(False),
+    )
+
+    assert await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4())
+
+
 async def test_observer_silence_uses_observer_autostop_cap(monkeypatch) -> None:
     """O-3 (P-1): the silence evaluator applies observer_autostop_rounds
     (default 50) to observer bindings instead of autostop_rounds."""
@@ -152,6 +201,95 @@ def test_wakeup_config_parses_observer_autostop_rounds() -> None:
     cfg = WakeupConfig.from_dict({"triggers": {"silence_minutes": {"observer_autostop_rounds": 999}}})
     assert cfg.triggers.silence_minutes.observer_autostop_rounds == 100
     assert cfg.to_dict()["triggers"]["silence_minutes"]["observer_autostop_rounds"] == 100
+
+
+def test_wakeup_config_clamps_every_numeric_field() -> None:
+    low = WakeupConfig.from_dict(
+        {
+            "triggers": {
+                "every_n_messages": {"n": 0},
+                "silence_minutes": {
+                    "t_minutes": 0,
+                    "autostop_rounds": 0,
+                    "observer_autostop_rounds": 0,
+                    "autostop_max_default": 0,
+                },
+            },
+            "refresh_every_hours": 0,
+        }
+    )
+    low_sm = low.triggers.silence_minutes
+    assert low.triggers.every_n_messages.n == 1
+    assert low_sm.t_minutes == 1
+    assert low_sm.autostop_rounds == 5
+    assert low_sm.observer_autostop_rounds == 50
+    assert low_sm.autostop_max_default == 100
+    assert low.refresh_every_hours == 24
+
+    negative = WakeupConfig.from_dict(
+        {
+            "triggers": {
+                "every_n_messages": {"n": -3},
+                "silence_minutes": {
+                    "t_minutes": -3,
+                    "autostop_rounds": -3,
+                    "observer_autostop_rounds": -3,
+                    "autostop_max_default": -3,
+                },
+            },
+            "refresh_every_hours": -3,
+        }
+    )
+    assert negative.to_dict() == low.to_dict()
+
+    high = WakeupConfig.from_dict(
+        {
+            "triggers": {
+                "every_n_messages": {"n": 5000},
+                "silence_minutes": {
+                    "t_minutes": 99999,
+                    "autostop_rounds": 500,
+                    "observer_autostop_rounds": 500,
+                    "autostop_max_default": 500,
+                },
+            },
+        }
+    )
+    high_sm = high.triggers.silence_minutes
+    assert high.triggers.every_n_messages.n == 1000
+    assert high_sm.t_minutes == 1440
+    assert high_sm.autostop_rounds == 100
+    assert high_sm.observer_autostop_rounds == 100
+    assert high_sm.autostop_max_default == 100
+
+
+async def test_observer_zero_autostop_uses_the_parsed_default(monkeypatch) -> None:
+    agent = _agent(
+        wakeup_config={
+            "triggers": {
+                "silence_minutes": {
+                    "enabled": True,
+                    "t_minutes": 2,
+                    "observer_autostop_rounds": 0,
+                }
+            }
+        }
+    )
+    svc = _make_service(agent=agent, room_members=[])
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.get_silence_timestamp",
+        _async_return(datetime.now(UTC) - timedelta(minutes=10)),
+    )
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.get_autostop_count",
+        _async_return(0),
+    )
+
+    assert await svc.evaluate_silence_trigger(
+        agent_id=agent.id,
+        room_id=uuid.uuid4(),
+        is_observer=True,
+    )
 
 
 def _every_n_config(*, allow_self_open: bool = False) -> dict:
