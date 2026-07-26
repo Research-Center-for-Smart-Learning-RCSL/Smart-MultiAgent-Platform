@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-07-22
 requirements: [R9.16, R15.10, R15.13, R28.07]
 depends_on: [2026-07-22-a2a-delivery-idempotency]
