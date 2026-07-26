@@ -306,6 +306,34 @@ async def test_run_input_turn_renders_own_gate_approval_in_matching_room(monkeyp
     assert any(t.name == "cast_approval_vote" for t in built["extra"])
 
 
+@pytest.mark.asyncio
+async def test_run_input_turn_cancelled_after_a_round_still_restores_unvoted_notes(monkeypatch) -> None:
+    """/code-review, FU-7 — the cancelled-turn handler only restored drained
+    notes when rounds_completed == 0; a cancellation after at least one tool
+    round dropped every note unconditionally, voted or not."""
+    agent = _agent()
+    notes = [{"kind": "notify", "from_agent": "x", "payload": {}}]
+    engine, _captured = _headless_engine(monkeypatch, agent, drain=notes)
+    _wire_knowledge(engine)
+    requeued: list = []
+
+    async def _requeue(agent_id, requeued_notes):
+        requeued.append((agent_id, requeued_notes))
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.requeue", _requeue)
+
+    async def _cancel_after_one_round(**kw):
+        raise te._TurnCancelled(1)
+
+    engine._stream_with_tools = _cancel_after_one_round  # type: ignore[attr-defined]
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    assert result.status == "skipped"
+    assert result.reason == "cancelled"
+    assert requeued == [(agent.id, notes)]
+
+
 # --------------------------------------------------------------------------- #
 # run_input_turn knowledge assembly (F-15)
 # --------------------------------------------------------------------------- #

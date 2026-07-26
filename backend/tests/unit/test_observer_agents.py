@@ -1136,6 +1136,51 @@ async def test_observer_turn_empty_reply_emits_observation_skipped(monkeypatch) 
 
 
 @pytest.mark.asyncio
+async def test_empty_reply_settles_pending_approvals(monkeypatch) -> None:
+    """/code-review, FU-7 — the empty_reply skip used to return without
+    restoring anything it drained, silently destroying any approval ballot
+    the turn rendered but never voted on, even though the provider was
+    reached and the model saw the note in its context."""
+    agent = _observer_agent()
+    creator = uuid.uuid4()
+    engine, _recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
+
+    notes = [{"kind": "approval_request", "approval_id": str(uuid.uuid4()), "mode": "single"}]
+    voted: set[uuid.UUID] = set()
+
+    async def _pending(agent_, chatroom_id_):
+        return None, [], notes, voted
+
+    engine._pending_context_and_tools = _pending  # type: ignore[attr-defined]
+    settled: list = []
+
+    async def _settle(agent_, pending_notes, voted_):
+        settled.append((agent_, pending_notes, voted_))
+
+    engine._settle_pending_approvals = _settle  # type: ignore[attr-defined]
+
+    async def _blank_stream(**kw):
+        return ("   ", 1)
+
+    engine._stream_with_tools = _blank_stream  # type: ignore[attr-defined]
+
+    result = await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="every_n_messages",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert result.status == "skipped"
+    assert result.reason == "empty_reply"
+    assert result.approvals_voted == 0
+    assert settled == [(agent, notes, voted)]
+
+
+@pytest.mark.asyncio
 async def test_observer_turn_hard_failure_still_emits_observation_failed(monkeypatch) -> None:
     """O-4 (P-2) contrast pin: real errors keep the observation.failed event."""
     agent = _observer_agent()

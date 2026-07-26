@@ -717,22 +717,33 @@ any read). Fixing item 2 above made it genuinely necessary again — an exceptio
 `_pending_context_and_tools` call now needs a bound empty set for the exception handler's
 `voted=voted_approvals` reference — so it was kept rather than removed.
 
-**Two further findings from the same review pass are Pre-existing (present at the base
-commit, unrelated to F-8/F-29's stated scope) and were *not* fixed here — presented to the
-user rather than folded in silently, since expanding scope again warrants the same
-check-in D-1 got:**
+**D-3 — two further Pre-existing gaps from the same review pass, fixed directly on the
+user's explicit direction rather than filed as a follow-up or a new dossier.**
+Both predate this session (present at the base commit, confirmed via `git show
+<base>:turn_engine.py`), unrelated to F-8/F-29's stated AC scope, but in the identical
+defect family (a drained note silently destroyed) via paths the three *completed* returns
+never covered:
 
-- A room-turn's `empty_reply` skip (`turn_engine.py`, `if not final_text.strip():` branch)
-  returns without calling `_requeue_notifications` or `_settle_pending_approvals` at all —
-  any note drained that turn, including an approval ballot, is silently destroyed. Same
-  defect family as F-29, via a path F-29's own scope (the three *completed* returns) never
-  covered.
-- `run_input_turn`'s `_TurnCancelled` handler only restores `pending_notes` when
-  `tc.rounds_completed == 0` — a cancellation after at least one tool round drops every
-  drained note unconditionally, voted or not, notify or approval alike.
-
-Recorded as FU-7 (§13) pending the user's direction on whether to fix now, file as their
-own dossier, or route through `/audit`.
+1. A room-turn's `empty_reply` skip (`if not final_text.strip():` branch) returned without
+   calling `_requeue_notifications` or `_settle_pending_approvals` at all. Since the
+   provider *was* reached (rendering is delivery for notify/released_observation, same as
+   the three completed returns), the fix calls `_settle_pending_approvals` there — not a
+   blanket `_requeue_notifications`, which would incorrectly re-offer notify/
+   released_observation content already legitimately delivered by rendering. `TurnResult`
+   also gains `approvals_voted=len(voted_approvals)` on this path for the same reason C3
+   added it elsewhere. Regression test: `test_empty_reply_settles_pending_approvals`
+   (`test_observer_agents.py`).
+2. `run_input_turn`'s `_TurnCancelled` handler only restored `pending_notes` when
+   `tc.rounds_completed == 0`; a cancellation after at least one tool round dropped every
+   drained note unconditionally, voted or not. Unlike (1), a cancellation is not a
+   completed turn — the fix mirrors the exception-handler treatment (D-2 item 2) rather
+   than the completed-turn one: `_requeue_notifications(agent, pending_notes,
+   voted=voted_approvals)` unconditionally, dropping the `rounds_completed == 0` gate
+   entirely. When `rounds_completed == 0`, `voted_approvals` is guaranteed empty (no round
+   ran, so nothing could have been voted on), so this is a strict generalization of the
+   prior behavior, not a narrowing. Regression test:
+   `test_run_input_turn_cancelled_after_a_round_still_restores_unvoted_notes`
+   (`test_a2a_turn_dispatch.py`).
 
 ## 13. Follow-ups
 
@@ -771,22 +782,11 @@ own dossier, or route through `/audit`.
   quality gate (Info-level, not blocking): realistic cardinality is 1-2 notes per turn, so the N+1
   shape has negligible practical cost today. If a future change raises that cardinality
   (e.g. an agent bound to many concurrent gates), add a facade method that accepts a list of ids.
-- **FU-7** — A follow-up `/code-review` pass (post-close-out, 2026-07-26) found two Pre-existing
-  gaps in the same defect family as F-29, via return paths this dossier's scope (the three
-  *completed* returns) never touched — see D-2 for full detail:
-  1. A room-turn's `empty_reply` skip returns without calling `_requeue_notifications` or
-     `_settle_pending_approvals` at all, silently destroying every note drained that turn
-     (approval ballot, notify, or released_observation alike).
-  2. `run_input_turn`'s `_TurnCancelled` handler only restores drained notes when
-     `tc.rounds_completed == 0`; a cancellation after at least one tool round drops
-     everything unconditionally, regardless of whether anything was actually voted on or
-     acted upon.
-
-  Both are broader than approval notes specifically (they affect every kind `_pending_notify`
-  carries) and neither is bounded by Q-5's PENDING check the way C2's fix is, so fixing them
-  properly is a small design question in its own right — not a one-line patch — and belongs
-  to its own dossier rather than a silent scope expansion here. Candidate remedy shape: both
-  skip/cancel paths should settle drained notes the same way the three completed returns now
-  do (`_requeue_notifications` for notify/released_observation, `_settle_pending_approvals`
-  for approval_request), rather than each carrying its own ad hoc restore condition.
+- **FU-7 — resolved, see D-3.** A follow-up `/code-review` pass (post-close-out,
+  2026-07-26) found two Pre-existing gaps in the same defect family as F-29 (the
+  `empty_reply` skip and the `_TurnCancelled` handler's `rounds_completed == 0` gate, both
+  silently destroying drained notes). Initially recorded here as a deferred candidate; the
+  user chose to fix directly in the same session rather than open a new dossier. Kept as a
+  historical marker so a reader following the D-2/D-3 trail does not go looking for an
+  FU-7 that no longer describes open work.
 </content>
