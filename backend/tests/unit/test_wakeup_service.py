@@ -213,6 +213,7 @@ def test_wakeup_config_clamps_every_numeric_field() -> None:
                     "autostop_max_default": 500,
                 },
             },
+            "refresh_every_hours": 24_000_000_000,
         }
     )
     high_sm = high.triggers.silence_minutes
@@ -221,6 +222,7 @@ def test_wakeup_config_clamps_every_numeric_field() -> None:
     assert high_sm.autostop_rounds == 100
     assert high_sm.observer_autostop_rounds == 100
     assert high_sm.autostop_max_default == 100
+    assert high.refresh_every_hours == 24_000_000_000
 
 
 async def test_observer_zero_autostop_uses_the_parsed_default(monkeypatch) -> None:

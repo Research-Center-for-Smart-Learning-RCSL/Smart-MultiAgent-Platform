@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -194,9 +194,8 @@ class WakeupService:
         Returns True if the agent should wake up due to silence.
 
         ``is_observer`` (O-2/R28.04): observer output never enters the room,
-        so the empty-room suppressions — the presence-paused silence flag and
-        the live-roster re-check — do not apply to observer bindings; an
-        observer keeps observing rooms nobody is watching.
+        so the live-roster presence gate does not apply to observer bindings;
+        an observer keeps observing rooms nobody is watching.
         """
         agent = await self._agents_facade.get_agent(agent_id)
         if agent is None or agent.deleted_at is not None:
@@ -379,8 +378,10 @@ class WakeupService:
 
         now = datetime.now(UTC)
         config = WakeupConfig.from_dict(agent.wakeup_config)
-        if agent.wakeup_last_refreshed_at is not None and now - agent.wakeup_last_refreshed_at < timedelta(
-            hours=config.refresh_every_hours
+        if self._inside_refresh_window(
+            now=now,
+            last_refreshed_at=agent.wakeup_last_refreshed_at,
+            interval_hours=config.refresh_every_hours,
         ):
             return False
 
@@ -413,9 +414,10 @@ class WakeupService:
                 if agent is None or agent.deleted_at is not None:
                     return False
                 config = WakeupConfig.from_dict(agent.wakeup_config)
-                if (
-                    agent.wakeup_last_refreshed_at is not None
-                    and now - agent.wakeup_last_refreshed_at < timedelta(hours=config.refresh_every_hours)
+                if self._inside_refresh_window(
+                    now=now,
+                    last_refreshed_at=agent.wakeup_last_refreshed_at,
+                    interval_hours=config.refresh_every_hours,
                 ):
                     return False
                 authored = agent.wakeup_authored_snapshot
@@ -444,6 +446,18 @@ class WakeupService:
     # ------------------------------------------------------------------
     # Clamping helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _inside_refresh_window(
+        *,
+        now: datetime,
+        last_refreshed_at: datetime | None,
+        interval_hours: int,
+    ) -> bool:
+        if last_refreshed_at is None:
+            return False
+        elapsed_seconds = (now - last_refreshed_at).total_seconds()
+        return elapsed_seconds < interval_hours * 3600
 
     @staticmethod
     def _clamp_n(value: int, soft: WakeupSoftBounds) -> int:

@@ -44,11 +44,21 @@ async def test_wakeup_counters_increment_and_expire_in_one_transaction(monkeypat
     redis = _Redis()
     monkeypatch.setattr(wakeup_state, "get_redis", lambda: redis)
     agent_id, room_id = uuid.uuid4(), uuid.uuid4()
+    message_key = f"wakeup:msg_count:{agent_id}:{room_id}"
+    autostop_key = f"wakeup:autostop:{agent_id}:{room_id}"
 
     assert await wakeup_state.increment_message_count(agent_id, room_id) == 7
     assert await wakeup_state.increment_autostop(agent_id, room_id) == 7
-    assert sum(event == ("execute",) for event in redis.events) == 2
-    assert not any(event[0].startswith("bare_") for event in redis.events)
+    assert redis.events == [
+        ("pipeline", True),
+        ("incr", message_key),
+        ("expire", message_key, 604800),
+        ("execute",),
+        ("pipeline", True),
+        ("incr", autostop_key),
+        ("expire", autostop_key, 604800),
+        ("execute",),
+    ]
 
 
 async def test_graphrag_counter_increment_and_expire_in_one_transaction(monkeypatch) -> None:
@@ -57,10 +67,16 @@ async def test_graphrag_counter_increment_and_expire_in_one_transaction(monkeypa
         "contexts.knowledge.application.graphrag_triggers.get_redis",
         lambda: redis,
     )
+    config_id = uuid.uuid4()
+    key = f"graphrag:msg_count:{config_id}"
 
-    assert await RedisGraphRagMessageCounter().increment(uuid.uuid4()) == 7
-    assert sum(event == ("execute",) for event in redis.events) == 1
-    assert not any(event[0].startswith("bare_") for event in redis.events)
+    assert await RedisGraphRagMessageCounter().increment(config_id) == 7
+    assert redis.events == [
+        ("pipeline", True),
+        ("incr", key),
+        ("expire", key, 604800),
+        ("execute",),
+    ]
 
 
 def test_dead_message_counter_reset_is_not_exported() -> None:
