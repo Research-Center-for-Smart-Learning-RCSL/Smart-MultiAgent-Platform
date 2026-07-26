@@ -158,12 +158,16 @@ async def drive_approver_turn(
         # send the gate yet (FU-5); until there is, at least make the cause
         # findable at the moment it happens rather than at the timeout.
         bound.warning("approver turn cast no vote; gate will wait for its timeout")
-    elif result.approvals_voted < 1:
+    elif apid not in result.voted_approval_ids:
         # F-29 — a turn that reached the provider and completed is not the same
         # as one that voted: the model may answer without calling
-        # cast_approval_vote. Previously indistinguishable from a real vote at
-        # info level; the ballot itself is re-armed by the engine
-        # (_settle_pending_approvals) while the gate is still PENDING.
+        # cast_approval_vote. Checked against *this job's own* approval_id
+        # (review finding), not just the turn-wide count — a headless approver
+        # with two gates pending at once can vote on one and not the other in
+        # the same driven turn (pending_notify.drain is keyed only by
+        # agent_id), and the turn-wide count alone can't tell them apart. The
+        # ballot itself is re-armed by the engine (_settle_pending_approvals)
+        # while the gate is still PENDING.
         bound.warning("approver turn completed without casting a vote; gate will wait for its timeout")
     else:
         bound.info("approver turn driven")
