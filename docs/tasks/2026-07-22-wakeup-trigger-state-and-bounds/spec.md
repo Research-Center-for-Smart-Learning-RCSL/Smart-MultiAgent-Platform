@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-07-22
 requirements: [R15.01, R15.02, R15.03, R15.04, R15.05b, R15.06, R15.07, R15.08, R15.09, R28.12]
 depends_on: []
@@ -123,9 +123,9 @@ not because a single edit fixes them.
 
 | ID | Question | Decision | Rationale |
 |---|---|---|---|
-| Q-1 | What is the correct lower clamp for each numeric wake-up field? | `every_n_messages.n` and `silence_minutes.t_minutes` clamp to their documented hard floors (1 and 1). `autostop_rounds` and `observer_autostop_rounds` fall back to their documented defaults (5 and 50). `refresh_every_hours` clamps to 1. | R15.07 documents explicit floors for n and t_minutes, and `_clamp_n` / `_clamp_t` (`wakeup_service.py:434-444`) already clamp to `N_MIN`/`T_MINUTES_MIN` on the self-modification path, so the parse layer should agree with the path next to it. R15.04 and R28.12 document only a default and a cap for the autostop fields, no floor; for those, the least astonishing valid substitute for an invalid input is the value an omitted field already resolves to. Clamping autostop to 1 would silently make agents far more restrictive than the current worker behavior (100). |
-| Q-2 | Where does the last-refresh timestamp for R15.09 live? | **OPEN, needs user decision.** Recommended: a new nullable `wakeup_last_refreshed_at timestamptz` column on `agents` (migration 0062, latest is `0061_graphrag_owner_index_live_only.py`). Alternative: a Redis key `wakeup:last_refresh:{agent_id}`, no migration. | Durability decides it. A Redis-only clock silently reverts to today's buggy hourly behavior after a flush, which is exactly the defect being fixed. The column costs a migration and a repository/facade field. This is the only part of the dossier with schema impact, so it is a user call. Deriving the clock from `agent.wakeup_refreshed` audit rows was rejected: `refresh_wakeup_config` early-returns without auditing when nothing drifted (`wakeup_service.py:390-392`), and a per-agent audit query on an hourly sweep is a poor hot path. |
-| Q-3 | Adopt FU-1 (frontend defaults) into this dossier, and which fields? | **PARTIALLY OPEN, needs user decision.** Recommended: fix `autostop_rounds` 3 to 5, `every_n_messages.n` 5 to 3, and add `observer_autostop_rounds: 50`, all of which are unambiguous mirroring bugs. `silence_minutes.t_minutes` 30 vs backend 2 is flagged for the user: 30 may be a deliberate UX default. | FU-1 explicitly routes to "the agent-config surface", which is this dossier, and the three recommended fields are mechanical corrections to a stated invariant. `t_minutes: 2` as a shown default would make an enabled silence trigger fire after two minutes, which is a product decision, not a bug fix. If the user prefers 30, the comment at `workflow.ts:61-68` must be narrowed instead of the value changed. |
+| Q-1 | What is the correct lower clamp for each numeric wake-up field? | `every_n_messages.n` and `silence_minutes.t_minutes` clamp to their documented hard floors (1 and 1). `autostop_rounds`, `observer_autostop_rounds`, `autostop_max_default`, and `refresh_every_hours` fall back to their documented or existing defaults (5, 50, 100, and 24). | R15.07 documents explicit floors for n and t_minutes, and `_clamp_n` / `_clamp_t` (`wakeup_service.py:434-444`) already clamp to `N_MIN`/`T_MINUTES_MIN` on the self-modification path, so the parse layer should agree with the path next to it. The other fields document or already carry a default but no explicit floor; invalid values therefore resolve exactly as omitted values do. Clamping an autostop field or refresh interval to 1 would silently make the system far more aggressive than its configured default behavior. |
+| Q-2 | Where does the last-refresh timestamp for R15.09 live? | Add a durable nullable `wakeup_last_refreshed_at timestamptz` column on `agents` in migration `0067_wakeup_last_refreshed_at.py` (the current migration head is `0066_agent_tools_mcp_capture.py`). | Durability decides it. A Redis-only clock silently reverts to today's buggy hourly behavior after a flush, which is exactly the defect being fixed. Deriving the clock from `agent.wakeup_refreshed` audit rows was rejected: `refresh_wakeup_config` early-returns without auditing when nothing drifted (`wakeup_service.py:390-392`), and a per-agent audit query on an hourly sweep is a poor hot path. |
+| Q-3 | Adopt FU-1 (frontend defaults) into this dossier, and which fields? | Fix `autostop_rounds` 3 to 5, `every_n_messages.n` 5 to 3, and add `observer_autostop_rounds: 50`. Retain the editor's 30-minute `silence_minutes.t_minutes` default and narrow the comment so it claims parity only for fields that actually mirror backend defaults. | FU-1 explicitly routes to "the agent-config surface", which is this dossier, and the three changed fields are mechanical corrections to a stated invariant. Changing the displayed silence default from 30 to 2 minutes would alter product behavior when a user enables the trigger, so it is deliberately excluded from this bugfix. |
 | Q-4 | Fix F-3 by lazily setting the `silence_active` flag, or by removing the flag and reading the roster? | Remove the flag. Delete `set_silence_active` / `is_silence_active` (`wakeup_state.py:133-152`) and the write at `wakeup_service.py:258`; rely on the live-roster read already performed unconditionally at `wakeup_service.py:234-237`. | `docs/implement/G-orchestration.md:81` names `ws:presence:{room_id}` as the signal. The flag is a cache of that set which the code itself already distrusts: the comment at `wakeup_service.py:229-233` says the flag "can go stale" and adds an unconditional roster re-check for that reason. Lazily filling the cache patches the fill path and leaves the staleness class alive; deleting the cache removes it. The flag has exactly one reader (`wakeup_service.py:212`), so the removal is contained. |
 | Q-5 | Q-4 invalidates an existing test. Rewrite it? | Yes. `backend/tests/unit/test_wakeup_service.py:119-130` (`test_normal_silence_still_respects_paused_flag`) asserts no fire when the flag is `False` and the roster is non-empty. Under the fix that combination fires. Rewrite it as `test_normal_silence_follows_the_live_roster_not_the_cached_flag`. | That test encodes the flag mechanism, not R15.05b. R15.05b pauses the timer when "the live-user set becomes empty"; a non-empty roster is by definition not empty. Flag `False` with a non-empty roster has no legitimate producer: `on_presence_changed(False)` fires only at roster 0 (`chatroom.py:141-142`) and the retention scrub only for emptied rooms (`retention.py:698-701`), so that state is precisely the F-3 staleness being removed. The empty-roster suppression tests at `:62-71` and `:84-92` are unchanged and stay as the guard against over-fixing. |
 | Q-6 | Fold the identical F-38 pattern in `contexts/knowledge` into scope? | Yes. `backend/contexts/knowledge/application/graphrag_triggers.py:63-69` is the same `INCR` then bare `EXPIRE` on a counter with no delete path. | §6's rule: a fix that patches one instance of a systemic mistake is half a fix. The change is two lines and mechanical. The scope line is drawn at "counter with no reliable delete path"; see §6 for the sites cleared under that line. |
@@ -437,7 +437,13 @@ the window in which erased bounds go unrepaired (see §6).
 
 **C4, F-14: give the refresh a per-agent clock**
 (`backend/contexts/orchestration/application/wakeup_service.py`,
-`backend/app/workers/tasks/orchestration.py`, plus the storage chosen in Q-2)
+`backend/app/workers/tasks/orchestration.py`,
+`backend/contexts/agents/domain/models.py`,
+`backend/contexts/agents/infrastructure/tables.py`,
+`backend/contexts/agents/infrastructure/repositories.py`,
+`backend/contexts/agents/interfaces/facade.py`,
+`backend/contexts/agents/application/agent_service.py`, and
+`backend/alembic/versions/0067_wakeup_last_refreshed_at.py`)
 
 - `refresh_wakeup_config` reads `cfg.refresh_every_hours` (clamped by C2) and returns `False`
   without writing when `now - last_refreshed_at < timedelta(hours=T)`.
@@ -471,13 +477,14 @@ They are 7-day-TTL counters in a Redis instance, they are re-armed by any subseq
 and the operator remedy if any accumulate is `SCAN` plus `EXPIRE`, which does not warrant a
 scripted migration.
 
-**C6, FU-1 (contingent on Q-3)** (`frontend/src/shared/types/workflow.ts:69-82`)
+**C6, FU-1** (`frontend/src/shared/types/workflow.ts:69-82`)
 
 Set `autostop_rounds: 5`, `every_n_messages.n: 3`, add `observer_autostop_rounds: 50` to the
-`WakeupTriggerConfig` shape (`workflow.ts:50-59`) and to `DEFAULT_WAKEUP`. `t_minutes` pending the
-user's answer. This also closes FU-4's data half: with `observer_autostop_rounds` in the client
-shape, `normalizeNestedTriggers` (`:89-97`) stops silently omitting it. Adding an editor control
-for it remains out of scope (FU-4 is a reachability gap, see §13).
+`WakeupTriggerConfig` shape (`workflow.ts:50-59`) and to `DEFAULT_WAKEUP`. Keep `t_minutes: 30`
+and narrow the parity comment to the fields that intentionally mirror backend defaults. This also
+closes FU-4's data half: with `observer_autostop_rounds` in the client shape,
+`normalizeNestedTriggers` (`:89-97`) stops silently omitting it. Adding an editor control for it
+remains out of scope (FU-4 is a reachability gap, see §13).
 
 ## 8. Regression Test Plan
 
@@ -514,8 +521,10 @@ the only presence gate left after C1. Passes today and must pass after.
 
 `WakeupConfig.from_dict({"triggers": {"every_n_messages": {"n": 0}, "silence_minutes": {"t_minutes": 0, "autostop_rounds": 0, "observer_autostop_rounds": 0}}, "refresh_every_hours": 0})`
 must yield `n == 1`, `t_minutes == 1`, `autostop_rounds == 5`, `observer_autostop_rounds == 50`,
-`refresh_every_hours == 24`. Negatives (`-3`) yield the same. Upper bounds still hold: `n=5000`
-yields 1000, `t_minutes=99999` yields 1440. `to_dict()` round-trips all of them.
+`autostop_max_default == 100`, and `refresh_every_hours == 24`. Negatives (`-3`) yield the same.
+Upper bounds still hold: `n=5000` yields 1000, `t_minutes=99999` yields 1440,
+`autostop_rounds=500`, `observer_autostop_rounds=500`, and `autostop_max_default=500` each yield
+100. `to_dict()` round-trips all of them.
 
 Fails today on every lower-bound assertion: `models.py:154,158` apply no bounds at all and
 `:159,161-163,170` apply `min()` only. Extends the existing
@@ -577,7 +586,7 @@ on the module.
 Fails today: `wakeup_state.py:88-89`, `:167-168` and `graphrag_triggers.py:67-68` call `r.incr`
 and `r.expire` directly on the client, so the fake records two separate commands and no pipeline.
 
-**T-10, contingent on Q-3** `frontend/src/shared/types/__tests__/workflow.test.ts` (new file,
+**T-10** `frontend/src/shared/types/__tests__/workflow.test.ts` (new file,
 following the `__tests__/*.test.ts` convention used in `frontend/src/shared/composables/__tests__/`)
 
 Assert `defaultWakeupConfig()` returns `autostop_rounds: 5`, `every_n_messages.n: 3`, and
@@ -604,7 +613,7 @@ does not exist in the client shape.
 - **C4 lengthens the self-modification window** from 1 h to the configured T (default 24 h). Any
   clamp defect in `update_wakeup` therefore persists 24x longer, which is precisely why C3 must
   ship with it (see §6). Do not land C4 without C3.
-- **C4 with the Q-2 column option adds migration 0062.** Forward-compatible by construction:
+- **C4 adds migration 0067.** Forward-compatible by construction:
   nullable, defaulted `NULL`, and old code ignores it. Rollback is a column drop or simply leaving
   it unused.
 - **C5 is behavior-neutral** apart from durability. Low risk; the only failure mode is a
@@ -650,7 +659,7 @@ nothing in this one gates it.
       resets outside it, with a never-refreshed agent refreshing immediately.
 - [ ] **AC-9** T-9 passes: both `wakeup_state` counters and the GraphRAG message counter issue
       their `INCR` and `EXPIRE` in a single pipeline, and `reset_message_count` is gone.
-- [ ] **AC-10 (contingent on Q-3)** T-10 passes: `DEFAULT_WAKEUP` mirrors the backend defaults for
+- [ ] **AC-10** T-10 passes: `DEFAULT_WAKEUP` mirrors the backend defaults for
       every field the comment at `workflow.ts:61-68` claims it mirrors, or that comment is narrowed
       to name the fields that deliberately differ.
 - [ ] **AC-11** No data-repair migration is added. The operator query from §7 is recorded in the

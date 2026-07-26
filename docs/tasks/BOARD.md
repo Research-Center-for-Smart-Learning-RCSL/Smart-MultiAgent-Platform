@@ -38,12 +38,13 @@ parallel.
   `docs/audits/2026-07-22-agent-config-runtime/` F-11 (major): re-uploading a document discards
   the submitted per-agent allowlist on all four ingestion entry points, so the retry path cannot
   correct a wrong binding. Backend plus a frontend 409 handler.
-- `2026-07-22-wakeup-trigger-state-and-bounds` (bugfix, draft) — `depends_on: []`. **a2a** F-3, F-12,
+- `2026-07-22-wakeup-trigger-state-and-bounds` (bugfix, approved) — `depends_on: []`. **a2a** F-3, F-12,
   F-14, F-21, F-38 plus config F-24. (This row previously read "a2u"; corrected — the a2u audit has
   no F-38, and its F-3/F-12 belong to `attachment-lifecycle-and-rendering` and
   `activity-session-authz-and-validation` respectively.) Silence triggers never fire for bindings created after the
   presence edge; designer soft-bounds are erased on first self-modification; `refresh_every_hours`
-  is never read. Two open decisions (Q-2 clock storage, Q-3 frontend defaults).
+  is never read. Q-2 selects a durable agent-column clock; Q-3 fixes unambiguous frontend mirror
+  defaults while retaining the 30-minute UX silence default.
 - `2026-07-22-retention-sweep-fixes` (bugfix, draft) — `depends_on: []`. a2a F-17, F-42 plus
   verification-gap V-5. **Resolves a duplicate hand-off**: two audits routed the same purge-audit
   finding to two different slugs; this consolidates under one and records why.
