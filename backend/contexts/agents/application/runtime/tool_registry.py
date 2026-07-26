@@ -257,6 +257,7 @@ def build_cast_approval_vote_tool(
     *,
     agent_id: uuid.UUID,
     allowed_approvals: dict[uuid.UUID, uuid.UUID | None],
+    voted: set[uuid.UUID] | None = None,
 ) -> Tool:
     """R15.10–R15.14 — let an approver agent vote on a gate it was notified of.
 
@@ -264,7 +265,11 @@ def build_cast_approval_vote_tool(
     this turn drained) so an agent cannot vote on an arbitrary gate id it
     guessed. The mapped value carries each gate's originating ``chatroom_id`` (or
     None for a headless/workflow gate) so resolution publishes ``approval.resolved``
-    on the right room channel."""
+    on the right room channel.
+
+    ``voted`` (F-29) — a mutable sink the caller reads after the turn to tell
+    a cast ballot apart from a drained-but-unacted-on one (`turn_engine.py`'s
+    ``_settle_pending_approvals``), mirroring the ``artifact_sink`` precedent."""
 
     async def _invoke(args: dict[str, Any]) -> ToolResult:
         raw = str(args.get("approval_id", ""))
@@ -286,6 +291,8 @@ def build_cast_approval_vote_tool(
             rationale=(str(args["rationale"]) if args.get("rationale") else None),
             chatroom_id=allowed_approvals[approval_id],
         )
+        if voted is not None:
+            voted.add(approval_id)
         return ToolResult(content=json.dumps({"approval_id": raw, "vote": ballot.vote, "recorded": True}))
 
     return Tool(
