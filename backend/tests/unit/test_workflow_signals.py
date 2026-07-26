@@ -956,7 +956,10 @@ class TestRunTriggeredWorkflow:
         db.commit.assert_awaited_once()
 
     @patch("shared_kernel.db.session.async_session")
-    async def test_trigger_error(self, mock_session_cm) -> None:
+    async def test_trigger_start_failure_retries_and_audits(self, mock_session_cm) -> None:
+        """F-35: a trigger_run failure must not be reported as a successful
+        job — it must audit the failed start and retry, bounded, rather than
+        discard both recovery mechanisms in one bare except/return."""
         from app.workers.tasks.workflow_signals import run_triggered_workflow
 
         db = AsyncMock()
@@ -965,6 +968,79 @@ class TestRunTriggeredWorkflow:
 
         svc = AsyncMock()
         svc.trigger_run.side_effect = RuntimeError("workflow deleted")
+        pool = AsyncMock()
+        wf_id = str(uuid.uuid4())
+        payload = {"trigger_type": "message_received", "content": "secret room content"}
+
+        with (
+            patch("shared_kernel.auth.clients.get_redis", return_value=AsyncMock()),
+            patch("app.config.settings.get_settings", return_value=_settings_with_limit(0)),
+            patch(
+                "contexts.workflow.application.workflow_service.WorkflowService",
+                return_value=svc,
+            ),
+            patch("shared_kernel.audit.emit", new_callable=AsyncMock) as mock_audit,
+        ):
+            result = await run_triggered_workflow({"redis": pool}, wf_id, payload)
+
+        assert result == "start_failed:retry"
+        mock_audit.assert_awaited_once()
+        event = mock_audit.call_args.args[1]
+        assert event.action == "workflow.trigger_start_failed"
+        assert "content" not in event.metadata
+        assert "secret room content" not in str(event.metadata)
+
+        pool.enqueue_job.assert_awaited_once()
+        call = pool.enqueue_job.await_args
+        assert call.args == ("run_triggered_workflow", wf_id, payload, 1)
+        assert "_defer_by" in call.kwargs
+
+    @patch("shared_kernel.db.session.async_session")
+    async def test_trigger_start_failure_gives_up_at_budget(self, mock_session_cm) -> None:
+        from app.workers.tasks.workflow_signals import _RESUME_RETRY_MAX_ATTEMPTS, run_triggered_workflow
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        svc = AsyncMock()
+        svc.trigger_run.side_effect = RuntimeError("workflow deleted")
+        pool = AsyncMock()
+
+        with (
+            patch("shared_kernel.auth.clients.get_redis", return_value=AsyncMock()),
+            patch("app.config.settings.get_settings", return_value=_settings_with_limit(0)),
+            patch(
+                "contexts.workflow.application.workflow_service.WorkflowService",
+                return_value=svc,
+            ),
+            patch("shared_kernel.audit.emit", new_callable=AsyncMock),
+        ):
+            result = await run_triggered_workflow(
+                {"redis": pool}, str(uuid.uuid4()), {}, attempt=_RESUME_RETRY_MAX_ATTEMPTS
+            )
+
+        assert result == "start_failed:gave_up"
+        pool.enqueue_job.assert_not_awaited()
+
+    @patch("shared_kernel.db.session.async_session")
+    async def test_dispatch_failure_after_commit_does_not_retry_the_start(self, mock_session_cm) -> None:
+        """F-35 / F-33 adjacency (C5 must land after C4): a post-commit
+        dispatch_pending failure must not escape to arq, which would otherwise
+        retry the whole task and call trigger_run a second time against an
+        already-committed run."""
+        from app.workers.tasks.workflow_signals import run_triggered_workflow
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        wf_id = str(uuid.uuid4())
+        run_id = uuid.uuid4()
+        svc = AsyncMock()
+        svc.trigger_run.return_value = run_id
+        svc.dispatch_pending.side_effect = RuntimeError("redis boom")
+        pool = AsyncMock()
 
         with (
             patch("shared_kernel.auth.clients.get_redis", return_value=AsyncMock()),
@@ -974,6 +1050,8 @@ class TestRunTriggeredWorkflow:
                 return_value=svc,
             ),
         ):
-            result = await run_triggered_workflow({}, str(uuid.uuid4()))
+            result = await run_triggered_workflow({"redis": pool}, wf_id, {})
 
-        assert result == "error"
+        assert result == str(run_id)
+        svc.trigger_run.assert_awaited_once()
+        db.commit.assert_awaited_once()
