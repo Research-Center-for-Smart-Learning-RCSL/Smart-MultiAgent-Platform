@@ -216,6 +216,18 @@ def _request_ceiling(agent: Agent, context_limit: int) -> int:
     return context_limit
 
 
+def _parse_approval_id(note: dict[str, Any]) -> uuid.UUID | None:
+    """The note's ``approval_id`` as a UUID, or ``None`` for any other note
+    kind or a malformed id. One definition shared by every site that needs to
+    tell an approval ballot apart from a notify/released_observation note."""
+    if note.get("kind") != "approval_request" or not note.get("approval_id"):
+        return None
+    try:
+        return uuid.UUID(str(note["approval_id"]))
+    except ValueError:
+        return None
+
+
 # Appended to the system prompt whenever history carries sender labels. The
 # provider sees other participants' turns as "Name: message"; without this note
 # the model tends to mirror the convention and prefix its own reply with its name.
@@ -934,7 +946,7 @@ class TurnEngine:
                 await self._db.commit()
             except Exception:
                 _log.exception("a2a turn failure-path bookkeeping failed")
-            await self._requeue_notifications(agent, pending_notes)
+            await self._requeue_notifications(agent, pending_notes, voted=voted_approvals)
             return TurnResult(status="failed", reason=_err_kind(exc))
 
     async def _builtin_tools(
@@ -1646,9 +1658,8 @@ class TurnEngine:
         voted: set[uuid.UUID] = set()
         for n in usable:
             if n.get("kind") == "approval_request" and n.get("approval_id"):
-                try:
-                    approval_id = uuid.UUID(str(n["approval_id"]))
-                except ValueError:
+                approval_id = _parse_approval_id(n)
+                if approval_id is None:
                     continue
                 room_raw = n.get("chatroom_id")
                 try:
@@ -1676,9 +1687,23 @@ class TurnEngine:
             )
         return "[Incoming notifications]\n" + "\n".join(lines), tools, usable, voted
 
-    async def _requeue_notifications(self, agent: Agent, notes: list[dict[str, Any]]) -> None:
+    async def _requeue_notifications(
+        self,
+        agent: Agent,
+        notes: list[dict[str, Any]],
+        *,
+        voted: set[uuid.UUID] | None = None,
+    ) -> None:
         """Restore drained-but-unseen notifications (turn failed / skipped
-        before the provider call could read them). Best-effort."""
+        before the provider call could read them, or failed after rendering
+        them). Best-effort.
+
+        ``voted`` (F-29) — a ballot cast earlier in the same turn is already
+        durably committed (``ApprovalService.cast_vote`` commits on this same
+        session) independently of whatever the turn does afterward, so it is
+        excluded here rather than re-offered on a later failure."""
+        if voted:
+            notes = [n for n in notes if _parse_approval_id(n) not in voted]
         if not notes:
             return
         try:
@@ -1702,37 +1727,45 @@ class TurnEngine:
         carries an obligation, not information — rendering it is an offer to
         act, not the act. Requeues only while the gate is still PENDING (a
         resolved gate's note is dropped instead, so it does not cycle through
-        every subsequent turn until TTL). Best-effort, matching
-        :meth:`_requeue_notifications`'s own posture."""
+        every subsequent turn until TTL). Best-effort per note: one gate's
+        lookup failing must not discard another gate's already-confirmed
+        re-arm in the same batch, matching :meth:`_requeue_notifications`'s
+        own best-effort posture."""
         unvoted: list[tuple[uuid.UUID, dict[str, Any]]] = []
         for n in pending_notes:
-            if n.get("kind") != "approval_request" or not n.get("approval_id"):
-                continue
-            try:
-                approval_id = uuid.UUID(str(n["approval_id"]))
-            except ValueError:
-                continue
-            if approval_id not in voted:
+            approval_id = _parse_approval_id(n)
+            if approval_id is not None and approval_id not in voted:
                 unvoted.append((approval_id, n))
         if not unvoted:
             return
-        try:
-            from contexts.orchestration.domain.models import ApprovalState
-            from contexts.orchestration.infrastructure import pending_notify
-            from contexts.orchestration.interfaces.facade import OrchestrationFacade
 
-            facade = OrchestrationFacade(self._db)
-            to_requeue: list[dict[str, Any]] = []
-            for approval_id, n in unvoted:
+        from contexts.orchestration.domain.models import ApprovalState
+        from contexts.orchestration.infrastructure import pending_notify
+        from contexts.orchestration.interfaces.facade import OrchestrationFacade
+
+        facade = OrchestrationFacade(self._db)
+        to_requeue: list[dict[str, Any]] = []
+        for approval_id, n in unvoted:
+            try:
                 approval = await facade.get_approval(approval_id)
-                if approval is not None and approval.state == ApprovalState.PENDING:
-                    to_requeue.append(n)
-            if to_requeue:
-                await pending_notify.requeue(agent.id, to_requeue)
+            except Exception:
+                _log.warning(
+                    "failed to read gate state for unvoted approval %s agent=%s",
+                    approval_id,
+                    agent.id,
+                    exc_info=True,
+                )
+                continue
+            if approval is not None and approval.state == ApprovalState.PENDING:
+                to_requeue.append(n)
+        if not to_requeue:
+            return
+        try:
+            await pending_notify.requeue(agent.id, to_requeue)
         except Exception:
             _log.warning(
                 "failed to re-arm %d unvoted approval note(s) agent=%s",
-                len(unvoted),
+                len(to_requeue),
                 agent.id,
                 exc_info=True,
             )
@@ -2367,7 +2400,10 @@ class TurnEngine:
             except Exception:
                 _log.exception("agent turn failure-path bookkeeping failed")
             # The agent never acted on the drained notifications — restore them.
-            await self._requeue_notifications(agent, pending_notes)
+            # Any vote already cast this turn is excluded (F-29): it committed on
+            # this same session independently of this rollback, so it must not be
+            # re-offered on a later failure.
+            await self._requeue_notifications(agent, pending_notes, voted=voted_approvals)
             # Re-arm the one-shot /compact flag this turn consumed but wasted.
             await self._restore_compact_flag(chatroom_id)
             return TurnResult(status="failed", reason=_err_kind(exc))
