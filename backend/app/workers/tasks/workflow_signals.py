@@ -9,7 +9,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import Any
 
@@ -30,6 +33,89 @@ from contexts.workflow.domain.claim_ttl import remaining_budget_ttl as _remainin
 # (W1->W2->...->Wn all distinct) as a second, independent brake.
 TRIGGER_MAX_CHAIN_DEPTH: int = 10
 
+# Bounded LOCAL retry (within one job execution, not a re-enqueue) for a
+# transient dispatch_enqueues/dispatch_pending failure after a claim has
+# already been consumed or a run already committed. Swallowing it outright
+# left the run stranded with nothing dispatched until workflow_watchdog's
+# idle timeout force-failed it; re-raising it would hand the retry to arq,
+# which would redeliver the whole task — but by then the claim key (or the
+# commit) is already gone, so the redelivery short-circuits before ever
+# reaching dispatch_enqueues again, losing the retained _pending_enqueues
+# tail (F-33) for good (code-review finding). Each local retry instead calls
+# the *same* RunEngine/WorkflowService instance, so the retained tail is
+# exactly what gets redispatched. Short and few, unlike
+# _RESUME_RETRY_MAX_ATTEMPTS (that budget answers "wait for the run to
+# become WAITING", a different problem): this is for a transient Redis
+# blip, not a sustained outage, and must not hold the worker slot long.
+_DISPATCH_RETRY_ATTEMPTS = 3
+_DISPATCH_RETRY_BACKOFF_S = 2
+
+
+async def _dispatch_with_local_retry(
+    dispatch: Callable[[], Awaitable[None]],
+    *,
+    log_context: dict[str, Any],
+) -> None:
+    """Run ``dispatch`` with a bounded local retry; log and swallow on final failure."""
+    for attempt in range(1, _DISPATCH_RETRY_ATTEMPTS + 1):
+        try:
+            await dispatch()
+            return
+        except Exception:
+            if attempt == _DISPATCH_RETRY_ATTEMPTS:
+                logger.bind(**log_context, attempts=attempt).exception("dispatch failed after local retries")
+            else:
+                await asyncio.sleep(_DISPATCH_RETRY_BACKOFF_S)
+
+
+def _claimed_event_type(claimed: Any, *, run_id: str, node_id: str) -> str:
+    """Best-effort ``event_type`` extraction from a GETDEL-claimed wait payload.
+
+    Returns ``""`` on any parse failure or a missing/empty field, logging the
+    malformed case so it doesn't pass silently. Callers must never key a Redis
+    index off an empty result (F-37 review finding: doing so wrote the restored
+    wait into a bogus ``wf:wait:by_event:`` key with no type suffix, hiding it
+    from every future dispatch instead of just leaving it to resolve via its
+    timeout, as an unparseable payload always has).
+    """
+    try:
+        event_type = json.loads(claimed).get("event_type", "")
+    except (ValueError, TypeError):
+        logger.bind(run_id=run_id, node_id=node_id).warning(
+            "claimed wait payload is not valid JSON; treating as no event_type"
+        )
+        return ""
+    return str(event_type or "")
+
+
+async def _record_workflow_audit(workflow_id: str, action: str, metadata: dict[str, Any]) -> None:
+    """Emit a ``workflow`` audit event in its own best-effort session.
+
+    Shared by every trigger-path audit record (skipped / throttled /
+    start-failed): a failure to record must never turn into a failure of the
+    caller's own already-completed decision, so this logs and swallows rather
+    than raising.
+    """
+    try:
+        from shared_kernel import audit
+        from shared_kernel.db.session import async_session
+
+        async with async_session() as db:
+            await audit.emit(
+                db,
+                audit.AuditEvent(
+                    action=action,
+                    resource_type="workflow",
+                    resource_id=uuid.UUID(workflow_id),
+                    metadata=metadata,
+                ),
+            )
+            await db.commit()
+    except Exception:
+        logger.bind(workflow_id=workflow_id, action=action).warning(
+            "workflow trigger audit failed", exc_info=True
+        )
+
 
 async def _record_trigger_skip(workflow_id: str, reason: str, trigger_path: list[str]) -> None:
     """Audit + log a trigger start refused by the F-4 cycle/depth guard.
@@ -43,23 +129,9 @@ async def _record_trigger_skip(workflow_id: str, reason: str, trigger_path: list
         reason=reason,
         trigger_path=trigger_path,
     ).warning("workflow trigger skipped ({}): {}", reason, workflow_id)
-    try:
-        from shared_kernel import audit
-        from shared_kernel.db.session import async_session
-
-        async with async_session() as db:
-            await audit.emit(
-                db,
-                audit.AuditEvent(
-                    action="workflow.trigger_skipped",
-                    resource_type="workflow",
-                    resource_id=uuid.UUID(workflow_id),
-                    metadata={"reason": reason, "trigger_path": trigger_path},
-                ),
-            )
-            await db.commit()
-    except Exception:
-        logger.bind(workflow_id=workflow_id).warning("workflow trigger-skip audit failed", exc_info=True)
+    await _record_workflow_audit(
+        workflow_id, "workflow.trigger_skipped", {"reason": reason, "trigger_path": trigger_path}
+    )
 
 
 async def workflow_event_timeout(
@@ -80,8 +152,6 @@ async def workflow_event_timeout(
     Claim-before-verify: if the run turns out not to be WAITING (parallel
     sibling running), the claim is restored and this job retries bounded.
     """
-    import json
-
     from shared_kernel.auth.clients import get_redis
     from shared_kernel.db.session import async_session
 
@@ -101,10 +171,7 @@ async def workflow_event_timeout(
         )
         return "already_received"
 
-    try:
-        claimed_event_type = json.loads(claimed).get("event_type", "")
-    except (ValueError, TypeError):
-        claimed_event_type = ""
+    claimed_event_type = _claimed_event_type(claimed, run_id=run_id, node_id=node_id)
 
     async with async_session() as db:
         from contexts.workflow.application.run_engine import RunEngine
@@ -127,7 +194,11 @@ async def workflow_event_timeout(
                 claimed,
                 ttl,
                 min_ttl=_remaining_budget_ttl(_RESUME_RETRY_MAX_ATTEMPTS, _RESUME_RETRY_DELAY_S, attempt),
-                reindex=(f"wf:wait:by_event:{claimed_event_type}", f"{run_id}:{node_id}"),
+                reindex=(
+                    (f"wf:wait:by_event:{claimed_event_type}", f"{run_id}:{node_id}")
+                    if claimed_event_type
+                    else None
+                ),
             )
             if attempt < _RESUME_RETRY_MAX_ATTEMPTS:
                 await ctx["redis"].enqueue_job(
@@ -140,20 +211,23 @@ async def workflow_event_timeout(
                 return "not_waiting:retry"
             return "not_waiting:gave_up"
         # ASYNC-6: reuse this worker's own Arq pool — never open a fresh one.
-        await engine.dispatch_enqueues(ctx["redis"])
-
-    # Best-effort cleanup of the by-event index, using the claimed payload.
-    try:
-        info = json.loads(claimed)
-        event_type = info.get("event_type", "")
-        index_key = f"wf:wait:by_event:{event_type}"
-        await redis.srem(index_key, f"{run_id}:{node_id}")
-    except Exception:
-        # Index cleanup is best-effort — the wait_key is already gone. Surface a
-        # malformed payload so it is noticed, but do NOT abort the timeout flow.
-        logger.bind(run_id=run_id, node_id=node_id).exception(
-            "workflow_event_timeout: failed to remove from event index"
+        # The claim key is already consumed at this point, so an arq-level
+        # retry of this whole task would see "already_received" and never
+        # reach dispatch_enqueues again — retry locally instead.
+        await _dispatch_with_local_retry(
+            lambda: engine.dispatch_enqueues(ctx["redis"]),
+            log_context={"run_id": run_id, "node_id": node_id},
         )
+
+    # Best-effort cleanup of the by-event index, reusing the payload parsed above.
+    if claimed_event_type:
+        try:
+            await redis.srem(f"wf:wait:by_event:{claimed_event_type}", f"{run_id}:{node_id}")
+        except Exception:
+            # Index cleanup is best-effort — the wait_key is already gone.
+            logger.bind(run_id=run_id, node_id=node_id).exception(
+                "workflow_event_timeout: failed to remove from event index"
+            )
 
     if not resumed:
         return "noop:terminal"
@@ -324,8 +398,6 @@ async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str, 
     RUNNING) and the run is not terminal, the claim is restored with its
     remaining TTL and this job retries bounded — otherwise the wait was lost.
     """
-    import json
-
     from shared_kernel.auth.clients import get_redis
     from shared_kernel.db.session import async_session
 
@@ -336,10 +408,7 @@ async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str, 
     if claimed is None:
         return "already_claimed"
 
-    try:
-        claimed_event_type = json.loads(claimed).get("event_type", "")
-    except (ValueError, TypeError):
-        claimed_event_type = ""
+    claimed_event_type = _claimed_event_type(claimed, run_id=run_id, node_id=node_id)
 
     async with async_session() as db:
         from contexts.workflow.application.run_engine import RunEngine
@@ -358,7 +427,11 @@ async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str, 
                     claimed,
                     ttl,
                     min_ttl=_remaining_budget_ttl(_RESUME_RETRY_MAX_ATTEMPTS, _RESUME_RETRY_DELAY_S, attempt),
-                    reindex=(f"wf:wait:by_event:{claimed_event_type}", f"{run_id}:{node_id}"),
+                    reindex=(
+                        (f"wf:wait:by_event:{claimed_event_type}", f"{run_id}:{node_id}")
+                        if claimed_event_type
+                        else None
+                    ),
                 )
                 if attempt < _RESUME_RETRY_MAX_ATTEMPTS:
                     await ctx["redis"].enqueue_job(
@@ -374,15 +447,20 @@ async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str, 
         else:
             await _emit_resumed(db, run_id, node_id, reason="event")
             await db.commit()
-            await engine.dispatch_enqueues(ctx["redis"])
+            # The claim key is already consumed at this point, so an
+            # arq-level retry of this whole task would see "already_claimed"
+            # and never reach dispatch_enqueues again — retry locally instead.
+            await _dispatch_with_local_retry(
+                lambda: engine.dispatch_enqueues(ctx["redis"]),
+                log_context={"run_id": run_id, "node_id": node_id},
+            )
 
-    # Best-effort index cleanup using the claimed payload.
-    try:
-        info = json.loads(claimed)
-        event_type = info.get("event_type", "")
-        await redis.srem(f"wf:wait:by_event:{event_type}", f"{run_id}:{node_id}")
-    except Exception:
-        logger.bind(run_id=run_id, node_id=node_id).exception("event resume: index cleanup failed")
+    # Best-effort index cleanup, reusing the payload parsed above.
+    if claimed_event_type:
+        try:
+            await redis.srem(f"wf:wait:by_event:{claimed_event_type}", f"{run_id}:{node_id}")
+        except Exception:
+            logger.bind(run_id=run_id, node_id=node_id).exception("event resume: index cleanup failed")
 
     if not resumed:
         return "noop:terminal"
@@ -394,6 +472,19 @@ async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str, 
 # an intentional refusal, not a swallowed failure, and the two must stay
 # distinguishable in the job log (F-4; coordinate with the F-35 dossier).
 TRIGGER_THROTTLED_SENTINEL: str = "throttled"
+
+# Bounded LOCAL retry (within this one job execution, not a re-enqueue) for a
+# transient post-commit dispatch_pending failure. Swallowing it outright left
+# the newly-committed run stranded with nothing dispatched until
+# workflow_watchdog's idle timeout force-failed it (code-review finding).
+# Each retry calls the *same* WorkflowService/RunEngine instance, whose
+# _pending_enqueues already retains exactly the unsent tail (F-33), so a
+# retry redispatches only what didn't go out — no re-derivation needed. Short
+# and few, unlike _RESUME_RETRY_MAX_ATTEMPTS (that budget answers "wait for
+# the run to become WAITING", a different problem): this is for a transient
+# Redis blip, not a sustained outage, and must not hold the worker slot long.
+_DISPATCH_RETRY_ATTEMPTS = 3
+_DISPATCH_RETRY_BACKOFF_S = 2
 
 
 async def _consume_trigger_token(redis: Any, workflow_id: str, limit: int, window_seconds: int) -> bool:
@@ -419,34 +510,6 @@ async def _consume_trigger_token(redis: Any, workflow_id: str, limit: int, windo
     return True
 
 
-async def _record_trigger_start_failure(workflow_id: str, trigger_type: str, exc: Exception) -> None:
-    """Audit a dormant-trigger start failure (F-35).
-
-    Best-effort, own session — mirrors ``_record_trigger_skip``. Never records
-    the trigger payload: for ``message_received`` it carries the message body
-    (``messages.py``); only the trigger type and error class are safe.
-    """
-    try:
-        from shared_kernel import audit
-        from shared_kernel.db.session import async_session
-
-        async with async_session() as db:
-            await audit.emit(
-                db,
-                audit.AuditEvent(
-                    action="workflow.trigger_start_failed",
-                    resource_type="workflow",
-                    resource_id=uuid.UUID(workflow_id),
-                    metadata={"trigger_type": trigger_type, "error": type(exc).__name__},
-                ),
-            )
-            await db.commit()
-    except Exception:
-        logger.bind(workflow_id=workflow_id).warning(
-            "workflow trigger-start-failure audit failed", exc_info=True
-        )
-
-
 async def run_triggered_workflow(
     ctx: dict[str, Any],
     workflow_id: str,
@@ -470,24 +533,9 @@ async def run_triggered_workflow(
         logger.bind(
             event="workflow_trigger_throttled", workflow_id=workflow_id, limit=limit, window_s=window_s
         ).warning("workflow trigger throttled: {} exceeded {}/{}s", workflow_id, limit, window_s)
-        try:
-            from shared_kernel import audit
-
-            async with async_session() as db:
-                await audit.emit(
-                    db,
-                    audit.AuditEvent(
-                        action="workflow.trigger_throttled",
-                        resource_type="workflow",
-                        resource_id=uuid.UUID(workflow_id),
-                        metadata={"limit": limit, "window_seconds": window_s},
-                    ),
-                )
-                await db.commit()
-        except Exception:
-            logger.bind(workflow_id=workflow_id).warning(
-                "workflow trigger-throttle audit failed", exc_info=True
-            )
+        await _record_workflow_audit(
+            workflow_id, "workflow.trigger_throttled", {"limit": limit, "window_seconds": window_s}
+        )
         return TRIGGER_THROTTLED_SENTINEL
 
     async with async_session() as db:
@@ -496,8 +544,15 @@ async def run_triggered_workflow(
             run_id = await svc.trigger_run(uuid.UUID(workflow_id), trigger_payload=trigger_payload or {})
         except Exception as exc:
             logger.bind(workflow_id=workflow_id).exception("triggered workflow start failed")
+            # Never record the trigger payload itself: for message_received it
+            # carries the message body (messages.py). Only the trigger type
+            # and error class are safe to persist.
             trigger_type = (trigger_payload or {}).get("trigger_type", "")
-            await _record_trigger_start_failure(workflow_id, trigger_type, exc)
+            await _record_workflow_audit(
+                workflow_id,
+                "workflow.trigger_start_failed",
+                {"trigger_type": trigger_type, "error": type(exc).__name__},
+            )
             if attempt < _RESUME_RETRY_MAX_ATTEMPTS:
                 await ctx["redis"].enqueue_job(
                     "run_triggered_workflow",
@@ -509,16 +564,14 @@ async def run_triggered_workflow(
                 return "start_failed:retry"
             return "start_failed:gave_up"
         await db.commit()
-        try:
-            # Post-commit: the run is already durable, so a dispatch failure
-            # here must not propagate — arq's default retry would re-run this
-            # whole task and call trigger_run a second time against an
-            # already-committed run (§6 adjacency 2).
-            await svc.dispatch_pending(ctx["redis"])
-        except Exception:
-            logger.bind(workflow_id=workflow_id, run_id=str(run_id)).exception(
-                "post-commit dispatch failed for triggered workflow run"
-            )
+        # Post-commit: the run is already durable, so a dispatch failure here
+        # must not propagate — arq's default retry would re-run this whole
+        # task and call trigger_run a second time against an already-committed
+        # run (§6 adjacency 2). Retry locally instead (see _DISPATCH_RETRY_*).
+        await _dispatch_with_local_retry(
+            lambda: svc.dispatch_pending(ctx["redis"]),
+            log_context={"workflow_id": workflow_id, "run_id": str(run_id)},
+        )
 
     logger.bind(event="workflow_triggered", workflow_id=workflow_id, run_id=str(run_id)).info(
         "dormant-trigger workflow started"
