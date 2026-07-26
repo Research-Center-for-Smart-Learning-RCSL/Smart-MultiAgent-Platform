@@ -132,8 +132,9 @@
       @remove-upload="removeUpload"
     />
 
-    <!-- Desktop right rail: tabbed People/Observer for the creator of a room
-         with observers; plain presence panel otherwise. -->
+    <!-- Desktop right rail: tabbed People/Observer once the creator has an
+         observer surface to show (a live binding or leftover observations);
+         plain presence panel otherwise. -->
     <div
       v-if="isDesktop"
       class="chatroom__presence"
@@ -465,6 +466,19 @@ const railTabs = computed(() => [
     ? [{ key: 'activity', label: t('activities.panel.tab'), icon: PlayCircleIcon }]
     : []),
 ])
+// The Observer tab can now disappear from a live session — not just on a fresh
+// mount — because its visibility tracks mutable observation data (§7 of
+// observation-binding-cleanup): deleting the last stranded observation while
+// no observer is bound flips `hasObserverSurface` false with the tab still
+// selected. Left alone, `railTab` would point at a key STabs no longer renders
+// a panel for (empty rail). Fall back to the first tab that still exists.
+watch(railTabs, (tabs) => {
+  // 'people' is always the first, unconditional entry — the one tab that can
+  // never disappear out from under the current selection.
+  if (!tabs.some((tab) => tab.key === railTab.value)) {
+    railTab.value = 'people'
+  }
+})
 // W-3 (B.3/B.8): the panel is only actually visible when the Observer tab is
 // selected AND its container is on screen — the desktop rail is always shown,
 // but on mobile/tablet the tab lives inside the people drawer. Tracking railTab
