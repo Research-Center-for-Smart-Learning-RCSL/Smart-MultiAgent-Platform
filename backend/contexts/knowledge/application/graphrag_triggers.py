@@ -64,9 +64,11 @@ class RedisGraphRagMessageCounter:
     async def increment(self, config_id: uuid.UUID) -> int:
         r = get_redis()
         key = _message_count_key(config_id)
-        count = await r.incr(key)
-        await r.expire(key, _COUNTER_TTL)
-        return int(count)
+        pipe = r.pipeline(transaction=True)
+        pipe.incr(key)
+        pipe.expire(key, _COUNTER_TTL)
+        results = await pipe.execute()
+        return int(results[0])
 
 
 class GraphRagSilenceClock(Protocol):

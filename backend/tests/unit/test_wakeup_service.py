@@ -1,11 +1,4 @@
-"""WakeupService.evaluate_silence_trigger -- live-roster re-check (B1 AC-2).
-
-R15.05b: the empty-roster re-check must run unconditionally, not only when
-``allow_self_open`` is false. ``is_silence_active`` can go stale between an
-unclean disconnect and the retention scrub reconciling it (see
-`_scrub_stale_presence` in app/workers/tasks/retention.py) -- a self-opening
-silence agent must not trust that flag alone.
-"""
+"""WakeupService.evaluate_silence_trigger -- authoritative live-roster checks."""
 
 from __future__ import annotations
 
@@ -47,10 +40,6 @@ def _stub_stale_but_ready_silence_state(monkeypatch, *, autostop_count: int = 0)
     """Everything short of the roster re-check says "fire": silence has been
     active long enough and autostop hasn't tripped."""
     monkeypatch.setattr(
-        "contexts.orchestration.application.wakeup_service.wakeup_state.is_silence_active",
-        _async_return(True),
-    )
-    monkeypatch.setattr(
         "contexts.orchestration.application.wakeup_service.wakeup_state.get_silence_timestamp",
         _async_return(datetime.now(UTC) - timedelta(minutes=10)),
     )
@@ -61,8 +50,7 @@ def _stub_stale_but_ready_silence_state(monkeypatch, *, autostop_count: int = 0)
 
 
 async def test_allow_self_open_true_does_not_fire_into_empty_room(monkeypatch) -> None:
-    """Before the fix, allow_self_open=true skipped the roster re-check
-    entirely, so a stale is_silence_active flag alone fired the trigger."""
+    """Self-opening agents still require a live user for silence wake-ups."""
     agent = _agent(wakeup_config=_silence_config(allow_self_open=True))
     svc = _make_service(agent=agent, room_members=[])
     _stub_stale_but_ready_silence_state(monkeypatch)
@@ -101,34 +89,15 @@ async def test_allow_self_open_false_still_does_not_fire_into_empty_room(monkeyp
 # --------------------------------------------------------------------------- #
 
 
-async def test_observer_silence_fires_in_empty_room_even_when_paused(monkeypatch) -> None:
+async def test_observer_silence_fires_in_empty_room(monkeypatch) -> None:
     agent = _agent(wakeup_config=_silence_config(allow_self_open=False))
     svc = _make_service(agent=agent, room_members=[])
     _stub_stale_but_ready_silence_state(monkeypatch)
     # The role-blind presence pause set the flag inactive when the room
     # emptied — an observer must fire regardless.
-    monkeypatch.setattr(
-        "contexts.orchestration.application.wakeup_service.wakeup_state.is_silence_active",
-        _async_return(False),
-    )
-
     fired = await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4(), is_observer=True)
 
     assert fired is True
-
-
-async def test_normal_silence_still_respects_paused_flag(monkeypatch) -> None:
-    agent = _agent(wakeup_config=_silence_config(allow_self_open=True))
-    svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
-    _stub_stale_but_ready_silence_state(monkeypatch)
-    monkeypatch.setattr(
-        "contexts.orchestration.application.wakeup_service.wakeup_state.is_silence_active",
-        _async_return(False),
-    )
-
-    fired = await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4())
-
-    assert fired is False
 
 
 async def test_silence_seeds_its_clock_for_a_binding_created_after_the_join_edge(monkeypatch) -> None:
@@ -137,11 +106,6 @@ async def test_silence_seeds_its_clock_for_a_binding_created_after_the_join_edge
     room_id = uuid.uuid4()
     timestamps = [None, datetime.now(UTC) - timedelta(minutes=10)]
     touched: list[tuple[uuid.UUID, uuid.UUID]] = []
-
-    monkeypatch.setattr(
-        "contexts.orchestration.application.wakeup_service.wakeup_state.is_silence_active",
-        _async_return(False),
-    )
 
     async def _get_timestamp(*_args):
         return timestamps.pop(0)
@@ -171,10 +135,6 @@ async def test_normal_silence_follows_the_live_roster_not_the_cached_flag(monkey
     agent = _agent(wakeup_config=_silence_config(allow_self_open=False))
     svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
     _stub_stale_but_ready_silence_state(monkeypatch)
-    monkeypatch.setattr(
-        "contexts.orchestration.application.wakeup_service.wakeup_state.is_silence_active",
-        _async_return(False),
-    )
 
     assert await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4())
 

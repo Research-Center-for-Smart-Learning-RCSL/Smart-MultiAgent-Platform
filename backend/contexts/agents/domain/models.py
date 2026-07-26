@@ -164,6 +164,7 @@ class Agent:
     version: int
     deleted_at: datetime | None
     created_at: datetime
+    wakeup_last_refreshed_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,6 +281,7 @@ class AgentDraft:
     seed: int | None = None
     a2a_enabled: bool | None = None
     wakeup_config: dict[str, Any] | None = None
+    wakeup_last_refreshed_at: datetime | None = None
     workflow_capabilities: dict[str, Any] | None = None
     # Sentinel fields explicitly clearing a nullable column. The patch API
     # cannot tell "omitted" from "null" via `None` alone, so the service

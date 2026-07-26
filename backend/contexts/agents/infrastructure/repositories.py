@@ -83,6 +83,7 @@ def _row_to_agent(row: Any) -> Agent:
         a2a_enabled=row.a2a_enabled,
         wakeup_config=dict(row.wakeup_config or {}),
         wakeup_authored_snapshot=dict(row.wakeup_authored_snapshot) if row.wakeup_authored_snapshot else None,
+        wakeup_last_refreshed_at=row.wakeup_last_refreshed_at,
         workflow_capabilities=dict(row.workflow_capabilities or {}),
         version=row.version,
         deleted_at=row.deleted_at,

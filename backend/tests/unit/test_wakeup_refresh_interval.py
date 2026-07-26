@@ -62,6 +62,7 @@ async def test_refresh_runs_outside_the_configured_window(monkeypatch) -> None:
 
     assert await svc.refresh_wakeup_config(agent.id)
     assert len(patched) == 1
+    assert patched[0]["draft"].wakeup_last_refreshed_at is not None
 
 
 async def test_never_refreshed_agent_is_immediately_eligible(monkeypatch) -> None:
@@ -70,3 +71,4 @@ async def test_never_refreshed_agent_is_immediately_eligible(monkeypatch) -> Non
 
     assert await svc.refresh_wakeup_config(agent.id)
     assert len(patched) == 1
+    assert patched[0]["draft"].wakeup_last_refreshed_at is not None
