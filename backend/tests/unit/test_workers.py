@@ -459,12 +459,122 @@ class TestWorkflowWatchdog:
                 "contexts.workflow.application.run_engine.RunEngine",
                 return_value=engine,
             ),
+            patch("shared_kernel.auth.clients.get_redis", return_value=AsyncMock()),
         ):
             result = await workflow_watchdog({})
 
         assert "failed=1" in result
         engine.force_fail.assert_awaited_once()
         engine.dispatch_enqueues.assert_awaited_once_with(None)
+
+    @patch("shared_kernel.db.session.async_session")
+    async def test_watchdog_cleans_up_wait_index_for_force_failed_run(self, mock_session_cm) -> None:
+        """Review finding: a force-failed run is confirmed terminal, so any
+        wait_for_event node it still parks at is safe to prune from the
+        by-event index — unlike find_matching_waits's read-time check, this
+        is not racing a live claim window."""
+        from app.workers.tasks.workflow_watchdog import workflow_watchdog
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+        run_id = uuid.uuid4()
+        wf_id = uuid.uuid4()
+        started_at = datetime(2026, 6, 21, 0, 0, 0, tzinfo=UTC)
+
+        runs_repo = AsyncMock()
+        runs_repo.list_active.return_value = [(run_id, wf_id, started_at)]
+        steps_repo = AsyncMock()
+        wf_repo = AsyncMock()
+        wf = MagicMock()
+        wf.definition = {
+            "timeouts": {"run_max_seconds": 3600},
+            "nodes": [
+                {"id": "w1", "type": "wait_for_event", "config": {"event_type": "message_in_room"}},
+                {"id": "t1", "type": "trigger", "config": {}},
+            ],
+        }
+        wf_repo.get.return_value = wf
+        engine = AsyncMock()
+        engine.force_fail.return_value = True
+        redis = AsyncMock()
+
+        with (
+            patch(
+                "contexts.workflow.infrastructure.repositories.WorkflowRunRepository",
+                return_value=runs_repo,
+            ),
+            patch(
+                "contexts.workflow.infrastructure.repositories.WorkflowStepRepository",
+                return_value=steps_repo,
+            ),
+            patch(
+                "contexts.workflow.infrastructure.repositories.WorkflowRepository",
+                return_value=wf_repo,
+            ),
+            patch(
+                "contexts.workflow.application.run_engine.RunEngine",
+                return_value=engine,
+            ),
+            patch("shared_kernel.auth.clients.get_redis", return_value=redis),
+        ):
+            result = await workflow_watchdog({})
+
+        assert "failed=1" in result
+        redis.srem.assert_awaited_once_with("wf:wait:by_event:message_in_room", f"{run_id}:w1")
+
+    @patch("shared_kernel.db.session.async_session")
+    async def test_watchdog_skips_index_cleanup_when_not_force_failed(self, mock_session_cm) -> None:
+        """Guard: a run that force_fail declines to fail (already terminal,
+        lost the race) must not have its index entries touched."""
+        from app.workers.tasks.workflow_watchdog import workflow_watchdog
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+        run_id = uuid.uuid4()
+        wf_id = uuid.uuid4()
+        started_at = datetime(2026, 6, 21, 0, 0, 0, tzinfo=UTC)
+
+        runs_repo = AsyncMock()
+        runs_repo.list_active.return_value = [(run_id, wf_id, started_at)]
+        steps_repo = AsyncMock()
+        wf_repo = AsyncMock()
+        wf = MagicMock()
+        wf.definition = {
+            "timeouts": {"run_max_seconds": 3600},
+            "nodes": [
+                {"id": "w1", "type": "wait_for_event", "config": {"event_type": "message_in_room"}},
+            ],
+        }
+        wf_repo.get.return_value = wf
+        engine = AsyncMock()
+        engine.force_fail.return_value = False
+        redis = AsyncMock()
+
+        with (
+            patch(
+                "contexts.workflow.infrastructure.repositories.WorkflowRunRepository",
+                return_value=runs_repo,
+            ),
+            patch(
+                "contexts.workflow.infrastructure.repositories.WorkflowStepRepository",
+                return_value=steps_repo,
+            ),
+            patch(
+                "contexts.workflow.infrastructure.repositories.WorkflowRepository",
+                return_value=wf_repo,
+            ),
+            patch(
+                "contexts.workflow.application.run_engine.RunEngine",
+                return_value=engine,
+            ),
+            patch("shared_kernel.auth.clients.get_redis", return_value=redis),
+        ):
+            result = await workflow_watchdog({})
+
+        assert "failed=0" in result
+        redis.srem.assert_not_awaited()
 
     @patch("shared_kernel.db.session.async_session")
     async def test_watchdog_skips_healthy_run(self, mock_session_cm) -> None:

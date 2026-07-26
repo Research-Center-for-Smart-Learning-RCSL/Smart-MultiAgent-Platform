@@ -5,10 +5,42 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 from loguru import logger
+
+
+async def _cleanup_dangling_wait_index(redis: Any, run_id: uuid.UUID, definition: dict[str, Any]) -> None:
+    """Remove a force-failed run's wait_for_event nodes from every by-event
+    index they might still be a member of (code-review finding).
+
+    F-37 correctly stopped ``find_matching_waits`` pruning on a transiently
+    absent claim key — that absence can mean another task's in-flight claim
+    window, not permanent staleness. But a claim key can also be lost for
+    good (a worker crash between its GETDEL and the resume/restore commit),
+    in which case *neither* the event path nor the timeout path can ever
+    claim it again, and the run eventually lands here, force-failed for
+    idleness. That is the one signal DB-authoritative enough to prune
+    safely: a run this function just confirmed terminal cannot legitimately
+    still be waiting on anything. SREM of a non-member is a no-op, so it's
+    safe to sweep every wait_for_event node in the definition without first
+    determining which one was actually parked.
+    """
+    for node in definition.get("nodes", []):
+        if node.get("type") != "wait_for_event":
+            continue
+        node_id = node.get("id", "")
+        event_type = node.get("config", {}).get("event_type", "")
+        if not node_id or not event_type:
+            continue
+        try:
+            await redis.srem(f"wf:wait:by_event:{event_type}", f"{run_id}:{node_id}")
+        except Exception:
+            logger.bind(run_id=str(run_id), node_id=node_id).exception(
+                "watchdog: failed to clean up wait index for force-failed run"
+            )
 
 
 async def workflow_watchdog(ctx: dict[str, Any]) -> str:
@@ -36,6 +68,7 @@ async def workflow_watchdog(ctx: dict[str, Any]) -> str:
         WorkflowRunRepository,
         WorkflowStepRepository,
     )
+    from shared_kernel.auth.clients import get_redis
     from shared_kernel.db.session import async_session
 
     now = datetime.now(UTC)
@@ -76,6 +109,7 @@ async def workflow_watchdog(ctx: dict[str, Any]) -> str:
                 if await engine.force_fail(run_id, reason=reason):
                     await db.commit()
                     await engine.dispatch_enqueues(ctx.get("redis"))
+                    await _cleanup_dangling_wait_index(get_redis(), run_id, wf.definition)
                     failed += 1
             except Exception:
                 await db.rollback()
