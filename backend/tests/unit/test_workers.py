@@ -13,6 +13,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 # ===========================================================================
 # retention — individual policies
 # ===========================================================================
@@ -562,6 +564,97 @@ class TestWorkflowCron:
         result = await workflow_cron_scheduler({"redis": redis})
 
         assert "fired=0" in result
+
+    @patch("shared_kernel.db.session.async_session")
+    @patch("shared_kernel.auth.clients.get_redis")
+    async def test_cron_marks_last_fire_before_committing_the_run(
+        self, mock_redis_fn, mock_session_cm
+    ) -> None:
+        """F-34: the debounce marker must be written before the run is
+        committed, so a failure downstream cannot leave a duplicate-fire
+        window with nothing recording that this trigger already fired."""
+        from app.workers.tasks.workflow_cron import workflow_cron_scheduler
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        wf_id = uuid.uuid4()
+        row = MagicMock()
+        row.id = wf_id
+        row.definition = {
+            "nodes": [
+                {"type": "trigger", "config": {"trigger_type": "cron", "cron_expression": "* * * * *"}},
+            ],
+        }
+        db.execute.return_value = MagicMock(all=MagicMock(return_value=[row]))
+        redis = AsyncMock()
+        redis.get.return_value = None
+        mock_redis_fn.return_value = redis
+
+        manager = MagicMock()
+        manager.attach_mock(redis.set, "redis_set")
+        manager.attach_mock(db.commit, "db_commit")
+
+        svc = AsyncMock()
+        with patch(
+            "contexts.workflow.application.workflow_service.WorkflowService",
+            return_value=svc,
+        ):
+            result = await workflow_cron_scheduler({"redis": redis})
+
+        assert "fired=1" in result
+        redis.set.assert_awaited_once()
+        assert redis.set.await_args.args[0] == f"wf:cron:{wf_id}:last_fire"
+        call_names = [c[0] for c in manager.mock_calls if c[0] in ("redis_set", "db_commit")]
+        assert call_names.index("redis_set") < call_names.index("db_commit")
+
+    @patch("shared_kernel.db.session.async_session")
+    @patch("shared_kernel.auth.clients.get_redis")
+    async def test_cron_does_not_refire_when_dispatch_fails(self, mock_redis_fn, mock_session_cm) -> None:
+        """F-34: a post-mark dispatch failure must not cause a second fire on
+        the very next pass — the marker was already written."""
+        from app.workers.tasks.workflow_cron import workflow_cron_scheduler
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        wf_id = uuid.uuid4()
+        row = MagicMock()
+        row.id = wf_id
+        row.definition = {
+            "nodes": [
+                {"type": "trigger", "config": {"trigger_type": "cron", "cron_expression": "* * * * *"}},
+            ],
+        }
+        db.execute.return_value = MagicMock(all=MagicMock(return_value=[row]))
+        redis = AsyncMock()
+        redis.get.return_value = None
+        mock_redis_fn.return_value = redis
+
+        svc = AsyncMock()
+        svc.dispatch_pending.side_effect = RuntimeError("dispatch boom")
+        with (
+            patch(
+                "contexts.workflow.application.workflow_service.WorkflowService",
+                return_value=svc,
+            ),
+            pytest.raises(RuntimeError),
+        ):
+            # The lone eligible workflow errored, so the all-eligible-failed
+            # guard (workflow_cron.py) re-raises to arq — unrelated to F-34,
+            # this dossier does not change that behavior.
+            await workflow_cron_scheduler({"redis": redis})
+
+        redis.set.assert_awaited_once()
+        marked_at = redis.set.await_args.args[1]
+
+        # A second, immediate pass must see the marker and not re-fire.
+        redis.get.return_value = marked_at
+        second = await workflow_cron_scheduler({"redis": redis})
+
+        assert "fired=0" in second
 
     @patch("shared_kernel.db.session.async_session")
     @patch("shared_kernel.auth.clients.get_redis")
