@@ -940,7 +940,7 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
         return []
 
     async def _pending(agent_, chatroom_id_):
-        return None, [], []
+        return None, [], [], set()
 
     stream_seen: dict = {}
 
@@ -1181,7 +1181,7 @@ async def test_pending_context_renders_released_observation(monkeypatch) -> None
 
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = object()  # type: ignore[attr-defined]
-    block, tools, drained = await engine._pending_context_and_tools(_observer_agent(), room_id)
+    block, tools, drained, _voted = await engine._pending_context_and_tools(_observer_agent(), room_id)
 
     assert block is not None
     assert "The room owner shared an analysis with you:" in block
@@ -1211,7 +1211,7 @@ async def test_pending_context_requeues_released_observation_for_a_different_roo
     agent = _observer_agent()
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = object()  # type: ignore[attr-defined]
-    block, tools, drained = await engine._pending_context_and_tools(agent, room_b)
+    block, tools, drained, _voted = await engine._pending_context_and_tools(agent, room_b)
 
     assert block is None
     assert tools == []
@@ -1240,7 +1240,7 @@ async def test_pending_context_requeues_released_observation_for_headless_turn(m
     agent = _observer_agent()
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = object()  # type: ignore[attr-defined]
-    block, tools, drained = await engine._pending_context_and_tools(agent, None)
+    block, tools, drained, _voted = await engine._pending_context_and_tools(agent, None)
 
     assert block is None
     assert drained == []

@@ -11,6 +11,7 @@ Covers:
 
 from __future__ import annotations
 
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -18,6 +19,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from loguru import logger
 
 import app.workers.tasks.approvals as tasks_appr
 import app.workers.tasks.orchestration as tasks_orch
@@ -339,7 +341,9 @@ def _wire_task(monkeypatch, approval, *, turn_result=None):
 
         async def run_input_turn(self, **kw):
             captured["turn_kwargs"] = kw
-            return turn_result or SimpleNamespace(status="completed", text="ok", reason=None)
+            return turn_result or SimpleNamespace(
+                status="completed", text="ok", reason=None, approvals_voted=1
+            )
 
     @asynccontextmanager
     async def _sess():
@@ -389,6 +393,31 @@ async def test_drive_approver_turn_without_room_passes_none(monkeypatch) -> None
     assert out == "completed"
     # No carried room → no Concept Map resolution (chatroom_id stays None).
     assert captured["turn_kwargs"]["chatroom_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_drive_approver_turn_warns_when_turn_completed_without_voting(monkeypatch, caplog) -> None:
+    """F-29, reporting half — a turn that reached the provider and completed
+    is not the same as one that voted. Previously both logged "approver turn
+    driven" at info, indistinguishable from each other; the ballot itself is
+    re-armed by the engine (_settle_pending_approvals), not by this task."""
+    approval = _approval(ApprovalState.PENDING)
+    _wire_task(
+        monkeypatch,
+        approval,
+        turn_result=SimpleNamespace(status="completed", text="ok", reason=None, approvals_voted=0),
+    )
+
+    handler_id = logger.add(caplog.handler, format="{message}", level="INFO")
+    try:
+        with caplog.at_level(logging.INFO):
+            out = await tasks_appr.drive_approver_turn({}, str(uuid.uuid4()), str(approval.id), None)
+    finally:
+        logger.remove(handler_id)
+
+    assert out == "completed"
+    assert any(r.levelname == "WARNING" for r in caplog.records)
+    assert not any(r.levelname == "INFO" and "driven" in r.message for r in caplog.records)
 
 
 @pytest.mark.asyncio

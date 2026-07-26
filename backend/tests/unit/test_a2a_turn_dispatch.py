@@ -21,7 +21,7 @@ import contexts.agents.application.runtime.turn_engine as te
 import contexts.orchestration.application.a2a_handler as h
 import contexts.orchestration.infrastructure.pending_notify as pn
 from contexts.agents.application.context import KnowledgeBudget
-from contexts.orchestration.domain.models import A2AEnvelope, A2AMessageType
+from contexts.orchestration.domain.models import A2AEnvelope, A2AMessageType, ApprovalState
 from contexts.skills.application.binding_service import BoundSet
 from tests.unit.skill_fakes import make_skill
 
@@ -270,6 +270,40 @@ async def test_run_input_turn_passes_the_snapshot_to_the_registry(monkeypatch) -
     # The whole snapshot, not just its skills — see the sibling assertion in
     # test_observer_agents.py for why the three views must travel together.
     assert built["skills"].skills == (skill,)
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_renders_own_gate_approval_in_matching_room(monkeypatch) -> None:
+    """D-1 — run_input_turn used to hardcode chatroom_id=None when draining
+    pending notifications, ignoring the room it was actually given. That was
+    silent while F-8 stood (approval_request notes rendered regardless of
+    room), but once the misroute check applies to every kind, a driven
+    approver turn for a room-bound gate must see its own gate's room here —
+    otherwise it would requeue its own note as foreign to itself and never
+    obtain cast_approval_vote."""
+    agent = _agent()
+    room = uuid.uuid4()
+    approval_id = uuid.uuid4()
+    notes = [
+        {
+            "kind": "approval_request",
+            "approval_id": str(approval_id),
+            "mode": "single",
+            "chatroom_id": str(room),
+        }
+    ]
+    engine, captured = _headless_engine(monkeypatch, agent, drain=notes)
+    _wire_knowledge(engine)
+    built: dict = {}
+    monkeypatch.setattr(te, "build_registry", lambda *a, **k: built.update(k) or _fake_registry())
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="hi", chatroom_id=room)
+
+    assert result.status == "completed"
+    assert str(approval_id) in captured["system_text"]
+    # AC-5: the driven turn must actually obtain cast_approval_vote, not just
+    # render the question — a rendered ballot with no tool cannot be acted on.
+    assert any(t.name == "cast_approval_vote" for t in built["extra"])
 
 
 # --------------------------------------------------------------------------- #
@@ -746,7 +780,7 @@ async def test_pending_context_adds_approval_tool(monkeypatch) -> None:
     sentinel = SimpleNamespace(name="cast_approval_vote")
     seen: dict = {}
 
-    def _build(db, *, agent_id, allowed_approvals):
+    def _build(db, *, agent_id, allowed_approvals, voted=None):
         seen["allowed"] = dict(allowed_approvals)
         return sentinel
 
@@ -755,7 +789,7 @@ async def test_pending_context_adds_approval_tool(monkeypatch) -> None:
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = object()  # type: ignore[attr-defined]
     engine._requeue_notifications = _async_return(None)  # type: ignore[attr-defined]
-    block, tools, _notes = await engine._pending_context_and_tools(_agent(), room_id)
+    block, tools, _notes, _voted = await engine._pending_context_and_tools(_agent(), room_id)
 
     assert block is not None
     assert str(approval_id) in block
@@ -769,9 +803,155 @@ async def test_pending_context_empty(monkeypatch) -> None:
     monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.drain", _async_return([]))
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = object()  # type: ignore[attr-defined]
-    block, tools, _notes = await engine._pending_context_and_tools(_agent(), uuid.uuid4())
+    block, tools, _notes, _voted = await engine._pending_context_and_tools(_agent(), uuid.uuid4())
     assert block is None
     assert tools == []
+
+
+@pytest.mark.asyncio
+async def test_pending_context_requeues_approval_request_for_a_different_room(monkeypatch) -> None:
+    """F-8 — the misroute filter must cover every note kind that carries a
+    room, not only released_observation. An approver bound to rooms A and B
+    must never see room A's approval question inside a room-B turn."""
+    room_a, room_b = uuid.uuid4(), uuid.uuid4()
+    approval_id = uuid.uuid4()
+    notes = [
+        {
+            "kind": "approval_request",
+            "approval_id": str(approval_id),
+            "mode": "single",
+            "chatroom_id": str(room_a),
+            "question": "Approve payout of 50000 to Vendor Q?",
+        }
+    ]
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.drain", _async_return(notes))
+    requeued: list[tuple[uuid.UUID, list]] = []
+
+    async def _requeue(agent_id, requeued_notes):
+        requeued.append((agent_id, requeued_notes))
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.requeue", _requeue)
+
+    agent = _agent()
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+    block, tools, drained, voted = await engine._pending_context_and_tools(agent, room_b)
+
+    assert block is None
+    assert tools == []
+    assert drained == []
+    assert voted == set()
+    assert requeued == [(agent.id, notes)]
+
+
+@pytest.mark.asyncio
+async def test_pending_context_does_not_render_foreign_gate_question(monkeypatch) -> None:
+    """F-8, disclosure half — pinned separately from the routing decision above
+    so a future partial fix cannot satisfy one without the other."""
+    room_a, room_b = uuid.uuid4(), uuid.uuid4()
+    notes = [
+        {
+            "kind": "approval_request",
+            "approval_id": str(uuid.uuid4()),
+            "mode": "single",
+            "chatroom_id": str(room_a),
+            "question": "SENTINEL_SECRET_QUESTION",
+        }
+    ]
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.drain", _async_return(notes))
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.requeue", _async_return(None))
+
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+    block, _tools, _drained, _voted = await engine._pending_context_and_tools(_agent(), room_b)
+
+    assert block is None or "SENTINEL_SECRET_QUESTION" not in block
+
+
+@pytest.mark.asyncio
+async def test_pending_context_requeues_approval_request_on_headless_turn(monkeypatch) -> None:
+    """F-8 — a room-bearing approval note drained during a headless turn (no
+    room at all) must be requeued, mirroring the released_observation case."""
+    room = uuid.uuid4()
+    notes = [
+        {
+            "kind": "approval_request",
+            "approval_id": str(uuid.uuid4()),
+            "mode": "single",
+            "chatroom_id": str(room),
+        }
+    ]
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.drain", _async_return(notes))
+    requeued: list[tuple[uuid.UUID, list]] = []
+
+    async def _requeue(agent_id, requeued_notes):
+        requeued.append((agent_id, requeued_notes))
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.requeue", _requeue)
+
+    agent = _agent()
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+    block, tools, drained, voted = await engine._pending_context_and_tools(agent, None)
+
+    assert block is None
+    assert tools == []
+    assert drained == []
+    assert voted == set()
+    assert requeued == [(agent.id, notes)]
+
+
+@pytest.mark.asyncio
+async def test_pending_context_renders_headless_gate_approval_in_any_room(monkeypatch) -> None:
+    """Guard against over-correction: a headless-gate note (chatroom_id: None)
+    is room-agnostic and must render in any turn, including an arbitrary room.
+    Without this guard, "requeue every approval_request whose room != this
+    turn's" would also pass T-1..T-3 while silently breaking every headless
+    gate — sending its None-room note back forever."""
+    approval_id = uuid.uuid4()
+    notes = [
+        {
+            "kind": "approval_request",
+            "approval_id": str(approval_id),
+            "mode": "single",
+            "chatroom_id": None,
+        }
+    ]
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.drain", _async_return(notes))
+    sentinel = SimpleNamespace(name="cast_approval_vote")
+    monkeypatch.setattr(te, "build_cast_approval_vote_tool", lambda *a, **k: sentinel)
+
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+    block, tools, drained, _voted = await engine._pending_context_and_tools(_agent(), uuid.uuid4())
+
+    assert block is not None
+    assert str(approval_id) in block
+    assert tools == [sentinel]
+    assert drained == notes
+
+
+@pytest.mark.asyncio
+async def test_pending_context_renders_a2a_notify_in_any_room(monkeypatch) -> None:
+    """R9.16 — an A2A notify carries no chatroom_id at all and must always
+    render, in any room and in a headless turn — pinning [R9.16]'s
+    fire-and-forget delivery against a predicate that must not over-reach
+    into the one kind it must never filter."""
+    notes = [{"kind": "notify", "from_agent": "x", "payload": {"a": 1}}]
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.drain", _async_return(notes))
+
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+    block, tools, drained, voted = await engine._pending_context_and_tools(_agent(), uuid.uuid4())
+
+    assert block is not None
+    assert tools == []
+    assert drained == notes
+    assert voted == set()
+
+    block2, _tools2, drained2, _voted2 = await engine._pending_context_and_tools(_agent(), None)
+    assert block2 is not None
+    assert drained2 == notes
 
 
 # --------------------------------------------------------------------------- #
@@ -828,6 +1008,159 @@ async def test_cast_approval_vote_rejects_unscoped_and_bad_id(monkeypatch) -> No
     assert not_allowed.is_error
     bad = await tool.invoke({"approval_id": "not-a-uuid", "vote": True})
     assert bad.is_error
+
+
+@pytest.mark.asyncio
+async def test_cast_approval_vote_records_into_the_voted_sink(monkeypatch) -> None:
+    """F-29 — the sink _settle_pending_approvals reads after the turn to tell
+    a cast ballot apart from a drained-but-unacted-on one."""
+    approval_id, agent_id = uuid.uuid4(), uuid.uuid4()
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def cast_approval_vote(self, **kw):
+            return SimpleNamespace(vote=True)
+
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade)
+    voted: set[uuid.UUID] = set()
+    tool = tr.build_cast_approval_vote_tool(
+        object(), agent_id=agent_id, allowed_approvals={approval_id: None}, voted=voted
+    )
+
+    ok = await tool.invoke({"approval_id": str(approval_id), "vote": True})
+
+    assert not ok.is_error
+    assert voted == {approval_id}
+
+
+@pytest.mark.asyncio
+async def test_cast_approval_vote_rejected_id_does_not_touch_the_voted_sink(monkeypatch) -> None:
+    voted: set[uuid.UUID] = set()
+    tool = tr.build_cast_approval_vote_tool(
+        object(), agent_id=uuid.uuid4(), allowed_approvals={uuid.uuid4(): None}, voted=voted
+    )
+
+    rejected = await tool.invoke({"approval_id": str(uuid.uuid4()), "vote": True})
+
+    assert rejected.is_error
+    assert voted == set()
+
+
+# --------------------------------------------------------------------------- #
+# _settle_pending_approvals (F-29)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_unvoted_approval_note_is_requeued_when_gate_still_pending(monkeypatch) -> None:
+    """F-29 — a completed turn that drained an approval_request and cast no
+    vote must not destroy the ballot: without this, the gate silently falls to
+    its timeout, indistinguishable at the caller's log level from a real vote."""
+    approval_id = uuid.uuid4()
+    note = {
+        "kind": "approval_request",
+        "approval_id": str(approval_id),
+        "mode": "single",
+        "chatroom_id": None,
+    }
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def get_approval(self, aid):
+            assert aid == approval_id
+            return SimpleNamespace(state=ApprovalState.PENDING)
+
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade)
+    requeued: list[tuple[uuid.UUID, list]] = []
+
+    async def _requeue(agent_id, notes):
+        requeued.append((agent_id, notes))
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.requeue", _requeue)
+
+    agent = _agent()
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+
+    await engine._settle_pending_approvals(agent, [note], set())
+
+    assert requeued == [(agent.id, [note])]
+
+
+@pytest.mark.asyncio
+async def test_voted_approval_note_is_not_requeued(monkeypatch) -> None:
+    """Mirror of the above: a cast vote consumes its note for good. Load-
+    bearing on its own — without it, an unconditional requeue would also
+    satisfy the test above while cycling every settled gate's note for 24h
+    (the rejected design, Q-5)."""
+    approval_id = uuid.uuid4()
+    note = {
+        "kind": "approval_request",
+        "approval_id": str(approval_id),
+        "mode": "single",
+        "chatroom_id": None,
+    }
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            raise AssertionError("a voted ballot must never re-read gate state")
+
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade)
+    requeued: list = []
+
+    async def _requeue(agent_id, notes):
+        requeued.append((agent_id, notes))
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.requeue", _requeue)
+
+    agent = _agent()
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+
+    await engine._settle_pending_approvals(agent, [note], {approval_id})
+
+    assert requeued == []
+
+
+@pytest.mark.asyncio
+async def test_unvoted_approval_note_for_resolved_gate_is_dropped(monkeypatch) -> None:
+    """Q-5 — re-arming only while PENDING bounds the cycle: a settled gate's
+    note is dropped rather than rendered again on every subsequent turn until
+    its 24h TTL."""
+    approval_id = uuid.uuid4()
+    note = {
+        "kind": "approval_request",
+        "approval_id": str(approval_id),
+        "mode": "single",
+        "chatroom_id": None,
+    }
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def get_approval(self, aid):
+            return SimpleNamespace(state=ApprovalState.APPROVED)
+
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade)
+    requeued: list = []
+
+    async def _requeue(agent_id, notes):
+        requeued.append((agent_id, notes))
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.requeue", _requeue)
+
+    agent = _agent()
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+
+    await engine._settle_pending_approvals(agent, [note], set())
+
+    assert requeued == []
 
 
 # --------------------------------------------------------------------------- #
