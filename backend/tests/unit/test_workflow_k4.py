@@ -782,6 +782,79 @@ async def test_dispatch_enqueues_uses_underscore_defer_by() -> None:
     assert kwargs["_defer_by"] == timedelta(milliseconds=5000)
 
 
+async def test_dispatch_enqueues_retains_unsent_entries_on_partial_failure() -> None:
+    """F-33: a partial dispatch must not destroy the record of unsent work —
+    entries not yet successfully enqueued stay in ``_pending_enqueues``."""
+    from contexts.workflow.application.run_engine import RunEngine
+
+    engine = RunEngine(db=MagicMock())
+    run_id = str(uuid.uuid4())
+    entries = [
+        ("run_workflow_step", run_id, "n1", 0, "e1"),
+        ("run_workflow_step", run_id, "n2", 0, "e2"),
+        ("run_workflow_step", run_id, "n3", 0, "e3"),
+    ]
+    engine._pending_enqueues = list(entries)
+    pool = MagicMock()
+    pool.enqueue_job = AsyncMock(side_effect=[None, RuntimeError("redis boom"), None])
+
+    with pytest.raises(RuntimeError):
+        await engine.dispatch_enqueues(pool)
+
+    assert pool.enqueue_job.await_count == 2
+    assert engine._pending_enqueues == entries[1:]
+
+
+async def test_dispatch_enqueues_is_reentrant_after_partial_failure() -> None:
+    """F-33: after a partial failure, calling dispatch_enqueues again enqueues
+    exactly the unsent tail, each entry exactly once."""
+    from contexts.workflow.application.run_engine import RunEngine
+
+    engine = RunEngine(db=MagicMock())
+    run_id = str(uuid.uuid4())
+    entries = [
+        ("run_workflow_step", run_id, "n1", 0, "e1"),
+        ("run_workflow_step", run_id, "n2", 0, "e2"),
+        ("run_workflow_step", run_id, "n3", 0, "e3"),
+    ]
+    engine._pending_enqueues = list(entries)
+    failing_pool = MagicMock()
+    failing_pool.enqueue_job = AsyncMock(side_effect=[None, RuntimeError("redis boom"), None])
+
+    with pytest.raises(RuntimeError):
+        await engine.dispatch_enqueues(failing_pool)
+
+    working_pool = MagicMock()
+    working_pool.enqueue_job = AsyncMock()
+
+    await engine.dispatch_enqueues(working_pool)
+
+    assert working_pool.enqueue_job.await_count == 2
+    sent_node_ids = [call.args[2] for call in working_pool.enqueue_job.await_args_list]
+    assert sent_node_ids == ["n2", "n3"]
+    assert engine._pending_enqueues == []
+
+
+async def test_dispatch_enqueues_drains_fully_on_success() -> None:
+    """Guard against a fix that only stops clearing: the happy path must
+    still empty ``_pending_enqueues``."""
+    from contexts.workflow.application.run_engine import RunEngine
+
+    engine = RunEngine(db=MagicMock())
+    run_id = str(uuid.uuid4())
+    engine._pending_enqueues = [
+        ("run_workflow_step", run_id, "n1", 0, "e1"),
+        ("run_workflow_step", run_id, "n2", 0, "e2"),
+    ]
+    pool = MagicMock()
+    pool.enqueue_job = AsyncMock()
+
+    await engine.dispatch_enqueues(pool)
+
+    assert pool.enqueue_job.await_count == 2
+    assert engine._pending_enqueues == []
+
+
 async def test_force_fail_skips_terminal_run() -> None:
     from contexts.workflow.application.run_engine import RunEngine
     from contexts.workflow.domain.models import RunState
