@@ -91,8 +91,3 @@ Nothing blocked.
   enum-array assembly.
 - `2026-07-22-workflow-run-cancellation` (bugfix) — `depends_on: []`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
-- `2026-07-22-wakeup-trigger-state-and-bounds` (bugfix) — `depends_on: []`. **a2a** F-3, F-12,
-  F-14, F-21, F-38 plus config F-24. Silence triggers never fire for bindings created after the
-  presence edge; designer soft-bounds are erased on first self-modification; `refresh_every_hours`
-  is never read. Q-2 selects a durable agent-column clock; Q-3 fixes unambiguous frontend mirror
-  defaults while retaining the 30-minute UX silence default.
