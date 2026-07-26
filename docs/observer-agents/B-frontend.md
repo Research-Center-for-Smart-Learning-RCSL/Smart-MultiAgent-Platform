@@ -137,10 +137,14 @@ pages) and `slices/notifications/composables/useNotificationsSocket.ts`
 event, and agents in `SDrawer side="left"` via `toggle-agents`. There is
 **no tab structure today** — this phase introduces one: wrap the right-rail
 content in a two-tab segmented control (`STabs`), `People` and `Observer`,
-where the Observer tab renders only when `isCreator &&
-observerAgents.length > 0` (icon `EyeIcon`, badge = `unreadCount` via
-`SBadge`). Apply the same gating inside the mobile people-drawer. Opening
-the panel zeroes `unreadCount`.
+where the Observer tab renders when the viewer is the creator and the room
+has either an observer binding or at least one non-deleted observation
+(`useObservations.hasObserverSurface`) — observations outlive the binding
+that produced them, and the panel is the only route to the
+release/soft-delete affordances, so gating on the roster alone strands them
+(see `docs/tasks/2026-07-22-observation-binding-cleanup/spec.md`). Icon
+`EyeIcon`, badge = `unreadCount` via `SBadge`. Apply the same gating inside
+the mobile people-drawer. Opening the panel zeroes `unreadCount`.
 
 ```
 +- right rail ----------------------+
@@ -180,7 +184,10 @@ the panel zeroes `unreadCount`.
   'warning'…})`, the verified house pattern; see
   `useChatroomMessages.confirmDelete`).
 - States: `SSkeleton` while pages load; `SEmptyState` ("No observations
-  yet — observers write here after they analyze the conversation"); a
+  yet — observers write here after they analyze the conversation"); an
+  inline `SAlert` above the divider when the roster is empty but
+  observations remain, explaining that no observer is currently bound and
+  that these past analyses are still releasable and deletable; a
   failed observer turn surfaces as an inline roster row from
   `observerErrors` (kinds mirror `agent.finished`: `rate_limited`,
   `provider_exhausted:*`, …), not a toast — it belongs to this panel's

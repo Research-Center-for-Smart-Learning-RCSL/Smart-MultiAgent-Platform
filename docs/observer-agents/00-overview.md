@@ -234,7 +234,7 @@ for phase B — the frontend must never be the enforcement point.
 | Unwoken private release silently expires | `pending_notify` TTL is 24h / 50-note cap (verified); release UI copy states it, `wake=true` avoids it entirely. |
 | Mention path wakes an observer and reveals it | `filter_mentioned_bound_agents` intersects with **normal-role** bindings only (§A.5). |
 | Enum/ORM mismatch 500s under asyncpg | `role` declared as PG ENUM `create_type=False` in `tables.py`, mirroring `message_sender_type`. |
-| Observer analyses go stale/unbounded | Soft-delete endpoint; own-memory window bounded (§A.6); retention hook listed as v2. |
+| Observer analyses go stale/unbounded | Soft-delete endpoint; own-memory window bounded (§A.6); retention hook listed as v2. Mitigation holds only if the creator retains a client route to the endpoint that is *not* gated on live bindings — see `docs/tasks/2026-07-22-observation-binding-cleanup/spec.md`, which found and fixed a gate that briefly invalidated this row. |
 
 ## 0.11 How to use this plan
 
