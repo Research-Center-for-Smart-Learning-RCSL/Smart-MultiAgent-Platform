@@ -202,7 +202,7 @@ def _wire_normal_engine(monkeypatch, agent, *, activity_block: str | None):
         return []
 
     async def _pending(agent_, chatroom_id_):
-        return None, [], []
+        return None, [], [], set()
 
     stream_seen: dict = {}
 
