@@ -342,7 +342,11 @@ def _wire_task(monkeypatch, approval, *, turn_result=None):
         async def run_input_turn(self, **kw):
             captured["turn_kwargs"] = kw
             return turn_result or SimpleNamespace(
-                status="completed", text="ok", reason=None, approvals_voted=1
+                status="completed",
+                text="ok",
+                reason=None,
+                approvals_voted=1,
+                voted_approval_ids=frozenset({approval.id}),
             )
 
     @asynccontextmanager
@@ -405,13 +409,52 @@ async def test_drive_approver_turn_warns_when_turn_completed_without_voting(monk
     _wire_task(
         monkeypatch,
         approval,
-        turn_result=SimpleNamespace(status="completed", text="ok", reason=None, approvals_voted=0),
+        turn_result=SimpleNamespace(
+            status="completed",
+            text="ok",
+            reason=None,
+            approvals_voted=0,
+            voted_approval_ids=frozenset(),
+        ),
     )
 
     handler_id = logger.add(caplog.handler, format="{message}", level="INFO")
     try:
         with caplog.at_level(logging.INFO):
             out = await tasks_appr.drive_approver_turn({}, str(uuid.uuid4()), str(approval.id), None)
+    finally:
+        logger.remove(handler_id)
+
+    assert out == "completed"
+    assert any(r.levelname == "WARNING" for r in caplog.records)
+    assert not any(r.levelname == "INFO" and "driven" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_drive_approver_turn_checks_its_own_gate_not_turn_wide_count(monkeypatch, caplog) -> None:
+    """Review finding: an approver with two gates pending at once can vote on
+    gate Y and not gate X in the same driven turn (pending_notify.drain is
+    keyed only by agent_id). The job driven for gate X must warn even though
+    the turn-wide approvals_voted count is nonzero, because *its* gate was
+    never voted on."""
+    approval_x = _approval(ApprovalState.PENDING)
+    other_gate_y = uuid.uuid4()
+    _wire_task(
+        monkeypatch,
+        approval_x,
+        turn_result=SimpleNamespace(
+            status="completed",
+            text="ok",
+            reason=None,
+            approvals_voted=1,
+            voted_approval_ids=frozenset({other_gate_y}),
+        ),
+    )
+
+    handler_id = logger.add(caplog.handler, format="{message}", level="INFO")
+    try:
+        with caplog.at_level(logging.INFO):
+            out = await tasks_appr.drive_approver_turn({}, str(uuid.uuid4()), str(approval_x.id), None)
     finally:
         logger.remove(handler_id)
 

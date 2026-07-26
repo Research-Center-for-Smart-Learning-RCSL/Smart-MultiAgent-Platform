@@ -338,6 +338,12 @@ class TurnResult:
     # Approval ballots actually cast this turn (F-29) — lets a caller like
     # drive_approver_turn tell "voted" apart from "completed but never voted".
     approvals_voted: int = 0
+    # The actual approval ids voted on this turn (code-review finding): a
+    # caller driven for one specific gate must check *that* gate was voted
+    # on, not just that the turn-wide count is nonzero — one driven turn can
+    # touch more than one pending gate (pending_notify.drain is keyed only by
+    # agent_id).
+    voted_approval_ids: frozenset[uuid.UUID] = frozenset()
 
 
 class _TurnCancelled(Exception):
@@ -922,6 +928,7 @@ class TurnEngine:
                 text=final_text,
                 tool_rounds=rounds,
                 approvals_voted=len(voted_approvals),
+                voted_approval_ids=frozenset(voted_approvals),
             )
         except _TurnCancelled as tc:
             _log.info("a2a turn cancelled agent=%s after %d rounds", agent_id, tc.rounds_completed)
@@ -2293,6 +2300,7 @@ class TurnEngine:
                     reason="empty_reply",
                     tool_rounds=rounds,
                     approvals_voted=len(voted_approvals),
+                    voted_approval_ids=frozenset(voted_approvals),
                 )
 
             reply_meta: dict[str, Any] = {"trigger": trigger, "tool_rounds": rounds}
@@ -2343,6 +2351,7 @@ class TurnEngine:
                     text=final_text,
                     tool_rounds=rounds,
                     approvals_voted=len(voted_approvals),
+                    voted_approval_ids=frozenset(voted_approvals),
                 )
 
             msg = await MessageService(self._db).send_agent(
@@ -2389,6 +2398,7 @@ class TurnEngine:
                 text=final_text,
                 tool_rounds=rounds,
                 approvals_voted=len(voted_approvals),
+                voted_approval_ids=frozenset(voted_approvals),
             )
 
         except Exception as exc:
