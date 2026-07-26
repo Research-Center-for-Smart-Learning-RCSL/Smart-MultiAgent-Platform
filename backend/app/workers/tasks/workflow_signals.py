@@ -419,10 +419,39 @@ async def _consume_trigger_token(redis: Any, workflow_id: str, limit: int, windo
     return True
 
 
+async def _record_trigger_start_failure(workflow_id: str, trigger_type: str, exc: Exception) -> None:
+    """Audit a dormant-trigger start failure (F-35).
+
+    Best-effort, own session — mirrors ``_record_trigger_skip``. Never records
+    the trigger payload: for ``message_received`` it carries the message body
+    (``messages.py``); only the trigger type and error class are safe.
+    """
+    try:
+        from shared_kernel import audit
+        from shared_kernel.db.session import async_session
+
+        async with async_session() as db:
+            await audit.emit(
+                db,
+                audit.AuditEvent(
+                    action="workflow.trigger_start_failed",
+                    resource_type="workflow",
+                    resource_id=uuid.UUID(workflow_id),
+                    metadata={"trigger_type": trigger_type, "error": type(exc).__name__},
+                ),
+            )
+            await db.commit()
+    except Exception:
+        logger.bind(workflow_id=workflow_id).warning(
+            "workflow trigger-start-failure audit failed", exc_info=True
+        )
+
+
 async def run_triggered_workflow(
     ctx: dict[str, Any],
     workflow_id: str,
     trigger_payload: dict[str, Any] | None = None,
+    attempt: int = 0,
 ) -> str:
     """Start a run for a workflow whose dormant trigger node matched a signal (K.4)."""
     from app.config.settings import get_settings
@@ -465,11 +494,31 @@ async def run_triggered_workflow(
         svc = WorkflowService(db)
         try:
             run_id = await svc.trigger_run(uuid.UUID(workflow_id), trigger_payload=trigger_payload or {})
-        except Exception:
+        except Exception as exc:
             logger.bind(workflow_id=workflow_id).exception("triggered workflow start failed")
-            return "error"
+            trigger_type = (trigger_payload or {}).get("trigger_type", "")
+            await _record_trigger_start_failure(workflow_id, trigger_type, exc)
+            if attempt < _RESUME_RETRY_MAX_ATTEMPTS:
+                await ctx["redis"].enqueue_job(
+                    "run_triggered_workflow",
+                    workflow_id,
+                    trigger_payload,
+                    attempt + 1,
+                    _defer_by=timedelta(seconds=_RESUME_RETRY_DELAY_S),
+                )
+                return "start_failed:retry"
+            return "start_failed:gave_up"
         await db.commit()
-        await svc.dispatch_pending(ctx["redis"])
+        try:
+            # Post-commit: the run is already durable, so a dispatch failure
+            # here must not propagate — arq's default retry would re-run this
+            # whole task and call trigger_run a second time against an
+            # already-committed run (§6 adjacency 2).
+            await svc.dispatch_pending(ctx["redis"])
+        except Exception:
+            logger.bind(workflow_id=workflow_id, run_id=str(run_id)).exception(
+                "post-commit dispatch failed for triggered workflow run"
+            )
 
     logger.bind(event="workflow_triggered", workflow_id=workflow_id, run_id=str(run_id)).info(
         "dormant-trigger workflow started"
