@@ -516,15 +516,18 @@ class RunEngine:
             from app.config.settings import get_settings
 
             pool = await create_pool(RedisSettings.from_dsn(get_settings().redis.dsn))
+        sent = 0
         try:
             for run_id in failed_cancellations:
                 await pool.enqueue_job("workflow_cancel_a2a_calls", str(run_id), 0)
             # Drain each entry only after its enqueue_job returns (F-33): on a
             # raise, the failed entry and everything after it remain in
             # _pending_enqueues, so a caller can retry the dispatch alone
-            # instead of losing the unsent tail.
-            while self._pending_enqueues:
-                task_name, run_id_str, node_id, delay_ms, from_edge = self._pending_enqueues[0]
+            # instead of losing the unsent tail. Iterate the list directly and
+            # trim the sent prefix once in `finally` (below) rather than
+            # popping per-entry — list.pop(0) is O(n), making a per-entry pop
+            # loop O(n^2) in the fan-out size (review finding).
+            for task_name, run_id_str, node_id, delay_ms, from_edge in self._pending_enqueues:
                 kwargs: dict[str, Any] = {}
                 if delay_ms > 0:
                     # arq's deferral parameter is ``_defer_by`` (leading
@@ -539,8 +542,9 @@ class RunEngine:
                     await pool.enqueue_job(task_name, run_id_str, node_id, from_edge, **kwargs)
                 else:
                     await pool.enqueue_job(task_name, run_id_str, node_id, **kwargs)
-                self._pending_enqueues.pop(0)
+                sent += 1
         finally:
+            del self._pending_enqueues[:sent]
             if owns_pool:
                 # close_connection_pool=True is required: create_pool builds the
                 # ArqRedis with an externally-supplied connection pool, so a bare
