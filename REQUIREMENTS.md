@@ -783,7 +783,7 @@ Per-agent JSON:
 - **[R15.01]** `every_n_messages.n` counts **all messages** in the room (user + agent), scoped to the room (Q49).
 - **[R15.02]** `silence_minutes.t_minutes` starts counting when the room contains at least one connected live user and no message arrives for T minutes. Guests who are logged in but not inside the room do not prevent silence (Q49).
 - **[R15.03]** `autostop_rounds`: a "round" is an agent message followed by no user message (Q49). After `autostop_rounds` such rounds, the silence trigger stops for the room until a user sends a new message.
-- **[R15.04]** `autostop_rounds` default and hard cap: default 5, hard cap 100.
+- **[R15.04]** `autostop_rounds` default and hard cap: default 5, hard cap 100. Values of 0 or below are invalid and resolve to the default; there is no "unlimited" setting.
 - **[R15.05]** `allow_self_open = false`: an agent cannot speak first in a room where nobody has yet sent a message (Q49).
 - **[R15.05a]** **`call_only` trigger**: when `triggers.call_only.enabled = true`, the agent ignores `every_n_messages` and `silence_minutes` and only wakes when it receives an A2A `call` or `instruct` message targeting it. An agent with all three trigger sub-objects disabled is inert (permanent silence until manually prodded).
 - **[R15.05b]** **Guest presence and silence.** For the purpose of `silence_minutes`, a "live user" is any user (including a Guest) who currently has an open WebSocket connection to the Chat Room (`ws:presence:{room_id}` contains their user_id). Users logged in elsewhere but not in this room do not count. When the live-user set becomes empty, the silence timer pauses.
@@ -796,7 +796,7 @@ Per-agent JSON:
 
 ### 15.3 Setting refresh (Q51)
 
-- **[R15.09]** The Agent Designer can configure a `refresh_every_hours` value. Every T hours, the wake-up configuration is reset to the Agent Designer's initial values (which equal the most recent human value since there is no versioning — Q51 acknowledged).
+- **[R15.09]** The Agent Designer can configure a `refresh_every_hours` value. Every T hours, measured from the last applied reset for that agent, the wake-up configuration is reset to the Agent Designer's initial values (which equal the most recent human value since there is no versioning — Q51 acknowledged). An agent that has never been reset is eligible immediately.
 
 ### 15.4 Approval (Q52)
 
@@ -2096,7 +2096,7 @@ Added by the 2026-07-02 design session (construction plan: `docs/observer-agents
 
 - **[R28.03]** Observer output is persisted in `agent_observations` (never in `messages`) and is readable only by the room creator per R28.02 resolution.
 - **[R28.05]** Observer turns read the full room transcript plus a bounded window of the observer's own prior observations, folded into the system context.
-- **[R28.12]** Observer turns reuse the per-(agent, chatroom) turn lock, trigger coalescing, and the standard turn rate limit; they differ from normal turns only in output routing. Observer bindings use a separate `observer_autostop_rounds` limit (default 50, hard cap 100) in place of `autostop_rounds`.
+- **[R28.12]** Observer turns reuse the per-(agent, chatroom) turn lock, trigger coalescing, and the standard turn rate limit; they differ from normal turns only in output routing. Observer bindings use a separate `observer_autostop_rounds` limit (default 50, hard cap 100) in place of `autostop_rounds`. Values of 0 or below are invalid and resolve to the default; there is no "unlimited" setting.
 - **[R28.13]** The creator receives `observation.started / created / skipped / failed / released` on `ws:user:{creator_id}`; payloads carry ids only, bodies are fetched over REST. `observation.skipped` carries benign kinds (`no_input`, `empty_reply`); `observation.failed` carries error kinds.
 - **[R28.14]** The creator can soft-delete an observation.
 
