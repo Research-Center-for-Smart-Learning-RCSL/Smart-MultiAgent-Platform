@@ -1760,12 +1760,20 @@ class TurnEngine:
             try:
                 approval = await facade.get_approval(approval_id)
             except Exception:
+                # Fail open (review finding): a lookup failure tells us
+                # nothing about the gate's actual state, so treat it as
+                # still-pending rather than silently dropping the agent's
+                # only reminder. Worst case on a transient blip is one extra
+                # re-render of an already-resolved gate's note, which the
+                # next settle call recognizes and drops — cheaper than
+                # losing a genuinely-pending gate's reminder for good.
                 _log.warning(
-                    "failed to read gate state for unvoted approval %s agent=%s",
+                    "failed to read gate state for unvoted approval %s agent=%s; requeuing",
                     approval_id,
                     agent.id,
                     exc_info=True,
                 )
+                to_requeue.append(n)
                 continue
             if approval is not None and approval.state == ApprovalState.PENDING:
                 to_requeue.append(n)
