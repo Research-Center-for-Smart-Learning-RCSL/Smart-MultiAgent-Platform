@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-22
 requirements: [R15.01, R15.02, R15.03, R15.04, R15.05b, R15.06, R15.07, R15.08, R15.09, R28.12]
 depends_on: []
@@ -637,35 +637,35 @@ nothing in this one gates it.
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1** T-1 fails before the fix and passes after: a binding created after the room's
+- [x] **AC-1** T-1 fails before the fix and passes after: a binding created after the room's
       presence edge seeds its silence clock on first evaluation and fires on the next sweep past T.
-- [ ] **AC-2** T-2 passes: with a non-empty roster and no `silence_active` key, a normal binding
+- [x] **AC-2** T-2 passes: with a non-empty roster and no `silence_active` key, a normal binding
       fires. T-3 still passes: with an empty roster it does not, for both `allow_self_open` values.
-- [ ] **AC-3** `set_silence_active` and `is_silence_active` no longer exist in
+- [x] **AC-3** `set_silence_active` and `is_silence_active` no longer exist in
       `wakeup_state.py`, and a repo-wide grep for either name returns no hits outside git history.
-- [ ] **AC-4** T-4 passes: `from_dict` clamps `n`, `t_minutes`, `autostop_rounds`,
+- [x] **AC-4** T-4 passes: `from_dict` clamps `n`, `t_minutes`, `autostop_rounds`,
       `observer_autostop_rounds`, `autostop_max_default` and `refresh_every_hours` on both sides,
       per the Q-1 table.
-- [ ] **AC-5** T-5 passes and the zero-fallback at `app/workers/tasks/orchestration.py:108-112` is
+- [x] **AC-5** T-5 passes and the zero-fallback at `app/workers/tasks/orchestration.py:108-112` is
       deleted, so `wakeup_service.py:224-227` and `orchestration.py:101-113` resolve the identical
       limit for identical input.
-- [ ] **AC-6 (FU-5, both arms)** T-6 passes: `observer_autostop_rounds: 0` behaves identically to
+- [x] **AC-6 (FU-5, both arms)** T-6 passes: `observer_autostop_rounds: 0` behaves identically to
       `autostop_rounds: 0` in both the worker gate and the domain evaluator. A fix that repairs
       only the non-observer arm fails this AC.
-- [ ] **AC-7** T-7 passes: after a self-modification, the persisted `wakeup_config` still contains
+- [x] **AC-7** T-7 passes: after a self-modification, the persisted `wakeup_config` still contains
       `soft_bounds` and any other designer-written key, and a second identical self-modification is
       clamped identically and emits a second `agent.wakeup_clamped` audit row.
-- [ ] **AC-8** T-8 passes: `refresh_wakeup_config` is a no-op inside the configured window and
+- [x] **AC-8** T-8 passes: `refresh_wakeup_config` is a no-op inside the configured window and
       resets outside it, with a never-refreshed agent refreshing immediately.
-- [ ] **AC-9** T-9 passes: both `wakeup_state` counters and the GraphRAG message counter issue
+- [x] **AC-9** T-9 passes: both `wakeup_state` counters and the GraphRAG message counter issue
       their `INCR` and `EXPIRE` in a single pipeline, and `reset_message_count` is gone.
-- [ ] **AC-10** T-10 passes: `DEFAULT_WAKEUP` mirrors the backend defaults for
+- [x] **AC-10** T-10 passes: `DEFAULT_WAKEUP` mirrors the backend defaults for
       every field the comment at `workflow.ts:61-68` claims it mirrors, or that comment is narrowed
       to name the fields that deliberately differ.
-- [ ] **AC-11** No data-repair migration is added. The operator query from §7 is recorded in the
+- [x] **AC-11** No data-repair migration is added. The operator query from §7 is recorded in the
       deviation log with its result, so the size of the unrecoverable `soft_bounds` set is known
       rather than assumed.
-- [ ] **AC-12** Definition of Done: `pytest -q`, `ruff check . && ruff format --check .`,
+- [x] **AC-12** Definition of Done: `pytest -q`, `ruff check . && ruff format --check .`,
       `mypy .` in `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` in
       `frontend/` if C6 lands. `mypy` strict applies to `contexts.orchestration.domain`, so C2 and
       C3 must type-check under strict mode.
@@ -689,7 +689,25 @@ diverged from them.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (operator evidence, 2026-07-27):** The exact §7 query was run against a fresh local
+  database migrated to `0067_wakeup_last_refreshed_at`; it returned **0 rows**. No deployment
+  database was available in this task, so the operator must rerun the query against the target
+  database before rollout. No data-repair migration was added.
+- **D-2 (security-audit correction):** The first C4 implementation constructed
+  `timedelta(hours=refresh_every_hours)`. Because the approved design intentionally leaves positive
+  intervals unbounded above, an extreme persisted integer could raise `OverflowError` on every
+  hourly sweep. The final implementation compares elapsed seconds with `T * 3600`, preserving the
+  approved semantics without constructing an overflowing duration. A 24,000,000,000-hour regression
+  test fails before this correction and passes after it.
+- **D-3 (behavioral verification):** The `/run` skill named by `/build` was not available in this
+  environment. The user-visible scheduler behavior was therefore verified through the service-level
+  regression suite plus real Postgres/Redis/Neo4j integration and clean-database wiring tiers. A
+  provider-backed live agent turn was not attempted because it would require a user BYO provider key.
+- **D-4 (gate execution):** Backend pytest was run in the environments each repository tier expects:
+  6,016 unit tests passed on the host, 293 integration tests passed against Postgres/Redis/Neo4j,
+  and 55 wiring tests passed against a separately migrated clean database plus Redis/MailHog.
+  Frontend `pnpm` wrappers attempted an interactive `node_modules` store relink, so their installed
+  project binaries were invoked directly: Vitest (851 tests), ESLint, `vue-tsc`, and Vite all passed.
 
 ## 13. Follow-ups
 
@@ -717,4 +735,21 @@ Appended by /build.
   signal. Consider an audit or a response warning on parse-time clamping; deliberately excluded
   here because emitting audit from a frozen domain dataclass would break the layer boundary and
   the fix should not carry a design change.
+- **FU-6** `normalizeWakeupConfig(raw: unknown)` in
+  `frontend/src/shared/types/workflow.ts` still casts arbitrary input without checking for a plain
+  object. A stored `{triggers: null}` reaches `normalizeNestedTriggers(null)` and throws. Add a
+  reusable record guard and malformed-input coverage.
+- **FU-7** `soft_bounds` remains free-form. Non-numeric values can raise `TypeError`, and a soft
+  minimum above the hard maximum can make `_clamp_n` or `_clamp_t` return a value outside the
+  advertised hard range. Validate/coerce the four optional bounds, clamp them to hard limits, and
+  reject or normalize inverted ranges.
+- **FU-8** The touched application services retain pre-existing imports of concrete infrastructure
+  adapters (`agent_service.py`, `graphrag_triggers.py`, and `wakeup_service.py`). Introduce ports and
+  wire adapters at the composition root when those service boundaries are next refactored.
+- **FU-9** `AgentService` still combines agent configuration, knowledge-binding reconciliation,
+  tool CRUD/authorization, and external tool probing. Split the tool operations from core agent
+  configuration behind the existing facade.
+- **FU-10** The hourly wake-up refresh sweep materializes every active agent with an authored
+  snapshot in one unbounded query, including large fields such as `system_prompt`. Keyset-page a
+  minimal candidate projection and clear session state between bounded batches.
 </content>
