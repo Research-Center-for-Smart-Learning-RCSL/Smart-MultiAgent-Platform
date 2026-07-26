@@ -1163,6 +1163,98 @@ async def test_unvoted_approval_note_for_resolved_gate_is_dropped(monkeypatch) -
     assert requeued == []
 
 
+@pytest.mark.asyncio
+async def test_settle_pending_approvals_partial_facade_failure_still_requeues_others(monkeypatch) -> None:
+    """/code-review — a transient failure looking up one gate's state must
+    not discard an already-confirmed re-arm decision for another gate in the
+    same batch (the whole loop used to share one try/except)."""
+    ok_id, boom_id = uuid.uuid4(), uuid.uuid4()
+    ok_note = {"kind": "approval_request", "approval_id": str(ok_id), "mode": "single", "chatroom_id": None}
+    boom_note = {
+        "kind": "approval_request",
+        "approval_id": str(boom_id),
+        "mode": "single",
+        "chatroom_id": None,
+    }
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def get_approval(self, aid):
+            if aid == boom_id:
+                raise RuntimeError("db blip")
+            return SimpleNamespace(state=ApprovalState.PENDING)
+
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade)
+    requeued: list = []
+
+    async def _requeue(agent_id, notes):
+        requeued.append((agent_id, notes))
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.requeue", _requeue)
+
+    agent = _agent()
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+
+    await engine._settle_pending_approvals(agent, [ok_note, boom_note], set())
+
+    assert requeued == [(agent.id, [ok_note])]
+
+
+# --------------------------------------------------------------------------- #
+# _requeue_notifications voted exclusion (F-29, /code-review)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_requeue_notifications_excludes_already_voted_ballot(monkeypatch) -> None:
+    """A vote cast earlier in the same turn is already durably committed
+    (ApprovalService.cast_vote commits on this same session) and must not be
+    re-offered when a later failure restores everything else the turn
+    drained."""
+    voted_id = uuid.uuid4()
+    voted_note = {"kind": "approval_request", "approval_id": str(voted_id), "mode": "single"}
+    other_note = {"kind": "notify", "from_agent": "x", "payload": {}}
+    requeued: list = []
+
+    async def _requeue(agent_id, notes):
+        requeued.append((agent_id, notes))
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.requeue", _requeue)
+
+    agent = _agent()
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+
+    await engine._requeue_notifications(agent, [voted_note, other_note], voted={voted_id})
+
+    assert requeued == [(agent.id, [other_note])]
+
+
+@pytest.mark.asyncio
+async def test_requeue_notifications_without_voted_restores_everything(monkeypatch) -> None:
+    """Guard: omitting voted (the pre-provider-call skip sites, where no vote
+    could yet have been cast) preserves the original unconditional-restore
+    behaviour."""
+    note = {"kind": "approval_request", "approval_id": str(uuid.uuid4()), "mode": "single"}
+    requeued: list = []
+
+    async def _requeue(agent_id, notes):
+        requeued.append((agent_id, notes))
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.requeue", _requeue)
+
+    agent = _agent()
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+
+    await engine._requeue_notifications(agent, [note])
+
+    assert requeued == [(agent.id, [note])]
+
+
 # --------------------------------------------------------------------------- #
 # a2a_handler dispatch
 # --------------------------------------------------------------------------- #
