@@ -442,6 +442,25 @@ Nothing in §28 requires amendment.
   pre-existing code this change does not touch and already carry their own coverage. Release was
   treated as the representative end-to-end proof since both actions share the identical
   reachability fix.
+- **D-3** — A follow-up `/code-review` pass after initial close-out found a genuine regression
+  this fix introduced: `railTab` (`ChatroomView.vue`) was never reset when `hasObserverSurface`
+  flips false *while the Observer tab is the active selection* — reachable only because this fix
+  made the tab's visibility track mutable `observations` data instead of the comparatively stable
+  binding roster. Concretely: a creator with no observer bound and one stranded observation opens
+  the Observer tab, then deletes that last observation; `railTab` stays `'observer'`, which no
+  longer matches any entry in `railTabs`, and `STabs.vue` renders every `tabpanel` `hidden` (no
+  `v-model` fallback), leaving the rail blank until the user manually clicks another tab. Fixed
+  with a `watch(railTabs, ...)` that resets `railTab` to `'people'` (the one always-unconditional
+  entry) whenever the current selection drops out of the list; added a red-then-green regression
+  test in `ChatroomView.test.ts` ("falls back to the People tab instead of going blank..."). The
+  same review pass raised two lower-severity observations not acted on: (1) `ObserverPanel.vue`'s
+  roster-empty note can theoretically flash for a beat if the observations query resolves before
+  `boundAgentsQuery` does, even when an observer *is* bound — accepted as the same
+  query-independence tradeoff §9's Risks section already calls out and accepts for the tab itself;
+  (2) the note's `!roster.length && observations.length` condition and `hasObserverSurface`'s OR
+  both read the same underlying arrays but aren't backed by one shared computed — judged as
+  ordinary presentational prop-reading (roster is a 1:1 map of `observerAgents`) rather than
+  fragile logic duplication, so left as is.
 
 ## 13. Follow-ups
 
