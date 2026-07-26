@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-22
 requirements: [R14.07, R14.10]
 depends_on: []
@@ -253,17 +253,17 @@ Then: `test_timeout_does_not_audit_when_not_resumed` — `resume_at_port` return
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1**: `test_dispatch_enqueues_retains_unsent_entries_on_partial_failure` (§8) fails against current code and passes after C4.
-- [ ] **AC-2**: after a `dispatch_enqueues` call that raises mid-loop, every entry not successfully enqueued remains in `_pending_enqueues`, in order, and a subsequent call enqueues each exactly once.
-- [ ] **AC-3**: `_PendingEnqueue` (`run_engine.py:104`) and its unpack at `:510` are unchanged, keeping this dossier off the surface the approval dossier declined to touch (Q-3).
-- [ ] **AC-4**: a cron trigger whose `dispatch_pending` fails does not fire a second run on the following pass, and `wf:cron:{id}:last_fire` is written before the run is committed.
-- [ ] **AC-5**: a `trigger_run` failure in `run_triggered_workflow` produces an audit row and a bounded retry, and gives up with `"start_failed:gave_up"` only after the budget; the audit row contains no trigger payload content.
-- [ ] **AC-6**: a `dispatch_pending` failure *after* the commit in `run_triggered_workflow` does not propagate to arq and does not cause `trigger_run` to run a second time.
-- [ ] **AC-7**: `find_matching_waits` performs no Redis writes, and a wait whose claim key is transiently absent keeps its `wf:wait:by_event:*` index member.
-- [ ] **AC-8**: `_restore_claim` restores the by-event index member alongside the claim key for `wf:wait:*` callers, and is behaviorally unchanged for the approval and instruct callers.
-- [ ] **AC-9**: `workflow_event_timeout` emits `workflow.resumed` with `reason="timeout"` in the same transaction as the resume, and emits nothing when the resume did not happen.
-- [ ] **AC-10**: the sibling sweep is recorded in the code review: `run_engine.py:500` is the only drain-before-dispatch site, and `workflow_subagent_complete` (`workflow_steps.py:121`) is the second resume path missing its audit, deliberately left to F-28's dossier.
-- [ ] **AC-11**: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`.
+- [x] **AC-1**: `test_dispatch_enqueues_retains_unsent_entries_on_partial_failure` (§8) fails against current code and passes after C4.
+- [x] **AC-2**: after a `dispatch_enqueues` call that raises mid-loop, every entry not successfully enqueued remains in `_pending_enqueues`, in order, and a subsequent call enqueues each exactly once.
+- [x] **AC-3**: `_PendingEnqueue` (`run_engine.py:104`) and its unpack at `:510` are unchanged, keeping this dossier off the surface the approval dossier declined to touch (Q-3).
+- [x] **AC-4**: a cron trigger whose `dispatch_pending` fails does not fire a second run on the following pass, and `wf:cron:{id}:last_fire` is written before the run is committed.
+- [x] **AC-5**: a `trigger_run` failure in `run_triggered_workflow` produces an audit row and a bounded retry, and gives up with `"start_failed:gave_up"` only after the budget; the audit row contains no trigger payload content.
+- [x] **AC-6**: a `dispatch_pending` failure *after* the commit in `run_triggered_workflow` does not propagate to arq and does not cause `trigger_run` to run a second time.
+- [x] **AC-7**: `find_matching_waits` performs no Redis writes, and a wait whose claim key is transiently absent keeps its `wf:wait:by_event:*` index member.
+- [x] **AC-8**: `_restore_claim` restores the by-event index member alongside the claim key for `wf:wait:*` callers, and is behaviorally unchanged for the approval and instruct callers.
+- [x] **AC-9**: `workflow_event_timeout` emits `workflow.resumed` with `reason="timeout"` in the same transaction as the resume, and emits nothing when the resume did not happen.
+- [x] **AC-10**: the sibling sweep is recorded in the code review: `run_engine.py:500` is the only drain-before-dispatch site, and `workflow_subagent_complete` (`workflow_steps.py:121`) is the second resume path missing its audit, deliberately left to F-28's dossier. See D-1 — a second `.clear()`-drain site (`_pending_call_cancellations`) was added to the same file by the run-cancellation dossier after this spec was written; re-verified it does not carry F-33's defect.
+- [x] **AC-11**: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`. `pytest tests/unit -q`: 5993 passed, 6 skipped (pre-existing, Windows-host-specific). `ruff check .`: all checks passed. `ruff format --check .`: 853 files formatted. `mypy .`: no issues in 853 files. `tests/wiring/` and `tests/integration/` were not run — this sandbox has no live Postgres/Redis/Vault stack (`docker ps` shows no SMAP containers); see D-3.
 
 ## 11. SRS Delta
 
@@ -274,6 +274,10 @@ Two documentation corrections ship inside the commits rather than as an SRS chan
 ## 12. Deviation Log
 
 Appended by /build.
+
+- **D-1 — A second `.clear()`-drain site appeared in `run_engine.py` between spec-writing and implementation, unrelated to F-33.** The `2026-07-22-workflow-run-cancellation` dossier's `fix(backend): harden workflow run cancellation` commit (`0ebc568`, landed 2026-07-22 21:32) restructured `dispatch_enqueues` to also drain `_pending_call_cancellations` via its own snapshot-and-clear (`run_engine.py:498-499`). Re-verified against F-33's defect pattern: this site already isolates per-item failures (`try`/`except` around `_cancel_live_agent_calls`, appending failures to `failed_cancellations` rather than losing them) and re-dispatches failed cancellations via an explicit follow-up job (`workflow_cancel_a2a_calls`, `:520-521`), so it does not exhibit F-33's "silently lose unrecorded work" defect. AC-10's sibling-sweep claim ("`run_engine.py:500` is the only drain-before-dispatch site") is updated by this note rather than the spec text itself — the underlying safety property it exists to state (no other site loses work on partial failure) still holds. Not in scope to touch or restructure further.
+- **D-2 — quality-audit finding fixed inline: `_restore_claim`'s `reindex` did not manage the index key's own TTL.** Per Ground Rule 2 of `/build`'s Definition of Done, the `check-quality` gate (run against this task's full diff) found that C2(b)'s bare `redis.sadd(index_key, member)` creates the index key with no expiry if it had already lapsed, breaking the "orphaned members are bounded by the index set's own TTL" guarantee C2's own Data Repair note relies on (§7). Fixed in the same milestone (`fix(backend): floor the by-event index TTL when a restored claim reindexes it`): `_restore_claim` now floors the index key's TTL to the same `min_ttl` the claim key was just restored to, mirroring `wait_for_event.py`'s own extend-only rule. Two new regression tests (`test_restore_claim_reindex_floors_a_lapsed_index_ttl`, `test_restore_claim_reindex_does_not_shrink_a_longer_index_ttl`) pin the behavior.
+- **D-3 — `tests/wiring/` and `tests/integration/` not run; not gated on.** This build session's sandbox has no live Postgres/Redis/Vault stack (`docker ps` shows no SMAP containers running). `pytest -q` (full suite) was run once and returned 66 failed / 37 errors, entirely in `tests/wiring/` across unrelated bounded contexts (`graphrag`, `rag_ingestion`, `knowmap`, `a2a`) with `socket.gaierror` — a DNS/connection failure, not an assertion failure — confirming these are pre-existing environment-dependent failures, not caused by this diff. `pytest tests/unit -q` (5993 tests, no DB/Redis required per `backend/CLAUDE.md`) is the suite this task's diff is actually exercised by and gates on; it passed cleanly. The user should run `pytest tests/ -q -m wiring` against a live stack before merging if wiring-level confidence beyond the unit suite is wanted.
 
 ## 13. Follow-ups
 
