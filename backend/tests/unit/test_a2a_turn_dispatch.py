@@ -1195,7 +1195,10 @@ async def test_unvoted_approval_note_for_resolved_gate_is_dropped(monkeypatch) -
 async def test_settle_pending_approvals_partial_facade_failure_still_requeues_others(monkeypatch) -> None:
     """/code-review — a transient failure looking up one gate's state must
     not discard an already-confirmed re-arm decision for another gate in the
-    same batch (the whole loop used to share one try/except)."""
+    same batch (the whole loop used to share one try/except), AND must not
+    discard its own note either: a lookup failure tells us nothing about the
+    gate's actual state, so it fails open and requeues rather than silently
+    dropping the agent's only reminder (a later /code-review finding)."""
     ok_id, boom_id = uuid.uuid4(), uuid.uuid4()
     ok_note = {"kind": "approval_request", "approval_id": str(ok_id), "mode": "single", "chatroom_id": None}
     boom_note = {
@@ -1228,7 +1231,7 @@ async def test_settle_pending_approvals_partial_facade_failure_still_requeues_ot
 
     await engine._settle_pending_approvals(agent, [ok_note, boom_note], set())
 
-    assert requeued == [(agent.id, [ok_note])]
+    assert requeued == [(agent.id, [ok_note, boom_note])]
 
 
 # --------------------------------------------------------------------------- #
