@@ -588,4 +588,22 @@ See `docs/runbook-upgrade.md` for the full procedure. Key points:
 - Migrations are N-1 compatible (old code works on new schema).
 - Rolling restart: frontend → worker → web (maintains availability).
 - Rollback: `git checkout <old-tag>` + `alembic downgrade -1` + rebuild.
+
+---
+
+## 14. Frontend dependency advisories
+
+Transitive npm advisories are resolved with `pnpm.overrides` in the root `package.json`, verified with `pnpm audit`.
+
+### 14.1 Override rules
+
+- **[O14.01]** Every override value MUST carry an upper bound (`">=1.1.16 <2.0.0"`, not `">=1.1.16"`). Without one, pnpm resolves the newest release across all majors and silently swaps a major version into a dependent that cannot use it.
+- **[O14.02]** An override MUST keep each dependency line inside its own major. If the only patched release is in a later major, treat the advisory as unfixable here (§14.2) rather than forcing the bump — the parent package must be upgraded instead.
+- **[O14.03]** After changing overrides, run `pnpm install` then the full frontend gate: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`. A cross-major swap typically passes `install` and fails only at runtime on an untaken code path, so `pnpm audit` alone is not sufficient evidence.
+
+### 14.2 Accepted residual advisories
+
+`brace-expansion` GHSA (unbounded expansion length → OOM) remains open on the 1.x and 2.x lines, reached via `minimatch@3.1.5` (`@eslint/config-array`) and `minimatch@9.0.9` (`glob`, `editorconfig`, `type-coverage-core`, `js-beautify`). Upstream published no backport; the only patched release is `5.0.8`, and 5.x dropped the default export that both `minimatch` versions call, so forcing it breaks brace globbing at runtime.
+
+Accepted because the reachable surface is dev-only: `minimatch` is invoked by lint, glob, and type-coverage tooling over glob patterns committed to this repo, never over request data. No Node process runs in production (the frontend ships as static assets; the backend is Python). Revisit when the parent packages move to `minimatch@10`.
 - Full restore from backup is the last resort for irreversible migrations.
