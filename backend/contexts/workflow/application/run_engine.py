@@ -482,7 +482,10 @@ class RunEngine:
 
         DB-1 contract: the caller MUST have committed the transaction first, so
         a worker that picks up an enqueued job can see the run row. Entry points
-        call this immediately after their single commit.
+        call this immediately after their single commit. An entry that raises
+        mid-loop, and every entry queued after it, remains in
+        ``_pending_enqueues`` (F-33) — the caller may retry the dispatch alone
+        without re-executing the node that queued the entries.
 
         ASYNC-6: a worker task hands in its own long-lived Arq pool
         (``ctx["redis"]``) via ``pool`` so nothing is opened here. On the API
@@ -492,8 +495,6 @@ class RunEngine:
         """
         if not self._pending_enqueues and not self._pending_call_cancellations:
             return
-        pending = list(self._pending_enqueues)
-        self._pending_enqueues.clear()
         pending_cancellations = list(self._pending_call_cancellations)
         self._pending_call_cancellations.clear()
 
@@ -505,7 +506,7 @@ class RunEngine:
                 logger.exception("could not cancel live A2A calls for terminal run %s", run_id)
                 failed_cancellations.append(run_id)
 
-        if not pending and not failed_cancellations:
+        if not self._pending_enqueues and not failed_cancellations:
             return
 
         owns_pool = pool is None
@@ -518,7 +519,12 @@ class RunEngine:
         try:
             for run_id in failed_cancellations:
                 await pool.enqueue_job("workflow_cancel_a2a_calls", str(run_id), 0)
-            for task_name, run_id_str, node_id, delay_ms, from_edge in pending:
+            # Drain each entry only after its enqueue_job returns (F-33): on a
+            # raise, the failed entry and everything after it remain in
+            # _pending_enqueues, so a caller can retry the dispatch alone
+            # instead of losing the unsent tail.
+            while self._pending_enqueues:
+                task_name, run_id_str, node_id, delay_ms, from_edge = self._pending_enqueues[0]
                 kwargs: dict[str, Any] = {}
                 if delay_ms > 0:
                     # arq's deferral parameter is ``_defer_by`` (leading
@@ -533,6 +539,7 @@ class RunEngine:
                     await pool.enqueue_job(task_name, run_id_str, node_id, from_edge, **kwargs)
                 else:
                     await pool.enqueue_job(task_name, run_id_str, node_id, **kwargs)
+                self._pending_enqueues.pop(0)
         finally:
             if owns_pool:
                 # close_connection_pool=True is required: create_pool builds the
