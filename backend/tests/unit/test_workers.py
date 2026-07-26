@@ -252,11 +252,38 @@ class TestWorkflowCommon:
         from app.workers.tasks.workflow_common import _restore_claim
 
         redis = AsyncMock()
-        await _restore_claim(
-            redis, "wf:wait:r:n1", b"data", 60, reindex=("wf:wait:by_event:timer", "r:n1")
-        )
+        redis.ttl.return_value = -2  # index key absent/lapsed
+        await _restore_claim(redis, "wf:wait:r:n1", b"data", 60, reindex=("wf:wait:by_event:timer", "r:n1"))
 
         redis.sadd.assert_awaited_once_with("wf:wait:by_event:timer", "r:n1")
+
+    async def test_restore_claim_reindex_floors_a_lapsed_index_ttl(self) -> None:
+        # A SADD onto an absent/expired index key creates it with no TTL
+        # (persistent forever) unless the restore also floors its expiry —
+        # otherwise the "bounded by the index TTL" guarantee (F-37 §7 C2)
+        # silently breaks the first time the index key lapses mid-retry.
+        from app.workers.tasks.workflow_common import _restore_claim
+
+        redis = AsyncMock()
+        redis.ttl.return_value = -2  # SADD just (re)created the key, no TTL
+        await _restore_claim(
+            redis, "wf:wait:r:n1", b"data", 60, min_ttl=600, reindex=("wf:wait:by_event:timer", "r:n1")
+        )
+
+        redis.expire.assert_awaited_once_with("wf:wait:by_event:timer", 600)
+
+    async def test_restore_claim_reindex_does_not_shrink_a_longer_index_ttl(self) -> None:
+        # wait_for_event.py's own invariant: the shared index set's TTL is only
+        # ever extended, never shortened.
+        from app.workers.tasks.workflow_common import _restore_claim
+
+        redis = AsyncMock()
+        redis.ttl.return_value = 900  # already outlives the restore floor
+        await _restore_claim(
+            redis, "wf:wait:r:n1", b"data", 60, min_ttl=600, reindex=("wf:wait:by_event:timer", "r:n1")
+        )
+
+        redis.expire.assert_not_awaited()
 
     async def test_restore_claim_omits_reindex_by_default(self) -> None:
         # The approval and instruct callers pass no reindex and have no index
