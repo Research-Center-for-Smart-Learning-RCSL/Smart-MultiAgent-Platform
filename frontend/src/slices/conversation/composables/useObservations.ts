@@ -115,6 +115,13 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
     () => observationsQuery.data.value?.pages.flat() ?? [],
   )
 
+  // The Observer tab's existence must track the data (creator has something to
+  // read/release/delete), not the roster's liveness — observations outlive the
+  // observer binding that produced them (docs/tasks/2026-07-22-observation-binding-cleanup).
+  const hasObserverSurface = computed<boolean>(
+    () => isCreator.value && (observerAgents.value.length > 0 || observations.value.length > 0),
+  )
+
   // ---- live updates over /ws/user/{id} (R28.13) -------------------------------
 
   const panelOpen = ref(false)
@@ -233,6 +240,7 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
     isCreator,
     observerAgents,
     observations,
+    hasObserverSurface,
     observationsLoading: computed(() => observationsQuery.isLoading.value),
     hasMore: computed(() => observationsQuery.hasNextPage.value ?? false),
     loadingMore: computed(() => observationsQuery.isFetchingNextPage.value),

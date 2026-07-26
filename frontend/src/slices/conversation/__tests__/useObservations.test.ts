@@ -303,4 +303,23 @@ describe('useObservations', () => {
     wrapper = null
     expect((handlers['observation.started'] ?? []).length).toBe(0)
   })
+
+  it('exposes the observer surface when observations exist but no observer is bound', async () => {
+    listObservationsMock.mockResolvedValue([makeObservation('o1')])
+    const m = mountObs({ boundAgents: [{ agent_id: 'agent_normal', role: 'normal' }] })
+    wrapper = m.wrapper
+    await flushPromises()
+
+    expect(m.api.observerAgents.value.length).toBe(0)
+    expect(m.api.hasObserverSurface.value).toBe(true)
+  })
+
+  it('keeps the observer surface hidden for a creator with neither bindings nor observations', async () => {
+    listObservationsMock.mockResolvedValue([])
+    const m = mountObs({ boundAgents: [] })
+    wrapper = m.wrapper
+    await flushPromises()
+
+    expect(m.api.hasObserverSurface.value).toBe(false)
+  })
 })

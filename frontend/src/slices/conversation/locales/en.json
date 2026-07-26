@@ -188,6 +188,8 @@
       },
       "emptyTitle": "No observations yet",
       "emptyText": "Observers write here after they analyze the conversation. Only you can see these.",
+      "noObserverBoundTitle": "No observer currently bound",
+      "noObserverBoundText": "These are past analyses from an observer that is no longer bound to this room. You can still release or delete them.",
       "loadEarlier": "Load earlier",
       "expand": "Show more",
       "collapse": "Show less",
