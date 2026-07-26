@@ -6,6 +6,7 @@ import { renderView } from '../../../../tests/utils'
 import ChatroomView from '../views/ChatroomView.vue'
 import { useConversationStore } from '../stores/conversation'
 import { useSessionStore } from '@shared/stores/session'
+import { useConfirmDialog } from '@shared/composables'
 
 const mockToast = vi.hoisted(() => ({
   success: vi.fn(),
@@ -254,6 +255,82 @@ describe('ChatroomView', () => {
 
     expect(wrapper.find('.obs-panel').exists()).toBe(true)
     expect(wrapper.text()).toContain('stranded analysis')
+  })
+
+  it('falls back to the People tab instead of going blank when the last stranded observation is deleted', async () => {
+    let deleted = false
+    server.use(
+      http.get('/api/chatrooms/:chatroomId', () =>
+        HttpResponse.json({
+          id: 'cr_1', name: 'Test Room', project_id: 'proj_1',
+          workspace_id: 'ws_1',
+          allow_org_members: false, allow_project_members: true,
+          allow_project_owners_only: false, allow_guest_links: false,
+          created_by_user_id: 'u_1',
+          agents: [],
+        }),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents', () =>
+        HttpResponse.json([{ agent_id: 'agent_normal', role: 'normal' }]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/observations', () =>
+        HttpResponse.json(
+          deleted
+            ? []
+            : [
+                {
+                  id: 'o1',
+                  chatroom_id: 'cr_1',
+                  agent_id: 'agent_gone',
+                  content_md: 'stranded analysis',
+                  metadata: {},
+                  trigger: 'every_n_messages',
+                  trigger_message_id: null,
+                  released_at: null,
+                  release_target: null,
+                  released_by_user_id: null,
+                  created_at: '2026-01-01T00:00:00Z',
+                },
+              ],
+        ),
+      ),
+      http.delete('/api/chatrooms/:chatroomId/observations/:observationId', () => {
+        deleted = true
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const wrapper = await renderView(ChatroomView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1',
+    })
+    signInAs('u_1')
+    await settle()
+
+    const observerTab = wrapper
+      .findAll('[role="tab"]')
+      .find((t) => t.text() === 'conversation.observers.tab')
+    await observerTab?.trigger('click')
+    await settle()
+    expect(wrapper.find('.obs-panel').exists()).toBe(true)
+
+    const deleteBtn = wrapper.find('[aria-label="conversation.observers.delete"]')
+    expect(deleteBtn.exists()).toBe(true)
+    await deleteBtn.trigger('click')
+    // onObservationDelete awaits useConfirmDialog().confirm() before deleting —
+    // resolve it the same way a user clicking the dialog's confirm button would.
+    const { handleConfirm } = useConfirmDialog()
+    handleConfirm()
+    await settle()
+    await settle()
+
+    // The Observer tab (and its panel) must be gone — this is the last
+    // observation and no observer is bound — but the rail must not go blank:
+    // railTab has to fall back to a tab that still exists.
+    expect(wrapper.find('.obs-panel').exists()).toBe(false)
+    expect(
+      wrapper.findAll('[role="tab"]').find((t) => t.text() === 'conversation.observers.tab'),
+    ).toBeUndefined()
+    expect(wrapper.find('[role="tabpanel"]:not([hidden])').exists()).toBe(true)
   })
 
   it('renders the streaming draft bubble while agent tokens accumulate', async () => {
