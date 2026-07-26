@@ -244,6 +244,28 @@ class TestWorkflowCommon:
         redis.set.assert_awaited_once_with("key", b"data", ex=_CLAIM_RESTORE_TTL_S)
         assert _CLAIM_RESTORE_TTL_S >= _RESUME_RETRY_MAX_ATTEMPTS * _RESUME_RETRY_DELAY_S
 
+    async def test_restore_claim_reindexes_when_asked(self) -> None:
+        # F-37 (b): the restore is not the inverse of the claim unless it also
+        # re-adds the by-event index member the claim protocol removed.
+        from app.workers.tasks.workflow_common import _restore_claim
+
+        redis = AsyncMock()
+        await _restore_claim(
+            redis, "wf:wait:r:n1", b"data", 60, reindex=("wf:wait:by_event:timer", "r:n1")
+        )
+
+        redis.sadd.assert_awaited_once_with("wf:wait:by_event:timer", "r:n1")
+
+    async def test_restore_claim_omits_reindex_by_default(self) -> None:
+        # The approval and instruct callers pass no reindex and have no index
+        # to corrupt — must compile and behave unchanged.
+        from app.workers.tasks.workflow_common import _restore_claim
+
+        redis = AsyncMock()
+        await _restore_claim(redis, "wf:approval:x", b"data", 60)
+
+        redis.sadd.assert_not_awaited()
+
     async def test_emit_resumed(self) -> None:
         from app.workers.tasks.workflow_common import _emit_resumed
 

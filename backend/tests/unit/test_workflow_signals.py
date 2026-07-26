@@ -247,6 +247,9 @@ class TestFindMatchingWaits:
         assert results == [(run_id, node_id)]
 
     async def test_skips_expired_claims(self) -> None:
+        """F-37: a missing claim key is skipped, never pruned — find_matching_waits
+        is read-only, since a None payload can mean another task's claim window,
+        not permanent staleness."""
         from contexts.workflow.application.event_dispatch import find_matching_waits
 
         redis = AsyncMock()
@@ -256,7 +259,7 @@ class TestFindMatchingWaits:
         results = await find_matching_waits(redis, "message_in_room", lambda m: True)
 
         assert results == []
-        redis.srem.assert_awaited_once()
+        redis.srem.assert_not_awaited()
 
     async def test_skips_non_matching(self) -> None:
         from contexts.workflow.application.event_dispatch import find_matching_waits
@@ -551,6 +554,53 @@ class TestWorkflowEventResume:
         assert result == "resumed"
         engine.resume_at_port.assert_awaited_once()
         assert engine.resume_at_port.call_args[0][2] == "default"
+
+    @patch("shared_kernel.db.session.async_session")
+    @patch("shared_kernel.auth.clients.get_redis")
+    async def test_restore_after_failed_resume_reindexes_the_wait(
+        self, mock_redis_fn, mock_session_cm
+    ) -> None:
+        """F-37 (b): the restore must be the true inverse of the claim — the
+        by-event index member goes back alongside the claim key, not just the
+        key alone (workflow_common._restore_claim's ``reindex`` kwarg)."""
+        from app.workers.tasks.workflow_signals import workflow_event_resume
+
+        redis = AsyncMock()
+        redis.ttl.return_value = 60
+        redis.getdel.return_value = json.dumps({"event_type": "message_in_room"}).encode()
+        mock_redis_fn.return_value = redis
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        engine = AsyncMock()
+        engine.resume_at_port.return_value = False
+        pool = AsyncMock()
+
+        with (
+            patch(
+                "contexts.workflow.application.run_engine.RunEngine",
+                return_value=engine,
+            ),
+            patch(
+                "app.workers.tasks.workflow_signals._run_is_terminal",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "app.workers.tasks.workflow_signals._restore_claim",
+                new_callable=AsyncMock,
+            ) as restore,
+        ):
+            result = await workflow_event_resume({"redis": pool}, _RUN_ID, "n1", attempt=0)
+
+        assert result == "not_waiting:retry"
+        restore.assert_awaited_once()
+        assert restore.await_args.kwargs["reindex"] == (
+            "wf:wait:by_event:message_in_room",
+            f"{_RUN_ID}:n1",
+        )
 
 
 class TestWorkflowSignal:

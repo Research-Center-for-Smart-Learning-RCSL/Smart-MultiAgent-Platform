@@ -101,6 +101,11 @@ async def workflow_event_timeout(
         )
         return "already_received"
 
+    try:
+        claimed_event_type = json.loads(claimed).get("event_type", "")
+    except (ValueError, TypeError):
+        claimed_event_type = ""
+
     async with async_session() as db:
         from contexts.workflow.application.run_engine import RunEngine
 
@@ -114,12 +119,15 @@ async def workflow_event_timeout(
             # and retry; the wait must not be lost (claim-before-verify). Floor
             # the restored TTL to the remaining budget so the key outlives it,
             # not the mere +60s grace the wait key was created with (F-32).
+            # reindex re-adds the by-event index member alongside the claim key
+            # (F-37) — the restore must be the true inverse of the claim.
             await _restore_claim(
                 redis,
                 wait_key,
                 claimed,
                 ttl,
                 min_ttl=_remaining_budget_ttl(_RESUME_RETRY_MAX_ATTEMPTS, _RESUME_RETRY_DELAY_S, attempt),
+                reindex=(f"wf:wait:by_event:{claimed_event_type}", f"{run_id}:{node_id}"),
             )
             if attempt < _RESUME_RETRY_MAX_ATTEMPTS:
                 await ctx["redis"].enqueue_job(
@@ -328,6 +336,11 @@ async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str, 
     if claimed is None:
         return "already_claimed"
 
+    try:
+        claimed_event_type = json.loads(claimed).get("event_type", "")
+    except (ValueError, TypeError):
+        claimed_event_type = ""
+
     async with async_session() as db:
         from contexts.workflow.application.run_engine import RunEngine
 
@@ -336,13 +349,16 @@ async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str, 
         if not resumed:
             await db.commit()  # persist side effects (e.g. workflow-deleted FAILED)
             if not await _run_is_terminal(db, run_id):
-                # Floor the restored TTL to the remaining budget (F-32).
+                # Floor the restored TTL to the remaining budget (F-32). reindex
+                # re-adds the by-event index member alongside the claim key
+                # (F-37) — the restore must be the true inverse of the claim.
                 await _restore_claim(
                     redis,
                     wait_key,
                     claimed,
                     ttl,
                     min_ttl=_remaining_budget_ttl(_RESUME_RETRY_MAX_ATTEMPTS, _RESUME_RETRY_DELAY_S, attempt),
+                    reindex=(f"wf:wait:by_event:{claimed_event_type}", f"{run_id}:{node_id}"),
                 )
                 if attempt < _RESUME_RETRY_MAX_ATTEMPTS:
                     await ctx["redis"].enqueue_job(
