@@ -729,6 +729,21 @@ class TurnEngine:
             return TurnResult(status="skipped", reason="model_hint_unserviceable")
         provider, model = _resolve_provider_and_model(agent)
         wf = str(workflow_run_id) if workflow_run_id else None
+        # INVARIANT (code-review finding): once _pending_context_and_tools below
+        # populates pending_notes, EVERY exit path from here on — every `return
+        # TurnResult(...)` and every `return await self._skip_headless(...)` —
+        # must first call self._settle_pending_approvals(...) (turn reached the
+        # provider) or self._requeue_notifications(...) (it didn't), or a
+        # drained note is silently lost until its own TTL. This has already
+        # been missed and re-added twice (see this task's deviation log); if
+        # you add a new exit path, grep this function for `pending_notes` and
+        # match the pattern of the nearest existing one. A structural fix
+        # (centralizing this in one try/finally) was scoped and deliberately
+        # deferred — see FU-6 in docs/tasks/2026-07-22-workflow-dispatch-reliability/spec.md:
+        # the turn loop is the highest-blast-radius path in the codebase, and
+        # doing that safely needs its own characterization-tests-first
+        # refactor pass, not a rushed change riding along with an unrelated
+        # review-fix commit.
         pending_notes: list[dict[str, Any]] = []
         voted_approvals: set[uuid.UUID] = set()
         try:
@@ -1932,6 +1947,12 @@ class TurnEngine:
         # suppresses token deltas for a None room (the headless-turn path). A
         # future emit added without a guard fails closed, not open.
         room = None if is_observer else room_channel(chatroom_id)
+        # INVARIANT (code-review finding) — see the matching comment in
+        # run_input_turn: every exit path below that follows the population of
+        # pending_notes must call self._settle_pending_approvals(...) or
+        # self._requeue_notifications(...), or a drained note is silently
+        # lost. Grep this function for `pending_notes` before adding a new
+        # exit path.
         pending_notes: list[dict[str, Any]] = []
         voted_approvals: set[uuid.UUID] = set()
 
