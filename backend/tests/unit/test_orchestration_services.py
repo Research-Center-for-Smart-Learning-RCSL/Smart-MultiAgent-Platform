@@ -392,6 +392,45 @@ class TestApprovalCastVote:
         approvals.update_state.assert_awaited_once()
         _resume.assert_awaited_once()
 
+    @patch(
+        "contexts.orchestration.application.approval_service.ApprovalService._enqueue_workflow_resume",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "contexts.orchestration.application.approval_service.ApprovalService._publish_resolved",
+        new_callable=AsyncMock,
+    )
+    @patch("contexts.orchestration.application.approval_service.APPROVAL_RESOLUTIONS", new_callable=MagicMock)
+    @patch("contexts.orchestration.application.approval_service.audit.emit", new_callable=AsyncMock)
+    async def test_cast_vote_returns_despite_publish_failure(
+        self, _audit, _metrics, _publish, _resume
+    ) -> None:
+        """Review finding: the ballot is already committed by the time
+        _publish_resolved runs, so a transient WS-publish failure must not
+        propagate out of cast_vote — a caller (ToolRegistry's
+        cast_approval_vote tool) relies on a normal return to mark the vote
+        as cast; otherwise a committed vote is misreported as failed."""
+        ap = _approval(mode=ApprovalMode.SINGLE, leader=_AGENT_A)
+        ballot = _vote(_AGENT_A, True)
+        approvals = AsyncMock()
+        approvals.get.return_value = ap
+        approvals.update_state.return_value = True
+        votes_repo = AsyncMock()
+        votes_repo.cast.return_value = ballot
+        votes_repo.list_for_approval.return_value = [ballot]
+        svc = _make_approval_service(approvals=approvals, votes=votes_repo)
+        _publish.side_effect = RuntimeError("redis boom")
+
+        result = await svc.cast_vote(
+            approval_id=ap.id,
+            voter_agent_id=_AGENT_A,
+            vote=True,
+        )
+
+        assert result.vote is True
+        approvals.update_state.assert_awaited_once()
+        _resume.assert_awaited_once()
+
     async def test_cast_on_resolved_raises(self) -> None:
         ap = _approval(state=ApprovalState.APPROVED)
         approvals = AsyncMock()
