@@ -106,6 +106,8 @@ async def workflow_event_timeout(
 
         engine = RunEngine(db)
         resumed = await engine.resume_at_port(uuid.UUID(run_id), node_id, "timeout")
+        if resumed:
+            await _emit_resumed(db, run_id, node_id, reason="timeout")
         await db.commit()
         if not resumed and not await _run_is_terminal(db, run_id):
             # Run not WAITING (parallel sibling executing) — restore the claim

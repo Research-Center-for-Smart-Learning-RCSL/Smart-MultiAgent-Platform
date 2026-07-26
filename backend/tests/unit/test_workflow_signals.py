@@ -351,6 +351,46 @@ class TestWorkflowEventTimeout:
 
     @patch("shared_kernel.db.session.async_session")
     @patch("shared_kernel.auth.clients.get_redis")
+    async def test_timeout_emits_resumed_audit(self, mock_redis_fn, mock_session_cm) -> None:
+        """F-41: the timeout resume path must emit workflow.resumed like the
+        other three resume paths, in the same transaction as the resume."""
+        from app.workers.tasks.workflow_signals import workflow_event_timeout
+
+        redis = AsyncMock()
+        redis.ttl.return_value = 60
+        redis.getdel.return_value = json.dumps({"event_type": "timer"}).encode()
+        mock_redis_fn.return_value = redis
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        engine = AsyncMock()
+        engine.resume_at_port.return_value = True
+
+        manager = MagicMock()
+        manager.attach_mock(db.commit, "commit")
+
+        with (
+            patch(
+                "contexts.workflow.application.run_engine.RunEngine",
+                return_value=engine,
+            ),
+            patch(
+                "app.workers.tasks.workflow_signals._emit_resumed",
+                new_callable=AsyncMock,
+            ) as emit_resumed,
+        ):
+            manager.attach_mock(emit_resumed, "emit_resumed")
+            result = await workflow_event_timeout({"redis": AsyncMock()}, _RUN_ID, "n1")
+
+        assert result == "timed_out"
+        emit_resumed.assert_awaited_once_with(db, _RUN_ID, "n1", reason="timeout")
+        call_names = [c[0] for c in manager.mock_calls if c[0] in ("emit_resumed", "commit")]
+        assert call_names.index("emit_resumed") < call_names.index("commit")
+
+    @patch("shared_kernel.db.session.async_session")
+    @patch("shared_kernel.auth.clients.get_redis")
     async def test_not_waiting_retries(self, mock_redis_fn, mock_session_cm) -> None:
         from app.workers.tasks.workflow_signals import workflow_event_timeout
 
@@ -388,6 +428,50 @@ class TestWorkflowEventTimeout:
         assert result == "not_waiting:retry"
         restore.assert_awaited_once()
         pool.enqueue_job.assert_awaited_once()
+
+    @patch("shared_kernel.db.session.async_session")
+    @patch("shared_kernel.auth.clients.get_redis")
+    async def test_timeout_does_not_audit_when_not_resumed(self, mock_redis_fn, mock_session_cm) -> None:
+        """F-41 guard: no workflow.resumed emit on the retry (not-WAITING) path."""
+        from app.workers.tasks.workflow_signals import workflow_event_timeout
+
+        redis = AsyncMock()
+        redis.ttl.return_value = 60
+        redis.getdel.return_value = b'{"event_type": "timer"}'
+        mock_redis_fn.return_value = redis
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        engine = AsyncMock()
+        engine.resume_at_port.return_value = False
+
+        pool = AsyncMock()
+
+        with (
+            patch(
+                "contexts.workflow.application.run_engine.RunEngine",
+                return_value=engine,
+            ),
+            patch(
+                "app.workers.tasks.workflow_signals._run_is_terminal",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "app.workers.tasks.workflow_signals._restore_claim",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.workers.tasks.workflow_signals._emit_resumed",
+                new_callable=AsyncMock,
+            ) as emit_resumed,
+        ):
+            result = await workflow_event_timeout({"redis": pool}, _RUN_ID, "n1", attempt=0)
+
+        assert result == "not_waiting:retry"
+        emit_resumed.assert_not_awaited()
 
     @patch("shared_kernel.db.session.async_session")
     @patch("shared_kernel.auth.clients.get_redis")
