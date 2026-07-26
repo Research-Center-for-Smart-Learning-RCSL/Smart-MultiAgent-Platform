@@ -678,6 +678,62 @@ docstring; regression test `test_run_input_turn_renders_own_gate_approval_in_mat
 added to `test_a2a_turn_dispatch.py`, asserting both the rendered question and the
 `cast_approval_vote` tool's presence in the registry snapshot for a room-bound gate.
 
+**D-2 — a follow-up `/code-review` pass after initial close-out found two genuine bugs in
+this dossier's own new code (C2); fixed in place rather than filed as follow-ups.**
+Both are in `_settle_pending_approvals`/`_requeue_notifications`, both caused by this
+dossier, so both are Introduced rather than Pre-existing and neither warranted a scope
+question to the user (contrast D-1, which changed a different, pre-existing function):
+
+1. `_settle_pending_approvals` wrapped its entire per-note `get_approval` loop in one
+   `try/except`, so a transient facade failure on the *second* unvoted note in a batch
+   discarded the *first* note's already-confirmed PENDING re-arm — the whole batch's
+   requeue was silently abandoned instead of just the failing note's. Fixed by isolating
+   each `get_approval` call in its own `try/except` (skip and log that note, keep the
+   others), with the final `pending_notify.requeue` call in its own `try/except`
+   afterward. Regression test:
+   `test_settle_pending_approvals_partial_facade_failure_still_requeues_others`.
+2. The generic `except Exception` handler in both `run_input_turn` and `run_turn` restores
+   *every* drained note unconditionally on a later-round failure — including an
+   `approval_request` note whose vote was already cast and committed earlier in the same
+   turn. `ApprovalService.cast_vote` commits on the turn's own `self._db` session (verified
+   at `approval_service.py:259`), independently of whatever the turn does afterward, so
+   that commit survives the turn's own rollback — but the note was still being re-offered
+   next turn, and `cast_approval_vote` would reject the redundant vote attempt.
+   `_requeue_notifications` now takes an optional `voted` set and excludes any note whose
+   `approval_id` is in it before restoring the rest; both exception handlers pass
+   `voted=voted_approvals`. Regression tests:
+   `test_requeue_notifications_excludes_already_voted_ballot`,
+   `test_requeue_notifications_without_voted_restores_everything`.
+
+Also extracted the repeated `kind == "approval_request"` + `uuid.UUID(...)` parse/guard
+(present once as a positive filter in `_pending_context_and_tools`, once as its negation in
+`_settle_pending_approvals`) into a single module-level `_parse_approval_id` helper, flagged
+as a DRY/consistency risk by the same review pass. Behavior-preserving: the malformed-id
+`continue` semantics in `_pending_context_and_tools` are unchanged.
+
+One review observation was **not** acted on: `voted_approvals: set[uuid.UUID] = set()`
+being pre-declared before each `try` block was flagged as dead (always overwritten before
+any read). Fixing item 2 above made it genuinely necessary again — an exception before the
+`_pending_context_and_tools` call now needs a bound empty set for the exception handler's
+`voted=voted_approvals` reference — so it was kept rather than removed.
+
+**Two further findings from the same review pass are Pre-existing (present at the base
+commit, unrelated to F-8/F-29's stated scope) and were *not* fixed here — presented to the
+user rather than folded in silently, since expanding scope again warrants the same
+check-in D-1 got:**
+
+- A room-turn's `empty_reply` skip (`turn_engine.py`, `if not final_text.strip():` branch)
+  returns without calling `_requeue_notifications` or `_settle_pending_approvals` at all —
+  any note drained that turn, including an approval ballot, is silently destroyed. Same
+  defect family as F-29, via a path F-29's own scope (the three *completed* returns) never
+  covered.
+- `run_input_turn`'s `_TurnCancelled` handler only restores `pending_notes` when
+  `tc.rounds_completed == 0` — a cancellation after at least one tool round drops every
+  drained note unconditionally, voted or not, notify or approval alike.
+
+Recorded as FU-7 (§13) pending the user's direction on whether to fix now, file as their
+own dossier, or route through `/audit`.
+
 ## 13. Follow-ups
 
 - **FU-1** — An approval ballot exists only as a Redis list entry (`approval_service.py:170` →
@@ -715,4 +771,22 @@ added to `test_a2a_turn_dispatch.py`, asserting both the rendered question and t
   quality gate (Info-level, not blocking): realistic cardinality is 1-2 notes per turn, so the N+1
   shape has negligible practical cost today. If a future change raises that cardinality
   (e.g. an agent bound to many concurrent gates), add a facade method that accepts a list of ids.
+- **FU-7** — A follow-up `/code-review` pass (post-close-out, 2026-07-26) found two Pre-existing
+  gaps in the same defect family as F-29, via return paths this dossier's scope (the three
+  *completed* returns) never touched — see D-2 for full detail:
+  1. A room-turn's `empty_reply` skip returns without calling `_requeue_notifications` or
+     `_settle_pending_approvals` at all, silently destroying every note drained that turn
+     (approval ballot, notify, or released_observation alike).
+  2. `run_input_turn`'s `_TurnCancelled` handler only restores drained notes when
+     `tc.rounds_completed == 0`; a cancellation after at least one tool round drops
+     everything unconditionally, regardless of whether anything was actually voted on or
+     acted upon.
+
+  Both are broader than approval notes specifically (they affect every kind `_pending_notify`
+  carries) and neither is bounded by Q-5's PENDING check the way C2's fix is, so fixing them
+  properly is a small design question in its own right — not a one-line patch — and belongs
+  to its own dossier rather than a silent scope expansion here. Candidate remedy shape: both
+  skip/cancel paths should settle drained notes the same way the three completed returns now
+  do (`_requeue_notifications` for notify/released_observation, `_settle_pending_approvals`
+  for approval_request), rather than each carrying its own ad hoc restore condition.
 </content>
