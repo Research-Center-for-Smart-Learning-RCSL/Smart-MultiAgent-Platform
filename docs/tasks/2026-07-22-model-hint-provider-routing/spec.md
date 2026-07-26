@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-22
 requirements: []
 depends_on: []
@@ -367,9 +367,9 @@ the population that would break is knowable in advance.
 - [x] AC-8: `provider=None` preserves current routing behaviour exactly — the GraphRAG and
       Knowledge Map triple extractors are unaffected, pinned by a test that passes both before
       and after.
-- [ ] AC-9: the pre-deploy detection query in §7 runs and its result is recorded in the
+- [x] AC-9: the pre-deploy detection query in §7 runs and its result is recorded in the
       dossier's Deviation Log before rollout.
-- [ ] AC-10: `pytest -q`, `ruff check .`, `ruff format --check .` and `mypy .` pass in
+- [x] AC-10: `pytest -q`, `ruff check .`, `ruff format --check .` and `mypy .` pass in
       `backend/`.
 
 ## 11. SRS Delta
@@ -390,6 +390,30 @@ Appended by /build.
   the approval gate room in the headless unserviceable-provider audit (F-3), and render the
   deterministic error as actionable localized guidance (F-2). This extends the original
   implementation while preserving its provider-pinning contract.
+- **D-2** — AC-9 and AC-10 verification, recorded 2026-07-26. No live Postgres was reachable
+  from the dev sandbox (Docker Desktop not running at session start); the user chose to bring
+  up the local compose stack rather than defer. `docker compose up -d postgres` was used —
+  `smap_data_net` is `internal: true` by design (SEC-C1 isolation posture, `docker-compose.yml`),
+  so its published port never binds to the host; the migration and query instead ran from
+  containers attached directly to that network. `alembic upgrade head` applied cleanly through
+  `0066_agent_tools_mcp_capture`. The §7 detection query then ran and returned **0 rows** against
+  **0 total agents** — this is a freshly-migrated local dev database with no agent or key-group
+  data, so the result confirms the query is schema-valid against current head, not a real
+  blast-radius count. Running it against actual staging/production data remains an operator
+  action to perform immediately before rollout, per the query's own pre-deploy intent in §7.
+  For AC-10: `ruff check .` and `ruff format --check .` are clean (853 files formatted);
+  `mypy .` reports zero issues across 853 source files; `pytest tests/unit/ -q` passed
+  **6211 passed, 0 failed, 6 skipped**, including all 205 tests across the nine files this task
+  added or touched (`test_provider_router_carry_gate.py`, `test_provider_router_streaming.py`,
+  `test_agent_turn_loop.py`, `test_a2a_turn_dispatch.py`, `test_summariser_routing.py`,
+  `test_provider_adapters.py`, `test_turn_context_budget.py`, `test_no_response_notices.py`,
+  `test_observer_agents.py`). A plain `pytest -q` (all tiers) additionally reports 66 failed,
+  37 errors, entirely inside `tests/integration/` and `tests/wiring/` — none in a file this task
+  touched — because those DSNs resolve `postgres`/`redis`/`vault` as compose-network hostnames
+  unreachable from the bare host. This is the same pre-existing gap the
+  `2026-07-23-model-hint-routing-adversarial` audit's own Coverage section already recorded
+  ("the local integration environment does not resolve its postgres host"), not a regression
+  introduced here.
 
 ## 13. Follow-ups
 
