@@ -352,6 +352,40 @@ class TestWorkflowEventTimeout:
         call_args = engine.resume_at_port.call_args
         assert call_args[0][2] == "timeout"
 
+    @patch("asyncio.sleep", new_callable=AsyncMock)
+    @patch("shared_kernel.db.session.async_session")
+    @patch("shared_kernel.auth.clients.get_redis")
+    async def test_timeout_retries_dispatch_locally_on_transient_failure(
+        self, mock_redis_fn, mock_session_cm, mock_sleep
+    ) -> None:
+        """Review finding: the claim key is already consumed by this point, so
+        an arq-level retry of the whole task would see "already_received" and
+        never reach dispatch_enqueues again — the retry must be local."""
+        from app.workers.tasks.workflow_signals import workflow_event_timeout
+
+        redis = AsyncMock()
+        redis.ttl.return_value = 60
+        redis.getdel.return_value = json.dumps({"event_type": "timer"}).encode()
+        mock_redis_fn.return_value = redis
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        engine = AsyncMock()
+        engine.resume_at_port.return_value = True
+        engine.dispatch_enqueues.side_effect = [RuntimeError("redis boom"), None]
+
+        with patch(
+            "contexts.workflow.application.run_engine.RunEngine",
+            return_value=engine,
+        ):
+            result = await workflow_event_timeout({"redis": AsyncMock()}, _RUN_ID, "n1")
+
+        assert result == "timed_out"
+        assert engine.dispatch_enqueues.await_count == 2
+        mock_sleep.assert_awaited_once()
+
     @patch("shared_kernel.db.session.async_session")
     @patch("shared_kernel.auth.clients.get_redis")
     async def test_timeout_emits_resumed_audit(self, mock_redis_fn, mock_session_cm) -> None:
@@ -431,6 +465,80 @@ class TestWorkflowEventTimeout:
         assert result == "not_waiting:retry"
         restore.assert_awaited_once()
         pool.enqueue_job.assert_awaited_once()
+
+    @patch("shared_kernel.db.session.async_session")
+    @patch("shared_kernel.auth.clients.get_redis")
+    async def test_timeout_skips_reindex_on_malformed_claim_payload(
+        self, mock_redis_fn, mock_session_cm
+    ) -> None:
+        """Review finding: an unparseable claimed payload must not be
+        reindexed under a bogus wf:wait:by_event: (empty-suffix) key — that
+        would hide the restored wait from every future dispatch instead of
+        just leaving it to resolve via its timeout."""
+        from app.workers.tasks.workflow_signals import workflow_event_timeout
+
+        redis = AsyncMock()
+        redis.ttl.return_value = 60
+        redis.getdel.return_value = b"not valid json"
+        mock_redis_fn.return_value = redis
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        engine = AsyncMock()
+        engine.resume_at_port.return_value = False
+
+        with (
+            patch(
+                "contexts.workflow.application.run_engine.RunEngine",
+                return_value=engine,
+            ),
+            patch(
+                "app.workers.tasks.workflow_signals._run_is_terminal",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "app.workers.tasks.workflow_signals._restore_claim",
+                new_callable=AsyncMock,
+            ) as restore,
+        ):
+            result = await workflow_event_timeout({"redis": AsyncMock()}, _RUN_ID, "n1", attempt=0)
+
+        assert result == "not_waiting:retry"
+        restore.assert_awaited_once()
+        assert restore.await_args.kwargs["reindex"] is None
+
+    @patch("shared_kernel.db.session.async_session")
+    @patch("shared_kernel.auth.clients.get_redis")
+    async def test_timeout_skips_index_cleanup_on_malformed_claim_payload(
+        self, mock_redis_fn, mock_session_cm
+    ) -> None:
+        """Same review finding, on the success path's best-effort index
+        cleanup: an unparseable payload must not derive a bogus srem key."""
+        from app.workers.tasks.workflow_signals import workflow_event_timeout
+
+        redis = AsyncMock()
+        redis.ttl.return_value = 60
+        redis.getdel.return_value = b"not valid json"
+        mock_redis_fn.return_value = redis
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        engine = AsyncMock()
+        engine.resume_at_port.return_value = True
+
+        with patch(
+            "contexts.workflow.application.run_engine.RunEngine",
+            return_value=engine,
+        ):
+            result = await workflow_event_timeout({"redis": AsyncMock()}, _RUN_ID, "n1")
+
+        assert result == "timed_out"
+        redis.srem.assert_not_awaited()
 
     @patch("shared_kernel.db.session.async_session")
     @patch("shared_kernel.auth.clients.get_redis")
@@ -555,6 +663,44 @@ class TestWorkflowEventResume:
         engine.resume_at_port.assert_awaited_once()
         assert engine.resume_at_port.call_args[0][2] == "default"
 
+    @patch("asyncio.sleep", new_callable=AsyncMock)
+    @patch("shared_kernel.db.session.async_session")
+    @patch("shared_kernel.auth.clients.get_redis")
+    async def test_resume_retries_dispatch_locally_on_transient_failure(
+        self, mock_redis_fn, mock_session_cm, mock_sleep
+    ) -> None:
+        """Review finding: the claim key is already consumed by this point, so
+        an arq-level retry of the whole task would see "already_claimed" and
+        never reach dispatch_enqueues again — the retry must be local."""
+        from app.workers.tasks.workflow_signals import workflow_event_resume
+
+        redis = AsyncMock()
+        redis.ttl.return_value = 120
+        redis.getdel.return_value = json.dumps({"event_type": "message_in_room"}).encode()
+        mock_redis_fn.return_value = redis
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        engine = AsyncMock()
+        engine.resume_at_port.return_value = True
+        engine.dispatch_enqueues.side_effect = [RuntimeError("redis boom"), None]
+        pool = AsyncMock()
+
+        with (
+            patch(
+                "contexts.workflow.application.run_engine.RunEngine",
+                return_value=engine,
+            ),
+            patch("shared_kernel.audit.emit", new_callable=AsyncMock),
+        ):
+            result = await workflow_event_resume({"redis": pool}, _RUN_ID, "n1")
+
+        assert result == "resumed"
+        assert engine.dispatch_enqueues.await_count == 2
+        mock_sleep.assert_awaited_once()
+
     @patch("shared_kernel.db.session.async_session")
     @patch("shared_kernel.auth.clients.get_redis")
     async def test_restore_after_failed_resume_reindexes_the_wait(
@@ -601,6 +747,49 @@ class TestWorkflowEventResume:
             "wf:wait:by_event:message_in_room",
             f"{_RUN_ID}:n1",
         )
+
+    @patch("shared_kernel.db.session.async_session")
+    @patch("shared_kernel.auth.clients.get_redis")
+    async def test_resume_skips_reindex_on_malformed_claim_payload(
+        self, mock_redis_fn, mock_session_cm
+    ) -> None:
+        """Review finding: an unparseable claimed payload must not be
+        reindexed under a bogus wf:wait:by_event: (empty-suffix) key."""
+        from app.workers.tasks.workflow_signals import workflow_event_resume
+
+        redis = AsyncMock()
+        redis.ttl.return_value = 60
+        redis.getdel.return_value = b"not valid json"
+        mock_redis_fn.return_value = redis
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        engine = AsyncMock()
+        engine.resume_at_port.return_value = False
+        pool = AsyncMock()
+
+        with (
+            patch(
+                "contexts.workflow.application.run_engine.RunEngine",
+                return_value=engine,
+            ),
+            patch(
+                "app.workers.tasks.workflow_signals._run_is_terminal",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "app.workers.tasks.workflow_signals._restore_claim",
+                new_callable=AsyncMock,
+            ) as restore,
+        ):
+            result = await workflow_event_resume({"redis": pool}, _RUN_ID, "n1", attempt=0)
+
+        assert result == "not_waiting:retry"
+        restore.assert_awaited_once()
+        assert restore.await_args.kwargs["reindex"] is None
 
 
 class TestWorkflowSignal:
@@ -1023,13 +1212,21 @@ class TestRunTriggeredWorkflow:
         assert result == "start_failed:gave_up"
         pool.enqueue_job.assert_not_awaited()
 
+    @patch("asyncio.sleep", new_callable=AsyncMock)
     @patch("shared_kernel.db.session.async_session")
-    async def test_dispatch_failure_after_commit_does_not_retry_the_start(self, mock_session_cm) -> None:
+    async def test_dispatch_failure_after_commit_does_not_retry_the_start(
+        self, mock_session_cm, mock_sleep
+    ) -> None:
         """F-35 / F-33 adjacency (C5 must land after C4): a post-commit
         dispatch_pending failure must not escape to arq, which would otherwise
         retry the whole task and call trigger_run a second time against an
-        already-committed run."""
-        from app.workers.tasks.workflow_signals import run_triggered_workflow
+        already-committed run — even after the local dispatch retry (review
+        finding: swallowing the failure outright stranded the run until the
+        watchdog's idle timeout) is exhausted."""
+        from app.workers.tasks.workflow_signals import (
+            _DISPATCH_RETRY_ATTEMPTS,
+            run_triggered_workflow,
+        )
 
         db = AsyncMock()
         mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
@@ -1055,3 +1252,42 @@ class TestRunTriggeredWorkflow:
         assert result == str(run_id)
         svc.trigger_run.assert_awaited_once()
         db.commit.assert_awaited_once()
+        assert svc.dispatch_pending.await_count == _DISPATCH_RETRY_ATTEMPTS
+
+    @patch("asyncio.sleep", new_callable=AsyncMock)
+    @patch("shared_kernel.db.session.async_session")
+    async def test_dispatch_failure_retries_and_succeeds_within_the_same_job(
+        self, mock_session_cm, mock_sleep
+    ) -> None:
+        """Review finding: a transient dispatch_pending blip must not strand
+        the run until the watchdog force-fails it. The retry redispatches
+        against the *same* RunEngine instance, whose _pending_enqueues
+        already retains exactly the unsent tail (F-33) — so this is a local
+        retry within the job, not a re-enqueue of the whole task."""
+        from app.workers.tasks.workflow_signals import run_triggered_workflow
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        wf_id = str(uuid.uuid4())
+        run_id = uuid.uuid4()
+        svc = AsyncMock()
+        svc.trigger_run.return_value = run_id
+        svc.dispatch_pending.side_effect = [RuntimeError("redis boom"), None]
+        pool = AsyncMock()
+
+        with (
+            patch("shared_kernel.auth.clients.get_redis", return_value=AsyncMock()),
+            patch("app.config.settings.get_settings", return_value=_settings_with_limit(0)),
+            patch(
+                "contexts.workflow.application.workflow_service.WorkflowService",
+                return_value=svc,
+            ),
+        ):
+            result = await run_triggered_workflow({"redis": pool}, wf_id, {})
+
+        assert result == str(run_id)
+        svc.trigger_run.assert_awaited_once()
+        assert svc.dispatch_pending.await_count == 2
+        mock_sleep.assert_awaited_once()
