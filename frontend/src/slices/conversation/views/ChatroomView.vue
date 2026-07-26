@@ -435,13 +435,12 @@ const observations = useObservations(chatroomId, {
   agentNames,
 })
 
-// Right rail switches to a tabbed People/Observer view only for the creator of
-// a room that actually has observers bound; everyone else keeps the plain
-// presence panel (and never learns an observer exists beyond the neutral
-// disclosure chip).
-const showObserverTab = computed(
-  () => observations.isCreator.value && observations.observerAgents.value.length > 0,
-)
+// Right rail switches to a tabbed People/Observer view for the creator once
+// there is a surface to show — either a bound observer or observations that
+// outlived one (they remain readable/releasable/deletable regardless of the
+// current roster). Everyone else keeps the plain presence panel (and never
+// learns an observer exists beyond the neutral disclosure chip).
+const showObserverTab = computed(() => observations.hasObserverSurface.value)
 const showActivityTab = computed(
   () => observations.isCreator.value || !!activitiesStore.getActivation(chatroomId),
 )

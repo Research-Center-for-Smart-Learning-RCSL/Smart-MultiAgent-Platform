@@ -205,6 +205,57 @@ describe('ChatroomView', () => {
     expect(wrapper.find('[data-testid="export-status"]').exists()).toBe(false)
   })
 
+  it('renders the Observer tab for a creator whose observations outlived the last observer binding', async () => {
+    server.use(
+      http.get('/api/chatrooms/:chatroomId', () =>
+        HttpResponse.json({
+          id: 'cr_1', name: 'Test Room', project_id: 'proj_1',
+          workspace_id: 'ws_1',
+          allow_org_members: false, allow_project_members: true,
+          allow_project_owners_only: false, allow_guest_links: false,
+          created_by_user_id: 'u_1',
+          agents: [],
+        }),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents', () =>
+        HttpResponse.json([{ agent_id: 'agent_normal', role: 'normal' }]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/observations', () =>
+        HttpResponse.json([
+          {
+            id: 'o1',
+            chatroom_id: 'cr_1',
+            agent_id: 'agent_gone',
+            content_md: 'stranded analysis',
+            metadata: {},
+            trigger: 'every_n_messages',
+            trigger_message_id: null,
+            released_at: null,
+            release_target: null,
+            released_by_user_id: null,
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        ]),
+      ),
+    )
+    const wrapper = await renderView(ChatroomView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1',
+    })
+    signInAs('u_1')
+    await settle()
+
+    const observerTab = wrapper
+      .findAll('[role="tab"]')
+      .find((t) => t.text() === 'conversation.observers.tab')
+    expect(observerTab?.exists()).toBe(true)
+    await observerTab?.trigger('click')
+    await settle()
+
+    expect(wrapper.find('.obs-panel').exists()).toBe(true)
+    expect(wrapper.text()).toContain('stranded analysis')
+  })
+
   it('renders the streaming draft bubble while agent tokens accumulate', async () => {
     const wrapper = await renderView(ChatroomView, {
       routes,

@@ -188,6 +188,8 @@
       },
       "emptyTitle": "尚無觀察結果",
       "emptyText": "觀察者分析對話後會將結果寫在這裡，只有你看得到。",
+      "noObserverBoundTitle": "目前沒有綁定的觀察者",
+      "noObserverBoundText": "這些是先前綁定的觀察者留下的分析，該觀察者已不再綁定此聊天室。你仍然可以釋出或刪除它們。",
       "loadEarlier": "載入較早的內容",
       "expand": "顯示更多",
       "collapse": "顯示較少",

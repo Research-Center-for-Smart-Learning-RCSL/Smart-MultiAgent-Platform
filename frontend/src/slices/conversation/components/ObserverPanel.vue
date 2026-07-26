@@ -15,6 +15,14 @@
       </li>
     </ul>
 
+    <SAlert
+      v-if="!roster.length && observations.length"
+      variant="info"
+      :title="t('conversation.observers.noObserverBoundTitle')"
+    >
+      {{ t('conversation.observers.noObserverBoundText') }}
+    </SAlert>
+
     <SDivider />
 
     <div
@@ -72,7 +80,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EyeIcon } from '@heroicons/vue/24/outline'
-import { SButton, SDivider, SEmptyState, SSkeleton } from '@shared/ui'
+import { SAlert, SButton, SDivider, SEmptyState, SSkeleton } from '@shared/ui'
 import { AGENT_ERROR_FALLBACK_KEY, AGENT_ERROR_MESSAGE_KEYS } from '../constants/agentErrors'
 import ObservationCard from './ObservationCard.vue'
 import type { ObserverEntry } from '../composables/useObservations'
