@@ -89,9 +89,15 @@ async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
                             row.id,
                             trigger_payload={"trigger_type": "cron"},
                         )
+                        # Mark before commit/dispatch (F-34): this key is the
+                        # only record that the trigger fired. If the commit or
+                        # the dispatch below fails, a duplicate run is worse
+                        # than the single missed tick the docstring above
+                        # already sanctions, so the marker must survive either
+                        # failure.
+                        await redis.set(redis_key, now.isoformat(), ex=86400)
                         await db.commit()
                         await svc.dispatch_pending(ctx["redis"])  # ASYNC-6
-                        await redis.set(redis_key, now.isoformat(), ex=86400)
                         fired += 1
                 except Exception as exc:
                     # The session is shared across the whole pass: a failed
