@@ -44,7 +44,7 @@ parallel.
   `activity-session-authz-and-validation` respectively.) Silence triggers never fire for bindings created after the
   presence edge; designer soft-bounds are erased on first self-modification; `refresh_every_hours`
   is never read. Two open decisions (Q-2 clock storage, Q-3 frontend defaults).
-- `2026-07-22-workflow-dispatch-reliability` (bugfix, draft) — `depends_on: []`. a2a F-33, F-34,
+- `2026-07-22-workflow-dispatch-reliability` (bugfix, approved) — `depends_on: []`. a2a F-33, F-34,
   F-35, F-37, F-41. Names an **unowned gap** in §13 FU-1: workflow-task retry-safety belongs to no
   dossier and needs its own.
 - `2026-07-22-retention-sweep-fixes` (bugfix, draft) — `depends_on: []`. a2a F-17, F-42 plus
