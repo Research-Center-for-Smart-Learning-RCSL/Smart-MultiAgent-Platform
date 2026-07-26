@@ -301,10 +301,17 @@ def _patch_task_env(
     return rec
 
 
-def _agent(autostop_rounds=5):
+def _agent(autostop_rounds=5, *, observer_autostop_rounds=50):
     return SimpleNamespace(
         id=uuid.uuid4(),
-        wakeup_config={"triggers": {"silence_minutes": {"autostop_rounds": autostop_rounds}}},
+        wakeup_config={
+            "triggers": {
+                "silence_minutes": {
+                    "autostop_rounds": autostop_rounds,
+                    "observer_autostop_rounds": observer_autostop_rounds,
+                }
+            }
+        },
     )
 
 
@@ -387,6 +394,39 @@ async def test_wakeup_agent_skips_when_autostop_tripped(monkeypatch) -> None:
         autostop_count=3,
     )
     out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()))
+    assert out == "skipped:autostop"
+    assert rec["run_turn"] == []
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_zero_autostop_uses_the_parsed_default(monkeypatch) -> None:
+    rec = _patch_task_env(
+        monkeypatch,
+        room=SimpleNamespace(id=uuid.uuid4()),
+        agent=_agent(autostop_rounds=0),
+        autostop_count=5,
+    )
+
+    out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()))
+
+    assert out == "skipped:autostop"
+    assert rec["run_turn"] == []
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_zero_observer_autostop_uses_the_observer_default(monkeypatch) -> None:
+    from contexts.conversation.domain.models import ChatroomAgentRole
+
+    rec = _patch_task_env(
+        monkeypatch,
+        room=SimpleNamespace(id=uuid.uuid4()),
+        agent=_agent(observer_autostop_rounds=0),
+        autostop_count=50,
+        role=ChatroomAgentRole.OBSERVER,
+    )
+
+    out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()))
+
     assert out == "skipped:autostop"
     assert rec["run_turn"] == []
 
