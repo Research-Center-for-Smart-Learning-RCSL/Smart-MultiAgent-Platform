@@ -323,6 +323,9 @@ class TurnResult:
     message_id: uuid.UUID | None = None
     text: str = ""
     tool_rounds: int = 0
+    # Approval ballots actually cast this turn (F-29) — lets a caller like
+    # drive_approver_turn tell "voted" apart from "completed but never voted".
+    approvals_voted: int = 0
 
 
 class _TurnCancelled(Exception):
@@ -669,6 +672,9 @@ class TurnEngine:
         (Concept Maps never apply); the approval worker threads the room the vote
         is bound to, so the approver's room-scoped Concept Maps resolve for this
         turn. It must be a server-side room id, never a caller-supplied value.
+        Also threaded into :meth:`_pending_context_and_tools` (D-1) so a
+        room-bound approval gate's own driven turn sees its own gate's room —
+        without it, that turn would misroute its own note as foreign to itself.
 
         ``cancel_check`` — when set (A2A CALL turns only), checked at each tool
         round boundary; a True return stops the turn to save the user's provider
@@ -706,6 +712,7 @@ class TurnEngine:
         provider, model = _resolve_provider_and_model(agent)
         wf = str(workflow_run_id) if workflow_run_id else None
         pending_notes: list[dict[str, Any]] = []
+        voted_approvals: set[uuid.UUID] = set()
         try:
             await self._audit(agent, None, "agent.turn_started", {"mode": "a2a", "workflow_run_id": wf})
             # §31: the same tap the room path runs, on the same shared helper. There is
@@ -722,7 +729,14 @@ class TurnEngine:
             bound_skills = await self._resolve_skills(agent, agent_tools)
             await self._report_skill_drops(agent, None, None, bound_skills)
             skills_note = SkillsFacade.render_index(bound_skills.skills)
-            notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(agent, None)
+            # D-1: thread the caller's chatroom_id through rather than hardcoding
+            # None — a headless turn driven for a room-bound approval gate
+            # (`drive_approver_turn`) must see its own gate's room here, or the
+            # misroute check this same fix generalizes (F-8/C1) would requeue the
+            # gate's own note as foreign to a turn that has no room of its own.
+            notify_block, extra_tools, pending_notes, voted_approvals = await self._pending_context_and_tools(
+                agent, chatroom_id
+            )
             extra_tools = extra_tools + await self._builtin_tools(agent, agent_tools)
             registry = build_registry(
                 self._db,
@@ -890,7 +904,13 @@ class TurnEngine:
             )
             await self._audit(agent, None, "agent.turn_finished", {"mode": "a2a", "tool_rounds": rounds})
             await self._db.commit()
-            return TurnResult(status="completed", text=final_text, tool_rounds=rounds)
+            await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
+            return TurnResult(
+                status="completed",
+                text=final_text,
+                tool_rounds=rounds,
+                approvals_voted=len(voted_approvals),
+            )
         except _TurnCancelled as tc:
             _log.info("a2a turn cancelled agent=%s after %d rounds", agent_id, tc.rounds_completed)
             try:
@@ -1572,23 +1592,29 @@ class TurnEngine:
 
     async def _pending_context_and_tools(
         self, agent: Agent, chatroom_id: uuid.UUID | None
-    ) -> tuple[str | None, list[Tool], list[dict[str, Any]]]:
+    ) -> tuple[str | None, list[Tool], list[dict[str, Any]], set[uuid.UUID]]:
         """Drain queued A2A notifications for this agent into a context block
         (R9.16) and, for approval-request notifications, the ``cast_approval_vote``
         tool scoped to exactly the pending gate ids. Best-effort: a Redis hiccup
         yields no context rather than failing the turn.
 
         ``chatroom_id`` — the room this turn is running in (``None`` for a
-        headless A2A turn). ``pending_notify`` is keyed only by agent id, not
-        by room, so a ``released_observation`` note (R28.07 private release)
-        addressed to a *different* room than this turn — or drained during a
-        headless turn, which has no room at all — is put back immediately
-        rather than rendered: it must never leak that room's private content
-        into another room's context.
+        headless turn). ``pending_notify`` is keyed only by agent id, not by
+        room, so a note that names a room is folded into a turn running in
+        that room, or put back immediately rather than rendered — this applies
+        to every note kind alike (R28.07's private-release rule generalizes:
+        the queue cannot filter by room, so only the turn can, and it must
+        never leak a room-addressed note into another room's context). A note
+        that names no room (an A2A ``notify``, or a headless-gate approval
+        request) is room-agnostic and always usable.
 
-        Also returns the notes actually consumed this turn (excluding any
-        already-requeued misrouted ones) so a turn that fails (or skips)
-        before the agent sees them can :meth:`_requeue_notifications`."""
+        Also returns the notes actually rendered this turn (excluding any
+        already-requeued misrouted ones) and the set of approval ids actually
+        voted on. A turn that fails or skips before the agent sees the
+        rendered notes restores them via :meth:`_requeue_notifications`; a
+        turn that completes having rendered an approval note but not voted on
+        it restores that ballot via :meth:`_settle_pending_approvals` — the
+        notes are consumed only once acted upon, not merely once rendered."""
         from contexts.orchestration.infrastructure import pending_notify
 
         try:
@@ -1598,26 +1624,26 @@ class TurnEngine:
                 "Redis unavailable for turn context, running without pending context",
                 exc_info=True,
             )
-            return None, [], []
+            return None, [], [], set()
         if not notes:
-            return None, [], []
+            return None, [], [], set()
 
         misrouted: list[dict[str, Any]] = []
         usable: list[dict[str, Any]] = []
         for n in notes:
-            if n.get("kind") == "released_observation" and (
-                chatroom_id is None or str(n.get("chatroom_id")) != str(chatroom_id)
-            ):
+            note_room = n.get("chatroom_id")
+            if note_room is not None and (chatroom_id is None or str(note_room) != str(chatroom_id)):
                 misrouted.append(n)
             else:
                 usable.append(n)
         if misrouted:
             await self._requeue_notifications(agent, misrouted)
         if not usable:
-            return None, [], []
+            return None, [], [], set()
 
         approvals: dict[uuid.UUID, uuid.UUID | None] = {}
         lines: list[str] = []
+        voted: set[uuid.UUID] = set()
         for n in usable:
             if n.get("kind") == "approval_request" and n.get("approval_id"):
                 try:
@@ -1644,9 +1670,11 @@ class TurnEngine:
         tools: list[Tool] = []
         if approvals:
             tools.append(
-                build_cast_approval_vote_tool(self._db, agent_id=agent.id, allowed_approvals=approvals)
+                build_cast_approval_vote_tool(
+                    self._db, agent_id=agent.id, allowed_approvals=approvals, voted=voted
+                )
             )
-        return "[Incoming notifications]\n" + "\n".join(lines), tools, usable
+        return "[Incoming notifications]\n" + "\n".join(lines), tools, usable, voted
 
     async def _requeue_notifications(self, agent: Agent, notes: list[dict[str, Any]]) -> None:
         """Restore drained-but-unseen notifications (turn failed / skipped
@@ -1661,6 +1689,50 @@ class TurnEngine:
             _log.warning(
                 "failed to requeue %d pending notifications agent=%s",
                 len(notes),
+                agent.id,
+                exc_info=True,
+            )
+
+    async def _settle_pending_approvals(
+        self, agent: Agent, pending_notes: list[dict[str, Any]], voted: set[uuid.UUID]
+    ) -> None:
+        """Re-arm an approval ballot the turn rendered but never voted on (F-29).
+
+        Unlike a ``notify`` or a ``released_observation``, an ``approval_request``
+        carries an obligation, not information — rendering it is an offer to
+        act, not the act. Requeues only while the gate is still PENDING (a
+        resolved gate's note is dropped instead, so it does not cycle through
+        every subsequent turn until TTL). Best-effort, matching
+        :meth:`_requeue_notifications`'s own posture."""
+        unvoted: list[tuple[uuid.UUID, dict[str, Any]]] = []
+        for n in pending_notes:
+            if n.get("kind") != "approval_request" or not n.get("approval_id"):
+                continue
+            try:
+                approval_id = uuid.UUID(str(n["approval_id"]))
+            except ValueError:
+                continue
+            if approval_id not in voted:
+                unvoted.append((approval_id, n))
+        if not unvoted:
+            return
+        try:
+            from contexts.orchestration.domain.models import ApprovalState
+            from contexts.orchestration.infrastructure import pending_notify
+            from contexts.orchestration.interfaces.facade import OrchestrationFacade
+
+            facade = OrchestrationFacade(self._db)
+            to_requeue: list[dict[str, Any]] = []
+            for approval_id, n in unvoted:
+                approval = await facade.get_approval(approval_id)
+                if approval is not None and approval.state == ApprovalState.PENDING:
+                    to_requeue.append(n)
+            if to_requeue:
+                await pending_notify.requeue(agent.id, to_requeue)
+        except Exception:
+            _log.warning(
+                "failed to re-arm %d unvoted approval note(s) agent=%s",
+                len(unvoted),
                 agent.id,
                 exc_info=True,
             )
@@ -1809,6 +1881,7 @@ class TurnEngine:
         # future emit added without a guard fails closed, not open.
         room = None if is_observer else room_channel(chatroom_id)
         pending_notes: list[dict[str, Any]] = []
+        voted_approvals: set[uuid.UUID] = set()
 
         try:
             # Emitted inside the try so any failure still routes to the
@@ -1828,7 +1901,7 @@ class TurnEngine:
             memory_block = await self._observer_memory_block(agent, chatroom_id) if is_observer else None
             # Drain queued A2A notifications (R9.16); approval requests also add
             # the cast_approval_vote tool for this turn.
-            notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(
+            notify_block, extra_tools, pending_notes, voted_approvals = await self._pending_context_and_tools(
                 agent, chatroom_id
             )
             # The turn's one tool snapshot. Three consumers below read it — the built-in
@@ -2216,7 +2289,14 @@ class TurnEngine:
                         "created_at": obs.created_at.isoformat() if obs.created_at else None,
                     },
                 )
-                return TurnResult(status="completed", message_id=None, text=final_text, tool_rounds=rounds)
+                await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
+                return TurnResult(
+                    status="completed",
+                    message_id=None,
+                    text=final_text,
+                    tool_rounds=rounds,
+                    approvals_voted=len(voted_approvals),
+                )
 
             msg = await MessageService(self._db).send_agent(
                 chatroom_id=chatroom_id,
@@ -2255,7 +2335,14 @@ class TurnEngine:
             # every_n triggers and touches their silence timers; R11.02:
             # it also feeds GraphRAG message triggers.
             await self._dispatch_agent_reply_wakeups(agent, chatroom_id, msg.id)
-            return TurnResult(status="completed", message_id=msg.id, text=final_text, tool_rounds=rounds)
+            await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
+            return TurnResult(
+                status="completed",
+                message_id=msg.id,
+                text=final_text,
+                tool_rounds=rounds,
+                approvals_voted=len(voted_approvals),
+            )
 
         except Exception as exc:
             _log.exception("agent turn failed agent=%s room=%s", agent_id, chatroom_id)
