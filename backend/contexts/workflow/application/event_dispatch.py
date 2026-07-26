@@ -143,9 +143,12 @@ async def find_matching_waits(
     """Return ``(run_id, node_id)`` for every parked ``event_type`` wait whose
     stored ``match`` criteria satisfy ``predicate(match)``.
 
-    Read-only: the resume job does the atomic ``GETDEL`` claim, so a stale index
-    member (its claim key already expired/consumed) is simply skipped here and
-    pruned by the resume job's miss.
+    Read-only: a missing claim key is not proof the index member is stale — the
+    claim protocol (``GETDEL``) deliberately makes the key transiently absent
+    while a resume/timeout job does its DB work, restoring it on a failed
+    resume. A missing claim key is therefore just skipped, never pruned here;
+    the resume/timeout tasks own pruning on the paths where absence genuinely
+    means consumed (F-37).
     """
     index_key = f"wf:wait:by_event:{event_type}"
     members = await redis.smembers(index_key)
@@ -157,7 +160,6 @@ async def find_matching_waits(
             continue
         payload = await redis.get(f"wf:wait:{run_id}:{node_id}")
         if payload is None:
-            await redis.srem(index_key, member)  # prune a dangling index entry
             continue
         try:
             info = json.loads(payload)

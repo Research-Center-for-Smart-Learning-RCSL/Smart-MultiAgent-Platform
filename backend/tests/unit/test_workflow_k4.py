@@ -638,7 +638,11 @@ async def test_find_matching_waits_filters_by_criteria() -> None:
     assert out == [(r1, "w")]
 
 
-async def test_find_matching_waits_prunes_dangling_index() -> None:
+async def test_find_matching_waits_leaves_dangling_index_to_its_ttl() -> None:
+    """F-37: find_matching_waits must not write to Redis. A missing claim key
+    is not proof of staleness — the claim protocol makes it transiently absent
+    during another task's resume window — so a dangling member is left for the
+    index's own TTL (wait_for_event.py:78) rather than pruned here."""
     redis = _FakeRedis()
     rid = str(uuid.uuid4())
     # index member present but claim key missing (already consumed/expired)
@@ -646,7 +650,21 @@ async def test_find_matching_waits_prunes_dangling_index() -> None:
 
     out = await ed.find_matching_waits(redis, "a2a_message", lambda m: True)
     assert out == []
-    assert f"{rid}:n" not in redis.sets["wf:wait:by_event:a2a_message"]
+    assert f"{rid}:n" in redis.sets["wf:wait:by_event:a2a_message"]
+
+
+async def test_find_matching_waits_does_not_prune_a_claimed_wait() -> None:
+    """F-37: a claim key absent because another task's GETDEL is mid-flight
+    must not be pruned from the index — that orphans the wait for M3 once the
+    claim is restored (workflow_common._restore_claim doesn't touch the index)."""
+    redis = _FakeRedis()
+    rid = str(uuid.uuid4())
+    _seed_wait(redis, rid, "n", "a2a_message", {"target_agent_id": "x"})
+    await redis.getdel(f"wf:wait:{rid}:n")  # simulate another task's claim window
+
+    out = await ed.find_matching_waits(redis, "a2a_message", lambda m: True)
+    assert out == []
+    assert f"{rid}:n" in redis.sets["wf:wait:by_event:a2a_message"]
 
 
 async def test_find_run_variable_waits_scoped_to_run() -> None:

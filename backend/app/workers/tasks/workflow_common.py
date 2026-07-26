@@ -59,6 +59,7 @@ async def _restore_claim(
     ttl: int | None,
     *,
     min_ttl: int = _CLAIM_RESTORE_TTL_S,
+    reindex: tuple[str, str] | None = None,
 ) -> None:
     """Put a GETDEL-claimed resume token back so a later claimant can own it.
 
@@ -66,8 +67,17 @@ async def _restore_claim(
     key never expires inside the consumer's remaining retry budget (F-32).
     ``min_ttl`` defaults to the full budget; callers pass their decaying
     remaining budget via :func:`_remaining_budget_ttl`.
+
+    ``reindex``, when given as ``(index_key, member)``, re-adds the by-event
+    index member alongside the claim key — the restore is otherwise not the
+    true inverse of the claim, since only ``wait_for_event.py`` writes that
+    member (F-37). The approval/instruct callers have no such index and pass
+    nothing.
     """
     await redis.set(key, payload, ex=max(ttl or 0, min_ttl))
+    if reindex is not None:
+        index_key, member = reindex
+        await redis.sadd(index_key, member)
 
 
 async def _emit_resumed(db: Any, run_id: str, node_id: str, *, reason: str) -> None:
