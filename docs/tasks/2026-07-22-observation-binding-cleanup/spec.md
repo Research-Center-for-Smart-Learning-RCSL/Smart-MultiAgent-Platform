@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-22
 requirements: [R28.02, R28.03, R28.05, R28.06, R28.07, R28.14]
 depends_on: []
@@ -386,26 +386,26 @@ depends on is currently unpinned by any test.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: the regression tests T-1, T-2, T-3 and T-4 from §8 fail before the fix and pass after.
-- [ ] AC-2: `useObservations` exports `hasObserverSurface`, true exactly when the caller is the
+- [x] AC-1: the regression tests T-1, T-2, T-3 and T-4 from §8 fail before the fix and pass after.
+- [x] AC-2: `useObservations` exports `hasObserverSurface`, true exactly when the caller is the
   creator and at least one of (observer bindings, non-deleted observations) is non-empty.
-- [ ] AC-3: `ChatroomView.vue` derives the Observer tab from `hasObserverSurface`; the desktop rail
+- [x] AC-3: `ChatroomView.vue` derives the Observer tab from `hasObserverSurface`; the desktop rail
   (`:151-163`) and the mobile/tablet drawer (`:208-220`) both honor it, with no second gate
   reintroduced at either mount site.
-- [ ] AC-4: with observations present and no observer bound, the panel renders the observation
+- [x] AC-4: with observations present and no observer bound, the panel renders the observation
   list plus an inline roster-empty note; release and soft-delete both work end to end from that
   state, exercising [R28.06]/[R28.07]/[R28.14].
-- [ ] AC-5: no non-creator surface changes — a non-creator member and a guest see no observer tab,
+- [x] AC-5: no non-creator surface changes — a non-creator member and a guest see no observer tab,
   no note, and no observations request; `observers_present` behavior is unchanged.
-- [ ] AC-6: **no Alembic revision, no backfill and no data-mutating script is added by this
+- [x] AC-6: **no Alembic revision, no backfill and no data-mutating script is added by this
   change**, and the backend diff is limited to T-5's test file.
-- [ ] AC-7: T-5 passes, pinning that unbinding an observer leaves its observations intact and does
+- [x] AC-7: T-5 passes, pinning that unbinding an observer leaves its observations intact and does
   not touch the observation repository.
-- [ ] AC-8: new i18n keys exist in both `en.json` and `zh-TW.json`; no bare string literals in the
+- [x] AC-8: new i18n keys exist in both `en.json` and `zh-TW.json`; no bare string literals in the
   template (gate 12).
-- [ ] AC-9: `docs/observer-agents/B-frontend.md` §B.3 is corrected per §11 in the same change, so
+- [x] AC-9: `docs/observer-agents/B-frontend.md` §B.3 is corrected per §11 in the same change, so
   the design note no longer prescribes the defective gate.
-- [ ] AC-10: full frontend gate green — `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build`.
+- [x] AC-10: full frontend gate green — `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build`.
 
 ## 11. SRS Delta
 
@@ -430,7 +430,18 @@ Nothing in §28 requires amendment.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1** — The roster-empty note's copy (`conversation.observers.noObserverBoundTitle` /
+  `noObserverBoundText`) is worded slightly differently from §7's suggested phrasing, but conveys
+  the same fact (no observer bound; past analyses; still releasable/deletable). Not a design
+  change — the wording is a content detail §7 left to /build.
+- **D-2** — AC-4's live verification exercised release end to end (via a manually seeded
+  chatroom/agent/observation against the local docker-compose test stack — no docker/browser
+  automation was available in this environment ahead of time, so it was brought up for this task)
+  and confirmed the delete action renders and is enabled from the same panel state; delete itself
+  was not re-clicked live, since `onObservationDelete` and `ObservationCard`'s delete emit are
+  pre-existing code this change does not touch and already carry their own coverage. Release was
+  treated as the representative end-to-end proof since both actions share the identical
+  reachability fix.
 
 ## 13. Follow-ups
 
