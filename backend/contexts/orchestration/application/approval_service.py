@@ -385,7 +385,15 @@ class ApprovalService:
             mode=approval.mode.value,
             outcome=state.value,
         ).inc()
-        await self._publish_resolved(approval, state, chatroom_id=chatroom_id)
+        # Best-effort (code-review finding): the ballot is already committed
+        # by the time this runs, so a publish failure here must not propagate
+        # past cast_vote — a caller like ToolRegistry's cast_approval_vote
+        # tool relies on cast_vote returning normally to mark the ballot as
+        # cast. Mirrors _enqueue_workflow_resume's own best-effort posture.
+        try:
+            await self._publish_resolved(approval, state, chatroom_id=chatroom_id)
+        except Exception:
+            _log.warning("approval %s: resolved-event publish failed", approval.id, exc_info=True)
         await self._enqueue_workflow_resume(approval.id)
 
     async def _enqueue_workflow_resume(self, approval_id: uuid.UUID) -> None:
