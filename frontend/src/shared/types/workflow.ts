@@ -51,6 +51,7 @@ export interface WakeupConfig {
       t_minutes: number
       autostop_rounds: number
       autostop_max_default: number
+      observer_autostop_rounds: number
     }
     call_only: WakeupTriggerConfig
   }
@@ -61,19 +62,18 @@ export interface WakeupConfig {
 // Canonical fully-populated wakeup config. Most agents persist a partial (or
 // empty) wakeup_config; SWakeupEditor dereferences the nested trigger shape at
 // setup and would crash on a partial one, so every consumer must merge defaults
-// before handing a config to the editor. autostop_max_default mirrors the
-// backend's own default (WakeupConfig.autostop_max_default in
-// contexts/orchestration/domain/models.py) so a value this module invents
-// client-side never disagrees with what an omitted field would resolve to
-// server-side.
+// before handing a config to the editor. The every-N and autostop defaults
+// mirror contexts/orchestration/domain/models.py; the 30-minute silence value
+// is the editor's deliberate UX default.
 const DEFAULT_WAKEUP: WakeupConfig = {
   triggers: {
-    every_n_messages: { enabled: false, n: 5 },
+    every_n_messages: { enabled: false, n: 3 },
     silence_minutes: {
       enabled: false,
       t_minutes: 30,
-      autostop_rounds: 3,
+      autostop_rounds: 5,
       autostop_max_default: 100,
+      observer_autostop_rounds: 50,
     },
     call_only: { enabled: false },
   },

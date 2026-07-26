@@ -611,7 +611,10 @@ class TestPatch:
 
         await svc.patch(
             agent_id=current.id,
-            draft=AgentDraft(wakeup_config={"enabled": True}),
+            draft=AgentDraft(
+                wakeup_config={"enabled": True},
+                wakeup_last_refreshed_at=_NOW,
+            ),
             expected_version=1,
             actor_user_id=system_actor,
             actor_ip=None,
@@ -620,6 +623,7 @@ class TestPatch:
         call_values = agents.patch.call_args.kwargs["values"]
         assert "wakeup_config" in call_values
         assert "wakeup_authored_snapshot" not in call_values
+        assert call_values["wakeup_last_refreshed_at"] == _NOW
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_patch_knowmap_attach_key_group_conflict_raises(self, _audit) -> None:

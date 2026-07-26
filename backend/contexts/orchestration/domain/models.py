@@ -108,6 +108,20 @@ class A2AEnvelope:
 # Hard caps applied at parse time so they're enforced regardless of how the
 # JSONB was written (designer UI, direct DB edit, migration, etc.).
 AUTOSTOP_HARD_CAP: int = 100
+N_MIN: int = 1
+N_MAX: int = 1000
+T_MINUTES_MIN: int = 1
+T_MINUTES_MAX: int = 1440
+
+
+def _clamp(value: int, minimum: int, maximum: int) -> int:
+    return max(minimum, min(maximum, value))
+
+
+def _default_below_one(value: int, *, default: int, maximum: int | None = None) -> int:
+    if value < 1:
+        return default
+    return min(value, maximum) if maximum is not None else value
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +165,7 @@ class WakeupConfig:
     triggers: WakeupTriggers = field(default_factory=WakeupTriggers)
     allow_self_open: bool = False
     refresh_every_hours: int = 24
+    soft_bounds: WakeupSoftBounds | None = None
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any] | None) -> WakeupConfig:
@@ -160,19 +175,44 @@ class WakeupConfig:
         enm = triggers_raw.get("every_n_messages") or {}
         sm = triggers_raw.get("silence_minutes") or {}
         co = triggers_raw.get("call_only") or {}
+        soft_raw = raw.get("soft_bounds")
+        soft_bounds = (
+            WakeupSoftBounds(
+                n_min=soft_raw.get("n_min"),
+                n_max=soft_raw.get("n_max"),
+                t_minutes_min=soft_raw.get("t_minutes_min"),
+                t_minutes_max=soft_raw.get("t_minutes_max"),
+            )
+            if isinstance(soft_raw, dict)
+            else None
+        )
         return cls(
             triggers=WakeupTriggers(
                 every_n_messages=EveryNMessagesTrigger(
                     enabled=bool(enm.get("enabled", False)),
-                    n=int(enm.get("n", 3)),
+                    n=_clamp(int(enm.get("n", 3)), N_MIN, N_MAX),
                 ),
                 silence_minutes=SilenceMinutesTrigger(
                     enabled=bool(sm.get("enabled", False)),
-                    t_minutes=int(sm.get("t_minutes", 2)),
-                    autostop_rounds=min(int(sm.get("autostop_rounds", 5)), AUTOSTOP_HARD_CAP),
-                    autostop_max_default=int(sm.get("autostop_max_default", 100)),
-                    observer_autostop_rounds=min(
-                        int(sm.get("observer_autostop_rounds", 50)), AUTOSTOP_HARD_CAP
+                    t_minutes=_clamp(
+                        int(sm.get("t_minutes", 2)),
+                        T_MINUTES_MIN,
+                        T_MINUTES_MAX,
+                    ),
+                    autostop_rounds=_default_below_one(
+                        int(sm.get("autostop_rounds", 5)),
+                        default=5,
+                        maximum=AUTOSTOP_HARD_CAP,
+                    ),
+                    autostop_max_default=_default_below_one(
+                        int(sm.get("autostop_max_default", 100)),
+                        default=100,
+                        maximum=AUTOSTOP_HARD_CAP,
+                    ),
+                    observer_autostop_rounds=_default_below_one(
+                        int(sm.get("observer_autostop_rounds", 50)),
+                        default=50,
+                        maximum=AUTOSTOP_HARD_CAP,
                     ),
                 ),
                 call_only=CallOnlyTrigger(
@@ -180,11 +220,15 @@ class WakeupConfig:
                 ),
             ),
             allow_self_open=bool(raw.get("allow_self_open", False)),
-            refresh_every_hours=int(raw.get("refresh_every_hours", 24)),
+            refresh_every_hours=_default_below_one(
+                int(raw.get("refresh_every_hours", 24)),
+                default=24,
+            ),
+            soft_bounds=soft_bounds,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        value: dict[str, Any] = {
             "triggers": {
                 "every_n_messages": {
                     "enabled": self.triggers.every_n_messages.enabled,
@@ -204,6 +248,18 @@ class WakeupConfig:
             "allow_self_open": self.allow_self_open,
             "refresh_every_hours": self.refresh_every_hours,
         }
+        if self.soft_bounds is not None:
+            value["soft_bounds"] = {
+                key: bound
+                for key, bound in (
+                    ("n_min", self.soft_bounds.n_min),
+                    ("n_max", self.soft_bounds.n_max),
+                    ("t_minutes_min", self.soft_bounds.t_minutes_min),
+                    ("t_minutes_max", self.soft_bounds.t_minutes_max),
+                )
+                if bound is not None
+            }
+        return value
 
     def is_inert(self) -> bool:
         return (
@@ -216,11 +272,6 @@ class WakeupConfig:
 # ---------------------------------------------------------------------------
 # Wake-up self-modification bounds (R15.07)
 # ---------------------------------------------------------------------------
-
-N_MIN: int = 1
-N_MAX: int = 1000
-T_MINUTES_MIN: int = 1
-T_MINUTES_MAX: int = 1440
 
 
 @dataclass(frozen=True, slots=True)

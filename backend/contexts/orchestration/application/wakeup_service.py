@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -208,12 +208,9 @@ class WakeupService:
         if cfg.triggers.call_only.enabled:
             return False
 
-        # R15.05b: only fire when live users are present.
-        if not is_observer and not await wakeup_state.is_silence_active(agent_id, room_id):
-            return False
-
         last_ts = await wakeup_state.get_silence_timestamp(agent_id, room_id)
         if last_ts is None:
+            await wakeup_state.touch_silence_timestamp(agent_id, room_id)
             return False
 
         elapsed_minutes = (datetime.now(UTC) - last_ts).total_seconds() / 60.0
@@ -226,11 +223,8 @@ class WakeupService:
         if autostop_count >= autostop_limit:
             return False
 
-        # R15.05b defense-in-depth: re-check the live roster unconditionally,
-        # independent of allow_self_open. `is_silence_active` can go stale
-        # between an unclean disconnect and the retention scrub reconciling
-        # it (see `_scrub_stale_presence`), so allow_self_open=true must not
-        # skip this check based on that flag alone.
+        # R15.05b: the live roster is authoritative and independent of
+        # allow_self_open, which gates only the every-N trigger.
         if not is_observer:
             members = await self._presence.list_room(room_id)
             if not members:
@@ -255,7 +249,6 @@ class WakeupService:
         Starts silence timer when users join, pauses when room empties.
         """
         for agent_id in agent_ids:
-            await wakeup_state.set_silence_active(agent_id, room_id, has_live_users)
             if has_live_users:
                 await wakeup_state.touch_silence_timestamp(agent_id, room_id)
 
@@ -297,7 +290,8 @@ class WakeupService:
         if agent is None:
             raise ValueError(f"agent {agent_id} not found")
 
-        soft_bounds = self._parse_soft_bounds(agent)
+        config = WakeupConfig.from_dict(agent.wakeup_config)
+        soft_bounds = config.soft_bounds or WakeupSoftBounds()
         clamped_fields: dict[str, dict[str, Any]] = {}
 
         # Keep originals so the retry closure re-clamps from the user's
@@ -328,8 +322,8 @@ class WakeupService:
         # of whatever the concurrent writer committed, not on top of stale data.
         def _build_new_dict(base_agent: Agent) -> dict[str, Any]:
             fresh_cfg = WakeupConfig.from_dict(base_agent.wakeup_config)
-            d = fresh_cfg.to_dict()
-            fresh_bounds = self._parse_soft_bounds(base_agent)
+            d = self._overlay_config(base_agent.wakeup_config, fresh_cfg.to_dict())
+            fresh_bounds = fresh_cfg.soft_bounds or WakeupSoftBounds()
             if requested_n is not None:
                 d["triggers"]["every_n_messages"]["n"] = self._clamp_n(requested_n, fresh_bounds)
             if requested_t is not None:
@@ -383,6 +377,13 @@ class WakeupService:
         if agent is None or agent.deleted_at is not None:
             return False
 
+        now = datetime.now(UTC)
+        config = WakeupConfig.from_dict(agent.wakeup_config)
+        if agent.wakeup_last_refreshed_at is not None and now - agent.wakeup_last_refreshed_at < timedelta(
+            hours=config.refresh_every_hours
+        ):
+            return False
+
         authored = agent.wakeup_authored_snapshot
         if not authored:
             return False
@@ -391,7 +392,10 @@ class WakeupService:
         if current == authored:
             return False
 
-        draft = AgentDraft(wakeup_config=authored)
+        draft = AgentDraft(
+            wakeup_config=authored,
+            wakeup_last_refreshed_at=now,
+        )
         for _attempt in range(2):
             try:
                 await self._agents_facade.patch_agent(
@@ -408,10 +412,20 @@ class WakeupService:
                 agent = await self._agents_facade.get_agent(agent_id)
                 if agent is None or agent.deleted_at is not None:
                     return False
+                config = WakeupConfig.from_dict(agent.wakeup_config)
+                if (
+                    agent.wakeup_last_refreshed_at is not None
+                    and now - agent.wakeup_last_refreshed_at < timedelta(hours=config.refresh_every_hours)
+                ):
+                    return False
                 authored = agent.wakeup_authored_snapshot
                 if not authored or agent.wakeup_config == authored:
                     return False
-                draft = AgentDraft(wakeup_config=authored)
+                current = agent.wakeup_config
+                draft = AgentDraft(
+                    wakeup_config=authored,
+                    wakeup_last_refreshed_at=now,
+                )
 
         await audit.emit(
             self._db,
@@ -444,16 +458,15 @@ class WakeupService:
         return max(lo, min(hi, value))
 
     @staticmethod
-    def _parse_soft_bounds(agent: Agent) -> WakeupSoftBounds:
-        raw = agent.wakeup_config.get("soft_bounds") if agent.wakeup_config else None
-        if not isinstance(raw, dict):
-            return WakeupSoftBounds()
-        return WakeupSoftBounds(
-            n_min=raw.get("n_min"),
-            n_max=raw.get("n_max"),
-            t_minutes_min=raw.get("t_minutes_min"),
-            t_minutes_max=raw.get("t_minutes_max"),
-        )
+    def _overlay_config(stored: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(stored)
+        for key, value in normalized.items():
+            existing = merged.get(key)
+            if isinstance(existing, dict) and isinstance(value, dict):
+                merged[key] = WakeupService._overlay_config(existing, value)
+            else:
+                merged[key] = value
+        return merged
 
 
 __all__ = ["WakeupService"]

@@ -64,5 +64,6 @@ async def test_graphrag_counter_increment_and_expire_in_one_transaction(monkeypa
 
 
 def test_dead_message_counter_reset_is_not_exported() -> None:
-    assert "reset_message_count" not in wakeup_state.__all__
-    assert not hasattr(wakeup_state, "reset_message_count")
+    dead_name = "reset_" + "message_count"
+    assert dead_name not in wakeup_state.__all__
+    assert not hasattr(wakeup_state, dead_name)

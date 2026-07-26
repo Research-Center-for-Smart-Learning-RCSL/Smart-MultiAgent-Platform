@@ -7,7 +7,6 @@ Keys:
   wakeup:msg_count:{agent_id}:{room_id}    — message counter (for every_n_messages)
   wakeup:silence_timer:{agent_id}:{room_id} — last-activity timestamp (for silence_minutes)
   wakeup:autostop:{agent_id}:{room_id}     — consecutive agent-only rounds
-  wakeup:silence_active:{agent_id}:{room_id} — "1" if silence timer is running
 
 SoC: pure Redis state; no domain logic, no DB access.
 """
@@ -33,10 +32,6 @@ def _silence_ts_key(agent_id: uuid.UUID, room_id: uuid.UUID) -> str:
 
 def _autostop_key(agent_id: uuid.UUID, room_id: uuid.UUID) -> str:
     return f"wakeup:autostop:{agent_id}:{room_id}"
-
-
-def _silence_active_key(agent_id: uuid.UUID, room_id: uuid.UUID) -> str:
-    return f"wakeup:silence_active:{agent_id}:{room_id}"
 
 
 def _gated_notice_key(agent_id: uuid.UUID, room_id: uuid.UUID) -> str:
@@ -85,16 +80,11 @@ async def increment_message_count(
     """Increment and return the message counter for this agent+room."""
     r = get_redis()
     key = _msg_count_key(agent_id, room_id)
-    count = await r.incr(key)
-    await r.expire(key, _KEY_TTL)
-    return int(count)
-
-
-async def reset_message_count(
-    agent_id: uuid.UUID,
-    room_id: uuid.UUID,
-) -> None:
-    await get_redis().delete(_msg_count_key(agent_id, room_id))
+    pipe = r.pipeline(transaction=True)
+    pipe.incr(key)
+    pipe.expire(key, _KEY_TTL)
+    results = await pipe.execute()
+    return int(results[0])
 
 
 async def get_message_count(
@@ -130,28 +120,6 @@ async def get_silence_timestamp(
     return datetime.fromisoformat(str(raw))
 
 
-async def set_silence_active(
-    agent_id: uuid.UUID,
-    room_id: uuid.UUID,
-    active: bool,
-) -> None:
-    """Start or pause the silence timer based on presence (R15.05b)."""
-    r = get_redis()
-    key = _silence_active_key(agent_id, room_id)
-    if active:
-        await r.set(key, "1", ex=_KEY_TTL)
-    else:
-        await r.delete(key)
-
-
-async def is_silence_active(
-    agent_id: uuid.UUID,
-    room_id: uuid.UUID,
-) -> bool:
-    val = await get_redis().get(_silence_active_key(agent_id, room_id))
-    return bool(val == "1")
-
-
 # ---------------------------------------------------------------------------
 # autostop_rounds counter
 # ---------------------------------------------------------------------------
@@ -164,9 +132,11 @@ async def increment_autostop(
     """Increment consecutive agent-only rounds. Returns new count."""
     r = get_redis()
     key = _autostop_key(agent_id, room_id)
-    count = await r.incr(key)
-    await r.expire(key, _KEY_TTL)
-    return int(count)
+    pipe = r.pipeline(transaction=True)
+    pipe.incr(key)
+    pipe.expire(key, _KEY_TTL)
+    results = await pipe.execute()
+    return int(results[0])
 
 
 async def reset_autostop(
@@ -191,9 +161,6 @@ __all__ = [
     "get_silence_timestamp",
     "increment_autostop",
     "increment_message_count",
-    "is_silence_active",
     "reset_autostop",
-    "reset_message_count",
-    "set_silence_active",
     "touch_silence_timestamp",
 ]

@@ -759,6 +759,8 @@ class AgentService:
             # and should NOT overwrite the authored snapshot.
             if actor_user_id != _SYSTEM_ACTOR_ID:
                 values["wakeup_authored_snapshot"] = draft.wakeup_config if draft.wakeup_config else None
+        if draft.wakeup_last_refreshed_at is not None:
+            values["wakeup_last_refreshed_at"] = draft.wakeup_last_refreshed_at
         if draft.workflow_capabilities is not None:
             values["workflow_capabilities"] = draft.workflow_capabilities
 

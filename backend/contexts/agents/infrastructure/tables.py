@@ -60,6 +60,7 @@ agents = sa.Table(
     sa.Column("a2a_enabled", sa.Boolean, nullable=False, server_default=sa.text("false")),
     sa.Column("wakeup_config", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("wakeup_authored_snapshot", pg.JSONB, nullable=True),
+    sa.Column("wakeup_last_refreshed_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("workflow_capabilities", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("version", sa.Integer, nullable=False, server_default=sa.text("1")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),

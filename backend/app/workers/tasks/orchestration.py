@@ -106,12 +106,7 @@ async def wakeup_agent(
         # get a reply even after the agent has stalled on consecutive self-rounds.
         # `release` (R28.07) is the same shape: the room creator explicitly woke
         # the agent to read a released observation.
-        # FIX-01: autostop_rounds=0 falls back to autostop_max_default instead
-        # of "unlimited" — with agent-message counting a zero limit would permit
-        # indefinite A<->B ping-pong.
-        fallback = sm.autostop_max_default
-        effective_limit = autostop_limit if autostop_limit > 0 else fallback
-        if trigger not in ("mention", "release") and autostop_count >= effective_limit:
+        if trigger not in ("mention", "release") and autostop_count >= autostop_limit:
             logger.bind(agent_id=agent_id, room_id=room_id, autostop=autostop_count).info(
                 "wakeup skipped: autostop tripped"
             )
