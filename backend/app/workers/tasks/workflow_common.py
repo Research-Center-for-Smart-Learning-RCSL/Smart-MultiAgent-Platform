@@ -78,6 +78,15 @@ async def _restore_claim(
     if reindex is not None:
         index_key, member = reindex
         await redis.sadd(index_key, member)
+        # SADD on an absent key creates it with no TTL. The index set's TTL
+        # must only ever be *extended* (wait_for_event.py), and must not lapse
+        # while this claim is still being retried, so floor it to the same
+        # budget the claim key was just restored to — otherwise a lapsed
+        # index key becomes permanently non-expiring the moment this restore
+        # recreates it (F-37).
+        index_ttl = await redis.ttl(index_key)
+        if index_ttl < min_ttl:
+            await redis.expire(index_key, min_ttl)
 
 
 async def _emit_resumed(db: Any, run_id: str, node_id: str, *, reason: str) -> None:
