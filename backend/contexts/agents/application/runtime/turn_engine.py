@@ -935,8 +935,12 @@ class TurnEngine:
                 await self._db.commit()
             except Exception:
                 _log.exception("a2a turn cancel-path bookkeeping failed")
-            if tc.rounds_completed == 0:
-                await self._requeue_notifications(agent, pending_notes)
+            # Restore everything the turn drained but never acted on, regardless of
+            # how many rounds ran — a cancellation after round 1 used to drop every
+            # note unconditionally, voted or not, notify or approval alike
+            # (/code-review, FU-7). Already-voted approval notes are excluded, same
+            # as the failure path below.
+            await self._requeue_notifications(agent, pending_notes, voted=voted_approvals)
             return TurnResult(status="skipped", reason="cancelled")
         except Exception as exc:
             _log.exception("a2a turn failed agent=%s", agent_id)
@@ -2279,7 +2283,17 @@ class TurnEngine:
                     await self._emit_observation_event(
                         chatroom_id, agent.id, "observation.skipped", {"kind": "empty_reply"}
                     )
-                return TurnResult(status="skipped", reason="empty_reply", tool_rounds=rounds)
+                # The provider was reached and the drained notes were in its context
+                # (rendering is delivery for notify/released_observation, R9.16/R28.07),
+                # but an approval ballot is only consumed once cast — re-arm it if the
+                # model saw the note and voted on nothing (/code-review, FU-7).
+                await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
+                return TurnResult(
+                    status="skipped",
+                    reason="empty_reply",
+                    tool_rounds=rounds,
+                    approvals_voted=len(voted_approvals),
+                )
 
             reply_meta: dict[str, Any] = {"trigger": trigger, "tool_rounds": rounds}
             if rag_ctx and rag_ctx.sources:
