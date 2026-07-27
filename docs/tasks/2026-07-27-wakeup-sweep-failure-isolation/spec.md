@@ -294,7 +294,11 @@ it is the check that catches a missed call site in a chain that crosses four mod
 ## 10. Acceptance Criteria
 
 - [x] **AC-1** T-1 fails before the fix and passes after: one agent's failure in `wakeup_refresh`
-      rolls back only that agent's work, and the remaining agents' refreshes commit.
+      rolls back only that agent's work, and the remaining agents' refreshes commit. (T-1 was
+      rewritten around a fake session that models real transaction/savepoint semantics after an
+      independent review caught the original fix's bare `rollback()` discarding prior agents'
+      flushed writes -- see D-3. AC-1 is verified against the corrected implementation and the
+      stronger test.)
 - [x] **AC-2** T-2 passes: a failing post-loop commit is logged as a sweep-level failure and reported
       in the return value instead of propagating.
 - [x] **AC-3** T-3 passes and `retention.py` no longer imports or calls `evaluate_presence_change`;
@@ -308,7 +312,7 @@ it is the check that catches a missed call site in a chain that crosses four mod
       updating to the new signature -- `test_agent_trigger_wiring.py`'s
       `test_evaluate_presence_change_forwards_flag` (renamed
       `test_evaluate_presence_change_forwards_to_on_users_present`) and
-      `test_retention_deep.py`'s three `_scrub_stale_presence` tests -- see D-1.)
+      `test_retention_deep.py`'s three `_scrub_stale_presence` tests -- see D-2.)
 - [x] **AC-7** Definition of Done: `pytest -q`, `ruff check . && ruff format --check .`, `mypy .` in
       `backend/`. No frontend change, so the `pnpm` gates are not required for this dossier.
       (`pytest tests/unit -q` run in place of the bare `-q`, for the same environment reason recorded
@@ -343,6 +347,27 @@ removed behavior; `test_scrub_stale_presence` simplified; T-3's
 repo-wide `has_live_users` sweep, which is exactly the mechanism §8 built in to catch a missed call
 site across the rename's four modules — it also caught these two, one module short of where the
 spec's citation list stopped looking.
+
+**D-3 (post-close-out correction).** An independent `/code-review` of the branch, run after this
+dossier was first closed out as implemented, caught a critical regression in C1: `refresh_wakeup_config`
+issues a real `agents` UPDATE plus an audit INSERT per agent, flushed but not committed until the
+post-loop `commit()`. The per-agent `except`'s bare `await db.rollback()` — copied from
+`evaluate_silence`'s shape without checking that `evaluate_silence`'s per-item body never writes to
+the DB through that session, only reads — rolled back the *whole* transaction on any later agent's
+failure, silently discarding every earlier agent's already-flushed write even though `refreshed` had
+already counted it. This reintroduced the exact class of silent data loss the dossier existed to fix,
+just via `rollback()` instead of a poisoned `commit()`; AC-1's own regression test used a bare
+`AsyncMock` for the session and could not catch it, since an `AsyncMock` has no notion of what a real
+rollback actually discards. Fixed by wrapping each agent's refresh in its own SAVEPOINT
+(`db.begin_nested()`): a failure now rolls back only that agent's write, leaving prior agents'
+flushed work intact for the single post-loop commit — the outcome AC-1 asked for, achieved by the
+mechanism that actually delivers it rather than the one that merely looks like `evaluate_silence`'s.
+The test was rewritten around a fake session that models a pending/committed write list plus a
+savepoint mark, and was verified to fail against the reverted bare-rollback code for the right reason
+(asserting on which writes reached `committed`, not merely that `rollback()` was called) before
+confirming it passes against the corrected code. AC-1 is re-verified against this stronger test; no
+other AC is affected. Full Definition of Done (unit suite, ruff, mypy, quality audit, security audit)
+re-run against the corrected commit — see the closing summary below.
 
 ## 13. Follow-ups
 
