@@ -52,13 +52,14 @@ parallel.
 - `2026-07-22-settings-form-reconciliation` (bugfix, draft) — `depends_on: []`. a2u F-7, F-8 plus
   verification-gap V-4. **Corrects the a2u audit's own §3 coupling note**: F-8 is not contingent on
   F-1, and the evidence is in its Q-1.
-- `2026-07-22-presence-transition-and-release-wakeup` (bugfix, draft) — `depends_on: []`. a2u F-5,
+- `2026-07-22-presence-transition-and-release-wakeup` (bugfix, approved) — `depends_on: []`. a2u F-5,
   F-21. Imposes a **hard constraint on the socket-lifecycle dossier**: any keepalive interval must
   stay below `_CONN_TTL_SECONDS = 150`. **Re-baselined 2026-07-27** against the landed
   `2026-07-22-wakeup-trigger-state-and-bounds`: its Part A2 is withdrawn (the presence flag it paused
   no longer exists) and A1 is now the whole of Part A, and more load-bearing rather than less, since
-  the reconciled roster became the only remaining liveness authority. See its Q-6. **Blocks
-  `2026-07-27-wakeup-sweep-failure-isolation`.**
+  the reconciled roster became the only remaining liveness authority. See its Q-6. Its ~50 code
+  citations were re-verified and corrected against `main` on 2026-07-27 (line numbers had drifted;
+  substance held). **Blocks `2026-07-27-wakeup-sweep-failure-isolation`.**
 - `2026-07-22-turn-outcome-reporting` (bugfix, draft) — `depends_on: []`. a2u F-6, F-9, F-15 plus
   a2a F-40. A committed reply is recorded as a failed turn when the post-commit publish raises.
   Names two test-locked decisions that must be decided, not silently edited.
@@ -87,7 +88,7 @@ parallel.
 ## Blocked
 
 - `2026-07-27-wakeup-sweep-failure-isolation` (bugfix, approved) — waiting on
-  `2026-07-22-presence-transition-and-release-wakeup` (draft). From
+  `2026-07-22-presence-transition-and-release-wakeup` (approved, not yet implemented). From
   `docs/audits/2026-07-27-wakeup-subsystem/` F-3 and F-4 (both minor): the hourly `wakeup_refresh`
   sweep never rolls back a failed agent, so one DB error discards every refresh in the sweep while
   the log reports isolated failures; and the retention presence scrub still drives a hook that C1
