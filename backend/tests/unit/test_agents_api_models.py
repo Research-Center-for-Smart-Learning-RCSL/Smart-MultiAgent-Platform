@@ -64,3 +64,42 @@ def test_patch_still_clears_to_null() -> None:
     # turn an explicit clear into a validation error.
     patch = AgentPatchIn(context_token_cap=None)
     assert patch.model_dump(exclude_unset=True) == {"context_token_cap": None}
+
+
+# -- AC-4 (docs/tasks/2026-07-27-wakeup-config-type-validation): the typed
+# `wakeup_config` boundary rejects a wrong-typed or out-of-range numeric field
+# with 422 naming the field, and still accepts unmodelled root keys (Q-3, forced
+# by 2026-07-27-wakeup-config-key-preservation's additive merge). ------------
+
+
+@pytest.mark.parametrize("bad_n", [None, "many", True, 0, 5000])
+def test_patch_rejects_wrong_typed_wakeup_fields(bad_n: object) -> None:
+    with pytest.raises(ValidationError, match="wakeup_config.*n"):
+        AgentPatchIn(wakeup_config={"triggers": {"every_n_messages": {"n": bad_n}}})
+
+
+def test_create_rejects_wrong_typed_wakeup_fields() -> None:
+    with pytest.raises(ValidationError, match="wakeup_config.*n"):
+        _create(wakeup_config={"triggers": {"every_n_messages": {"n": None}}})
+
+
+def test_patch_accepts_unmodelled_wakeup_root_key_alongside_valid_numbers() -> None:
+    patch = AgentPatchIn(
+        wakeup_config={
+            "triggers": {"every_n_messages": {"n": 5}},
+            "designer_note": "keep me",
+        }
+    )
+    assert patch.wakeup_config is not None
+    assert patch.wakeup_config["designer_note"] == "keep me"
+    assert patch.wakeup_config["triggers"]["every_n_messages"]["n"] == 5
+
+
+def test_patch_rejects_wrong_typed_soft_bounds() -> None:
+    with pytest.raises(ValidationError, match="soft_bounds"):
+        AgentPatchIn(wakeup_config={"soft_bounds": {"n_min": "five"}})
+
+
+def test_patch_rejects_out_of_range_t_minutes() -> None:
+    with pytest.raises(ValidationError, match="t_minutes"):
+        AgentPatchIn(wakeup_config={"triggers": {"silence_minutes": {"t_minutes": 1441}}})
