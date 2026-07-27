@@ -160,15 +160,63 @@ class TestRetentionSweep:
 # ===========================================================================
 
 
+class _FakeNestedTransaction:
+    """Models a SAVEPOINT's `async with db.begin_nested():` scope: an
+    exception inside the block discards only writes appended since entry,
+    leaving anything appended before it (by a prior iteration) untouched."""
+
+    def __init__(self, session: _FakeSweepSession, mark: int) -> None:
+        self._session = session
+        self._mark = mark
+
+    async def __aenter__(self) -> _FakeNestedTransaction:
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        if exc_type is not None:
+            del self._session.pending[self._mark :]
+        return False
+
+
+class _FakeSweepSession:
+    """A session fake that actually models transaction semantics, unlike a
+    bare `AsyncMock` -- which would let a test assert `rollback()` was called
+    without ever checking *what* it discarded. `pending` holds writes flushed
+    but not yet committed; `commit()` moves them to `committed`."""
+
+    def __init__(self) -> None:
+        self.pending: list[str] = []
+        self.committed: list[str] = []
+        self.commit_calls = 0
+        self.commit_side_effect: Exception | None = None
+
+    def begin_nested(self) -> _FakeNestedTransaction:
+        return _FakeNestedTransaction(self, len(self.pending))
+
+    async def rollback(self) -> None:
+        self.pending.clear()
+
+    async def commit(self) -> None:
+        self.commit_calls += 1
+        if self.commit_side_effect is not None:
+            raise self.commit_side_effect
+        self.committed.extend(self.pending)
+        self.pending.clear()
+
+
 class TestWakeupRefresh:
     @patch("app.workers.tasks.orchestration.async_session")
     async def test_wakeup_refresh_rolls_back_a_failed_agent_and_keeps_the_rest(self, mock_session_cm) -> None:
         """F-3: one agent's DB-level failure must not discard the sweep's
-        other already-completed refreshes -- the per-agent `except` must
-        roll back only the failed agent's work, mirroring `evaluate_silence`."""
+        other already-completed refreshes. `refresh_wakeup_config` issues a
+        real UPDATE per agent, so isolating a failure requires a SAVEPOINT
+        (`db.begin_nested()`) per agent -- a bare session-wide `rollback()`
+        (this test's original, weaker form used an AsyncMock and could not
+        catch this) would discard every earlier agent's already-flushed write
+        too, not just the failing one's."""
         from app.workers.tasks.orchestration import wakeup_refresh
 
-        db = AsyncMock()
+        db = _FakeSweepSession()
         mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
         mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -176,12 +224,14 @@ class TestWakeupRefresh:
         facade = AsyncMock()
         facade.list_agents_with_authored_snapshot.return_value = agents
 
-        svc = AsyncMock()
-        svc.refresh_wakeup_config.side_effect = [True, RuntimeError("db blip"), True]
+        async def _fake_refresh(agent_id):
+            if agent_id == agents[1].id:
+                raise RuntimeError("db blip")
+            db.pending.append(str(agent_id))
+            return True
 
-        manager = MagicMock()
-        manager.attach_mock(db.rollback, "rollback")
-        manager.attach_mock(svc.refresh_wakeup_config, "refresh")
+        svc = AsyncMock()
+        svc.refresh_wakeup_config.side_effect = _fake_refresh
 
         with (
             patch("contexts.agents.interfaces.facade.AgentsFacade", return_value=facade),
@@ -189,14 +239,13 @@ class TestWakeupRefresh:
         ):
             result = await wakeup_refresh({})
 
-        assert db.rollback.await_count == 1
-        assert db.commit.await_count == 1
         assert result == "refreshed=2 failed=1"
-        # The rollback must land between the failing agent and the third
-        # agent's refresh -- otherwise the third agent's write would be bound
-        # to whatever the aborted transaction leaves behind.
-        call_names = [c[0] for c in manager.mock_calls if c[0] in ("rollback", "refresh")]
-        assert call_names == ["refresh", "refresh", "rollback", "refresh"]
+        # The load-bearing assertion: agent 1's write, flushed before agent 2
+        # failed, must survive agent 2's failure and reach the final commit --
+        # a bare `db.rollback()` would have discarded it despite `refreshed`
+        # already counting it.
+        assert db.committed == [str(agents[0].id), str(agents[2].id)]
+        assert db.commit_calls == 1
 
     @patch("app.workers.tasks.orchestration.async_session")
     async def test_wakeup_refresh_reports_a_failed_commit(self, mock_session_cm) -> None:
@@ -205,10 +254,10 @@ class TestWakeupRefresh:
         the return value instead."""
         from app.workers.tasks.orchestration import wakeup_refresh
 
-        db = AsyncMock()
+        db = _FakeSweepSession()
+        db.commit_side_effect = RuntimeError("commit boom")
         mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
         mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
-        db.commit.side_effect = RuntimeError("commit boom")
 
         agents = [MagicMock(id=uuid.uuid4())]
         facade = AsyncMock()
