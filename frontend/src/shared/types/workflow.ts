@@ -162,9 +162,14 @@ export function normalizeWakeupConfig(raw: unknown): WakeupConfig {
   // Everything this module does not model is a designer-written key (`soft_bounds`,
   // R15.08) that the editor cannot show and must not drop: this result is what the
   // views PATCH back, so a key missing here is a key the designer loses.
-  const passthrough = isLegacy
-    ? Object.fromEntries(Object.entries(r).filter(([key]) => !LEGACY_ROOT_KEYS.includes(key)))
-    : r
+  // Cloned, not aliased: `raw` is the TanStack Query cache entry, and handing a
+  // caller a live reference into it invites the in-place-mutation pitfall this
+  // codebase has already been bitten by.
+  const passthrough = deepCloneJSON(
+    isLegacy
+      ? Object.fromEntries(Object.entries(r).filter(([key]) => !LEGACY_ROOT_KEYS.includes(key)))
+      : r,
+  )
 
   return {
     ...passthrough,

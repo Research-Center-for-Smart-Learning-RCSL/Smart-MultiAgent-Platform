@@ -40,6 +40,16 @@ describe('wakeup config defaults', () => {
     expect(config.triggers.every_n_messages.n).toBe(8)
   })
 
+  it('clones passed-through keys instead of aliasing the input', () => {
+    // `raw` is the query-cache entry; a live reference into it would let a
+    // caller mutate cached server state in place.
+    const raw = { triggers: {}, soft_bounds: { n_min: 5 } }
+    const config = normalizeWakeupConfig(raw)
+
+    expect(config.soft_bounds).not.toBe(raw.soft_bounds)
+    expect(config.soft_bounds).toEqual({ n_min: 5 })
+  })
+
   it('passes through root keys on the legacy flat shape too', () => {
     const config = normalizeWakeupConfig({
       every_n_messages: 4,
