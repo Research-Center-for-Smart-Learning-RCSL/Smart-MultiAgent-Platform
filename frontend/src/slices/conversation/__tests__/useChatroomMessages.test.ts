@@ -10,7 +10,16 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { useSessionStore } from '@shared/stores/session'
+import { ApiError } from '@shared/api-client'
 import type { Message } from '../types'
+
+function apiError(status: number): ApiError {
+  return new ApiError(
+    {} as never,
+    { url: '', ok: false, status, statusText: '', body: {} },
+    'request failed',
+  )
+}
 
 const api = vi.hoisted(() => ({
   listMessages: vi.fn(),
@@ -307,5 +316,86 @@ describe('useChatroomMessages loading/error state (F-17)', () => {
     composable.refetchMessages()
     await flushPromises()
     expect(composable.isError.value).toBe(false)
+  })
+})
+
+describe('useChatroomMessages before-cursor 422 fallback (V-2)', () => {
+  type Page = { before?: string; since?: string; limit?: number }
+
+  // Seeds a recent-window message plus one paged-back "dead" anchor, matching
+  // the real trigger shape: the poisoned row is the oldest known message, not
+  // the sole message in the room.
+  async function mountWithDeadAnchor(): Promise<{ recentMsg: Message; deadAnchor: Message }> {
+    const recentMsg = msg({ id: 'm_recent', created_at: '2026-01-02T00:00:00.000Z' })
+    const deadAnchor = msg({ id: 'm_dead', created_at: '2026-01-01T00:00:00.000Z' })
+    api.listMessages.mockResolvedValueOnce([recentMsg])
+    mountHost()
+    await flushPromises()
+
+    composable.hasOlderMessages.value = true
+    api.listMessages.mockResolvedValueOnce([deadAnchor])
+    await composable.loadEarlier()
+    await flushPromises()
+    expect(composable.messages.value.map((m) => m.id)).toEqual(['m_dead', 'm_recent'])
+
+    composable.hasOlderMessages.value = true
+    return { recentMsg, deadAnchor }
+  }
+
+  it('recovers from a 422 on the before cursor by dropping the dead anchor and refetching', async () => {
+    const recovered = msg({ id: 'm_older2', created_at: '2025-12-31T00:00:00.000Z' })
+    await mountWithDeadAnchor()
+
+    api.listMessages.mockImplementation(async (_room: string, params: Page = {}) => {
+      if (params.before === 'm_dead') throw apiError(422)
+      if (params.before === 'm_recent') return [recovered]
+      return [] // the invalidate-triggered recent-window refetch (no before/since)
+    })
+
+    await composable.loadEarlier()
+    await flushPromises()
+
+    expect(composable.messages.value.some((m) => m.id === 'm_dead')).toBe(false)
+    expect(composable.messages.value.some((m) => m.id === 'm_older2')).toBe(true)
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('does not repeat the same failing before request on a second click', async () => {
+    const recovered = msg({ id: 'm_older2', created_at: '2025-12-31T00:00:00.000Z' })
+    const further = msg({ id: 'm_older3', created_at: '2025-12-30T00:00:00.000Z' })
+    await mountWithDeadAnchor()
+
+    api.listMessages.mockImplementation(async (_room: string, params: Page = {}) => {
+      if (params.before === 'm_dead') throw apiError(422)
+      if (params.before === 'm_recent') return [recovered]
+      if (params.before === 'm_older2') return [further]
+      return []
+    })
+
+    await composable.loadEarlier()
+    await flushPromises()
+    composable.hasOlderMessages.value = true
+
+    await composable.loadEarlier()
+    await flushPromises()
+
+    const beforeParams = api.listMessages.mock.calls
+      .map((c) => (c[1] as Page | undefined)?.before)
+      .filter((id): id is string => Boolean(id))
+    expect(beforeParams.filter((id) => id === 'm_dead')).toHaveLength(1)
+    expect(beforeParams).toContain('m_older2')
+    expect(composable.messages.value.some((m) => m.id === 'm_older3')).toBe(true)
+  })
+
+  it('still toasts on a genuine transport failure', async () => {
+    await mountWithDeadAnchor()
+    api.listMessages.mockRejectedValueOnce(new Error('network down'))
+
+    await composable.loadEarlier()
+    await flushPromises()
+
+    expect(toast.error).toHaveBeenCalledWith('conversation.chatroom.loadEarlierFailed')
+    expect(composable.hasOlderMessages.value).toBe(true)
+    expect(composable.messages.value.some((m) => m.id === 'm_dead')).toBe(true)
   })
 })

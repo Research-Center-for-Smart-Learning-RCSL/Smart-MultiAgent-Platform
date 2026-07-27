@@ -8,7 +8,11 @@ import type { Message } from '../types'
  * Deletion handling: any cached message whose `created_at >= windowStart`
  * (the oldest row in `next`) that is absent from `next` was hard-deleted
  * during the fetch window — it is dropped. Messages older than `windowStart`
- * are kept (their deletions arrive via the `message.deleted` WS event).
+ * are kept: their deletion is not always delivered live (a disconnect can
+ * drop the `message.deleted` frame, and the retention purge publishes none
+ * at all), so a stale out-of-window row can persist until it is next paged
+ * past as a `before` anchor, where the 422-on-a-dead-anchor fallback in
+ * `useChatroomMessages.loadEarlier` degrades it to a refetch (V-2).
  */
 export function mergeMessages(prev: Message[], next: Message[]): Message[] {
   const nextById = new Map<string, Message>()

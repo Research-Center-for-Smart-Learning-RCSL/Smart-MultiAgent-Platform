@@ -8,6 +8,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@shared/stores/session'
+import { ApiError } from '@shared/api-client'
 import {
   deleteMessage as apiDeleteMessage,
   getMessage,
@@ -141,6 +142,19 @@ export function useChatroomMessages(
 
   async function loadEarlier(): Promise<void> {
     if (loadingOlder.value || !hasOlderMessages.value) return
+    await loadEarlierPage(false)
+  }
+
+  // V-2: `before` anchors on the oldest currently-known message. If that
+  // message was hard-deleted since we last saw it — a disconnect dropped its
+  // `message.deleted` frame, or the retention purge (which publishes
+  // nothing) removed it — the anchor SELECT 404s the whole request as a 422,
+  // and every subsequent click reissues the same dead anchor forever. Mirror
+  // the `since`-cursor BUG-8 degrade: drop the poisoned row from every cache
+  // that might hold it and retry once against whatever is now the oldest
+  // row. `retried` bounds this to one extra attempt so a run of several
+  // hard-deleted rows can't loop.
+  async function loadEarlierPage(retried: boolean): Promise<void> {
     const oldest = messages.value[0]
     if (!oldest) return
     loadingOlder.value = true
@@ -157,7 +171,22 @@ export function useChatroomMessages(
       ])
       const fresh = page.filter((m) => !existing.has(m.id))
       olderMessages.value = [...fresh, ...olderMessages.value]
-    } catch {
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 422) {
+        if (retried) {
+          // The retry's own anchor was also dead — stop rather than loop.
+          hasOlderMessages.value = false
+          toast.error(t('conversation.chatroom.loadEarlierFailed'))
+          return
+        }
+        olderMessages.value = olderMessages.value.filter((m) => m.id !== oldest.id)
+        qc.setQueryData<Message[]>(convKeys.messages(chatroomId), (prev) =>
+          prev?.filter((m) => m.id !== oldest.id),
+        )
+        await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
+        await loadEarlierPage(true)
+        return
+      }
       toast.error(t('conversation.chatroom.loadEarlierFailed'))
     } finally {
       loadingOlder.value = false
