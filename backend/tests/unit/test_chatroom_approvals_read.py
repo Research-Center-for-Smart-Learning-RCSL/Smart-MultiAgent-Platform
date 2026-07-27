@@ -31,7 +31,9 @@ _AGENT = uuid.uuid4()
 _NOW = datetime(2026, 7, 28, tzinfo=UTC)
 
 
-def _approval(*, state: ApprovalState = ApprovalState.PENDING, chatroom_id: uuid.UUID | None = _ROOM) -> Approval:
+def _approval(
+    *, state: ApprovalState = ApprovalState.PENDING, chatroom_id: uuid.UUID | None = _ROOM
+) -> Approval:
     return Approval(
         id=uuid.uuid4(),
         workflow_run_id=_RUN,
