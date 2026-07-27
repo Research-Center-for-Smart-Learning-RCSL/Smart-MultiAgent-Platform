@@ -37,6 +37,7 @@ from contexts.orchestration.domain.models import (
     T_MINUTES_MIN,
     WakeupConfig,
     WakeupSoftBounds,
+    clamp,
 )
 from contexts.orchestration.infrastructure import wakeup_state
 from contexts.orchestration.infrastructure.metrics import WAKEUP_FIRES
@@ -495,13 +496,13 @@ class WakeupService:
     def _clamp_n(value: int, soft: WakeupSoftBounds) -> int:
         lo = max(N_MIN, soft.n_min or N_MIN)
         hi = min(N_MAX, soft.n_max or N_MAX)
-        return max(lo, min(hi, value))
+        return clamp(value, lo, hi)
 
     @staticmethod
     def _clamp_t(value: int, soft: WakeupSoftBounds) -> int:
         lo = max(T_MINUTES_MIN, soft.t_minutes_min or T_MINUTES_MIN)
         hi = min(T_MINUTES_MAX, soft.t_minutes_max or T_MINUTES_MAX)
-        return max(lo, min(hi, value))
+        return clamp(value, lo, hi)
 
 
 __all__ = ["WakeupService"]
