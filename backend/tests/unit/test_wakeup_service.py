@@ -7,7 +7,13 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from contexts.orchestration.application.wakeup_service import WakeupService
-from contexts.orchestration.domain.models import WakeupConfig
+from contexts.orchestration.domain.models import (
+    N_MAX,
+    N_MIN,
+    T_MINUTES_MAX,
+    T_MINUTES_MIN,
+    WakeupConfig,
+)
 
 
 def _async_return(value):
@@ -223,6 +229,67 @@ def test_wakeup_config_clamps_every_numeric_field() -> None:
     assert high_sm.observer_autostop_rounds == 100
     assert high_sm.autostop_max_default == 100
     assert high.refresh_every_hours == 24_000_000_000
+
+
+def test_wakeup_config_resolves_wrong_typed_fields_to_defaults() -> None:
+    """2026-07-27-wakeup-config-type-validation AC-2 (T-2): `from_dict` must never
+    raise, and a wrong-typed numeric value resolves to the Q-2 default -- the same
+    resolution `_clamp`/`_default_below_one` already apply to an out-of-range value.
+    `bool` (Q-7) is treated as wrong-typed too: `int(True) == 1` would otherwise
+    silently become "wake on every message"."""
+    bad_values: list[object] = [None, "abc", [], {}, True, False]
+    for bad in bad_values:
+        cfg = WakeupConfig.from_dict(
+            {
+                "triggers": {
+                    "every_n_messages": {"n": bad},
+                    "silence_minutes": {
+                        "t_minutes": bad,
+                        "autostop_rounds": bad,
+                        "observer_autostop_rounds": bad,
+                        "autostop_max_default": bad,
+                    },
+                },
+                "refresh_every_hours": bad,
+            }
+        )
+        sm = cfg.triggers.silence_minutes
+        assert cfg.triggers.every_n_messages.n == 1
+        assert sm.t_minutes == 1
+        assert sm.autostop_rounds == 5
+        assert sm.observer_autostop_rounds == 50
+        assert sm.autostop_max_default == 100
+        assert cfg.refresh_every_hours == 24
+        # Round-trips through to_dict without reintroducing the bad value.
+        assert cfg.to_dict()["triggers"]["every_n_messages"]["n"] == 1
+
+
+def test_soft_bounds_tolerate_wrong_typed_values() -> None:
+    """AC-3 (T-3): a wrong-typed soft bound resolves to `None` (absent, hard bounds
+    apply) instead of raising later in `_clamp_n`/`_clamp_t`, and an inverted or
+    out-of-hard-range bound never lets those helpers return a value outside
+    [N_MIN, N_MAX] / [T_MINUTES_MIN, T_MINUTES_MAX] (prior dossier's FU-7)."""
+    cfg = WakeupConfig.from_dict({"soft_bounds": {"n_min": "five", "n_max": None, "t_minutes_min": True}})
+    assert cfg.soft_bounds is not None
+    assert cfg.soft_bounds.n_min is None
+    assert cfg.soft_bounds.n_max is None
+    assert cfg.soft_bounds.t_minutes_min is None
+
+    n = WakeupService._clamp_n(500, cfg.soft_bounds)
+    assert N_MIN <= n <= N_MAX
+    t = WakeupService._clamp_t(500, cfg.soft_bounds)
+    assert T_MINUTES_MIN <= t <= T_MINUTES_MAX
+
+    inverted = WakeupConfig.from_dict({"soft_bounds": {"n_min": 900, "n_max": 3}}).soft_bounds
+    assert inverted is not None
+    for value in (1, 500, 1000, 5000, -10):
+        assert N_MIN <= WakeupService._clamp_n(value, inverted) <= N_MAX
+
+    out_of_range = WakeupConfig.from_dict({"soft_bounds": {"n_min": 99999}}).soft_bounds
+    assert out_of_range is not None
+    assert out_of_range.n_min == N_MAX
+    for value in (1, 500, 1000, 5000):
+        assert N_MIN <= WakeupService._clamp_n(value, out_of_range) <= N_MAX
 
 
 async def test_observer_zero_autostop_uses_the_parsed_default(monkeypatch) -> None:

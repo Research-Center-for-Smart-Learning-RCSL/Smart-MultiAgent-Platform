@@ -124,6 +124,32 @@ def _default_below_one(value: int, *, default: int, maximum: int | None = None) 
     return min(value, maximum) if maximum is not None else value
 
 
+def _tolerant_int(value: Any) -> int:
+    """Coerce a raw JSONB numeric field to ``int`` for ``_clamp``/``_default_below_one``.
+
+    Anything that is not a genuine ``int`` -- ``None``, a non-numeric string, a list,
+    a dict, or (Q-7, 2026-07-27-wakeup-config-type-validation) a ``bool`` despite being
+    an ``int`` subclass -- resolves to 0, a sentinel below every documented floor so the
+    existing clamp/default helpers apply the same resolution they already use for an
+    out-of-range value. ``int(True) == 1`` is in range and would otherwise silently
+    become "wake on every message".
+    """
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return 0
+
+
+def _tolerant_soft_bound(value: Any, *, minimum: int, maximum: int) -> int | None:
+    """Coerce an optional designer-set soft bound (R15.08) to an int within the hard
+    range, or ``None`` if absent or wrong-typed. Clamping here — not only at
+    ``_clamp_n``/``_clamp_t`` — guarantees those always return a value inside the
+    advertised hard range even from an inverted or out-of-range soft bound (prior
+    dossier's FU-7)."""
+    if not isinstance(value, int) or isinstance(value, bool):
+        return None
+    return _clamp(value, minimum, maximum)
+
+
 @dataclass(frozen=True, slots=True)
 class EveryNMessagesTrigger:
     enabled: bool = False
@@ -178,10 +204,14 @@ class WakeupConfig:
         soft_raw = raw.get("soft_bounds")
         soft_bounds = (
             WakeupSoftBounds(
-                n_min=soft_raw.get("n_min"),
-                n_max=soft_raw.get("n_max"),
-                t_minutes_min=soft_raw.get("t_minutes_min"),
-                t_minutes_max=soft_raw.get("t_minutes_max"),
+                n_min=_tolerant_soft_bound(soft_raw.get("n_min"), minimum=N_MIN, maximum=N_MAX),
+                n_max=_tolerant_soft_bound(soft_raw.get("n_max"), minimum=N_MIN, maximum=N_MAX),
+                t_minutes_min=_tolerant_soft_bound(
+                    soft_raw.get("t_minutes_min"), minimum=T_MINUTES_MIN, maximum=T_MINUTES_MAX
+                ),
+                t_minutes_max=_tolerant_soft_bound(
+                    soft_raw.get("t_minutes_max"), minimum=T_MINUTES_MIN, maximum=T_MINUTES_MAX
+                ),
             )
             if isinstance(soft_raw, dict)
             else None
@@ -190,27 +220,27 @@ class WakeupConfig:
             triggers=WakeupTriggers(
                 every_n_messages=EveryNMessagesTrigger(
                     enabled=bool(enm.get("enabled", False)),
-                    n=_clamp(int(enm.get("n", 3)), N_MIN, N_MAX),
+                    n=_clamp(_tolerant_int(enm.get("n", 3)), N_MIN, N_MAX),
                 ),
                 silence_minutes=SilenceMinutesTrigger(
                     enabled=bool(sm.get("enabled", False)),
                     t_minutes=_clamp(
-                        int(sm.get("t_minutes", 2)),
+                        _tolerant_int(sm.get("t_minutes", 2)),
                         T_MINUTES_MIN,
                         T_MINUTES_MAX,
                     ),
                     autostop_rounds=_default_below_one(
-                        int(sm.get("autostop_rounds", 5)),
+                        _tolerant_int(sm.get("autostop_rounds", 5)),
                         default=5,
                         maximum=AUTOSTOP_HARD_CAP,
                     ),
                     autostop_max_default=_default_below_one(
-                        int(sm.get("autostop_max_default", 100)),
+                        _tolerant_int(sm.get("autostop_max_default", 100)),
                         default=100,
                         maximum=AUTOSTOP_HARD_CAP,
                     ),
                     observer_autostop_rounds=_default_below_one(
-                        int(sm.get("observer_autostop_rounds", 50)),
+                        _tolerant_int(sm.get("observer_autostop_rounds", 50)),
                         default=50,
                         maximum=AUTOSTOP_HARD_CAP,
                     ),
@@ -221,7 +251,7 @@ class WakeupConfig:
             ),
             allow_self_open=bool(raw.get("allow_self_open", False)),
             refresh_every_hours=_default_below_one(
-                int(raw.get("refresh_every_hours", 24)),
+                _tolerant_int(raw.get("refresh_every_hours", 24)),
                 default=24,
             ),
             soft_bounds=soft_bounds,
