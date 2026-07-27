@@ -87,32 +87,46 @@ class WakeupService:
         wake_list: list[uuid.UUID] = []
 
         for agent_id in agent_ids:
-            agent = await self._agents_facade.get_agent(agent_id)
-            if agent is None or agent.deleted_at is not None:
-                continue
+            # One agent's evaluation failing (a bad facade read, a Redis hiccup) must
+            # not drop every other bound agent's wake-up (F-2 / AC-1): the loop used to
+            # have no per-agent guard, so a single exception discarded `wake_list` for
+            # the whole room. Mirrors the per-item guard in `evaluate_silence`
+            # (app/workers/tasks/orchestration.py).
+            try:
+                agent = await self._agents_facade.get_agent(agent_id)
+                if agent is None or agent.deleted_at is not None:
+                    continue
 
-            cfg = WakeupConfig.from_dict(agent.wakeup_config)
-            if cfg.is_inert() or cfg.triggers.call_only.enabled:
-                continue
+                cfg = WakeupConfig.from_dict(agent.wakeup_config)
+                if cfg.is_inert() or cfg.triggers.call_only.enabled:
+                    continue
 
-            await wakeup_state.touch_silence_timestamp(agent_id, room_id)
+                await wakeup_state.touch_silence_timestamp(agent_id, room_id)
 
-            if sender_is_user:
-                await wakeup_state.reset_autostop(agent_id, room_id)
+                if sender_is_user:
+                    await wakeup_state.reset_autostop(agent_id, room_id)
 
-            if cfg.triggers.every_n_messages.enabled:
-                count = await wakeup_state.increment_message_count(agent_id, room_id)
-                n = cfg.triggers.every_n_messages.n
-                if n > 0 and count % n == 0:
-                    if agent_id == sender_agent_id:
-                        continue
-                    if agent_id not in observer_agent_ids and not cfg.allow_self_open:
-                        members = await self._presence.list_room(room_id)
-                        if not members:
-                            await self._notify_wakeup_gated(agent, room_id)
+                if cfg.triggers.every_n_messages.enabled:
+                    count = await wakeup_state.increment_message_count(agent_id, room_id)
+                    n = cfg.triggers.every_n_messages.n
+                    if n > 0 and count % n == 0:
+                        if agent_id == sender_agent_id:
                             continue
-                    WAKEUP_FIRES.labels(kind="every_n_messages").inc()
-                    wake_list.append(agent_id)
+                        if agent_id not in observer_agent_ids and not cfg.allow_self_open:
+                            members = await self._presence.list_room(room_id)
+                            if not members:
+                                await self._notify_wakeup_gated(agent, room_id)
+                                continue
+                        WAKEUP_FIRES.labels(kind="every_n_messages").inc()
+                        wake_list.append(agent_id)
+            except Exception:
+                await self._db.rollback()
+                logger.warning(
+                    "on_message_created: wake-up evaluation failed agent=%s room=%s",
+                    agent_id,
+                    room_id,
+                    exc_info=True,
+                )
 
         return wake_list
 

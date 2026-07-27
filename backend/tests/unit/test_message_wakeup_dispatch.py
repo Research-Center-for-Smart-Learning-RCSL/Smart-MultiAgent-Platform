@@ -9,6 +9,7 @@ O-2/R28.04) and passes rows / ids into the evaluators.
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 import pytest
@@ -223,3 +224,74 @@ async def test_dispatch_mention_wakeups_enqueues_with_trigger_message_id(monkeyp
     )
 
     assert enqueued == [("wakeup_agent", str(agent_id), str(room_id), "mention", str(trigger_message_id))]
+
+
+# --------------------------------------------------------------------------- #
+# AC-1 (docs/tasks/2026-07-27-wakeup-config-type-validation): one agent's
+# wake-up evaluation failing must not empty the room's wake list for every
+# other bound agent. Exercised via a facade read failure rather than a
+# wrong-typed `wakeup_config` value: AC-2 (test_wakeup_service.py) already
+# makes `WakeupConfig.from_dict` total, so a parse-time `TypeError` is no
+# longer reachable through the config shape. Q-1's own rationale is that the
+# loop must be guarded regardless — it can still raise from Redis or a facade
+# read — so this simulates exactly that aggravating case.
+# --------------------------------------------------------------------------- #
+
+
+async def test_one_unparseable_config_does_not_stop_the_room(monkeypatch, caplog) -> None:
+    from types import SimpleNamespace
+
+    from contexts.orchestration.application.wakeup_service import WakeupService
+
+    def _async_return(value):
+        async def _f(*_a, **_k):
+            return value
+
+        return _f
+
+    def _agent() -> SimpleNamespace:
+        wakeup_config = {
+            "triggers": {"every_n_messages": {"enabled": True, "n": 1}},
+            "allow_self_open": False,
+        }
+        return SimpleNamespace(id=uuid.uuid4(), deleted_at=None, wakeup_config=wakeup_config)
+
+    a, b, c = _agent(), _agent(), _agent()
+    rolled_back: list[bool] = []
+
+    async def _rollback() -> None:
+        rolled_back.append(True)
+
+    async def _get_agent(agent_id: uuid.UUID) -> SimpleNamespace:
+        if agent_id == b.id:
+            raise RuntimeError("facade read failed")
+        return {a.id: a, c.id: c}[agent_id]
+
+    svc = WakeupService.__new__(WakeupService)
+    svc._db = SimpleNamespace(rollback=_rollback)
+    svc._agents_facade = SimpleNamespace(get_agent=_get_agent)
+    svc._presence = SimpleNamespace(list_room=_async_return([uuid.uuid4()]))
+
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.touch_silence_timestamp",
+        _async_return(None),
+    )
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.reset_autostop",
+        _async_return(None),
+    )
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.increment_message_count",
+        _async_return(1),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        woken = await svc.on_message_created(
+            room_id=uuid.uuid4(),
+            sender_is_user=True,
+            agent_ids=[a.id, b.id, c.id],
+        )
+
+    assert woken == [a.id, c.id]
+    assert rolled_back == [True]
+    assert any(str(b.id) in record.getMessage() for record in caplog.records)
