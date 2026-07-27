@@ -1,7 +1,8 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-07-22
+approved: 2026-07-28
 requirements: []
 depends_on: []
 ---
