@@ -518,6 +518,45 @@ describe('useChatroomSocket agent streaming', () => {
     expect(cache.some((m) => m.id === 'm_1')).toBe(true)
   })
 
+  it('reconciles a message edited while the socket was down (F-11, AC-2)', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+      {
+        id: 'm_1',
+        created_at: '2024-01-01T00:00:00.000Z',
+        sender_type: 'user',
+        sender_id: 'u1',
+        content_md: 'original',
+        version: 1,
+      },
+    ])
+    // The edited-while-down message (m_1) comes back with its new content and
+    // version — no live `message.updated` frame is needed for this path.
+    listMessagesMock.mockResolvedValueOnce([
+      {
+        id: 'm_1',
+        created_at: '2024-01-01T00:00:00.000Z',
+        sender_type: 'user',
+        sender_id: 'u1',
+        content_md: 'edited while disconnected',
+        version: 2,
+      },
+    ])
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+
+    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{
+      id: string
+      content_md: string
+      version: number
+    }>
+    expect(cache.find((m) => m.id === 'm_1')).toMatchObject({
+      content_md: 'edited while disconnected',
+      version: 2,
+    })
+  })
+
   it('does not drop messages older than the fetched window on connect (F-11)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
