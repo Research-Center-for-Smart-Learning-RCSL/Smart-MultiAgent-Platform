@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-28
 requirements: [R15.07, R15.08, R15.09, R15.18]
 depends_on: []
@@ -425,29 +425,30 @@ alternative — accept the duplication — is chosen instead).
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1**: T-1 fails before the fix, passes after — `WakeupConfig.from_dict` tolerates a non-dict
+- [x] **AC-1**: T-1 fails before the fix, passes after — `WakeupConfig.from_dict` tolerates a non-dict
       `triggers` (and, by the same guard shape, non-dict `every_n_messages`/`silence_minutes`/`call_only`).
-- [ ] **AC-2**: T-2 passes — a non-dict `triggers` in a PATCH is rejected with 422 naming the field,
+- [x] **AC-2**: T-2 passes — a non-dict `triggers` in a PATCH is rejected with 422 naming the field,
       not a 500.
-- [ ] **AC-3**: T-3 fails before the fix, passes after — a non-bool `enabled` value resolves to a safe
+- [x] **AC-3**: T-3 fails before the fix, passes after — a non-bool `enabled` value resolves to a safe
       default rather than `True` via `bool(...)`'s truthiness coercion.
-- [ ] **AC-4**: T-4 passes — a non-bool `enabled` in a PATCH is rejected with 422.
-- [ ] **AC-5**: T-5 passes — a non-dict `soft_bounds` in a PATCH is rejected with 422, and (per F-3's
+- [x] **AC-4**: T-4 passes — a non-bool `enabled` in a PATCH is rejected with 422.
+- [x] **AC-5**: T-5 passes — a non-dict `soft_bounds` in a PATCH is rejected with 422, and (per F-3's
       root cause) can therefore no longer persist indefinitely via the additive merge.
-- [ ] **AC-6**: T-6 passes — `workflow_capabilities`'s null-deletes-key semantic is pinned by a test
+- [x] **AC-6**: T-6 passes — `workflow_capabilities`'s null-deletes-key semantic is pinned by a test
       (Q-1); no code change for this AC.
-- [ ] **AC-7**: T-7 passes — `wakeup_config: {}` remains a documented no-op (Q-2); no reset mechanism
+- [x] **AC-7**: T-7 passes — `wakeup_config: {}` remains a documented no-op (Q-2); no reset mechanism
       added.
-- [ ] **AC-8**: `agent_service.py:850`'s `merged_snapshot or None` is removed (`merged_snapshot` alone).
-- [ ] **AC-9**: T-8 passes — the snapshot-branch merge is not recomputed when it would be byte-identical
+- [x] **AC-8**: `agent_service.py:850`'s `merged_snapshot or None` is removed (`merged_snapshot` alone).
+- [x] **AC-9**: T-8 passes — the snapshot-branch merge is not recomputed when it would be byte-identical
       to the already-computed `values["wakeup_config"]`.
-- [ ] **AC-10**: `_clamp_n`/`_clamp_t` either call the shared `clamp` (T-9 passes) or the duplication is
-      explicitly accepted and recorded in the Deviation Log — implementer's call per C7.
-- [ ] **AC-11**: No data-repair script, migration, or backfill is introduced (§7's data repair position).
-- [ ] **AC-12**: `pytest -q` (or `pytest tests/unit -q`, per the environment note both prior dossiers in
-      this area recorded), `ruff check . && ruff format --check .`, `mypy .` pass in `backend/`. No
-      frontend change is required by this dossier's fix design (F-4 is test-only); if none is made, the
-      `pnpm` gates are not required.
+- [x] **AC-10**: `_clamp_n`/`_clamp_t` call the shared `clamp` (T-9 equivalent coverage: the existing
+      `test_soft_bounds_tolerate_wrong_typed_values` already exercises both through their full range and
+      passed unchanged after the reuse, confirmed byte-identical behavior).
+- [x] **AC-11**: No data-repair script, migration, or backfill is introduced (§7's data repair position).
+- [x] **AC-12**: `pytest tests/unit -q` (6068 passed, 6 skipped for pre-existing unrelated environment
+      reasons — same note as both prior dossiers in this area), `ruff check . && ruff format --check .`,
+      `mypy .` all pass in `backend/`. No frontend change was needed (F-4 was test-only); `pnpm` gates
+      N/A.
 
 ## 11. SRS Delta
 
@@ -457,19 +458,50 @@ F-4's decision (Q-1) confirms existing `workflow_capabilities` behavior rather t
 
 ## 12. Deviation Log
 
-Appended by /build.
+**D-1.** During /build's own sibling sweep (Step 4's mandatory grep beyond §6's citations), a
+repo-wide search for `bool(.*\.get(` over `backend/contexts/` (not just `backend/contexts/*/domain/`,
+which is all §6's sweep covered) found a fourth F-2 sibling the spec did not name:
+`contexts/agents/application/a2a_scope.py:69`'s `is_call_only_enabled`, which parses
+`wakeup_config.triggers.call_only.enabled` via the identical `bool(call_only.get("enabled", False))`
+pattern — reachable as the R9.17 agent-to-agent call-only bypass check, where a wrong-typed `enabled`
+silently granted a call that should have been denied (a fail-open AuthZ-adjacent bug, not merely a
+config-read bug). Fixed with the same `isinstance(enabled, bool) else False` guard and a regression
+test (`test_a2a_scope.py::test_is_call_only_enabled_rejects_a_non_bool_enabled_value`); confirmed via
+the security audit gate that the fix is strictly more restrictive than before and cannot introduce a
+new bypass. This is an addition beyond the spec's named scope, not a contradiction of it — the spec's
+own FU-2 anticipated the sweep might not be exhaustive.
+
+**D-2.** AC-10's regression coverage differs from §8's T-9 as originally described: rather than adding
+a new test asserting `_clamp_n`/`_clamp_t` and `clamp` "agree" on a value set, the build reused
+`test_wakeup_service.py::test_soft_bounds_tolerate_wrong_typed_values` (already exercises both methods
+across their full in/out-of-range/inverted-bounds behavior) as the regression guard, since it already
+passed unchanged after C7's reuse landed — a new comparison test would have been redundant with what
+that test already pins.
+
+**D-3.** AC-12 ran `pytest tests/unit -q` rather than the bare `pytest -q` named in the spec, for the
+same environment reason recorded in both prior dossiers in this area (`pyproject.toml`'s
+`testpaths = ["tests"]` reaches `tests/integration`/`tests/wiring`, which need a live
+Postgres/Redis/Vault stack not present in this build environment).
 
 ## 13. Follow-ups
 
 - **FU-1** — F-3's already-corrupted `soft_bounds` values (if any exist in production, written before
   this fix ships) are not backfilled by this dossier (§7's data repair position). Decide whether a
   one-off audit query against production is warranted once this fix lands.
-- **FU-2** — The sibling sweep for F-2 (§6) only checked `backend/contexts/*/domain/` and
-  `backend/app/api/v1/` for the same `bool(.*\.get(` pattern; `workflow_capabilities`'s three booleans
-  use a different accessor entirely and were not chased further. Worth a dedicated look if that field's
-  own type-tolerance is ever audited.
+- **FU-2** — RESOLVED by D-1: the sibling sweep was extended during /build to cover
+  `backend/contexts/agents/application/` as well, and found + fixed `a2a_scope.py`'s
+  `is_call_only_enabled`. `workflow_capabilities`'s three booleans still use a different accessor
+  entirely (confirmed: no `.get(...)`-style read site found for them anywhere in `backend/contexts/`)
+  and remain unchased — worth a dedicated look only if that field grows a JSONB-parsing accessor of
+  its own.
 - **FU-3** — This dossier's C1-C3 close the *known* gaps in wake-up config type-tolerance; a systemic
   fix (e.g., replacing the hand-written per-field validation in `agents.py`/`models.py` with a single
   Pydantic model shared by both the API boundary and the domain parser) would prevent the next such gap
   by construction rather than by review. Out of scope here as a much larger refactor; noted for anyone
   revisiting this area a third time.
+- **FU-4** — The security audit gate flagged `contexts/agents/application/runtime/tool_registry.py:290`
+  (`vote=bool(args.get("vote"))`, an LLM tool-call argument for an approval-vote mechanism) as the same
+  truthiness-coercion pattern on a different trust boundary (LLM-generated tool-call JSON, not a stored
+  JSONB config column). Not confirmed exploitable within this dossier's scope — whether the tool's own
+  JSON schema already constrains `vote` to a boolean before this parses it was not established. Worth a
+  dedicated look from whoever next touches that file.
