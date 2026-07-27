@@ -310,7 +310,8 @@ preserves. Nothing in this dossier needs that one.
       result and with the explicit caveat that the local result does not speak for production.
 - [x] **AC-9** Definition of Done: backend `ruff check`/`ruff format --check` clean (859 files),
       `mypy .` clean (859 files, strict on `shared_kernel.*` covers the new helper), unit tier
-      6,032 passed / 6 skipped; the new integration tier passes against real Postgres. Frontend
+      6,034 passed / 6 skipped after the `/code-review` fixes (D-10, D-11); the new integration
+      tier passes 3/3 against real Postgres. Frontend
       Vitest 856 passed, `vue-tsc` clean, ESLint clean, Vite build succeeds. See D-6/D-7/D-8 for
       the environment caveats on the wiring tier, `gen:api`, and the `pnpm` wrappers.
 
@@ -369,6 +370,26 @@ None. R15.08 is correct as written; the code diverged from it.
   by exporting the spec and comparing it to the committed `backend/openapi.json` semantically:
   identical. The raw file hashes differ only because PowerShell's `>` adds a BOM and CRLF, the
   artifact commit `54fc1a8` already had to strip once; the committed file was not touched.
+- **D-10 (`/code-review` finding, HIGH — fixed 2026-07-27):** D-1's `replace_wakeup_config=True`
+  reached only the first-attempt draft. The draft rebuilt inside `refresh_wakeup_config`'s
+  `AgentVersionMismatch` handler (`wakeup_service.py:431-434`) omitted it, so on any version
+  conflict — routine here, since wake-up workers and the hourly sweep race on the same row — the
+  retry fell back to merging and reintroduced D-1's never-converging refresh on exactly the common
+  path. Cause: the edit that added the flag used `replace_all`, which matched only the outer
+  occurrence because the retry draft is indented differently. `test_refresh_asks_for_a_replacing_write_not_a_merge`
+  exercised only the first attempt, so nothing caught it. Fixed, and
+  `test_refresh_retry_after_a_version_conflict_still_replaces` now drives a forced conflict and
+  asserts *both* drafts carry the flag.
+- **D-11 (`/code-review` finding, MEDIUM — fixed 2026-07-27):** Q-3's rationale ("after a merge,
+  the merged dict *is* what the designer authored") is false whenever the live config carries
+  R15.06 self-modification that has not been refreshed away. Basing the snapshot merge on
+  `current.wakeup_config` therefore laundered the agent's own drift into the designer baseline: an
+  agent that self-modified `n` 3→20 followed by any unrelated human PATCH would have 20 recorded
+  as authored intent, and R15.09 could never restore 3. The snapshot now merges over the
+  **previous snapshot**, falling back to the live config only when no snapshot exists (no baseline
+  to protect, and F-1's key preservation still applies). Pinned by
+  `test_human_edit_does_not_launder_runtime_drift_into_the_snapshot`; the integration test still
+  passes, since with no drift both bases coincide.
 - **D-9 (one flaky frontend run, recorded rather than hidden):** one full Vitest run reported
   `1 failed | 855 passed` while a full backend `pytest` was running concurrently on the same host;
   its transform/import timings were inflated roughly 10x by the contention. The reporter output
@@ -405,6 +426,30 @@ None. R15.08 is correct as written; the code diverged from it.
   out of scope here — the integration test seeds the row itself — but it means the wake-up
   self-modification and refresh paths depend on a seeding step nothing enforces. Worth pinning in
   the bootstrap CLI or making the system actor id nullable in the audit FK.
+- **FU-7 (`/code-review` finding, LOW — not fixed)** `normalizeWakeupConfig` strips the legacy flat
+  root keys from the payload, but with the server write now additive, omitting a key no longer
+  removes it: a pre-2026-06-26 row opened and saved through the UI keeps both shapes permanently,
+  and no UI path can clear them (removal needs an explicit `null`, which the editor never sends).
+  Behaviour is unaffected — `WakeupConfig.from_dict` reads the root-level legacy keys only when
+  `triggers` is absent — so this is unremovable dead state, not a defect. The comment at
+  `workflow.ts:144-152` has been corrected to say so rather than implying the filter cleans up.
+  A deliberate one-time migration (or having the editor send explicit nulls for the legacy keys)
+  would clear it.
+- **FU-8 (`/code-review` finding, LOW — not fixed)** D-2's bounds check can block R15.06
+  self-modification for an agent whose `wakeup_config` sits within roughly 250 bytes / 15 nodes of
+  the `BoundedConfig` ceiling: `_build_new_dict` merges the fully normalized `to_dict()` over the
+  stored value, so the result is strictly larger, and `AgentConfigTooLarge` propagates out of
+  `patch_agent`. `update_wakeup`'s retry loop catches only `AgentVersionMismatch`, and
+  `build_update_wakeup_tool._invoke` (`tool_registry.py:211-220`) has no handler, so the agent's
+  own tool call raises rather than degrading. It fails closed (the agent cannot self-tune; nothing
+  else breaks) and the error *is* mapped at the API boundary (413), so the reachable impact is
+  narrow. Left open because the right answer is a product decision — whether a near-ceiling agent
+  should be refused self-tuning or allowed a bounded overshoot — not a bugfix.
+- **FU-9** With `{}` no longer clearing a config column (it merges to a no-op) and deletion only
+  possible key by key via the Q-2 tombstone, there is no API path left to reset `wakeup_config` or
+  `workflow_capabilities` wholesale. `merged_wakeup or None` in `AgentService.patch` is
+  correspondingly close to dead. Accepted under Q-2, but if a reset operation is ever wanted it
+  needs its own explicit affordance.
 - **FU-6** This host cannot run the real-DB test tiers (D-6). The integration and wiring suites are
   effectively CI-only for anyone on a Docker Desktop setup without published ports. A documented
   `docker compose exec backend-web pytest` recipe — which is what actually worked here — would

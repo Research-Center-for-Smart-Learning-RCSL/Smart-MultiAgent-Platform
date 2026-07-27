@@ -142,9 +142,14 @@ function normalizeLegacyFlatTriggers(r: Record<string, unknown>): WakeupConfig['
  * discarded.
  */
 // Legacy-shape root keys: on that path `normalizeLegacyFlatTriggers` has already
-// folded them into `triggers`, so carrying them through as well would re-emit the
-// pre-2026-06-26 shape alongside its replacement. The three keys this function
-// returns explicitly need no filtering — they are spread last and win.
+// folded them into `triggers`, so this keeps them out of the payload rather than
+// re-sending the pre-2026-06-26 shape alongside its replacement. It does not
+// *remove* them — the server merges, so an omitted key keeps its stored value, and
+// only an explicit null deletes one. A legacy row therefore keeps both shapes until
+// something deliberately clears them (harmless: `WakeupConfig.from_dict` reads the
+// root-level legacy keys only when `triggers` is absent). See the dossier's FU-7.
+// The three keys this function returns explicitly need no filtering — they are
+// spread last and win.
 const LEGACY_ROOT_KEYS = ['every_n_messages', 'silence_minutes', 'call_only', 'autostop_rounds']
 
 export function normalizeWakeupConfig(raw: unknown): WakeupConfig {
