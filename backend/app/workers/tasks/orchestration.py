@@ -62,7 +62,7 @@ async def wakeup_agent(
         ChatroomAgentRepository,
         ChatroomRepository,
     )
-    from contexts.orchestration.domain.models import WakeupConfig
+    from contexts.orchestration.domain.models import EXPLICIT_TRIGGERS, WakeupConfig
     from contexts.orchestration.infrastructure import wakeup_state
     from contexts.orchestration.interfaces.facade import OrchestrationFacade
     from shared_kernel import audit
@@ -78,7 +78,7 @@ async def wakeup_agent(
             return "skipped:room_gone"
         agent = await AgentsFacade(db).get_agent(aid)
         if agent is None:
-            if trigger in ("mention", "release"):
+            if trigger in EXPLICIT_TRIGGERS:
                 # A worker-level guard (agent soft-deleted while still room-bound)
                 # returns before the TurnEngine emits, so without this an @mention
                 # — or an explicit creator release-wake (R28.07), which is the
@@ -106,7 +106,7 @@ async def wakeup_agent(
         # get a reply even after the agent has stalled on consecutive self-rounds.
         # `release` (R28.07) is the same shape: the room creator explicitly woke
         # the agent to read a released observation.
-        if trigger not in ("mention", "release") and autostop_count >= autostop_limit:
+        if trigger not in EXPLICIT_TRIGGERS and autostop_count >= autostop_limit:
             logger.bind(agent_id=agent_id, room_id=room_id, autostop=autostop_count).info(
                 "wakeup skipped: autostop tripped"
             )

@@ -83,6 +83,7 @@ from contexts.knowledge.application.knowmap_context_provider import (
     KnowledgeMapContextProvider,
 )
 from contexts.knowledge.application.rag_context_provider import RagContext, RagContextProvider
+from contexts.orchestration.domain.models import EXPLICIT_TRIGGERS
 from contexts.skills.domain.models import SkillRead
 from contexts.skills.interfaces.facade import BoundSet, DroppedSkill, SkillsFacade
 from shared_kernel import audit
@@ -1867,9 +1868,10 @@ class TurnEngine:
     ) -> TurnResult:
         agent = await AgentsFacade(self._db).get_agent(agent_id)
         if agent is None:
-            # An explicit @mention to a now-deleted agent deserves feedback;
-            # autonomous triggers (every_n/silence) stay silent.
-            if trigger == "mention":
+            # An explicit call (@mention or R28.07 release-wake) to a
+            # now-deleted agent deserves feedback; autonomous triggers
+            # (every_n/silence) stay silent.
+            if trigger in EXPLICIT_TRIGGERS:
                 await emit_agent_finished_error(chatroom_id, agent_id, "agent_gone")
             return TurnResult(status="skipped", reason="agent_gone")
         # AuthZ tap: re-validate the agent↔room binding at turn start (defends
@@ -1877,7 +1879,7 @@ class TurnEngine:
         # binding role — observers (R28.01) differ only in output routing.
         role = await ChatroomAgentRepository(self._db).role_of(chatroom_id=chatroom_id, agent_id=agent_id)
         if role is None:
-            if trigger == "mention":
+            if trigger in EXPLICIT_TRIGGERS:
                 await emit_agent_finished_error(chatroom_id, agent_id, "not_bound")
             return TurnResult(status="skipped", reason="not_bound")
         is_observer = role is ChatroomAgentRole.OBSERVER

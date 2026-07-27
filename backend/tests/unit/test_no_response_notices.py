@@ -167,6 +167,54 @@ async def test_not_bound_silent_on_autonomous_trigger(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_not_bound_emits_on_release(monkeypatch) -> None:
+    # R28.07: a creator's explicit release-wake is the same shape of explicit
+    # call as a mention; it must not silently no-op against an unbound agent.
+    engine, emitted = _wire_locked(monkeypatch, agent=_locked_agent(), bound=False)
+    result = await _run_locked(engine, trigger="release")
+    assert result.reason == "not_bound"
+    assert emitted[0][1]["error"] == "not_bound"
+
+
+@pytest.mark.asyncio
+async def test_agent_gone_emits_on_release(monkeypatch) -> None:
+    engine, emitted = _wire_locked(monkeypatch, agent=None)
+    result = await _run_locked(engine, trigger="release")
+    assert result.reason == "agent_gone"
+    assert emitted[0][1]["error"] == "agent_gone"
+
+
+@pytest.mark.asyncio
+async def test_explicit_triggers_all_emit_and_autonomous_stay_silent(monkeypatch) -> None:
+    """Systemic guard (F-21): table-driven over the shared `EXPLICIT_TRIGGERS`
+    constant so a future trigger kind added to that set without a matching
+    engine update fails this test automatically."""
+    from contexts.orchestration.domain.models import EXPLICIT_TRIGGERS
+
+    for trigger in EXPLICIT_TRIGGERS:
+        engine, emitted = _wire_locked(monkeypatch, agent=_locked_agent(), bound=False)
+        result = await _run_locked(engine, trigger=trigger)
+        assert result.reason == "not_bound"
+        assert emitted[0][1]["error"] == "not_bound"
+
+        engine, emitted = _wire_locked(monkeypatch, agent=None)
+        result = await _run_locked(engine, trigger=trigger)
+        assert result.reason == "agent_gone"
+        assert emitted[0][1]["error"] == "agent_gone"
+
+    for trigger in ("every_n_messages", "silence_minutes"):
+        engine, emitted = _wire_locked(monkeypatch, agent=_locked_agent(), bound=False)
+        result = await _run_locked(engine, trigger=trigger)
+        assert result.reason == "not_bound"
+        assert emitted == []
+
+        engine, emitted = _wire_locked(monkeypatch, agent=None)
+        result = await _run_locked(engine, trigger=trigger)
+        assert result.reason == "agent_gone"
+        assert emitted == []
+
+
+@pytest.mark.asyncio
 async def test_key_group_scope_emits_on_any_trigger(monkeypatch) -> None:
     # Actionable: a present user sees the agent go quiet — surface regardless of
     # how the turn was triggered (not just @mention).
