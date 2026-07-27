@@ -76,6 +76,17 @@ async def test_refresh_runs_outside_the_configured_window(monkeypatch) -> None:
     assert patched[0]["draft"].wakeup_last_refreshed_at is not None
 
 
+async def test_refresh_asks_for_a_replacing_write_not_a_merge(monkeypatch) -> None:
+    """R15.09 is a restore. An additive write would keep drifted keys the authored
+    snapshot never had, so `current == authored` would never hold again and the
+    sweep would refresh and audit the same agent every interval, forever."""
+    agent = _agent(last_refreshed_at=datetime.now(UTC) - timedelta(hours=25))
+    svc, patched = await _service(monkeypatch, agent)
+
+    assert await svc.refresh_wakeup_config(agent.id)
+    assert patched[0]["draft"].replace_wakeup_config is True
+
+
 async def test_never_refreshed_agent_is_immediately_eligible(monkeypatch) -> None:
     agent = _agent(last_refreshed_at=None)
     svc, patched = await _service(monkeypatch, agent)
