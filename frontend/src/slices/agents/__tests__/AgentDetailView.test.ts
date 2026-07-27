@@ -183,6 +183,54 @@ describe('AgentDetailView', () => {
     })
   })
 
+  // soft_bounds (R15.08) is admin-set through the API and has no editor control,
+  // so an unrelated save from this view used to drop it from the payload — and
+  // the backend wrote that payload into wakeup_authored_snapshot too, erasing the
+  // designer's bound with no recovery path.
+  it('keeps unmodelled wakeup_config keys in the patch payload', async () => {
+    const patched = vi.fn()
+    seed()
+    server.use(
+      // The shared fixture's 'kg_1' is not a uuid, so the schema rejects the
+      // submit before it reaches the mutation (see the create-mode note above).
+      http.get('/api/projects/proj_1/key-groups', () =>
+        HttpResponse.json([
+          { id: KEY_GROUP_ID, project_id: 'proj_1', name: 'Primary', created_at: '2026-01-01T00:00:00Z' },
+        ]),
+      ),
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({
+          ...AGENT,
+          key_group_id: KEY_GROUP_ID,
+          wakeup_config: {
+            triggers: { every_n_messages: { enabled: true, n: 8 } },
+            soft_bounds: { n_min: 5, n_max: 10 },
+          },
+        }),
+      ),
+      http.patch('/api/agents/agent_1', async ({ request }) => {
+        patched(await request.json())
+        return HttpResponse.json({ ...AGENT, version: 2 })
+      }),
+    )
+
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(wrapper)
+
+    // Touch an unrelated field so the form is dirty, then save.
+    await wrapper.findAll('.s-input__field')[0]!.setValue('Renamed Bot')
+    await settle(wrapper)
+    await wrapper.findAll('button.s-btn--primary')[0]!.trigger('click')
+    await settle(wrapper)
+
+    expect(patched).toHaveBeenCalledTimes(1)
+    const body = patched.mock.calls[0]![0] as { wakeup_config: Record<string, unknown> }
+    expect(body.wakeup_config.soft_bounds).toEqual({ n_min: 5, n_max: 10 })
+  })
+
   it('shows read-only Concept Map coverage on the Knowledge tab (AC-6)', async () => {
     seed()
     const wrapper = await renderView(AgentDetailView, {
