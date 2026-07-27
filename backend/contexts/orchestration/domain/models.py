@@ -10,7 +10,7 @@ import enum
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Final
 
 from shared_kernel.type_guards import is_plain_int
 
@@ -179,6 +179,15 @@ class SilenceMinutesTrigger:
 @dataclass(frozen=True, slots=True)
 class CallOnlyTrigger:
     enabled: bool = False
+
+
+# R28.07: trigger kinds that represent an explicit call the room's own
+# participants made -- a @mention or a creator's release-wake -- as opposed to
+# an autonomous every_n_messages/silence_minutes round. Single source so the
+# worker gate (app/workers/tasks/orchestration.py) and TurnEngine's own skip
+# notices can't diverge on which kinds count as explicit, mirroring
+# `autostop_limit_for` above for the identical anti-divergence reason.
+EXPLICIT_TRIGGERS: Final[frozenset[str]] = frozenset({"mention", "release"})
 
 
 @dataclass(frozen=True, slots=True)
