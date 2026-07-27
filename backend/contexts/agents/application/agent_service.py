@@ -72,6 +72,7 @@ from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from shared_kernel import audit
 from shared_kernel.db.advisory_lock import advisory_xact_lock, knowmap_builder_lock_key
 from shared_kernel.db.restore import raise_restore_conflict
+from shared_kernel.json_merge import merge_json_config
 
 _AGENT_CAP_PER_PROJECT = 1000
 
@@ -753,16 +754,26 @@ class AgentService:
         if draft.a2a_enabled is not None:
             values["a2a_enabled"] = draft.a2a_enabled
         if draft.wakeup_config is not None:
-            values["wakeup_config"] = draft.wakeup_config
+            # Additive, not replacing: the column is free-form, so a payload that
+            # models only part of it (every UI editor does) would otherwise delete
+            # designer keys such as `soft_bounds` (R15.08). An explicit null in the
+            # payload deletes that key — see `merge_json_config`.
+            merged_wakeup = merge_json_config(current.wakeup_config, draft.wakeup_config)
+            values["wakeup_config"] = merged_wakeup
             # Human edit → update the authored snapshot (G.5).
             # System actor (uuid(int=0)) updates are self-modifications
             # and should NOT overwrite the authored snapshot.
+            # The snapshot takes the *merged* value: writing the submitted fragment
+            # instead is what turns a dropped key into an unrecoverable loss, since
+            # the snapshot is the only recovery path the hourly refresh has.
             if actor_user_id != _SYSTEM_ACTOR_ID:
-                values["wakeup_authored_snapshot"] = draft.wakeup_config if draft.wakeup_config else None
+                values["wakeup_authored_snapshot"] = merged_wakeup if merged_wakeup else None
         if draft.wakeup_last_refreshed_at is not None:
             values["wakeup_last_refreshed_at"] = draft.wakeup_last_refreshed_at
         if draft.workflow_capabilities is not None:
-            values["workflow_capabilities"] = draft.workflow_capabilities
+            values["workflow_capabilities"] = merge_json_config(
+                current.workflow_capabilities, draft.workflow_capabilities
+            )
 
         updated = await self._agents.patch(
             agent_id=agent_id,
