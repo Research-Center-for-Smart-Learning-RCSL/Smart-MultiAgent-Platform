@@ -782,11 +782,28 @@ class AgentService:
             # Human edit → update the authored snapshot (G.5).
             # System actor (uuid(int=0)) updates are self-modifications
             # and should NOT overwrite the authored snapshot.
-            # The snapshot takes the *merged* value: writing the submitted fragment
-            # instead is what turns a dropped key into an unrecoverable loss, since
-            # the snapshot is the only recovery path the hourly refresh has.
+            #
+            # The snapshot is merged too — writing the submitted fragment is what
+            # turns a dropped key into an unrecoverable loss — but it merges over
+            # the *previous snapshot*, not over the live config. The live config
+            # may carry runtime drift from R15.06 self-modification that has not
+            # been refreshed away yet; merging that in would launder the agent's
+            # own edits into the designer's baseline and R15.09 could never
+            # restore them. With no snapshot yet there is no baseline to protect,
+            # so the live config is the best available base.
             if actor_user_id != _SYSTEM_ACTOR_ID:
-                values["wakeup_authored_snapshot"] = merged_wakeup if merged_wakeup else None
+                snapshot_base = (
+                    current.wakeup_authored_snapshot
+                    if current.wakeup_authored_snapshot is not None
+                    else current.wakeup_config
+                )
+                merged_snapshot = (
+                    draft.wakeup_config
+                    if draft.replace_wakeup_config
+                    else merge_json_config(snapshot_base, draft.wakeup_config)
+                )
+                _assert_config_within_bounds(merged_snapshot, field="wakeup_authored_snapshot")
+                values["wakeup_authored_snapshot"] = merged_snapshot or None
         if draft.wakeup_last_refreshed_at is not None:
             values["wakeup_last_refreshed_at"] = draft.wakeup_last_refreshed_at
         if draft.workflow_capabilities is not None:

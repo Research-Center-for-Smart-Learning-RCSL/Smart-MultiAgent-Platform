@@ -87,6 +87,41 @@ async def test_refresh_asks_for_a_replacing_write_not_a_merge(monkeypatch) -> No
     assert patched[0]["draft"].replace_wakeup_config is True
 
 
+async def test_refresh_retry_after_a_version_conflict_still_replaces(monkeypatch) -> None:
+    """Version conflicts on this row are routine — wake-up workers and the hourly
+    sweep race on the same agent — so a retry that merged instead of replacing would
+    reintroduce the never-converging refresh on exactly the common path."""
+    from contexts.agents.interfaces.facade import AgentVersionMismatch
+
+    agent = _agent(last_refreshed_at=datetime.now(UTC) - timedelta(hours=25))
+    patched: list[dict] = []
+
+    class _Agents:
+        async def get_agent(self, _agent_id):
+            return agent
+
+        async def patch_agent(self, **kwargs):
+            patched.append(kwargs)
+            if len(patched) == 1:
+                raise AgentVersionMismatch("conflict")
+            return agent
+
+    async def _emit(_db, _event):
+        return None
+
+    svc = WakeupService.__new__(WakeupService)
+    svc._db = None
+    svc._agents_facade = _Agents()
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.audit.emit",
+        _emit,
+    )
+
+    assert await svc.refresh_wakeup_config(agent.id)
+    assert len(patched) == 2
+    assert all(call["draft"].replace_wakeup_config is True for call in patched)
+
+
 async def test_never_refreshed_agent_is_immediately_eligible(monkeypatch) -> None:
     agent = _agent(last_refreshed_at=None)
     svc, patched = await _service(monkeypatch, agent)
