@@ -26,12 +26,22 @@ from __future__ import annotations
 import uuid
 from typing import Final
 
+from redis.asyncio import Redis
+
 from shared_kernel.auth.clients import get_redis
 
 # Longer than the WS idle-timeout (connection.py `_IDLE_TIMEOUT_SECONDS` = 120s):
 # a live connection sends at least one frame per idle window and refreshes the
 # conns SET on each, so this TTL never lapses under it. A truly-dead connection's
 # entry expires within one window and is scrubbed.
+#
+# F-5: `_reconcile_roster` (below) makes this TTL a liveness authority on every
+# `list_room`/`leave` call, not just the nightly scrub -- a live connection
+# whose conns key lapses is now evicted from the roster as a ghost. Whatever
+# keepalive a WS layer relies on (heartbeats, reconnect churn) MUST refresh
+# this key at an interval strictly shorter than `_CONN_TTL_SECONDS`, or that
+# constant must be raised alongside it, or live users will silently vanish
+# from rosters.
 _CONN_TTL_SECONDS: Final = 150
 _SET_TTL_SECONDS: Final = 300  # roster/reverse-index safety net (volatile-lru)
 # Typing assertions share the connection-liveness bound rather than getting a
@@ -144,8 +154,10 @@ class PresenceTracker:
         Returns ``(last_connection_of_user, roster_size_after)``.
         ``last_connection_of_user`` is True only when that was the user's LAST
         live connection in the room; ``roster_size_after`` is the room roster
-        cardinality AFTER the leave (atomically read via Lua so exactly one
-        concurrent last-leaver observes ``0``).
+        cardinality AFTER the leave, reconciled against every remaining
+        member's own conns key (F-5: a member whose connection died without a
+        clean leave is a ghost, not a live user, and must not inflate the
+        cardinality the last real leaver observes).
         """
         r = get_redis()
         ck = _conns_key(room_id, user_id)
@@ -153,11 +165,12 @@ class PresenceTracker:
         if int(remaining) > 0:
             return False, -1  # -1 sentinel: roster unchanged, caller ignores
         rk = _room_key(room_id)
-        roster_size = int(await r.eval(_ROSTER_LEAVE_LUA, 1, rk, str(user_id)))
+        await r.eval(_ROSTER_LEAVE_LUA, 1, rk, str(user_id))
         pipe = r.pipeline(transaction=False)
         pipe.srem(_user_rooms_key(user_id), str(room_id))
         await pipe.execute()
-        return True, roster_size
+        live = await _reconcile_roster(r, room_id)
+        return True, len(live)
 
     async def typing_start(
         self,
@@ -228,8 +241,41 @@ class PresenceTracker:
         await pipe.execute()
 
     async def list_room(self, room_id: uuid.UUID) -> list[uuid.UUID]:
-        raw = await get_redis().smembers(_room_key(room_id))
-        return [uuid.UUID(v) for v in raw]
+        """Live roster members (F-5): a bare `SMEMBERS` would also return
+        ghosts whose connection died without a clean leave, so this reconciles
+        against each member's own conns key before returning."""
+        live = await _reconcile_roster(get_redis(), room_id)
+        return [uuid.UUID(v) for v in live]
+
+
+async def _reconcile_roster(r: Redis, room_id: uuid.UUID) -> list[str]:
+    """Drop roster members whose conns key has expired; return the survivors.
+
+    Mirrors `scrub_stale_presence`'s cross-check but for a single room on the
+    read/leave path rather than a scan over every room. Pipelined: rosters are
+    small, but reads (R15.05b's every-30s silence sweep, the per-message
+    every_n gate) are frequent enough that N sequential round-trips per call
+    would add up.
+    """
+    rk = _room_key(room_id)
+    members = list(await r.smembers(rk))
+    if not members:
+        return []
+    check = r.pipeline(transaction=False)
+    for member in members:
+        check.exists(_conns_key(room_id, uuid.UUID(member)))
+    alive_flags = await check.execute()
+    live: list[str] = []
+    stale: list[str] = []
+    for member, alive in zip(members, alive_flags, strict=True):
+        (live if alive else stale).append(member)
+    if stale:
+        evict = r.pipeline(transaction=False)
+        for member in stale:
+            evict.srem(rk, member)
+            evict.srem(_user_rooms_key(uuid.UUID(member)), str(room_id))
+        await evict.execute()
+    return live
 
 
 async def scrub_stale_presence() -> tuple[int, set[uuid.UUID]]:

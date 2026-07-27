@@ -87,12 +87,22 @@ class _FakePipe:
     def expire(self, key: str, ttl: int) -> None:
         self._ops.append(("expire", key, ttl))
 
-    async def execute(self) -> None:
+    def exists(self, key: str) -> None:
+        self._ops.append(("exists", key))
+
+    async def execute(self) -> list:
+        results: list = []
         for op in self._ops:
             if op[0] == "sadd":
-                await self._redis.sadd(op[1], op[2])
+                results.append(await self._redis.sadd(op[1], op[2]))
             elif op[0] == "srem":
-                await self._redis.srem(op[1], op[2])
+                results.append(await self._redis.srem(op[1], op[2]))
+            elif op[0] == "expire":
+                results.append(None)
+            elif op[0] == "exists":
+                results.append(await self._redis.exists(op[1]))
+        self._ops = []
+        return results
 
 
 @pytest.fixture
@@ -125,6 +135,63 @@ async def test_multi_tab_announces_once_and_leaves_on_last(fake_redis: _FakeRedi
     left, roster_size = await p.leave(room_id=room, user_id=user, connection_id=c2)
     assert (left, roster_size) == (True, 0)
     assert await p.list_room(room) == []
+
+
+@pytest.mark.asyncio
+async def test_last_leave_reports_empty_roster_despite_a_ghost_member(fake_redis: _FakeRedis) -> None:
+    """F-5: a ghost member (conns key expired without a clean leave) must not
+    inflate the cardinality the last real leaver observes."""
+    p = PresenceTracker()
+    room = uuid.uuid4()
+    stale_user, live_user = uuid.uuid4(), uuid.uuid4()
+    await p.join(room_id=room, user_id=stale_user, connection_id=uuid.uuid4())
+    live_conn = uuid.uuid4()
+    await p.join(room_id=room, user_id=live_user, connection_id=live_conn)
+    fake_redis.sets.pop(f"ws:presence:{room}:{stale_user}:conns", None)
+
+    left, roster_size = await p.leave(room_id=room, user_id=live_user, connection_id=live_conn)
+    assert (left, roster_size) == (True, 0)
+
+
+@pytest.mark.asyncio
+async def test_list_room_omits_and_evicts_a_member_with_no_live_connection(fake_redis: _FakeRedis) -> None:
+    """F-5: `list_room` must not return a ghost member, and must evict it from
+    both the roster and the reverse index as it discovers it."""
+    p = PresenceTracker()
+    room = uuid.uuid4()
+    stale_user, live_user = uuid.uuid4(), uuid.uuid4()
+    await p.join(room_id=room, user_id=stale_user, connection_id=uuid.uuid4())
+    await p.join(room_id=room, user_id=live_user, connection_id=uuid.uuid4())
+    fake_redis.sets.pop(f"ws:presence:{room}:{stale_user}:conns", None)
+
+    assert set(await p.list_room(room)) == {live_user}
+    assert str(stale_user) not in fake_redis.sets.get(f"ws:presence:{room}", set())
+    assert f"ws:user:{stale_user}:rooms" not in fake_redis.sets
+
+
+@pytest.mark.asyncio
+async def test_multi_tab_leave_does_not_reconcile(fake_redis: _FakeRedis, monkeypatch) -> None:
+    """Guard: the multi-tab early return must stay untouched by A1 -- a leave
+    that is not the user's last connection must not trigger reconciliation."""
+    p = PresenceTracker()
+    room, user = uuid.uuid4(), uuid.uuid4()
+    c1, c2 = uuid.uuid4(), uuid.uuid4()
+    await p.join(room_id=room, user_id=user, connection_id=c1)
+    await p.join(room_id=room, user_id=user, connection_id=c2)
+
+    exists_calls = 0
+    orig_exists = fake_redis.exists
+
+    async def _counting_exists(key: str) -> int:
+        nonlocal exists_calls
+        exists_calls += 1
+        return await orig_exists(key)
+
+    monkeypatch.setattr(fake_redis, "exists", _counting_exists)
+
+    left, roster_size = await p.leave(room_id=room, user_id=user, connection_id=c1)
+    assert (left, roster_size) == (False, -1)
+    assert exists_calls == 0
 
 
 @pytest.mark.asyncio
