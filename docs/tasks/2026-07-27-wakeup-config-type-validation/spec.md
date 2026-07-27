@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-27
 requirements: [R15.01, R15.02, R15.04, R15.07, R15.09, R28.12]
 depends_on: [2026-07-27-wakeup-config-key-preservation]
@@ -277,26 +277,32 @@ must pass with the regenerated `wakeup_config` type. No new frontend test; the e
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1** T-1 fails before the fix and passes after: one agent's unparseable config does not
+- [x] **AC-1** T-1 fails before the fix and passes after: one agent's unparseable config does not
       suppress wake-ups for the other agents in the room, and the failure is logged with that agent's
-      id.
-- [ ] **AC-2** T-2 passes: `from_dict` never raises for any JSON value in any numeric field, and
+      id. Implemented as a facade-read failure rather than a wrong-typed config — see D-1.
+- [x] **AC-2** T-2 passes: `from_dict` never raises for any JSON value in any numeric field, and
       resolves each to the Q-2 default.
-- [ ] **AC-3** T-3 passes: `soft_bounds` tolerates wrong-typed and inverted values, and `_clamp_n` /
+- [x] **AC-3** T-3 passes: `soft_bounds` tolerates wrong-typed and inverted values, and `_clamp_n` /
       `_clamp_t` always return a value inside the hard range.
-- [ ] **AC-4** T-4 passes: the API returns 422 for a wrong-typed or out-of-range numeric field,
+- [x] **AC-4** T-4 passes: the API returns 422 for a wrong-typed or out-of-range numeric field,
       naming the field, and still returns 200 for a payload carrying unmodelled root keys.
-- [ ] **AC-5** T-5 passes: a partial PATCH is merged first and normalized second, so no omitted field
+- [x] **AC-5** T-5 passes: a partial PATCH is merged first and normalized second, so no omitted field
       is reset and the persisted config is complete.
-- [ ] **AC-6** T-6 passes: no self-modification or key-preservation assertion regresses, and the
-      refresh drift check does not fire spuriously after normalization.
-- [ ] **AC-7** `pnpm run gen:api` has been re-run and `check:openapi-drift` passes.
-- [ ] **AC-8** The §4 reproduction no longer reproduces: step 2 returns 422, and with the bad value
-      injected directly into the database, step 3 still wakes B and C.
-- [ ] **AC-9** Definition of Done: `pytest -q`, `ruff check . && ruff format --check .`, `mypy .` in
-      `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` in `frontend/`. `mypy`
-      strict applies to `contexts.orchestration.domain`, so the parser helper must type-check under
-      strict mode.
+- [x] **AC-6** T-6 passes: no self-modification or key-preservation assertion regresses (all 6,047
+      backend unit tests pass), and the refresh drift check does not fire spuriously after
+      normalization by construction (verified unit-level; the integration test against real
+      Postgres could not run in this environment — see D-2).
+- [x] **AC-7** `pnpm run gen:api` has been re-run and `check:openapi-drift`'s logic replicated
+      manually (the field_validator changes no JSON Schema, so both `backend/openapi.json` and the
+      generated client are byte-identical to what's committed — no diff to commit).
+- [x] **AC-8** The §4 reproduction no longer reproduces: step 2 returns 422 (T-4). Step 3's DB-level
+      half (bad value injected directly, still wakes B and C) is covered by T-2 (parser is total) and
+      T-1's loop isolation at the unit level; could not verify against a real Postgres row in this
+      environment — see D-2.
+- [x] **AC-9** Definition of Done: `pytest -q` (6,047 passed, 6 skipped), `ruff check . && ruff
+      format --check .` clean, `mypy .` clean (859 files, strict on `contexts.orchestration.domain`
+      covers the new parser helpers) in `backend/`; `pnpm test` (856 passed), `pnpm lint` (ESLint
+      clean), `pnpm typecheck` (vue-tsc clean), `pnpm build` (Vite build succeeds) in `frontend/`.
 
 ## 11. SRS Delta
 
@@ -307,7 +313,41 @@ applies the same rule to a wider class of invalid input.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (test-mechanism correction, 2026-07-27):** T-1's own text specified triggering the loop
+  guard with `{"n": null}` in the middle agent's `wakeup_config`. Implementing T-2 first (per this
+  dossier's own dependency-free ordering — AC-1 and AC-2 answer different questions per Q-1) made
+  `WakeupConfig.from_dict` total, so that exact input no longer raises and can't exercise the guard.
+  `test_one_unparseable_config_does_not_stop_the_room`
+  (`backend/tests/unit/test_message_wakeup_dispatch.py`) instead makes the middle agent's
+  `AgentsFacade.get_agent` call raise — Q-1's own rationale already names this as an independent
+  reason the guard is needed ("it can still raise from Redis or a facade read"). Confirmed to fail
+  before the guard and pass after; also asserts the per-agent rollback and the failing agent's id in
+  the log line.
+- **D-2 (environment limitation, 2026-07-27):** The integration test
+  `tests/integration/test_agent_config_merge_persistence.py` (from the prior key-preservation
+  dossier) and AC-8's DB-injection half both require a reachable Postgres (`settings.database.dsn`
+  resolves to hostname `postgres`, a Docker Compose service name not available in this sandbox — no
+  `deploy/compose/` stack or running Postgres container was found locally). Not run. Correctness for
+  the specific case that test pins — `refresh_wakeup_config`'s `replace_wakeup_config=True` write is
+  the one write path deliberately excluded from `_normalize_wakeup_config` (see the function's own
+  docstring) — was instead verified by: (a) tracing the exact stored values the test asserts against
+  `_normalize_wakeup_config`'s logic by hand, (b) the unit-level regression suite for the same
+  behavior (`test_replace_flag_restores_the_authored_snapshot_verbatim`,
+  `test_wakeup_config_is_normalized_before_persisting`,
+  `test_human_edit_does_not_launder_runtime_drift_into_the_snapshot`), all passing. Whoever next has
+  a reachable local Postgres should run `pytest tests/integration/test_agent_config_merge_persistence.py -m db`
+  to close this gap with real JSONB.
+- **D-3 (implementation choice within Q-4, 2026-07-27):** `_normalize_wakeup_config`
+  (`contexts/agents/application/agent_service.py`) is applied to the merge path only, never to a
+  `replace_wakeup_config=True` restore. The spec's Q-4/Q-5 describe normalizing "the merged result"
+  without explicitly excluding the restore path, but the restore must land the authored snapshot
+  verbatim (D-1 of the prior dossier, pinned by
+  `test_refresh_restores_the_snapshot_and_then_converges`) — normalizing it too would materialize
+  every documented default field into the restored config, so a snapshot narrower than the full
+  shape (the common case: an authored baseline that predates a later-added default field) could
+  never again equal itself after a restore, breaking the exact convergence property that dossier
+  built. Excluding the restore path is the only reading of Q-4/Q-5 consistent with keeping that
+  guarantee.
 
 ## 13. Follow-ups
 
@@ -326,3 +366,17 @@ Appended by /build.
   attributes failures per agent in logs, but there is still no counter an operator could alert on.
   `WAKEUP_FIRES` (`orchestration/infrastructure/metrics.py`) is the natural home for a companion
   failure counter.
+- **FU-5** (quality audit) `app/api/v1/agents.py` now imports `N_MIN`/`N_MAX`/`T_MINUTES_MIN`/
+  `T_MINUTES_MAX`/`AUTOSTOP_HARD_CAP` directly from `contexts.orchestration.domain.models` — a route
+  module reaching into a different context's domain layer rather than through a facade. Deliberate
+  (this dossier's own Reuse Inventory directs it, to keep the API's 422 bounds from drifting out of
+  sync with the domain clamp bounds) and precedented (`app/api/v1/orchestration.py` already imports
+  `ApprovalMode`/`ApprovalState`/`InstructionState` the same way). `contexts/agents/application/
+  agent_service.py`'s new function-local import of `WakeupConfig` from the same module adds one more
+  edge to an already-existing `agents`<->`orchestration` context cycle (`turn_engine.py`/
+  `tool_registry.py` already import from `orchestration.{domain,interfaces}`; `wakeup_service.py`
+  already imports `agents.interfaces.facade`). Not fixed here; worth a follow-up decision on whether
+  shared wake-up bound constants and value objects belong in `shared_kernel` instead.
+- **FU-6** The integration test `tests/integration/test_agent_config_merge_persistence.py` and
+  AC-8's DB-injection half were not run in this environment — no reachable Postgres (D-2). Run
+  `pytest tests/integration/ -m db` against a real database to close this verification gap.
