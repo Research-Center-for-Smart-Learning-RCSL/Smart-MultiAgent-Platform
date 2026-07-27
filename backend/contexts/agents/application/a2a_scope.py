@@ -58,7 +58,11 @@ class A2AVerdict:
 def is_call_only_enabled(agent: Agent) -> bool:
     """Parse ``wakeup_config.triggers.call_only.enabled`` safely.
 
-    The JSONB column is free-form, so we defensively walk the path.
+    The JSONB column is free-form, so we defensively walk the path. A
+    wrong-typed ``enabled`` resolves to ``False`` rather than through a bare
+    ``bool(...)`` -- ``bool("false")`` is ``True`` in Python and would
+    otherwise silently grant the R9.17 call-only bypass
+    (2026-07-28-wakeup-config-validation-and-patch-semantics F-2 sibling).
     """
     triggers = agent.wakeup_config.get("triggers") if agent.wakeup_config else None
     if not isinstance(triggers, dict):
@@ -66,7 +70,8 @@ def is_call_only_enabled(agent: Agent) -> bool:
     call_only = triggers.get("call_only")
     if not isinstance(call_only, dict):
         return False
-    return bool(call_only.get("enabled", False))
+    enabled = call_only.get("enabled", False)
+    return enabled if isinstance(enabled, bool) else False
 
 
 def evaluate(ipt: A2ACheckInput) -> A2AVerdict:
