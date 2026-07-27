@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-07-27
 requirements: [R15.01, R15.02, R15.04, R15.07, R15.09, R28.12]
 depends_on: [2026-07-27-wakeup-config-key-preservation]
