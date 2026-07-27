@@ -47,6 +47,7 @@ from shared_kernel.auth.dependencies import (
 )
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
+from shared_kernel.type_guards import is_plain_int
 from shared_kernel.validation import BoundedConfig
 
 # ---------------------------------------------------------------------------
@@ -82,7 +83,7 @@ def _check_wakeup_int(value: Any, *, field: str, minimum: int, maximum: int | No
     (2026-07-27-wakeup-config-type-validation). Raising `ValueError` here is what
     FastAPI turns into the 422 -- mirrors `_cap_config`/`_cap_auth` below.
     """
-    if isinstance(value, bool) or not isinstance(value, int):
+    if not is_plain_int(value):
         raise ValueError(f"{field} must be an integer")
     if value < minimum or (maximum is not None and value > maximum):
         bound = f">= {minimum}" if maximum is None else f"between {minimum} and {maximum}"

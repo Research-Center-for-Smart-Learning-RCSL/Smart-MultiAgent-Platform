@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from shared_kernel.type_guards import is_plain_int
+
 # ---------------------------------------------------------------------------
 # A2A envelope (R9.13)
 # ---------------------------------------------------------------------------
@@ -134,7 +136,7 @@ def _tolerant_int(value: Any) -> int:
     out-of-range value. ``int(True) == 1`` is in range and would otherwise silently
     become "wake on every message".
     """
-    if isinstance(value, int) and not isinstance(value, bool):
+    if is_plain_int(value):
         return value
     return 0
 
@@ -145,7 +147,7 @@ def _tolerant_soft_bound(value: Any, *, minimum: int, maximum: int) -> int | Non
     ``_clamp_n``/``_clamp_t`` — guarantees those always return a value inside the
     advertised hard range even from an inverted or out-of-range soft bound (prior
     dossier's FU-7)."""
-    if not isinstance(value, int) or isinstance(value, bool):
+    if not is_plain_int(value):
         return None
     return _clamp(value, minimum, maximum)
 
