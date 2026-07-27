@@ -83,6 +83,7 @@ class ApprovalService:
             leader_agent_id=config.leader_agent_id,
             approver_agent_ids=list(config.approvers),
             timeout_seconds=config.timeout_seconds,
+            chatroom_id=chatroom_id,
         )
 
         # Audit is a DB write in this same transaction, so it commits (or rolls
@@ -507,6 +508,9 @@ class ApprovalService:
 
     async def list_for_run(self, workflow_run_id: uuid.UUID) -> list[Approval]:
         return await self._approvals.list_for_workflow_run(workflow_run_id)
+
+    async def list_for_chatroom(self, chatroom_id: uuid.UUID) -> list[Approval]:
+        return await self._approvals.list_for_chatroom(chatroom_id)
 
 
 __all__ = ["ApprovalService"]

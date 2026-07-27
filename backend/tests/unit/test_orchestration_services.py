@@ -334,6 +334,10 @@ class TestApprovalCreateGate:
         assert args[1] == str(approvals.insert.call_args.kwargs["id"])
         assert args[2] == str(_ROOM)
         assert args[3] == "gate1"
+        # F-13: chatroom_id is persisted on the row, not just threaded through
+        # to the announce enqueue -- it is what makes the room-scoped list
+        # endpoint able to find this gate later.
+        assert approvals.insert.call_args.kwargs["chatroom_id"] == _ROOM
 
     @patch("shared_kernel.queue.enqueue", new_callable=AsyncMock)
     @patch("contexts.orchestration.infrastructure.pending_notify.push", new_callable=AsyncMock)

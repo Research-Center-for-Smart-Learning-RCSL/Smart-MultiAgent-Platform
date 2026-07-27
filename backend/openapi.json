@@ -1,4 +1,4 @@
-{
+﻿{
   "components": {
     "schemas": {
       "AcceptByTokenIn": {
@@ -15417,6 +15417,54 @@
           }
         },
         "summary": "Patch Chatroom Agent Role",
+        "tags": [
+          "chatrooms"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/approvals": {
+      "get": {
+        "description": "Room-scoped read side for F-13: the connect-time client reconcile fetches\nthis list to discover an approval gate whose `approval.requested` WS frame\nwas missed while disconnected. Gated the same way as every other room read\n(`resolve_room_access` + `ensure_can_read`), not by project membership --\nthe room is the resource here, and a platform admin passes `ensure_can_read`\nthe same way every other room read already does. Rows created before the\n`chatroom_id` column existed are simply absent, not an error (Q-4 of the\ntask dossier: no backfill).",
+        "operationId": "list_chatroom_approvals_api_chatrooms__chatroom_id__approvals_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ApprovalWithVotesOut"
+                  },
+                  "title": "Response List Chatroom Approvals Api Chatrooms  Chatroom Id  Approvals Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List approval gates raised in a chatroom",
         "tags": [
           "chatrooms"
         ]

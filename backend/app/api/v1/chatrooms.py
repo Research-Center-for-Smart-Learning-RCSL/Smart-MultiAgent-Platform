@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams, require_if_match
+from app.api.v1.orchestration import ApprovalVoteOut, ApprovalWithVotesOut
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.access import (
+    ensure_can_read,
     ensure_room_creator,
     is_room_creator,
     resolve_room_access,
@@ -28,6 +30,7 @@ from contexts.conversation.domain.models import ChatroomAgentRole
 from contexts.conversation.interfaces.author_labels import prefer_guest_label
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.interfaces.facade import IdentityFacade
+from contexts.orchestration.interfaces.facade import OrchestrationFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     _raise_forbidden,
@@ -653,6 +656,63 @@ async def get_chatroom_presence(
     ensure_can_read(access, is_admin=principal.is_admin)
     members = await PresenceTracker().list_room(chatroom_id)
     return PresenceOut(user_ids=[str(uid) for uid in members])
+
+
+# --------------------------------------------------------------------------- #
+# Approvals read side — F-13
+# --------------------------------------------------------------------------- #
+
+
+def _chatroom_approval_out(approval: Any, votes: list[Any]) -> ApprovalWithVotesOut:
+    return ApprovalWithVotesOut(
+        id=str(approval.id),
+        workflow_run_id=str(approval.workflow_run_id),
+        mode=approval.mode,
+        leader_agent_id=str(approval.leader_agent_id),
+        approver_agent_ids=[str(a) for a in approval.approver_agent_ids],
+        timeout_seconds=approval.timeout_seconds,
+        state=approval.state,
+        started_at=approval.started_at.isoformat(),
+        ended_at=approval.ended_at.isoformat() if approval.ended_at else None,
+        votes=[
+            ApprovalVoteOut(
+                approval_id=str(v.approval_id),
+                voter_agent_id=str(v.voter_agent_id),
+                vote=v.vote,
+                rationale=v.rationale,
+                cast_at=v.cast_at.isoformat(),
+            )
+            for v in votes
+        ],
+    )
+
+
+@chatroom_router.get(
+    "/{chatroom_id}/approvals",
+    summary="List approval gates raised in a chatroom",
+)
+async def list_chatroom_approvals(
+    chatroom_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[ApprovalWithVotesOut]:
+    """Room-scoped read side for F-13: the connect-time client reconcile fetches
+    this list to discover an approval gate whose `approval.requested` WS frame
+    was missed while disconnected. Gated the same way as every other room read
+    (`resolve_room_access` + `ensure_can_read`), not by project membership --
+    the room is the resource here, and a platform admin passes `ensure_can_read`
+    the same way every other room read already does. Rows created before the
+    `chatroom_id` column existed are simply absent, not an error (Q-4 of the
+    task dossier: no backfill)."""
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    orchestration = OrchestrationFacade(db)
+    approvals = await orchestration.list_approvals_for_chatroom(chatroom_id)
+    results = []
+    for a in approvals:
+        votes = await orchestration.get_approval_votes(a.id)
+        results.append(_chatroom_approval_out(a, votes))
+    return results
 
 
 __all__ = ["chatroom_router", "workspace_router"]

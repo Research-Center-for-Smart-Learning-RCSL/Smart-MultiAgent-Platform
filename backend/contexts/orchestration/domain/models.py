@@ -394,6 +394,11 @@ class Approval:
     state: ApprovalState
     started_at: datetime
     ended_at: datetime | None
+    # F-13: the room this gate was raised in, persisted so a chatroom-scoped
+    # client can discover it after missing the approval.requested WS frame.
+    # None for rows created before this column existed, and whenever the
+    # gate's chatroom_id could not be resolved at creation.
+    chatroom_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)

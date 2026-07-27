@@ -69,6 +69,7 @@ class ApprovalRepository:
         leader_agent_id: uuid.UUID,
         approver_agent_ids: list[uuid.UUID],
         timeout_seconds: int,
+        chatroom_id: uuid.UUID | None = None,
     ) -> Approval:
         now = datetime.now(UTC)
         await self._db.execute(
@@ -81,6 +82,7 @@ class ApprovalRepository:
                 timeout_seconds=timeout_seconds,
                 state=ApprovalState.PENDING.value,
                 started_at=now,
+                chatroom_id=chatroom_id,
             ),
         )
         return Approval(
@@ -93,6 +95,7 @@ class ApprovalRepository:
             state=ApprovalState.PENDING,
             started_at=now,
             ended_at=None,
+            chatroom_id=chatroom_id,
         )
 
     async def get(self, approval_id: uuid.UUID) -> Approval | None:
@@ -171,6 +174,23 @@ class ApprovalRepository:
         )
         return [_row_to_approval(r) for r in rows]
 
+    async def list_for_chatroom(self, chatroom_id: uuid.UUID) -> list[Approval]:
+        """Approvals raised in a room (F-13). Pre-migration rows have a NULL
+        chatroom_id and are correctly absent — see the migration's docstring
+        for why they are not backfilled."""
+        rows = (
+            (
+                await self._db.execute(
+                    approvals.select()
+                    .where(approvals.c.chatroom_id == chatroom_id)
+                    .order_by(approvals.c.started_at),
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [_row_to_approval(r) for r in rows]
+
 
 def _row_to_approval(row: Any) -> Approval:
     return Approval(
@@ -183,6 +203,7 @@ def _row_to_approval(row: Any) -> Approval:
         state=ApprovalState(row["state"]),
         started_at=row["started_at"],
         ended_at=row["ended_at"],
+        chatroom_id=row["chatroom_id"],
     )
 
 
