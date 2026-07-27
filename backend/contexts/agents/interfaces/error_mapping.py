@@ -119,6 +119,11 @@ _MAP: ErrorMap = {
         404,
         "Workspace file not found",
     ),
+    errors.AgentConfigTooLarge: (
+        "agents/config-too-large",
+        413,
+        "Merged agent config exceeds the size limit for a config column",
+    ),
 }
 
 

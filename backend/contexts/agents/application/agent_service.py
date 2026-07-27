@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.agents.application.runtime.tool_registry import BUILTIN_TOOL_NAMES
 from contexts.agents.domain.errors import (
     AgentCapExceeded,
+    AgentConfigTooLarge,
     AgentNotFound,
     AgentToolNotFound,
     AgentToolTypeImmutable,
@@ -73,6 +74,7 @@ from shared_kernel import audit
 from shared_kernel.db.advisory_lock import advisory_xact_lock, knowmap_builder_lock_key
 from shared_kernel.db.restore import raise_restore_conflict
 from shared_kernel.json_merge import merge_json_config
+from shared_kernel.validation import config_bounds_violation
 
 _AGENT_CAP_PER_PROJECT = 1000
 
@@ -349,6 +351,18 @@ _SYSTEM_ACTOR_ID = uuid.UUID(int=0)
 # ones. A caller wanting a different cadence — or a deliberately inert agent —
 # passes an explicit config (even an empty {}), which is respected.
 _DEFAULT_WAKEUP_CONFIG: dict[str, Any] = {"triggers": {"every_n_messages": {"enabled": True, "n": 1}}}
+
+
+def _assert_config_within_bounds(value: dict[str, Any], *, field: str) -> None:
+    """Re-apply `BoundedConfig`'s limits to a merged config column.
+
+    Pydantic bounds the *request*; these columns merge, so N bounded patches would
+    otherwise accumulate into an unbounded row — and every later read, serialize
+    and wake-up parse of that agent pays for it.
+    """
+    violation = config_bounds_violation(value)
+    if violation is not None:
+        raise AgentConfigTooLarge(f"{field}: {violation}")
 
 
 class AgentService:
@@ -763,6 +777,7 @@ class AgentService:
                 if draft.replace_wakeup_config
                 else merge_json_config(current.wakeup_config, draft.wakeup_config)
             )
+            _assert_config_within_bounds(merged_wakeup, field="wakeup_config")
             values["wakeup_config"] = merged_wakeup
             # Human edit → update the authored snapshot (G.5).
             # System actor (uuid(int=0)) updates are self-modifications
@@ -775,9 +790,11 @@ class AgentService:
         if draft.wakeup_last_refreshed_at is not None:
             values["wakeup_last_refreshed_at"] = draft.wakeup_last_refreshed_at
         if draft.workflow_capabilities is not None:
-            values["workflow_capabilities"] = merge_json_config(
+            merged_capabilities = merge_json_config(
                 current.workflow_capabilities, draft.workflow_capabilities
             )
+            _assert_config_within_bounds(merged_capabilities, field="workflow_capabilities")
+            values["workflow_capabilities"] = merged_capabilities
 
         updated = await self._agents.patch(
             agent_id=agent_id,

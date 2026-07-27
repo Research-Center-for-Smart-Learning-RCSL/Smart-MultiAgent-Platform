@@ -19,7 +19,7 @@ the `bounded_json` factory directly when a field needs its own bounds.
 from __future__ import annotations
 
 import json
-from typing import Annotated, Any, TypeVar
+from typing import Annotated, Any, Final, TypeVar
 
 from pydantic import AfterValidator
 
@@ -48,6 +48,36 @@ def _measure(value: object) -> tuple[int, int]:
     return max_depth, nodes
 
 
+def json_bounds_violation(
+    value: object,
+    *,
+    max_bytes: int,
+    max_depth: int,
+    max_nodes: int,
+) -> str | None:
+    """Return why ``value`` exceeds the given bounds, or ``None`` if it fits.
+
+    Split out of ``bounded_json`` so a service that *derives* a stored value from
+    a request — rather than persisting the request value itself — can re-apply the
+    same limits to its own output. A per-request bound does not bound the stored
+    row when writes are additive: N bounded patches merge into an unbounded
+    column (see ``shared_kernel.json_merge``).
+    """
+    depth, nodes = _measure(value)
+    if depth > max_depth:
+        return f"JSON nesting too deep ({depth} > {max_depth} levels)"
+    if nodes > max_nodes:
+        return f"JSON has too many elements ({nodes} > {max_nodes})"
+    try:
+        encoded = json.dumps(value, separators=(",", ":"), default=str)
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        return "value is not JSON-serializable"
+    size = len(encoded.encode("utf-8"))
+    if size > max_bytes:
+        return f"JSON payload too large ({size} > {max_bytes} bytes)"
+    return None
+
+
 def bounded_json(
     *,
     max_bytes: int,
@@ -67,18 +97,14 @@ def bounded_json(
     def _check(value: _T | None) -> _T | None:
         if value is None:
             return value
-        depth, nodes = _measure(value)
-        if depth > max_depth:
-            raise ValueError(f"JSON nesting too deep ({depth} > {max_depth} levels)")
-        if nodes > max_nodes:
-            raise ValueError(f"JSON has too many elements ({nodes} > {max_nodes})")
-        try:
-            encoded = json.dumps(value, separators=(",", ":"), default=str)
-        except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
-            raise ValueError("value is not JSON-serializable") from exc
-        size = len(encoded.encode("utf-8"))
-        if size > max_bytes:
-            raise ValueError(f"JSON payload too large ({size} > {max_bytes} bytes)")
+        violation = json_bounds_violation(
+            value,
+            max_bytes=max_bytes,
+            max_depth=max_depth,
+            max_nodes=max_nodes,
+        )
+        if violation is not None:
+            raise ValueError(violation)
         return value
 
     return AfterValidator(_check)
@@ -87,7 +113,25 @@ def bounded_json(
 # Small key/value configuration blobs — agent wakeup/workflow capability config,
 # RAG chunk params, search-provider config. Generous for legitimate settings,
 # far below anything that stresses the row.
-BoundedConfig = Annotated[dict[str, Any], bounded_json(max_bytes=16_000, max_depth=12, max_nodes=500)]
+CONFIG_MAX_BYTES: Final = 16_000
+CONFIG_MAX_DEPTH: Final = 12
+CONFIG_MAX_NODES: Final = 500
+BoundedConfig = Annotated[
+    dict[str, Any],
+    bounded_json(max_bytes=CONFIG_MAX_BYTES, max_depth=CONFIG_MAX_DEPTH, max_nodes=CONFIG_MAX_NODES),
+]
+
+
+def config_bounds_violation(value: object) -> str | None:
+    """`BoundedConfig`'s limits, applicable to a value the service derived rather
+    than one Pydantic validated. See :func:`json_bounds_violation`."""
+    return json_bounds_violation(
+        value,
+        max_bytes=CONFIG_MAX_BYTES,
+        max_depth=CONFIG_MAX_DEPTH,
+        max_nodes=CONFIG_MAX_NODES,
+    )
+
 
 # Workflow graph definitions — legitimately large (many nodes/edges), so the
 # byte/node ceiling is high while depth stays bounded against parse amplification.

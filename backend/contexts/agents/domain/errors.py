@@ -176,6 +176,17 @@ class WorkspaceQuotaExceeded(AgentsError):
     code = "agents/workspace-quota-exceeded"
 
 
+class AgentConfigTooLarge(AgentsError):
+    """A free-form config column would exceed `BoundedConfig`'s limits.
+
+    Writes to `wakeup_config` / `workflow_capabilities` merge into the stored
+    value, so the per-request bound Pydantic applies does not bound the result:
+    without this, repeated bounded patches grow the row without limit.
+    """
+
+    code = "agents/config-too-large"
+
+
 class WorkspaceFileNotFound(AgentsError):
     code = "agents/workspace-file-not-found"
 
@@ -183,6 +194,7 @@ class WorkspaceFileNotFound(AgentsError):
 __all__ = [
     "A2AForbidden",
     "AgentCapExceeded",
+    "AgentConfigTooLarge",
     "AgentNameTaken",
     "AgentNotFound",
     "AgentToolNotFound",

@@ -141,14 +141,11 @@ function normalizeLegacyFlatTriggers(r: Record<string, unknown>): WakeupConfig['
  * corrected the moment it's loaded rather than silently persisted or
  * discarded.
  */
-// Root keys this module consumes and re-emits itself. Everything else in a
-// stored config is a designer-written key (`soft_bounds`, R15.08) that the
-// editor cannot show and must not silently drop: the result of this function is
-// what the views PATCH back, so a key missing here is a key the designer loses.
-const NORMALIZED_ROOT_KEYS = ['triggers', 'allow_self_open', 'refresh_every_hours'] as const
-// Consumed only on the legacy path (see `normalizeLegacyFlatTriggers`); on that
-// path they have already been folded into `triggers`.
-const LEGACY_ROOT_KEYS = ['every_n_messages', 'silence_minutes', 'call_only', 'autostop_rounds'] as const
+// Legacy-shape root keys: on that path `normalizeLegacyFlatTriggers` has already
+// folded them into `triggers`, so carrying them through as well would re-emit the
+// pre-2026-06-26 shape alongside its replacement. The three keys this function
+// returns explicitly need no filtering — they are spread last and win.
+const LEGACY_ROOT_KEYS = ['every_n_messages', 'silence_minutes', 'call_only', 'autostop_rounds']
 
 export function normalizeWakeupConfig(raw: unknown): WakeupConfig {
   const r = (raw ?? {}) as Record<string, unknown>
@@ -162,13 +159,12 @@ export function normalizeWakeupConfig(raw: unknown): WakeupConfig {
     triggers.silence_minutes.enabled = false
   }
 
-  const consumed = new Set<string>([
-    ...NORMALIZED_ROOT_KEYS,
-    ...(isLegacy ? LEGACY_ROOT_KEYS : []),
-  ])
-  const passthrough = Object.fromEntries(
-    Object.entries(r).filter(([key]) => !consumed.has(key)),
-  )
+  // Everything this module does not model is a designer-written key (`soft_bounds`,
+  // R15.08) that the editor cannot show and must not drop: this result is what the
+  // views PATCH back, so a key missing here is a key the designer loses.
+  const passthrough = isLegacy
+    ? Object.fromEntries(Object.entries(r).filter(([key]) => !LEGACY_ROOT_KEYS.includes(key)))
+    : r
 
   return {
     ...passthrough,
