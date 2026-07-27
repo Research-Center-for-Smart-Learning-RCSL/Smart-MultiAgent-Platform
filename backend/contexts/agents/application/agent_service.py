@@ -378,12 +378,30 @@ def _normalize_wakeup_config(merged: dict[str, Any]) -> dict[str, Any]:
     authored snapshot verbatim, or the drift check `current == authored`
     (`wakeup_service.refresh_wakeup_config`) could never converge for a snapshot
     written before this normalization existed.
+
+    Merges the normalized shape back onto `merged` (rather than a flat
+    `dict.update`) so an unmodelled key nested *inside* a known container --
+    e.g. a custom field under `triggers.silence_minutes` or `soft_bounds` --
+    survives too. A flat update would replace those containers wholesale with
+    `to_dict()`'s output, which only knows the documented sub-fields, silently
+    erasing anything else nested inside them.
     """
     from contexts.orchestration.domain.models import WakeupConfig
 
-    normalized = dict(merged)
-    normalized.update(WakeupConfig.from_dict(merged).to_dict())
-    return normalized
+    return merge_json_config(merged, WakeupConfig.from_dict(merged).to_dict())
+
+
+def _merge_and_normalize_wakeup(
+    base: dict[str, Any] | None, patch: dict[str, Any], *, replace: bool, field: str
+) -> dict[str, Any]:
+    """Shared merge/normalize/bounds-check for `wakeup_config` and
+    `wakeup_authored_snapshot` — same rule (Q-4), different base value each
+    caller supplies. A `replace` write (the G.5 restore) skips both merge and
+    normalization and lands `patch` verbatim — see `_normalize_wakeup_config`.
+    """
+    merged = patch if replace else _normalize_wakeup_config(merge_json_config(base, patch))
+    _assert_config_within_bounds(merged, field=field)
+    return merged
 
 
 class AgentService:
@@ -799,13 +817,12 @@ class AgentService:
             # defaults for fields the caller omitted and merge over the stored
             # values, turning a partial PATCH into a silent reset. Not applied on
             # a `replace_wakeup_config` restore — see `_normalize_wakeup_config`.
-            merged_wakeup = (
-                draft.wakeup_config
-                if draft.replace_wakeup_config
-                else _normalize_wakeup_config(merge_json_config(current.wakeup_config, draft.wakeup_config))
+            values["wakeup_config"] = _merge_and_normalize_wakeup(
+                current.wakeup_config,
+                draft.wakeup_config,
+                replace=draft.replace_wakeup_config,
+                field="wakeup_config",
             )
-            _assert_config_within_bounds(merged_wakeup, field="wakeup_config")
-            values["wakeup_config"] = merged_wakeup
             # Human edit → update the authored snapshot (G.5).
             # System actor (uuid(int=0)) updates are self-modifications
             # and should NOT overwrite the authored snapshot.
@@ -824,12 +841,12 @@ class AgentService:
                     if current.wakeup_authored_snapshot is not None
                     else current.wakeup_config
                 )
-                merged_snapshot = (
-                    draft.wakeup_config
-                    if draft.replace_wakeup_config
-                    else _normalize_wakeup_config(merge_json_config(snapshot_base, draft.wakeup_config))
+                merged_snapshot = _merge_and_normalize_wakeup(
+                    snapshot_base,
+                    draft.wakeup_config,
+                    replace=draft.replace_wakeup_config,
+                    field="wakeup_authored_snapshot",
                 )
-                _assert_config_within_bounds(merged_snapshot, field="wakeup_authored_snapshot")
                 values["wakeup_authored_snapshot"] = merged_snapshot or None
         if draft.wakeup_last_refreshed_at is not None:
             values["wakeup_last_refreshed_at"] = draft.wakeup_last_refreshed_at
