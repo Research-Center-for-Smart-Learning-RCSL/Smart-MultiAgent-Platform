@@ -306,6 +306,7 @@ async def wakeup_refresh(ctx: dict[str, Any]) -> str:
     from contexts.orchestration.application.wakeup_service import WakeupService
 
     refreshed = 0
+    failed = 0
     async with async_session() as db:
         svc = WakeupService(db)
         facade = AgentsFacade(db)
@@ -315,13 +316,24 @@ async def wakeup_refresh(ctx: dict[str, Any]) -> str:
                 if await svc.refresh_wakeup_config(agent.id):
                     refreshed += 1
             except Exception:
+                # One bad agent must not abort the sweep or discard every other
+                # agent's already-completed refresh; clear any aborted
+                # transaction so the loop's remaining reads/writes succeed.
+                await db.rollback()
+                failed += 1
                 logger.bind(agent_id=str(agent.id)).exception("wakeup refresh failed")
-        await db.commit()
+        try:
+            await db.commit()
+        except Exception:
+            logger.bind(event="wakeup_refresh_commit_failed", lost=refreshed, failed=failed).exception(
+                "wakeup refresh sweep: commit failed, every refresh this sweep collected was lost"
+            )
+            return f"sweep_failed lost={refreshed} failed={failed}"
 
-    logger.bind(event="wakeup_refresh_done", refreshed=refreshed).info(
-        f"wakeup refresh sweep: {refreshed} agents refreshed"
+    logger.bind(event="wakeup_refresh_done", refreshed=refreshed, failed=failed).info(
+        f"wakeup refresh sweep: {refreshed} agents refreshed, {failed} failed"
     )
-    return "ok"
+    return f"refreshed={refreshed} failed={failed}"
 
 
 def make_dlq_audit_callback() -> Callable[[uuid.UUID, str, str, int], Awaitable[None]]:
