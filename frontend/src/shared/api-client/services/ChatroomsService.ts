@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { AgentRef } from '../models/AgentRef';
 import type { AgentRolePatchIn } from '../models/AgentRolePatchIn';
+import type { ApprovalWithVotesOut } from '../models/ApprovalWithVotesOut';
 import type { ChatroomCreateIn } from '../models/ChatroomCreateIn';
 import type { ChatroomMemberOut } from '../models/ChatroomMemberOut';
 import type { ChatroomOut } from '../models/ChatroomOut';
@@ -193,6 +194,35 @@ export class ChatroomsService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List approval gates raised in a chatroom
+     * Room-scoped read side for F-13: the connect-time client reconcile fetches
+     * this list to discover an approval gate whose `approval.requested` WS frame
+     * was missed while disconnected. Gated the same way as every other room read
+     * (`resolve_room_access` + `ensure_can_read`), not by project membership --
+     * the room is the resource here, and a platform admin passes `ensure_can_read`
+     * the same way every other room read already does. Rows created before the
+     * `chatroom_id` column existed are simply absent, not an error (Q-4 of the
+     * task dossier: no backfill).
+     * @returns ApprovalWithVotesOut Successful Response
+     * @throws ApiError
+     */
+    public static listChatroomApprovalsApiChatroomsChatroomIdApprovalsGet({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<Array<ApprovalWithVotesOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/approvals',
+            path: {
+                'chatroom_id': chatroomId,
+            },
             errors: {
                 422: `Validation Error`,
             },

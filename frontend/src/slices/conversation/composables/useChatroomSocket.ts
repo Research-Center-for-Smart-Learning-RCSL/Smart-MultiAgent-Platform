@@ -16,7 +16,7 @@ import { useOrchestrationStore } from '@shared/stores/orchestration'
 import { getActiveActivation, useActivitiesStore } from '@slices/activities'
 import { getApproval } from '@slices/workflow'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
-import { getChatroomPresence, getMessage, listMessages } from '../api'
+import { getChatroomPresence, getMessage, listChatroomApprovals, listMessages } from '../api'
 import { useConversationStore } from '../stores/conversation'
 import { mergeMessages } from '../utils/mergeMessages'
 import { PAGE_SIZE } from './useChatroomMessages'
@@ -139,6 +139,31 @@ export function useChatroomSocket(roomId: string) {
 
   function reconcileApprovals(): void {
     void orchStore.reconcilePending(roomId, fetchApprovalOrNull)
+  }
+
+  // F-13: `reconcileApprovals` above can only revisit an approval id the
+  // client already holds a card for — it cannot discover a gate whose
+  // `approval.requested` frame was itself missed while disconnected. Fetch
+  // the room's approval list on connect and seed any gate not already in
+  // `liveApprovals[roomId]`; `reconcilePending` then keeps its state fresh.
+  // Generation-guarded like every other connect-time async path in this
+  // file — a flapping socket can overlap two discovery fetches.
+  let approvalDiscoveryGeneration = 0
+
+  async function discoverApprovals(): Promise<void> {
+    const generation = ++approvalDiscoveryGeneration
+    try {
+      const found = await listChatroomApprovals(roomId)
+      if (generation !== approvalDiscoveryGeneration) return
+      for (const a of found) {
+        if (!orchStore.liveApprovals[roomId]?.[a.id]) {
+          orchStore.upsertApproval(roomId, a)
+        }
+      }
+    } catch {
+      // Best-effort: the 30s reconcile interval and the next connect both
+      // get another chance.
+    }
   }
 
   function startApprovalReconcile(): void {
@@ -438,7 +463,9 @@ export function useChatroomSocket(roomId: string) {
       void reconcileMessages()
       void resyncPresence()
       void resyncActivation()
-      // Recover any approval.resolved lost while the socket was down.
+      // Discover a gate raised entirely while disconnected (F-13), and
+      // recover any approval.resolved lost while the socket was down.
+      void discoverApprovals()
       reconcileApprovals()
     }
   })
