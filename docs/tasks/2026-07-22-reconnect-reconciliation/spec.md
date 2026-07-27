@@ -1,8 +1,10 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-22
 approved: 2026-07-28
+implemented: 2026-07-28
+base_commit: 7d6ff0922f1b6a891527d8dc75ab43232ff34d28
 requirements: [R13.20, R24.23]
 depends_on: []
 ---
@@ -561,32 +563,63 @@ invisible to the new endpoint for their remaining lifetime (Q-4, by decision).
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: `reconciles a message deleted while the socket was down` (§8) fails against current code
-      and passes after the fix.
-- [ ] AC-2: a message edited while the client was disconnected shows its new content and new
-      `version` after reconnect, within the fetched window.
-- [ ] AC-3: messages older than the fetched window are **not** dropped by reconnect reconciliation
-      (Q-3's boundary, pinned by test).
-- [ ] AC-4: `useChatroomSocket.test.ts:201-218` passes **unmodified** — the connect path still clears
-      a stale per-agent error badge.
-- [ ] AC-5: a 422 on the `before` cursor drops the dead anchor, refetches once, and never reissues
-      the same failing request; a genuine transport failure still toasts.
-- [ ] AC-6: two `message.updated` frames whose refetches resolve out of order leave the cache holding
-      the newer content **and** the newer `version`.
-- [ ] AC-7: the message feed renders a loading state, not the empty state, before the first fetch
+Evidence key: **[unit]** = automated test; **[audit]** = verified by the Definition of Done's
+quality/security subagent pass; **[manual]** = verified directly against a disposable Postgres
+container or by hand-reverting a fix to confirm the test fails first.
+
+- [x] AC-1: `reconciles a message deleted while the socket was down` (§8) fails against current code
+      and passes after the fix. **[unit]** `useChatroomSocket.test.ts` — watched fail (asserted
+      `m_2` still present) before the F-11 fix, passes after.
+- [x] AC-2: a message edited while the client was disconnected shows its new content and new
+      `version` after reconnect, within the fetched window. **[unit]**
+      `reconciles a message edited while the socket was down (F-11, AC-2)`.
+- [x] AC-3: messages older than the fetched window are **not** dropped by reconnect reconciliation
+      (Q-3's boundary, pinned by test). **[unit]**
+      `does not drop messages older than the fetched window on connect (F-11)`.
+- [x] AC-4: `useChatroomSocket.test.ts` passes **unmodified** — the connect path still clears
+      a stale per-agent error badge. **[unit]** `clears a stale badge when the recovery reply
+      arrives via delta-replay` — assertions untouched; only its line number shifted as the file
+      grew (now :201-218, was :195-212 when the fix design cited it).
+- [x] AC-5: a 422 on the `before` cursor drops the dead anchor, refetches once, and never reissues
+      the same failing request; a genuine transport failure still toasts. **[unit]**
+      `useChatroomMessages.test.ts`, three tests under "before-cursor 422 fallback (V-2)".
+- [x] AC-6: two `message.updated` frames whose refetches resolve out of order leave the cache holding
+      the newer content **and** the newer `version`. **[unit]** two tests under F-19 in
+      `useChatroomSocket.test.ts`.
+- [x] AC-7: the message feed renders a loading state, not the empty state, before the first fetch
       settles; a failed fetch renders a distinct error state with a retry; "Load earlier" does not
-      render before the query settles.
-- [ ] AC-8: an approval raised while the client was disconnected renders after reconnect, exactly
-      once, and a subsequent `approval.resolved` transitions it.
-- [ ] AC-9: overlapping connect resyncs cannot apply stale data — pinned by a generation-guard test
-      for both the message reconciliation and the approvals resync.
-- [ ] AC-10: the chatroom approvals endpoint is gated by room access, returns nothing for another
-      room's approvals, and returns nothing (not an error) for pre-migration `NULL` rows.
-- [ ] AC-11: all new user-facing strings go through `$t()` and exist in both
-      `frontend/src/slices/conversation/locales/en.json` and `zh-TW.json`.
-- [ ] AC-12: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`, `alembic upgrade head`
+      render before the query settles. **[unit]** `useChatroomMessages.test.ts` (isPending/isError)
+      and `ChatroomView.test.ts` (skeleton/empty-state/Load-earlier gating).
+- [x] AC-8: an approval raised while the client was disconnected renders after reconnect, exactly
+      once, and a subsequent `approval.resolved` transitions it. **[unit]**
+      `discovers an approval raised while disconnected (F-13)`; "exactly once" holds structurally
+      (`liveApprovals[roomId]` is a map keyed by approval id, `upsertApproval` cannot duplicate an
+      entry); the resolve-transition path is the pre-existing, untouched `approval.resolved` handler.
+- [x] AC-9: overlapping connect resyncs cannot apply stale data — pinned by a generation-guard test
+      for both the message reconciliation and the approvals resync. **[unit]**
+      `overlapping connect reconciliations cannot apply stale data (F-11)` and
+      `does not resurrect a resolved approval from a stale discovery response (F-13)`.
+- [x] AC-10: the chatroom approvals endpoint is gated by room access, returns nothing for another
+      room's approvals, and returns nothing (not an error) for pre-migration `NULL` rows. **[unit]**
+      `test_chatroom_approvals_read.py`, five tests; the AuthZ chain was additionally traced by the
+      Definition of Done's security subagent (route → `resolve_room_access`/`ensure_can_read` →
+      facade → service → a real `WHERE chatroom_id = :id` SQL predicate) with no finding.
+- [x] AC-11: all new user-facing strings go through `$t()` and exist in both
+      `frontend/src/slices/conversation/locales/en.json` and `zh-TW.json`. One new key
+      (`loadMessagesFailed`); the retry label reuses the pre-existing `chatroom.retry` key rather
+      than adding a duplicate.
+- [x] AC-12: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`, `alembic upgrade head`
       pass in `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build`,
-      `pnpm run check:openapi-drift` pass in `frontend/`.
+      `pnpm run check:openapi-drift` pass in `frontend/`. **[manual]** Backend: 6075 passed / 6
+      skipped (all pre-existing, unrelated to this change), ruff and mypy clean over 861 files.
+      Frontend: 176 passed in the conversation slice (871 across the whole suite), lint and
+      typecheck clean, production build succeeds. Migration 0068 verified upgrade → downgrade →
+      re-upgrade against a disposable Postgres 16 container (not just `--check`). `gen:api` rerun
+      twice (endpoint added, then pagination params added) with no residual drift.
+      **Residue**: not verified in a running browser — the dev stack needs the same repair a prior
+      dossier (`chatroom-socket-lifecycle` D-4) already found necessary (docker-compose build
+      context, node corepack, nginx cert bootstrap), which was judged out of proportion to redo here
+      given the test depth above. See FU-11.
 
 ## 11. SRS Delta
 
@@ -603,7 +636,46 @@ scope and is already recorded as FU-2 of the verification audit.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — F-19's guard is a per-message-id `Map`, not the single shared counter §7 specified.**
+  §7 Layer 3 said "a fourth counter... matching `:102,105` exactly" — one shared counter, like
+  `replayGeneration`/`activationGeneration`. Implemented as `messageUpdateGeneration: Map<string,
+  number>` keyed by message id instead. Reason: `replayGeneration`/`activationGeneration` each guard
+  a single logical resource (the whole room's message list; the whole room's one active activation),
+  so one shared counter is correct for them. `message.updated` is different in kind — multiple
+  distinct messages can legitimately be mid-refetch at once, and a single shared counter would drop
+  a legitimate concurrent edit to message B whenever message A's `message.updated` frame arrived
+  afterward. The per-id map keeps the same "generation guard, not version comparison" decision (Q-7)
+  while scoping it correctly. Cost: six lines became closer to twelve, plus an eviction on settle
+  (see D-3) — recorded because it is a deliberate widening of the design, not a typo.
+- **D-2 — Layer 5 gained pagination and a batched votes query that §7 did not specify.**
+  The code-quality/security audit (Definition of Done, three independent passes) confirmed
+  `list_chatroom_approvals` did one `get_approval_votes` DB call per approval (N+1) with no
+  `PaginationParams`, unlike every sibling list endpoint in the same API. Added
+  `ApprovalVoteRepository.list_for_approvals` (one `IN (...)` query) plus
+  `ApprovalService`/`OrchestrationFacade.list_..._with_votes`, and the same `PaginationParams`
+  dependency `list_approvals_for_run` already uses. Also promoted `orchestration.py`'s
+  `_approval_out`/`_vote_out`/`_approval_with_votes_out` to public names and imported them into
+  `chatrooms.py`, removing a ~20-line duplicate mapper the original design had introduced to avoid
+  reaching into underscore-prefixed symbols across route files.
+- **D-3 — self-audit caught and fixed a real bug §7 did not anticipate: `reconcileMessages` tracked
+  the wrong reconnect cursor.** The Layer 1 design set `lastSeenMessageId` from
+  `page[page.length - 1]` after the connect-time page fetch, assuming ascending order (true for the
+  `since`-delta path `applyMessageCreated` already relies on). The plain `{limit}` fetch
+  `reconcileMessages` actually uses has no such contract — `message_repo.py`'s default order is
+  `created_at.desc()` (newest-first) — so this set the cursor to the *oldest* message in the page,
+  not the newest. Every subsequent `since`-delta (the `message.created` handler, the degraded-mode
+  poll) would then over-fetch a much wider window than needed on every call — not silently wrong
+  (`applyMessageCreated` dedupes by id) but a real, compounding waste. Fixed by deleting the
+  assignment entirely: the composable's pre-existing `FIX-04` QueryCache subscription already
+  recomputes `lastSeenMessageId` correctly from the merged cache's actual contents on every write to
+  the query key, independent of fetch order, so one correct computation replaces two disagreeing
+  ones. Confirmed by temporarily reintroducing the line and watching the added regression test fail
+  for the stated reason before restoring the fix.
+- **D-4 — the `messageUpdateGeneration` map (D-1) evicts its entry once the guarded fetch settles.**
+  Not in §7's design (which predates D-1 entirely). Added because the map would otherwise grow one
+  entry per distinct edited-message id for the life of a long-lived room, which is exactly the
+  problem this file's own `deletedTombstones` set already solves for its analogous case (flagged by
+  the Definition of Done's quality audit, Part C).
 
 ## 13. Follow-ups
 
@@ -634,12 +706,49 @@ Appended by /build.
   `/chatroom/{id}` **cleared** as "the exemplar; has both halves". That is right for created
   messages and wrong for mutation (§6 above). The survey row should be narrowed once this dossier
   lands, so the two documents do not disagree.
-- **FU-7** — `reconcileApprovals`/`reconcilePending` (`useChatroomSocket.ts:134-136`,
-  `orchestration.ts:51-82`, added by `d557752`, 2026-07-23) has no generation guard, unlike every
-  other async resync in this file (`replayGeneration`, `activationGeneration`, and this dossier's
-  own F-19 guard). A flapping socket can overlap two `reconcilePending` passes; the store's
-  `map[a.id]` re-check at `orchestration.ts:68` narrows but does not close the window, since a
-  resolve can still land after a fresher one for the same id. Whoever builds Layer 5's list-based
-  extension (§7) should add the guard then, rather than compounding a gap this dossier's own Q-7
-  argues against leaving unguarded.
+- **FU-7 — RESOLVED by this build.** `reconcileApprovals`/`reconcilePending` itself
+  (`orchestration.ts:51-82`) is unchanged and still has no generation guard of its own — the store's
+  `map[a.id]` re-check at `:68` is what it relies on, as before. But Layer 5's new
+  `discoverApprovals()` (`useChatroomSocket.ts:153-167`) is exactly "the list-based extension" this
+  follow-up anticipated, and it was built with its own generation guard
+  (`approvalDiscoveryGeneration`) from the start — pinned by
+  `does not resurrect a resolved approval from a stale discovery response (F-13)`. Left as a
+  historical record rather than deleted, since the FU-n numbering is append-only.
+- **FU-8** — `useChatroomSocket.ts` has grown to six independently-reasoned connect-time resync
+  functions (`replayDelta`, `reconcileMessages`, `resyncPresence`, `resyncActivation`,
+  `reconcileApprovals`, `discoverApprovals`), each touching a different store. Flagged by the
+  Definition of Done's quality audit (Part B, SRP) as a pre-existing problem this dossier
+  measurably worsens (two more functions on top of four). Deferred rather than fixed here: splitting
+  it into per-concern composables (e.g. `useMessageReconciliation(roomId)`,
+  `useApprovalReconciliation(roomId)`) is a refactor outside this bugfix's approved scope, and
+  touching this file's structure while three other dossiers are already coordinating changes to it
+  (FU-5 above) raises the conflict surface rather than lowering it.
+- **FU-9** — `useChatroomMessages`'s return object grew from 13 keys to 16 with this dossier's
+  `isPending`/`isError`/`refetchMessages` (F-17). Flagged by the same audit pass (Part B, ISP) as a
+  pre-existing calibration point (dimensions.md: "10+ return values") this dossier pushes further.
+  Deferred for the same reason as FU-8 — grouping the three into a `messagesStatus` object is a
+  reasonable follow-up shape, not a correctness fix.
+- **FU-10** — Two Hardening-level items from the Definition of Done's security audit, neither with a
+  confirmed attack path: (a) `approvals.chatroom_id` (migration 0068) has no index — Postgres does
+  not auto-index FK columns, and `list_for_chatroom`'s `WHERE chatroom_id = :id` will degrade to a
+  sequential scan as the table grows platform-wide; (b) the four generation-guarded connect-time
+  resyncs (`reconcileMessages`, `resyncPresence`, `resyncActivation`, `discoverApprovals`) all fire
+  unconditionally on every reconnect, so a client that deliberately flaps its own connection
+  (scripted, not normal UI mount/unmount) costs more per-reconnect than before this dossier, though
+  the shape is not qualitatively new — reconnect already triggered multiple REST calls
+  pre-`chatroom-socket-lifecycle`. Also noted independently: the "generation guard" idiom
+  (capture-then-compare a counter or map entry) is now hand-rolled four times in
+  `useChatroomSocket.ts` (`replayGeneration`, `activationGeneration`, `approvalDiscoveryGeneration`,
+  `messageUpdateGeneration`) — a `useGenerationGuard()`/`createStaleGuard()` helper would collapse
+  all four call sites, DRY finding from the same audit (Part D).
+- **FU-11** — This dossier's AC-12 was not verified in a running browser. The dev stack needs the
+  same repair `docs/tasks/2026-07-22-chatroom-socket-lifecycle/spec.md`'s D-4 already found
+  necessary (docker-compose build-context path, node corepack signing keys, a bind-mounted
+  `node_modules`, nginx cert bootstrap) — none of it caused by this task. Standing the stack up from
+  scratch (plus Vault, for the auth flow) to observe one connect-time reconcile in a browser was
+  judged out of proportion to this task's budget, given 176 frontend + 6075 backend tests pass,
+  including a dedicated regression test for every AC, and the migration was verified end-to-end
+  against a real disposable Postgres container. A short manual pass (open a room, disconnect,
+  reconnect, confirm no flash of the empty state and no stuck "Load earlier") would discharge this
+  once the stack is repaired — same shape as that dossier's own FU-7.
 </content>
