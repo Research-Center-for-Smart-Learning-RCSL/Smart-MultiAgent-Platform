@@ -52,14 +52,6 @@ parallel.
 - `2026-07-22-settings-form-reconciliation` (bugfix, draft) — `depends_on: []`. a2u F-7, F-8 plus
   verification-gap V-4. **Corrects the a2u audit's own §3 coupling note**: F-8 is not contingent on
   F-1, and the evidence is in its Q-1.
-- `2026-07-22-presence-transition-and-release-wakeup` (bugfix, approved) — `depends_on: []`. a2u F-5,
-  F-21. Imposes a **hard constraint on the socket-lifecycle dossier**: any keepalive interval must
-  stay below `_CONN_TTL_SECONDS = 150`. **Re-baselined 2026-07-27** against the landed
-  `2026-07-22-wakeup-trigger-state-and-bounds`: its Part A2 is withdrawn (the presence flag it paused
-  no longer exists) and A1 is now the whole of Part A, and more load-bearing rather than less, since
-  the reconciled roster became the only remaining liveness authority. See its Q-6. Its ~50 code
-  citations were re-verified and corrected against `main` on 2026-07-27 (line numbers had drifted;
-  substance held). **Blocks `2026-07-27-wakeup-sweep-failure-isolation`.**
 - `2026-07-22-turn-outcome-reporting` (bugfix, draft) — `depends_on: []`. a2u F-6, F-9, F-15 plus
   a2a F-40. A committed reply is recorded as a failed turn when the post-commit publish raises.
   Names two test-locked decisions that must be decided, not silently edited.
@@ -78,6 +70,14 @@ parallel.
   same query can return a different page; and the highlight marker exists in three incompatible
   forms across backend, sanitiser and CSS. Touches DOMPurify config — §7.2 states what must not
   weaken.
+- `2026-07-27-wakeup-sweep-failure-isolation` (bugfix, approved) — `depends_on:
+  [2026-07-22-presence-transition-and-release-wakeup]`, now **implemented 2026-07-27**, so this is
+  unblocked. From `docs/audits/2026-07-27-wakeup-subsystem/` F-3 and F-4 (both minor): the hourly
+  `wakeup_refresh` sweep never rolls back a failed agent, so one DB error discards every refresh in
+  the sweep while the log reports isolated failures; and the retention presence scrub still drives
+  a hook that C1 turned into a no-op, with a comment claiming a protection it no longer provides.
+  Its C2 removal of the retention hook is justified by the reconciled roster read the presence
+  dossier just made trustworthy.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
@@ -87,15 +87,7 @@ parallel.
 
 ## Blocked
 
-- `2026-07-27-wakeup-sweep-failure-isolation` (bugfix, approved) — waiting on
-  `2026-07-22-presence-transition-and-release-wakeup` (approved, not yet implemented). From
-  `docs/audits/2026-07-27-wakeup-subsystem/` F-3 and F-4 (both minor): the hourly `wakeup_refresh`
-  sweep never rolls back a failed agent, so one DB error discards every refresh in the sweep while
-  the log reports isolated failures; and the retention presence scrub still drives a hook that C1
-  turned into a no-op, with a comment claiming a protection it no longer provides. **Overlap
-  prerequisite**: both edit the presence path in `wakeup_service.py` within ten lines of each other,
-  and this dossier's removal of the retention hook is justified by the reconciled roster read that
-  the presence dossier makes trustworthy.
+Nothing currently blocked.
 
 ## In progress
 
