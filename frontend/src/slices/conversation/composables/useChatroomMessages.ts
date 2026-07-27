@@ -29,6 +29,10 @@ import type { Attachment, DisplayMessage, Message } from '../types'
 // affordances only.
 const EDIT_WINDOW_MS = 5 * 60 * 1000
 
+// Exported so useChatroomSocket's connect-time reconcile (F-11) fetches the
+// same page size, rather than drifting into a second tunable.
+export const PAGE_SIZE = 100
+
 export function useChatroomMessages(
   chatroomId: string,
   listRef: Readonly<{ value: HTMLElement | null }>,
@@ -68,7 +72,6 @@ export function useChatroomMessages(
 
   // ---------- pagination ---------------------------------------------------
 
-  const PAGE_SIZE = 100
   const olderMessages = ref<Message[]>([])
   const hasOlderMessages = ref(true)
   const loadingOlder = ref(false)
