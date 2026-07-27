@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-07-27
 requirements: [R15.05b, R15.09]
 depends_on: [2026-07-22-presence-transition-and-release-wakeup]

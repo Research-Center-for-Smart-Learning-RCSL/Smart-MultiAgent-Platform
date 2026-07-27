@@ -59,7 +59,7 @@ parallel.
   no longer exists) and A1 is now the whole of Part A, and more load-bearing rather than less, since
   the reconciled roster became the only remaining liveness authority. See its Q-6. **Blocks
   `2026-07-27-wakeup-sweep-failure-isolation`.**
-- `2026-07-27-wakeup-config-key-preservation` (bugfix, draft) — `depends_on: []`. From
+- `2026-07-27-wakeup-config-key-preservation` (bugfix, approved) — `depends_on: []`. From
   `docs/audits/2026-07-27-wakeup-subsystem/` F-1 (major): every UI save strips `soft_bounds` from
   `wakeup_config`, and the same write replaces `wakeup_authored_snapshot`, so a Platform Admin's
   designer bounds are erased with no recovery path. Makes the JSONB write additive (explicit `null`
@@ -92,15 +92,15 @@ parallel.
 
 ## Blocked
 
-- `2026-07-27-wakeup-config-type-validation` (bugfix, draft) — waiting on
-  `2026-07-27-wakeup-config-key-preservation` (draft). From
+- `2026-07-27-wakeup-config-type-validation` (bugfix, approved) — waiting on
+  `2026-07-27-wakeup-config-key-preservation` (approved). From
   `docs/audits/2026-07-27-wakeup-subsystem/` F-2 (major): a wrong-typed number in one agent's
   `wakeup_config` raises inside the per-agent dispatch loop and silently kills `every_n_messages` for
   every agent in the room. Makes the domain parser total against wrong types, isolates the loop per
   agent, and adds a typed API boundary (the prior dossier's FU-3). **Logical prerequisite**: its
   boundary model must use `extra="allow"` to permit the unmodelled root keys the key-preservation
   dossier exists to preserve, and both change the same `AgentService` write path.
-- `2026-07-27-wakeup-sweep-failure-isolation` (bugfix, draft) — waiting on
+- `2026-07-27-wakeup-sweep-failure-isolation` (bugfix, approved) — waiting on
   `2026-07-22-presence-transition-and-release-wakeup` (draft). From
   `docs/audits/2026-07-27-wakeup-subsystem/` F-3 and F-4 (both minor): the hourly `wakeup_refresh`
   sweep never rolls back a failed agent, so one DB error discards every refresh in the sweep while
