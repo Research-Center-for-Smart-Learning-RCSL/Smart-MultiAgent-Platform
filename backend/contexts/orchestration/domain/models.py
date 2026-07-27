@@ -116,7 +116,10 @@ T_MINUTES_MIN: int = 1
 T_MINUTES_MAX: int = 1440
 
 
-def _clamp(value: int, minimum: int, maximum: int) -> int:
+def clamp(value: int, minimum: int, maximum: int) -> int:
+    """Bound `value` to `[minimum, maximum]`. Exported (not `_`-prefixed) so
+    `WakeupService`'s soft-bounds clamping can share this formula instead of
+    reimplementing it (2026-07-28-wakeup-config-validation-and-patch-semantics F-7)."""
     return max(minimum, min(maximum, value))
 
 
@@ -127,7 +130,7 @@ def _default_below_one(value: int, *, default: int, maximum: int | None = None) 
 
 
 def _tolerant_int(value: Any) -> int:
-    """Coerce a raw JSONB numeric field to ``int`` for ``_clamp``/``_default_below_one``.
+    """Coerce a raw JSONB numeric field to ``int`` for ``clamp``/``_default_below_one``.
 
     Anything that is not a genuine ``int`` -- ``None``, a non-numeric string, a list,
     a dict, or (Q-7, 2026-07-27-wakeup-config-type-validation) a ``bool`` despite being
@@ -149,7 +152,30 @@ def _tolerant_soft_bound(value: Any, *, minimum: int, maximum: int) -> int | Non
     dossier's FU-7)."""
     if not is_plain_int(value):
         return None
-    return _clamp(value, minimum, maximum)
+    return clamp(value, minimum, maximum)
+
+
+def _tolerant_dict(value: Any) -> dict[str, Any]:
+    """Coerce a raw JSONB container field to `dict` for the `.get()` chain below.
+
+    A truthy non-dict (a string, a list, ...) resolves to `{}` rather than being
+    read via `.get()` directly, which would raise `AttributeError` -- the same
+    resolution `soft_bounds` already had via its own `isinstance` guard
+    (2026-07-28-wakeup-config-validation-and-patch-semantics F-1).
+    """
+    return value if isinstance(value, dict) else {}
+
+
+def _tolerant_bool(value: Any) -> bool:
+    """Coerce a raw JSONB boolean field to `bool`, defaulting wrong-typed input to
+    `False` rather than through `bool(value)`'s truthiness coercion.
+
+    `bool("false")` is `True` in Python -- a bare `bool(...)` on a wrong-typed
+    `enabled`/`allow_self_open` value would silently enable what the caller meant
+    to disable (F-2). Defaulting to `False` (never silently enable) mirrors
+    `_tolerant_int`'s "resolve to the safe floor" contract.
+    """
+    return value if isinstance(value, bool) else False
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,10 +234,10 @@ class WakeupConfig:
     def from_dict(cls, raw: dict[str, Any] | None) -> WakeupConfig:
         if not raw:
             return cls()
-        triggers_raw = raw.get("triggers") or {}
-        enm = triggers_raw.get("every_n_messages") or {}
-        sm = triggers_raw.get("silence_minutes") or {}
-        co = triggers_raw.get("call_only") or {}
+        triggers_raw = _tolerant_dict(raw.get("triggers"))
+        enm = _tolerant_dict(triggers_raw.get("every_n_messages"))
+        sm = _tolerant_dict(triggers_raw.get("silence_minutes"))
+        co = _tolerant_dict(triggers_raw.get("call_only"))
         soft_raw = raw.get("soft_bounds")
         soft_bounds = (
             WakeupSoftBounds(
@@ -230,12 +256,12 @@ class WakeupConfig:
         return cls(
             triggers=WakeupTriggers(
                 every_n_messages=EveryNMessagesTrigger(
-                    enabled=bool(enm.get("enabled", False)),
-                    n=_clamp(_tolerant_int(enm.get("n", 3)), N_MIN, N_MAX),
+                    enabled=_tolerant_bool(enm.get("enabled", False)),
+                    n=clamp(_tolerant_int(enm.get("n", 3)), N_MIN, N_MAX),
                 ),
                 silence_minutes=SilenceMinutesTrigger(
-                    enabled=bool(sm.get("enabled", False)),
-                    t_minutes=_clamp(
+                    enabled=_tolerant_bool(sm.get("enabled", False)),
+                    t_minutes=clamp(
                         _tolerant_int(sm.get("t_minutes", 2)),
                         T_MINUTES_MIN,
                         T_MINUTES_MAX,
@@ -257,10 +283,10 @@ class WakeupConfig:
                     ),
                 ),
                 call_only=CallOnlyTrigger(
-                    enabled=bool(co.get("enabled", False)),
+                    enabled=_tolerant_bool(co.get("enabled", False)),
                 ),
             ),
-            allow_self_open=bool(raw.get("allow_self_open", False)),
+            allow_self_open=_tolerant_bool(raw.get("allow_self_open", False)),
             refresh_every_hours=_default_below_one(
                 _tolerant_int(raw.get("refresh_every_hours", 24)),
                 default=24,
@@ -525,4 +551,5 @@ __all__ = [
     "WakeupConfig",
     "WakeupSoftBounds",
     "WakeupTriggers",
+    "clamp",
 ]

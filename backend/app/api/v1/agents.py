@@ -90,6 +90,34 @@ def _check_wakeup_int(value: Any, *, field: str, minimum: int, maximum: int | No
         raise ValueError(f"{field} must be {bound}")
 
 
+def _check_wakeup_bool(value: Any, *, field: str) -> None:
+    """Type-check one boolean leaf of `wakeup_config`
+    (2026-07-28-wakeup-config-validation-and-patch-semantics F-2).
+
+    `bool("false")` is `True` in Python; a wrong-typed `enabled`/`allow_self_open`
+    coerced that way would silently enable what the caller meant to disable, with
+    no error raised anywhere. Mirrors `_check_wakeup_int`'s reject-at-the-boundary
+    contract.
+    """
+    if not isinstance(value, bool):
+        raise ValueError(f"{field} must be a boolean")
+
+
+def _check_wakeup_container(value: Any, *, field: str) -> None:
+    """Type-check one dict-shaped container leaf of `wakeup_config` (F-1/F-3).
+
+    A truthy non-dict `triggers`/`soft_bounds` used to skip validation entirely
+    -- the `isinstance` guard around each block failed open instead of rejecting
+    -- reaching `WakeupConfig.from_dict` unguarded (an unhandled `AttributeError`
+    downstream) or, for `soft_bounds`, persisting indefinitely once the additive
+    merge stopped re-touching an absent key. `None` (the caller deleting the key
+    under the additive merge) is not checked here -- only a present, non-dict,
+    non-`None` value is wrong.
+    """
+    if not isinstance(value, dict):
+        raise ValueError(f"{field} must be an object")
+
+
 def _validate_wakeup_config(value: dict[str, Any] | None) -> dict[str, Any] | None:
     """Validate the documented numeric leaves of `wakeup_config`, leaving every
     other key -- root-level or nested -- untouched so the column stays free-form
@@ -98,12 +126,17 @@ def _validate_wakeup_config(value: dict[str, Any] | None) -> dict[str, Any] | No
     if value is None:
         return value
     triggers = value.get("triggers")
+    if triggers is not None:
+        _check_wakeup_container(triggers, field="wakeup_config.triggers")
     if isinstance(triggers, dict):
         enm = triggers.get("every_n_messages")
-        if isinstance(enm, dict) and "n" in enm:
-            _check_wakeup_int(
-                enm["n"], field="wakeup_config.triggers.every_n_messages.n", minimum=N_MIN, maximum=N_MAX
-            )
+        if isinstance(enm, dict):
+            if "n" in enm:
+                _check_wakeup_int(
+                    enm["n"], field="wakeup_config.triggers.every_n_messages.n", minimum=N_MIN, maximum=N_MAX
+                )
+            if "enabled" in enm:
+                _check_wakeup_bool(enm["enabled"], field="wakeup_config.triggers.every_n_messages.enabled")
         sm = triggers.get("silence_minutes")
         if isinstance(sm, dict):
             if "t_minutes" in sm:
@@ -113,6 +146,8 @@ def _validate_wakeup_config(value: dict[str, Any] | None) -> dict[str, Any] | No
                     minimum=T_MINUTES_MIN,
                     maximum=T_MINUTES_MAX,
                 )
+            if "enabled" in sm:
+                _check_wakeup_bool(sm["enabled"], field="wakeup_config.triggers.silence_minutes.enabled")
             for key in ("autostop_rounds", "observer_autostop_rounds", "autostop_max_default"):
                 if key in sm:
                     _check_wakeup_int(
@@ -121,6 +156,9 @@ def _validate_wakeup_config(value: dict[str, Any] | None) -> dict[str, Any] | No
                         minimum=_AUTOSTOP_FLOOR,
                         maximum=AUTOSTOP_HARD_CAP,
                     )
+        co = triggers.get("call_only")
+        if isinstance(co, dict) and "enabled" in co:
+            _check_wakeup_bool(co["enabled"], field="wakeup_config.triggers.call_only.enabled")
     if "refresh_every_hours" in value:
         _check_wakeup_int(
             value["refresh_every_hours"],
@@ -128,7 +166,11 @@ def _validate_wakeup_config(value: dict[str, Any] | None) -> dict[str, Any] | No
             minimum=_REFRESH_HOURS_FLOOR,
             maximum=None,
         )
+    if "allow_self_open" in value:
+        _check_wakeup_bool(value["allow_self_open"], field="wakeup_config.allow_self_open")
     soft_bounds = value.get("soft_bounds")
+    if soft_bounds is not None:
+        _check_wakeup_container(soft_bounds, field="wakeup_config.soft_bounds")
     if isinstance(soft_bounds, dict):
         for key in ("n_min", "n_max"):
             if key in soft_bounds:

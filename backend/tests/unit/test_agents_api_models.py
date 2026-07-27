@@ -103,3 +103,32 @@ def test_patch_rejects_wrong_typed_soft_bounds() -> None:
 def test_patch_rejects_out_of_range_t_minutes() -> None:
     with pytest.raises(ValidationError, match="t_minutes"):
         AgentPatchIn(wakeup_config={"triggers": {"silence_minutes": {"t_minutes": 1441}}})
+
+
+# -- docs/tasks/2026-07-28-wakeup-config-validation-and-patch-semantics: the
+# type-validation dossier above covered wrong-typed *leaves*, but a wrong-typed
+# *container* (`triggers` or `soft_bounds` itself, not one of its fields) fell
+# through `isinstance(x, dict)` guards that skipped validation instead of
+# rejecting the payload -- reaching `WakeupConfig.from_dict` unguarded (F-1/F-3),
+# and the boolean `enabled` leaves were never type-checked at all (F-2). -------
+
+
+def test_patch_rejects_a_non_dict_triggers_container() -> None:
+    with pytest.raises(ValidationError, match="triggers"):
+        AgentPatchIn(wakeup_config={"triggers": "x"})
+
+
+def test_patch_rejects_a_non_dict_soft_bounds_container() -> None:
+    with pytest.raises(ValidationError, match="soft_bounds"):
+        AgentPatchIn(wakeup_config={"soft_bounds": "x"})
+
+
+@pytest.mark.parametrize("trigger_key", ["every_n_messages", "silence_minutes", "call_only"])
+def test_patch_rejects_a_non_bool_enabled_flag(trigger_key: str) -> None:
+    with pytest.raises(ValidationError, match="enabled"):
+        AgentPatchIn(wakeup_config={"triggers": {trigger_key: {"enabled": "false"}}})
+
+
+def test_patch_rejects_a_non_bool_allow_self_open() -> None:
+    with pytest.raises(ValidationError, match="allow_self_open"):
+        AgentPatchIn(wakeup_config={"allow_self_open": "false"})

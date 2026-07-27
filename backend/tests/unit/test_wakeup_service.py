@@ -259,7 +259,7 @@ def test_wakeup_config_clamps_every_numeric_field() -> None:
 def test_wakeup_config_resolves_wrong_typed_fields_to_defaults() -> None:
     """2026-07-27-wakeup-config-type-validation AC-2 (T-2): `from_dict` must never
     raise, and a wrong-typed numeric value resolves to the Q-2 default -- the same
-    resolution `_clamp`/`_default_below_one` already apply to an out-of-range value.
+    resolution `clamp`/`_default_below_one` already apply to an out-of-range value.
     `bool` (Q-7) is treated as wrong-typed too: `int(True) == 1` would otherwise
     silently become "wake on every message"."""
     bad_values: list[object] = [None, "abc", [], {}, True, False]
@@ -315,6 +315,34 @@ def test_soft_bounds_tolerate_wrong_typed_values() -> None:
     assert out_of_range.n_min == N_MAX
     for value in (1, 500, 1000, 5000):
         assert N_MIN <= WakeupService._clamp_n(value, out_of_range) <= N_MAX
+
+
+def test_from_dict_tolerates_a_non_dict_triggers_container() -> None:
+    """F-1 (2026-07-28-wakeup-config-validation-and-patch-semantics): a truthy
+    non-dict `triggers` (or any of its three sub-keys) must resolve to defaults,
+    not raise `AttributeError` from `.get()` on a non-dict -- the same tolerance
+    `soft_bounds` already had via its own `isinstance` guard."""
+    assert WakeupConfig.from_dict({"triggers": "x"}) == WakeupConfig.from_dict({})
+    assert WakeupConfig.from_dict({"triggers": {"every_n_messages": "x"}}) == WakeupConfig.from_dict({})
+    assert WakeupConfig.from_dict({"triggers": {"silence_minutes": []}}) == WakeupConfig.from_dict({})
+    assert WakeupConfig.from_dict({"triggers": {"call_only": 1}}) == WakeupConfig.from_dict({})
+
+
+def test_from_dict_tolerates_a_non_bool_enabled_flag() -> None:
+    """F-2: `bool("false") is True` in Python, so a wrong-typed `enabled` must
+    resolve to a safe default (`False`) instead of being coerced with a bare
+    `bool(...)`, which would silently enable what the caller meant to disable."""
+    bad_values: list[object] = ["false", "0", [], {}, 1]
+    for bad in bad_values:
+        cfg = WakeupConfig.from_dict({"triggers": {"call_only": {"enabled": bad}}})
+        assert cfg.triggers.call_only.enabled is False
+    cfg = WakeupConfig.from_dict({"allow_self_open": "false"})
+    assert cfg.allow_self_open is False
+    # A genuine bool still round-trips correctly in both directions.
+    assert (
+        WakeupConfig.from_dict({"triggers": {"call_only": {"enabled": True}}}).triggers.call_only.enabled
+        is True
+    )
 
 
 async def test_observer_zero_autostop_uses_the_parsed_default(monkeypatch) -> None:
