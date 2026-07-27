@@ -41,6 +41,7 @@ from contexts.orchestration.domain.models import (
 from contexts.orchestration.infrastructure import wakeup_state
 from contexts.orchestration.infrastructure.metrics import WAKEUP_FIRES
 from shared_kernel import audit
+from shared_kernel.json_merge import merge_json_config
 
 logger = logging.getLogger(__name__)
 
@@ -321,7 +322,7 @@ class WakeupService:
         # of whatever the concurrent writer committed, not on top of stale data.
         def _build_new_dict(base_agent: Agent) -> dict[str, Any]:
             fresh_cfg = WakeupConfig.from_dict(base_agent.wakeup_config)
-            d = self._overlay_config(base_agent.wakeup_config, fresh_cfg.to_dict())
+            d = merge_json_config(base_agent.wakeup_config, fresh_cfg.to_dict())
             fresh_bounds = fresh_cfg.soft_bounds or WakeupSoftBounds()
             if requested_n is not None:
                 d["triggers"]["every_n_messages"]["n"] = self._clamp_n(requested_n, fresh_bounds)
@@ -470,17 +471,6 @@ class WakeupService:
         lo = max(T_MINUTES_MIN, soft.t_minutes_min or T_MINUTES_MIN)
         hi = min(T_MINUTES_MAX, soft.t_minutes_max or T_MINUTES_MAX)
         return max(lo, min(hi, value))
-
-    @staticmethod
-    def _overlay_config(stored: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
-        merged = dict(stored)
-        for key, value in normalized.items():
-            existing = merged.get(key)
-            if isinstance(existing, dict) and isinstance(value, dict):
-                merged[key] = WakeupService._overlay_config(existing, value)
-            else:
-                merged[key] = value
-        return merged
 
 
 __all__ = ["WakeupService"]
