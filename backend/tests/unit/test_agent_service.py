@@ -810,6 +810,44 @@ class TestPatch:
         assert values["wakeup_authored_snapshot"] == merged
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_normalization_preserves_unmodelled_keys_nested_inside_known_containers(
+        self, _audit
+    ) -> None:
+        """/code-review finding: `_normalize_wakeup_config` used to rebuild `triggers`
+        and `soft_bounds` wholesale from `WakeupConfig.to_dict()`'s output, which only
+        knows the documented sub-fields -- silently erasing anything else nested
+        inside those containers, unlike `merge_json_config` alone (root-level keys
+        such as `designer_note` were unaffected since normalization only replaces
+        known containers, not the whole dict)."""
+        current = _make_agent(
+            wakeup_config={
+                "triggers": {
+                    "every_n_messages": {"enabled": True, "n": 8},
+                    "silence_minutes": {"custom_nested_key": "x"},
+                },
+                "soft_bounds": {"n_min": 5, "admin_reason": "keep me"},
+            }
+        )
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = _make_agent(version=2)
+        svc = _make_service(agent_repo=agents)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(wakeup_config={"triggers": {"silence_minutes": {"t_minutes": 9}}}),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        merged = agents.patch.call_args.kwargs["values"]["wakeup_config"]
+        assert merged["triggers"]["silence_minutes"]["custom_nested_key"] == "x"
+        assert merged["triggers"]["silence_minutes"]["t_minutes"] == 9
+        assert merged["soft_bounds"]["admin_reason"] == "keep me"
+        assert merged["soft_bounds"]["n_min"] == 5
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_patch_merges_workflow_capabilities(self, _audit) -> None:
         current = _make_agent(
             workflow_capabilities={"can_instruct": True, "operator_note": "keep me"},
