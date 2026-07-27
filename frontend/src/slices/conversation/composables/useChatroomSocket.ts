@@ -18,6 +18,8 @@ import { getApproval } from '@slices/workflow'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
 import { getChatroomPresence, getMessage, listMessages } from '../api'
 import { useConversationStore } from '../stores/conversation'
+import { mergeMessages } from '../utils/mergeMessages'
+import { PAGE_SIZE } from './useChatroomMessages'
 import type { Message } from '../types'
 
 // Client-side watchdog for a wedged turn: if the worker crashes mid-turn no
@@ -179,6 +181,16 @@ export function useChatroomSocket(roomId: string) {
     }
   }
 
+  // Shared by applyMessageCreated (live/delta path) and reconcileMessages
+  // (connect-time page fetch): an agent row arriving by either path clears
+  // its stream draft and any error badge the same way.
+  function clearAgentSideEffects(m: Message): void {
+    if (m.sender_type === 'agent' && m.sender_id) {
+      store.clearAgentStream(roomId, m.sender_id)
+      store.clearAgentError(roomId, m.sender_id)
+    }
+  }
+
   function applyMessageCreated(m: Message): void {
     if (!deletedTombstones.has(m.id)) {
       const key = ['conversation', 'messages', roomId]
@@ -189,9 +201,29 @@ export function useChatroomSocket(roomId: string) {
       })
     }
     lastSeenMessageId.value = m.id
-    if (m.sender_type === 'agent' && m.sender_id) {
-      store.clearAgentStream(roomId, m.sender_id)
-      store.clearAgentError(roomId, m.sender_id)
+    clearAgentSideEffects(m)
+  }
+
+  // F-11: the connect burst used to call replayDelta(), whose `since` window
+  // is append-only and cannot express a deletion or an edit of an older row.
+  // Fetch the current page instead and merge it through the same
+  // `mergeMessages` semantics the initial query uses (FIX-04's additive
+  // merge, not a raw replacement) so a message deleted while disconnected is
+  // actually removed, not just left unreconciled. Shares `replayGeneration`
+  // with replayDelta — both write the same cache key, and a flapping socket
+  // can overlap a connect fetch with a message.created delta.
+  async function reconcileMessages(): Promise<void> {
+    const generation = ++replayGeneration
+    try {
+      const page = await listMessages(roomId, { limit: PAGE_SIZE })
+      if (generation !== replayGeneration) return
+      const key = ['conversation', 'messages', roomId]
+      qc.setQueryData<Message[]>(key, (prev) => mergeMessages(prev ?? [], page))
+      if (page.length > 0) lastSeenMessageId.value = page[page.length - 1]!.id
+      for (const m of page) clearAgentSideEffects(m)
+    } catch {
+      // Best-effort, matching resyncPresence/resyncActivation: a subsequent
+      // connect or live event will reconcile.
     }
   }
 
@@ -403,7 +435,7 @@ export function useChatroomSocket(roomId: string) {
       store.clearAllAgentThinking(roomId)
       store.clearAgentStream(roomId)
       clearThinkingTimeout()
-      void replayDelta()
+      void reconcileMessages()
       void resyncPresence()
       void resyncActivation()
       // Recover any approval.resolved lost while the socket was down.

@@ -491,6 +491,77 @@ describe('useChatroomSocket agent streaming', () => {
     expect(cache.some((m) => m.id === 'm_new')).toBe(false)
   })
 
+  it('reconciles a message deleted while the socket was down (F-11)', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+      { id: 'm_1', created_at: '2024-01-01T00:00:00.000Z', sender_type: 'user', sender_id: 'u1' },
+      { id: 'm_2', created_at: '2024-01-01T00:00:01.000Z', sender_type: 'user', sender_id: 'u1' },
+    ])
+    statusHandlers.forEach((h) => h(false))
+    // The deleted-while-down message (m_2) is simply absent from the page —
+    // no `message.deleted` frame is needed for this path to work.
+    listMessagesMock.mockResolvedValueOnce([
+      { id: 'm_1', created_at: '2024-01-01T00:00:00.000Z', sender_type: 'user', sender_id: 'u1' },
+    ])
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+
+    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{ id: string }>
+    expect(cache.some((m) => m.id === 'm_2')).toBe(false)
+    expect(cache.some((m) => m.id === 'm_1')).toBe(true)
+  })
+
+  it('does not drop messages older than the fetched window on connect (F-11)', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+      { id: 'm_ancient', created_at: '2023-01-01T00:00:00.000Z', sender_type: 'user', sender_id: 'u1' },
+      { id: 'm_1', created_at: '2024-01-01T00:00:00.000Z', sender_type: 'user', sender_id: 'u1' },
+    ])
+    // The connect fetch's page only reaches back to m_1 — m_ancient is outside
+    // its window and must not be treated as deleted (Q-3's boundary).
+    listMessagesMock.mockResolvedValueOnce([
+      { id: 'm_1', created_at: '2024-01-01T00:00:00.000Z', sender_type: 'user', sender_id: 'u1' },
+    ])
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+
+    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{ id: string }>
+    expect(cache.some((m) => m.id === 'm_ancient')).toBe(true)
+  })
+
+  it('overlapping connect reconciliations cannot apply stale data (F-11)', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [])
+
+    let resolveFirst!: (m: unknown) => void
+    let resolveSecond!: (m: unknown) => void
+    listMessagesMock
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve }))
+      .mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve }))
+
+    statusHandlers.forEach((h) => h(true))
+    statusHandlers.forEach((h) => h(false))
+    statusHandlers.forEach((h) => h(true))
+
+    // The second (newer) connect's fetch resolves first with the authoritative
+    // page; the first (stale) one resolves after and must be dropped.
+    resolveSecond([
+      { id: 'm_new', created_at: '2024-01-02T00:00:00.000Z', sender_type: 'user', sender_id: 'u1' },
+    ])
+    await flushPromises()
+    resolveFirst([
+      { id: 'm_stale', created_at: '2024-01-01T00:00:00.000Z', sender_type: 'user', sender_id: 'u1' },
+    ])
+    await flushPromises()
+
+    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{ id: string }>
+    expect(cache.some((m) => m.id === 'm_stale')).toBe(false)
+    expect(cache.some((m) => m.id === 'm_new')).toBe(true)
+  })
+
   it('applies only the newest message.updated when two refetches resolve out of order (F-19)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
