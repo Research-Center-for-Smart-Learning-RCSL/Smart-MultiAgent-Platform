@@ -139,7 +139,7 @@ class DlqEntryOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _vote_out(v: Any) -> ApprovalVoteOut:
+def vote_out(v: Any) -> ApprovalVoteOut:
     return ApprovalVoteOut(
         approval_id=str(v.approval_id),
         voter_agent_id=str(v.voter_agent_id),
@@ -149,7 +149,7 @@ def _vote_out(v: Any) -> ApprovalVoteOut:
     )
 
 
-def _approval_out(approval: Any) -> ApprovalOut:
+def approval_out(approval: Any) -> ApprovalOut:
     return ApprovalOut(
         id=str(approval.id),
         workflow_run_id=str(approval.workflow_run_id),
@@ -163,10 +163,12 @@ def _approval_out(approval: Any) -> ApprovalOut:
     )
 
 
-def _approval_with_votes_out(approval: Any, votes: list[Any]) -> ApprovalWithVotesOut:
+def approval_with_votes_out(approval: Any, votes: list[Any]) -> ApprovalWithVotesOut:
+    """Public (not underscore-prefixed): reused by chatrooms.py's room-scoped
+    approvals list (F-13) so the two read surfaces cannot silently diverge."""
     return ApprovalWithVotesOut(
-        **_approval_out(approval).model_dump(),
-        votes=[_vote_out(v) for v in votes],
+        **approval_out(approval).model_dump(),
+        votes=[vote_out(v) for v in votes],
     )
 
 
@@ -223,7 +225,7 @@ async def get_approval(
     if approval is None:  # pragma: no cover — resolved above
         raise _not_found("approval")
     votes = await svc.get_votes(approval_id)
-    return _approval_with_votes_out(approval, votes)
+    return approval_with_votes_out(approval, votes)
 
 
 @router.get(
@@ -244,7 +246,7 @@ async def list_approvals_for_run(
     await _assert_project_member(principal, project_id, resolver)
     approvals = await svc.list_for_run(workflow_run_id)
     approvals = approvals[pagination.offset : pagination.offset + pagination.limit]
-    return [_approval_out(a) for a in approvals]
+    return [approval_out(a) for a in approvals]
 
 
 # ---------------------------------------------------------------------------
@@ -363,4 +365,4 @@ async def get_agent_dlq(
     return [DlqEntryOut(**d) for d in await read_dlq(agent_id)]
 
 
-__all__ = ["router"]
+__all__ = ["approval_out", "approval_with_votes_out", "router", "vote_out"]

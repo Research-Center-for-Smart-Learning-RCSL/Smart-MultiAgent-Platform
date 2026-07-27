@@ -512,5 +512,15 @@ class ApprovalService:
     async def list_for_chatroom(self, chatroom_id: uuid.UUID) -> list[Approval]:
         return await self._approvals.list_for_chatroom(chatroom_id)
 
+    async def list_for_chatroom_with_votes(
+        self,
+        chatroom_id: uuid.UUID,
+    ) -> list[tuple[Approval, list[ApprovalVote]]]:
+        """Room-scoped approvals paired with their votes, one batched votes
+        query for the whole page rather than one per approval (F-13)."""
+        approvals = await self._approvals.list_for_chatroom(chatroom_id)
+        votes_by_approval = await self._votes.list_for_approvals([a.id for a in approvals])
+        return [(a, votes_by_approval.get(a.id, [])) for a in approvals]
+
 
 __all__ = ["ApprovalService"]

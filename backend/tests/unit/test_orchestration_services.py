@@ -490,6 +490,39 @@ class TestApprovalTimeout:
         assert result is None
 
 
+class TestApprovalListForChatroomWithVotes:
+    """F-13: the chatroom-scoped list endpoint pairs approvals with votes via
+    one batched query, not one `get_votes` call per approval."""
+
+    async def test_pairs_each_approval_with_its_own_votes(self) -> None:
+        room = uuid.uuid4()
+        ap1, ap2 = _approval(), _approval()
+        vote1 = _vote(_AGENT_A, True)
+        approvals = AsyncMock()
+        approvals.list_for_chatroom.return_value = [ap1, ap2]
+        votes_repo = AsyncMock()
+        votes_repo.list_for_approvals.return_value = {ap1.id: [vote1], ap2.id: []}
+        svc = _make_approval_service(approvals=approvals, votes=votes_repo)
+
+        result = await svc.list_for_chatroom_with_votes(room)
+
+        assert result == [(ap1, [vote1]), (ap2, [])]
+        approvals.list_for_chatroom.assert_awaited_once_with(room)
+        votes_repo.list_for_approvals.assert_awaited_once_with([ap1.id, ap2.id])
+
+    async def test_empty_room_makes_no_votes_query(self) -> None:
+        approvals = AsyncMock()
+        approvals.list_for_chatroom.return_value = []
+        votes_repo = AsyncMock()
+        votes_repo.list_for_approvals.return_value = {}
+        svc = _make_approval_service(approvals=approvals, votes=votes_repo)
+
+        result = await svc.list_for_chatroom_with_votes(uuid.uuid4())
+
+        assert result == []
+        votes_repo.list_for_approvals.assert_awaited_once_with([])
+
+
 # ===========================================================================
 # InstructService
 # ===========================================================================

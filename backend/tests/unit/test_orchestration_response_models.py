@@ -15,10 +15,10 @@ from app.api.v1.orchestration import (
     ApprovalOut,
     ApprovalWithVotesOut,
     DlqEntryOut,
-    _approval_out,
-    _approval_with_votes_out,
     _instance_out,
     _instruction_out,
+    approval_out,
+    approval_with_votes_out,
 )
 from contexts.orchestration.domain.models import (
     AgentInstance,
@@ -52,7 +52,7 @@ def _approval() -> Approval:
 
 
 def test_approval_out_serializes_every_field_with_enum_values() -> None:
-    out = _approval_out(_approval())
+    out = approval_out(_approval())
     assert isinstance(out, ApprovalOut)
     body = out.model_dump(mode="json")
     assert body == {
@@ -78,7 +78,7 @@ def test_approval_with_votes_out_embeds_typed_votes() -> None:
         rationale="looks good",
         cast_at=_TS,
     )
-    out = _approval_with_votes_out(_approval(), [vote])
+    out = approval_with_votes_out(_approval(), [vote])
     assert isinstance(out, ApprovalWithVotesOut)
     body = out.model_dump(mode="json")
     assert body["state"] == "pending"

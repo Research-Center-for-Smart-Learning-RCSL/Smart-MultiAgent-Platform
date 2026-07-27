@@ -306,6 +306,14 @@ export function useChatroomSocket(roomId: string) {
               )
             })
             .catch(() => {})
+            .finally(() => {
+              // Evict once settled, matching the self-evicting deletedTombstones
+              // pattern above — otherwise this map grows for every distinct
+              // edited message id for the life of the room.
+              if (messageUpdateGeneration.get(updatedId) === generation) {
+                messageUpdateGeneration.delete(updatedId)
+              }
+            })
         }
         break
       }
