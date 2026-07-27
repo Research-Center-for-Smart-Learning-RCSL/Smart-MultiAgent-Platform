@@ -431,6 +431,11 @@ class WakeupService:
                 draft = AgentDraft(
                     wakeup_config=authored,
                     wakeup_last_refreshed_at=now,
+                    # Same restore semantics as the first attempt. Version
+                    # conflicts on this row are routine (see the note in
+                    # `update_wakeup`), so a retry that merged instead would
+                    # leave drift in place on exactly the common path.
+                    replace_wakeup_config=True,
                 )
 
         await audit.emit(

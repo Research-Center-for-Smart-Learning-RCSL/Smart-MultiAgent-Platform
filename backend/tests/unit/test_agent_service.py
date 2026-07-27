@@ -76,6 +76,7 @@ def _make_agent(
     rag_config_id: uuid.UUID | None = None,
     knowmap_config_id: uuid.UUID | None = None,
     wakeup_config: dict | None = None,
+    wakeup_authored_snapshot: dict | None = None,
     workflow_capabilities: dict | None = None,
 ) -> Agent:
     return Agent(
@@ -97,7 +98,7 @@ def _make_agent(
         seed=None,
         a2a_enabled=False,
         wakeup_config=wakeup_config if wakeup_config is not None else {},
-        wakeup_authored_snapshot=None,
+        wakeup_authored_snapshot=wakeup_authored_snapshot,
         workflow_capabilities=workflow_capabilities if workflow_capabilities is not None else {},
         version=version,
         deleted_at=None,
@@ -682,6 +683,42 @@ class TestPatch:
         merged = agents.patch.call_args.kwargs["values"]["wakeup_config"]
         assert "soft_bounds" not in merged
         assert merged["designer_note"] == "x"
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_human_edit_does_not_launder_runtime_drift_into_the_snapshot(self, _audit) -> None:
+        """The live config may carry R15.06 self-modification not yet refreshed away.
+        Merging the human's fragment over *that* would make the agent's own edit the
+        designer's authored intent, and R15.09 could never restore it."""
+        # Designer authored n=3; the agent drifted it to 20 as a system actor.
+        current = _make_agent(
+            wakeup_config={"triggers": {"every_n_messages": {"enabled": True, "n": 20}}},
+            wakeup_authored_snapshot={
+                "triggers": {"every_n_messages": {"enabled": True, "n": 3}},
+                "soft_bounds": {"n_min": 2},
+            },
+        )
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = _make_agent(version=2)
+        svc = _make_service(agent_repo=agents)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(wakeup_config={"allow_self_open": True}),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        values = agents.patch.call_args.kwargs["values"]
+        # The live config keeps the drift plus the human's change...
+        assert values["wakeup_config"]["triggers"]["every_n_messages"]["n"] == 20
+        assert values["wakeup_config"]["allow_self_open"] is True
+        # ...but the baseline records the designer's value, not the agent's.
+        snapshot = values["wakeup_authored_snapshot"]
+        assert snapshot["triggers"]["every_n_messages"]["n"] == 3
+        assert snapshot["allow_self_open"] is True
+        assert snapshot["soft_bounds"] == {"n_min": 2}
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_merged_config_exceeding_the_bound_is_rejected(self, _audit) -> None:
