@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-22
 requirements: [R13.19, R15.05b, R28.07]
 depends_on: []
@@ -530,37 +530,41 @@ values — this is the post-C1 statement of the property A2 was meant to provide
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1**: The regression tests from §8 (T-1, T-2, T-6, T-7, T-8) fail before the fix and
+- [x] **AC-1**: The regression tests from §8 (T-1, T-2, T-6, T-7, T-8) fail before the fix and
   pass after; T-3 and every test named in T-9 pass both before and after. (Re-baselined 2026-07-27:
   T-4 is withdrawn and T-5 rescoped into T-9 per Q-6.)
-- [ ] **AC-2**: `PresenceTracker.leave` returns `roster_size == 0` when the only remaining roster
+- [x] **AC-2**: `PresenceTracker.leave` returns `roster_size == 0` when the only remaining roster
   members are entries with no live conns key, so `chatroom.py:198` fires
   `_notify_presence(has_live_users=False)` for the last real leaver. (Line reference corrected
   2026-07-27.)
-- [ ] **AC-3**: `PresenceTracker.list_room` returns only members with a live conns key, and evicts
+- [x] **AC-3**: `PresenceTracker.list_room` returns only members with a live conns key, and evicts
   the others from both `ws:presence:{room}` and `ws:user:{user}:rooms` as it goes.
-- [ ] **AC-4**: The multi-tab early return `(False, -1)` (`presence.py:153-154`) is preserved, and
+- [x] **AC-4**: The multi-tab early return `(False, -1)` (`presence.py:153-154`) is preserved, and
   no reconciliation runs on a non-last-connection leave.
-- [ ] **AC-5 — WITHDRAWN 2026-07-27 (Q-6)**: originally "`evaluate_silence_trigger` pauses
+- [x] **AC-5 — WITHDRAWN 2026-07-27 (Q-6)**: originally "`evaluate_silence_trigger` pauses
   `silence_active` when the reconciled roster is empty". The flag was deleted by
   `2026-07-22-wakeup-trigger-state-and-bounds` C1, which made the evaluator level-triggered by
   reading the roster on every sweep. Replaced by the standing assertion that
   `set_silence_active` / `is_silence_active` appear nowhere in `backend/` — already true on `main`,
   and this dossier must not reintroduce them.
-- [ ] **AC-6**: Observer bindings still bypass the roster re-check (O-2/R28.04), verified by
+- [x] **AC-6**: Observer bindings still bypass the roster re-check (O-2/R28.04), verified by
   `test_wakeup_service.py:98-106` staying green. (Line reference corrected 2026-07-27.)
-- [ ] **AC-7**: A single `EXPLICIT_TRIGGERS` constant exists in
+- [x] **AC-7**: A single `EXPLICIT_TRIGGERS` constant exists in
   `contexts/orchestration/domain/models.py`, and a repo-wide sweep for `trigger ==` /
   `trigger in (` / `trigger not in` over `backend/` (excluding `.venv`) returns **no** site testing a
   trigger kind against a literal — all four current sites read the constant.
-- [ ] **AC-8**: A release wake to an unbound agent emits `agent.finished{error: "not_bound"}` on the
+- [x] **AC-8**: A release wake to an unbound agent emits `agent.finished{error: "not_bound"}` on the
   room channel; to a deleted agent reaching the engine's own guard, `agent_gone`.
-- [ ] **AC-9**: Autonomous triggers (`every_n_messages`, `silence_minutes`) remain silent for both
+- [x] **AC-9**: Autonomous triggers (`every_n_messages`, `silence_minutes`) remain silent for both
   `not_bound` and `agent_gone`.
-- [ ] **AC-10**: No data-repair script, migration, or audit-row rewrite is introduced (§7).
-- [ ] **AC-11**: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
+- [x] **AC-10**: No data-repair script, migration, or audit-row rewrite is introduced (§7).
+- [x] **AC-11**: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
   `backend/`. No frontend change is expected; if none is made, `frontend/` gates are not required.
-- [ ] **AC-12**: The `_CONN_TTL_SECONDS` constraint from §6/§9 is recorded as a comment at
+  (`pytest tests/unit -q` run rather than the bare `-q` from `backend/`: `testpaths` covers
+  `tests/integration` and `tests/wiring` too, which require live Postgres/Redis/Vault not present in
+  this environment; 6054 passed, 6 skipped for pre-existing, unrelated environment reasons —
+  symlink support and path-separator normalization on Windows.)
+- [x] **AC-12**: The `_CONN_TTL_SECONDS` constraint from §6/§9 is recorded as a comment at
   `presence.py:31-35` naming the keepalive interval it depends on, so the socket-lifecycle dossier
   cannot break it silently.
 
@@ -575,6 +579,16 @@ amended.
 ## 12. Deviation Log
 
 Appended by /build.
+
+**D-1.** AC-11 names `pytest -q` in `backend/`; the build instead ran
+`pytest tests/unit -q`. Reason: `pyproject.toml`'s `testpaths = ["tests"]` and its
+`addopts` do not exclude the `integration`/`wiring` markers by default, so a bare
+`pytest -q` from `backend/` attempts every test including ones that require a live
+Postgres/Redis/Vault stack (per `backend/CLAUDE.md`'s own test split) — none of which
+are running in this build environment, and the run hung rather than failing fast. The
+unit suite (6054 tests, the ones this fix's regression tests belong to) is a complete,
+reliable substitute for this task's verification purposes; it does not substitute for a
+pre-deploy run of the full suite against a live stack.
 
 ## 13. Follow-ups
 
@@ -598,4 +612,10 @@ Appended by /build.
 - **FU-5** — `wakeup_service.py:109-121`'s every_n empty-room gate silently benefits from this fix
   but has no test of its own for the ghost case; a characterization test there would be cheap
   hardening. (Line reference corrected 2026-07-27.)
+- **FU-6** — `presence.py`'s new `_reconcile_roster` (added by C1/A1) and `scrub_stale_presence`
+  now contain conceptually duplicated eviction logic ("check each member's conns key, `SREM` the
+  stale ones from both the roster and the reverse index"), just at different iteration
+  granularities (one room's already-fetched members vs. a `scan_iter` across every room). Flagged
+  Info-level by the build's quality audit; worth a look the next time either function is touched,
+  not urgent enough to justify a shared abstraction today.
 </content>
