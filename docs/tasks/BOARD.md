@@ -30,7 +30,7 @@ parallel.
   failure poisons the turn session and destroys an already-streamed reply, truncated tool-call
   JSON silently becomes empty arguments, and a failed final synthesis is persisted as the
   answer. Six sequenced commits; needs one empirical check before the design is fixed (§3 Q-2).
-- `2026-07-22-prompt-assistant-delivery-recovery` (bugfix, draft) — `depends_on: []`. From
+- `2026-07-22-prompt-assistant-delivery-recovery` (bugfix, approved) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-config-runtime/` F-13 (major): the prompt-assistant channel has
   no durable read side, so a lost frame loses a paid-for reply and can permanently disable the
   composer. Adds a session read endpoint, refetch-on-connect, and a watchdog.
@@ -45,7 +45,7 @@ parallel.
   config F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read
   by nothing. **Blocked on Q-8** (migration posture) — enforcing without a backfill breaks every
   working approval gate on deploy.
-- `2026-07-22-reconnect-reconciliation` (bugfix, draft) — `depends_on: []`. a2u F-11, F-13, F-17,
+- `2026-07-22-reconnect-reconciliation` (bugfix, approved) — `depends_on: []`. a2u F-11, F-13, F-17,
   F-19 plus verification-gap V-2. Adds a nullable `approvals.chatroom_id` and a room-scoped list
   endpoint. **Sequenced second** by the 2026-07-24 tie-break; must re-derive F-11/F-13 severity
   against the post-fix baseline and owns the Q-1a `onStatus` textual conflict as second merger.
