@@ -313,13 +313,19 @@ async def wakeup_refresh(ctx: dict[str, Any]) -> str:
         candidates = await facade.list_agents_with_authored_snapshot()
         for agent in candidates:
             try:
-                if await svc.refresh_wakeup_config(agent.id):
-                    refreshed += 1
+                # Unlike `evaluate_silence`'s per-item guard (which only ever
+                # reads through its session), `refresh_wakeup_config` issues a
+                # real UPDATE + audit INSERT that must survive to the final
+                # commit. A bare `db.rollback()` here would roll back the
+                # *whole* transaction -- discarding every earlier agent's
+                # already-flushed write, not just this one's -- so isolate
+                # each agent's write in its own SAVEPOINT instead: a failure
+                # rolls back to the savepoint, leaving prior agents' flushed
+                # work intact in the outer transaction for the post-loop commit.
+                async with db.begin_nested():
+                    if await svc.refresh_wakeup_config(agent.id):
+                        refreshed += 1
             except Exception:
-                # One bad agent must not abort the sweep or discard every other
-                # agent's already-completed refresh; clear any aborted
-                # transaction so the loop's remaining reads/writes succeed.
-                await db.rollback()
                 failed += 1
                 logger.bind(agent_id=str(agent.id)).exception("wakeup refresh failed")
         try:
