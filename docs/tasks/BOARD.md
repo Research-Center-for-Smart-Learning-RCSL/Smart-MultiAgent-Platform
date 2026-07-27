@@ -59,14 +59,6 @@ parallel.
   no longer exists) and A1 is now the whole of Part A, and more load-bearing rather than less, since
   the reconciled roster became the only remaining liveness authority. See its Q-6. **Blocks
   `2026-07-27-wakeup-sweep-failure-isolation`.**
-- `2026-07-27-wakeup-config-type-validation` (bugfix, approved) — `depends_on:
-  [2026-07-27-wakeup-config-key-preservation]`, **now implemented, so this is unblocked**
-  (2026-07-27). From `docs/audits/2026-07-27-wakeup-subsystem/` F-2 (major): a wrong-typed number
-  in one agent's `wakeup_config` raises inside the per-agent dispatch loop and silently kills
-  `every_n_messages` for every agent in the room. Makes the domain parser total against wrong
-  types, isolates the loop per agent, and adds a typed API boundary (the prior dossier's FU-3).
-  Note its Q-3 constraint is now load-bearing: the boundary model must use `extra="allow"`, because
-  `AgentService.patch` preserves unmodelled root keys as of the dependency landing.
 - `2026-07-22-turn-outcome-reporting` (bugfix, draft) — `depends_on: []`. a2u F-6, F-9, F-15 plus
   a2a F-40. A committed reply is recorded as a failed turn when the post-commit publish raises.
   Names two test-locked decisions that must be decided, not silently edited.
