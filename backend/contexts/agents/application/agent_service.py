@@ -398,6 +398,12 @@ def _merge_and_normalize_wakeup(
     `wakeup_authored_snapshot` — same rule (Q-4), different base value each
     caller supplies. A `replace` write (the G.5 restore) skips both merge and
     normalization and lands `patch` verbatim — see `_normalize_wakeup_config`.
+
+    An empty `patch` (`{}`) is a no-op against `base` under this additive merge
+    (`merge_json_config` has nothing to iterate), not a reset to blank — that is
+    an accepted behavior change from the old whole-column-replace write
+    (2026-07-28-wakeup-config-validation-and-patch-semantics F-5/Q-2); an
+    explicit per-key `null` still clears whatever the caller wants cleared.
     """
     merged = patch if replace else _normalize_wakeup_config(merge_json_config(base, patch))
     _assert_config_within_bounds(merged, field=field)
@@ -836,18 +842,26 @@ class AgentService:
             # restore them. With no snapshot yet there is no baseline to protect,
             # so the live config is the best available base.
             if actor_user_id != _SYSTEM_ACTOR_ID:
-                snapshot_base = (
-                    current.wakeup_authored_snapshot
-                    if current.wakeup_authored_snapshot is not None
-                    else current.wakeup_config
-                )
-                merged_snapshot = _merge_and_normalize_wakeup(
-                    snapshot_base,
-                    draft.wakeup_config,
-                    replace=draft.replace_wakeup_config,
-                    field="wakeup_authored_snapshot",
-                )
-                values["wakeup_authored_snapshot"] = merged_snapshot or None
+                if current.wakeup_authored_snapshot is None:
+                    # No prior snapshot: the base falls back to current.wakeup_config,
+                    # the exact same base (plus the same patch and replace flag)
+                    # already merged into values["wakeup_config"] above -- reuse
+                    # that result instead of re-running the identical
+                    # merge/normalize/bounds-check chain a second time
+                    # (2026-07-28-wakeup-config-validation-and-patch-semantics F-6).
+                    merged_snapshot = values["wakeup_config"]
+                else:
+                    merged_snapshot = _merge_and_normalize_wakeup(
+                        current.wakeup_authored_snapshot,
+                        draft.wakeup_config,
+                        replace=draft.replace_wakeup_config,
+                        field="wakeup_authored_snapshot",
+                    )
+                # `_merge_and_normalize_wakeup`'s non-replace path always re-emits
+                # WakeupConfig.to_dict()'s unconditional keys, so `merged_snapshot`
+                # can never be empty -- the `or None` fallback this used to have
+                # was dead code (F-5).
+                values["wakeup_authored_snapshot"] = merged_snapshot
         if draft.wakeup_last_refreshed_at is not None:
             values["wakeup_last_refreshed_at"] = draft.wakeup_last_refreshed_at
         if draft.workflow_capabilities is not None:

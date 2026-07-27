@@ -869,6 +869,91 @@ class TestPatch:
         assert merged == {"can_instruct": False, "operator_note": "keep me"}
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_workflow_capabilities_null_deletes_the_key(self, _audit) -> None:
+        """F-4 (2026-07-28-wakeup-config-validation-and-patch-semantics, Q-1): an
+        explicit `null` deletes the key from stored `workflow_capabilities`, the
+        same additive-merge semantics `wakeup_config` already has — confirmed
+        intentional and pinned here so a future change to `merge_json_config`
+        cannot silently reintroduce ambiguity (the frontend already sends exactly
+        this pattern on every subagent-toggle save)."""
+        current = _make_agent(
+            workflow_capabilities={"max_alive_subagents": 3, "can_instruct": True},
+        )
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = _make_agent(version=2)
+        svc = _make_service(agent_repo=agents)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(workflow_capabilities={"max_alive_subagents": None}),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        merged = agents.patch.call_args.kwargs["values"]["workflow_capabilities"]
+        assert "max_alive_subagents" not in merged
+        assert merged == {"can_instruct": True}
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_wakeup_config_empty_patch_is_a_no_op(self, _audit) -> None:
+        """F-5 (Q-2): `wakeup_config: {}` used to reset the stored config to blank
+        under the old whole-column-replace write; under the additive merge it has
+        nothing to iterate and is a no-op against the stored value — the accepted
+        replacement is an explicit per-key `null` for whatever should be cleared."""
+        current = _make_agent(
+            wakeup_config={"triggers": {"every_n_messages": {"enabled": True, "n": 7}}},
+        )
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = _make_agent(version=2)
+        svc = _make_service(agent_repo=agents)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(wakeup_config={}),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        merged = agents.patch.call_args.kwargs["values"]["wakeup_config"]
+        assert merged["triggers"]["every_n_messages"] == {"enabled": True, "n": 7}
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_reuses_the_wakeup_config_merge_for_a_first_snapshot(self, _audit) -> None:
+        """F-6: when the agent has no prior `wakeup_authored_snapshot`, the
+        snapshot base falls back to `current.wakeup_config` -- the exact same
+        base, patch and replace flag already merged into `values["wakeup_config"]`
+        a few lines above. The merge/normalize chain must not run twice on
+        byte-identical inputs."""
+        import contexts.agents.application.agent_service as agent_service_mod
+
+        current = _make_agent(
+            wakeup_config={"triggers": {"every_n_messages": {"enabled": True, "n": 3}}},
+            wakeup_authored_snapshot=None,
+        )
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = _make_agent(version=2)
+        svc = _make_service(agent_repo=agents)
+
+        spy = MagicMock(wraps=agent_service_mod._merge_and_normalize_wakeup)
+        with patch.object(agent_service_mod, "_merge_and_normalize_wakeup", spy):
+            await svc.patch(
+                agent_id=current.id,
+                draft=AgentDraft(wakeup_config={"triggers": {"every_n_messages": {"n": 8}}}),
+                expected_version=1,
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        values = agents.patch.call_args.kwargs["values"]
+        assert values["wakeup_authored_snapshot"] == values["wakeup_config"]
+        assert spy.call_count == 1
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_patch_knowmap_attach_key_group_conflict_raises(self, _audit) -> None:
         current = _make_agent()
         agents = AsyncMock()
