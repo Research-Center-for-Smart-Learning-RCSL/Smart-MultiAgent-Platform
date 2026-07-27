@@ -70,13 +70,6 @@ parallel.
   same query can return a different page; and the highlight marker exists in three incompatible
   forms across backend, sanitiser and CSS. Touches DOMPurify config — §7.2 states what must not
   weaken.
-- `2026-07-28-wakeup-config-validation-and-patch-semantics` (bugfix, approved) — `depends_on: []`.
-  From an independent `/code-review` of the branch (2026-07-27): `WakeupConfig.from_dict` crashes on a
-  non-dict `triggers` value (unhandled 500 / failed arq job), `bool("false") == True` silently inverts
-  four enabled/allow_self_open flags, and a non-dict `soft_bounds` is silently accepted and then
-  persists forever. Also bundles two confirmed `agent_service.py` PATCH-semantics questions (both
-  resolved by the user during `/spec`: `workflow_capabilities`'s null-deletes-key stays, `{}` resetting
-  `wakeup_config` does not come back) and two minor perf/DRY cleanups.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
