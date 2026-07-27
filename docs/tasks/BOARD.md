@@ -45,10 +45,6 @@ parallel.
   config F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read
   by nothing. **Blocked on Q-8** (migration posture) — enforcing without a backfill breaks every
   working approval gate on deploy.
-- `2026-07-22-reconnect-reconciliation` (bugfix, approved) — `depends_on: []`. a2u F-11, F-13, F-17,
-  F-19 plus verification-gap V-2. Adds a nullable `approvals.chatroom_id` and a room-scoped list
-  endpoint. **Sequenced second** by the 2026-07-24 tie-break; must re-derive F-11/F-13 severity
-  against the post-fix baseline and owns the Q-1a `onStatus` textual conflict as second merger.
 - `2026-07-22-settings-form-reconciliation` (bugfix, draft) — `depends_on: []`. a2u F-7, F-8 plus
   verification-gap V-4. **Corrects the a2u audit's own §3 coupling note**: F-8 is not contingent on
   F-1, and the evidence is in its Q-1.
@@ -88,3 +84,7 @@ Nothing currently blocked.
   enum-array assembly.
 - `2026-07-22-workflow-run-cancellation` (bugfix) — `depends_on: []`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+- `2026-07-22-reconnect-reconciliation` (bugfix) — `depends_on: []`. a2u F-11, F-13, F-17, F-19
+  plus verification-gap V-2. Adds a nullable `approvals.chatroom_id` and a room-scoped list
+  endpoint. Its own Q-1 tie-break already resolved (`chatroom-socket-lifecycle` landed first,
+  2026-07-24); re-derivation against that post-fix baseline is done in the spec.

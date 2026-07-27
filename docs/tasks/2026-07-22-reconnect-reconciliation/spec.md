@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-07-22
 approved: 2026-07-28
 requirements: [R13.20, R24.23]
