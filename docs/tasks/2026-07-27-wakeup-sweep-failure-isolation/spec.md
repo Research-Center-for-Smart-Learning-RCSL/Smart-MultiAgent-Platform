@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-27
 requirements: [R15.05b, R15.09]
 depends_on: [2026-07-22-presence-transition-and-release-wakeup]
@@ -293,19 +293,27 @@ it is the check that catches a missed call site in a chain that crosses four mod
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1** T-1 fails before the fix and passes after: one agent's failure in `wakeup_refresh`
+- [x] **AC-1** T-1 fails before the fix and passes after: one agent's failure in `wakeup_refresh`
       rolls back only that agent's work, and the remaining agents' refreshes commit.
-- [ ] **AC-2** T-2 passes: a failing post-loop commit is logged as a sweep-level failure and reported
+- [x] **AC-2** T-2 passes: a failing post-loop commit is logged as a sweep-level failure and reported
       in the return value instead of propagating.
-- [ ] **AC-3** T-3 passes and `retention.py` no longer imports or calls `evaluate_presence_change`;
+- [x] **AC-3** T-3 passes and `retention.py` no longer imports or calls `evaluate_presence_change`;
       its docstring describes the ghost-member removal rather than the deleted flag mechanism.
-- [ ] **AC-4** T-4 passes unchanged: an empty roster still suppresses a silence wake-up for both
+- [x] **AC-4** T-4 passes unchanged: an empty roster still suppresses a silence wake-up for both
       `allow_self_open` values.
-- [ ] **AC-5** T-5 passes: the join edge still re-arms the silence clock for every bound agent.
-- [ ] **AC-6** T-6 passes: `has_live_users` appears nowhere outside `docs/`, and
+- [x] **AC-5** T-5 passes: the join edge still re-arms the silence clock for every bound agent.
+- [x] **AC-6** T-6 passes: `has_live_users` appears nowhere outside `docs/`, and
       `on_presence_changed` has been renamed through the facade, `triggers.py` and `chatroom.py`.
-- [ ] **AC-7** Definition of Done: `pytest -q`, `ruff check . && ruff format --check .`, `mypy .` in
+      (Repo-wide grep confirmed; two pre-existing test call sites not named in §8 also needed
+      updating to the new signature -- `test_agent_trigger_wiring.py`'s
+      `test_evaluate_presence_change_forwards_flag` (renamed
+      `test_evaluate_presence_change_forwards_to_on_users_present`) and
+      `test_retention_deep.py`'s three `_scrub_stale_presence` tests -- see D-1.)
+- [x] **AC-7** Definition of Done: `pytest -q`, `ruff check . && ruff format --check .`, `mypy .` in
       `backend/`. No frontend change, so the `pnpm` gates are not required for this dossier.
+      (`pytest tests/unit -q` run in place of the bare `-q`, for the same environment reason recorded
+      in the presence-transition dossier's D-1: 6056 passed, 6 skipped for pre-existing, unrelated
+      environment reasons.)
 
 ## 11. SRS Delta
 
@@ -315,6 +323,26 @@ diverged from them.
 ## 12. Deviation Log
 
 Appended by /build.
+
+**D-1.** AC-7 names `pytest -q` in `backend/`; the build instead ran `pytest tests/unit -q`, for the
+same reason recorded in the presence-transition dossier's own D-1: `pyproject.toml`'s
+`testpaths = ["tests"]` includes `tests/integration` and `tests/wiring`, which need a live
+Postgres/Redis/Vault stack not present in this build environment. The unit suite is a complete,
+reliable substitute for this task's verification; it does not substitute for a pre-deploy run
+against a live stack.
+
+**D-2.** §8's Regression Test Plan named T-1 through T-6 as the tests this build would touch, but
+C2's rename (`on_presence_changed` → `on_users_present`, dropping `has_live_users`) also broke two
+pre-existing tests it did not name: `test_agent_trigger_wiring.py::test_evaluate_presence_change_forwards_flag`
+(asserted the old signature directly; renamed to `test_evaluate_presence_change_forwards_to_on_users_present`
+and updated) and three tests in `test_retention_deep.py::TestFacadeDelegatingPolicies` that asserted
+the now-removed retention→facade call (`test_scrub_stale_presence_pauses_silence_for_emptied_rooms`
+and `test_scrub_stale_presence_survives_one_room_dispatch_failure` deleted outright since they test
+removed behavior; `test_scrub_stale_presence` simplified; T-3's
+`test_presence_scrub_does_not_call_the_wakeup_hook` added in their place). Found via AC-6's
+repo-wide `has_live_users` sweep, which is exactly the mechanism §8 built in to catch a missed call
+site across the rename's four modules — it also caught these two, one module short of where the
+spec's citation list stopped looking.
 
 ## 13. Follow-ups
 

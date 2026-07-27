@@ -70,14 +70,6 @@ parallel.
   same query can return a different page; and the highlight marker exists in three incompatible
   forms across backend, sanitiser and CSS. Touches DOMPurify config — §7.2 states what must not
   weaken.
-- `2026-07-27-wakeup-sweep-failure-isolation` (bugfix, approved) — `depends_on:
-  [2026-07-22-presence-transition-and-release-wakeup]`, now **implemented 2026-07-27**, so this is
-  unblocked. From `docs/audits/2026-07-27-wakeup-subsystem/` F-3 and F-4 (both minor): the hourly
-  `wakeup_refresh` sweep never rolls back a failed agent, so one DB error discards every refresh in
-  the sweep while the log reports isolated failures; and the retention presence scrub still drives
-  a hook that C1 turned into a no-op, with a comment claiming a protection it no longer provides.
-  Its C2 removal of the retention hook is justified by the reconciled roster read the presence
-  dossier just made trustworthy.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
