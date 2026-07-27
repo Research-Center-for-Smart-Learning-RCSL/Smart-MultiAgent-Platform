@@ -57,6 +57,17 @@ export interface WakeupConfig {
   }
   allow_self_open: boolean
   refresh_every_hours: number
+  /**
+   * Designer-set per-agent bounds (R15.08). Admin-set through the API; there is
+   * no editor control, so this module only carries it through.
+   */
+  soft_bounds?: Record<string, unknown>
+  /**
+   * The column is free-form on the server, so a designer may have written keys
+   * no version of this module knows about. Mirrors the index signature on
+   * `WakeupTriggerConfig` one level down.
+   */
+  [k: string]: unknown
 }
 
 // Canonical fully-populated wakeup config. Most agents persist a partial (or
@@ -130,18 +141,37 @@ function normalizeLegacyFlatTriggers(r: Record<string, unknown>): WakeupConfig['
  * corrected the moment it's loaded rather than silently persisted or
  * discarded.
  */
+// Root keys this module consumes and re-emits itself. Everything else in a
+// stored config is a designer-written key (`soft_bounds`, R15.08) that the
+// editor cannot show and must not silently drop: the result of this function is
+// what the views PATCH back, so a key missing here is a key the designer loses.
+const NORMALIZED_ROOT_KEYS = ['triggers', 'allow_self_open', 'refresh_every_hours'] as const
+// Consumed only on the legacy path (see `normalizeLegacyFlatTriggers`); on that
+// path they have already been folded into `triggers`.
+const LEGACY_ROOT_KEYS = ['every_n_messages', 'silence_minutes', 'call_only', 'autostop_rounds'] as const
+
 export function normalizeWakeupConfig(raw: unknown): WakeupConfig {
   const r = (raw ?? {}) as Record<string, unknown>
-  const triggers = r.triggers !== undefined
-    ? normalizeNestedTriggers(r.triggers as Record<string, Record<string, unknown>>)
-    : normalizeLegacyFlatTriggers(r)
+  const isLegacy = r.triggers === undefined
+  const triggers = isLegacy
+    ? normalizeLegacyFlatTriggers(r)
+    : normalizeNestedTriggers(r.triggers as Record<string, Record<string, unknown>>)
 
   if (triggers.call_only.enabled) {
     triggers.every_n_messages.enabled = false
     triggers.silence_minutes.enabled = false
   }
 
+  const consumed = new Set<string>([
+    ...NORMALIZED_ROOT_KEYS,
+    ...(isLegacy ? LEGACY_ROOT_KEYS : []),
+  ])
+  const passthrough = Object.fromEntries(
+    Object.entries(r).filter(([key]) => !consumed.has(key)),
+  )
+
   return {
+    ...passthrough,
     triggers,
     allow_self_open: (r.allow_self_open as boolean) ?? DEFAULT_WAKEUP.allow_self_open,
     refresh_every_hours: (r.refresh_every_hours as number) ?? DEFAULT_WAKEUP.refresh_every_hours,
