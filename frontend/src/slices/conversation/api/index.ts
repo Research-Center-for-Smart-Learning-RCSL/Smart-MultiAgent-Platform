@@ -22,6 +22,7 @@ import {
 import { asBinaryFormField } from '@shared/transport'
 import type { MessageOut, ObservationOut } from '@shared/api-client'
 import type { Agent } from '@slices/agents'
+import type { ApprovalWithVotes } from '@shared/types/workflow'
 import type {
   Attachment,
   AttachmentDownload,
@@ -281,6 +282,12 @@ export async function getChatroomPresence(chatroomId: string): Promise<string[]>
     chatroomId,
   })
   return presence.user_ids
+}
+
+// F-13: room-scoped approvals read side, so a client can discover a gate
+// whose `approval.requested` frame was missed while disconnected.
+export async function listChatroomApprovals(chatroomId: string): Promise<ApprovalWithVotes[]> {
+  return ChatroomsService.listChatroomApprovalsApiChatroomsChatroomIdApprovalsGet({ chatroomId })
 }
 
 export async function editMessage(

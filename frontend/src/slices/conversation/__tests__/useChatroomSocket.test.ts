@@ -12,6 +12,8 @@ import { defineComponent } from 'vue'
 import type { ChannelEvent } from '@shared/transport'
 import { useActivitiesStore } from '@slices/activities'
 import type * as ActivitiesSlice from '@slices/activities'
+import { useOrchestrationStore } from '@shared/stores/orchestration'
+import type { ApprovalWithVotes } from '@shared/types/workflow'
 
 const subscribedHandlers: Array<(ev: ChannelEvent) => void> = []
 const statusHandlers: Array<(connected: boolean) => void> = []
@@ -54,10 +56,12 @@ vi.mock('@shared/transport', () => {
 
 const listMessagesMock = vi.hoisted(() => vi.fn(async () => []))
 const getMessageMock = vi.hoisted(() => vi.fn())
+const listChatroomApprovalsMock = vi.hoisted(() => vi.fn(async () => []))
 const getActiveActivationMock = vi.hoisted(() => vi.fn())
 vi.mock('../api', () => ({
   listMessages: listMessagesMock,
   getMessage: getMessageMock,
+  listChatroomApprovals: listChatroomApprovalsMock,
 }))
 
 vi.mock('@slices/activities', async (importOriginal) => ({
@@ -122,6 +126,8 @@ describe('useChatroomSocket agent streaming', () => {
     degradedHandlers.length = 0
     listMessagesMock.mockClear()
     getMessageMock.mockReset()
+    listChatroomApprovalsMock.mockReset()
+    listChatroomApprovalsMock.mockResolvedValue([])
     getActiveActivationMock.mockReset()
     getActiveActivationMock.mockResolvedValue(null)
     vi.useFakeTimers()
@@ -560,6 +566,62 @@ describe('useChatroomSocket agent streaming', () => {
     const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{ id: string }>
     expect(cache.some((m) => m.id === 'm_stale')).toBe(false)
     expect(cache.some((m) => m.id === 'm_new')).toBe(true)
+  })
+
+  function approval(over: Partial<ApprovalWithVotes> = {}): ApprovalWithVotes {
+    return {
+      id: 'ap_1',
+      workflow_run_id: 'run_1',
+      mode: 'single',
+      leader_agent_id: AGENT,
+      approver_agent_ids: [AGENT],
+      timeout_seconds: 300,
+      state: 'pending',
+      started_at: '2024-01-01T00:00:00.000Z',
+      ended_at: null,
+      votes: [],
+      ...over,
+    }
+  }
+
+  it('discovers an approval raised while disconnected (F-13)', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const orchStore = useOrchestrationStore()
+    expect(orchStore.getApprovalsForRoom(ROOM)).toHaveLength(0)
+
+    listChatroomApprovalsMock.mockResolvedValueOnce([approval({ id: 'ap_missed' })])
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+
+    expect(orchStore.getApprovalsForRoom(ROOM).map((a) => a.id)).toContain('ap_missed')
+  })
+
+  it('does not resurrect a resolved approval from a stale discovery response (F-13)', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const orchStore = useOrchestrationStore()
+
+    let resolveFirst!: (v: ApprovalWithVotes[]) => void
+    let resolveSecond!: (v: ApprovalWithVotes[]) => void
+    listChatroomApprovalsMock
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve }))
+      .mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve }))
+
+    statusHandlers.forEach((h) => h(true))
+    statusHandlers.forEach((h) => h(false))
+    statusHandlers.forEach((h) => h(true))
+
+    // The second (newer) connect's discovery resolves first, finding nothing
+    // -- the gate is already resolved and no longer relevant.
+    resolveSecond([])
+    await flushPromises()
+    // The first (stale) discovery resolves after, still naming the old gate.
+    // It must not resurrect a card the newer fetch correctly omitted.
+    resolveFirst([approval({ id: 'ap_stale' })])
+    await flushPromises()
+
+    expect(orchStore.getApprovalsForRoom(ROOM).some((a) => a.id === 'ap_stale')).toBe(false)
   })
 
   it('applies only the newest message.updated when two refetches resolve out of order (F-19)', async () => {
