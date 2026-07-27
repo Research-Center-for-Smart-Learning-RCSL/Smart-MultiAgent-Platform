@@ -47,11 +47,44 @@
         aria-relevant="additions"
         :aria-label="t('conversation.chatroom.messageList')"
       >
-        <li v-if="hasOlderMessages">
+        <li v-if="hasOlderMessages && !messagesPending">
           <ChatroomLoadEarlier
             :loading="loadingOlder"
             @load="onLoadEarlier"
           />
+        </li>
+
+        <li
+          v-if="messagesPending"
+          class="chatroom__messages-skeleton"
+        >
+          <SSkeleton
+            variant="rect"
+            height="56px"
+          />
+          <SSkeleton
+            variant="rect"
+            height="56px"
+          />
+          <SSkeleton
+            variant="rect"
+            height="56px"
+          />
+        </li>
+
+        <li v-if="messagesErrored">
+          <SAlert variant="danger">
+            {{ t('conversation.chatroom.loadMessagesFailed') }}
+            <template #actions>
+              <SButton
+                variant="ghost"
+                size="sm"
+                @click="refetchMessages"
+              >
+                {{ t('conversation.chatroom.retry') }}
+              </SButton>
+            </template>
+          </SAlert>
         </li>
 
         <TransitionGroup name="msg">
@@ -95,7 +128,7 @@
           aria-live="off"
         />
 
-        <li v-if="!messages.length && !streamingEntries.length && !liveApprovals.length">
+        <li v-if="!messagesPending && !messagesErrored && !messages.length && !streamingEntries.length && !liveApprovals.length">
           <SEmptyState
             :icon="ChatBubbleLeftRightIcon"
             :title="t('conversation.chatroom.emptyTitle')"
@@ -261,7 +294,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 
 import { useToast, useBreakpoint, useVisualViewport, useConfirmDialog } from '@shared/composables'
-import { SDrawer, SEmptyState, STabs } from '@shared/ui'
+import { SAlert, SButton, SDrawer, SEmptyState, SSkeleton, STabs } from '@shared/ui'
 import { ChatBubbleLeftRightIcon, EyeIcon, PlayCircleIcon, UsersIcon } from '@heroicons/vue/24/outline'
 import { ApiError, ValidationError } from '@shared/errors'
 import { isProblemWithType } from '@shared/transport'
@@ -554,6 +587,9 @@ const {
   hasOlderMessages,
   loadingOlder,
   loadEarlier,
+  isPending: messagesPending,
+  isError: messagesErrored,
+  refetchMessages,
   rendered,
   draft,
   onSend,

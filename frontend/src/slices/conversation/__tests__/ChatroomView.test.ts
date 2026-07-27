@@ -372,4 +372,48 @@ describe('ChatroomView', () => {
     expect(mockToast.error).toHaveBeenCalledTimes(2)
     expect(store.agentError['cr_1']).toBeNull()
   })
+
+  it('does not render the empty state while the first fetch is pending (F-17)', async () => {
+    const wrapper = await renderView(ChatroomView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1',
+    })
+    // Before settle(): the GET is still in flight, so this must read as
+    // "loading", never as "genuinely empty".
+    expect(wrapper.find('.s-empty-state').exists()).toBe(false)
+    expect(wrapper.find('.chatroom__messages-skeleton').exists()).toBe(true)
+
+    await settle()
+    expect(wrapper.find('.chatroom__messages-skeleton').exists()).toBe(false)
+    expect(wrapper.find('.s-empty-state').exists()).toBe(true)
+  })
+
+  it('does not render "Load earlier" before the query settles (F-17)', async () => {
+    server.use(
+      http.get('/api/chatrooms/cr_1/messages', () =>
+        HttpResponse.json(
+          Array.from({ length: 100 }, (_, i) => ({
+            id: `m_${i}`,
+            chatroom_id: 'cr_1',
+            sender_type: 'user',
+            sender_id: 'u_1',
+            content_md: `message ${i}`,
+            metadata: {},
+            version: 1,
+            created_at: new Date(Date.now() - (100 - i) * 1000).toISOString(),
+            edited_at: null,
+            deleted_at: null,
+          })),
+        ),
+      ),
+    )
+    const wrapper = await renderView(ChatroomView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1',
+    })
+    expect(wrapper.find('.load-earlier').exists()).toBe(false)
+
+    await settle()
+    expect(wrapper.find('.load-earlier').exists()).toBe(true)
+  })
 })

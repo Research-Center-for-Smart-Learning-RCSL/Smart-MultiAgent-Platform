@@ -85,6 +85,15 @@ export function useChatroomMessages(
     },
   })
 
+  // F-17: without these the view had nothing to distinguish "still loading"
+  // or "failed" from "genuinely empty room", so it painted the empty state
+  // before the first fetch ever resolved.
+  const isPending = computed(() => query.isPending.value)
+  const isError = computed(() => query.isError.value)
+  function refetchMessages(): void {
+    void query.refetch()
+  }
+
   watch(
     () => query.data.value,
     (recent) => {
@@ -335,6 +344,9 @@ export function useChatroomMessages(
     hasOlderMessages,
     loadingOlder,
     loadEarlier,
+    isPending,
+    isError,
+    refetchMessages,
     // rendered markdown
     rendered,
     // compose

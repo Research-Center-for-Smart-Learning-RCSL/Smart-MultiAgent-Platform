@@ -110,6 +110,7 @@
       "loadEarlier": "載入更早的訊息",
       "loadingEarlier": "載入中…",
       "loadEarlierFailed": "載入更早的訊息失敗。",
+      "loadMessagesFailed": "載入訊息失敗。",
       "typing": "正在輸入…",
       "back": "返回",
       "agents": "代理人",
