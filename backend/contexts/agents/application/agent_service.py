@@ -365,6 +365,27 @@ def _assert_config_within_bounds(value: dict[str, Any], *, field: str) -> None:
         raise AgentConfigTooLarge(f"{field}: {violation}")
 
 
+def _normalize_wakeup_config(merged: dict[str, Any]) -> dict[str, Any]:
+    """Normalize the documented `WakeupConfig` shape within a merged
+    `wakeup_config` / `wakeup_authored_snapshot` dict, so a partial PATCH persists
+    a complete config rather than a fragment (Q-4/Q-5,
+    2026-07-27-wakeup-config-type-validation). Root-level keys the domain model
+    does not own (e.g. a designer note) pass through untouched — replacing the
+    whole dict with `WakeupConfig.to_dict()`'s output would silently drop them
+    (Q-3, forced by 2026-07-27-wakeup-config-key-preservation's additive merge).
+
+    Not applied to a `replace_wakeup_config` restore: that write must land the
+    authored snapshot verbatim, or the drift check `current == authored`
+    (`wakeup_service.refresh_wakeup_config`) could never converge for a snapshot
+    written before this normalization existed.
+    """
+    from contexts.orchestration.domain.models import WakeupConfig
+
+    normalized = dict(merged)
+    normalized.update(WakeupConfig.from_dict(merged).to_dict())
+    return normalized
+
+
 class AgentService:
     def __init__(self, db: AsyncSession) -> None:
         # Deferred, unlike the KeysFacade/KnowledgeFacade imports above: skills reaches
@@ -582,7 +603,9 @@ class AgentService:
 
         # `is not None` (not truthiness): an explicit empty {} means "inert by
         # choice" and must not be overridden by the default.
-        wakeup = draft.wakeup_config if draft.wakeup_config is not None else _DEFAULT_WAKEUP_CONFIG
+        wakeup = _normalize_wakeup_config(
+            draft.wakeup_config if draft.wakeup_config is not None else _DEFAULT_WAKEUP_CONFIG
+        )
         agent = await self._agents.create(
             project_id=project_id,
             name=draft.name.strip(),
@@ -771,11 +794,15 @@ class AgentService:
             # Additive, not replacing: the column is free-form, so a payload that
             # models only part of it (every UI editor does) would otherwise delete
             # designer keys such as `soft_bounds` (R15.08). An explicit null in the
-            # payload deletes that key — see `merge_json_config`.
+            # payload deletes that key — see `merge_json_config`. The merge always
+            # runs before normalization (Q-4): normalizing first would materialize
+            # defaults for fields the caller omitted and merge over the stored
+            # values, turning a partial PATCH into a silent reset. Not applied on
+            # a `replace_wakeup_config` restore — see `_normalize_wakeup_config`.
             merged_wakeup = (
                 draft.wakeup_config
                 if draft.replace_wakeup_config
-                else merge_json_config(current.wakeup_config, draft.wakeup_config)
+                else _normalize_wakeup_config(merge_json_config(current.wakeup_config, draft.wakeup_config))
             )
             _assert_config_within_bounds(merged_wakeup, field="wakeup_config")
             values["wakeup_config"] = merged_wakeup
@@ -800,7 +827,7 @@ class AgentService:
                 merged_snapshot = (
                     draft.wakeup_config
                     if draft.replace_wakeup_config
-                    else merge_json_config(snapshot_base, draft.wakeup_config)
+                    else _normalize_wakeup_config(merge_json_config(snapshot_base, draft.wakeup_config))
                 )
                 _assert_config_within_bounds(merged_snapshot, field="wakeup_authored_snapshot")
                 values["wakeup_authored_snapshot"] = merged_snapshot or None

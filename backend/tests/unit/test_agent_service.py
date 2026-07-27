@@ -770,6 +770,46 @@ class TestPatch:
         assert values["wakeup_config"] == authored
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_wakeup_config_is_normalized_before_persisting(self, _audit) -> None:
+        """AC-5 (docs/tasks/2026-07-27-wakeup-config-type-validation): the merge
+        runs first (Q-4), so a partial PATCH does not reset an omitted field --
+        `n` stays 8 even though the payload never mentions it -- and the merged
+        result is then normalized into a complete config, so every documented
+        field defaults in rather than being left absent."""
+        current = _make_agent(
+            wakeup_config={
+                "triggers": {"every_n_messages": {"enabled": True, "n": 8}},
+                "soft_bounds": {"n_min": 5, "n_max": 10},
+            }
+        )
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = _make_agent(version=2)
+        svc = _make_service(agent_repo=agents)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(wakeup_config={"triggers": {"silence_minutes": {"t_minutes": 9}}}),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        values = agents.patch.call_args.kwargs["values"]
+        merged = values["wakeup_config"]
+        assert merged["triggers"]["every_n_messages"]["n"] == 8
+        assert merged["triggers"]["silence_minutes"]["t_minutes"] == 9
+        assert merged["triggers"]["silence_minutes"]["autostop_rounds"] == 5
+        assert merged["triggers"]["silence_minutes"]["observer_autostop_rounds"] == 50
+        assert merged["triggers"]["silence_minutes"]["autostop_max_default"] == 100
+        assert merged["triggers"]["call_only"] == {"enabled": False}
+        assert merged["allow_self_open"] is False
+        assert merged["refresh_every_hours"] == 24
+        assert merged["soft_bounds"] == {"n_min": 5, "n_max": 10}
+        # Human actor: the authored snapshot is normalized on the same terms.
+        assert values["wakeup_authored_snapshot"] == merged
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_patch_merges_workflow_capabilities(self, _audit) -> None:
         current = _make_agent(
             workflow_capabilities={"can_instruct": True, "operator_note": "keep me"},
