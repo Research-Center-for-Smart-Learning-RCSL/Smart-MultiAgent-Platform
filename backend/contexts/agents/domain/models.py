@@ -295,6 +295,13 @@ class AgentDraft:
     clear_temperature: bool = False
     clear_top_p: bool = False
     clear_seed: bool = False
+    # `wakeup_config` writes are additive by default so a partial payload cannot
+    # delete designer keys (R15.08). The G.5 periodic refresh is the one writer
+    # that must *replace*: it restores the authored snapshot, and merging would
+    # leave live-config keys the snapshot never had — so the post-refresh config
+    # would never equal the snapshot and every later sweep would refresh again.
+    # Not reachable from the API: the router builds this draft field by field.
+    replace_wakeup_config: bool = False
 
 
 __all__ = [

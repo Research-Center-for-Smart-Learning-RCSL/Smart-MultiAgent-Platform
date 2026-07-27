@@ -397,6 +397,9 @@ class WakeupService:
         draft = AgentDraft(
             wakeup_config=authored,
             wakeup_last_refreshed_at=now,
+            # A restore, not a patch: the drifted config must be discarded whole,
+            # including keys the authored snapshot never carried.
+            replace_wakeup_config=True,
         )
         for _attempt in range(2):
             try:

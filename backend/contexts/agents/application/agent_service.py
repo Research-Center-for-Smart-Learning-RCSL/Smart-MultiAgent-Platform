@@ -758,7 +758,11 @@ class AgentService:
             # models only part of it (every UI editor does) would otherwise delete
             # designer keys such as `soft_bounds` (R15.08). An explicit null in the
             # payload deletes that key — see `merge_json_config`.
-            merged_wakeup = merge_json_config(current.wakeup_config, draft.wakeup_config)
+            merged_wakeup = (
+                draft.wakeup_config
+                if draft.replace_wakeup_config
+                else merge_json_config(current.wakeup_config, draft.wakeup_config)
+            )
             values["wakeup_config"] = merged_wakeup
             # Human edit → update the authored snapshot (G.5).
             # System actor (uuid(int=0)) updates are self-modifications
