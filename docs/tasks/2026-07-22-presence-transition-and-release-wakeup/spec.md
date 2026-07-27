@@ -618,4 +618,23 @@ pre-deploy run of the full suite against a live stack.
   granularities (one room's already-fetched members vs. a `scan_iter` across every room). Flagged
   Info-level by the build's quality audit; worth a look the next time either function is touched,
   not urgent enough to justify a shared abstraction today.
+- **FU-7** — An independent `/code-review` of the branch (2026-07-27, after this dossier closed)
+  flagged that `list_room`'s new reconciliation cost (SMEMBERS + pipelined `EXISTS` per member, plus
+  a possible eviction pipeline) is now paid once **per bound agent**, not once per room:
+  `evaluate_silence`'s sweep loop (`app/workers/tasks/orchestration.py`) calls
+  `evaluate_silence_trigger` — and therefore `list_room` — once per `(agent_id, room_id)` binding, so
+  a room with N bound agents reconciles its identical roster N times per 30 s tick instead of once.
+  The N-per-room call pattern predates this dossier (a bare `SMEMBERS` was already called this way);
+  this dossier made each of those N calls more expensive. Not fixed here: the natural fix (cache one
+  reconciled roster per room per sweep tick, e.g. keyed in `evaluate_silence`'s own loop) changes
+  `evaluate_silence`'s structure, which is out of this bugfix's scope and touches the same function
+  `2026-07-27-wakeup-sweep-failure-isolation` C1 already edited for an unrelated reason.
+- **FU-8** — The same review noted `PresenceTracker.leave`'s reconciled `roster_size_after` is now
+  computed (full `_reconcile_roster` pass) but discarded by its sole production caller: after C2 of
+  `2026-07-27-wakeup-sweep-failure-isolation` removed the leave-edge presence notification,
+  `chatroom.py`'s `on_close` binds the return to `_roster_size` and never reads it. `leave`'s return
+  contract is still exercised by `test_presence.py`'s existing assertions and by any other caller
+  that might rely on it, so narrowing the signature is a separate, deliberate decision rather than a
+  drop-in fix; revisit whether `leave` should offer a cheaper roster-size-less variant for this
+  caller the next time `presence.py` is touched.
 </content>
