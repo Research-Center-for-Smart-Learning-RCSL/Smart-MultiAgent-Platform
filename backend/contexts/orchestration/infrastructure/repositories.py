@@ -273,6 +273,41 @@ class ApprovalVoteRepository:
             for r in rows
         ]
 
+    async def list_for_approvals(
+        self,
+        approval_ids: list[uuid.UUID],
+    ) -> dict[uuid.UUID, list[ApprovalVote]]:
+        """Batched votes lookup for a page of approvals (F-13).
+
+        One ``IN (...)`` query instead of one query per approval — the
+        chatroom-scoped list endpoint would otherwise do N+1 round trips.
+        """
+        if not approval_ids:
+            return {}
+        rows = (
+            (
+                await self._db.execute(
+                    approval_votes.select()
+                    .where(approval_votes.c.approval_id.in_(approval_ids))
+                    .order_by(approval_votes.c.approval_id, approval_votes.c.cast_at),
+                )
+            )
+            .mappings()
+            .all()
+        )
+        result: dict[uuid.UUID, list[ApprovalVote]] = {aid: [] for aid in approval_ids}
+        for r in rows:
+            result[r["approval_id"]].append(
+                ApprovalVote(
+                    approval_id=r["approval_id"],
+                    voter_agent_id=r["voter_agent_id"],
+                    vote=r["vote"],
+                    rationale=r["rationale"],
+                    cast_at=r["cast_at"],
+                )
+            )
+        return result
+
 
 # ---------------------------------------------------------------------------
 # Instruction repository

@@ -269,6 +269,12 @@ class OrchestrationFacade:
     ) -> list[Approval]:
         return await self._approval.list_for_chatroom(chatroom_id)
 
+    async def list_approvals_for_chatroom_with_votes(
+        self,
+        chatroom_id: uuid.UUID,
+    ) -> list[tuple[Approval, list[ApprovalVote]]]:
+        return await self._approval.list_for_chatroom_with_votes(chatroom_id)
+
     # -- Instruct (G.7) --
 
     async def issue_instruct(

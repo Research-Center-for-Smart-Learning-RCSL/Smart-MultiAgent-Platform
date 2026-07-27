@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Literal
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams, require_if_match
-from app.api.v1.orchestration import ApprovalVoteOut, ApprovalWithVotesOut
+from app.api.v1.orchestration import ApprovalWithVotesOut, approval_with_votes_out
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.access import (
     ensure_can_read,
@@ -663,36 +663,13 @@ async def get_chatroom_presence(
 # --------------------------------------------------------------------------- #
 
 
-def _chatroom_approval_out(approval: Any, votes: list[Any]) -> ApprovalWithVotesOut:
-    return ApprovalWithVotesOut(
-        id=str(approval.id),
-        workflow_run_id=str(approval.workflow_run_id),
-        mode=approval.mode,
-        leader_agent_id=str(approval.leader_agent_id),
-        approver_agent_ids=[str(a) for a in approval.approver_agent_ids],
-        timeout_seconds=approval.timeout_seconds,
-        state=approval.state,
-        started_at=approval.started_at.isoformat(),
-        ended_at=approval.ended_at.isoformat() if approval.ended_at else None,
-        votes=[
-            ApprovalVoteOut(
-                approval_id=str(v.approval_id),
-                voter_agent_id=str(v.voter_agent_id),
-                vote=v.vote,
-                rationale=v.rationale,
-                cast_at=v.cast_at.isoformat(),
-            )
-            for v in votes
-        ],
-    )
-
-
 @chatroom_router.get(
     "/{chatroom_id}/approvals",
     summary="List approval gates raised in a chatroom",
 )
 async def list_chatroom_approvals(
     chatroom_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[ApprovalWithVotesOut]:
@@ -707,12 +684,9 @@ async def list_chatroom_approvals(
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_read(access, is_admin=principal.is_admin)
     orchestration = OrchestrationFacade(db)
-    approvals = await orchestration.list_approvals_for_chatroom(chatroom_id)
-    results = []
-    for a in approvals:
-        votes = await orchestration.get_approval_votes(a.id)
-        results.append(_chatroom_approval_out(a, votes))
-    return results
+    paired = await orchestration.list_approvals_for_chatroom_with_votes(chatroom_id)
+    paired = paired[pagination.offset : pagination.offset + pagination.limit]
+    return [approval_with_votes_out(a, votes) for a, votes in paired]
 
 
 __all__ = ["chatroom_router", "workspace_router"]

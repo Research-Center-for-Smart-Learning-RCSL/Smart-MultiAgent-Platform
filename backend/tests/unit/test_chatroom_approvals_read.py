@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.api.v1 import chatrooms
+from app.api.v1.deps import PaginationParams
 from contexts.conversation.domain.errors import ForbiddenInRoom
 from contexts.orchestration.domain.models import Approval, ApprovalMode, ApprovalState
 
@@ -62,19 +63,19 @@ async def test_room_reader_lists_pending_and_resolved_approvals(monkeypatch: pyt
     pending = _approval(state=ApprovalState.PENDING)
     resolved = _approval(state=ApprovalState.APPROVED)
     facade = MagicMock()
-    facade.list_approvals_for_chatroom = AsyncMock(return_value=[pending, resolved])
-    facade.get_approval_votes = AsyncMock(return_value=[])
+    facade.list_approvals_for_chatroom_with_votes = AsyncMock(return_value=[(pending, []), (resolved, [])])
     monkeypatch.setattr(chatrooms, "OrchestrationFacade", lambda _db: facade)
 
     result = await chatrooms.list_chatroom_approvals(
         chatroom_id=_ROOM,
+        pagination=PaginationParams(limit=100, offset=0),
         principal=_principal(),
         db=MagicMock(),
     )
 
     assert {r.id for r in result} == {str(pending.id), str(resolved.id)}
     assert {r.state for r in result} == {ApprovalState.PENDING, ApprovalState.APPROVED}
-    facade.list_approvals_for_chatroom.assert_awaited_once_with(_ROOM)
+    facade.list_approvals_for_chatroom_with_votes.assert_awaited_once_with(_ROOM)
 
 
 async def test_approval_for_a_different_room_is_not_returned(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,18 +83,18 @@ async def test_approval_for_a_different_room_is_not_returned(monkeypatch: pytest
     # filter here -- this pins that the route asks for THIS room specifically.
     _allow_read(monkeypatch)
     facade = MagicMock()
-    facade.list_approvals_for_chatroom = AsyncMock(return_value=[])
-    facade.get_approval_votes = AsyncMock(return_value=[])
+    facade.list_approvals_for_chatroom_with_votes = AsyncMock(return_value=[])
     monkeypatch.setattr(chatrooms, "OrchestrationFacade", lambda _db: facade)
 
     result = await chatrooms.list_chatroom_approvals(
         chatroom_id=_ROOM,
+        pagination=PaginationParams(limit=100, offset=0),
         principal=_principal(),
         db=MagicMock(),
     )
 
     assert result == []
-    facade.list_approvals_for_chatroom.assert_awaited_once_with(_ROOM)
+    facade.list_approvals_for_chatroom_with_votes.assert_awaited_once_with(_ROOM)
 
 
 async def test_non_member_is_forbidden(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -108,6 +109,7 @@ async def test_non_member_is_forbidden(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ForbiddenInRoom):
         await chatrooms.list_chatroom_approvals(
             chatroom_id=_ROOM,
+            pagination=PaginationParams(limit=100, offset=0),
             principal=_principal(),
             db=MagicMock(),
         )
@@ -119,14 +121,31 @@ async def test_pre_migration_rows_are_absent_not_an_error(monkeypatch: pytest.Mo
     # error, for a room whose only approvals predate the column.
     _allow_read(monkeypatch)
     facade = MagicMock()
-    facade.list_approvals_for_chatroom = AsyncMock(return_value=[])
-    facade.get_approval_votes = AsyncMock(return_value=[])
+    facade.list_approvals_for_chatroom_with_votes = AsyncMock(return_value=[])
     monkeypatch.setattr(chatrooms, "OrchestrationFacade", lambda _db: facade)
 
     result = await chatrooms.list_chatroom_approvals(
         chatroom_id=_ROOM,
+        pagination=PaginationParams(limit=100, offset=0),
         principal=_principal(),
         db=MagicMock(),
     )
 
     assert result == []
+
+
+async def test_results_are_paginated(monkeypatch: pytest.MonkeyPatch) -> None:
+    _allow_read(monkeypatch)
+    approvals = [_approval() for _ in range(5)]
+    facade = MagicMock()
+    facade.list_approvals_for_chatroom_with_votes = AsyncMock(return_value=[(a, []) for a in approvals])
+    monkeypatch.setattr(chatrooms, "OrchestrationFacade", lambda _db: facade)
+
+    result = await chatrooms.list_chatroom_approvals(
+        chatroom_id=_ROOM,
+        pagination=PaginationParams(limit=2, offset=1),
+        principal=_principal(),
+        db=MagicMock(),
+    )
+
+    assert [r.id for r in result] == [str(a.id) for a in approvals[1:3]]
