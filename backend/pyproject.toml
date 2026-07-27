@@ -63,7 +63,7 @@ otel = [
 dev = [
   "ruff==0.7.*",
   "mypy==1.13.*",
-  "import-linter==2.1.*",
+  "import-linter>=2.1,<2.14",
   "pytest==9.0.*",  # SEC-DEP: <9.0.3 uses a predictable /tmp/pytest-of-{user} path (PYSEC-2026-1845)
   "pytest-asyncio==1.4.*",  # 1.x is the first series that accepts pytest 9
   "pytest-cov==7.0.*",
