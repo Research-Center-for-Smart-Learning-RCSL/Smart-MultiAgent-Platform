@@ -31,6 +31,15 @@ turn because the arq job id is derived from the session's message count and dedu
 
 Source: `docs/audits/2026-07-22-agent-config-runtime/findings.md` F-13 (major, confirmed).
 
+**Freshness note (2026-07-28).** Re-verified against current `HEAD` before build. The defect itself
+is unchanged and still unfixed — the session HTTP surface is still create+post only, no GET exists.
+`useChatroomSocket.ts`/`ws-manager.ts`, cited throughout §6/§7 as the house pattern this fix should
+copy, were rewritten in the interim by `docs/tasks/2026-07-22-chatroom-socket-lifecycle/` (heartbeat,
+stability window, cap signal) and by `d557752`'s approval reconcile; every citation into those two
+files was re-checked against current `HEAD` and corrected in place. All backend citations were
+re-checked and found accurate except `session_store.py`'s TTL contract, corrected from `:48-51` to
+`:96`.
+
 ## 2. Observed vs Expected
 
 - **Observed.**
@@ -40,7 +49,7 @@ Source: `docs/audits/2026-07-22-agent-config-runtime/findings.md` F-13 (major, c
   - The reply *is* persisted: `backend/app/workers/tasks/prompt_assistant.py:146-147` appends
     to the `SessionStore` before publishing at `:148`.
   - No replay: `backend/shared_kernel/realtime/pubsub.py:3-6`.
-  - No liveness check: `frontend/src/slices/prompt-studio/composables/usePromptAssistantSocket.ts:36,41`
+  - No liveness check: `frontend/src/slices/prompt-studio/composables/usePromptAssistantSocket.ts:35,41`
     clears `streaming` only inside the `prompt.finished` / `prompt.error` cases; `:27-29` sets
     it true with nothing that can un-set it absent a terminal frame.
   - `streaming` is a control gate, not a spinner flag:
@@ -70,7 +79,7 @@ Source: `docs/audits/2026-07-22-agent-config-runtime/findings.md` F-13 (major, c
 | ID | Question | Decision | Rationale |
 |---|---|---|---|
 | Q-1 | Which of the four candidate fixes is load-bearing? | **The session read endpoint plus refetch-on-connect.** The watchdog is a mandatory safety net, not the fix. | Only the refetch recovers the content the user paid for, and it is the missing half of the codebase's own contract. A watchdog alone gives the user an unwedged button and still no answer — cosmetic. |
-| Q-2 | Should the fix also gate `postMessage` on the socket being open, to close the first-message window? | **No — subsumed, and it introduces a worse failure.** | Once the refetch fires on *every* `onStatus(connected)` transition including the first, the handshake window closes by itself, because the refetch after the handshake picks up whatever was published during it. This is exactly how `useChatroomSocket.ts:347-356` handles the same window. Gating the POST would also mean a user who cannot open a socket cannot send anything — converting a silent-loss bug into a hard block. **Ordering requirement: the refetch must fire on the initial connect, not be conditioned on an `everConnected` flag.** |
+| Q-2 | Should the fix also gate `postMessage` on the socket being open, to close the first-message window? | **No — subsumed, and it introduces a worse failure.** | Once the refetch fires on *every* `onStatus(connected)` transition including the first, the handshake window closes by itself, because the refetch after the handshake picks up whatever was published during it. This is exactly how `useChatroomSocket.ts:383-402` handles the same window. Gating the POST would also mean a user who cannot open a socket cannot send anything — converting a silent-loss bug into a hard block. **Ordering requirement: the refetch must fire on the initial connect, not be conditioned on an `everConnected` flag.** |
 | Q-3 | Should the pub/sub layer gain replay/cursor semantics (Redis Streams)? | **No — out of scope.** | It is the structurally right answer and `pubsub.py:4-7` anticipates it, but it is a `shared_kernel` change affecting all seven consumed channels, needing stream trimming, cursor persistence and per-connection replay semantics. Do not couple this fix to it; recorded as FU-1. |
 | Q-4 | What is the AuthZ model for the new read endpoint? | Per-session ownership only, via the existing `require_owned_session`. **No membership dependency, and no admin bypass.** | `post_message` (`prompt_studio.py:762-773`) takes only `current_principal` and delegates entirely to `require_owned_session` (`session_service.py:72-82`); the WS route does the same through the facade (`app/api/ws/prompt_assistant.py:37`). Ownership is strictly stronger than membership, and project membership is already enforced once at session creation (`prompt_studio.py:743`). This is deliberately stricter than admin: a platform admin must not read another user's prompt session through this route, which is the current behaviour of both existing entry points and therefore the conservative choice. |
 | Q-5 | Should a lost `prompt.error` also become recoverable? | **Yes — persist a failure marker before publishing.** | Today the worker's error paths (`prompt_assistant.py:52,65-68,74-77,92-95,138-142`) publish only; nothing is written to the session. So a refetch after a failed turn returns a history ending in the *user* turn, indistinguishable from "still running". Persisting a marker alongside the existing `append_message` closes the last content gap for almost no cost. It changes the session message shape, so it is called out rather than assumed. |
@@ -92,8 +101,8 @@ statusHandlers.forEach(h => h(true))    // reconnects; the terminal frame was lo
 
 **Path (b) — manual.** Send a prompt that produces a long reply; once tokens appear, toggle
 DevTools → Network → Offline for ~2s and back. The socket reconnects (backoff floor
-`INITIAL_BACKOFF_MS = 1_000`, `frontend/src/shared/transport/ws-manager.ts:33`, doubling at
-`:229`); the worker finishes and publishes into a channel with no subscriber. The streaming
+`INITIAL_BACKOFF_MS = 1_000`, `frontend/src/shared/transport/ws-manager.ts:34`, doubling at
+`:347`); the worker finishes and publishes into a channel with no subscriber. The streaming
 bubble (`PromptAssistantPanel.vue:168-175`) freezes with the partial text and the Send button
 (`:195-204`) stays disabled forever. Reload → new session, empty history.
 
@@ -117,7 +126,7 @@ unrecoverable by construction. Three composing facts:
 2. No read side — the session HTTP surface is create + post only
    (`prompt_studio.py:740-773`), despite the reply being persisted at
    `prompt_assistant.py:146-147`.
-3. No client liveness check — `usePromptAssistantSocket.ts:36,41`.
+3. No client liveness check — `usePromptAssistantSocket.ts:35,41`.
 
 Paths (a) and (b) differ only in **which** frame is lost and therefore how the loss presents.
 The wedge is a second-order consequence of (3) layered on the same cause, not an independent
@@ -139,7 +148,7 @@ no frontend consumer at all.)
 
 | Channel | Recovery mechanism | Verdict |
 |---|---|---|
-| `/chatroom/{id}` | `replayDelta()` on connect (`useChatroomSocket.ts:353`) + degraded-mode 10s poll (`:49-55`) + a 120s re-armed watchdog (`:24,160-170,241`) | **Cleared** — the exemplar; has both halves |
+| `/chatroom/{id}` | `replayDelta()` on connect (`useChatroomSocket.ts:396`) + degraded-mode 10s poll (`:59-65`) + a 120s re-armed watchdog (`:26,196-213,284`) | **Cleared** — the exemplar; has both halves |
 | `/workflow-runs/{id}` | `syncOnReconnect()` on every connect (`useWorkflowRunSocket.ts:29-52,83`) fetching authoritative steps | **Cleared.** No watchdog, but run state is driven by REST invalidation (`:65-71`), not a socket-only flag, so no control wedges |
 | `/graphrag/{id}`, `/knowmap/{id}` | 15s backstop poll (`useBuildStateSocket.ts:17,80-87`) + resync on connect (`:146-148`) + `initialState` seed (`:128-136`) | **Cleared** — explicitly hardened by prior audits |
 | `/rag-configs/{id}` | REST is the source of truth by design (`useRagConfigSocket.ts:5-12`); `syncState()` on mount/connect/activate (`:174-189`) + 15s poll (`:119-127`) | **Cleared** — arguably the strongest: WS frames are pure change-triggers |
@@ -178,10 +187,10 @@ explicit Pydantic projection, not a passthrough, so a future field added to `Ass
 cannot leak by default.
 
 **2. Refetch on connect, with a generation guard.** In `usePromptAssistantSocket`'s `onStatus`
-handler, mirroring `useChatroomSocket.ts:347-356`. Four properties to copy deliberately:
+handler, mirroring `useChatroomSocket.ts:383-402`. Four properties to copy deliberately:
 
 - Fire on **every** connect transition, not only reconnects (Q-2).
-- Carry a **monotonic generation guard** (`useChatroomSocket.ts:67,92,95`): capture
+- Carry a **monotonic generation guard** (`useChatroomSocket.ts:77,102,105`): capture
   `++generation`, drop the result if a newer invocation started meanwhile. The same guard
   appears independently in `useWorkflowRunSocket.ts:24-34`, `useBuildStateSocket.ts:105-117`
   and `useRagConfigSocket.ts:94-101` — it is the house pattern for any async resync, each
@@ -192,14 +201,14 @@ handler, mirroring `useChatroomSocket.ts:347-356`. Four properties to copy delib
   id-based dedup is unavailable. Treat the server list as authoritative and replace wholesale,
   keeping the local optimistic user turn (`usePromptAssistantSocket.ts:82-85`) only when the
   server list is shorter.
-- **Clear stale in-flight state on connect, before refetching** — the one line at
-  `useChatroomSocket.ts:350-352` that makes chatroom immune to the wedge: a reconnect
+- **Clear stale in-flight state on connect, before refetching** — the lines at
+  `useChatroomSocket.ts:392-395` that make chatroom immune to the wedge: a reconnect
   unconditionally resets the thinking flags, so a lost terminal frame cannot strand them. This
   is arguably the cheapest correct fix for the wedge on its own and belongs in the change
   regardless of the watchdog.
 - Handle 404 as a distinct state, not a transient error (see §9's TTL risk).
 
-**3. Streaming watchdog**, transliterating `useChatroomSocket.ts:24,151-170`: a module constant
+**3. Streaming watchdog**, transliterating `useChatroomSocket.ts:26,196-213`: a module constant
 exported for tests, an idempotent `clear`, an `arm` that clears then sets, **re-armed on every
 token** so the bound is inter-token silence rather than total duration (`ASSISTANT_MAX_TOKENS =
 2_048` at `domain/models.py:32` bounds total output, so this is safe). On fire, clear the
@@ -233,7 +242,7 @@ Then:
 | `refetches the session on every connect, including the first` | no such API method exists (`api/index.ts:166-174`) and the composable makes no call from `onStatus` |
 | `reconciles a reply that arrived while disconnected` (assert the assistant turn appears exactly once and the optimistic user turn is not duplicated) | no refetch, no reconciliation |
 | `clears streaming after the watchdog timeout with no terminal frame` (fake timers) | no timer is ever armed |
-| `re-arms the watchdog on each token` | ditto — mirrors `useChatroomSocket.ts:241` |
+| `re-arms the watchdog on each token` | ditto — mirrors `useChatroomSocket.ts:284` |
 | `tolerates a 404 from the session refetch` (expired session → `streaming` false, expiry signalled, no unhandled rejection) | the call does not exist |
 
 **Frontend — `PromptAssistantPanel.test.ts`** (extend; currently two tests at `:20-38`). Add
@@ -257,7 +266,7 @@ service-level tests exist and the WS ownership gate is well covered
 |---|---|
 | owner reads own session → 200, messages in order | route does not exist |
 | non-owner → **404, not 403**, with `prompt-studio/session-not-found` | pins the deliberate not-found/wrong-owner collapse (`session_service.py:75-81`, `interfaces/error_mapping.py:64`) so a refactor cannot regress it into an existence oracle |
-| expired session → 404 | pins the TTL contract (`session_store.py:48-51`) |
+| expired session → 404 | pins the TTL contract (`session_store.py:96`) |
 | unauthenticated → 401 | — |
 | response carries no key material | guards R29.14 (`prompt_studio.py:10`) against a future widening of the response model |
 
@@ -273,7 +282,7 @@ error paths where today only the success path persists (`:147`).
 | **Overlapping refetches on a flapping socket** — a slow earlier fetch resolves last over fresher data | medium | stale history | Generation guard (§7). Four composables have it; each acquired it from a real finding |
 | **Session-expired 404 treated as a transient error** | medium | confusing error if unhandled | `SESSION_TTL_SECONDS` is 2 hours (`domain/models.py:29`), refreshed on every `append_message` (`session_store.py:80,96`), so the clock restarts at the reply — a realistic reconnect is nowhere near the boundary. But a tab left overnight genuinely loses the session: handle 404 as a distinct state, allow a fresh session |
 | **Watchdog too short** — trips on a slow provider | low | spurious error, wasted turn | Re-arm on every token, not a total-duration bound |
-| **Refetch storm** — every reconnect issues a GET, and backoff retries indefinitely (`ws-manager.ts:217-230`) | low | backend load | Guard against in-flight duplicates; the generation guard gives this naturally. The GET is a single Redis read |
+| **Refetch storm** — every reconnect issues a GET, and backoff retries indefinitely (`ws-manager.ts:335-348`) | low | backend load | Guard against in-flight duplicates; the generation guard gives this naturally. The GET is a single Redis read |
 | **OpenAPI drift** — client not regenerated | low | build break | `pnpm run gen:api`; CI gates it |
 
 **What this does not fix**, stated plainly: a reply lost after the 2h TTL has expired is gone
