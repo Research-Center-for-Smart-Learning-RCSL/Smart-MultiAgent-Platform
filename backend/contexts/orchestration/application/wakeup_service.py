@@ -345,7 +345,15 @@ class WakeupService:
             return d
 
         for _attempt in range(2):
-            draft = AgentDraft(wakeup_config=_build_new_dict(agent))
+            # `_build_new_dict` already merges the fresh config over itself through
+            # `WakeupConfig.to_dict()` (the same operation `AgentService.patch`'s own
+            # normalization performs) before layering the clamped deltas on top, so
+            # its output is already the final, complete shape. `replace_wakeup_config`
+            # skips a second, redundant merge+normalize round-trip for it — safe here
+            # specifically because this call is always the system actor, so it never
+            # touches the `wakeup_authored_snapshot` branch `replace` would otherwise
+            # also affect.
+            draft = AgentDraft(wakeup_config=_build_new_dict(agent), replace_wakeup_config=True)
             try:
                 updated = await self._agents_facade.patch_agent(
                     agent_id=agent_id,
