@@ -75,6 +75,12 @@ approvals = sa.Table(
     ),
     sa.Column("started_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("ended_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column(
+        "chatroom_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("chatrooms.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
 )
 
 approval_votes = sa.Table(

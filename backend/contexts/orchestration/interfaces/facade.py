@@ -263,6 +263,12 @@ class OrchestrationFacade:
     ) -> list[Approval]:
         return await self._approval.list_for_run(workflow_run_id)
 
+    async def list_approvals_for_chatroom(
+        self,
+        chatroom_id: uuid.UUID,
+    ) -> list[Approval]:
+        return await self._approval.list_for_chatroom(chatroom_id)
+
     # -- Instruct (G.7) --
 
     async def issue_instruct(
