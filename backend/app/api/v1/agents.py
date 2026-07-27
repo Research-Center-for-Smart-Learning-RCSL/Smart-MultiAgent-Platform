@@ -30,6 +30,13 @@ from contexts.agents.domain.models import (
     AgentToolType,
     ContextMode,
 )
+from contexts.orchestration.domain.models import (
+    AUTOSTOP_HARD_CAP,
+    N_MAX,
+    N_MIN,
+    T_MINUTES_MAX,
+    T_MINUTES_MIN,
+)
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
@@ -57,6 +64,85 @@ _MAX_ALLOWED_TOOLS = 200
 # integer is rejected at the API (422) instead of overflowing the column (500).
 _SEED_MIN = -(2**31)
 _SEED_MAX = 2**31 - 1
+
+# Lower floor for the two `_default_below_one`-resolved autostop fields
+# (`contexts.orchestration.domain.models`); their own upper bound is the shared
+# hard cap. Restated here rather than imported since the domain module has no
+# constant for it — `_default_below_one`'s `value < 1` check is the source.
+_AUTOSTOP_FLOOR = 1
+_REFRESH_HOURS_FLOOR = 1
+
+
+def _check_wakeup_int(value: Any, *, field: str, minimum: int, maximum: int | None) -> None:
+    """Type/range-check one numeric leaf of `wakeup_config` (R15.07/R15.09/R28.12).
+
+    A wrong type (including `bool`, Q-7) or an out-of-range value is refused with
+    422 naming the field, instead of being silently persisted and resolved to a
+    default only once the tolerant domain parser reads it back
+    (2026-07-27-wakeup-config-type-validation). Raising `ValueError` here is what
+    FastAPI turns into the 422 -- mirrors `_cap_config`/`_cap_auth` below.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field} must be an integer")
+    if value < minimum or (maximum is not None and value > maximum):
+        bound = f">= {minimum}" if maximum is None else f"between {minimum} and {maximum}"
+        raise ValueError(f"{field} must be {bound}")
+
+
+def _validate_wakeup_config(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Validate the documented numeric leaves of `wakeup_config`, leaving every
+    other key -- root-level or nested -- untouched so the column stays free-form
+    (Q-3: forced by 2026-07-27-wakeup-config-key-preservation's additive merge,
+    which requires unmodelled keys to survive)."""
+    if value is None:
+        return value
+    triggers = value.get("triggers")
+    if isinstance(triggers, dict):
+        enm = triggers.get("every_n_messages")
+        if isinstance(enm, dict) and "n" in enm:
+            _check_wakeup_int(
+                enm["n"], field="wakeup_config.triggers.every_n_messages.n", minimum=N_MIN, maximum=N_MAX
+            )
+        sm = triggers.get("silence_minutes")
+        if isinstance(sm, dict):
+            if "t_minutes" in sm:
+                _check_wakeup_int(
+                    sm["t_minutes"],
+                    field="wakeup_config.triggers.silence_minutes.t_minutes",
+                    minimum=T_MINUTES_MIN,
+                    maximum=T_MINUTES_MAX,
+                )
+            for key in ("autostop_rounds", "observer_autostop_rounds", "autostop_max_default"):
+                if key in sm:
+                    _check_wakeup_int(
+                        sm[key],
+                        field=f"wakeup_config.triggers.silence_minutes.{key}",
+                        minimum=_AUTOSTOP_FLOOR,
+                        maximum=AUTOSTOP_HARD_CAP,
+                    )
+    if "refresh_every_hours" in value:
+        _check_wakeup_int(
+            value["refresh_every_hours"],
+            field="wakeup_config.refresh_every_hours",
+            minimum=_REFRESH_HOURS_FLOOR,
+            maximum=None,
+        )
+    soft_bounds = value.get("soft_bounds")
+    if isinstance(soft_bounds, dict):
+        for key in ("n_min", "n_max"):
+            if key in soft_bounds:
+                _check_wakeup_int(
+                    soft_bounds[key], field=f"wakeup_config.soft_bounds.{key}", minimum=N_MIN, maximum=N_MAX
+                )
+        for key in ("t_minutes_min", "t_minutes_max"):
+            if key in soft_bounds:
+                _check_wakeup_int(
+                    soft_bounds[key],
+                    field=f"wakeup_config.soft_bounds.{key}",
+                    minimum=T_MINUTES_MIN,
+                    maximum=T_MINUTES_MAX,
+                )
+    return value
 
 
 class AgentCreateIn(BaseModel):
@@ -88,6 +174,13 @@ class AgentCreateIn(BaseModel):
     a2a_enabled: bool = False
     wakeup_config: BoundedConfig = Field(default_factory=dict)
     workflow_capabilities: BoundedConfig = Field(default_factory=dict)
+
+    @field_validator("wakeup_config")
+    @classmethod
+    def _check_wakeup_config(cls, v: dict[str, Any]) -> dict[str, Any]:
+        result = _validate_wakeup_config(v)
+        assert result is not None  # non-Optional field: input is never None
+        return result
 
 
 class AgentPatchIn(BaseModel):
@@ -122,6 +215,11 @@ class AgentPatchIn(BaseModel):
     a2a_enabled: bool | None = None
     wakeup_config: BoundedConfig | None = None
     workflow_capabilities: BoundedConfig | None = None
+
+    @field_validator("wakeup_config")
+    @classmethod
+    def _check_wakeup_config(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+        return _validate_wakeup_config(v)
 
 
 class AgentOut(BaseModel):
