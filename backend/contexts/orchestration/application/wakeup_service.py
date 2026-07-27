@@ -248,23 +248,24 @@ class WakeupService:
         return True
 
     # ------------------------------------------------------------------
-    # Presence change: pause/resume silence timer (R15.05b)
+    # Presence change: re-arm the silence timer on join (R15.05b)
     # ------------------------------------------------------------------
 
-    async def on_presence_changed(
+    async def on_users_present(
         self,
         *,
         room_id: uuid.UUID,
         agent_ids: list[uuid.UUID],
-        has_live_users: bool,
     ) -> None:
-        """Called when room presence changes.
+        """Called when a user joins a room, re-arming the silence timer.
 
-        Starts silence timer when users join, pauses when room empties.
+        The pause half of this hook was retired
+        (2026-07-27-wakeup-sweep-failure-isolation C2): the live roster read
+        in `evaluate_silence_trigger` is now the sole, level-triggered
+        authority on an empty room, so there is nothing left to pause here.
         """
         for agent_id in agent_ids:
-            if has_live_users:
-                await wakeup_state.touch_silence_timestamp(agent_id, room_id)
+            await wakeup_state.touch_silence_timestamp(agent_id, room_id)
 
     # ------------------------------------------------------------------
     # Agent spoke without user reply → bump autostop

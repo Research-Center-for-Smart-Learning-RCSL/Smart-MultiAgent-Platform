@@ -172,7 +172,7 @@ async def test_filter_mentioned_bound_agents_empty_input_skips_repo(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_evaluate_presence_change_forwards_flag(monkeypatch) -> None:
+async def test_evaluate_presence_change_forwards_to_on_users_present(monkeypatch) -> None:
     a1 = uuid.uuid4()
     room = uuid.uuid4()
     captured: dict = {}
@@ -183,13 +183,13 @@ async def test_evaluate_presence_change_forwards_flag(monkeypatch) -> None:
         def __init__(self, db) -> None:
             pass
 
-        async def on_presence_changed(self, *, room_id, agent_ids, has_live_users):
-            captured.update(room_id=room_id, agent_ids=list(agent_ids), has_live_users=has_live_users)
+        async def on_users_present(self, *, room_id, agent_ids):
+            captured.update(room_id=room_id, agent_ids=list(agent_ids))
 
     monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
 
-    await triggers.evaluate_presence_change(object(), chatroom_id=room, has_live_users=False)
-    assert captured == {"room_id": room, "agent_ids": [a1], "has_live_users": False}
+    await triggers.evaluate_presence_change(object(), chatroom_id=room)
+    assert captured == {"room_id": room, "agent_ids": [a1]}
 
 
 # --------------------------------------------------------------------------- #

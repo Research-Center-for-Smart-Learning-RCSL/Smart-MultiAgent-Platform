@@ -145,17 +145,15 @@ class OrchestrationFacade:
             observer_agent_ids=observer_agent_ids,
         )
 
-    async def on_presence_changed(
+    async def on_users_present(
         self,
         *,
         room_id: uuid.UUID,
         agent_ids: list[uuid.UUID],
-        has_live_users: bool,
     ) -> None:
-        await self._wakeup.on_presence_changed(
+        await self._wakeup.on_users_present(
             room_id=room_id,
             agent_ids=agent_ids,
-            has_live_users=has_live_users,
         )
 
     async def on_agent_message_sent(
