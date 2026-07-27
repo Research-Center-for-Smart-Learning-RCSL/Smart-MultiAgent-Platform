@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: closed
 created: 2026-07-27
 requirements: [R15.01, R15.02, R15.03, R15.04, R15.05b, R15.06, R15.07, R15.08, R15.09, R28.04, R28.12]
 ---
@@ -234,12 +234,24 @@ Not covered by this audit:
 
 ## 5. Hand-off
 
+Triaged 2026-07-27: all four findings selected for fixing, grouped into three dossiers. F-3 and F-4
+share a dossier because both are minor worker-sweep hygiene defects on one surface and one review;
+F-1 and F-2 are separate because they share neither a mechanism nor a rollback.
+
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | pending triage | — |
-| F-2 | pending triage | — |
-| F-3 | pending triage | — |
-| F-4 | pending triage | — |
+| F-1 | fix | `docs/tasks/2026-07-27-wakeup-config-key-preservation/` |
+| F-2 | fix | `docs/tasks/2026-07-27-wakeup-config-type-validation/` |
+| F-3 | fix | `docs/tasks/2026-07-27-wakeup-sweep-failure-isolation/` |
+| F-4 | fix | `docs/tasks/2026-07-27-wakeup-sweep-failure-isolation/` |
+
+**Side effect of this triage, recorded here because it is not a finding.** The dependency scan run
+while writing the F-3/F-4 dossier found that `docs/tasks/2026-07-22-presence-transition-and-release-wakeup/`
+(draft) had gone stale against the landed `2026-07-22-wakeup-trigger-state-and-bounds`: its Part A2
+paused a presence flag that no longer exists, and several of its citations pointed at deleted code.
+It was re-baselined on 2026-07-27 rather than left for `/build` to discover — A2 withdrawn, A1
+retained and re-argued as now load-bearing, T-4/T-5 and AC-5 marked withdrawn rather than deleted.
+See that dossier's Q-6.
 
 ## 6. Out-of-scope Observations
 
