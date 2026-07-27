@@ -271,3 +271,41 @@ describe('useChatroomMessages optimistic delete', () => {
     expect(message).toContain('conversation.chatroom.deleteConfirm')
   })
 })
+
+describe('useChatroomMessages loading/error state (F-17)', () => {
+  it('exposes isPending until the first fetch settles', async () => {
+    const fetch = deferred<Message[]>()
+    api.listMessages.mockReturnValue(fetch.promise)
+
+    mountHost()
+    await nextTick()
+    expect(composable.isPending.value).toBe(true)
+
+    fetch.resolve([])
+    await flushPromises()
+    expect(composable.isPending.value).toBe(false)
+  })
+
+  it('exposes isError after the query exhausts retries', async () => {
+    api.listMessages.mockRejectedValue(new Error('boom'))
+
+    mountHost()
+    await flushPromises()
+
+    expect(composable.isError.value).toBe(true)
+    expect(composable.isPending.value).toBe(false)
+  })
+
+  it('recovers from isError once refetchMessages succeeds', async () => {
+    api.listMessages.mockRejectedValueOnce(new Error('boom'))
+    api.listMessages.mockResolvedValueOnce([])
+
+    mountHost()
+    await flushPromises()
+    expect(composable.isError.value).toBe(true)
+
+    composable.refetchMessages()
+    await flushPromises()
+    expect(composable.isError.value).toBe(false)
+  })
+})
