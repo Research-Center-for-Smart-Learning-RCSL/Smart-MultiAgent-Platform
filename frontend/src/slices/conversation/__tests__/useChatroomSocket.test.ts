@@ -557,6 +557,27 @@ describe('useChatroomSocket agent streaming', () => {
     })
   })
 
+  it('tracks the newest message as the cursor after a connect reconcile, regardless of page order (F-11)', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    // The backend returns the plain (no since/before) page newest-first —
+    // the last element here is deliberately the OLDEST, to catch a
+    // regression that (wrongly) reads the cursor off the last array index.
+    listMessagesMock.mockResolvedValueOnce([
+      { id: 'm_newest', created_at: '2024-01-01T00:00:02.000Z', sender_type: 'user', sender_id: 'u1' },
+      { id: 'm_oldest', created_at: '2024-01-01T00:00:00.000Z', sender_type: 'user', sender_id: 'u1' },
+    ])
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+
+    // A subsequent since-delta (e.g. the degraded poll) must anchor on the
+    // truly newest message, not whichever one happened to be last in the page.
+    listMessagesMock.mockClear()
+    emitDegraded(true)
+    vi.advanceTimersByTime(10_000)
+    expect(listMessagesMock).toHaveBeenCalledWith(ROOM, { since: 'm_newest' })
+  })
+
   it('does not drop messages older than the fetched window on connect (F-11)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper

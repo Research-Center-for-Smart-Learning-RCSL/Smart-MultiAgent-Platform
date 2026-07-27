@@ -240,11 +240,15 @@ export function useChatroomSocket(roomId: string) {
   async function reconcileMessages(): Promise<void> {
     const generation = ++replayGeneration
     try {
+      // No `since`/`before`, so the backend orders this page newest-first —
+      // the opposite of the since-delta's ascending order applyMessageCreated
+      // assumes. Don't touch `lastSeenMessageId` here: the QueryCache
+      // subscription below already recomputes it correctly from the merged
+      // cache contents (order-independent), on every write to this key.
       const page = await listMessages(roomId, { limit: PAGE_SIZE })
       if (generation !== replayGeneration) return
       const key = ['conversation', 'messages', roomId]
       qc.setQueryData<Message[]>(key, (prev) => mergeMessages(prev ?? [], page))
-      if (page.length > 0) lastSeenMessageId.value = page[page.length - 1]!.id
       for (const m of page) clearAgentSideEffects(m)
     } catch {
       // Best-effort, matching resyncPresence/resyncActivation: a subsequent
