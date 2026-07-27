@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from contexts.agents.application.a2a_scope import A2ACheckInput, evaluate
+from contexts.agents.application.a2a_scope import A2ACheckInput, evaluate, is_call_only_enabled
 from contexts.agents.domain.models import (
     Agent,
     AgentModelHint,
@@ -83,6 +83,16 @@ def test_call_only_allows_without_shared_context() -> None:
         )
     )
     assert v.allowed
+
+
+def test_is_call_only_enabled_rejects_a_non_bool_enabled_value() -> None:
+    """Sibling of F-2 (2026-07-28-wakeup-config-validation-and-patch-semantics),
+    found in a2a_scope's own `is_call_only_enabled` rather than
+    `WakeupConfig.from_dict`: `bool("false")` is `True`, so a wrong-typed
+    `enabled` used to silently grant the R9.17 call-only bypass -- allowing an
+    A2A call that rule 4a's context-attachment check would otherwise deny."""
+    agent = _agent(uuid.uuid4(), enabled=True, wakeup={"triggers": {"call_only": {"enabled": "false"}}})
+    assert is_call_only_enabled(agent) is False
 
 
 def test_a2a_disabled_on_either_side_denied() -> None:
