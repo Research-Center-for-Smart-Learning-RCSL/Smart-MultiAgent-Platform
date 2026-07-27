@@ -74,6 +74,8 @@ def _make_agent(
     version: int = 1,
     rag_config_id: uuid.UUID | None = None,
     knowmap_config_id: uuid.UUID | None = None,
+    wakeup_config: dict | None = None,
+    workflow_capabilities: dict | None = None,
 ) -> Agent:
     return Agent(
         id=agent_id or uuid.uuid4(),
@@ -93,9 +95,9 @@ def _make_agent(
         top_p=None,
         seed=None,
         a2a_enabled=False,
-        wakeup_config={},
+        wakeup_config=wakeup_config if wakeup_config is not None else {},
         wakeup_authored_snapshot=None,
-        workflow_capabilities={},
+        workflow_capabilities=workflow_capabilities if workflow_capabilities is not None else {},
         version=version,
         deleted_at=None,
         created_at=_NOW,
@@ -624,6 +626,82 @@ class TestPatch:
         assert "wakeup_config" in call_values
         assert "wakeup_authored_snapshot" not in call_values
         assert call_values["wakeup_last_refreshed_at"] == _NOW
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_merges_wakeup_config_instead_of_replacing_it(self, _audit) -> None:
+        """A human edit must not drop stored keys the payload happens to omit —
+        `soft_bounds` (R15.08) has no editor control, so every UI save omits it."""
+        current = _make_agent(
+            wakeup_config={
+                "triggers": {"every_n_messages": {"enabled": True, "n": 3}},
+                "soft_bounds": {"n_min": 5},
+                "designer_note": "x",
+            }
+        )
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = _make_agent(version=2)
+        svc = _make_service(agent_repo=agents)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(wakeup_config={"triggers": {"every_n_messages": {"n": 8}}}),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        values = agents.patch.call_args.kwargs["values"]
+        merged = values["wakeup_config"]
+        assert merged["soft_bounds"] == {"n_min": 5}
+        assert merged["designer_note"] == "x"
+        assert merged["triggers"]["every_n_messages"] == {"enabled": True, "n": 8}
+        # The authored snapshot is written from the merged result, not the fragment:
+        # writing the fragment is what makes the loss unrecoverable.
+        assert values["wakeup_authored_snapshot"] == merged
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_explicit_null_deletes_a_wakeup_config_key(self, _audit) -> None:
+        current = _make_agent(
+            wakeup_config={"soft_bounds": {"n_min": 5}, "designer_note": "x"},
+        )
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = _make_agent(version=2)
+        svc = _make_service(agent_repo=agents)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(wakeup_config={"soft_bounds": None}),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        merged = agents.patch.call_args.kwargs["values"]["wakeup_config"]
+        assert "soft_bounds" not in merged
+        assert merged["designer_note"] == "x"
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_merges_workflow_capabilities(self, _audit) -> None:
+        current = _make_agent(
+            workflow_capabilities={"can_instruct": True, "operator_note": "keep me"},
+        )
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = _make_agent(version=2)
+        svc = _make_service(agent_repo=agents)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(workflow_capabilities={"can_instruct": False}),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        merged = agents.patch.call_args.kwargs["values"]["workflow_capabilities"]
+        assert merged == {"can_instruct": False, "operator_note": "keep me"}
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_patch_knowmap_attach_key_group_conflict_raises(self, _audit) -> None:
