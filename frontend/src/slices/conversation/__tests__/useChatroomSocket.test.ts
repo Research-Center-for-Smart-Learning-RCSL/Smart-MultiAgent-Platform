@@ -53,9 +53,11 @@ vi.mock('@shared/transport', () => {
 })
 
 const listMessagesMock = vi.hoisted(() => vi.fn(async () => []))
+const getMessageMock = vi.hoisted(() => vi.fn())
 const getActiveActivationMock = vi.hoisted(() => vi.fn())
 vi.mock('../api', () => ({
   listMessages: listMessagesMock,
+  getMessage: getMessageMock,
 }))
 
 vi.mock('@slices/activities', async (importOriginal) => ({
@@ -119,6 +121,7 @@ describe('useChatroomSocket agent streaming', () => {
     statusHandlers.length = 0
     degradedHandlers.length = 0
     listMessagesMock.mockClear()
+    getMessageMock.mockReset()
     getActiveActivationMock.mockReset()
     getActiveActivationMock.mockResolvedValue(null)
     vi.useFakeTimers()
@@ -486,5 +489,62 @@ describe('useChatroomSocket agent streaming', () => {
 
     const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{ id: string }>
     expect(cache.some((m) => m.id === 'm_new')).toBe(false)
+  })
+
+  it('applies only the newest message.updated when two refetches resolve out of order (F-19)', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+      { id: 'm_1', version: 1, content_md: 'original', created_at: '2024-01-01T00:00:00.000Z' },
+    ])
+
+    let resolveFirst!: (m: unknown) => void
+    let resolveSecond!: (m: unknown) => void
+    getMessageMock
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve }))
+      .mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve }))
+
+    emit({ type: 'message.updated', message_id: 'm_1' })
+    emit({ type: 'message.updated', message_id: 'm_1' })
+
+    // The second (newer) refetch resolves first; the first (stale) one resolves last.
+    resolveSecond({ id: 'm_1', version: 3, content_md: 'edit 2' })
+    await flushPromises()
+    resolveFirst({ id: 'm_1', version: 2, content_md: 'edit 1' })
+    await flushPromises()
+
+    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{
+      id: string
+      version: number
+      content_md: string
+    }>
+    expect(cache.find((m) => m.id === 'm_1')).toMatchObject({ version: 3, content_md: 'edit 2' })
+  })
+
+  it('does not leave a stale version in the cache after out-of-order edits (F-19)', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+      { id: 'm_1', version: 1, content_md: 'original', created_at: '2024-01-01T00:00:00.000Z' },
+    ])
+
+    let resolveFirst!: (m: unknown) => void
+    let resolveSecond!: (m: unknown) => void
+    getMessageMock
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve }))
+      .mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve }))
+
+    emit({ type: 'message.updated', message_id: 'm_1' })
+    emit({ type: 'message.updated', message_id: 'm_1' })
+    resolveSecond({ id: 'm_1', version: 3, content_md: 'edit 2' })
+    await flushPromises()
+    resolveFirst({ id: 'm_1', version: 2, content_md: 'edit 1' })
+    await flushPromises()
+
+    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{
+      id: string
+      version: number
+    }>
+    expect(cache.find((m) => m.id === 'm_1')?.version).not.toBe(2)
   })
 })

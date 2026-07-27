@@ -76,6 +76,10 @@ export function useChatroomSocket(roomId: string) {
   // resolve last and re-apply an older delta over fresher data (R24.23).
   let replayGeneration = 0
   let activationGeneration = 0
+  // F-19: per-message generation guard for message.updated refetches (see
+  // the handler below) — keyed by message id, not a single shared counter,
+  // since two different messages can legitimately be mid-refetch at once.
+  const messageUpdateGeneration = new Map<string, number>()
   let disposed = false
 
   // B2: a message.deleted frame can beat an in-flight create-delta HTTP
@@ -231,8 +235,14 @@ export function useChatroomSocket(roomId: string) {
       case 'message.updated': {
         const updatedId = ev.message_id as string
         if (updatedId) {
+          // F-19: two message.updated frames for the same id can resolve out of
+          // order; guard per id (not a single shared counter) so an unrelated
+          // message's refetch cannot invalidate this one's.
+          const generation = (messageUpdateGeneration.get(updatedId) ?? 0) + 1
+          messageUpdateGeneration.set(updatedId, generation)
           getMessage(updatedId)
             .then((fresh) => {
+              if (messageUpdateGeneration.get(updatedId) !== generation) return
               qc.setQueryData<Message[]>(
                 ['conversation', 'messages', roomId],
                 (prev) => prev?.map((m) => (m.id === fresh.id ? fresh : m)),
