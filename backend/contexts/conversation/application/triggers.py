@@ -5,8 +5,10 @@ context whether any room-bound agent should wake:
 
 - a **message** was created in a room (``evaluate_message_wakeups``) — drives
   the ``every_n_messages`` trigger (R15.01);
-- room **presence** changed (``evaluate_presence_change``) — starts/pauses the
-  ``silence_minutes`` timer (R15.05b).
+- a **user joined** a room (``evaluate_presence_change``) — re-arms the
+  ``silence_minutes`` timer (R15.05b). The empty-room pause is handled by the
+  live roster read in `evaluate_silence_trigger` instead
+  (2026-07-27-wakeup-sweep-failure-isolation C2).
 
 Both are pure evaluation glue: they list the room's bound agents and call the
 orchestration facade, which owns the Redis counters/timers and the audit. They
@@ -121,18 +123,22 @@ async def evaluate_presence_change(
     db: AsyncSession,
     *,
     chatroom_id: uuid.UUID,
-    has_live_users: bool,
 ) -> None:
-    """Notify orchestration that room presence changed so silence timers for
-    every bound agent are started (users present) or paused (room empty)."""
+    """Notify orchestration that a user joined the room, re-arming the
+    silence timer for every bound agent.
+
+    The empty-room half of this call was retired
+    (2026-07-27-wakeup-sweep-failure-isolation C2): the live roster read in
+    `evaluate_silence_trigger` is the sole, level-triggered authority on an
+    empty room now, so there is no longer a pause edge to deliver here.
+    """
     agents = await ChatroomAgentRepository(db).list(chatroom_id)
     agent_ids = [a.agent_id for a in agents]
     if not agent_ids:
         return
     from contexts.orchestration.interfaces.facade import OrchestrationFacade
 
-    await OrchestrationFacade(db).on_presence_changed(
+    await OrchestrationFacade(db).on_users_present(
         room_id=chatroom_id,
         agent_ids=agent_ids,
-        has_live_users=has_live_users,
     )

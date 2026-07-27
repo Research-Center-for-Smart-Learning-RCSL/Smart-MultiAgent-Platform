@@ -137,6 +137,31 @@ async def test_silence_seeds_its_clock_for_a_binding_created_after_the_join_edge
     assert await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=room_id)
 
 
+async def test_join_still_rearms_the_silence_clock(monkeypatch) -> None:
+    """T-5: after the C2 rename (2026-07-27-wakeup-sweep-failure-isolation),
+    `on_users_present` -- the surviving half of the retired
+    `on_presence_changed` hook -- must still re-arm the silence clock for
+    every bound agent on the join edge."""
+    svc = WakeupService.__new__(WakeupService)
+    svc._db = None  # type: ignore[attr-defined]
+
+    touched: list[tuple[uuid.UUID, uuid.UUID]] = []
+
+    async def _touch(agent_id, room_id):
+        touched.append((agent_id, room_id))
+
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.touch_silence_timestamp",
+        _touch,
+    )
+
+    room_id = uuid.uuid4()
+    agent_ids = [uuid.uuid4(), uuid.uuid4()]
+    await svc.on_users_present(room_id=room_id, agent_ids=agent_ids)
+
+    assert touched == [(agent_ids[0], room_id), (agent_ids[1], room_id)]
+
+
 async def test_normal_silence_follows_the_live_roster_not_the_cached_flag(monkeypatch) -> None:
     agent = _agent(wakeup_config=_silence_config(allow_self_open=False))
     svc = _make_service(agent=agent, room_members=[uuid.uuid4()])

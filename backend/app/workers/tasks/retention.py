@@ -709,27 +709,19 @@ async def _scrub_stale_presence(session: AsyncSession) -> int:
 
     A connection that dies without a clean disconnect leaves its user in the
     room presence SETs even though the 60 s heartbeat key is long gone. This
-    reconciles the SETs so room rosters do not accumulate ghosts. The Redis walk
-    lives in ``contexts.conversation.infrastructure.presence`` so the key
-    layout stays in one place.
-
-    B1: a room this sweep leaves empty bypassed `PresenceTracker.leave`
-    entirely, so the presence-changed/silence-pause hook a clean last-leave
-    triggers (`app/api/ws/chatroom.py`'s `_notify_presence`) never ran for it.
-    Drive the same hook here for each emptied room so a self-opening silence
-    agent doesn't fire into a room whose last member dropped uncleanly.
+    reconciles the SETs so room rosters do not accumulate ghosts -- which is
+    what makes the live-roster read in
+    ``WakeupService.evaluate_silence_trigger`` correct: that read is now the
+    sole authority on whether a room is live
+    (2026-07-22-presence-transition-and-release-wakeup's roster
+    reconciliation), so a ghost member left behind here is what it would
+    incorrectly count as present. The Redis walk lives in
+    ``contexts.conversation.infrastructure.presence`` so the key layout stays
+    in one place.
     """
-    from contexts.conversation.application.triggers import evaluate_presence_change
     from contexts.conversation.infrastructure.presence import scrub_stale_presence
 
-    removed, emptied_rooms = await scrub_stale_presence()
-    for room_id in emptied_rooms:
-        try:
-            await evaluate_presence_change(session, chatroom_id=room_id, has_live_users=False)
-        except Exception:  # best-effort per room, mirrors _notify_presence
-            logger.bind(event="retention_presence_notify_failed", room_id=str(room_id)).opt(
-                exception=True
-            ).warning("presence-changed dispatch failed for stale-scrubbed room")
+    removed, _emptied_rooms = await scrub_stale_presence()
     await _emit_summary(session, "retention.presence.scrubbed", removed)
     return removed
 

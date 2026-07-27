@@ -29,15 +29,19 @@ _log = logging.getLogger(__name__)
 router = APIRouter(tags=["ws"])
 
 
-async def _notify_presence(chatroom_id: uuid.UUID, *, has_live_users: bool) -> None:
-    """Drive the silence-timer state for the room's bound agents (R15.05b).
+async def _notify_presence(chatroom_id: uuid.UUID) -> None:
+    """Re-arm the silence timer for the room's bound agents on join (R15.05b).
 
-    Best-effort and out-of-band of the WS connection's own session: a failure
-    here must not drop the socket. Commits its own short-lived session because
-    ``on_presence_changed`` may write audit rows in future."""
+    Join-edge only: the empty-room pause this used to also drive on leave was
+    retired (2026-07-27-wakeup-sweep-failure-isolation C2) -- the live roster
+    read in `evaluate_silence_trigger` is now the sole, level-triggered
+    authority on an empty room. Best-effort and out-of-band of the WS
+    connection's own session: a failure here must not drop the socket.
+    Commits its own short-lived session because ``on_users_present`` may
+    write audit rows in future."""
     try:
         async with async_session() as db:
-            await evaluate_presence_change(db, chatroom_id=chatroom_id, has_live_users=has_live_users)
+            await evaluate_presence_change(db, chatroom_id=chatroom_id)
             await db.commit()
     except Exception:  # pragma: no cover — defensive; presence is fire-and-forget
         _log.warning("presence-change dispatch failed for room %s", chatroom_id, exc_info=True)
@@ -174,11 +178,11 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
             # so a second tab/reconnect of an already-present lone user would
             # also see roster_size == 1 and must NOT re-fire the transition.
             if roster_size == 1:
-                await _notify_presence(chatroom_id, has_live_users=True)
+                await _notify_presence(chatroom_id)
 
     async def on_close(conn: ChannelConnection) -> None:
         nonlocal _typing_active
-        left, roster_size = await presence.leave(
+        left, _roster_size = await presence.leave(
             room_id=chatroom_id,
             user_id=conn.principal.user_id,
             connection_id=conn.connection_id,
@@ -195,8 +199,6 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
                 "presence.left",
                 {"user_id": str(conn.principal.user_id)},
             )
-            if roster_size == 0:
-                await _notify_presence(chatroom_id, has_live_users=False)
 
     await connection_loop(
         ws=ws,
