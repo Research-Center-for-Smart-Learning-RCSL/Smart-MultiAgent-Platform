@@ -68,7 +68,7 @@ dev = [
   "pytest-asyncio==1.4.*",  # 1.x is the first series that accepts pytest 9
   "pytest-cov==7.0.*",
   "respx==0.21.*",
-  "pip-audit==2.7.*",  # SEC-DEP: powers the CI dependency-audit gate
+  "pip-audit>=2.7,<2.11",  # SEC-DEP: powers the CI dependency-audit gate
   # Exact pins, not `==X.Y.*`: typeshed ships date-stamped releases that add and
   # drop symbols within a patch series (types-bleach 6.4.0.20260607 removed
   # `html5lib_shim.Filter`), so a wildcard lets CI typecheck against stubs no
