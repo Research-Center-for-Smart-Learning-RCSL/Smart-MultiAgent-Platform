@@ -156,6 +156,77 @@ class TestRetentionSweep:
 
 
 # ===========================================================================
+# orchestration — wakeup_refresh (hourly config-refresh sweep)
+# ===========================================================================
+
+
+class TestWakeupRefresh:
+    @patch("app.workers.tasks.orchestration.async_session")
+    async def test_wakeup_refresh_rolls_back_a_failed_agent_and_keeps_the_rest(self, mock_session_cm) -> None:
+        """F-3: one agent's DB-level failure must not discard the sweep's
+        other already-completed refreshes -- the per-agent `except` must
+        roll back only the failed agent's work, mirroring `evaluate_silence`."""
+        from app.workers.tasks.orchestration import wakeup_refresh
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        agents = [MagicMock(id=uuid.uuid4()) for _ in range(3)]
+        facade = AsyncMock()
+        facade.list_agents_with_authored_snapshot.return_value = agents
+
+        svc = AsyncMock()
+        svc.refresh_wakeup_config.side_effect = [True, RuntimeError("db blip"), True]
+
+        manager = MagicMock()
+        manager.attach_mock(db.rollback, "rollback")
+        manager.attach_mock(svc.refresh_wakeup_config, "refresh")
+
+        with (
+            patch("contexts.agents.interfaces.facade.AgentsFacade", return_value=facade),
+            patch("contexts.orchestration.application.wakeup_service.WakeupService", return_value=svc),
+        ):
+            result = await wakeup_refresh({})
+
+        assert db.rollback.await_count == 1
+        assert db.commit.await_count == 1
+        assert result == "refreshed=2 failed=1"
+        # The rollback must land between the failing agent and the third
+        # agent's refresh -- otherwise the third agent's write would be bound
+        # to whatever the aborted transaction leaves behind.
+        call_names = [c[0] for c in manager.mock_calls if c[0] in ("rollback", "refresh")]
+        assert call_names == ["refresh", "refresh", "rollback", "refresh"]
+
+    @patch("app.workers.tasks.orchestration.async_session")
+    async def test_wakeup_refresh_reports_a_failed_commit(self, mock_session_cm) -> None:
+        """F-3 (Q-2): a failing post-loop commit must not raise out of the arq
+        task -- it must be logged as a sweep-level failure and reported in
+        the return value instead."""
+        from app.workers.tasks.orchestration import wakeup_refresh
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+        db.commit.side_effect = RuntimeError("commit boom")
+
+        agents = [MagicMock(id=uuid.uuid4())]
+        facade = AsyncMock()
+        facade.list_agents_with_authored_snapshot.return_value = agents
+
+        svc = AsyncMock()
+        svc.refresh_wakeup_config.return_value = True
+
+        with (
+            patch("contexts.agents.interfaces.facade.AgentsFacade", return_value=facade),
+            patch("contexts.orchestration.application.wakeup_service.WakeupService", return_value=svc),
+        ):
+            result = await wakeup_refresh({})
+
+        assert result == "sweep_failed lost=1 failed=0"
+
+
+# ===========================================================================
 # workflow_common — helpers
 # ===========================================================================
 
