@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-27
 requirements: [R15.06, R15.07, R15.08, R15.09]
 depends_on: []
@@ -289,25 +289,30 @@ preserves. Nothing in this dossier needs that one.
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1** T-1 fails before the fix and passes after: a human `wakeup_config` PATCH preserves
+- [x] **AC-1** T-1 fails before the fix and passes after: a human `wakeup_config` PATCH preserves
       stored keys the payload omits, in both `wakeup_config` and `wakeup_authored_snapshot`.
-- [ ] **AC-2** T-2 passes: an explicit `null` deletes that key and only that key.
-- [ ] **AC-3** T-3 passes and `WakeupService._overlay_config` no longer exists — a repo-wide grep
-      returns the shared helper's name only, with both `AgentService` and `WakeupService` calling it.
-- [ ] **AC-4** T-4 passes unchanged: `update_wakeup` still preserves `soft_bounds` and unmodelled
+      Verified failing first (whole-column replace), then passing.
+- [x] **AC-2** T-2 passes: an explicit `null` deletes that key and only that key.
+- [x] **AC-3** T-3 passes and `WakeupService._overlay_config` no longer exists — repo-wide grep
+      returns `merge_json_config` only, called by both `AgentService` (`:778,793`) and
+      `WakeupService` (`:325`).
+- [x] **AC-4** T-4 passes unchanged: `update_wakeup` still preserves `soft_bounds` and unmodelled
       keys and still clamps to the designer floor on a second call.
-- [ ] **AC-5** T-5 passes: `workflow_capabilities` is merged on the same terms.
-- [ ] **AC-6** T-6 and T-7 pass: `normalizeWakeupConfig` round-trips unmodelled root keys, and an
-      unrelated save from the agent detail page keeps `soft_bounds` in the PATCH body.
-- [ ] **AC-7** The reproduction in §4 no longer reproduces: after step 2, `soft_bounds` is present in
-      both columns, and step 4's `update_wakeup(every_n_messages=1)` clamps to 5 with an
-      `agent.wakeup_clamped` audit row.
-- [ ] **AC-8** No data-repair migration is added. The §7 operator query is recorded in §12 with its
-      result, so the size of the unrecoverable set is known rather than assumed.
-- [ ] **AC-9** Definition of Done: `pytest -q`, `ruff check . && ruff format --check .`, `mypy .` in
-      `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` in `frontend/`. `mypy`
-      strict applies to `shared_kernel.*` (`backend/CLAUDE.md`), so the new helper must type-check
-      under strict mode.
+- [x] **AC-5** T-5 passes: `workflow_capabilities` is merged on the same terms.
+- [x] **AC-6** T-6 and T-7 pass: `normalizeWakeupConfig` round-trips unmodelled root keys, and an
+      unrelated save from the agent detail page keeps `soft_bounds` in the PATCH body (T-7 drives
+      the real component and asserts the intercepted wire payload).
+- [x] **AC-7** The reproduction in §4 no longer reproduces. Verified against a real Postgres rather
+      than by inference: `tests/integration/test_agent_config_merge_persistence.py` performs the
+      editor-shaped human patch and asserts `soft_bounds` and `designer_note` survive in both
+      columns after a JSONB round-trip. 3/3 pass inside `smap_backend_web`.
+- [x] **AC-8** No data-repair migration is added. The §7 operator query is recorded in D-5 with its
+      result and with the explicit caveat that the local result does not speak for production.
+- [x] **AC-9** Definition of Done: backend `ruff check`/`ruff format --check` clean (859 files),
+      `mypy .` clean (859 files, strict on `shared_kernel.*` covers the new helper), unit tier
+      6,032 passed / 6 skipped; the new integration tier passes against real Postgres. Frontend
+      Vitest 856 passed, `vue-tsc` clean, ESLint clean, Vite build succeeds. See D-6/D-7/D-8 for
+      the environment caveats on the wiring tier, `gen:api`, and the `pnpm` wrappers.
 
 ## 11. SRS Delta
 
@@ -315,7 +320,66 @@ None. R15.08 is correct as written; the code diverged from it.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (design correction found during implementation, 2026-07-27):** C1 as approved made
+  *every* `wakeup_config` write additive, which broke the G.5 refresh. `refresh_wakeup_config`
+  restores `wakeup_authored_snapshot`, and a snapshot is often a strict subset of the live config
+  (`update_wakeup` persists a fully normalized dict via `to_dict()`, while the snapshot stays the
+  partial human dict). Merged rather than replaced, the restored config keeps the drifted extra
+  keys, so `current == authored` (`wakeup_service.py:392-394`) can never hold again and every
+  later sweep refreshes and audits the same agent — forever. §6 had already asserted the refresh
+  must write the snapshot verbatim; C1 silently broke that assertion. Fixed with an internal
+  `AgentDraft.replace_wakeup_config` flag set only by `refresh_wakeup_config`, following the
+  nine existing `clear_*` sentinels on the same dataclass. Not reachable from the API:
+  `AgentPatchIn` is `extra="forbid"` and the router builds the draft field by field. Pinned by
+  `test_replace_flag_restores_the_authored_snapshot_verbatim`,
+  `test_refresh_asks_for_a_replacing_write_not_a_merge`, and the integration test's
+  `test_refresh_restores_the_snapshot_and_then_converges`.
+- **D-2 (security-gate correction, 2026-07-27):** `BoundedConfig` bounds the *request*
+  (16 KB / depth 12 / 500 nodes), which bounded the stored column only while writes replaced it.
+  Under C1's additive write, N bounded patches accumulate into an unbounded row — the exact
+  failure `shared_kernel/validation.py:1-17` exists to prevent, and it compounds on read since
+  `WakeupConfig.from_dict` runs on every message dispatch and every 30-second sweep.
+  `json_bounds_violation` was split out of `bounded_json` so the limits stay defined once,
+  `AgentService.patch` re-applies them to the merged result, and a new `AgentConfigTooLarge`
+  maps to 413 alongside the existing `WorkspaceQuotaExceeded` size-limit precedent. Pinned by
+  `test_merged_config_exceeding_the_bound_is_rejected`.
+- **D-3 (self-audit correction, 2026-07-27):** the frontend passthrough initially returned a live
+  reference into the TanStack Query cache entry for unmodelled subtrees, so mutating one would
+  have silently mutated cached server state — the in-place-mutation pitfall this codebase has
+  been bitten by before. The passthrough is now cloned; pinned by
+  `clones passed-through keys instead of aliasing the input`.
+- **D-4 (quality-gate simplification, 2026-07-27):** the first passthrough implementation filtered
+  a `NORMALIZED_ROOT_KEYS` list out of the result. Redundant: those three keys are spread last in
+  the returned literal and win regardless, so the list was dead logic and a second place to update
+  when a root key is added. Removed; only the legacy-shape filter remains.
+- **D-5 (AC-8 operator query):** the §7 query was run against the local Postgres backing the dev
+  compose stack, migrated to head. It returned **0 rows** — no agent on that database has a
+  `triggers` config without `soft_bounds`, because the database carries no real agent rows. **The
+  operator must rerun the query against the target database before rollout**; the local result
+  says nothing about production, and per §7 there is no repair for the rows it finds.
+- **D-6 (gate execution environment):** backend `pytest -q` from `backend/` collects the
+  integration and wiring tiers, which this host cannot run: service DSNs resolve only inside the
+  compose network (`postgres:5432`), and host→container port publishing does not work here —
+  verified by confirming a socat listener active *inside* a container while the host connection
+  was refused. The same 12 integration failures / 37 errors and 54 wiring failures occur at the
+  task's base commit `4d30909`, confirmed by running both tiers in a worktree at that commit, so
+  nothing in this diff is implicated. Unit tier ran on the host; the new integration test ran
+  inside `smap_backend_web`, which bind-mounts the working tree, against real Postgres.
+- **D-7 (AC-9 / gate 2):** `pnpm run gen:api` is N/A — the OpenAPI schema is unchanged. Verified
+  by exporting the spec and comparing it to the committed `backend/openapi.json` semantically:
+  identical. The raw file hashes differ only because PowerShell's `>` adds a BOM and CRLF, the
+  artifact commit `54fc1a8` already had to strip once; the committed file was not touched.
+- **D-9 (one flaky frontend run, recorded rather than hidden):** one full Vitest run reported
+  `1 failed | 855 passed` while a full backend `pytest` was running concurrently on the same host;
+  its transform/import timings were inflated roughly 10x by the contention. The reporter output
+  did not survive to name the test. Re-run uncontended, the suite passes 856/856, as does the run
+  taken before the final two commits (855/855 at that point). Treated as host contention, not a
+  defect, but the failing test was never identified, so this is a known gap rather than a
+  dismissal.
+- **D-8 (frontend gate invocation):** the `pnpm` wrappers attempt an interactive `node_modules`
+  store relink on this host, so the installed project binaries were invoked directly — Vitest,
+  `vue-tsc`, ESLint and Vite. Same tools, same configs, no wrapper. This matches the precedent
+  recorded as D-4 in `2026-07-22-wakeup-trigger-state-and-bounds`.
 
 ## 13. Follow-ups
 
@@ -329,3 +393,19 @@ Appended by /build.
 - **FU-3** `agent.edited` records only changed field *names* (`agent_service.py:786`). For free-form
   JSONB columns that makes the audit trail useless for reconstructing a lost value — the reason §7
   can offer no repair. Consider recording a before/after digest for JSONB columns.
+- **FU-4** The merged-config bounds check from D-2 also runs on the G.5 restore path, where the
+  value being written is the authored snapshot rather than caller input. An agent whose snapshot
+  predates `BoundedConfig` and exceeds its limits would fail its hourly refresh forever — logged by
+  the worker's per-agent guard, so it fails safe, but silently. Either exempt the replace path or
+  measure the snapshot at write time. No such row is known to exist; the bounds predate this work.
+- **FU-5** `uuid(int=0)`, the actor the wake-up service writes as, has no `users` row in a
+  bootstrapped-but-unseeded database (verified: `select count(1) ... where id = '000...0'` returns
+  0 on the dev stack). `audit_logs.actor_user_id` carries an FK to `users`, so any G.4/G.5 write
+  that emits an audit row raises `ForeignKeyViolationError` on such a database. Pre-existing and
+  out of scope here — the integration test seeds the row itself — but it means the wake-up
+  self-modification and refresh paths depend on a seeding step nothing enforces. Worth pinning in
+  the bootstrap CLI or making the system actor id nullable in the audit FK.
+- **FU-6** This host cannot run the real-DB test tiers (D-6). The integration and wiring suites are
+  effectively CI-only for anyone on a Docker Desktop setup without published ports. A documented
+  `docker compose exec backend-web pytest` recipe — which is what actually worked here — would
+  save the next person the rediscovery.
