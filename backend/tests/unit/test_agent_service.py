@@ -25,6 +25,7 @@ from contexts.agents.application.agent_service import (
 )
 from contexts.agents.domain.errors import (
     AgentCapExceeded,
+    AgentConfigTooLarge,
     AgentNotFound,
     KeyGroupOutOfProject,
     KnowmapBuilderKeyGroupConflict,
@@ -681,6 +682,26 @@ class TestPatch:
         merged = agents.patch.call_args.kwargs["values"]["wakeup_config"]
         assert "soft_bounds" not in merged
         assert merged["designer_note"] == "x"
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_merged_config_exceeding_the_bound_is_rejected(self, _audit) -> None:
+        """Pydantic bounds the request; the column merges, so N bounded patches
+        would otherwise accumulate into an unbounded row."""
+        current = _make_agent(wakeup_config={f"k{i}": "x" * 40 for i in range(400)})
+        agents = AsyncMock()
+        agents.get.return_value = current
+        svc = _make_service(agent_repo=agents)
+
+        with pytest.raises(AgentConfigTooLarge):
+            await svc.patch(
+                agent_id=current.id,
+                draft=AgentDraft(wakeup_config={f"j{i}": "y" * 40 for i in range(400)}),
+                expected_version=1,
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        agents.patch.assert_not_awaited()
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_replace_flag_restores_the_authored_snapshot_verbatim(self, _audit) -> None:
