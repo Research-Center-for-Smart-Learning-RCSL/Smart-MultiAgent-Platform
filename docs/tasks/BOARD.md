@@ -30,10 +30,6 @@ parallel.
   failure poisons the turn session and destroys an already-streamed reply, truncated tool-call
   JSON silently becomes empty arguments, and a failed final synthesis is persisted as the
   answer. Six sequenced commits; needs one empirical check before the design is fixed (§3 Q-2).
-- `2026-07-22-prompt-assistant-delivery-recovery` (bugfix, approved) — `depends_on: []`. From
-  `docs/audits/2026-07-22-agent-config-runtime/` F-13 (major): the prompt-assistant channel has
-  no durable read side, so a lost frame loses a paid-for reply and can permanently disable the
-  composer. Adds a session read endpoint, refetch-on-connect, and a watchdog.
 - `2026-07-22-reingest-allowlist-propagation` (bugfix, draft) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-config-runtime/` F-11 (major): re-uploading a document discards
   the submitted per-agent allowlist on all four ingestion entry points, so the retry path cannot
