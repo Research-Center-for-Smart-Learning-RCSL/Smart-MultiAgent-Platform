@@ -2342,6 +2342,28 @@
         "title": "AssistantConfigPutIn",
         "type": "object"
       },
+      "AssistantSessionOut": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/SessionMessageOut"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "messages"
+        ],
+        "title": "AssistantSessionOut",
+        "type": "object"
+      },
       "AttachmentDownloadOut": {
         "properties": {
           "chatroom_id": {
@@ -7356,6 +7378,29 @@
           "session_id"
         ],
         "title": "SessionCreatedOut",
+        "type": "object"
+      },
+      "SessionMessageOut": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "error": {
+            "title": "Error",
+            "type": "boolean"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content",
+          "error"
+        ],
+        "title": "SessionMessageOut",
         "type": "object"
       },
       "SessionOut": {
@@ -24332,6 +24377,49 @@
         "summary": "Create Workspace",
         "tags": [
           "workspaces"
+        ]
+      }
+    },
+    "/api/prompt-assistant/sessions/{session_id}": {
+      "get": {
+        "operationId": "get_session_api_prompt_assistant_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session",
+        "tags": [
+          "prompt-studio"
         ]
       }
     },
