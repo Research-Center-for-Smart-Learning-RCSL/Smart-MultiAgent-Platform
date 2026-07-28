@@ -345,6 +345,32 @@ approval** (`REQUIREMENTS.md:2176-2177`); `/build` must not re-apply it.
   `errorMessage` on failure and adding a generation counter mirroring
   `useChatroomSocket.ts`'s existing `resyncActivation` pattern. Not a deviation from the
   design's intent, just a robustness gap the spec didn't anticipate.
+- **D-5 (post-close-out `/code-review` pass).** The user ran a full-branch `/code-review`
+  after this dossier was already `implemented`. It surfaced 6 findings; 4 were in this
+  task's own diff and were fixed in a follow-up commit:
+  - `_resolve_activation_type` propagated a transient `facade.get_type` failure uncaught,
+    turning an already-committed activation start/end into a 500 for the facilitator (worse
+    for end: the `activation.ended` broadcast had already fired before the failing read).
+    Now degrades to `activity_type=None` and logs, matching the file's established
+    post-commit best-effort pattern — the client's fallback room-scoped read recovers it.
+  - `_dispatch_activation_started` built its payload (including `_type_public_out(...)`)
+    outside the `try` that wraps the publish call, so a projection failure would propagate
+    past what the function's own post-commit best-effort contract promises. Payload
+    construction moved inside the `try`.
+  - `ActivityPanel.vue`'s `ensureActiveTypeLoaded` (added by this task) never cleared
+    `errorMessage` on a successful fetch, so one transient failure left a stale error banner
+    on screen indefinitely even after the feature recovered. Now clears it on success.
+  - The route-local `_is_project_owner` helper (added by this task) duplicated
+    `assert_project_owner`'s admin-bypass + owner-check logic instead of reusing it.
+    Extracted a shared non-raising `is_project_owner_or_admin` into `deps.py`;
+    `assert_project_owner` now calls it too.
+  All four fixed with regression tests, verified against the full backend/frontend gate
+  suite (6092 backend unit tests, 890+ frontend tests, ruff/mypy/eslint/vue-tsc all clean).
+  The other 2 findings (`backend/app/workers/tasks/prompt_assistant.py`) are in code this
+  task never touched — pre-existing from prior session work, out of scope here, and not
+  fixed; surfaced to the user as a separate matter.
+  Also noted: the review's Efficiency finder subagent hung (0-byte output for over an hour);
+  the user directed abandoning that one angle and proceeding with the other 7.
 
 ## 13. Follow-ups
 
