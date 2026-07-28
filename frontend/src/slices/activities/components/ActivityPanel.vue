@@ -4,9 +4,17 @@ import { useI18n } from 'vue-i18n'
 import { ApiError } from '@shared/errors'
 import { SButton, SEmptyState, SSelect } from '@shared/ui'
 import { useSessionStore } from '@shared/stores/session'
-import { closeActivitySession, endActivation, getActiveActivation, listActivityTypes, openActivitySession, startActivation } from '../api'
+import {
+  closeActivitySession,
+  endActivation,
+  getActiveActivation,
+  getRoomActivityType,
+  listActivityTypes,
+  openActivitySession,
+  startActivation,
+} from '../api'
 import { useActivitiesStore } from '../stores/activities'
-import type { ActivitySession, ActivityType } from '../types'
+import type { ActivitySession, ActivityType, ActivityTypePublic } from '../types'
 import ActivityHost from './ActivityHost.vue'
 
 const props = defineProps<{
@@ -24,11 +32,13 @@ const activitySession = ref<ActivitySession | null>(null)
 const loading = ref(false)
 const actionPending = ref(false)
 const errorMessage = ref<string | null>(null)
+// Fallback fetch when the activation carries no embedded type — a missed
+// broadcast or a store reset (Q-1/AC-6). Keyed so a stale fetch for a since-
+// ended activation is never rendered.
+const fetchedType = ref<ActivityTypePublic | null>(null)
 
 const activation = computed(() => store.getActivation(props.chatroomId) ?? null)
-const activeType = computed(() =>
-  types.value.find((activityType) => activityType.id === activation.value?.activityTypeId) ?? null,
-)
+const activeType = computed(() => activation.value?.activityType ?? fetchedType.value)
 const typeOptions = computed(() => types.value.map((activityType) => ({ value: activityType.id, label: activityType.name })))
 
 async function hydrate(): Promise<void> {
@@ -51,6 +61,35 @@ async function loadTypes(projectId: string | undefined): Promise<void> {
   try {
     types.value = await listActivityTypes(projectId)
   } catch (err) {
+    // Facilitator-only surface (the start dropdown, `v-if="isCreator"` below)
+    // — a non-owner/guest 403 here must never block the participant path,
+    // which never reads `types` (Q-1/AC-2).
+    if (props.isCreator) {
+      errorMessage.value = err instanceof ApiError ? err.message : t('activities.panel.loadFailed')
+    }
+  }
+}
+
+// Generation-guarded like the reconnect resync in useChatroomSocket: two
+// fallback fetches can overlap when the activation changes twice in quick
+// succession, and a slower earlier one must not clobber a fresher result.
+let typeFetchGeneration = 0
+
+async function ensureActiveTypeLoaded(): Promise<void> {
+  const act = activation.value
+  if (!act || act.activityType) {
+    fetchedType.value = null
+    return
+  }
+  if (fetchedType.value?.id === act.activityTypeId) return
+  const generation = ++typeFetchGeneration
+  try {
+    const fetched = await getRoomActivityType(props.chatroomId, act.activityTypeId)
+    if (generation !== typeFetchGeneration) return
+    fetchedType.value = fetched
+  } catch (err) {
+    if (generation !== typeFetchGeneration) return
+    fetchedType.value = null
     errorMessage.value = err instanceof ApiError ? err.message : t('activities.panel.loadFailed')
   }
 }
@@ -116,7 +155,8 @@ watch(() => props.projectId, loadTypes, { immediate: true })
 watch(activation, (next, previous) => {
   if (previous && next?.id !== previous.id) activitySession.value = null
   if (!next) activitySession.value = null
-})
+  void ensureActiveTypeLoaded()
+}, { immediate: true })
 onMounted(() => {
   if (store.getActivation(props.chatroomId) === undefined) void hydrate()
 })
