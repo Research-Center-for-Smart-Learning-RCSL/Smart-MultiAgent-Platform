@@ -39,6 +39,19 @@ async def _refund_quota(store: SessionStore, *, config_id: uuid.UUID, user_id: u
         await store.decr_daily_quota(config_id=config_id, user_id=user_id, day=now().strftime("%Y%m%d"))
 
 
+async def _persist_failure_marker(store: SessionStore, *, sid: uuid.UUID, code: str) -> None:
+    """Record the error code as an assistant-role, error=True message (Q-5).
+
+    Without this, a refetch after a failed turn (the read endpoint this fix
+    adds) returns a history ending in the *user* turn -- indistinguishable
+    from "still running". Best-effort like the publish it accompanies: a
+    session that expired between the caller's read and this write is not
+    worth failing the whole turn over.
+    """
+    with contextlib.suppress(Exception):
+        await store.append_message(sid, SessionMessage(role="assistant", content=code, error=True))
+
+
 async def prompt_assistant_turn(ctx: dict[str, Any], session_id: str, editor_draft: str) -> str:
     _ = ctx
     sid = uuid.UUID(session_id)
@@ -62,6 +75,7 @@ async def prompt_assistant_turn(ctx: dict[str, Any], session_id: str, editor_dra
             # without a resolved config there's no id to identify which
             # counter the web process charged. The paths below, once a
             # config is resolved, do know the id and refund on failure.
+            await _persist_failure_marker(store, sid=sid, code="prompt-studio/unavailable")
             await publisher.emit(
                 "prompt.error",
                 {"code": "prompt-studio/unavailable", "message": "assistant is not available"},
@@ -71,6 +85,7 @@ async def prompt_assistant_turn(ctx: dict[str, Any], session_id: str, editor_dra
         key = await KeysFacade(db).get_key(config.key_id)
         if key is None:
             await _refund_quota(store, config_id=config.id, user_id=session.user_id)
+            await _persist_failure_marker(store, sid=sid, code="prompt-studio/unavailable")
             await publisher.emit(
                 "prompt.error",
                 {"code": "prompt-studio/unavailable", "message": "assistant is not available"},
@@ -89,6 +104,7 @@ async def prompt_assistant_turn(ctx: dict[str, Any], session_id: str, editor_dra
             resolved_model_id = entry.default if entry is not None else None
         if not resolved_model_id:
             await _refund_quota(store, config_id=config.id, user_id=session.user_id)
+            await _persist_failure_marker(store, sid=sid, code="prompt-studio/no-model")
             await publisher.emit(
                 "prompt.error",
                 {"code": "prompt-studio/no-model", "message": "no model configured"},
@@ -135,6 +151,7 @@ async def prompt_assistant_turn(ctx: dict[str, Any], session_id: str, editor_dra
         except Exception as exc:  # provider / key / stream failure
             await db.commit()  # persist the usage row recorded by the accountant
             _log.warning("prompt_assistant_turn failed session=%s err=%s", session_id, exc)
+            await _persist_failure_marker(store, sid=sid, code="prompt-studio/turn-failed")
             with contextlib.suppress(Exception):
                 await publisher.emit(
                     "prompt.error",
