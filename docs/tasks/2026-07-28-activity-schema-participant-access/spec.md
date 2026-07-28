@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-28
 requirements: [R30.02, R30.09, R30.17, R30.18, R30.21, R30.22]
 depends_on: []
@@ -278,24 +278,25 @@ Frontend (`frontend/src/slices/activities/__tests__/`):
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: Every regression test in §8 fails against current code and passes after the fix.
-- [ ] AC-2: A chatroom guest with no project role can open the Activity tab of a room with
+- [x] AC-1: Every regression test in §8 fails against current code and passes after the fix.
+- [x] AC-2: A chatroom guest with no project role can open the Activity tab of a room with
   an active activity, see the Join button, open a session, and submit — the full
-  participant flow, end to end.
-- [ ] AC-3: No room-scoped response and no WebSocket payload contains `validator_config`
+  participant flow, end to end. **Verified at test level, not live** — see D-3.
+- [x] AC-3: No room-scoped response and no WebSocket payload contains `validator_config`
   under any activity type projection. Asserted structurally, not by string match.
-- [ ] AC-4: `GET /api/projects/{id}/activity-types` returns `validator_config` populated
+- [x] AC-4: `GET /api/projects/{id}/activity-types` returns `validator_config` populated
   for a project owner and admin, and empty for every other caller; the membership gate is
   otherwise unchanged.
-- [ ] AC-5: The room-scoped type read is tenant-isolated: a type belonging to another
+- [x] AC-5: The room-scoped type read is tenant-isolated: a type belonging to another
   project returns 404, never the row, for a caller who can read the room.
-- [ ] AC-6: With the WebSocket broadcast dropped (simulating a missed event), a participant
+- [x] AC-6: With the WebSocket broadcast dropped (simulating a missed event), a participant
   who loads the room still renders the activity, via the activation read or the standalone
-  room-scoped read.
-- [ ] AC-7: The facilitator flow is unchanged — start dropdown lists the project's types,
+  room-scoped read. **Verified at test level, not live** — see D-3.
+- [x] AC-7: The facilitator flow is unchanged — start dropdown lists the project's types,
   start and end still require room-creator capability.
-- [ ] AC-8: `pnpm run gen:api` regenerated; `pnpm run check:openapi-drift`, `pnpm lint`,
-  `pnpm run typecheck`, `ruff check .`, and `mypy .` show no new findings.
+- [x] AC-8: `pnpm run gen:api` regenerated; `pnpm run check:openapi-drift`, `pnpm lint`,
+  `pnpm run typecheck`, `ruff check .`, and `mypy .` show no new findings. **`check:openapi-drift`
+  itself could not execute** — see D-2.
 
 ## 11. SRS Delta
 
@@ -310,7 +311,40 @@ approval** (`REQUIREMENTS.md:2176-2177`); `/build` must not re-apply it.
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+- **D-1 (environment: wiring/integration tests not runnable).** The Docker daemon is not
+  reachable in this build environment (`docker ps` fails to connect), so `tests/wiring/*`
+  (needs live Postgres/Redis/Vault) could not run. Gate 1 was satisfied with
+  `pytest tests/unit -q` instead of the bare `pytest -q` the DoD lists — 6090 passed, 6
+  pre-existing skips, none in the touched files. `pytest -q` was run once, after the fix:
+  66 failures, all in `tests/wiring/*`, all `socket.gaierror`/connection-refused (DNS/TCP
+  failures reaching Postgres/Redis/Vault) and none naming an activities file — consistent
+  with an unreachable Docker daemon rather than a regression, but not confirmed against a
+  pre-change baseline since that run was not repeated before the fix.
+- **D-2 (environment: `check:openapi-drift` script not runnable).** The script invokes
+  `bash` (resolves to `C:\WINDOWS\system32\bash.exe`, WSL), whose `python` is not on PATH,
+  so the script itself fails before it can compare anything. Verified the equivalent by
+  hand instead: regenerated `backend/openapi.json` via `python scripts/export_openapi.py`
+  and the frontend client via `pnpm run gen:api`, then diffed both — the only changes are
+  the intended contract (new route, `ActivityTypePublicOut`, `ActivityActivationOut.activity_type`)
+  plus two pre-existing line-ending-only no-op diffs on `SessionOut.ts`/`AuthService.ts`
+  unrelated to this task.
+- **D-3 (environment: no live behavioral verification).** Step 5.4 and AC-2/AC-6 call for
+  driving the guest flow live; the Docker dev stack is unreachable here so the app could
+  not be launched. Confirmed by test instead: `test_room_scoped_type_read_allows_guest`
+  (backend, a principal with `is_guest=True` and no project role reads the new endpoint),
+  `ActivityPanel.test.ts`'s three participant-surface tests (Join renders without
+  `listActivityTypes`, falls back to the room-scoped read, surfaces a fallback failure),
+  and the pre-existing (unchanged, still-passing) session/submission tests confirming
+  `open_activity_session`/`submit_activity` already gate on `ensure_can_send`, not project
+  membership. Confirmed with the user (2026-07-28) as the accepted closure given the
+  environment gap; re-verify live once a dev stack is reachable.
+- **D-4 (self-audit fix beyond the literal Fix Design).** Item 10's `ActivityPanel.vue`
+  fallback fetch (`ensureActiveTypeLoaded`) originally swallowed a failed room-scoped read
+  with no user feedback and no protection against two overlapping fetches resolving out of
+  order. Found in this build's own quality audit and self-audit; fixed by surfacing
+  `errorMessage` on failure and adding a generation counter mirroring
+  `useChatroomSocket.ts`'s existing `resyncActivation` pattern. Not a deviation from the
+  design's intent, just a robustness gap the spec didn't anticipate.
 
 ## 13. Follow-ups
 
@@ -332,3 +366,11 @@ Appended by `/build`.
   `2026-07-22-activity-session-authz-and-validation` under "In progress" while its
   frontmatter is `implemented`. Corrected as part of this dossier's board update; flagged
   because other rows may have drifted the same way.
+- **FU-5 (`_make_type` test-builder duplication).** `test_activity_type_edit.py` and
+  `test_activities_services.py` already each carried their own near-identical `ActivityType`
+  builder before this task; this task's two new test files
+  (`test_activities_authz.py`, `test_activities_activation_projection.py`) added two more
+  copies rather than extracting a shared factory, worsening pre-existing duplication.
+  Found by this build's `check-quality` gate. Not fixed here — extracting a shared fixture
+  is a test-infrastructure change with its own blast radius across 4 files, out of scope
+  for a bugfix task.
