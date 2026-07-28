@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { renderView } from '../../../../tests/utils'
 import ActivityPanel from '../components/ActivityPanel.vue'
+import { useActivitiesStore } from '../stores/activities'
 import type { ActivityTypePublic } from '../types'
 
 const getActiveActivationMock = vi.hoisted(() => vi.fn())
@@ -102,6 +103,40 @@ describe('ActivityPanel — participant surface (Q-1, AC-2)', () => {
     await flushPromises()
 
     expect(wrapper.find('[role="alert"]').exists()).toBe(true)
+  })
+
+  it('clears the error once the fallback fetch recovers on a later activation', async () => {
+    getActiveActivationMock.mockResolvedValue({
+      id: 'act_1',
+      chatroom_id: 'c1',
+      activity_type_id: 'at_1',
+      started_by_user_id: 'u1',
+      status: 'active',
+      created_at: null,
+      ended_at: null,
+      activity_type: null,
+    })
+    listActivityTypesMock.mockResolvedValue([])
+    getRoomActivityTypeMock.mockRejectedValueOnce(new Error('network error'))
+    getRoomActivityTypeMock.mockResolvedValueOnce(publicType({ id: 'at_2', name: 'Recovered' }))
+
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(true)
+
+    const store = useActivitiesStore()
+    store.setActivation('c1', {
+      id: 'act_2',
+      activityTypeId: 'at_2',
+      startedByUserId: 'u1',
+      activityType: null,
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Recovered')
   })
 
   it('surfaces a listActivityTypes failure for the facilitator (dropdown), unlike the participant', async () => {

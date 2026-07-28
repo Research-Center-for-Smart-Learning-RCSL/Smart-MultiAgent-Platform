@@ -17,7 +17,12 @@ from fastapi import APIRouter, Depends, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import PaginationParams, assert_project_membership, assert_project_owner
+from app.api.v1.deps import (
+    PaginationParams,
+    assert_project_membership,
+    assert_project_owner,
+    is_project_owner_or_admin,
+)
 from contexts.activities.domain.errors import (
     ActivityTypeNotFound,
     SessionNotFound,
@@ -209,14 +214,6 @@ def _type_public_out(t: ActivityType) -> ActivityTypePublicOut:
     return ActivityTypePublicOut(id=t.id, key=t.key, name=t.name, payload_schema=t.payload_schema)
 
 
-async def _is_project_owner(*, db: AsyncSession, principal: Principal, project_id: uuid.UUID) -> bool:
-    if principal.is_admin:
-        return True
-    from contexts.tenancy.interfaces.facade import TenancyFacade
-
-    return await TenancyFacade(db).is_project_owner(principal.user_id, project_id)
-
-
 def _session_out(s: ActivitySession) -> ActivitySessionOut:
     return ActivitySessionOut(
         id=s.id,
@@ -247,8 +244,18 @@ async def _resolve_activation_type(
 ) -> ActivityType | None:
     """Tenant-safe lookup for embedding in an activation read/broadcast: the
     type is fetched fresh rather than trusted from the activation row, so a
-    type that went missing or was somehow cross-project never leaks through."""
-    t = await facade.get_type(activation.activity_type_id)
+    type that went missing or was somehow cross-project never leaks through.
+
+    Called post-commit at two call sites (start/end): a transient failure here
+    must not turn an already-committed activation change into a 500 for the
+    facilitator, so it degrades to no embedded type rather than propagating —
+    the client's fallback room-scoped read (Q-1) recovers it.
+    """
+    try:
+        t = await facade.get_type(activation.activity_type_id)
+    except Exception:
+        _log.warning("activity type resolution failed for embed, activation %s", activation.id, exc_info=True)
+        return None
     return t if t is not None and t.project_id == project_id else None
 
 
@@ -409,7 +416,7 @@ async def list_activity_types(
     `validator_config` is owner-gated (R30.25): it may hold answer keys and,
     once sealed validator credentials exist, secrets."""
     await assert_project_membership(db=db, principal=principal, project_id=project_id)
-    is_owner = await _is_project_owner(db=db, principal=principal, project_id=project_id)
+    is_owner = await is_project_owner_or_admin(db=db, principal=principal, project_id=project_id)
     types = await ActivitiesFacade(db).list_types(project_id)
     return [_type_out(t, include_validator_config=is_owner) for t in types]
 
@@ -672,16 +679,16 @@ async def _dispatch_submission(
 async def _dispatch_activation_started(
     activation: ActivityActivation, activity_type: ActivityType | None
 ) -> None:
-    payload: dict[str, Any] = {
-        "activation_id": str(activation.id),
-        "activity_type_id": str(activation.activity_type_id),
-        "started_by": str(activation.started_by_user_id),
-    }
-    if activity_type is not None:
-        # Same participant projection as the HTTP reads (R30.26) — no
-        # validator_config on any realtime payload.
-        payload["activity_type"] = _type_public_out(activity_type).model_dump(mode="json")
     try:
+        payload: dict[str, Any] = {
+            "activation_id": str(activation.id),
+            "activity_type_id": str(activation.activity_type_id),
+            "started_by": str(activation.started_by_user_id),
+        }
+        if activity_type is not None:
+            # Same participant projection as the HTTP reads (R30.26) — no
+            # validator_config on any realtime payload.
+            payload["activity_type"] = _type_public_out(activity_type).model_dump(mode="json")
         await Publisher(room_channel(activation.chatroom_id)).emit("activity.activation.started", payload)
     except Exception:
         _log.error("realtime publish failed for activity activation %s", activation.id, exc_info=True)

@@ -131,7 +131,7 @@ class TestListTypesRedaction:
         facade.list_types = AsyncMock(return_value=[activity_type])
         monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
         monkeypatch.setattr(activities, "assert_project_membership", AsyncMock())
-        monkeypatch.setattr(activities, "_is_project_owner", AsyncMock(return_value=False))
+        monkeypatch.setattr(activities, "is_project_owner_or_admin", AsyncMock(return_value=False))
 
         out = await activities.list_activity_types(
             project_id=project_id,
@@ -148,7 +148,7 @@ class TestListTypesRedaction:
         facade.list_types = AsyncMock(return_value=[activity_type])
         monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
         monkeypatch.setattr(activities, "assert_project_membership", AsyncMock())
-        monkeypatch.setattr(activities, "_is_project_owner", AsyncMock(return_value=True))
+        monkeypatch.setattr(activities, "is_project_owner_or_admin", AsyncMock(return_value=True))
 
         out = await activities.list_activity_types(
             project_id=project_id,

@@ -113,3 +113,35 @@ async def test_activation_started_broadcast_carries_public_type(
     assert payload["activity_type"]["key"] == activity_type.key
     assert payload["activity_type"]["payload_schema"] == activity_type.payload_schema
     assert "validator_config" not in payload["activity_type"]
+
+
+async def test_resolve_activation_type_degrades_to_none_on_facade_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A transient DB error resolving the embed must not fail the caller's
+    already-committed activation change (code-review, post-commit best-effort)."""
+    project_id = uuid.uuid4()
+    activity_type = _make_type(project_id=project_id)
+    activation = _make_activation(activity_type.id)
+    facade = MagicMock()
+    facade.get_type = AsyncMock(side_effect=RuntimeError("db hiccup"))
+
+    result = await activities._resolve_activation_type(facade, project_id=project_id, activation=activation)
+
+    assert result is None
+
+
+async def test_activation_started_broadcast_survives_type_projection_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole dispatch (including payload construction) is best-effort: it
+    must never propagate and fail a request whose write already committed."""
+    _PublisherSpy.emitted = []
+    monkeypatch.setattr(activities, "Publisher", _PublisherSpy)
+    monkeypatch.setattr(activities, "_type_public_out", MagicMock(side_effect=RuntimeError("bad projection")))
+    activity_type = _make_type()
+    activation = _make_activation(activity_type.id)
+
+    await activities._dispatch_activation_started(activation, activity_type)
+
+    assert _PublisherSpy.emitted == []
