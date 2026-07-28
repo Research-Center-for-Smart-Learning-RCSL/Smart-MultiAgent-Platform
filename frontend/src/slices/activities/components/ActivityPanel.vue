@@ -87,6 +87,7 @@ async function ensureActiveTypeLoaded(): Promise<void> {
     const fetched = await getRoomActivityType(props.chatroomId, act.activityTypeId)
     if (generation !== typeFetchGeneration) return
     fetchedType.value = fetched
+    errorMessage.value = null
   } catch (err) {
     if (generation !== typeFetchGeneration) return
     fetchedType.value = null
