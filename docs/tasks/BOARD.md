@@ -62,6 +62,13 @@ parallel.
   same query can return a different page; and the highlight marker exists in three incompatible
   forms across backend, sanitiser and CSS. Touches DOMPurify config — §7.2 states what must not
   weaken.
+- `2026-07-28-activity-schema-participant-access` (bugfix, approved) — `depends_on: []`. From
+  `docs/assessments/ai-teacher-phase1-spec-review.md` §3 (BUG-1/BUG-2): one response model serves
+  both the owner authoring record and the participant rendering contract, so activity answer keys
+  in `validator_config` reach every project-scope role while chatroom guests cannot render or
+  submit an activity at all. Splits the projection, adds a room-scoped type read, embeds the public
+  projection in the activation read and its broadcast, and redacts `validator_config` for
+  non-owners. SRS delta `[R30.25]`/`[R30.26]` applied at approval.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
@@ -75,8 +82,8 @@ Nothing currently blocked.
 
 ## In progress
 
-- `2026-07-22-activity-session-authz-and-validation` (bugfix) — `depends_on: []`. a2u F-12,
-  F-20 plus verification-gap V-7: activity-session AuthZ + watchdog notification + optional
-  enum-array assembly.
-- `2026-07-22-workflow-run-cancellation` (bugfix) — `depends_on: []`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+
+Removed on 2026-07-28 because their own frontmatter reads `implemented` and the board only
+lists unfinished work: `2026-07-22-activity-session-authz-and-validation`,
+`2026-07-22-workflow-run-cancellation`.
