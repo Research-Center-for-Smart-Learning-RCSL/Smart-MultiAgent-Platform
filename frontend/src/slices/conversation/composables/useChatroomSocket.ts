@@ -14,6 +14,7 @@ import { wsManager, type ChannelEvent } from '@shared/transport'
 import { ApiError } from '@shared/api-client'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
 import { getActiveActivation, useActivitiesStore } from '@slices/activities'
+import type { ActivityTypePublic } from '@slices/activities'
 import { getApproval } from '@slices/workflow'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
 import { getChatroomPresence, getMessage, listChatroomApprovals, listMessages } from '../api'
@@ -444,6 +445,7 @@ export function useChatroomSocket(roomId: string) {
             id: activationId,
             activityTypeId,
             startedByUserId: (ev.started_by as string) ?? null,
+            activityType: (ev.activity_type as ActivityTypePublic | undefined) ?? null,
           })
         }
         break
