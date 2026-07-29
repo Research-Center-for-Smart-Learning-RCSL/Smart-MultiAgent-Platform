@@ -67,10 +67,6 @@ parallel.
 
 ## Blocked
 
-- `2026-07-29-knowledge-upload-resource-bounds` (feature, approved) —
-  `depends_on: [2026-07-29-knowledge-ingest-concurrency-and-enqueue]`. Preserve the 1 GiB
-  raw upload contract while bounding TUS staging, scan order, worker isolation, parser
-  expansion and chunk materialization.
 - `2026-07-29-knowledge-ingest-ports` (refactor, approved) —
   `depends_on: [2026-07-29-knowledge-ingest-concurrency-and-enqueue]`. Move concrete
   repository/vector/blob construction to app wiring through narrow Protocols.
@@ -87,6 +83,10 @@ parallel.
   `depends_on: [2026-07-22-reingest-allowlist-propagation]`. FU-3/FU-7: enforce one
   document/attempt owner, fence stale workers and make realtime publication
   non-authoritative for enqueue.
+- `2026-07-29-knowledge-upload-resource-bounds` (feature, in-progress) —
+  `depends_on: [2026-07-29-knowledge-ingest-concurrency-and-enqueue]`. Preserve the
+  1 GiB raw upload contract while bounding TUS staging, scan order, worker isolation,
+  parser expansion and chunk materialization.
 
 ## Ready after current allowlist task
 
