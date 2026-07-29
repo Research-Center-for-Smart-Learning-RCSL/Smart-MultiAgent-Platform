@@ -50,11 +50,6 @@ parallel.
   failure port, and the join `timeout` port is documented, linted, rendered and produced by
   nothing. **Q-2 open**: build the join timeout or record its absence. If the user chooses to
   build it, `depends_on` becomes `[2026-07-22-join-epoch-loop-reentry]` (its Q-3).
-- `2026-07-22-search-determinism-and-highlighting` (bugfix, draft) — `depends_on: []`. a2u F-22
-  plus verification-gap V-6: search orders by a non-unique `rank` under `LIMIT`/`OFFSET`, so the
-  same query can return a different page; and the highlight marker exists in three incompatible
-  forms across backend, sanitiser and CSS. Touches DOMPurify config — §7.2 states what must not
-  weaken.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
@@ -75,3 +70,4 @@ Also removed on 2026-07-29 after implementation: `2026-07-22-reingest-allowlist-
 `2026-07-29-knowledge-ingest-concurrency-and-enqueue`,
 `2026-07-29-knowledge-upload-resource-bounds`, `2026-07-29-knowledge-ingest-ports`,
 `2026-07-29-knowledge-document-ui-split`, and `2026-07-22-retention-sweep-fixes`.
+Removed on 2026-07-29 after implementation: `2026-07-22-search-determinism-and-highlighting`.
