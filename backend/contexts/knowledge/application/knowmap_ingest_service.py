@@ -17,6 +17,7 @@ import contextlib
 import hashlib
 import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy.exc import IntegrityError
@@ -25,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.knowledge.application.knowmap_triggers import enqueue_knowmap_build
 from contexts.knowledge.application.ports import BlobStore, Embedder
 from contexts.knowledge.domain.errors import (
+    DocumentAllowlistConflict,
     DocumentTooLarge,
     DocumentUnprocessable,
     IngestFailed,
@@ -33,6 +35,7 @@ from contexts.knowledge.domain.errors import (
 )
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapDocument
 from contexts.knowledge.domain.models import DocumentStatus, ScanStatus
+from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from contexts.knowledge.infrastructure.chunkers import chunk_document
 from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapChunkRepository,
@@ -101,21 +104,15 @@ class KnowmapIngestService:
 
         sha = hashlib.sha256(ipt.data).hexdigest()
         existing = await self._docs.find_by_sha(knowmap_config_id=cfg.id, sha256=sha)
-        if existing is not None and existing.status is DocumentStatus.READY:
-            return existing
         if existing is not None:
-            reindexed = await self._index_document(
-                doc=existing,
+            return await self._ingest_existing(
+                existing=existing,
                 cfg=cfg,
-                data=ipt.data,
+                ipt=ipt,
                 actor_user_id=actor_user_id,
                 actor_ip=actor_ip,
                 request_id=request_id,
             )
-            await self._db.commit()
-            await enqueue_knowmap_scan(document_id=reindexed.id)
-            await self._enqueue_build_if_clean(cfg, reindexed)
-            return reindexed
 
         key = knowmap_source_object_key(project_id=cfg.project_id, config_id=cfg.id, sha256=sha)
         minio_path = await self._blob.put(bucket=self._bucket, key=key, data=ipt.data, content_type=mime)
@@ -135,7 +132,15 @@ class KnowmapIngestService:
             await self._db.rollback()
             existing = await self._docs.find_by_sha(knowmap_config_id=cfg.id, sha256=sha)
             if existing is not None:
-                return existing
+                _, resolved = await self._resolve_existing(
+                    existing=existing,
+                    cfg=cfg,
+                    ipt=ipt,
+                    actor_user_id=actor_user_id,
+                    actor_ip=actor_ip,
+                    request_id=request_id,
+                )
+                return resolved
             raise
         await audit.emit(
             self._db,
@@ -151,6 +156,7 @@ class KnowmapIngestService:
                     "mime": mime,
                     "size_bytes": len(ipt.data),
                     "sha256": sha,
+                    "agent_ids": [str(agent_id) for agent_id in ipt.agent_ids],
                 },
                 request_id=request_id,
             ),
@@ -172,6 +178,90 @@ class KnowmapIngestService:
         await enqueue_knowmap_scan(document_id=result.id)
         await self._enqueue_build_if_clean(cfg, result)
         return result
+
+    async def _ingest_existing(
+        self,
+        *,
+        existing: KnowmapDocument,
+        cfg: KnowmapConfig,
+        ipt: KnowmapIngestInput,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+    ) -> KnowmapDocument:
+        action, resolved = await self._resolve_existing(
+            existing=existing,
+            cfg=cfg,
+            ipt=ipt,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+        if action is ReuploadAction.DEDUP_NOOP:
+            return resolved
+
+        reindexed = await self._index_document(
+            doc=resolved,
+            cfg=cfg,
+            data=ipt.data,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+        await self._db.commit()
+        await enqueue_knowmap_scan(document_id=reindexed.id)
+        await self._enqueue_build_if_clean(cfg, reindexed)
+        return reindexed
+
+    async def _resolve_existing(
+        self,
+        *,
+        existing: KnowmapDocument,
+        cfg: KnowmapConfig,
+        ipt: KnowmapIngestInput,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+    ) -> tuple[ReuploadAction, KnowmapDocument]:
+        action = resolve_existing_document(
+            status=existing.status,
+            stored_agent_ids=existing.agent_ids,
+            submitted_agent_ids=ipt.agent_ids,
+        )
+        await emit_knowmap_reupload_audit(
+            self._db,
+            doc=existing,
+            submitted_agent_ids=ipt.agent_ids,
+            outcome=action,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+        if action is ReuploadAction.CONFLICT:
+            await self._db.commit()
+            raise DocumentAllowlistConflict(
+                f"document {existing.id} already exists with a different agent allowlist; "
+                f"use PATCH /api/knowmap-documents/{existing.id}/agents"
+            )
+        if action is ReuploadAction.DEDUP_NOOP:
+            await self._db.commit()
+            return action, existing
+
+        updated = await self._docs.set_agents(
+            document_id=existing.id,
+            agent_ids=ipt.agent_ids,
+        )
+        assert updated is not None
+        await emit_knowmap_reupload_agents_set_audit(
+            self._db,
+            doc=updated,
+            project_id=cfg.project_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+        await self._db.commit()
+        return action, updated
 
     async def process_document(
         self,
@@ -282,6 +372,67 @@ class KnowmapIngestService:
         if fresh is None:
             return
         await enqueue_knowmap_build(config_id=cfg.id, target_revision=fresh.corpus_revision)
+
+
+async def emit_knowmap_reupload_audit(
+    db: AsyncSession,
+    *,
+    doc: KnowmapDocument,
+    submitted_agent_ids: Sequence[uuid.UUID],
+    outcome: ReuploadAction,
+    actor_user_id: uuid.UUID | None,
+    actor_ip: str | None,
+    request_id: uuid.UUID | None,
+) -> None:
+    await audit.emit(
+        db,
+        audit.AuditEvent(
+            action="knowmap.document_uploaded",
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            resource_type="knowmap_document",
+            resource_id=doc.id,
+            metadata={
+                "knowmap_config_id": str(doc.knowmap_config_id),
+                "filename": doc.filename,
+                "mime": doc.mime,
+                "size_bytes": doc.size_bytes,
+                "sha256": doc.sha256,
+                "agent_ids": [str(agent_id) for agent_id in submitted_agent_ids],
+                "reupload": True,
+                "outcome": outcome.value,
+            },
+            request_id=request_id,
+        ),
+    )
+
+
+async def emit_knowmap_reupload_agents_set_audit(
+    db: AsyncSession,
+    *,
+    doc: KnowmapDocument,
+    project_id: uuid.UUID,
+    actor_user_id: uuid.UUID | None,
+    actor_ip: str | None,
+    request_id: uuid.UUID | None,
+) -> None:
+    await audit.emit(
+        db,
+        audit.AuditEvent(
+            action="knowmap.document_agents_set",
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            resource_type="knowmap_document",
+            resource_id=doc.id,
+            metadata={
+                "knowmap_config_id": str(doc.knowmap_config_id),
+                "project_id": str(project_id),
+                "agent_ids": [str(agent_id) for agent_id in doc.agent_ids],
+                "source": "reupload",
+            },
+            request_id=request_id,
+        ),
+    )
 
 
 async def enqueue_knowmap_scan(*, document_id: uuid.UUID, ingest_attempt: int = 0) -> None:

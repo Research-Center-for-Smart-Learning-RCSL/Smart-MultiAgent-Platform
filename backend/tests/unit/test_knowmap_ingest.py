@@ -15,12 +15,14 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from contexts.knowledge.application.knowmap_ingest_service import (
     KnowmapIngestInput,
     KnowmapIngestService,
 )
 from contexts.knowledge.domain.errors import (
+    DocumentAllowlistConflict,
     DocumentUnprocessable,
     IngestFailed,
     KnowmapConfigNotFound,
@@ -28,6 +30,7 @@ from contexts.knowledge.domain.errors import (
 from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapDocument
 from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus, ScanStatus
+from contexts.knowledge.domain.reupload import ReuploadAction
 from shared_kernel.text_extraction.parsers import ParserError
 
 _MOD = "contexts.knowledge.application.knowmap_ingest_service"
@@ -62,6 +65,7 @@ def _make_document(
     sha: str = "abc123",
     doc_id: uuid.UUID | None = None,
     scan_status: ScanStatus = ScanStatus.PENDING,
+    agent_ids: tuple[uuid.UUID, ...] = (),
 ) -> KnowmapDocument:
     return KnowmapDocument(
         id=doc_id or uuid.uuid4(),
@@ -76,6 +80,7 @@ def _make_document(
         scan_at=None,
         uploaded_by=_USER_ID,
         uploaded_at=_NOW,
+        agent_ids=agent_ids,
     )
 
 
@@ -97,13 +102,18 @@ def _make_service(
     return svc
 
 
-def _ipt(data: bytes = b"hello world") -> KnowmapIngestInput:
+def _ipt(
+    data: bytes = b"hello world",
+    *,
+    agent_ids: tuple[uuid.UUID, ...] = (),
+) -> KnowmapIngestInput:
     return KnowmapIngestInput(
         knowmap_config_id=_CONFIG_ID,
         filename="test.txt",
         mime="text/plain",
         data=data,
         uploaded_by=_USER_ID,
+        agent_ids=agent_ids,
     )
 
 
@@ -119,13 +129,135 @@ class TestIngest:
         blob = AsyncMock()
         svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=AsyncMock(), blob=blob)
 
-        with patch(f"{_MOD}.enqueue_knowmap_build", AsyncMock()) as build:
+        with (
+            patch(f"{_MOD}.emit_knowmap_reupload_audit", AsyncMock()),
+            patch(f"{_MOD}.enqueue_knowmap_build", AsyncMock()) as build,
+        ):
             out = await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
 
         assert out is existing
         blob.put.assert_not_called()
         doc_repo.create.assert_not_called()
         build.assert_not_called()
+
+    async def test_failed_reupload_applies_submitted_allowlist(self) -> None:
+        agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+        cfg = _make_config()
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = cfg
+        existing = _make_document(
+            status=DocumentStatus.FAILED,
+            agent_ids=(agent_a,),
+        )
+        updated = _make_document(
+            status=DocumentStatus.READY,
+            doc_id=existing.id,
+            agent_ids=(agent_a, agent_b),
+        )
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = existing
+        doc_repo.set_agents.return_value = updated
+        svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=AsyncMock())
+        svc._index_document = AsyncMock(return_value=updated)
+
+        with (
+            patch(
+                f"{_MOD}.emit_knowmap_reupload_audit",
+                AsyncMock(),
+            ) as reupload_audit,
+            patch(
+                f"{_MOD}.emit_knowmap_reupload_agents_set_audit",
+                AsyncMock(),
+            ) as agents_set_audit,
+            patch(f"{_MOD}.enqueue_knowmap_scan", AsyncMock()),
+            patch(f"{_MOD}.enqueue_knowmap_build", AsyncMock()),
+        ):
+            returned = await svc.ingest(
+                ipt=_ipt(agent_ids=(agent_a, agent_b)),
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        doc_repo.set_agents.assert_awaited_once_with(
+            document_id=existing.id,
+            agent_ids=(agent_a, agent_b),
+        )
+        assert reupload_audit.await_args.kwargs["outcome"] is ReuploadAction.REINDEX_WITH_OVERWRITE
+        assert reupload_audit.await_args.kwargs["submitted_agent_ids"] == (agent_a, agent_b)
+        assert agents_set_audit.await_args.kwargs["doc"] is updated
+        assert returned.agent_ids == (agent_a, agent_b)
+
+    async def test_create_race_applies_allowlist_without_duplicate_indexing(self) -> None:
+        agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        winner = _make_document(
+            status=DocumentStatus.INGESTING,
+            agent_ids=(agent_a,),
+        )
+        updated = _make_document(
+            status=DocumentStatus.INGESTING,
+            doc_id=winner.id,
+            agent_ids=(agent_a, agent_b),
+        )
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.side_effect = [None, winner]
+        doc_repo.create.side_effect = IntegrityError("insert", {}, Exception("duplicate"))
+        doc_repo.set_agents.return_value = updated
+        blob = AsyncMock()
+        blob.put.return_value = winner.minio_path
+        svc = _make_service(
+            config_repo=cfg_repo,
+            doc_repo=doc_repo,
+            chunk_repo=AsyncMock(),
+            blob=blob,
+        )
+        svc._index_document = AsyncMock()
+
+        with (
+            patch(f"{_MOD}.emit_knowmap_reupload_audit", AsyncMock()),
+            patch(f"{_MOD}.emit_knowmap_reupload_agents_set_audit", AsyncMock()),
+        ):
+            returned = await svc.ingest(
+                ipt=_ipt(agent_ids=(agent_a, agent_b)),
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        assert returned is updated
+        doc_repo.set_agents.assert_awaited_once_with(
+            document_id=winner.id,
+            agent_ids=(agent_a, agent_b),
+        )
+        svc._index_document.assert_not_awaited()
+        svc._db.rollback.assert_awaited_once()
+        svc._db.commit.assert_awaited_once()
+
+    async def test_ready_duplicate_with_different_allowlist_conflicts(self) -> None:
+        agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        existing = _make_document(
+            status=DocumentStatus.READY,
+            agent_ids=(agent_a,),
+        )
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = existing
+        svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=AsyncMock())
+
+        with (
+            patch(f"{_MOD}.emit_knowmap_reupload_audit", AsyncMock()) as reupload_audit,
+            pytest.raises(DocumentAllowlistConflict, match="/api/knowmap-documents/.+/agents"),
+        ):
+            await svc.ingest(
+                ipt=_ipt(agent_ids=(agent_a, agent_b)),
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        reupload_audit.assert_awaited_once()
+        doc_repo.set_agents.assert_not_awaited()
+        svc._db.commit.assert_awaited_once()
 
     async def test_missing_config_raises(self) -> None:
         cfg_repo = AsyncMock()
@@ -157,7 +289,7 @@ class TestIngest:
         with (
             patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": lambda b: "parsed body"}, clear=False),
             patch(f"{_MOD}.chunk_document", AsyncMock(return_value=["p0", "p1"])),
-            patch(f"{_MOD}.audit.emit", AsyncMock()),
+            patch(f"{_MOD}.audit.emit", AsyncMock()) as audit_emit,
             patch(f"{_MOD}.enqueue_knowmap_scan", AsyncMock()) as scan,
             patch(f"{_MOD}.enqueue_knowmap_build", AsyncMock()) as build,
         ):
@@ -174,6 +306,12 @@ class TestIngest:
         # The scan is always enqueued; the build is deferred until the clean verdict.
         scan.assert_awaited_once()
         build.assert_not_called()
+        uploaded = next(
+            call.args[1]
+            for call in audit_emit.await_args_list
+            if call.args[1].action == "knowmap.document_uploaded"
+        )
+        assert uploaded.metadata["agent_ids"] == []
 
     async def test_reindex_of_clean_document_enqueues_build(self) -> None:
         # F-5: a reindex of an already-clean document (same content/sha) is safe to
@@ -188,6 +326,7 @@ class TestIngest:
         )
         doc_repo = AsyncMock()
         doc_repo.find_by_sha.return_value = existing
+        doc_repo.set_agents.return_value = existing
         doc_repo.get.return_value = clean_ready
         chunk_repo = AsyncMock()
         blob = AsyncMock()

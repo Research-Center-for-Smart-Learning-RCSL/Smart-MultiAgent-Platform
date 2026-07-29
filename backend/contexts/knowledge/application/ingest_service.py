@@ -37,6 +37,7 @@ import contextlib
 import hashlib
 import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy.exc import IntegrityError
@@ -44,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.application.ports import BlobStore, Embedder
 from contexts.knowledge.domain.errors import (
+    DocumentAllowlistConflict,
     DocumentTooLarge,
     DocumentUnprocessable,
     IngestFailed,
@@ -51,6 +53,7 @@ from contexts.knowledge.domain.errors import (
     UnsupportedMime,
 )
 from contexts.knowledge.domain.models import DocumentStatus, RagConfig, RagDocument
+from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from contexts.knowledge.infrastructure.channels import rag_channel
 from contexts.knowledge.infrastructure.chunkers import chunk_document
 from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
@@ -78,6 +81,20 @@ def rag_source_object_key(*, project_id: uuid.UUID, config_id: uuid.UUID, sha256
     multipart path and the async tus finaliser so both write/dedup/download at
     the same location (sha-addressed for idempotent re-upload)."""
     return f"{project_id}/{config_id}/{sha256}"
+
+
+async def _publish_ingestion_started(*, config_id: uuid.UUID, document_id: uuid.UUID) -> None:
+    try:
+        await Publisher(rag_channel(config_id)).emit(
+            "ingestion.started",
+            {"document_id": str(document_id), "total": 1},
+        )
+    except Exception:
+        _log.debug(
+            "ingestion-start publish failed for document %s",
+            document_id,
+            exc_info=True,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,36 +156,15 @@ class IngestService:
             rag_config_id=cfg.id,
             sha256=sha,
         )
-        if existing is not None and existing.status is DocumentStatus.READY:
-            return existing
         if existing is not None:
-            # Re-upload of a FAILED/stuck doc — record it in the audit trail (the
-            # first upload is long past) so retries aren't invisible, then re-index.
-            await emit_reupload_audit(
-                self._db,
-                doc=existing,
-                actor_user_id=actor_user_id,
-                actor_ip=actor_ip,
-                request_id=request_id,
-            )
-            # Commit the re-upload audit before indexing: _index_document's failure
-            # path rolls back partial writes, which would otherwise discard this
-            # still-uncommitted audit row and leave a failed retry invisible.
-            await self._db.commit()
-            await Publisher(rag_channel(cfg.id)).emit(
-                "ingestion.started", {"document_id": str(existing.id), "total": 1}
-            )
-            reindexed = await self._index_document(
-                doc=existing,
+            return await self._ingest_existing(
+                existing=existing,
                 cfg=cfg,
-                data=ipt.data,
+                ipt=ipt,
                 actor_user_id=actor_user_id,
                 actor_ip=actor_ip,
                 request_id=request_id,
             )
-            await self._db.commit()
-            await enqueue_rag_scan(document_id=reindexed.id)
-            return reindexed
 
         # Persist bytes first so a crash mid-pipeline never leaves a DB row
         # pointing at a missing blob.
@@ -199,7 +195,15 @@ class IngestService:
             await self._db.rollback()
             existing = await self._docs.find_by_sha(rag_config_id=cfg.id, sha256=sha)
             if existing is not None:
-                return existing
+                _, resolved = await self._resolve_existing(
+                    existing=existing,
+                    cfg=cfg,
+                    ipt=ipt,
+                    actor_user_id=actor_user_id,
+                    actor_ip=actor_ip,
+                    request_id=request_id,
+                )
+                return resolved
             raise
         await audit.emit(
             self._db,
@@ -215,6 +219,7 @@ class IngestService:
                     "mime": mime,
                     "size_bytes": len(ipt.data),
                     "sha256": sha,
+                    "agent_ids": [str(agent_id) for agent_id in ipt.agent_ids],
                 },
                 request_id=request_id,
             ),
@@ -223,9 +228,7 @@ class IngestService:
         # Multipart ingest is synchronous (one doc per request), so we emit the
         # start/terminal events only — there is no incremental progress to report.
         # Fire-and-forget: the frontend refetches authoritative state on receipt.
-        await Publisher(rag_channel(cfg.id)).emit(
-            "ingestion.started", {"document_id": str(doc.id), "total": 1}
-        )
+        await _publish_ingestion_started(config_id=cfg.id, document_id=doc.id)
 
         # Commit the accepted upload before indexing so an index failure leaves a
         # durable FAILED row (see _index_document) instead of rolling the whole
@@ -242,6 +245,92 @@ class IngestService:
         await self._db.commit()
         await enqueue_rag_scan(document_id=result.id)
         return result
+
+    async def _ingest_existing(
+        self,
+        *,
+        existing: RagDocument,
+        cfg: RagConfig,
+        ipt: IngestInput,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+    ) -> RagDocument:
+        action, resolved = await self._resolve_existing(
+            existing=existing,
+            cfg=cfg,
+            ipt=ipt,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+        if action is ReuploadAction.DEDUP_NOOP:
+            return resolved
+
+        await _publish_ingestion_started(config_id=cfg.id, document_id=resolved.id)
+        reindexed = await self._index_document(
+            doc=resolved,
+            cfg=cfg,
+            data=ipt.data,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+        await self._db.commit()
+        await enqueue_rag_scan(document_id=reindexed.id)
+        return reindexed
+
+    async def _resolve_existing(
+        self,
+        *,
+        existing: RagDocument,
+        cfg: RagConfig,
+        ipt: IngestInput,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+    ) -> tuple[ReuploadAction, RagDocument]:
+        action = resolve_existing_document(
+            status=existing.status,
+            stored_agent_ids=existing.agent_ids,
+            submitted_agent_ids=ipt.agent_ids,
+        )
+        await emit_reupload_audit(
+            self._db,
+            doc=existing,
+            submitted_agent_ids=ipt.agent_ids,
+            outcome=action,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+        if action is ReuploadAction.CONFLICT:
+            await self._db.commit()
+            raise DocumentAllowlistConflict(
+                f"document {existing.id} already exists with a different agent allowlist; "
+                f"use PATCH /api/rag-documents/{existing.id}/agents"
+            )
+        if action is ReuploadAction.DEDUP_NOOP:
+            await self._db.commit()
+            return action, existing
+
+        updated = await self._docs.set_agents(
+            document_id=existing.id,
+            agent_ids=ipt.agent_ids,
+        )
+        assert updated is not None
+        await emit_reupload_agents_set_audit(
+            self._db,
+            doc=updated,
+            project_id=cfg.project_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+        # The index failure path rolls back partial writes, so the new allowlist
+        # and retry audit must be durable before indexing begins.
+        await self._db.commit()
+        return action, updated
 
     async def process_document(
         self,
@@ -443,6 +532,8 @@ async def emit_reupload_audit(
     db: AsyncSession,
     *,
     doc: RagDocument,
+    submitted_agent_ids: Sequence[uuid.UUID],
+    outcome: ReuploadAction,
     actor_user_id: uuid.UUID | None,
     actor_ip: str | None,
     request_id: uuid.UUID | None,
@@ -465,7 +556,37 @@ async def emit_reupload_audit(
                 "mime": doc.mime,
                 "size_bytes": doc.size_bytes,
                 "sha256": doc.sha256,
+                "agent_ids": [str(agent_id) for agent_id in submitted_agent_ids],
                 "reupload": True,
+                "outcome": outcome.value,
+            },
+            request_id=request_id,
+        ),
+    )
+
+
+async def emit_reupload_agents_set_audit(
+    db: AsyncSession,
+    *,
+    doc: RagDocument,
+    project_id: uuid.UUID,
+    actor_user_id: uuid.UUID | None,
+    actor_ip: str | None,
+    request_id: uuid.UUID | None,
+) -> None:
+    await audit.emit(
+        db,
+        audit.AuditEvent(
+            action="rag.document_agents_set",
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            resource_type="rag_document",
+            resource_id=doc.id,
+            metadata={
+                "rag_config_id": str(doc.rag_config_id),
+                "project_id": str(project_id),
+                "agent_ids": [str(agent_id) for agent_id in doc.agent_ids],
+                "source": "reupload",
             },
             request_id=request_id,
         ),

@@ -15,6 +15,7 @@ can be exercised without them:
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from collections.abc import Sequence
 from typing import Any
@@ -259,6 +260,46 @@ async def test_process_document_reprocesses_failed_doc() -> None:
         assert result.status is DocumentStatus.READY
         assert blob.gets != []
         assert await _chunk_count(db, doc.id) >= 1
+
+
+async def test_reupload_of_failed_doc_applies_submitted_allowlist() -> None:
+    async with async_session() as db:
+        user, cfg = await _seed_config(db)
+        agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+        sha = hashlib.sha256(_TEXT).hexdigest()
+        existing = await RagDocumentRepository(db).create(
+            rag_config_id=cfg.id,
+            filename="retry.txt",
+            mime="text/plain",
+            size_bytes=len(_TEXT),
+            sha256=sha,
+            minio_path=f"rag-sources/{cfg.project_id}/{cfg.id}/{sha}",
+            uploaded_by=user.id,
+            agent_ids=[agent_a],
+        )
+        await RagDocumentRepository(db).set_status(
+            document_id=existing.id,
+            status=DocumentStatus.FAILED,
+        )
+        await db.commit()
+
+        returned = await _ingest_service(db, _FakeBlob(_TEXT)).ingest(
+            ipt=IngestInput(
+                rag_config_id=cfg.id,
+                filename="retry.txt",
+                mime="text/plain",
+                data=_TEXT,
+                uploaded_by=user.id,
+                agent_ids=(agent_a, agent_b),
+            ),
+            actor_user_id=user.id,
+            actor_ip=None,
+        )
+        await db.commit()
+
+        persisted = await RagDocumentRepository(db).require(existing.id)
+        assert returned.agent_ids == (agent_a, agent_b)
+        assert persisted.agent_ids == (agent_a, agent_b)
 
 
 # --------------------------------------------------------------------------- #

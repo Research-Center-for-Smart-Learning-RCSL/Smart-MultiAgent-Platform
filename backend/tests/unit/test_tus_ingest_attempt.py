@@ -32,7 +32,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from contexts.knowledge.domain.errors import DocumentAllowlistConflict
 from contexts.knowledge.domain.models import DocumentStatus
+from contexts.knowledge.domain.reupload import ReuploadAction
 
 _RAG_MOD = "contexts.knowledge.application.rag_tus_finalizer"
 _KM_MOD = "contexts.knowledge.application.knowmap_tus_finalizer"
@@ -69,7 +71,7 @@ def _patch_common(stack: ExitStack, mod: str, cap: _Captured) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_rag_finalizer(existing: object, *, claim_returns: list[int | None]):
+def _make_rag_finalizer(existing: Any, *, claim_returns: list[int | None]):
     from contexts.knowledge.application.rag_tus_finalizer import RagTusFinalizer
 
     fin = RagTusFinalizer.__new__(RagTusFinalizer)
@@ -79,20 +81,36 @@ def _make_rag_finalizer(existing: object, *, claim_returns: list[int | None]):
     fin._docs = AsyncMock()
     fin._docs.find_by_sha.return_value = existing
     fin._docs.claim_for_reingest = AsyncMock(side_effect=claim_returns)
+    if existing is not None:
+        fin._docs.set_agents.side_effect = lambda *, document_id, agent_ids: SimpleNamespace(
+            id=document_id,
+            status=existing.status,
+            agent_ids=tuple(agent_ids),
+        )
     fin._docs.create.return_value = SimpleNamespace(id=uuid.uuid4())
     fin._minio = MagicMock(rag_sources_bucket="rag-sources", put_file=AsyncMock())
     return fin
 
 
-async def _run_rag(fin, cap: _Captured) -> None:
+async def _run_rag(
+    fin,
+    cap: _Captured,
+    *,
+    agent_ids: list[uuid.UUID] | None = None,
+    reupload_audit: AsyncMock | None = None,
+    agents_set_audit: AsyncMock | None = None,
+):
+    reupload_audit = reupload_audit if reupload_audit is not None else AsyncMock()
+    agents_set_audit = agents_set_audit if agents_set_audit is not None else AsyncMock()
     with ExitStack() as stack:
         _patch_common(stack, _RAG_MOD, cap)
         # RAG-only: the finalizer emits a register-phase pubsub event + reupload audit.
         stack.enter_context(
             patch(f"{_RAG_MOD}.Publisher", new=MagicMock(return_value=MagicMock(emit=AsyncMock())))
         )
-        stack.enter_context(patch(f"{_RAG_MOD}.emit_reupload_audit", new=AsyncMock()))
-        await fin.finalize(
+        stack.enter_context(patch(f"{_RAG_MOD}.emit_reupload_audit", new=reupload_audit))
+        stack.enter_context(patch(f"{_RAG_MOD}.emit_reupload_agents_set_audit", new=agents_set_audit))
+        return await fin.finalize(
             rag_config_id=uuid.uuid4(),
             filename="doc.txt",
             mime="text/plain",
@@ -100,13 +118,14 @@ async def _run_rag(fin, cap: _Captured) -> None:
             size_bytes=100,
             uploaded_by=uuid.uuid4(),
             actor_ip=None,
+            agent_ids=agent_ids,
         )
 
 
 @pytest.mark.asyncio
 async def test_rag_failed_reupload_bumps_and_enqueues_fresh_ids() -> None:
     doc_id = uuid.uuid4()
-    existing = SimpleNamespace(id=doc_id, status=DocumentStatus.FAILED)
+    existing = SimpleNamespace(id=doc_id, status=DocumentStatus.FAILED, agent_ids=())
     fin = _make_rag_finalizer(existing, claim_returns=[1, 2])
 
     cap1 = _Captured()
@@ -128,7 +147,7 @@ async def test_rag_unclaimed_reupload_does_not_enqueue() -> None:
     # claim_for_reingest returns None: the row was not terminal (a worker is in
     # flight) or a concurrent re-upload already won the atomic claim. Either way the
     # finalizer must not re-enqueue — the running job is left to finish.
-    existing = SimpleNamespace(id=uuid.uuid4(), status=DocumentStatus.INGESTING)
+    existing = SimpleNamespace(id=uuid.uuid4(), status=DocumentStatus.INGESTING, agent_ids=())
     fin = _make_rag_finalizer(existing, claim_returns=[None])
 
     cap = _Captured()
@@ -152,12 +171,98 @@ async def test_rag_first_upload_uses_attempt_zero() -> None:
     fin._docs.claim_for_reingest.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_rag_tus_reupload_applies_submitted_allowlist_when_unclaimed() -> None:
+    agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        status=DocumentStatus.INGESTING,
+        agent_ids=(agent_a,),
+    )
+    fin = _make_rag_finalizer(existing, claim_returns=[None])
+
+    returned = await _run_rag(fin, _Captured(), agent_ids=[agent_a, agent_b])
+
+    fin._docs.set_agents.assert_awaited_once_with(
+        document_id=existing.id,
+        agent_ids=[agent_a, agent_b],
+    )
+    fin._db.commit.assert_awaited_once()
+    assert returned.agent_ids == (agent_a, agent_b)
+
+
+@pytest.mark.asyncio
+async def test_rag_tus_reupload_applies_submitted_allowlist_when_claimed() -> None:
+    agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        status=DocumentStatus.FAILED,
+        agent_ids=(agent_a,),
+    )
+    fin = _make_rag_finalizer(existing, claim_returns=[1])
+    reupload_audit = AsyncMock()
+    agents_set_audit = AsyncMock()
+
+    returned = await _run_rag(
+        fin,
+        _Captured(),
+        agent_ids=[agent_a, agent_b],
+        reupload_audit=reupload_audit,
+        agents_set_audit=agents_set_audit,
+    )
+
+    fin._docs.set_agents.assert_awaited_once_with(
+        document_id=existing.id,
+        agent_ids=[agent_a, agent_b],
+    )
+    assert reupload_audit.await_args.kwargs["outcome"] is ReuploadAction.REINDEX_WITH_OVERWRITE
+    assert reupload_audit.await_args.kwargs["submitted_agent_ids"] == [agent_a, agent_b]
+    assert agents_set_audit.await_args.kwargs["doc"] is returned
+    assert returned.agent_ids == (agent_a, agent_b)
+
+
+@pytest.mark.asyncio
+async def test_rag_tus_ready_duplicate_with_different_allowlist_conflicts() -> None:
+    agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        status=DocumentStatus.READY,
+        agent_ids=(agent_a,),
+    )
+    fin = _make_rag_finalizer(existing, claim_returns=[])
+
+    with pytest.raises(DocumentAllowlistConflict, match="/api/rag-documents/.+/agents"):
+        await _run_rag(fin, _Captured(), agent_ids=[agent_a, agent_b])
+
+    fin._docs.set_agents.assert_not_awaited()
+    fin._docs.claim_for_reingest.assert_not_awaited()
+    fin._db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_rag_tus_ready_duplicate_with_identical_allowlist_is_noop() -> None:
+    agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        status=DocumentStatus.READY,
+        agent_ids=(agent_a, agent_b),
+    )
+    fin = _make_rag_finalizer(existing, claim_returns=[])
+
+    returned = await _run_rag(fin, _Captured(), agent_ids=[agent_b, agent_a])
+
+    assert returned is existing
+    fin._docs.set_agents.assert_not_awaited()
+    fin._docs.claim_for_reingest.assert_not_awaited()
+    fin._db.commit.assert_awaited_once()
+
+
 # ---------------------------------------------------------------------------
 # Knowledge Map finalizer (symmetric)
 # ---------------------------------------------------------------------------
 
 
-def _make_km_finalizer(existing: object, *, claim_returns: list[int | None]):
+def _make_km_finalizer(existing: Any, *, claim_returns: list[int | None]):
     from contexts.knowledge.application.knowmap_tus_finalizer import KnowmapTusFinalizer
 
     fin = KnowmapTusFinalizer.__new__(KnowmapTusFinalizer)
@@ -167,15 +272,32 @@ def _make_km_finalizer(existing: object, *, claim_returns: list[int | None]):
     fin._docs = AsyncMock()
     fin._docs.find_by_sha.return_value = existing
     fin._docs.claim_for_reingest = AsyncMock(side_effect=claim_returns)
+    if existing is not None:
+        fin._docs.set_agents.side_effect = lambda *, document_id, agent_ids: SimpleNamespace(
+            id=document_id,
+            status=existing.status,
+            agent_ids=tuple(agent_ids),
+        )
     fin._docs.create.return_value = SimpleNamespace(id=uuid.uuid4())
     fin._minio = MagicMock(knowmap_sources_bucket="knowmap-sources", put_file=AsyncMock())
     return fin
 
 
-async def _run_km(fin, cap: _Captured) -> None:
+async def _run_km(
+    fin,
+    cap: _Captured,
+    *,
+    agent_ids: list[uuid.UUID] | None = None,
+    reupload_audit: AsyncMock | None = None,
+    agents_set_audit: AsyncMock | None = None,
+):
+    reupload_audit = reupload_audit if reupload_audit is not None else AsyncMock()
+    agents_set_audit = agents_set_audit if agents_set_audit is not None else AsyncMock()
     with ExitStack() as stack:
         _patch_common(stack, _KM_MOD, cap)
-        await fin.finalize(
+        stack.enter_context(patch(f"{_KM_MOD}.emit_knowmap_reupload_audit", new=reupload_audit))
+        stack.enter_context(patch(f"{_KM_MOD}.emit_knowmap_reupload_agents_set_audit", new=agents_set_audit))
+        return await fin.finalize(
             knowmap_config_id=uuid.uuid4(),
             filename="doc.txt",
             mime="text/plain",
@@ -183,13 +305,14 @@ async def _run_km(fin, cap: _Captured) -> None:
             size_bytes=100,
             uploaded_by=uuid.uuid4(),
             actor_ip=None,
+            agent_ids=agent_ids,
         )
 
 
 @pytest.mark.asyncio
 async def test_knowmap_failed_reupload_bumps_and_enqueues_fresh_ids() -> None:
     doc_id = uuid.uuid4()
-    existing = SimpleNamespace(id=doc_id, status=DocumentStatus.QUARANTINED)
+    existing = SimpleNamespace(id=doc_id, status=DocumentStatus.QUARANTINED, agent_ids=())
     fin = _make_km_finalizer(existing, claim_returns=[1, 2])
 
     cap1 = _Captured()
@@ -205,7 +328,7 @@ async def test_knowmap_failed_reupload_bumps_and_enqueues_fresh_ids() -> None:
 
 @pytest.mark.asyncio
 async def test_knowmap_unclaimed_reupload_does_not_enqueue() -> None:
-    existing = SimpleNamespace(id=uuid.uuid4(), status=DocumentStatus.INGESTING)
+    existing = SimpleNamespace(id=uuid.uuid4(), status=DocumentStatus.INGESTING, agent_ids=())
     fin = _make_km_finalizer(existing, claim_returns=[None])
 
     cap = _Captured()
@@ -227,6 +350,92 @@ async def test_knowmap_first_upload_uses_attempt_zero() -> None:
     assert cap.ingest == [f"knowmap-ingest:{new_id}:0"]
     assert cap.scan == [f"knowmap-scan:{new_id}:0"]
     fin._docs.claim_for_reingest.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_knowmap_tus_reupload_applies_submitted_allowlist_when_unclaimed() -> None:
+    agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        status=DocumentStatus.INGESTING,
+        agent_ids=(agent_a,),
+    )
+    fin = _make_km_finalizer(existing, claim_returns=[None])
+
+    returned = await _run_km(fin, _Captured(), agent_ids=[agent_a, agent_b])
+
+    fin._docs.set_agents.assert_awaited_once_with(
+        document_id=existing.id,
+        agent_ids=[agent_a, agent_b],
+    )
+    fin._db.commit.assert_awaited_once()
+    assert returned.agent_ids == (agent_a, agent_b)
+
+
+@pytest.mark.asyncio
+async def test_knowmap_tus_reupload_applies_submitted_allowlist_when_claimed() -> None:
+    agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        status=DocumentStatus.FAILED,
+        agent_ids=(agent_a,),
+    )
+    fin = _make_km_finalizer(existing, claim_returns=[1])
+    reupload_audit = AsyncMock()
+    agents_set_audit = AsyncMock()
+
+    returned = await _run_km(
+        fin,
+        _Captured(),
+        agent_ids=[agent_a, agent_b],
+        reupload_audit=reupload_audit,
+        agents_set_audit=agents_set_audit,
+    )
+
+    fin._docs.set_agents.assert_awaited_once_with(
+        document_id=existing.id,
+        agent_ids=[agent_a, agent_b],
+    )
+    assert reupload_audit.await_args.kwargs["outcome"] is ReuploadAction.REINDEX_WITH_OVERWRITE
+    assert reupload_audit.await_args.kwargs["submitted_agent_ids"] == [agent_a, agent_b]
+    assert agents_set_audit.await_args.kwargs["doc"] is returned
+    assert returned.agent_ids == (agent_a, agent_b)
+
+
+@pytest.mark.asyncio
+async def test_knowmap_tus_ready_duplicate_with_different_allowlist_conflicts() -> None:
+    agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        status=DocumentStatus.READY,
+        agent_ids=(agent_a,),
+    )
+    fin = _make_km_finalizer(existing, claim_returns=[])
+
+    with pytest.raises(DocumentAllowlistConflict, match="/api/knowmap-documents/.+/agents"):
+        await _run_km(fin, _Captured(), agent_ids=[agent_a, agent_b])
+
+    fin._docs.set_agents.assert_not_awaited()
+    fin._docs.claim_for_reingest.assert_not_awaited()
+    fin._db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_knowmap_tus_ready_duplicate_with_identical_allowlist_is_noop() -> None:
+    agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        status=DocumentStatus.READY,
+        agent_ids=(agent_a, agent_b),
+    )
+    fin = _make_km_finalizer(existing, claim_returns=[])
+
+    returned = await _run_km(fin, _Captured(), agent_ids=[agent_b, agent_a])
+
+    assert returned is existing
+    fin._docs.set_agents.assert_not_awaited()
+    fin._docs.claim_for_reingest.assert_not_awaited()
+    fin._db.commit.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

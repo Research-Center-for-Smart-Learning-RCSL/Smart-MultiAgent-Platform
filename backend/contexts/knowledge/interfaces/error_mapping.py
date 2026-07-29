@@ -26,6 +26,11 @@ _MAP: ErrorMap = {
         404,
         "RAG document not found",
     ),
+    errors.DocumentAllowlistConflict: (
+        "knowledge/document-allowlist-conflict",
+        409,
+        "Document allowlist differs",
+    ),
     errors.UnsupportedMime: (
         "knowledge/unsupported-mime",
         415,
