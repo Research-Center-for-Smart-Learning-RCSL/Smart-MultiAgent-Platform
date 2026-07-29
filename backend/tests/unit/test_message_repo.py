@@ -155,3 +155,19 @@ class TestMessageSearchSnippet:
         assert "MaxWords=35" in compiled
         assert "MinWords=15" in compiled
         assert "ShortWord=3" in compiled
+
+
+class TestMessageSearchParameterTypes:
+    """The text-search config must stay cast to `regconfig`.
+
+    A bare literal is bound by asyncpg as VARCHAR, and PostgreSQL has no
+    plainto_tsquery(varchar, varchar) -- every search then fails to resolve the
+    function. The db-tier test in tests/integration proves the query runs, but it
+    is routed to a separate CI job, so this keeps the fast tier able to catch a
+    "simplify the cast away" edit on its own.
+    """
+
+    async def test_search_casts_the_text_search_config(self) -> None:
+        compiled = await _compiled_search_sql()
+
+        assert compiled.upper().count("AS REGCONFIG") >= 1

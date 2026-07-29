@@ -613,14 +613,37 @@ feature that makes ordering a promise to users rather than an implementation inv
   (`Argument 1 to "Document" has incompatible type "Path"; expected "str | IO[bytes] | None"`).
   Pre-existing and untouched by this task — the file is byte-identical to base commit
   `7f1b0e7` — so it did not block, but `mypy .` is not currently clean on `main`.
-- **FU-8** — The coverage gap D-1 exposes is structural, not local. `/api/chatrooms/{id}/search`
-  returned a 500 on every call and nothing noticed, because no test in any tier ever executed
-  the endpoint's SQL against Postgres: the unit tier compiles with `literal_binds` (which masks
-  every parameter-binding type error, not just this one) and no integration, wiring or e2e test
-  covered search. The generalisable defect is that any repository using a PostgreSQL-specific
-  function with a non-`text` parameter type can ship broken with a green suite. Worth a sweep
-  for other `sa.literal(...)` values passed into typed PG function arguments, and worth deciding
-  whether every API route touching PG-specific SQL needs one db-tier smoke test.
+- **FU-8** — **Resolved 2026-07-30.** The coverage gap D-1 exposes is structural, not local.
+  `/api/chatrooms/{id}/search` returned a 500 on every call and nothing noticed, because no test
+  in any tier ever executed the endpoint's SQL against Postgres: the unit tier compiles with
+  `literal_binds` (which masks every parameter-binding type error, not just this one) and no
+  integration, wiring or e2e test covered search. The generalisable defect is that any repository
+  using a PostgreSQL-specific function with a non-`text` parameter type can ship broken with a
+  green suite.
+
+  **Sweep — no second instance exists.** Every `sa.func.*` call in non-test backend code was
+  enumerated: apart from the three text-search calls in `MessageRepository.search`, all of them
+  are `now`, `count`, `min`, `max`, `avg`, `sum`, `coalesce`, `lower`, `array_agg` and
+  `jsonb_object_agg` — polymorphic or aggregate functions that take their argument type from a
+  column, so no overload resolution can fail. Every `sa.literal(...)` was likewise checked: the
+  rest are `select(literal(1))` EXISTS probes, two boolean union tags at
+  `workflow/infrastructure/repositories.py:602,612`, and
+  `workflow/infrastructure/repositories.py:485-488`, which already uses the correct
+  `type_=column.type` form. A repo-wide grep for `tsquery|tsvector|ts_headline|regconfig`
+  confirms `MessageRepository.search` is the only PG-specific text-search query in the backend;
+  the only other hit is the `to_tsvector` trigger in `alembic/versions/0017_messages.py:91`,
+  which is DDL and inline, not driver-bound.
+
+  **Guards added.** The db-tier test executes the query against real Postgres, but
+  `pytest.mark.db` is routed to its own CI job, so a unit-tier assertion was added
+  (`TestMessageSearchParameterTypes`) that fails if the `regconfig` cast is simplified away —
+  verified red by removing the cast. The rule itself is recorded in `backend/CLAUDE.md` under
+  Testing, stating why the unit tier structurally cannot catch this class and what to do instead.
+
+  **Not done: a db-tier smoke test per API route.** Rejected as disproportionate. The sweep shows
+  the hazard is not "routes touching PG" but the far narrower "a constant bound into an argument
+  whose PostgreSQL type is not `text`", which today is one query with one db-tier test. The
+  documented rule is scoped to that condition rather than to every route.
 - **FU-9** — `sanitizeSnippet` widening is pinned behaviourally by T-5, but nothing pins the
   *producer* side end-to-end above the repository: no test asserts that what
   `/api/chatrooms/{id}/search` returns survives `sanitizeSnippet` with its highlight intact.
