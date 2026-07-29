@@ -335,7 +335,9 @@ def _parse_docx_path(path: Path, limits: ExtractionLimits) -> str:
     try:
         import docx
 
-        document = docx.Document(path)
+        # str(), not the Path: python-docx opens either, but its stubs accept
+        # only `str | IO[bytes] | None`.
+        document = docx.Document(str(path))
     except Exception as exc:
         raise ParserError(f"docx parse failed: {exc}") from exc
     output = _BoundedText(limits)
