@@ -567,6 +567,46 @@ class TestIngestFailureSemantics:
             claim_token=ANY,
         )
 
+    async def test_clean_scan_verdict_is_committed_before_indexing(self) -> None:
+        """The CLEAN verdict must survive an indexing failure.
+
+        `_index_document`'s failure handler rolls back before persisting FAILED.
+        An uncommitted `mark_scan(CLEAN)` is discarded by that rollback, leaving
+        the document FAILED with `scan_status` still `pending` -- which the
+        re-ingest guard reads as "never scanned" and refuses to index, so the
+        document can never be recovered.
+        """
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        doc = _make_document(status=DocumentStatus.INGESTING)
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = None
+        doc_repo.create.return_value = doc
+        svc = _make_service(
+            config_repo=cfg_repo,
+            doc_repo=doc_repo,
+            chunk_repo=AsyncMock(),
+            blob=AsyncMock(),
+        )
+        svc._scan_required = False
+        svc._index_document = AsyncMock()
+
+        calls: list[str] = []
+        doc_repo.mark_scan.side_effect = lambda **_kw: calls.append("mark_scan")
+        svc._db.commit.side_effect = lambda: calls.append("commit")
+        svc._index_document.side_effect = lambda **_kw: calls.append("index")
+
+        with (
+            patch(f"{_MOD}.audit.emit", AsyncMock()),
+            patch(f"{_MOD}.Publisher", _fake_publisher()),
+        ):
+            await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
+
+        assert "mark_scan" in calls
+        assert "index" in calls
+        # A commit must separate the verdict from the indexing attempt.
+        assert "commit" in calls[calls.index("mark_scan") : calls.index("index")]
+
     async def test_reindex_retry_failure_still_records_reupload_audit(self) -> None:
         # The re-upload audit must be committed before indexing, so a failed retry of
         # a previously-failed document is not erased by the FAILED-persist rollback

@@ -202,6 +202,13 @@ class KnowmapIngestService:
             scan_status=ScanStatus.CLEAN,
             scan_at=datetime.now(UTC),
         )
+        # Commit the verdict before indexing. _index_document's failure handler
+        # rolls back, so an uncommitted CLEAN would be discarded and the document
+        # would settle as FAILED with scan_status still `pending` -- which the
+        # re-ingest guard reads as "never scanned" and refuses to index, leaving
+        # no way to recover it. The commit must also precede lock_for_ingest,
+        # whose advisory lock is transaction-scoped.
+        await self._db.commit()
         await self._docs.lock_for_ingest(doc.id)
         if not await self._docs.owns_claim(doc.id, claim):
             return await self._docs.require(doc.id)
@@ -259,6 +266,9 @@ class KnowmapIngestService:
             scan_status=ScanStatus.CLEAN,
             scan_at=datetime.now(UTC),
         )
+        # See the sibling commit in `ingest`: an uncommitted CLEAN is discarded by
+        # _index_document's rollback, stranding the document as FAILED/pending.
+        await self._db.commit()
         await self._docs.lock_for_ingest(existing.id)
         if not await self._docs.owns_claim(existing.id, claim):
             current = await self._docs.get(existing.id)
