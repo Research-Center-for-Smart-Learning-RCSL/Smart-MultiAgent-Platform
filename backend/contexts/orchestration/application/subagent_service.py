@@ -317,4 +317,5 @@ class SubagentService:
         """Project owning a workflow run — authz helper for the backstage (API-2)."""
         return await self._instances.project_for_workflow_run(workflow_run_id)
 
+
 __all__ = ["SubagentService"]
