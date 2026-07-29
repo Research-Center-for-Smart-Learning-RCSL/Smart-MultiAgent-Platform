@@ -90,7 +90,7 @@ def _synthetic_root(*, agent_id: uuid.UUID, workflow_run_id: uuid.UUID) -> dict:
 
 
 async def _orphan_count(session: AsyncSession) -> int:
-    row = (
+    return (
         await session.execute(
             sa.text(
                 "SELECT count(*) FROM agent_instances "
@@ -104,7 +104,6 @@ async def _orphan_count(session: AsyncSession) -> int:
             )
         )
     ).scalar_one()
-    return row
 
 
 async def test_orphans_beyond_the_limit_are_reaped(
@@ -125,10 +124,7 @@ async def test_orphans_beyond_the_limit_are_reaped(
         orphan_workflow_run_id = uuid.uuid4()
         await session.execute(
             agent_instances_t.insert(),
-            [
-                _synthetic_root(agent_id=agent_id, workflow_run_id=orphan_workflow_run_id)
-                for _ in range(20)
-            ],
+            [_synthetic_root(agent_id=agent_id, workflow_run_id=orphan_workflow_run_id) for _ in range(20)],
         )
         await session.commit()
 
