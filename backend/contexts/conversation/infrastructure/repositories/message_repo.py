@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import REGCONFIG
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.errors import VersionMismatch
@@ -238,14 +239,31 @@ class MessageRepository:
         treated as literal text -- there is no QUERY DSL injection surface.
         The `english` configuration matches the trigger in 0017; any
         localisation overrides land in that migration (F.10 follow-up).
+
+        The ordering carries two tiebreaks after `rank`, and neither is
+        decorative. `ts_rank_cd` ties whenever two messages mention the term
+        the same number of times at the same weight, which is the normal
+        condition of a chat room rather than an edge case; an ORDER BY on a
+        non-unique key under LIMIT/OFFSET leaves the returned *set* to the
+        plan, so the same request can yield a different page. `created_at`
+        makes the tied block read newest-first instead of arbitrarily, and the
+        trailing `id` -- the primary key -- is what makes the order total. Do
+        not drop the `id` key.
         """
-        tsq = sa.func.plainto_tsquery(sa.literal("english"), sa.literal(query))
+        # Cast to regconfig rather than passing a bare literal: asyncpg binds an
+        # untyped literal as VARCHAR, and PostgreSQL has no
+        # plainto_tsquery(varchar, varchar) -- both overloads take `regconfig` --
+        # so every real search failed to resolve the function. A `literal_binds`
+        # compile hides this, because an inline SQL literal coerces on its own;
+        # the db-tier test in tests/integration is what actually pins it.
+        config = sa.cast(sa.literal("english"), REGCONFIG)
+        tsq = sa.func.plainto_tsquery(config, sa.literal(query))
         stmt = (
             sa.select(
                 t.messages,
                 sa.func.ts_rank_cd(t.messages.c.content_tsv, tsq).label("rank"),
                 sa.func.ts_headline(
-                    sa.literal("english"),
+                    config,
                     t.messages.c.content_md,
                     tsq,
                     sa.literal("MaxWords=35,MinWords=15,ShortWord=3"),
@@ -258,7 +276,11 @@ class MessageRepository:
                     t.messages.c.content_tsv.op("@@")(tsq),
                 )
             )
-            .order_by(sa.desc("rank"))
+            .order_by(
+                sa.desc("rank"),
+                t.messages.c.created_at.desc(),
+                t.messages.c.id.desc(),
+            )
             .limit(limit)
             .offset(offset)
         )
