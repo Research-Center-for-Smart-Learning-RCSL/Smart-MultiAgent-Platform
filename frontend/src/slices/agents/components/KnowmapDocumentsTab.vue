@@ -10,7 +10,7 @@ import {
   SEmptyState,
   SFileUpload,
   SModal,
-  STable,
+  typedTable,
 } from '@shared/ui'
 import type { Column } from '@shared/ui/STable.vue'
 import type { Agent, KnowmapDocument } from '../api'
@@ -44,12 +44,7 @@ const columns = computed<Column[]>(() => [
   { key: 'agents', label: t('agents.rag.colAgents'), width: '140px' },
   { key: 'actions', label: '', width: '48px', align: 'right' },
 ])
-const _fixedTable = STable<Record<string, unknown>>
-type TableProps = Parameters<typeof _fixedTable>[0]
-const DocsTable = STable as unknown as new () => {
-  $props: Omit<TableProps, 'data'> & { data?: KnowmapDocument[] }
-  $slots: Record<string, (arg: { row: KnowmapDocument; value: unknown; index: number }) => unknown>
-}
+const DocsTable = typedTable<KnowmapDocument>()
 function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`

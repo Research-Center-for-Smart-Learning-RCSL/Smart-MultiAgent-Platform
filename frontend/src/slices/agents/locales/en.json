@@ -586,6 +586,8 @@
       "failure": {
         "resource_budget_exceeded": "Processing limit exceeded",
         "document_unprocessable": "Unreadable document",
+        "scan_too_large": "File exceeds the malware scan limit",
+        "scan_failed": "Malware scan failed",
         "ingest_failed": "Processing failed"
       },
       "scan": {
