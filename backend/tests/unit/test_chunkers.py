@@ -197,3 +197,15 @@ async def test_semantic_hard_splits_oversized_delimiterless_text() -> None:
     assert len(out) >= 3
     assert all(c != text for c in out)  # the blob was split, not passed through whole
     assert "".join(out) == text  # and nothing was dropped
+
+
+async def test_semantic_streams_an_oversized_ascii_word() -> None:
+    text = "a" * 10_000
+    out = await chunk_semantic(
+        text,
+        embedder=_ConstEmbedder(),
+        max_tokens_per_chunk=512,
+        similarity_threshold=0.5,
+    )
+    assert len(out) == 20
+    assert "".join(out) == text

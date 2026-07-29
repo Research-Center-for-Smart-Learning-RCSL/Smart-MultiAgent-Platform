@@ -90,7 +90,11 @@ def _token_len(text: str) -> int:
     character over-estimates vs BPE, which is the safe direction — it yields
     smaller, never larger, chunks.
     """
-    return len(text.split()) + sum(1 for c in text if _is_cjk(c))
+    word_count = sum(1 for _ in re.finditer(r"\S+", text))
+    cjk_count = sum(1 for c in text if _is_cjk(c))
+    if word_count <= 1:
+        return max(len(text), word_count + cjk_count)
+    return word_count + cjk_count
 
 
 def _tokens(text: str) -> list[str]:
@@ -171,7 +175,12 @@ def _append_bounded(out: list[str], value: str, max_chunks: int) -> None:
     out.append(value)
 
 
-def _segment(text: str, max_tokens: int) -> list[str]:
+def _segment_unspaced(text: str, max_tokens: int) -> Iterable[str]:
+    for start in range(0, len(text), max_tokens):
+        yield text[start : start + max_tokens]
+
+
+def _segment(text: str, max_tokens: int) -> Iterable[str]:
     """Hard-split a single over-capacity unit into <= max_tokens pieces.
 
     Guards against a delimiter-less blob (CJK without spaces, CSV, minified
@@ -179,25 +188,30 @@ def _segment(text: str, max_tokens: int) -> list[str]:
     on characters.
     """
     if _token_len(text) <= max_tokens:
-        return [text]
-    words = text.split()
-    if len(words) > 1:
-        units, joiner = words, " "
-    else:
-        units, joiner = list(text), ""  # space-less: fall back to characters
-    out: list[str] = []
+        yield text
+        return
+    if re.search(r"\s", text) is None:
+        yield from _segment_unspaced(text, max_tokens)
+        return
+
     cur: list[str] = []
     cur_len = 0
-    for unit in units:
-        unit_len = _token_len(unit) or 1
+    for match in re.finditer(r"\S+", text):
+        unit = match.group()
+        unit_len = 1 + sum(1 for char in unit if _is_cjk(char))
+        if len(unit) > max_tokens or unit_len > max_tokens:
+            if cur:
+                yield " ".join(cur)
+                cur, cur_len = [], 0
+            yield from _segment_unspaced(unit, max_tokens)
+            continue
         if cur and cur_len + unit_len > max_tokens:
-            out.append(joiner.join(cur))
+            yield " ".join(cur)
             cur, cur_len = [], 0
         cur.append(unit)
         cur_len += unit_len
     if cur:
-        out.append(joiner.join(cur))
-    return out
+        yield " ".join(cur)
 
 
 def _iter_sentences(text: str, max_tokens: int) -> Iterable[str]:
