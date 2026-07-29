@@ -18,14 +18,21 @@ thing left making the order total. That is the property under test.
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 import sqlalchemy as sa
+from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.api.v1 import search as search_route
 from contexts.conversation.infrastructure import tables as t
 from contexts.conversation.infrastructure.repositories.message_repo import MessageRepository
+from shared_kernel.auth.dependencies import current_principal
+from shared_kernel.auth.permissions import Principal
+from shared_kernel.db.session import db_session
 
 # Real Postgres required (see module docstring) -- routed to the backend-db CI job.
 pytestmark = pytest.mark.db
@@ -199,3 +206,49 @@ async def test_snippet_marks_the_match(
     _msg, _rank, snippet = rows[0]
     assert "<mark>revenue</mark>" in snippet
     assert "<b>" not in snippet
+
+
+async def test_search_endpoint_returns_a_mark_delimited_snippet(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    tied_room: uuid.UUID,
+) -> None:
+    """The `<mark>` contract holds at the wire, not just in the repository.
+
+    F-22 lived in the seam between the producer and the sanitiser: each half was
+    self-consistent and nothing checked that what the endpoint actually returns
+    is what the frontend allowlist is written against. The repository-level test
+    above and the frontend's `sanitizeSnippet` tests each cover one side of a
+    hand-written string; this asserts on the response body that carries it.
+
+    Driven through ASGI rather than TestClient so the request runs on the same
+    event loop as the asyncpg engine. `is_admin` short-circuits only the final
+    read gate -- `resolve_room_access` still resolves room, workspace, project
+    and roles against the real database. Room authorization itself is covered by
+    `test_permission_matrix`.
+    """
+    app = FastAPI()
+    app.include_router(search_route.router)
+
+    async def _db() -> AsyncIterator[AsyncSession]:
+        async with sessionmaker() as session:
+            yield session
+
+    app.dependency_overrides[db_session] = _db
+    app.dependency_overrides[current_principal] = lambda: Principal(
+        user_id=uuid.uuid4(), is_admin=True, email_verified=True
+    )
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            f"/api/chatrooms/{tied_room}/search",
+            params={"q": "revenue", "limit": 1},
+        )
+
+    assert response.status_code == 200
+    hits = response.json()["hits"]
+    assert hits
+    assert "<mark>revenue</mark>" in hits[0]["snippet"]
+    assert "<b>" not in hits[0]["snippet"]
