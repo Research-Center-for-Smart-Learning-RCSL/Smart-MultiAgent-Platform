@@ -586,6 +586,8 @@
       "failure": {
         "resource_budget_exceeded": "超出處理資源上限",
         "document_unprocessable": "無法讀取文件",
+        "scan_too_large": "檔案超過惡意程式掃描上限",
+        "scan_failed": "惡意程式掃描失敗",
         "ingest_failed": "文件處理失敗"
       },
       "scan": {

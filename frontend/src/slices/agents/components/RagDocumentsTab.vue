@@ -11,7 +11,7 @@ import {
   SFileUpload,
   SModal,
   SProgressBar,
-  STable,
+  typedTable,
 } from '@shared/ui'
 import type { Column } from '@shared/ui/STable.vue'
 import type { Agent, RagDocument } from '../api'
@@ -46,12 +46,7 @@ const columns = computed<Column[]>(() => [
   { key: 'agents', label: t('agents.rag.colAgents'), width: '140px' },
   { key: 'actions', label: '', width: '48px', align: 'right' },
 ])
-const _fixedTable = STable<Record<string, unknown>>
-type TableProps = Parameters<typeof _fixedTable>[0]
-const DocsTable = STable as unknown as new () => {
-  $props: Omit<TableProps, 'data'> & { data?: RagDocument[] }
-  $slots: Record<string, (arg: { row: RagDocument; value: unknown; index: number }) => unknown>
-}
+const DocsTable = typedTable<RagDocument>()
 const showProgress = computed(() => ['ingesting', 'indexing'].includes(props.progress.state))
 const progressValue = computed(() =>
   props.progress.state === 'ingesting' && props.progress.documentsTotal > 0
