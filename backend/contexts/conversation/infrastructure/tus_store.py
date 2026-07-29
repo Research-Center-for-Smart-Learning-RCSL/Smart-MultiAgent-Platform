@@ -21,15 +21,16 @@ deleted. TUS state never needs to survive past completion.
 
 from __future__ import annotations
 
-import base64
-import binascii
 import json
 import time
 import uuid
-from dataclasses import dataclass
-from enum import IntEnum
 from typing import Final
 
+from contexts.conversation.application.tus_ports import (
+    TusOffsetUpdateResult,
+    TusReserveResult,
+    TusUpload,
+)
 from shared_kernel.auth.clients import get_redis
 
 _KEY_PREFIX: Final = "tus:upload:"
@@ -48,74 +49,6 @@ TUS_HOST_MAX_ACTIVE: Final = 16
 TUS_HOST_MAX_RESERVED_BYTES: Final = 8 * 1024 * 1024 * 1024
 TUS_USER_HOURLY_BYTES: Final = 2 * 1024 * 1024 * 1024
 TUS_PROJECT_HOURLY_BYTES: Final = 8 * 1024 * 1024 * 1024
-
-
-class TusReserveResult(IntEnum):
-    ACCEPTED = 1
-    USER_ACTIVE_LIMIT = -1
-    USER_BYTE_LIMIT = -2
-    PROJECT_ACTIVE_LIMIT = -3
-    PROJECT_BYTE_LIMIT = -4
-    HOST_ACTIVE_LIMIT = -5
-    HOST_BYTE_LIMIT = -6
-
-
-class TusOffsetUpdateResult(IntEnum):
-    ACCEPTED = 1
-    MISMATCH = 0
-    MISSING = -1
-    USER_HOURLY_LIMIT = -2
-    PROJECT_HOURLY_LIMIT = -3
-
-
-@dataclass(frozen=True, slots=True)
-class TusUpload:
-    """Server-side view of a TUS upload in progress.
-
-    `staging_path` is the absolute path to the `.part` file on the pod's
-    local disk. `metadata` is the parsed `Upload-Metadata` header (keys
-    already validated by the service layer).
-    """
-
-    upload_id: uuid.UUID
-    user_id: uuid.UUID
-    upload_length: int
-    upload_offset: int
-    purpose: str  # "chat_attachment" | "rag_source" | "knowmap_source"
-    project_id: uuid.UUID
-    chatroom_id: uuid.UUID | None
-    rag_config_id: uuid.UUID | None
-    knowmap_config_id: uuid.UUID | None
-    filename: str
-    mime: str
-    staging_path: str
-    metadata_raw: str  # original header for HEAD echo
-
-
-def parse_metadata(raw: str) -> dict[str, str]:
-    """Parse a TUS `Upload-Metadata` header into {key: decoded-value}.
-
-    Format per RFC: `key1 base64value1,key2 base64value2`. Values without a
-    space are allowed (flag-like); we store them as empty strings. Invalid
-    base64 raises ValueError so the caller can translate to 400.
-    """
-    out: dict[str, str] = {}
-    if not raw:
-        return out
-    for part in raw.split(","):
-        pair = part.strip().split(" ", 1)
-        key = pair[0].strip()
-        if not key:
-            continue
-        if len(pair) == 1:
-            out[key] = ""
-            continue
-        try:
-            decoded = base64.b64decode(pair[1].strip(), validate=True).decode("utf-8")
-        except (binascii.Error, UnicodeDecodeError) as exc:
-            raise ValueError(f"invalid base64 in Upload-Metadata key {key!r}") from exc
-        out[key] = decoded
-    return out
 
 
 def _key(upload_id: uuid.UUID) -> str:
@@ -169,7 +102,12 @@ end
 return 1
 """
 
-    async def create(self, upload: TusUpload) -> TusReserveResult:
+    async def create(
+        self,
+        upload: TusUpload,
+        *,
+        host_max_reserved_bytes: int = TUS_HOST_MAX_RESERVED_BYTES,
+    ) -> TusReserveResult:
         payload = {
             "upload_id": str(upload.upload_id),
             "user_id": str(upload.user_id),
@@ -207,7 +145,7 @@ return 1
             str(TUS_PROJECT_MAX_ACTIVE),
             str(TUS_PROJECT_MAX_RESERVED_BYTES),
             str(TUS_HOST_MAX_ACTIVE),
-            str(TUS_HOST_MAX_RESERVED_BYTES),
+            str(min(TUS_HOST_MAX_RESERVED_BYTES, host_max_reserved_bytes)),
             str(_TTL_SECONDS),
             str(upload.upload_id),
             str(_RESERVATION_KEY_TTL_SECONDS),
@@ -376,9 +314,5 @@ return 1
 
 
 __all__ = [
-    "TusOffsetUpdateResult",
-    "TusReserveResult",
-    "TusUpload",
     "TusUploadStore",
-    "parse_metadata",
 ]

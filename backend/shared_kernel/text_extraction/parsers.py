@@ -2,10 +2,9 @@
 
 Supports: pdf, docx, md, txt. Explicitly **no HTML**.
 
-Each parser accepts the raw file bytes and returns a flat UTF-8 string
-(whitespace-normalised, preserving paragraph breaks). Optional OCR on PDFs
-runs only if ``tesseract`` is present on PATH and the extracted text is
-empty — we never pay the OCR cost on text-bearing PDFs.
+Path parsers enforce extraction budgets and may be run through
+``parse_path_isolated`` so hostile PDF/DOCX expansion is confined to a
+resource-limited child process. Legacy byte parsers remain for bounded callers.
 
 SoC: parser functions are pure byte-in / str-out; they do not touch the
 DB, MinIO, or Qdrant. Callers (RAG ingest, chat attachment extraction) wire
@@ -16,14 +15,20 @@ other's infrastructure.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import mimetypes
+import multiprocessing
+import os
 import shutil
+import signal
 import subprocess  # — invocation is fully controlled below
 import tempfile
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
+from multiprocessing.connection import Connection
+from multiprocessing.process import BaseProcess
 from pathlib import Path
 
 __all__ = [
@@ -34,6 +39,7 @@ __all__ = [
     "ResourceBudgetError",
     "normalise_mime",
     "parse_path",
+    "parse_path_isolated",
     "parse_docx",
     "parse_markdown",
     "parse_pdf",
@@ -77,6 +83,8 @@ class ExtractionLimits:
 
 
 DEFAULT_EXTRACTION_LIMITS = ExtractionLimits()
+_PARSER_TIMEOUT_SECONDS = 300
+_PARSER_MEMORY_BYTES = 1024 * 1024 * 1024
 
 
 class _BoundedText:
@@ -119,6 +127,92 @@ def parse_path(
     raise ParserError(f"unsupported mime {mime!r}")
 
 
+def _isolated_parse_worker(
+    path: str,
+    mime: str,
+    limits: ExtractionLimits,
+    connection: Connection,
+) -> None:
+    try:
+        if os.name == "posix":
+            import resource
+
+            os.setsid()  # type: ignore[attr-defined]
+            resource.setrlimit(  # type: ignore[attr-defined]
+                resource.RLIMIT_AS,  # type: ignore[attr-defined]
+                (_PARSER_MEMORY_BYTES, _PARSER_MEMORY_BYTES),
+            )
+            resource.setrlimit(  # type: ignore[attr-defined]
+                resource.RLIMIT_CPU,  # type: ignore[attr-defined]
+                (_PARSER_TIMEOUT_SECONDS, _PARSER_TIMEOUT_SECONDS),
+            )
+        connection.send(("ok", parse_path(Path(path), mime, limits=limits)))
+    except ResourceBudgetError as exc:
+        connection.send(("budget", str(exc)))
+    except ParserError as exc:
+        connection.send(("parser", str(exc)))
+    except BaseException:
+        connection.send(("parser", "document parser failed"))
+    finally:
+        connection.close()
+
+
+def _terminate_process_tree(process: BaseProcess) -> None:
+    if process.pid is None or not process.is_alive():
+        return
+    if os.name == "nt":
+        subprocess.run(  # noqa: S603
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],  # noqa: S607
+            check=False,
+            capture_output=True,
+            timeout=10,
+        )
+    else:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)  # type: ignore[attr-defined]
+    process.join(timeout=5)
+    if process.is_alive():
+        process.kill()
+        process.join(timeout=5)
+
+
+def parse_path_isolated(
+    path: Path,
+    mime: str,
+    *,
+    limits: ExtractionLimits = DEFAULT_EXTRACTION_LIMITS,
+    timeout_seconds: int = _PARSER_TIMEOUT_SECONDS,
+) -> str:
+    """Parse in a bounded child process and return only validated text."""
+    context = multiprocessing.get_context("spawn")
+    parent, child = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_isolated_parse_worker,
+        args=(str(path), mime, limits, child),
+        name="knowledge-document-parser",
+    )
+    process.start()
+    child.close()
+    try:
+        if not parent.poll(timeout_seconds):
+            _terminate_process_tree(process)
+            raise ResourceBudgetError("parser_timeout")
+        kind, payload = parent.recv()
+    except EOFError as exc:
+        raise ResourceBudgetError("parser_process_memory") from exc
+    finally:
+        parent.close()
+        if process.is_alive():
+            _terminate_process_tree(process)
+        else:
+            process.join(timeout=5)
+    if kind == "ok":
+        return str(payload)
+    if kind == "budget":
+        raise ResourceBudgetError(str(payload))
+    raise ParserError(str(payload))
+
+
 def _parse_text_path(path: Path, limits: ExtractionLimits) -> str:
     import codecs
 
@@ -159,29 +253,41 @@ def _parse_pdf_path(path: Path, limits: ExtractionLimits) -> str:
         return ""
     if len(reader.pages) > limits.ocr_pages:
         raise ResourceBudgetError("ocr_pages")
-    return _tesseract_ocr_path(path, limits)
+    return _tesseract_ocr_path(path, limits, page_count=len(reader.pages))
 
 
-def _tesseract_ocr_path(path: Path, limits: ExtractionLimits) -> str:
+def _tesseract_ocr_path(
+    path: Path,
+    limits: ExtractionLimits,
+    *,
+    page_count: int,
+) -> str:
     if shutil.which("pdftoppm") is None:
         return ""
     with tempfile.TemporaryDirectory() as tmpdir:
         base = Path(tmpdir)
-        try:
-            subprocess.run(  # noqa: S603
-                ["pdftoppm", "-r", "200", "-png", str(path), str(base / "page")],  # noqa: S607
-                check=True,
-                capture_output=True,
-                timeout=120,
-            )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            return ""
-        images = sorted(base.glob("page-*.png"))
-        if len(images) > limits.ocr_pages:
-            raise ResourceBudgetError("ocr_pages")
         output = _BoundedText(limits)
-        for image in images:
+        for page_number in range(1, page_count + 1):
+            image = base / "page.png"
             try:
+                subprocess.run(  # noqa: S603
+                    [  # noqa: S607
+                        "pdftoppm",
+                        "-f",
+                        str(page_number),
+                        "-l",
+                        str(page_number),
+                        "-singlefile",
+                        "-r",
+                        "200",
+                        "-png",
+                        str(path),
+                        str(base / "page"),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    timeout=120,
+                )
                 result = subprocess.run(  # noqa: S603
                     ["tesseract", str(image), "-"],  # noqa: S607
                     check=True,
@@ -193,6 +299,7 @@ def _tesseract_ocr_path(path: Path, limits: ExtractionLimits) -> str:
             text = result.stdout.decode("utf-8", errors="replace").strip()
             if text:
                 output.append_section(text)
+            image.unlink(missing_ok=True)
         return output.finish()
 
 
@@ -209,10 +316,16 @@ def _parse_docx_path(path: Path, limits: ExtractionLimits) -> str:
                     raise ParserError("encrypted docx is not supported")
                 if entry.file_size > limits.docx_single_entry_bytes:
                     raise ResourceBudgetError("docx_single_entry_bytes")
-                expanded += entry.file_size
                 compressed += entry.compress_size
-                if expanded > limits.docx_expanded_bytes:
-                    raise ResourceBudgetError("docx_expanded_bytes")
+                entry_expanded = 0
+                with archive.open(entry) as source:
+                    while chunk := source.read(1024 * 1024):
+                        entry_expanded += len(chunk)
+                        expanded += len(chunk)
+                        if entry_expanded > limits.docx_single_entry_bytes:
+                            raise ResourceBudgetError("docx_single_entry_bytes")
+                        if expanded > limits.docx_expanded_bytes:
+                            raise ResourceBudgetError("docx_expanded_bytes")
             if expanded > limits.docx_compression_ratio * max(compressed, 1):
                 raise ResourceBudgetError("docx_compression_ratio")
     except (ParserError, ResourceBudgetError):

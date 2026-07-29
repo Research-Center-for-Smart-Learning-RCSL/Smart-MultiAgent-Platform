@@ -208,8 +208,9 @@ class TestIngestHappyPath:
     @patch(
         "contexts.knowledge.application.ingest_service.MIME_TO_PARSER", {"text/plain": lambda d: d.decode()}
     )
-    async def test_new_doc_ingested(self, mock_pub, _audit, _scan) -> None:
+    async def test_new_doc_ingested_when_realtime_is_unavailable(self, mock_pub, _audit, _scan) -> None:
         mock_pub.return_value = AsyncMock()
+        mock_pub.return_value.emit.side_effect = ConnectionError("redis unavailable")
         cfg = _make_config()
         new_doc = _make_document()
         ready_doc = _make_document(status=DocumentStatus.READY)
@@ -291,7 +292,7 @@ class TestIngestFailure:
         )
         svc._chunker = AsyncMock(return_value=["c1"])
 
-        with pytest.raises(IngestFailed, match="provider down"):
+        with pytest.raises(IngestFailed, match="knowledge ingestion failed"):
             await svc.ingest(
                 ipt=IngestInput(
                     rag_config_id=_CONFIG_ID,
@@ -341,7 +342,7 @@ class TestIngestVectorMismatch:
         )
         svc._chunker = AsyncMock(return_value=["c1", "c2"])
 
-        with pytest.raises(IngestFailed, match="1 vectors for 2 chunks"):
+        with pytest.raises(IngestFailed, match="knowledge ingestion failed"):
             await svc.ingest(
                 ipt=IngestInput(
                     rag_config_id=_CONFIG_ID,

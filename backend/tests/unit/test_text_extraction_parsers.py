@@ -5,8 +5,11 @@ so both the RAG ingest pipeline and chat attachment extraction can use it.
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
+import shared_kernel.text_extraction.parsers as parser_module
 from shared_kernel.text_extraction.parsers import (
     MIME_TO_PARSER,
     SUPPORTED_MIMES,
@@ -15,6 +18,7 @@ from shared_kernel.text_extraction.parsers import (
     normalise_mime,
     parse_markdown,
     parse_path,
+    parse_path_isolated,
     parse_plaintext,
 )
 
@@ -30,6 +34,30 @@ def test_parse_plaintext_replaces_invalid_sequences() -> None:
 def test_parse_markdown_is_verbatim() -> None:
     data = b"# Title\n\nSome *text*."
     assert parse_markdown(data) == data.decode("utf-8")
+
+
+def test_isolated_text_parser_returns_bounded_output(tmp_path) -> None:
+    source = tmp_path / "source.txt"
+    source.write_text("isolated parser", encoding="utf-8")
+
+    assert parse_path_isolated(source, "text/plain", timeout_seconds=30) == "isolated parser"
+
+
+def test_parser_tree_termination_kills_descendants_on_windows(monkeypatch) -> None:
+    process = MagicMock(pid=123)
+    process.is_alive.side_effect = [True, False]
+    run = MagicMock()
+    monkeypatch.setattr(parser_module.os, "name", "nt")
+    monkeypatch.setattr(parser_module.subprocess, "run", run)
+
+    parser_module._terminate_process_tree(process)
+
+    run.assert_called_once_with(
+        ["taskkill", "/PID", "123", "/T", "/F"],
+        check=False,
+        capture_output=True,
+        timeout=10,
+    )
 
 
 def test_mime_to_parser_dispatch_table() -> None:

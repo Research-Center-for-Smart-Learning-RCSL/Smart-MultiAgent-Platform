@@ -35,6 +35,8 @@ from contexts.knowledge.infrastructure import knowmap_tables as t
 from shared_kernel.auth.clients import now
 from shared_kernel.db.advisory_lock import advisory_xact_lock
 
+_INGEST_CLAIM_TTL = timedelta(minutes=90)
+
 
 def _row_to_config(row: Any) -> KnowmapConfig:
     return KnowmapConfig(
@@ -483,7 +485,7 @@ class KnowmapDocumentRepository:
         ``None`` when it was not terminal (still ingesting, or already claimed).
         """
         token = uuid.uuid4()
-        until = datetime.now(UTC) + timedelta(minutes=30)
+        until = datetime.now(UTC) + _INGEST_CLAIM_TTL
         row = (
             await self._db.execute(
                 t.knowmap_documents.update()
@@ -526,7 +528,7 @@ class KnowmapDocumentRepository:
 
     async def claim_initial(self, document_id: uuid.UUID) -> IngestClaim | None:
         token = uuid.uuid4()
-        until = datetime.now(UTC) + timedelta(minutes=30)
+        until = datetime.now(UTC) + _INGEST_CLAIM_TTL
         row = (
             await self._db.execute(
                 t.knowmap_documents.update()
@@ -649,6 +651,42 @@ class KnowmapDocumentRepository:
         await self._db.execute(
             t.knowmap_documents.update().where(t.knowmap_documents.c.id == document_id).values(**values)
         )
+
+    async def mark_scan_owned(
+        self,
+        *,
+        document_id: uuid.UUID,
+        claim: IngestClaim,
+        scan_status: ScanStatus,
+        scan_at: datetime,
+        terminal_status: DocumentStatus | None = None,
+        failure_code: str | None = None,
+    ) -> bool:
+        values: dict[str, Any] = {
+            "scan_status": scan_status.value,
+            "scan_at": scan_at,
+        }
+        if terminal_status is not None:
+            values.update(
+                status=terminal_status.value,
+                failure_code=failure_code,
+                ingest_claim_token=None,
+                ingest_claim_until=None,
+            )
+        row = (
+            await self._db.execute(
+                t.knowmap_documents.update()
+                .where(
+                    t.knowmap_documents.c.id == document_id,
+                    t.knowmap_documents.c.status == DocumentStatus.INGESTING.value,
+                    t.knowmap_documents.c.ingest_attempt == claim.attempt,
+                    t.knowmap_documents.c.ingest_claim_token == claim.token,
+                )
+                .values(**values)
+                .returning(t.knowmap_documents.c.id)
+            )
+        ).first()
+        return row is not None
 
     async def list_for_config(
         self,

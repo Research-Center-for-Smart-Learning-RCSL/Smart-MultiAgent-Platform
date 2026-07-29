@@ -497,6 +497,42 @@ class TestIngestFailureSemantics:
         svc._db.commit.assert_awaited()
 
     @pytest.mark.asyncio
+    async def test_scan_dispatch_failure_terminally_fails_owned_rag_claim(self) -> None:
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        doc = _make_document(status=DocumentStatus.INGESTING)
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = None
+        doc_repo.create.return_value = doc
+        blob = AsyncMock()
+        blob.put.return_value = doc.minio_path
+        svc = _make_service(
+            config_repo=cfg_repo,
+            doc_repo=doc_repo,
+            chunk_repo=AsyncMock(),
+            blob=blob,
+        )
+        svc._scan_required = True
+
+        with (
+            patch(f"{_MOD}.audit.emit", AsyncMock()),
+            patch(f"{_MOD}.Publisher", _fake_publisher()),
+            patch(
+                f"{_MOD}.enqueue_rag_scan",
+                AsyncMock(side_effect=ConnectionError("redis unavailable")),
+            ),
+            pytest.raises(IngestFailed, match="scan dispatch"),
+        ):
+            await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
+
+        doc_repo.finish_claim.assert_awaited_once_with(
+            document_id=doc.id,
+            claim=ANY,
+            status=DocumentStatus.FAILED,
+            failure_code="ingest_failed",
+        )
+
+    @pytest.mark.asyncio
     async def test_scan_required_defers_parser_and_indexing_until_clean(self) -> None:
         cfg_repo = AsyncMock()
         cfg_repo.get.return_value = _make_config()
@@ -525,7 +561,11 @@ class TestIngestFailureSemantics:
 
         assert returned is doc
         svc._index_document.assert_not_awaited()
-        scan.assert_awaited_once_with(document_id=doc.id, ingest_attempt=0)
+        scan.assert_awaited_once_with(
+            document_id=doc.id,
+            ingest_attempt=0,
+            claim_token=ANY,
+        )
 
     async def test_reindex_retry_failure_still_records_reupload_audit(self) -> None:
         # The re-upload audit must be committed before indexing, so a failed retry of

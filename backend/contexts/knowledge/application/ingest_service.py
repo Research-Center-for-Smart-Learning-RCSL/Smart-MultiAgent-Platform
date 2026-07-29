@@ -56,7 +56,10 @@ from contexts.knowledge.application.ingest_ports import (
     RagVectorIngestPort,
 )
 from contexts.knowledge.application.ports import BlobStore, Embedder
-from contexts.knowledge.application.resource_budgets import enforce_chunk_budget
+from contexts.knowledge.application.resource_budgets import (
+    MAX_DOCUMENT_CHUNKS,
+    enforce_chunk_budget,
+)
 from contexts.knowledge.domain.errors import (
     DocumentAllowlistConflict,
     DocumentTooLarge,
@@ -82,7 +85,9 @@ from shared_kernel.text_extraction.parsers import (
     ParserError,
     ResourceBudgetError,
     normalise_mime,
-    parse_path,
+)
+from shared_kernel.text_extraction.parsers import (
+    parse_path_isolated as parse_path,
 )
 
 _log = logging.getLogger(__name__)
@@ -111,6 +116,24 @@ async def _publish_ingestion_started(*, config_id: uuid.UUID, document_id: uuid.
     except Exception:
         _log.debug(
             "ingestion-start publish failed for document %s",
+            document_id,
+            exc_info=True,
+        )
+
+
+async def _emit_best_effort(
+    publisher: Publisher,
+    event: str,
+    payload: dict[str, object],
+    *,
+    document_id: uuid.UUID,
+) -> None:
+    try:
+        await publisher.emit(event, payload)
+    except Exception:
+        _log.warning(
+            "failed to publish %s for document %s",
+            event,
             document_id,
             exc_info=True,
         )
@@ -264,7 +287,7 @@ class IngestService:
         # upload back to nothing — a failed upload must stay visible in the list.
         await self._db.commit()
         if self._scan_required:
-            await enqueue_rag_scan(document_id=doc.id, ingest_attempt=claim.attempt)
+            await self._dispatch_scan(doc.id, cfg.id, claim)
             return doc
         await self._docs.mark_scan(
             document_id=doc.id,
@@ -284,7 +307,6 @@ class IngestService:
             claim=claim,
         )
         await self._db.commit()
-        await enqueue_rag_scan(document_id=result.id, ingest_attempt=claim.attempt)
         return result
 
     async def _ingest_existing(
@@ -312,12 +334,18 @@ class IngestService:
         claim = await self._docs.claim_for_reingest(existing.id)
         await self._db.commit()
         if claim is None:
-            return await self._docs.get(existing.id) or resolved
+            current = await self._docs.get(existing.id)
+            if current is None:
+                raise RagDocumentNotFound(str(existing.id))
+            return current
 
         await _publish_ingestion_started(config_id=cfg.id, document_id=resolved.id)
         if self._scan_required:
-            await enqueue_rag_scan(document_id=resolved.id, ingest_attempt=claim.attempt)
-            return resolved
+            await self._dispatch_scan(resolved.id, cfg.id, claim)
+            current = await self._docs.get(resolved.id)
+            if current is None:
+                raise RagDocumentNotFound(str(resolved.id))
+            return current
         await self._docs.mark_scan(
             document_id=resolved.id,
             scan_status=ScanStatus.CLEAN,
@@ -325,7 +353,10 @@ class IngestService:
         )
         await self._docs.lock_for_ingest(existing.id)
         if not await self._docs.owns_claim(existing.id, claim):
-            return await self._docs.get(existing.id) or resolved
+            current = await self._docs.get(existing.id)
+            if current is None:
+                raise RagDocumentNotFound(str(existing.id))
+            return current
         reindexed = await self._index_document(
             doc=resolved,
             cfg=cfg,
@@ -336,8 +367,39 @@ class IngestService:
             claim=claim,
         )
         await self._db.commit()
-        await enqueue_rag_scan(document_id=reindexed.id, ingest_attempt=claim.attempt)
         return reindexed
+
+    async def _dispatch_scan(
+        self,
+        document_id: uuid.UUID,
+        config_id: uuid.UUID,
+        claim: IngestClaim,
+    ) -> None:
+        try:
+            await enqueue_rag_scan(
+                document_id=document_id,
+                ingest_attempt=claim.attempt,
+                claim_token=claim.token,
+            )
+        except Exception as exc:
+            finished = await self._docs.finish_claim(
+                document_id=document_id,
+                claim=claim,
+                status=DocumentStatus.FAILED,
+                failure_code="ingest_failed",
+            )
+            await self._db.commit()
+            if finished:
+                await _emit_best_effort(
+                    Publisher(rag_channel(config_id)),
+                    "ingestion.failed",
+                    {
+                        "document_id": str(document_id),
+                        "error": "could not enqueue scan job",
+                    },
+                    document_id=document_id,
+                )
+            raise IngestFailed("knowledge scan dispatch failed") from exc
 
     async def _resolve_existing(
         self,
@@ -475,6 +537,7 @@ class IngestService:
                 strategy=cfg.chunk_strategy,
                 params=cfg.chunk_params,
                 embedder=self._embedder,
+                max_chunks=MAX_DOCUMENT_CHUNKS,
             )
             enforce_chunk_budget(pieces)
             await self._qdrant.ensure_collection(
@@ -514,13 +577,15 @@ class IngestService:
                     # Emit progress so the frontend progress bar updates in
                     # real time (P19 — ingestion.progress was never emitted).
                     processed = min(start + len(batch), total_chunks)
-                    await pub.emit(
+                    await _emit_best_effort(
+                        pub,
                         "ingestion.progress",
                         {
                             "document_id": str(doc.id),
                             "processed": processed,
                             "total": total_chunks,
                         },
+                        document_id=doc.id,
                     )
                     point_ids: list[uuid.UUID] = [uuid.uuid4() for _ in batch]
                     # Insert DB rows before the Qdrant upsert so a DB failure
@@ -538,9 +603,11 @@ class IngestService:
                     )
                     # Signal the transition from embedding to Qdrant upsert
                     # (P19 — ingestion.indexing was never emitted).
-                    await pub.emit(
+                    await _emit_best_effort(
+                        pub,
                         "ingestion.indexing",
                         {"document_id": str(doc.id), "batch_start": start},
+                        document_id=doc.id,
                     )
                     await self._qdrant.upsert_chunks(
                         project_id=cfg.project_id,
@@ -579,8 +646,11 @@ class IngestService:
                     request_id=request_id,
                 ),
             )
-            await Publisher(rag_channel(cfg.id)).emit(
-                "ingestion.completed", {"document_id": str(doc.id), "chunks": len(pieces)}
+            await _emit_best_effort(
+                Publisher(rag_channel(cfg.id)),
+                "ingestion.completed",
+                {"document_id": str(doc.id), "chunks": len(pieces)},
+                document_id=doc.id,
             )
         except Exception as exc:  # — any failure → mark + surface
             failure_code = (
@@ -626,7 +696,7 @@ class IngestService:
             # provider, store) is a server-side ingest failure → 500.
             if isinstance(exc, ParserError):
                 raise DocumentUnprocessable(str(exc)) from exc
-            raise IngestFailed(f"{type(exc).__name__}: {exc}") from exc
+            raise IngestFailed("knowledge ingestion failed") from exc
 
         # Re-read so the returned row reflects the just-set status (the caller
         # owns the commit).
@@ -700,26 +770,26 @@ async def emit_reupload_agents_set_audit(
     )
 
 
-async def enqueue_rag_scan(*, document_id: uuid.UUID, ingest_attempt: int = 0) -> None:
+async def enqueue_rag_scan(
+    *,
+    document_id: uuid.UUID,
+    ingest_attempt: int,
+    claim_token: uuid.UUID,
+) -> None:
     # F-23: the job id carries the per-document ingest attempt so a genuine tus
     # retry (attempt N->N+1) enqueues a fresh scan instead of being deduped onto a
     # retained prior result. Multipart callers keep the default 0 (that reupload
     # scan-dedup is FU-2, deferred).
-    try:
-        from shared_kernel.queue import enqueue
+    from shared_kernel.queue import enqueue
 
-        await enqueue(
-            "rag_scan_document",
-            document_id=str(document_id),
-            _job_id=f"rag-scan:{document_id}:{ingest_attempt}",
-            _queue_name=KNOWLEDGE_SCAN_QUEUE,
-        )
-    except Exception:
-        _log.warning(
-            "scan enqueue failed for rag document %s; file will not be scanned automatically",
-            document_id,
-            exc_info=True,
-        )
+    await enqueue(
+        "rag_scan_document",
+        document_id=str(document_id),
+        ingest_attempt=ingest_attempt,
+        claim_token=str(claim_token),
+        _job_id=f"rag-scan:{document_id}:{ingest_attempt}",
+        _queue_name=KNOWLEDGE_SCAN_QUEUE,
+    )
 
 
 __all__ = ["IngestInput", "IngestService", "MAX_MULTIPART_BYTES", "enqueue_rag_scan"]

@@ -246,13 +246,20 @@ async def _startup(ctx: dict[str, Any]) -> None:
 
 
 async def _knowledge_startup(ctx: dict[str, Any]) -> None:
-    _ = ctx
     configure_logging(get_settings().logging)
     _start_healthz_sidecar()
+    ctx["_revocation_task"] = asyncio.create_task(
+        revocation_listener.run(),
+        name="key-revocation-listener",
+    )
 
 
 async def _knowledge_shutdown(ctx: dict[str, Any]) -> None:
-    _ = ctx
+    task = ctx.get("_revocation_task")
+    if task is not None:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 async def _shutdown(ctx: dict[str, Any]) -> None:

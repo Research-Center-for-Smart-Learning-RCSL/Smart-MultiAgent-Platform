@@ -16,7 +16,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import struct
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 
@@ -34,6 +36,8 @@ class ScanResult:
 class FileScanner(Protocol):
     async def scan(self, data: bytes) -> ScanResult: ...
 
+    async def scan_file(self, path: Path) -> ScanResult: ...
+
 
 _CHUNK_SIZE = 8192
 
@@ -47,6 +51,21 @@ class ClamAVScanner:
         self._timeout = timeout
 
     async def scan(self, data: bytes) -> ScanResult:
+        async def _chunks() -> AsyncIterator[bytes]:
+            for offset in range(0, len(data), _CHUNK_SIZE):
+                yield data[offset : offset + _CHUNK_SIZE]
+
+        return await self._scan_chunks(_chunks())
+
+    async def scan_file(self, path: Path) -> ScanResult:
+        async def _chunks() -> AsyncIterator[bytes]:
+            with path.open("rb") as source:
+                while chunk := await asyncio.to_thread(source.read, _CHUNK_SIZE):
+                    yield chunk
+
+        return await self._scan_chunks(_chunks())
+
+    async def _scan_chunks(self, chunks: AsyncIterator[bytes]) -> ScanResult:
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(self._host, self._port),
@@ -57,13 +76,10 @@ class ClamAVScanner:
 
         try:
             writer.write(b"zINSTREAM\0")
-
-            offset = 0
-            while offset < len(data):
-                chunk = data[offset : offset + _CHUNK_SIZE]
+            async for chunk in chunks:
                 writer.write(struct.pack(">I", len(chunk)))
                 writer.write(chunk)
-                offset += len(chunk)
+                await writer.drain()
 
             writer.write(struct.pack(">I", 0))
             await writer.drain()

@@ -436,7 +436,7 @@ class TestIngest:
             status=DocumentStatus.READY,
         )
         # The scan is always enqueued; the build is deferred until the clean verdict.
-        scan.assert_awaited_once()
+        scan.assert_not_awaited()
         build.assert_not_called()
         uploaded = next(
             call.args[1]
@@ -473,7 +473,7 @@ class TestIngest:
         ):
             await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
 
-        scan.assert_awaited_once()
+        scan.assert_not_awaited()
         # F-12: the reindex enqueue targets the config's current corpus revision
         # (re-read fresh after the mutation commit) rather than the old (state,
         # epoch) nonce.
@@ -515,6 +515,41 @@ class TestIngest:
         svc._db.commit.assert_awaited()
 
     @pytest.mark.asyncio
+    async def test_scan_dispatch_failure_terminally_fails_owned_knowmap_claim(self) -> None:
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        doc = _make_document(status=DocumentStatus.INGESTING)
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = None
+        doc_repo.create.return_value = doc
+        blob = AsyncMock()
+        blob.put.return_value = doc.minio_path
+        svc = _make_service(
+            config_repo=cfg_repo,
+            doc_repo=doc_repo,
+            chunk_repo=AsyncMock(),
+            blob=blob,
+        )
+        svc._scan_required = True
+
+        with (
+            patch(f"{_MOD}.audit.emit", AsyncMock()),
+            patch(
+                f"{_MOD}.enqueue_knowmap_scan",
+                AsyncMock(side_effect=ConnectionError("redis unavailable")),
+            ),
+            pytest.raises(IngestFailed, match="scan dispatch"),
+        ):
+            await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
+
+        doc_repo.finish_claim.assert_awaited_once_with(
+            document_id=doc.id,
+            claim=ANY,
+            status=DocumentStatus.FAILED,
+            failure_code="ingest_failed",
+        )
+
+    @pytest.mark.asyncio
     async def test_scan_required_defers_knowmap_parser_and_indexing_until_clean(self) -> None:
         cfg_repo = AsyncMock()
         cfg_repo.get.return_value = _make_config()
@@ -542,7 +577,11 @@ class TestIngest:
 
         assert returned is doc
         svc._index_document.assert_not_awaited()
-        scan.assert_awaited_once_with(document_id=doc.id, ingest_attempt=0)
+        scan.assert_awaited_once_with(
+            document_id=doc.id,
+            ingest_attempt=0,
+            claim_token=ANY,
+        )
 
     async def test_parse_failure_raises_document_unprocessable_not_ingest_failed(self) -> None:
         # A ParserError (unparseable / no text layer / unsupported content) is a

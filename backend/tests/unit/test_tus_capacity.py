@@ -37,7 +37,7 @@ def _metadata() -> str:
 
 def _service() -> TusService:
     with patch("contexts.conversation.application.tus_service.AttachmentService"):
-        return TusService(db=None)  # type: ignore[arg-type]
+        return TusService(db=None, store=SimpleNamespace())  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio
@@ -109,6 +109,33 @@ async def test_create_translates_reservation_limit_to_capacity_error() -> None:
             metadata_raw=_metadata(),
             project_id=uuid.uuid4(),
         )
+
+
+@pytest.mark.asyncio
+async def test_create_passes_disk_headroom_as_atomic_host_reservation_limit(
+    tmp_path: object,
+) -> None:
+    service = _service()
+    store = SimpleNamespace(
+        create=AsyncMock(return_value=TusReserveResult.ACCEPTED),
+    )
+    service._store = store  # type: ignore[assignment]
+    disk = SimpleNamespace(total=10_000, used=5_000, free=5_000)
+
+    with (
+        patch.object(tus_mod.shutil, "disk_usage", return_value=disk),
+        patch.object(tus_mod, "TUS_STAGING_MIN_FREE_BYTES", 1_000),
+        patch.object(tus_mod, "TUS_STAGING_MIN_FREE_RATIO", 0),
+        patch.object(tus_mod, "_staging_path", return_value=os.path.join(str(tmp_path), "x.part")),
+    ):
+        await service.create(
+            user_id=uuid.uuid4(),
+            upload_length=1_000,
+            metadata_raw=_metadata(),
+            project_id=uuid.uuid4(),
+        )
+
+    assert store.create.await_args.kwargs["host_max_reserved_bytes"] == 4_000
 
 
 @pytest.mark.asyncio

@@ -33,6 +33,7 @@ from contexts.knowledge.domain.models import (
     RagDocument,
     embed_dimension,
     normalized_chunk_params,
+    validate_chunk_params,
 )
 from contexts.knowledge.infrastructure.embedding_pin_repository import EmbeddingPinRepository
 from contexts.knowledge.infrastructure.repositories import (
@@ -172,6 +173,7 @@ class RagConfigService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> RagConfig:
+        validate_chunk_params(draft.chunk_strategy, draft.chunk_params)
         # R10.05 whitelist.
         if (draft.embed_provider, draft.embed_model) not in EMBED_MODEL_WHITELIST:
             raise EmbedModelNotWhitelisted(f"{draft.embed_provider}:{draft.embed_model} not whitelisted")
@@ -276,6 +278,8 @@ class RagConfigService:
     ) -> RagConfig:
         """Apply a partial update to a RAG config (mutable fields only)."""
         cfg = await self.get(config_id)  # 404 if missing
+        if "chunk_params" in patch:
+            validate_chunk_params(cfg.chunk_strategy, patch["chunk_params"])
 
         # Validate the rerank selection when being changed or enabled (F-19: the
         # provider may be the keyless "bge", which legitimately carries no key).
@@ -745,51 +749,6 @@ class RagConfigService:
             orphans.add(pid)
 
         return orphans
-
-    @staticmethod
-    def build_ingest_service(
-        db: AsyncSession,
-        *,
-        embedder: Any,
-    ) -> tuple[Any, Any]:
-        """Construct an ``IngestService`` wired to real MinIO + Qdrant.
-
-        Returns ``(ingest_service, qclient)`` — the caller MUST close
-        ``qclient`` when done (typically via a try/finally block).
-        """
-        from qdrant_client import AsyncQdrantClient
-
-        from app.config.settings import get_settings
-        from app.wiring.knowledge_ingest import KnowledgeIngestWiring
-        from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
-        from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
-
-        settings = get_settings()
-
-        from minio import Minio
-
-        minio = Minio(
-            settings.minio.endpoint,
-            access_key=settings.minio.root_access_key,
-            secret_key=settings.minio.root_secret_key,
-            secure=settings.minio.use_tls,
-            region=settings.minio.region,
-        )
-        blob = MinioBlobStore(minio)
-
-        qclient = AsyncQdrantClient(
-            url=settings.qdrant.url,
-            api_key=settings.qdrant.api_key or None,
-        )
-        qdrant = QdrantStore(qclient)
-
-        ingest = KnowledgeIngestWiring(db).rag_service(
-            blob=blob,
-            embedder=embedder,
-            qdrant=qdrant,
-            bucket=settings.minio.bucket_rag_sources,
-        )
-        return ingest, qclient
 
 
 __all__ = ["RagConfigService"]

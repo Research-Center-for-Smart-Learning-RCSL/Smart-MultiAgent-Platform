@@ -1,7 +1,5 @@
 """Unit tests for `contexts.knowledge.infrastructure.chunkers` (E.5)."""
 
-from __future__ import annotations
-
 import pytest
 
 from contexts.knowledge.domain.errors import ChunkParamsInvalid
@@ -12,6 +10,7 @@ from contexts.knowledge.infrastructure.chunkers import (
     chunk_fixed,
     chunk_semantic,
 )
+from shared_kernel.text_extraction.parsers import ResourceBudgetError
 
 
 def test_sentence_split_keeps_decimals_and_abbreviations() -> None:
@@ -43,11 +42,48 @@ def test_fixed_simple_windowing() -> None:
     assert out == ["a b c d", "d e f g", "g h"]
 
 
+def test_fixed_chunk_limit_fails_before_materializing_plus_one() -> None:
+    with pytest.raises(ResourceBudgetError, match="chunks"):
+        chunk_fixed(
+            "a b c d e f",
+            chunk_size_tokens=2,
+            chunk_overlap_tokens=0,
+            max_chunks=2,
+        )
+
+
+@pytest.mark.asyncio
+async def test_semantic_sentence_count_is_independent_from_chunk_budget() -> None:
+    text = "x. " * 20_001
+    out = await chunk_semantic(
+        text,
+        embedder=_ConstEmbedder(),
+        max_tokens_per_chunk=512,
+        similarity_threshold=0.1,
+        max_chunks=20_000,
+    )
+    assert len(out) < 100
+
+
 def test_fixed_rejects_bad_params() -> None:
     with pytest.raises(ChunkParamsInvalid):
         chunk_fixed("a b c", chunk_size_tokens=0, chunk_overlap_tokens=0)
     with pytest.raises(ChunkParamsInvalid):
         chunk_fixed("a b c", chunk_size_tokens=3, chunk_overlap_tokens=3)
+    with pytest.raises(ChunkParamsInvalid, match="half"):
+        chunk_fixed("a b c", chunk_size_tokens=100, chunk_overlap_tokens=51)
+    with pytest.raises(ChunkParamsInvalid, match="8192"):
+        chunk_fixed("a b c", chunk_size_tokens=20_000, chunk_overlap_tokens=0)
+
+
+def test_fixed_output_budget_fails_before_joining_amplified_chunk() -> None:
+    with pytest.raises(ResourceBudgetError, match="chunk_output_bytes"):
+        chunk_fixed(
+            "aaaa bbbb cccc dddd eeee",
+            chunk_size_tokens=4,
+            chunk_overlap_tokens=2,
+            max_output_bytes=25,
+        )
 
 
 async def test_chunk_document_defaults_fixed() -> None:

@@ -79,6 +79,7 @@ def test_rag_upload_route_surfaces_allowlist_conflict_as_problem_json() -> None:
 
     with (
         patch("app.api.v1.rag.RagConfigService") as service_cls,
+        patch("app.api.v1.rag.KnowledgeIngestWiring") as wiring_cls,
         patch("app.api.v1.rag._require_owner", AsyncMock()),
         patch("app.api.v1.rag.validate_agent_allowlist", AsyncMock(return_value=[])),
         patch("app.api.v1.rag.router_embedder_for", MagicMock()),
@@ -93,7 +94,7 @@ def test_rag_upload_route_surfaces_allowlist_conflict_as_problem_json() -> None:
         ),
     ):
         service_cls.return_value.get = AsyncMock(return_value=cfg)
-        service_cls.build_ingest_service.return_value = (ingest, qclient)
+        wiring_cls.return_value.rag_upload_service.return_value = (ingest, qclient)
         response = TestClient(app).post(
             f"/api/rag-configs/{config_id}/documents",
             files={"file": ("doc.txt", b"same document", "text/plain")},
@@ -128,6 +129,7 @@ def test_knowmap_upload_route_surfaces_allowlist_conflict_as_problem_json() -> N
 
     with (
         patch("app.api.v1.knowmap.KnowmapConfigService") as service_cls,
+        patch("app.api.v1.knowmap.KnowledgeIngestWiring") as wiring_cls,
         patch("app.api.v1.knowmap._assert_edit", AsyncMock()),
         patch("app.api.v1.knowmap._require_owner", AsyncMock()),
         patch(
@@ -137,7 +139,7 @@ def test_knowmap_upload_route_surfaces_allowlist_conflict_as_problem_json() -> N
         patch("app.api.v1.knowmap.build_knowmap_embedder", AsyncMock()),
     ):
         service_cls.return_value.get = AsyncMock(return_value=cfg)
-        service_cls.build_ingest_service.return_value = ingest
+        wiring_cls.return_value.knowmap_upload_service.return_value = ingest
         response = TestClient(app).post(
             f"/api/knowmap-configs/{config_id}/documents",
             files={"file": ("doc.txt", b"same document", "text/plain")},

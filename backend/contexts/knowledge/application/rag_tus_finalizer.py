@@ -159,13 +159,6 @@ class RagTusFinalizer:
                     ingest_attempt=claim.attempt,
                     claim_token=claim.token,
                 )
-                if not getattr(self, "_scan_required", False):
-                    from contexts.knowledge.application.ingest_service import enqueue_rag_scan
-
-                    await enqueue_rag_scan(
-                        document_id=existing.id,
-                        ingest_attempt=claim.attempt,
-                    )
             await self._db.commit()
             return updated
 
@@ -229,10 +222,6 @@ class RagTusFinalizer:
             ingest_attempt=claim.attempt,
             claim_token=claim.token,
         )
-        if not getattr(self, "_scan_required", False):
-            from contexts.knowledge.application.ingest_service import enqueue_rag_scan
-
-            await enqueue_rag_scan(document_id=doc.id, ingest_attempt=claim.attempt)
         return doc
 
     async def _enqueue_scan_gate(
@@ -263,6 +252,8 @@ class RagTusFinalizer:
                 await enqueue(
                     "rag_scan_document",
                     document_id=str(document_id),
+                    ingest_attempt=ingest_attempt,
+                    claim_token=str(claim_token),
                     _job_id=f"rag-scan:{document_id}:{ingest_attempt}",
                     _queue_name=KNOWLEDGE_SCAN_QUEUE,
                 )
@@ -285,7 +276,7 @@ class RagTusFinalizer:
             # Arq/Redis unavailable: don't leave the committed row stuck
             # 'ingesting' with no worker. Mark it FAILED so a re-upload (re-drive)
             # or operator can retry, and tell the frontend.
-            await self._docs.finish_claim(
+            finished = await self._docs.finish_claim(
                 document_id=document_id,
                 claim=IngestClaim(
                     attempt=ingest_attempt,
@@ -295,11 +286,12 @@ class RagTusFinalizer:
                 status=DocumentStatus.FAILED,
             )
             await self._db.commit()
-            with contextlib.suppress(Exception):
-                await Publisher(rag_channel(config_id)).emit(
-                    "ingestion.failed",
-                    {"document_id": str(document_id), "error": "could not enqueue scan job"},
-                )
+            if finished:
+                with contextlib.suppress(Exception):
+                    await Publisher(rag_channel(config_id)).emit(
+                        "ingestion.failed",
+                        {"document_id": str(document_id), "error": "could not enqueue scan job"},
+                    )
             raise
 
 

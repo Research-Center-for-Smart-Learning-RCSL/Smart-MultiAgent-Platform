@@ -35,7 +35,10 @@ from contexts.knowledge.application.ingest_ports import (
 )
 from contexts.knowledge.application.knowmap_triggers import enqueue_knowmap_build
 from contexts.knowledge.application.ports import BlobStore, Embedder
-from contexts.knowledge.application.resource_budgets import enforce_chunk_budget
+from contexts.knowledge.application.resource_budgets import (
+    MAX_DOCUMENT_CHUNKS,
+    enforce_chunk_budget,
+)
 from contexts.knowledge.domain.errors import (
     DocumentAllowlistConflict,
     DocumentTooLarge,
@@ -55,7 +58,9 @@ from shared_kernel.text_extraction.parsers import (
     ParserError,
     ResourceBudgetError,
     normalise_mime,
-    parse_path,
+)
+from shared_kernel.text_extraction.parsers import (
+    parse_path_isolated as parse_path,
 )
 
 _log = logging.getLogger(__name__)
@@ -190,7 +195,7 @@ class KnowmapIngestService:
         # list as FAILED, not silently vanish.
         await self._db.commit()
         if self._scan_required:
-            await enqueue_knowmap_scan(document_id=doc.id, ingest_attempt=claim.attempt)
+            await self._dispatch_scan(doc.id, claim)
             return doc
         await self._docs.mark_scan(
             document_id=doc.id,
@@ -210,7 +215,6 @@ class KnowmapIngestService:
             claim=claim,
         )
         await self._db.commit()
-        await enqueue_knowmap_scan(document_id=result.id, ingest_attempt=claim.attempt)
         await self._enqueue_build_if_clean(cfg, result)
         return result
 
@@ -239,11 +243,17 @@ class KnowmapIngestService:
         claim = await self._docs.claim_for_reingest(existing.id)
         await self._db.commit()
         if claim is None:
-            return await self._docs.get(existing.id) or resolved
+            current = await self._docs.get(existing.id)
+            if current is None:
+                raise KnowmapDocumentNotFound(str(existing.id))
+            return current
 
         if self._scan_required:
-            await enqueue_knowmap_scan(document_id=resolved.id, ingest_attempt=claim.attempt)
-            return resolved
+            await self._dispatch_scan(resolved.id, claim)
+            current = await self._docs.get(resolved.id)
+            if current is None:
+                raise KnowmapDocumentNotFound(str(resolved.id))
+            return current
         await self._docs.mark_scan(
             document_id=resolved.id,
             scan_status=ScanStatus.CLEAN,
@@ -251,7 +261,10 @@ class KnowmapIngestService:
         )
         await self._docs.lock_for_ingest(existing.id)
         if not await self._docs.owns_claim(existing.id, claim):
-            return await self._docs.get(existing.id) or resolved
+            current = await self._docs.get(existing.id)
+            if current is None:
+                raise KnowmapDocumentNotFound(str(existing.id))
+            return current
         reindexed = await self._index_document(
             doc=resolved,
             cfg=cfg,
@@ -262,9 +275,25 @@ class KnowmapIngestService:
             claim=claim,
         )
         await self._db.commit()
-        await enqueue_knowmap_scan(document_id=reindexed.id, ingest_attempt=claim.attempt)
         await self._enqueue_build_if_clean(cfg, reindexed)
         return reindexed
+
+    async def _dispatch_scan(self, document_id: uuid.UUID, claim: IngestClaim) -> None:
+        try:
+            await enqueue_knowmap_scan(
+                document_id=document_id,
+                ingest_attempt=claim.attempt,
+                claim_token=claim.token,
+            )
+        except Exception as exc:
+            await self._docs.finish_claim(
+                document_id=document_id,
+                claim=claim,
+                status=DocumentStatus.FAILED,
+                failure_code="ingest_failed",
+            )
+            await self._db.commit()
+            raise IngestFailed("knowledge scan dispatch failed") from exc
 
     async def _resolve_existing(
         self,
@@ -387,6 +416,7 @@ class KnowmapIngestService:
                 strategy=cfg.chunk_strategy,
                 params=cfg.chunk_params,
                 embedder=self._embedder,
+                max_chunks=MAX_DOCUMENT_CHUNKS,
             )
             enforce_chunk_budget(pieces)
             # Idempotent reprocess: clear any chunks from a prior attempt so
@@ -455,7 +485,7 @@ class KnowmapIngestService:
             # provider, store) is a server-side ingest failure → 500.
             if isinstance(exc, ParserError):
                 raise DocumentUnprocessable(str(exc)) from exc
-            raise IngestFailed(f"{type(exc).__name__}: {exc}") from exc
+            raise IngestFailed("knowledge ingestion failed") from exc
 
         refreshed = await self._docs.get(doc.id)
         assert refreshed is not None
@@ -538,25 +568,25 @@ async def emit_knowmap_reupload_agents_set_audit(
     )
 
 
-async def enqueue_knowmap_scan(*, document_id: uuid.UUID, ingest_attempt: int = 0) -> None:
+async def enqueue_knowmap_scan(
+    *,
+    document_id: uuid.UUID,
+    ingest_attempt: int,
+    claim_token: uuid.UUID,
+) -> None:
     # F-23: the job id carries the per-document ingest attempt so a genuine tus
     # retry enqueues a fresh scan instead of deduping onto a retained result.
     # Multipart callers keep the default 0 (that reupload scan-dedup is FU-2).
-    try:
-        from shared_kernel.queue import enqueue
+    from shared_kernel.queue import enqueue
 
-        await enqueue(
-            "knowmap_scan_document",
-            document_id=str(document_id),
-            _job_id=f"knowmap-scan:{document_id}:{ingest_attempt}",
-            _queue_name=KNOWLEDGE_SCAN_QUEUE,
-        )
-    except Exception:
-        _log.warning(
-            "scan enqueue failed for knowmap document %s; file will not be scanned automatically",
-            document_id,
-            exc_info=True,
-        )
+    await enqueue(
+        "knowmap_scan_document",
+        document_id=str(document_id),
+        ingest_attempt=ingest_attempt,
+        claim_token=str(claim_token),
+        _job_id=f"knowmap-scan:{document_id}:{ingest_attempt}",
+        _queue_name=KNOWLEDGE_SCAN_QUEUE,
+    )
 
 
 __all__ = [
