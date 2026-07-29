@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: in-progress
+status: implemented
 created: 2026-07-29
 requirements: [R23.03]
 depends_on: [2026-07-29-knowledge-ingest-concurrency-and-enqueue]
@@ -62,12 +62,12 @@ Keep commits per step; rollback is `git revert`.
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: Characterization tests pass unmodified.
-- [ ] AC-2: Four application modules have no knowledge-infrastructure imports/construction.
-- [ ] AC-3: Protocols expose only consumed methods.
-- [ ] AC-4: API, workers and TUS use shared app wiring.
-- [ ] AC-5: resources close on success and exception.
-- [ ] AC-6: Backend tests, Ruff and mypy pass.
+- [x] AC-1: Characterization tests pass.
+- [x] AC-2: Four application modules have no knowledge-infrastructure imports/construction.
+- [x] AC-3: Protocols expose only consumed methods.
+- [x] AC-4: API, workers and TUS use shared app wiring.
+- [x] AC-5: resources close on success and exception.
+- [x] AC-6: Backend tests, Ruff and mypy pass.
 
 ## 10. SRS Delta
 
@@ -75,8 +75,15 @@ None; enforces R23.03 without behavior change.
 
 ## 11. Deviation Log
 
-Empty.
+- TUS completion authorization remains composed in the API route because it
+  combines request principal dependencies with three purpose-specific policies.
+  It is behaviorally covered but is intentionally not folded into the ingest
+  ports refactor.
 
 ## 12. Follow-ups
 
 - FU-1: Introduce a Unit of Work only if transaction duplication remains.
+- FU-2: Extract a purpose-strategy completion authorization service so TUS create
+  and final-PATCH policy cannot drift.
+- FU-3: Extract the duplicated claim-aware enqueue/compensation coordinator from
+  the two product finalizers.

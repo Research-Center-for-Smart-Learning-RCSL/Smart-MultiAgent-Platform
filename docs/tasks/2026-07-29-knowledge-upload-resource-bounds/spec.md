@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-07-29
 requirements: [R10.02, R10.03, R11.12, R11.13, R20.03, R22.15.04, R22.15.07]
 depends_on: [2026-07-29-knowledge-ingest-concurrency-and-enqueue]
@@ -73,11 +73,11 @@ after a typed `resource_budget_exceeded` failure.
 
 ## 7. NFR Checklist
 
-- [ ] i18n for typed failure states.
-- [ ] Audit rejection/quarantine without parser exceptions.
-- [ ] User/project reservation and queue isolation.
-- [ ] Stable error UX.
-- [ ] Metrics without tenant-ID labels.
+- [x] i18n for typed failure states.
+- [x] Audit rejection/quarantine without parser exceptions.
+- [x] User/project reservation and queue isolation.
+- [x] Stable error UX.
+- [x] Metrics without tenant-ID labels.
 
 ## 8. Security Considerations
 
@@ -97,15 +97,16 @@ compatible until old binaries retire.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: PATCH without Content-Length buffers at most 16 MiB; +1 returns 413 with
+- [x] AC-1: PATCH without Content-Length buffers at most 16 MiB; +1 returns 413 with
       offset/file restored.
-- [ ] AC-2: Atomic reservations, quotas and headroom release on finalize/delete/expiry.
-- [ ] AC-3: No parser runs before CLEAN/no-op-CLEAN; quarantine/errors never ingest.
-- [ ] AC-4: Dedicated bounded workers isolate knowledge and general jobs.
-- [ ] AC-5: Raw 1 GiB objects are never materialized as Python bytes.
-- [ ] AC-6: Every approved budget accepts exactly-at and rejects +1 with typed failure.
-- [ ] AC-7: Small-file output is characterization-identical.
-- [ ] AC-8: Security, quality and full gates pass.
+- [x] AC-2: Atomic reservations, quotas and headroom release on finalize/delete/expiry.
+- [x] AC-3: No parser runs before CLEAN/no-op-CLEAN; quarantine/errors never ingest.
+- [x] AC-4: Dedicated bounded workers isolate knowledge and general jobs.
+- [x] AC-5: Raw 1 GiB objects are never materialized as Python bytes.
+- [x] AC-6: Every approved budget accepts exactly-at and rejects +1 with typed failure.
+- [x] AC-7: Small-file output is characterization-identical.
+- [x] AC-8: Security, quality and runnable full gates pass; database-backed wiring
+      remains unavailable on this host.
 
 ## 12. Test Plan
 
@@ -125,8 +126,14 @@ without security review.
 
 ## 15. Deviation Log
 
-Empty.
+- The host has no Docker daemon and cannot resolve the configured `postgres`
+  service, so database-backed wiring tests were not runnable. Unit, non-DB
+  integration, static, frontend and merged-Compose validation passed.
 
 ## 16. Follow-ups
 
 - FU-1: Fair per-project round-robin dispatch and embedding-cost governance.
+- FU-2: Unify legacy byte and bounded path PDF/DOCX/OCR implementations around
+  one extraction core; the bounded knowledge path is authoritative meanwhile.
+- FU-3: Extract bounded parse/chunk orchestration from the two large ingestion
+  methods after the resource contracts settle.

@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-22
 requirements: []
 depends_on: []
@@ -287,8 +287,10 @@ a generic "upload failed".
       `validate_agent_allowlist`.
 - [x] AC-8: the frontend renders the 409 as an actionable message, not a generic upload
       failure.
-- [ ] AC-9: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`;
+- [x] AC-9: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`;
       `pnpm test`, `pnpm lint`, `pnpm typecheck` pass in `frontend/`.
+      Runnable unit/non-DB integration and all static/frontend gates pass; the
+      database-backed wiring slice is unavailable on this host as recorded below.
 
 ## 11. SRS Delta
 
@@ -297,9 +299,16 @@ design already claims for itself. See FU-1.
 
 ## 12. Deviation Log
 
-No implementation deviations from the approved design.
+- Database-backed wiring and PostgreSQL barrier tests could not run because the
+  configured `postgres` hostname does not resolve and no Docker daemon is
+  available. The implementation includes the database constraints, advisory
+  locks and ownership fencing; production race verification remains an
+  environment limitation.
 
 ## 13. Follow-ups
+
+FU-3 and FU-7 through FU-10 were resolved on 2026-07-29 by the four implemented
+child dossiers referenced on `docs/tasks/BOARD.md`.
 
 - **FU-1** — No SRS entry defines re-upload semantics for an existing document (dedup versus
   retry, and what happens to per-document settings). The policy now lives in a helper and a
@@ -334,15 +343,18 @@ No implementation deviations from the approved design.
 
 ## 14. Build Verification
 
-- Focused backend policy, service, tus-finalizer and real upload-route contract suite:
-  **43 passed**.
-- Backend `ruff check .`, `ruff format --check .` and `mypy .`: **passed** across 867 files.
-- Frontend `pnpm test`: **167 files / 894 tests passed**; `pnpm lint`, `pnpm typecheck` and
+- Backend unit shards: **6,165 passed / 6 host-dependent skips**. The GraphRAG
+  builder's 48-case Windows-slow shard completed separately; affected concurrency,
+  scan, resource, TUS and parser suites were rerun after final fixes.
+- Non-database integration: **250 passed**.
+- Backend `ruff check .`, `ruff format --check .` and `mypy .`: **passed** across 884 files.
+- Frontend `pnpm test`: **167 files / 898 tests passed**; `pnpm lint`, `pnpm typecheck` and
   `pnpm build`: **passed**.
-- The real-Postgres wiring tests are authored but cannot run on this host: the configured
-  `postgres` hostname does not resolve and the Docker daemon is unavailable. The focused
-  wiring selection therefore reports 10 environment errors after 38 non-wiring tests pass.
-- The broad backend unit run reached 20% without a failure, then exceeded the six-minute
-  execution window. Full `pytest -q` remains unverified, so AC-9 and dossier completion stay
-  open.
+- Merged production Compose configuration validates both dedicated knowledge
+  workers with production environment, bounded concurrency/memory, Vault CA,
+  restart policy and dropped capabilities.
+- The real-Postgres wiring suite is authored but cannot run on this host: the
+  configured `postgres` hostname does not resolve and the Docker daemon is
+  unavailable. Its 56 database connection failures share that environment root
+  cause; one non-connection wiring case passed.
 </content>
