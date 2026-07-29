@@ -30,9 +30,6 @@ parallel.
   failure poisons the turn session and destroys an already-streamed reply, truncated tool-call
   JSON silently becomes empty arguments, and a failed final synthesis is persisted as the
   answer. Six sequenced commits; needs one empirical check before the design is fixed (§3 Q-2).
-- `2026-07-22-retention-sweep-fixes` (bugfix, draft) — `depends_on: []`. a2a F-17, F-42 plus
-  verification-gap V-5. **Resolves a duplicate hand-off**: two audits routed the same purge-audit
-  finding to two different slugs; this consolidates under one and records why.
 - `2026-07-22-workflow-capability-enforcement` (bugfix, draft) — `depends_on: []`. a2a F-13 plus
   config F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read
   by nothing. **Blocked on Q-8** (migration posture) — enforcing without a backfill breaks every
@@ -77,4 +74,4 @@ lists unfinished work: `2026-07-22-activity-session-authz-and-validation`,
 Also removed on 2026-07-29 after implementation: `2026-07-22-reingest-allowlist-propagation`,
 `2026-07-29-knowledge-ingest-concurrency-and-enqueue`,
 `2026-07-29-knowledge-upload-resource-bounds`, `2026-07-29-knowledge-ingest-ports`,
-and `2026-07-29-knowledge-document-ui-split`.
+`2026-07-29-knowledge-document-ui-split`, and `2026-07-22-retention-sweep-fixes`.
