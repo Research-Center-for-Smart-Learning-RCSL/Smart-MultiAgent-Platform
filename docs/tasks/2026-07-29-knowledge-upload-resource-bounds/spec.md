@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-07-29
 requirements: [R10.02, R10.03, R11.12, R11.13, R20.03, R22.15.04, R22.15.07]
 depends_on: [2026-07-29-knowledge-ingest-concurrency-and-enqueue]
@@ -130,4 +130,3 @@ Empty.
 ## 16. Follow-ups
 
 - FU-1: Fair per-project round-robin dispatch and embedding-cost governance.
-

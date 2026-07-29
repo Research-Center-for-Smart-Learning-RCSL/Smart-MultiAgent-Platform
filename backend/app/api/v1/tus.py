@@ -47,6 +47,17 @@ def _tus_base_headers() -> dict[str, str]:
     return {"Tus-Resumable": TUS_VERSION}
 
 
+async def _read_patch_chunk(request: Request) -> bytes:
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > TUS_MAX_CHUNK:
+            raise AttachmentTooLarge(
+                f"PATCH chunk exceeds 16 MB cap ({TUS_MAX_CHUNK} bytes)",
+            )
+        body.extend(chunk)
+    return bytes(body)
+
+
 async def _require_rag_owner(
     db: AsyncSession,
     *,
@@ -257,9 +268,8 @@ async def tus_patch(
             status_code=415,
             detail="Content-Type must be application/offset+octet-stream",
         )
-    # API-4: reject oversized chunks BEFORE buffering the body. request.body()
-    # pulls the entire chunk into RAM, so without the Content-Length pre-check
-    # a client could force the allocation and only then hit the length check.
+    # Reject a declared oversize before reading, then enforce the same bound
+    # incrementally for chunked transfer where Content-Length is absent.
     declared = request.headers.get("Content-Length")
     if declared is not None:
         try:
@@ -273,11 +283,7 @@ async def tus_patch(
             raise AttachmentTooLarge(
                 f"PATCH chunk Content-Length {declared_len} bytes exceeds 16 MB cap",
             )
-    body = await request.body()
-    if len(body) > TUS_MAX_CHUNK:
-        raise AttachmentTooLarge(
-            f"PATCH chunk {len(body)} bytes exceeds 16 MB cap",
-        )
+    body = await _read_patch_chunk(request)
 
     service = TusService(db)
     result = await service.patch(

@@ -25,7 +25,10 @@ import pytest
 from contexts.conversation.application import tus_service as tus_mod
 from contexts.conversation.application.tus_service import TusService
 from contexts.conversation.domain.errors import TusSizeMismatch
-from contexts.conversation.infrastructure.tus_store import TusUpload
+from contexts.conversation.infrastructure.tus_store import (
+    TusOffsetUpdateResult,
+    TusUpload,
+)
 
 
 class _FakeStore:
@@ -38,7 +41,28 @@ class _FakeStore:
     async def get(self, upload_id: uuid.UUID) -> TusUpload | None:
         return self.upload
 
-    async def update_offset(self, upload_id: uuid.UUID, expected: int, new: int) -> bool:
+    async def update_offset(
+        self,
+        upload_id: uuid.UUID,
+        expected: int,
+        new: int,
+        *,
+        quota_hour: int | None = None,
+    ) -> TusOffsetUpdateResult:
+        assert self.upload is not None
+        if self.upload.upload_offset != expected:
+            return TusOffsetUpdateResult.MISMATCH
+        self.upload = replace(self.upload, upload_offset=new)
+        return TusOffsetUpdateResult.ACCEPTED
+
+    async def rollback_offset(
+        self,
+        upload: TusUpload,
+        expected: int,
+        new: int,
+        *,
+        quota_hour: int | None = None,
+    ) -> bool:
         assert self.upload is not None
         if self.upload.upload_offset != expected:
             return False
