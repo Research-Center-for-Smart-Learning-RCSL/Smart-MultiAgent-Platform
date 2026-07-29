@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -38,6 +39,25 @@ def _metadata() -> str:
 def _service() -> TusService:
     with patch("contexts.conversation.application.tus_service.AttachmentService"):
         return TusService(db=None, store=SimpleNamespace())  # type: ignore[arg-type]
+
+
+def test_cas_script_refreshes_every_reservation_tier() -> None:
+    """The PATCH refresh loop must cover user, project AND host.
+
+    `update_offset` passes 9 keys: the upload key, two hourly-quota counters, then
+    an (expiry ZSET, byte hash) pair per tier at 4/5, 6/7, 8/9. The loop that
+    re-scores and re-TTLs those pairs stopped at 6, so the host pair was never
+    refreshed: `_CREATE_SCRIPT`'s prune then dropped the still-live upload from
+    the host ZSET and it stopped counting against TUS_HOST_MAX_ACTIVE /
+    TUS_HOST_MAX_RESERVED_BYTES. Asserted on the script text because these Lua
+    paths have no Redis in the unit tier.
+    """
+    from contexts.conversation.infrastructure.tus_store import TusUploadStore
+
+    match = re.search(r"for index = 4, (\d+), 2 do", TusUploadStore._CAS_SCRIPT)
+    assert match, "CAS refresh loop not found"
+    # Last pair starts at key 8; the loop bound is inclusive.
+    assert int(match.group(1)) == 8
 
 
 @pytest.mark.asyncio
