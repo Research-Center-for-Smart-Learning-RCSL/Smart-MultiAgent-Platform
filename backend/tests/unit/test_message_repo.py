@@ -136,3 +136,22 @@ class TestMessageSearchOrdering:
         compiled = await _compiled_search_sql()
 
         assert compiled.index("ORDER BY") < compiled.index("LIMIT")
+
+
+class TestMessageSearchSnippet:
+    """F-22: the snippet delimiters are a cross-layer contract -- the frontend
+    sanitiser allowlist and the panel CSS are both written against `<mark>`
+    (`docs/UI/07-conversation.md:751`), and nothing else pins the producer."""
+
+    async def test_snippet_uses_mark_delimiters(self) -> None:
+        compiled = await _compiled_search_sql()
+
+        assert "StartSel=<mark>" in compiled
+        assert "StopSel=</mark>" in compiled
+
+    async def test_snippet_keeps_existing_headline_options(self) -> None:
+        compiled = await _compiled_search_sql()
+
+        assert "MaxWords=35" in compiled
+        assert "MinWords=15" in compiled
+        assert "ShortWord=3" in compiled

@@ -180,3 +180,20 @@ async def test_offset_pages_do_not_overlap(
     assert len(page_two) == _PAGE
     assert set(page_one).isdisjoint(page_two)
     assert len(set(page_one) | set(page_two)) == 2 * _PAGE
+
+
+async def test_snippet_marks_the_match(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    tied_room: uuid.UUID,
+) -> None:
+    """F-22, backend end of the chain: `ts_headline` emits the `<mark>` that the
+    frontend allowlist and the panel CSS are written against, not PostgreSQL's
+    default `<b>`."""
+    async with sessionmaker() as session:
+        repo = MessageRepository(session)
+        rows = await repo.search(chatroom_id=tied_room, query="revenue", limit=1)
+
+    assert rows
+    _msg, _rank, snippet = rows[0]
+    assert "<mark>revenue</mark>" in snippet
+    assert "<b>" not in snippet
