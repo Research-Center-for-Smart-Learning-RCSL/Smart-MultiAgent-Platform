@@ -13,13 +13,16 @@ enqueued (Q-3); the build reprocesses the current ``ready`` corpus.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import logging
+import tempfile
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +35,7 @@ from contexts.knowledge.application.ingest_ports import (
 )
 from contexts.knowledge.application.knowmap_triggers import enqueue_knowmap_build
 from contexts.knowledge.application.ports import BlobStore, Embedder
+from contexts.knowledge.application.resource_budgets import enforce_chunk_budget
 from contexts.knowledge.domain.errors import (
     DocumentAllowlistConflict,
     DocumentTooLarge,
@@ -46,7 +50,13 @@ from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, ScanSt
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from shared_kernel import audit
 from shared_kernel.queue_names import KNOWLEDGE_SCAN_QUEUE
-from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, ParserError, normalise_mime
+from shared_kernel.text_extraction.parsers import (
+    MIME_TO_PARSER,
+    ParserError,
+    ResourceBudgetError,
+    normalise_mime,
+    parse_path,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -333,25 +343,28 @@ class KnowmapIngestService:
         if cfg is None:
             raise KnowmapConfigNotFound(str(doc.knowmap_config_id))
         bucket, _, key = doc.minio_path.partition("/")
-        data = await self._blob.get(bucket=bucket, key=key)
-        # process_document runs in a worker; the caller commits, then the worker
-        # enqueues the build so a committed corpus change is what the build reads.
-        return await self._index_document(
-            doc=doc,
-            cfg=cfg,
-            data=data,
-            actor_user_id=doc.uploaded_by,
-            actor_ip=actor_ip,
-            request_id=request_id,
-            claim=claim,
-        )
+        with tempfile.TemporaryDirectory(prefix="smap-knowmap-source-") as tmpdir:
+            source_path = Path(tmpdir) / "source"
+            await self._blob.download_to_path(bucket=bucket, key=key, path=source_path)
+            # process_document runs in a worker; the caller commits, then the worker
+            # enqueues the build so a committed corpus change is what the build reads.
+            return await self._index_document(
+                doc=doc,
+                cfg=cfg,
+                source_path=source_path,
+                actor_user_id=doc.uploaded_by,
+                actor_ip=actor_ip,
+                request_id=request_id,
+                claim=claim,
+            )
 
     async def _index_document(
         self,
         *,
         doc: KnowmapDocument,
         cfg: KnowmapConfig,
-        data: bytes,
+        data: bytes | None = None,
+        source_path: Path | None = None,
         actor_user_id: uuid.UUID | None,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
@@ -360,13 +373,22 @@ class KnowmapIngestService:
         """Parse → chunk → persist ``knowmap_chunks``, then flip status. No Qdrant:
         chunks are the build corpus, not directly-retrievable vectors."""
         try:
-            text = MIME_TO_PARSER[doc.mime](data)
+            if source_path is not None:
+                text = await asyncio.to_thread(parse_path, source_path, doc.mime)
+            elif data is not None:
+                with tempfile.TemporaryDirectory(prefix="smap-knowmap-source-") as tmpdir:
+                    source_path = Path(tmpdir) / "source"
+                    await asyncio.to_thread(source_path.write_bytes, data)
+                    text = await asyncio.to_thread(parse_path, source_path, doc.mime)
+            else:
+                raise ValueError("data or source_path is required")
             pieces = await self._chunker(
                 text,
                 strategy=cfg.chunk_strategy,
                 params=cfg.chunk_params,
                 embedder=self._embedder,
             )
+            enforce_chunk_budget(pieces)
             # Idempotent reprocess: clear any chunks from a prior attempt so
             # re-inserting chunk_idx 0..N never collides on uq_knowmap_chunk_doc_idx.
             await self._chunks.delete_for_document(doc.id)
@@ -399,6 +421,13 @@ class KnowmapIngestService:
                 ),
             )
         except Exception as exc:
+            failure_code = (
+                "resource_budget_exceeded"
+                if isinstance(exc, ResourceBudgetError)
+                else "document_unprocessable"
+                if isinstance(exc, ParserError)
+                else "ingest_failed"
+            )
             # Persist FAILED durably. A new upload's row is committed before indexing
             # (see ingest()), and a reindexed document is already a committed row, so
             # the rollback here discards only the partial parse/chunk writes and the
@@ -408,12 +437,17 @@ class KnowmapIngestService:
             with contextlib.suppress(Exception):
                 await self._db.rollback()
                 if claim is None:
-                    await self._docs.set_status(document_id=doc.id, status=DocumentStatus.FAILED)
+                    await self._docs.set_status(
+                        document_id=doc.id,
+                        status=DocumentStatus.FAILED,
+                        failure_code=failure_code,
+                    )
                 else:
                     await self._docs.finish_claim(
                         document_id=doc.id,
                         claim=claim,
                         status=DocumentStatus.FAILED,
+                        failure_code=failure_code,
                     )
                 await self._db.commit()
             # A parse failure is a client-fixable input problem (unparseable, no text

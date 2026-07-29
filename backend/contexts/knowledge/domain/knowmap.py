@@ -69,6 +69,7 @@ class KnowmapDocument:
     ingest_attempt: int = 0
     ingest_claim_token: uuid.UUID | None = None
     ingest_claim_until: datetime | None = None
+    failure_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

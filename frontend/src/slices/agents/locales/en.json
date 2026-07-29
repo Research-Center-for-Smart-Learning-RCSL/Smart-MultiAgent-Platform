@@ -583,6 +583,11 @@
         "failed": "Failed",
         "quarantined": "Quarantined"
       },
+      "failure": {
+        "resource_budget_exceeded": "Processing limit exceeded",
+        "document_unprocessable": "Unreadable document",
+        "ingest_failed": "Processing failed"
+      },
       "scan": {
         "pending": "Pending",
         "clean": "Clean",

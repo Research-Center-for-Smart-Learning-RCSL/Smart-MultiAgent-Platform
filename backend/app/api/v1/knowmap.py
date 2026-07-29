@@ -134,6 +134,7 @@ class KnowmapDocumentOut(BaseModel):
     sha256: str
     status: DocumentStatus
     scan_status: ScanStatus
+    failure_code: str | None
     uploaded_at: str
     agent_ids: list[uuid.UUID]
 
@@ -194,6 +195,7 @@ def _to_document_out(d: Any) -> KnowmapDocumentOut:
         sha256=d.sha256,
         status=d.status,
         scan_status=d.scan_status,
+        failure_code=getattr(d, "failure_code", None),
         uploaded_at=d.uploaded_at.isoformat(),
         agent_ids=list(d.agent_ids),
     )

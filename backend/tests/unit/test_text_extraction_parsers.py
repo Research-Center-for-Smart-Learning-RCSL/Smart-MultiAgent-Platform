@@ -5,11 +5,16 @@ so both the RAG ingest pipeline and chat attachment extraction can use it.
 
 from __future__ import annotations
 
+import pytest
+
 from shared_kernel.text_extraction.parsers import (
     MIME_TO_PARSER,
     SUPPORTED_MIMES,
+    ExtractionLimits,
+    ResourceBudgetError,
     normalise_mime,
     parse_markdown,
+    parse_path,
     parse_plaintext,
 )
 
@@ -32,6 +37,65 @@ def test_mime_to_parser_dispatch_table() -> None:
     assert MIME_TO_PARSER["text/markdown"] is parse_markdown
     assert "application/pdf" in SUPPORTED_MIMES
     assert "application/vnd.openxmlformats-officedocument.wordprocessingml.document" in SUPPORTED_MIMES
+
+
+def test_path_parser_accepts_exact_utf8_budget_and_rejects_plus_one(tmp_path) -> None:
+    source = tmp_path / "source.txt"
+    source.write_bytes("éé".encode())
+    limits = ExtractionLimits(extracted_utf8_bytes=4, estimated_tokens=10)
+    assert parse_path(source, "text/plain", limits=limits) == "éé"
+
+    source.write_bytes("ééa".encode())
+    with pytest.raises(ResourceBudgetError, match="extracted_utf8_bytes"):
+        parse_path(source, "text/plain", limits=limits)
+
+
+def test_path_parser_accepts_exact_token_estimate_and_rejects_plus_one(tmp_path) -> None:
+    source = tmp_path / "source.txt"
+    limits = ExtractionLimits(extracted_utf8_bytes=100, estimated_tokens=2)
+    source.write_text("abcdefgh", encoding="utf-8")
+    assert parse_path(source, "text/plain", limits=limits) == "abcdefgh"
+
+    source.write_text("abcdefghi", encoding="utf-8")
+    with pytest.raises(ResourceBudgetError, match="estimated_tokens"):
+        parse_path(source, "text/plain", limits=limits)
+
+
+def test_docx_preflight_rejects_entry_count(tmp_path) -> None:
+    import zipfile
+
+    source = tmp_path / "source.docx"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("one", "1")
+        archive.writestr("two", "2")
+    with pytest.raises(ResourceBudgetError, match="docx_entries"):
+        parse_path(
+            source,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            limits=ExtractionLimits(docx_entries=1),
+        )
+
+
+def test_pdf_page_budget_accepts_exact_and_rejects_plus_one(tmp_path, monkeypatch) -> None:
+    import sys
+    from types import SimpleNamespace
+
+    class _Page:
+        def extract_text(self) -> str:
+            return "text"
+
+    class _Reader:
+        def __init__(self, path) -> None:
+            self.pages = [_Page()] * int(path.read_text(encoding="ascii"))
+
+    monkeypatch.setitem(sys.modules, "pypdf", SimpleNamespace(PdfReader=_Reader))
+    source = tmp_path / "source.pdf"
+    source.write_text("1", encoding="ascii")
+    assert parse_path(source, "application/pdf", limits=ExtractionLimits(pdf_pages=1)) == "text"
+
+    source.write_text("2", encoding="ascii")
+    with pytest.raises(ResourceBudgetError, match="pdf_pages"):
+        parse_path(source, "application/pdf", limits=ExtractionLimits(pdf_pages=1))
 
 
 class TestNormaliseMime:

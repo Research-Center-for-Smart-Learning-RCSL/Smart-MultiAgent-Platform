@@ -112,6 +112,7 @@ knowmap_documents = sa.Table(
     sa.Column("ingest_attempt", sa.Integer, nullable=False, server_default=sa.text("0")),
     sa.Column("ingest_claim_token", pg.UUID(as_uuid=True), nullable=True),
     sa.Column("ingest_claim_until", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column("failure_code", sa.Text, nullable=True),
     sa.UniqueConstraint("knowmap_config_id", "sha256", name="uq_knowmap_documents_config_sha"),
 )
 

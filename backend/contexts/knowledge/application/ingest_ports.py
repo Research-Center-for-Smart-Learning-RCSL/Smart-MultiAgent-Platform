@@ -61,6 +61,7 @@ class RagDocumentIngestPort(Protocol):
         *,
         document_id: uuid.UUID,
         status: DocumentStatus,
+        failure_code: str | None = None,
     ) -> None: ...
 
     async def mark_scan(
@@ -85,6 +86,7 @@ class RagDocumentIngestPort(Protocol):
         document_id: uuid.UUID,
         claim: IngestClaim,
         status: DocumentStatus,
+        failure_code: str | None = None,
     ) -> bool: ...
 
     async def get(self, document_id: uuid.UUID) -> RagDocument | None: ...
@@ -165,6 +167,7 @@ class KnowmapDocumentIngestPort(Protocol):
         *,
         document_id: uuid.UUID,
         status: DocumentStatus,
+        failure_code: str | None = None,
     ) -> None: ...
 
     async def mark_scan(
@@ -189,6 +192,7 @@ class KnowmapDocumentIngestPort(Protocol):
         document_id: uuid.UUID,
         claim: IngestClaim,
         status: DocumentStatus,
+        failure_code: str | None = None,
     ) -> bool: ...
 
     async def get(self, document_id: uuid.UUID) -> KnowmapDocument | None: ...
