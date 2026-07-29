@@ -195,4 +195,40 @@ describe('KnowledgeMapConfigDetailView build-state visibility (F-22)', () => {
 
     expect(toast.error).toHaveBeenCalledWith('agents.knowmap.uploadAllowlistConflict')
   })
+
+  it('reconciles accepted documents and build state after a later upload fails', async () => {
+    seed({ docs: [], role: 'owner' })
+    let uploads = 0
+    let documentReads = 0
+    server.use(
+      http.get('/api/knowmap-configs/cfg_1/documents', () => {
+        documentReads += 1
+        return HttpResponse.json([])
+      }),
+      http.post('/api/knowmap-configs/cfg_1/documents', () => {
+        uploads += 1
+        if (uploads === 1) return HttpResponse.json(doc({ id: 'accepted' }))
+        return HttpResponse.error()
+      }),
+    )
+    const wrapper = await renderView(KnowledgeMapConfigDetailView, {
+      routes,
+      initialRoute: '/projects/proj_1/knowmap-configs/cfg_1?tab=documents',
+    })
+    signInOwner()
+    await settle(wrapper)
+    const watchCallsBeforeUpload = socket.watch.mock.calls.length
+
+    wrapper.findComponent(SFileUpload).vm.$emit('files', [
+      new File(['first'], 'first.txt', { type: 'text/plain' }),
+      new File(['second'], 'second.txt', { type: 'text/plain' }),
+    ])
+    await settle(wrapper)
+
+    expect(uploads).toBe(2)
+    expect(documentReads).toBeGreaterThan(1)
+    expect(socket.watch.mock.calls.length).toBeGreaterThan(watchCallsBeforeUpload)
+    expect(toast.error).toHaveBeenCalledWith('agents.knowmap.uploadFailed')
+    expect(toast.success).not.toHaveBeenCalledWith('agents.knowmap.uploadStarted')
+  })
 })
