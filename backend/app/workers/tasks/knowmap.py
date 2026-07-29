@@ -49,6 +49,7 @@ from contexts.knowledge.infrastructure.knowmap_triple_extractor import DocTriple
 from shared_kernel.auth.clients import now
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.queue import enqueue
+from shared_kernel.queue_names import KNOWLEDGE_INGEST_QUEUE
 
 _log = logging.getLogger(__name__)
 
@@ -572,6 +573,7 @@ async def _enqueue_knowmap_ingest_after_clean(document_id: uuid.UUID) -> None:
         ingest_attempt=doc.ingest_attempt,
         claim_token=str(doc.ingest_claim_token),
         _job_id=f"knowmap-ingest:{document_id}:{doc.ingest_attempt}",
+        _queue_name=KNOWLEDGE_INGEST_QUEUE,
     )
 
 

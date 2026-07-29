@@ -10,6 +10,7 @@ from contexts.knowledge.infrastructure.knowmap_repositories import KnowmapDocume
 from contexts.knowledge.infrastructure.repositories import RagDocumentRepository
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.queue import enqueue
+from shared_kernel.queue_names import KNOWLEDGE_INGEST_QUEUE, KNOWLEDGE_SCAN_QUEUE
 
 _log = logging.getLogger(__name__)
 _SWEEP_LIMIT = 100
@@ -28,6 +29,7 @@ async def _enqueue_owned(
             name,
             document_id=document_id,
             _job_id=f"{prefix}:{document_id}:{claim.attempt}",
+            _queue_name=KNOWLEDGE_SCAN_QUEUE,
         )
         return
     await enqueue(
@@ -36,6 +38,7 @@ async def _enqueue_owned(
         ingest_attempt=claim.attempt,
         claim_token=str(claim.token),
         _job_id=f"{prefix}:{document_id}:{claim.attempt}",
+        _queue_name=KNOWLEDGE_INGEST_QUEUE,
     )
 
 

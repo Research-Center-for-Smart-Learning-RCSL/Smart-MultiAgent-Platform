@@ -71,6 +71,7 @@ from contexts.knowledge.domain.models import (
 )
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from shared_kernel import audit
+from shared_kernel.queue_names import KNOWLEDGE_SCAN_QUEUE
 from shared_kernel.realtime.pubsub import Publisher
 from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, ParserError, normalise_mime
 
@@ -679,6 +680,7 @@ async def enqueue_rag_scan(*, document_id: uuid.UUID, ingest_attempt: int = 0) -
             "rag_scan_document",
             document_id=str(document_id),
             _job_id=f"rag-scan:{document_id}:{ingest_attempt}",
+            _queue_name=KNOWLEDGE_SCAN_QUEUE,
         )
     except Exception:
         _log.warning(
