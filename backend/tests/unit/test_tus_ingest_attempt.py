@@ -172,6 +172,27 @@ async def test_rag_first_upload_uses_attempt_zero() -> None:
 
 
 @pytest.mark.asyncio
+async def test_rag_started_publish_failure_does_not_prevent_enqueue() -> None:
+    fin = _make_rag_finalizer(None, claim_returns=[])
+    doc_id = uuid.uuid4()
+    publish = AsyncMock(side_effect=ConnectionError("redis pubsub unavailable"))
+    queued = AsyncMock(return_value=object())
+
+    with (
+        patch(
+            "contexts.knowledge.application.ingest_service.Publisher",
+            new=MagicMock(return_value=MagicMock(emit=publish)),
+        ),
+        patch(f"{_RAG_MOD}.enqueue", new=queued),
+    ):
+        await fin._enqueue_index(doc_id, config_id=uuid.uuid4(), ingest_attempt=0)
+
+    publish.assert_awaited_once()
+    queued.assert_awaited_once()
+    fin._docs.set_status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_rag_tus_reupload_applies_submitted_allowlist_when_unclaimed() -> None:
     agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
     existing = SimpleNamespace(

@@ -23,6 +23,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.application.ingest_service import (
+    _publish_ingestion_started,
     emit_reupload_agents_set_audit,
     emit_reupload_audit,
     rag_source_object_key,
@@ -30,6 +31,7 @@ from contexts.knowledge.application.ingest_service import (
 from contexts.knowledge.domain.errors import (
     DocumentAllowlistConflict,
     RagConfigNotFound,
+    RagDocumentNotFound,
     UnsupportedMime,
 )
 from contexts.knowledge.domain.models import DocumentStatus, RagDocument
@@ -118,7 +120,8 @@ class RagTusFinalizer:
                 document_id=existing.id,
                 agent_ids=submitted_agent_ids,
             )
-            assert updated is not None
+            if updated is None:
+                raise RagDocumentNotFound(str(existing.id))
             await emit_reupload_agents_set_audit(
                 self._db,
                 doc=updated,
@@ -200,9 +203,7 @@ class RagTusFinalizer:
         await self._db.commit()
         # ws:rag:{config_id} — register-phase event; the worker emits the terminal
         # ingestion.completed/.failed once indexing runs.
-        await Publisher(rag_channel(config_id)).emit(
-            "ingestion.started", {"document_id": str(document_id), "total": 1}
-        )
+        await _publish_ingestion_started(config_id=config_id, document_id=document_id)
         # Per-attempt job id (F-23): the ingest_attempt suffix makes a genuine
         # retry (bumped attempt) a distinct id that always enqueues, while a truly
         # concurrent duplicate finalize of the *same* attempt still collapses to
