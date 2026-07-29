@@ -323,20 +323,6 @@ class WorkerSettings:
         graphrag_silence_sweep,
         knowmap_revision_sweep,
         knowledge_ingest_reconcile,
-        # Legacy drain, one release only. These four now run on the dedicated
-        # knowledge queues below, but jobs enqueued by the previous release are
-        # already sitting on the default queue at deploy time. Without a handler
-        # here the default worker dequeues them, fails them as an unknown
-        # function, and their documents stay `ingesting` forever:
-        # `list_expired_claim_ids` only reclaims rows with a non-NULL
-        # `ingest_claim_until`, and pre-0069 rows have NULL. `ingest_attempt` and
-        # `claim_token` are optional on all four precisely so a legacy payload
-        # still binds. Migration 0069's docstring promises this path. Remove once
-        # the default queue has drained.
-        rag_scan_document,
-        rag_ingest_document,
-        knowmap_scan_document,
-        knowmap_ingest_document,
         skill_scan_file,
         skill_import_bundle,
         skill_export_bundle,
