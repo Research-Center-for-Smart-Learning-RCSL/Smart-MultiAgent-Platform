@@ -118,6 +118,7 @@ def _make_service(
         documents=doc_repo,
         chunks=chunk_repo,
         chunker=AsyncMock(return_value=["chunk"]),
+        scan_required=False,
     )
 
 
@@ -511,6 +512,37 @@ class TestIngest:
             status=DocumentStatus.FAILED,
         )
         svc._db.commit.assert_awaited()
+
+
+    @pytest.mark.asyncio
+    async def test_scan_required_defers_knowmap_parser_and_indexing_until_clean(self) -> None:
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        doc = _make_document(status=DocumentStatus.INGESTING)
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = None
+        doc_repo.create.return_value = doc
+        chunk_repo = AsyncMock()
+        blob = AsyncMock()
+        blob.put.return_value = doc.minio_path
+        svc = _make_service(
+            config_repo=cfg_repo,
+            doc_repo=doc_repo,
+            chunk_repo=chunk_repo,
+            blob=blob,
+        )
+        svc._scan_required = True
+        svc._index_document = AsyncMock()
+
+        with (
+            patch(f"{_MOD}.audit.emit", AsyncMock()),
+            patch(f"{_MOD}.enqueue_knowmap_scan", AsyncMock()) as scan,
+        ):
+            returned = await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
+
+        assert returned is doc
+        svc._index_document.assert_not_awaited()
+        scan.assert_awaited_once_with(document_id=doc.id, ingest_attempt=0)
 
     async def test_parse_failure_raises_document_unprocessable_not_ingest_failed(self) -> None:
         # A ParserError (unparseable / no text layer / unsupported content) is a

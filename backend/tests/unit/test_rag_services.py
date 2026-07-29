@@ -104,6 +104,7 @@ def _make_ingest_service(
         documents=doc_repo or AsyncMock(),
         chunks=chunk_repo or AsyncMock(),
         chunker=AsyncMock(return_value=["chunk"]),
+        scan_required=False,
     )
 
 

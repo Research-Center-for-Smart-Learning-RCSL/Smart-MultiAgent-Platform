@@ -36,7 +36,7 @@ from contexts.knowledge.domain.errors import (
     UnsupportedMime,
 )
 from contexts.knowledge.domain.knowmap import KnowmapDocument
-from contexts.knowledge.domain.models import DocumentStatus, IngestClaim
+from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, ScanStatus
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from shared_kernel import audit
 from shared_kernel.queue import enqueue
@@ -61,11 +61,13 @@ class KnowmapTusFinalizer:
         configs: KnowmapConfigIngestPort,
         documents: KnowmapDocumentIngestPort,
         staged_source: StagedSourcePort,
+        scan_required: bool,
     ) -> None:
         self._db = db
         self._configs = configs
         self._docs = documents
         self._minio = staged_source
+        self._scan_required = scan_required
 
     async def finalize(
         self,
@@ -140,12 +142,16 @@ class KnowmapTusFinalizer:
             # index the same doc and collide on uq_knowmap_chunk_doc_idx.
             claim = await self._docs.claim_for_reingest(existing.id)
             if claim is not None:
-                await self._enqueue_index(
+                await self._enqueue_scan_gate(
                     existing.id,
                     ingest_attempt=claim.attempt,
                     claim_token=claim.token,
                 )
-                await enqueue_knowmap_scan(document_id=existing.id, ingest_attempt=claim.attempt)
+                if not getattr(self, "_scan_required", False):
+                    await enqueue_knowmap_scan(
+                        document_id=existing.id,
+                        ingest_attempt=claim.attempt,
+                    )
             await self._db.commit()
             return updated
 
@@ -203,15 +209,16 @@ class KnowmapTusFinalizer:
         claim = await self._docs.claim_initial(doc.id)
         if claim is None:
             raise KnowmapDocumentNotFound(str(doc.id))
-        await self._enqueue_index(
+        await self._enqueue_scan_gate(
             doc.id,
             ingest_attempt=claim.attempt,
             claim_token=claim.token,
         )
-        await enqueue_knowmap_scan(document_id=doc.id, ingest_attempt=0)
+        if not getattr(self, "_scan_required", False):
+            await enqueue_knowmap_scan(document_id=doc.id, ingest_attempt=claim.attempt)
         return doc
 
-    async def _enqueue_index(
+    async def _enqueue_scan_gate(
         self,
         document_id: uuid.UUID,
         *,
@@ -222,15 +229,26 @@ class KnowmapTusFinalizer:
         # separate connection and must see a committed row.
         await self._db.commit()
         try:
-            await enqueue(
-                "knowmap_ingest_document",
-                document_id=str(document_id),
-                ingest_attempt=ingest_attempt,
-                claim_token=str(claim_token),
-                # Per-attempt job id (F-23): a bumped attempt is a distinct id that
-                # always enqueues; a concurrent duplicate of the same attempt dedups.
-                _job_id=f"knowmap-ingest:{document_id}:{ingest_attempt}",
-            )
+            if getattr(self, "_scan_required", False):
+                await enqueue(
+                    "knowmap_scan_document",
+                    document_id=str(document_id),
+                    _job_id=f"knowmap-scan:{document_id}:{ingest_attempt}",
+                )
+            else:
+                await self._docs.mark_scan(
+                    document_id=document_id,
+                    scan_status=ScanStatus.CLEAN,
+                    scan_at=datetime.now(UTC),
+                )
+                await self._db.commit()
+                await enqueue(
+                    "knowmap_ingest_document",
+                    document_id=str(document_id),
+                    ingest_attempt=ingest_attempt,
+                    claim_token=str(claim_token),
+                    _job_id=f"knowmap-ingest:{document_id}:{ingest_attempt}",
+                )
         except Exception:
             # Arq/Redis unavailable: don't leave the committed row stuck
             # 'ingesting' with no worker. Mark it FAILED so a re-upload can retry.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config.settings import get_settings
 from contexts.knowledge.application.ingest_ports import RagVectorIngestPort
 from contexts.knowledge.application.ingest_service import IngestService
 from contexts.knowledge.application.knowmap_ingest_service import KnowmapIngestService
@@ -25,8 +26,11 @@ from shared_kernel.storage import get_minio_client
 
 
 class KnowledgeIngestWiring:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, *, scan_required: bool | None = None) -> None:
         self._db = db
+        self._scan_required = (
+            get_settings().security.file_scan_enabled if scan_required is None else scan_required
+        )
 
     def rag_service(
         self,
@@ -45,6 +49,7 @@ class KnowledgeIngestWiring:
             documents=RagDocumentRepository(self._db),
             chunks=RagChunkRepository(self._db),
             chunker=chunk_document,
+            scan_required=self._scan_required,
             bucket=bucket,
         )
 
@@ -63,6 +68,7 @@ class KnowledgeIngestWiring:
             documents=KnowmapDocumentRepository(self._db),
             chunks=KnowmapChunkRepository(self._db),
             chunker=chunk_document,
+            scan_required=self._scan_required,
             bucket=bucket,
         )
 
@@ -72,6 +78,7 @@ class KnowledgeIngestWiring:
             configs=RagConfigRepository(self._db),
             documents=RagDocumentRepository(self._db),
             staged_source=get_minio_client(),
+            scan_required=self._scan_required,
         )
 
     def knowmap_finalizer(self) -> KnowmapTusFinalizer:
@@ -80,6 +87,7 @@ class KnowledgeIngestWiring:
             configs=KnowmapConfigRepository(self._db),
             documents=KnowmapDocumentRepository(self._db),
             staged_source=get_minio_client(),
+            scan_required=self._scan_required,
         )
 
 

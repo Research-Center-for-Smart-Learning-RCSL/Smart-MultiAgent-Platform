@@ -31,6 +31,7 @@ from contexts.knowledge.infrastructure.repositories import (
     RagDocumentRepository,
 )
 from shared_kernel.db.session import get_sessionmaker
+from shared_kernel.queue import enqueue
 from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)
@@ -67,6 +68,8 @@ async def rag_ingest_document(
         if (ingest_attempt is None) is not (claim_token is None):
             _log.warning("rag_ingest_document: incomplete claim for %s", document_id)
             return "invalid ingest claim"
+        if doc.scan_status is not ScanStatus.CLEAN:
+            return f"scan_{doc.scan_status.value}"
         cfg = await RagConfigRepository(db).get(doc.rag_config_id)
         if cfg is None or cfg.embed_key_id is None:
             if claim is None:
@@ -159,6 +162,26 @@ async def rag_ingest_document(
 rag_ingest_document.max_tries = 3  # type: ignore[attr-defined]
 
 
+async def _enqueue_rag_ingest_after_clean(document_id: uuid.UUID) -> None:
+    sm = get_sessionmaker()
+    async with sm() as db:
+        doc = await RagDocumentRepository(db).get(document_id)
+    if (
+        doc is None
+        or doc.status is not DocumentStatus.INGESTING
+        or doc.scan_status is not ScanStatus.CLEAN
+        or doc.ingest_claim_token is None
+    ):
+        return
+    await enqueue(
+        "rag_ingest_document",
+        document_id=str(document_id),
+        ingest_attempt=doc.ingest_attempt,
+        claim_token=str(doc.ingest_claim_token),
+        _job_id=f"rag-ingest:{document_id}:{doc.ingest_attempt}",
+    )
+
+
 async def rag_scan_document(ctx: dict[str, Any], *, document_id: str) -> str:
     """AV scan for a RAG document (R22.15.07). Mirrors file_scan_requested."""
     _ = ctx
@@ -174,6 +197,7 @@ async def rag_scan_document(ctx: dict[str, Any], *, document_id: str) -> str:
                 scan_status=ScanStatus.CLEAN,
                 scan_at=now(),
             )
+        await _enqueue_rag_ingest_after_clean(doc_id)
         return "clean"
 
     from shared_kernel.scanning import ScanError, get_scanner
@@ -257,6 +281,8 @@ async def rag_scan_document(ctx: dict[str, Any], *, document_id: str) -> str:
                     },
                 ),
             )
+    if scan_status is ScanStatus.CLEAN:
+        await _enqueue_rag_ingest_after_clean(doc_id)
     return scan_status.value
 
 

@@ -48,6 +48,7 @@ from contexts.knowledge.infrastructure.knowmap_repositories import (
 from contexts.knowledge.infrastructure.knowmap_triple_extractor import DocTripleExtractor
 from shared_kernel.auth.clients import now
 from shared_kernel.db.session import get_sessionmaker
+from shared_kernel.queue import enqueue
 
 _log = logging.getLogger(__name__)
 
@@ -483,6 +484,8 @@ async def knowmap_ingest_document(
         if (ingest_attempt is None) is not (claim_token is None):
             _log.warning("knowmap_ingest_document: incomplete claim for %s", document_id)
             return "invalid ingest claim"
+        if doc.scan_status is not ScanStatus.CLEAN:
+            return f"scan_{doc.scan_status.value}"
         cfg = await KnowmapConfigRepository(db).get(doc.knowmap_config_id)
         if cfg is None:
             if claim is None:
@@ -552,6 +555,26 @@ async def knowmap_ingest_document(
 knowmap_ingest_document.max_tries = 3  # type: ignore[attr-defined]
 
 
+async def _enqueue_knowmap_ingest_after_clean(document_id: uuid.UUID) -> None:
+    sm = get_sessionmaker()
+    async with sm() as db:
+        doc = await KnowmapDocumentRepository(db).get(document_id)
+    if (
+        doc is None
+        or doc.status is not DocumentStatus.INGESTING
+        or doc.scan_status is not ScanStatus.CLEAN
+        or doc.ingest_claim_token is None
+    ):
+        return
+    await enqueue(
+        "knowmap_ingest_document",
+        document_id=str(document_id),
+        ingest_attempt=doc.ingest_attempt,
+        claim_token=str(doc.ingest_claim_token),
+        _job_id=f"knowmap-ingest:{document_id}:{doc.ingest_attempt}",
+    )
+
+
 async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str:
     """AV scan for a Knowledge Map document. Mirrors ``rag_scan_document``; a
     quarantine OR skipped verdict enqueues a rebuild so the un-scannable document
@@ -583,6 +606,7 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
         # F-5: scan disabled == an immediate clean verdict; route through the shared
         # clean-verdict enqueue so the deferred build still fires once READY.
         await _enqueue_build_on_clean(sm, doc_id, entered=not prior_clean)
+        await _enqueue_knowmap_ingest_after_clean(doc_id)
         return "clean"
 
     from shared_kernel.scanning import ScanError, get_scanner
@@ -682,6 +706,7 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
         # Advance the revision only when the document is newly *entering* the
         # ready∧clean set; a CLEAN->CLEAN reconfirm is handled by the ingest side.
         await _enqueue_build_on_clean(sm, doc_id, entered=not prior_clean)
+        await _enqueue_knowmap_ingest_after_clean(doc_id)
     return scan_status.value
 
 

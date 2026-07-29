@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable, Sequence
+from datetime import datetime
 from typing import Any, Protocol
 
 from contexts.knowledge.application.ports import Embedder
@@ -14,6 +15,7 @@ from contexts.knowledge.domain.models import (
     IngestClaim,
     RagConfig,
     RagDocument,
+    ScanStatus,
 )
 
 
@@ -59,6 +61,14 @@ class RagDocumentIngestPort(Protocol):
         *,
         document_id: uuid.UUID,
         status: DocumentStatus,
+    ) -> None: ...
+
+    async def mark_scan(
+        self,
+        *,
+        document_id: uuid.UUID,
+        scan_status: ScanStatus,
+        scan_at: datetime,
     ) -> None: ...
 
     async def claim_for_reingest(self, document_id: uuid.UUID) -> IngestClaim | None: ...
@@ -155,6 +165,14 @@ class KnowmapDocumentIngestPort(Protocol):
         *,
         document_id: uuid.UUID,
         status: DocumentStatus,
+    ) -> None: ...
+
+    async def mark_scan(
+        self,
+        *,
+        document_id: uuid.UUID,
+        scan_status: ScanStatus,
+        scan_at: datetime,
     ) -> None: ...
 
     async def claim_for_reingest(self, document_id: uuid.UUID) -> IngestClaim | None: ...

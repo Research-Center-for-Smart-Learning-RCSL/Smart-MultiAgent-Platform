@@ -283,6 +283,7 @@ async def test_index_document_bumps_corpus_revision_once() -> None:
         documents=documents,
         chunks=chunks,
         chunker=AsyncMock(),
+        scan_required=False,
     )
     config_id = uuid.uuid4()
     doc = SimpleNamespace(id=uuid.uuid4(), mime="text/plain", knowmap_config_id=config_id)

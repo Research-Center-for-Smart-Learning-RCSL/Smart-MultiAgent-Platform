@@ -147,6 +147,7 @@ async def test_failed_reupload_applies_submitted_allowlist() -> None:
             documents=KnowmapDocumentRepository(db),
             chunks=KnowmapChunkRepository(db),
             chunker=chunk_document,
+            scan_required=False,
         )
         with patch(
             "contexts.knowledge.application.knowmap_ingest_service.enqueue_knowmap_scan",
