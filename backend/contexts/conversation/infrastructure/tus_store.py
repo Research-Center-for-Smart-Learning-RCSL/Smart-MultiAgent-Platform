@@ -193,7 +193,10 @@ redis.call('INCRBY', KEYS[3], chunk_bytes)
 redis.call('EXPIRE', KEYS[3], tonumber(ARGV[6]))
 data['upload_offset'] = tonumber(ARGV[2])
 redis.call('SET', KEYS[1], cjson.encode(data), 'EX', tonumber(ARGV[3]))
-for index = 4, 6, 2 do
+-- 4/5 user, 6/7 project, 8/9 host: every tier's expiry ZSET and byte hash must be
+-- refreshed, or the omitted tier's member is pruned by _CREATE_SCRIPT while the
+-- upload is still live and stops counting against its cap.
+for index = 4, 8, 2 do
     redis.call('ZADD', KEYS[index], tonumber(ARGV[7]) + tonumber(ARGV[3]), ARGV[8])
     redis.call('EXPIRE', KEYS[index], tonumber(ARGV[9]))
     redis.call('EXPIRE', KEYS[index + 1], tonumber(ARGV[9]))
