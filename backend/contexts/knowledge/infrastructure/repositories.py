@@ -536,7 +536,10 @@ class RagDocumentRepository:
             await self._db.execute(
                 t.rag_documents.select()
                 .where(t.rag_documents.c.rag_config_id == rag_config_id)
-                .order_by(t.rag_documents.c.uploaded_at.desc())
+                # Trailing id keeps the order total under LIMIT/OFFSET (V-6). This
+                # is the site FU-5 could not clear by inspection: a batch upload
+                # inside one transaction gives every row the same uploaded_at.
+                .order_by(t.rag_documents.c.uploaded_at.desc(), t.rag_documents.c.id.desc())
                 .limit(limit)
                 .offset(offset)
             )
