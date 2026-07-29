@@ -101,11 +101,13 @@ async def _search_ids(
     offset: int = 0,
     seq_scan: bool = True,
 ) -> list[uuid.UUID]:
-    """Run `search` and return the ids, optionally forcing a sequential scan.
+    """Run `search` and return the ids, forcing one plan or the other.
 
-    Disabling the bitmap scan is what forces the alternative plan: the GIN index
-    on `content_tsv` is only reachable through one, so turning it off drops the
-    query to a heap scan and changes the order rows arrive in.
+    The two plans differ in how rows reach the sort: a sequential scan, or a
+    bitmap heap scan driven by `ix_messages_chatroom_cr` on `chatroom_id` (the
+    `content_tsv @@` predicate stays a filter in both -- the GIN index does not
+    win on a set this size). Neither GUC is set LOCAL, which is safe here only
+    because the pool resets connection state between checkouts.
     """
     async with sessionmaker() as session:
         if not seq_scan:
