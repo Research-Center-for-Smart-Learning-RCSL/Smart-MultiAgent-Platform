@@ -443,12 +443,20 @@ async def _enqueue_build_on_clean(sm: Any, doc_id: uuid.UUID, *, entered: bool) 
     await _bump_and_enqueue_build(sm, cfg_id)
 
 
-async def knowmap_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
+async def knowmap_ingest_document(
+    ctx: dict[str, Any],
+    *,
+    document_id: str,
+    ingest_attempt: int | None = None,
+    claim_token: str | None = None,
+) -> str:
     """Index one registered Knowledge Map document, then enqueue the build.
 
     Idempotent: re-runs on a document no longer in ``ingesting`` state are a no-op
     (``process_document`` guards)."""
     _ = ctx
+    from datetime import UTC, datetime
+
     from minio import Minio
 
     from app.config.settings import get_settings
@@ -462,9 +470,33 @@ async def knowmap_ingest_document(ctx: dict[str, Any], *, document_id: str) -> s
         if doc is None:
             _log.warning("knowmap_ingest_document: document %s not found", document_id)
             return f"document {document_id} not found"
+        from contexts.knowledge.domain.models import IngestClaim
+
+        claim = (
+            IngestClaim(
+                attempt=ingest_attempt,
+                token=uuid.UUID(claim_token),
+                until=doc.ingest_claim_until or datetime.max.replace(tzinfo=UTC),
+            )
+            if ingest_attempt is not None and claim_token is not None
+            else None
+        )
+        if (ingest_attempt is None) is not (claim_token is None):
+            _log.warning("knowmap_ingest_document: incomplete claim for %s", document_id)
+            return "invalid ingest claim"
         cfg = await KnowmapConfigRepository(db).get(doc.knowmap_config_id)
         if cfg is None:
-            await KnowmapDocumentRepository(db).set_status(document_id=doc_id, status=DocumentStatus.FAILED)
+            if claim is None:
+                await KnowmapDocumentRepository(db).set_status(
+                    document_id=doc_id,
+                    status=DocumentStatus.FAILED,
+                )
+            else:
+                await KnowmapDocumentRepository(db).finish_claim(
+                    document_id=doc_id,
+                    claim=claim,
+                    status=DocumentStatus.FAILED,
+                )
             await db.commit()
             _log.warning("knowmap_ingest_document: config missing for %s", document_id)
             return "config missing"
@@ -484,16 +516,24 @@ async def knowmap_ingest_document(ctx: dict[str, Any], *, document_id: str) -> s
             bucket=settings.minio.bucket_knowmap_sources,
         )
         try:
-            result = await ingest.process_document(document_id=doc_id)
+            result = await ingest.process_document(document_id=doc_id, claim=claim)
             await db.commit()
         except Exception:
             await db.rollback()
             async with sm() as db2:
                 current = await KnowmapDocumentRepository(db2).get(doc_id)
                 if current is not None and current.status is not DocumentStatus.READY:
-                    await KnowmapDocumentRepository(db2).set_status(
-                        document_id=doc_id, status=DocumentStatus.FAILED
-                    )
+                    if claim is None:
+                        await KnowmapDocumentRepository(db2).set_status(
+                            document_id=doc_id,
+                            status=DocumentStatus.FAILED,
+                        )
+                    else:
+                        await KnowmapDocumentRepository(db2).finish_claim(
+                            document_id=doc_id,
+                            claim=claim,
+                            status=DocumentStatus.FAILED,
+                        )
                     await db2.commit()
             _log.exception("knowmap_ingest_document failed for %s", document_id)
             raise

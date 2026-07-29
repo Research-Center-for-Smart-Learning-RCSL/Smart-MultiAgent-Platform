@@ -26,14 +26,16 @@ from __future__ import annotations
 
 import uuid
 from contextlib import ExitStack
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from contexts.knowledge.domain.errors import DocumentAllowlistConflict
-from contexts.knowledge.domain.models import DocumentStatus
+from contexts.knowledge.domain.models import DocumentStatus, IngestClaim
 from contexts.knowledge.domain.reupload import ReuploadAction
 
 _RAG_MOD = "contexts.knowledge.application.rag_tus_finalizer"
@@ -80,7 +82,12 @@ def _make_rag_finalizer(existing: Any, *, claim_returns: list[int | None]):
     fin._configs.get.return_value = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     fin._docs = AsyncMock()
     fin._docs.find_by_sha.return_value = existing
-    fin._docs.claim_for_reingest = AsyncMock(side_effect=claim_returns)
+    until = datetime(2026, 7, 29, 12, 30, tzinfo=UTC)
+    claims = [
+        None if attempt is None else IngestClaim(attempt=attempt, token=uuid.uuid4(), until=until)
+        for attempt in claim_returns
+    ]
+    fin._docs.claim_for_reingest = AsyncMock(side_effect=claims)
     if existing is not None:
         fin._docs.set_agents.side_effect = lambda *, document_id, agent_ids: SimpleNamespace(
             id=document_id,
@@ -88,6 +95,11 @@ def _make_rag_finalizer(existing: Any, *, claim_returns: list[int | None]):
             agent_ids=tuple(agent_ids),
         )
     fin._docs.create.return_value = SimpleNamespace(id=uuid.uuid4())
+    fin._docs.claim_initial.return_value = IngestClaim(
+        attempt=0,
+        token=uuid.uuid4(),
+        until=until,
+    )
     fin._minio = MagicMock(rag_sources_bucket="rag-sources", put_file=AsyncMock())
     return fin
 
@@ -172,6 +184,25 @@ async def test_rag_first_upload_uses_attempt_zero() -> None:
 
 
 @pytest.mark.asyncio
+async def test_rag_first_upload_race_resolves_to_live_winner() -> None:
+    winner = SimpleNamespace(id=uuid.uuid4(), status=DocumentStatus.INGESTING, agent_ids=())
+    fin = _make_rag_finalizer(None, claim_returns=[])
+    fin._docs.find_by_sha.side_effect = [None, winner]
+    fin._docs.create.side_effect = IntegrityError("insert", {}, Exception("duplicate"))
+    fin._docs.set_agents.return_value = winner
+    fin._docs.claim_for_reingest.side_effect = None
+    fin._docs.claim_for_reingest.return_value = None
+    cap = _Captured()
+
+    returned = await _run_rag(fin, cap)
+
+    assert returned is winner
+    fin._db.rollback.assert_awaited_once()
+    assert cap.ingest == []
+    assert cap.scan == []
+
+
+@pytest.mark.asyncio
 async def test_rag_started_publish_failure_does_not_prevent_enqueue() -> None:
     fin = _make_rag_finalizer(None, claim_returns=[])
     doc_id = uuid.uuid4()
@@ -185,7 +216,12 @@ async def test_rag_started_publish_failure_does_not_prevent_enqueue() -> None:
         ),
         patch(f"{_RAG_MOD}.enqueue", new=queued),
     ):
-        await fin._enqueue_index(doc_id, config_id=uuid.uuid4(), ingest_attempt=0)
+        await fin._enqueue_index(
+            doc_id,
+            config_id=uuid.uuid4(),
+            ingest_attempt=0,
+            claim_token=uuid.uuid4(),
+        )
 
     publish.assert_awaited_once()
     queued.assert_awaited_once()
@@ -292,7 +328,12 @@ def _make_km_finalizer(existing: Any, *, claim_returns: list[int | None]):
     fin._configs.get.return_value = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     fin._docs = AsyncMock()
     fin._docs.find_by_sha.return_value = existing
-    fin._docs.claim_for_reingest = AsyncMock(side_effect=claim_returns)
+    until = datetime(2026, 7, 29, 12, 30, tzinfo=UTC)
+    claims = [
+        None if attempt is None else IngestClaim(attempt=attempt, token=uuid.uuid4(), until=until)
+        for attempt in claim_returns
+    ]
+    fin._docs.claim_for_reingest = AsyncMock(side_effect=claims)
     if existing is not None:
         fin._docs.set_agents.side_effect = lambda *, document_id, agent_ids: SimpleNamespace(
             id=document_id,
@@ -300,6 +341,11 @@ def _make_km_finalizer(existing: Any, *, claim_returns: list[int | None]):
             agent_ids=tuple(agent_ids),
         )
     fin._docs.create.return_value = SimpleNamespace(id=uuid.uuid4())
+    fin._docs.claim_initial.return_value = IngestClaim(
+        attempt=0,
+        token=uuid.uuid4(),
+        until=until,
+    )
     fin._minio = MagicMock(knowmap_sources_bucket="knowmap-sources", put_file=AsyncMock())
     return fin
 
@@ -371,6 +417,25 @@ async def test_knowmap_first_upload_uses_attempt_zero() -> None:
     assert cap.ingest == [f"knowmap-ingest:{new_id}:0"]
     assert cap.scan == [f"knowmap-scan:{new_id}:0"]
     fin._docs.claim_for_reingest.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_knowmap_first_upload_race_resolves_to_live_winner() -> None:
+    winner = SimpleNamespace(id=uuid.uuid4(), status=DocumentStatus.INGESTING, agent_ids=())
+    fin = _make_km_finalizer(None, claim_returns=[])
+    fin._docs.find_by_sha.side_effect = [None, winner]
+    fin._docs.create.side_effect = IntegrityError("insert", {}, Exception("duplicate"))
+    fin._docs.set_agents.return_value = winner
+    fin._docs.claim_for_reingest.side_effect = None
+    fin._docs.claim_for_reingest.return_value = None
+    cap = _Captured()
+
+    returned = await _run_km(fin, cap)
+
+    assert returned is winner
+    fin._db.rollback.assert_awaited_once()
+    assert cap.ingest == []
+    assert cap.scan == []
 
 
 @pytest.mark.asyncio
@@ -466,6 +531,8 @@ async def test_knowmap_tus_ready_duplicate_with_identical_allowlist_is_noop() ->
 
 class _ClaimRow:
     ingest_attempt = 3
+    ingest_claim_token = uuid.UUID("00000000-0000-0000-0000-000000000123")
+    ingest_claim_until = datetime(2026, 7, 29, 12, 30, tzinfo=UTC)
 
 
 class _ClaimResult:
@@ -494,9 +561,11 @@ async def test_rag_claim_for_reingest_is_status_guarded_transition() -> None:
     repo = RagDocumentRepository(db)  # type: ignore[arg-type]
     doc_id = uuid.uuid4()
 
-    attempt = await repo.claim_for_reingest(doc_id)
+    claim = await repo.claim_for_reingest(doc_id)
 
-    assert attempt == 3
+    assert claim is not None
+    assert claim.attempt == 3
+    assert claim.token == _ClaimRow.ingest_claim_token
     assert len(db.statements) == 1
     sql = _sql(db.statements[0]).lower()
     # Atomic transition: only a terminal row is claimed, and it flips to ingesting
@@ -516,9 +585,11 @@ async def test_knowmap_claim_for_reingest_is_status_guarded_transition() -> None
     repo = KnowmapDocumentRepository(db)  # type: ignore[arg-type]
     doc_id = uuid.uuid4()
 
-    attempt = await repo.claim_for_reingest(doc_id)
+    claim = await repo.claim_for_reingest(doc_id)
 
-    assert attempt == 3
+    assert claim is not None
+    assert claim.attempt == 3
+    assert claim.token == _ClaimRow.ingest_claim_token
     sql = _sql(db.statements[0]).lower()
     assert "status='ingesting'" in sql
     assert "ingest_attempt=(knowmap_documents.ingest_attempt+1)" in sql

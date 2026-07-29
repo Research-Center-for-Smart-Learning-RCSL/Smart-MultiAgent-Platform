@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
@@ -21,6 +21,7 @@ from contexts.knowledge.domain.errors import (
 from contexts.knowledge.domain.models import (
     ChunkStrategy,
     DocumentStatus,
+    IngestClaim,
     RagChunk,
     RagConfig,
     RagDocument,
@@ -28,6 +29,7 @@ from contexts.knowledge.domain.models import (
 )
 from contexts.knowledge.infrastructure import tables as t
 from shared_kernel.auth.clients import now
+from shared_kernel.db.advisory_lock import advisory_xact_lock
 
 
 def _row_to_config(row: Any) -> RagConfig:
@@ -65,6 +67,9 @@ def _row_to_document(row: Any) -> RagDocument:
         uploaded_by=row.uploaded_by,
         uploaded_at=row.uploaded_at,
         agent_ids=tuple(row.agent_ids or ()),
+        ingest_attempt=getattr(row, "ingest_attempt", 0),
+        ingest_claim_token=getattr(row, "ingest_claim_token", None),
+        ingest_claim_until=getattr(row, "ingest_claim_until", None),
     )
 
 
@@ -261,7 +266,7 @@ class RagDocumentRepository:
             t.rag_documents.update().where(t.rag_documents.c.id == document_id).values(status=status.value)
         )
 
-    async def claim_for_reingest(self, document_id: uuid.UUID) -> int | None:
+    async def claim_for_reingest(self, document_id: uuid.UUID) -> IngestClaim | None:
         """Atomically claim a TERMINAL document for re-ingest (F-23).
 
         A single ``UPDATE`` transitions ``FAILED``/``QUARANTINED`` -> ``INGESTING``
@@ -280,25 +285,136 @@ class RagDocumentRepository:
         ``None`` when it was not in a terminal state (still ingesting, or already
         claimed by a concurrent re-upload).
         """
+        token = uuid.uuid4()
+        until = datetime.now(UTC) + timedelta(minutes=30)
         row = (
             await self._db.execute(
                 t.rag_documents.update()
                 .where(
                     sa.and_(
                         t.rag_documents.c.id == document_id,
-                        t.rag_documents.c.status.in_(
-                            [DocumentStatus.FAILED.value, DocumentStatus.QUARANTINED.value]
+                        sa.or_(
+                            t.rag_documents.c.status.in_(
+                                [DocumentStatus.FAILED.value, DocumentStatus.QUARANTINED.value]
+                            ),
+                            sa.and_(
+                                t.rag_documents.c.status == DocumentStatus.INGESTING.value,
+                                t.rag_documents.c.ingest_claim_until.is_not(None),
+                                t.rag_documents.c.ingest_claim_until < datetime.now(UTC),
+                            ),
                         ),
                     )
                 )
                 .values(
                     status=DocumentStatus.INGESTING.value,
                     ingest_attempt=t.rag_documents.c.ingest_attempt + 1,
+                    ingest_claim_token=token,
+                    ingest_claim_until=until,
                 )
-                .returning(t.rag_documents.c.ingest_attempt)
+                .returning(
+                    t.rag_documents.c.ingest_attempt,
+                    t.rag_documents.c.ingest_claim_token,
+                    t.rag_documents.c.ingest_claim_until,
+                )
             )
         ).first()
-        return int(row.ingest_attempt) if row is not None else None
+        if row is None:
+            return None
+        return IngestClaim(
+            attempt=int(row.ingest_attempt),
+            token=row.ingest_claim_token,
+            until=row.ingest_claim_until,
+        )
+
+    async def claim_initial(self, document_id: uuid.UUID) -> IngestClaim | None:
+        token = uuid.uuid4()
+        until = datetime.now(UTC) + timedelta(minutes=30)
+        row = (
+            await self._db.execute(
+                t.rag_documents.update()
+                .where(
+                    sa.and_(
+                        t.rag_documents.c.id == document_id,
+                        t.rag_documents.c.status == DocumentStatus.INGESTING.value,
+                        t.rag_documents.c.ingest_attempt == 0,
+                        t.rag_documents.c.ingest_claim_token.is_(None),
+                    )
+                )
+                .values(ingest_claim_token=token, ingest_claim_until=until)
+                .returning(
+                    t.rag_documents.c.ingest_attempt,
+                    t.rag_documents.c.ingest_claim_token,
+                    t.rag_documents.c.ingest_claim_until,
+                )
+            )
+        ).first()
+        if row is None:
+            return None
+        return IngestClaim(
+            attempt=int(row.ingest_attempt),
+            token=row.ingest_claim_token,
+            until=row.ingest_claim_until,
+        )
+
+    async def owns_claim(self, document_id: uuid.UUID, claim: IngestClaim) -> bool:
+        row = (
+            await self._db.execute(
+                sa.select(t.rag_documents.c.id).where(
+                    sa.and_(
+                        t.rag_documents.c.id == document_id,
+                        t.rag_documents.c.status == DocumentStatus.INGESTING.value,
+                        t.rag_documents.c.ingest_attempt == claim.attempt,
+                        t.rag_documents.c.ingest_claim_token == claim.token,
+                    )
+                )
+            )
+        ).first()
+        return row is not None
+
+    async def lock_for_ingest(self, document_id: uuid.UUID) -> None:
+        await advisory_xact_lock(self._db, f"knowledge:rag-ingest:{document_id}")
+
+    async def finish_claim(
+        self,
+        *,
+        document_id: uuid.UUID,
+        claim: IngestClaim,
+        status: DocumentStatus,
+    ) -> bool:
+        row = (
+            await self._db.execute(
+                t.rag_documents.update()
+                .where(
+                    sa.and_(
+                        t.rag_documents.c.id == document_id,
+                        t.rag_documents.c.ingest_attempt == claim.attempt,
+                        t.rag_documents.c.ingest_claim_token == claim.token,
+                    )
+                )
+                .values(
+                    status=status.value,
+                    ingest_claim_token=None,
+                    ingest_claim_until=None,
+                )
+                .returning(t.rag_documents.c.id)
+            )
+        ).first()
+        return row is not None
+
+    async def list_expired_claim_ids(self, *, limit: int = 100) -> list[uuid.UUID]:
+        rows = (
+            await self._db.execute(
+                sa.select(t.rag_documents.c.id)
+                .where(
+                    t.rag_documents.c.status == DocumentStatus.INGESTING.value,
+                    t.rag_documents.c.ingest_claim_until.is_not(None),
+                    t.rag_documents.c.ingest_claim_until < datetime.now(UTC),
+                )
+                .order_by(t.rag_documents.c.ingest_claim_until)
+                .limit(limit)
+            )
+        ).all()
+        return [row.id for row in rows]
 
     async def get(self, document_id: uuid.UUID) -> RagDocument | None:
         row = (

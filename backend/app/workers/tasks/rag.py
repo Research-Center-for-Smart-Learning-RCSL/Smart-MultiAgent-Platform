@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from minio import Minio
@@ -20,7 +21,7 @@ from qdrant_client import AsyncQdrantClient
 from app.config.settings import get_settings
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.ingest_service import IngestService
-from contexts.knowledge.domain.models import DocumentStatus, ScanStatus
+from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, ScanStatus
 from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
 from contexts.knowledge.infrastructure.channels import rag_channel
 from contexts.knowledge.infrastructure.embedders import router_embedder_for
@@ -35,7 +36,13 @@ from shared_kernel.realtime.pubsub import Publisher
 _log = logging.getLogger(__name__)
 
 
-async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
+async def rag_ingest_document(
+    ctx: dict[str, Any],
+    *,
+    document_id: str,
+    ingest_attempt: int | None = None,
+    claim_token: str | None = None,
+) -> str:
     """Index one registered RAG document. Idempotent: re-runs on a document no
     longer in ``ingesting`` state are a no-op (``process_document`` guards)."""
     _ = ctx
@@ -48,9 +55,31 @@ async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
         if doc is None:
             _log.warning("rag_ingest_document: document %s not found", document_id)
             return f"document {document_id} not found"
+        claim = (
+            IngestClaim(
+                attempt=ingest_attempt,
+                token=uuid.UUID(claim_token),
+                until=doc.ingest_claim_until or datetime.max.replace(tzinfo=UTC),
+            )
+            if ingest_attempt is not None and claim_token is not None
+            else None
+        )
+        if (ingest_attempt is None) is not (claim_token is None):
+            _log.warning("rag_ingest_document: incomplete claim for %s", document_id)
+            return "invalid ingest claim"
         cfg = await RagConfigRepository(db).get(doc.rag_config_id)
         if cfg is None or cfg.embed_key_id is None:
-            await RagDocumentRepository(db).set_status(document_id=doc_id, status=DocumentStatus.FAILED)
+            if claim is None:
+                await RagDocumentRepository(db).set_status(
+                    document_id=doc_id,
+                    status=DocumentStatus.FAILED,
+                )
+            else:
+                await RagDocumentRepository(db).finish_claim(
+                    document_id=doc_id,
+                    claim=claim,
+                    status=DocumentStatus.FAILED,
+                )
             await db.commit()
             # Emit the terminal event the frontend waits on; without it the docs
             # table sticks on 'ingesting' until a manual reload.
@@ -88,7 +117,7 @@ async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
             bucket=settings.minio.bucket_rag_sources,
         )
         try:
-            result = await ingest.process_document(document_id=doc_id)
+            result = await ingest.process_document(document_id=doc_id, claim=claim)
             await db.commit()
             return f"status={result.status.value} document={document_id}"
         except Exception:
@@ -105,9 +134,17 @@ async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
                 # race): only mark FAILED if it is still mid-flight.
                 current = await RagDocumentRepository(db2).get(doc_id)
                 if current is not None and current.status is not DocumentStatus.READY:
-                    await RagDocumentRepository(db2).set_status(
-                        document_id=doc_id, status=DocumentStatus.FAILED
-                    )
+                    if claim is None:
+                        await RagDocumentRepository(db2).set_status(
+                            document_id=doc_id,
+                            status=DocumentStatus.FAILED,
+                        )
+                    else:
+                        await RagDocumentRepository(db2).finish_claim(
+                            document_id=doc_id,
+                            claim=claim,
+                            status=DocumentStatus.FAILED,
+                        )
                     await db2.commit()
             _log.exception("rag_ingest_document failed for %s", document_id)
             raise

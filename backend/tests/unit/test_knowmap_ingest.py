@@ -11,8 +11,8 @@ trigger). All infrastructure is mocked via the Protocol ports — no real I/O.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime, timedelta
+from unittest.mock import ANY, DEFAULT, AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -30,7 +30,7 @@ from contexts.knowledge.domain.errors import (
 )
 from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapDocument
-from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus, ScanStatus
+from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus, IngestClaim, ScanStatus
 from contexts.knowledge.domain.reupload import ReuploadAction
 from shared_kernel.text_extraction.parsers import ParserError
 
@@ -39,6 +39,14 @@ _NOW = datetime(2026, 7, 7, 12, 0, 0)
 _PROJECT_ID = uuid.uuid4()
 _CONFIG_ID = uuid.uuid4()
 _USER_ID = uuid.uuid4()
+
+
+def _claim(attempt: int = 1) -> IngestClaim:
+    return IngestClaim(
+        attempt=attempt,
+        token=uuid.uuid4(),
+        until=datetime.now(UTC) + timedelta(minutes=30),
+    )
 
 
 def _make_config() -> KnowmapConfig:
@@ -92,6 +100,16 @@ def _make_service(
     chunk_repo: AsyncMock,
     blob: AsyncMock | None = None,
 ) -> KnowmapIngestService:
+    claim = _claim()
+    if doc_repo.claim_for_reingest._mock_return_value is DEFAULT:
+        doc_repo.claim_for_reingest.return_value = claim
+    if doc_repo.claim_initial._mock_return_value is DEFAULT:
+        doc_repo.claim_initial.return_value = IngestClaim(
+            attempt=0,
+            token=uuid.uuid4(),
+            until=claim.until,
+        )
+    doc_repo.owns_claim.return_value = True
     svc = KnowmapIngestService(
         AsyncMock(),
         blob=blob or AsyncMock(),
@@ -119,6 +137,30 @@ def _ipt(
 
 
 class TestIngest:
+    async def test_stale_worker_claim_performs_no_indexing_work(self) -> None:
+        doc = _make_document(status=DocumentStatus.INGESTING)
+        doc_repo = AsyncMock()
+        doc_repo.get.return_value = doc
+        doc_repo.owns_claim.return_value = False
+        blob = AsyncMock()
+        chunk_repo = AsyncMock()
+        svc = _make_service(
+            config_repo=AsyncMock(),
+            doc_repo=doc_repo,
+            chunk_repo=chunk_repo,
+            blob=blob,
+        )
+        doc_repo.owns_claim.return_value = False
+        stale = _claim(attempt=7)
+
+        returned = await svc.process_document(document_id=doc.id, claim=stale)
+
+        assert returned is doc
+        doc_repo.lock_for_ingest.assert_awaited_once_with(doc.id)
+        doc_repo.owns_claim.assert_awaited_once_with(doc.id, stale)
+        blob.get.assert_not_awaited()
+        chunk_repo.delete_for_document.assert_not_awaited()
+
     async def test_ready_duplicate_returns_early_without_reupload(self) -> None:
         # AC-1: SHA dedup — an already-READY blob is returned without re-storing or
         # re-indexing, and no build is triggered.
@@ -158,7 +200,7 @@ class TestIngest:
         doc_repo = AsyncMock()
         doc_repo.find_by_sha.return_value = existing
         doc_repo.set_agents.return_value = updated
-        doc_repo.claim_for_reingest.return_value = 1
+        doc_repo.claim_for_reingest.return_value = _claim()
         svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=AsyncMock())
         svc._index_document = AsyncMock(return_value=updated)
 
@@ -387,7 +429,11 @@ class TestIngest:
         rows = chunk_repo.insert_many.call_args.args[0]
         assert [r["chunk_idx"] for r in rows] == [0, 1]
         assert not hasattr(svc, "_qdrant")
-        doc_repo.set_status.assert_awaited_with(document_id=doc.id, status=DocumentStatus.READY)
+        doc_repo.finish_claim.assert_awaited_with(
+            document_id=doc.id,
+            claim=ANY,
+            status=DocumentStatus.READY,
+        )
         # The scan is always enqueued; the build is deferred until the clean verdict.
         scan.assert_awaited_once()
         build.assert_not_called()
@@ -459,7 +505,11 @@ class TestIngest:
             await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
 
         svc._db.rollback.assert_awaited()
-        doc_repo.set_status.assert_awaited_with(document_id=doc.id, status=DocumentStatus.FAILED)
+        doc_repo.finish_claim.assert_awaited_with(
+            document_id=doc.id,
+            claim=ANY,
+            status=DocumentStatus.FAILED,
+        )
         svc._db.commit.assert_awaited()
 
     async def test_parse_failure_raises_document_unprocessable_not_ingest_failed(self) -> None:
@@ -492,5 +542,9 @@ class TestIngest:
             await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
 
         # The row is still marked FAILED and committed (not rolled back to nothing).
-        doc_repo.set_status.assert_awaited_with(document_id=doc.id, status=DocumentStatus.FAILED)
+        doc_repo.finish_claim.assert_awaited_with(
+            document_id=doc.id,
+            claim=ANY,
+            status=DocumentStatus.FAILED,
+        )
         svc._db.commit.assert_awaited()

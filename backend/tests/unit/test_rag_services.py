@@ -259,7 +259,7 @@ class TestIngestHappyPath:
         docs.create.assert_awaited_once()
         embedder.embed_batch.assert_awaited_once()
         qdrant.upsert_chunks.assert_awaited_once()
-        docs.set_status.assert_awaited_once()
+        docs.finish_claim.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

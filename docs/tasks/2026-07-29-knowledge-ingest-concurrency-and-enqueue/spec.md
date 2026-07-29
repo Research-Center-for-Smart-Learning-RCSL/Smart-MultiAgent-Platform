@@ -74,6 +74,25 @@ publication as a prerequisite for authoritative enqueue.
 6. Publish started best-effort, enqueue under recovery and conditionally fail only the
    still-owned attempt. Reconcile expired claims.
 
+Pre-deploy duplicate inventory:
+
+```sql
+SELECT 'rag' AS product, rag_config_id AS config_id, sha256,
+       array_agg(id ORDER BY uploaded_at, id) AS document_ids
+FROM rag_documents
+GROUP BY rag_config_id, sha256
+HAVING count(*) > 1
+UNION ALL
+SELECT 'knowmap', knowmap_config_id, sha256,
+       array_agg(id ORDER BY uploaded_at, id)
+FROM knowmap_documents
+GROUP BY knowmap_config_id, sha256
+HAVING count(*) > 1;
+```
+
+Any returned group requires operator review of allowlists, chunks/vector evidence and
+status before migration; the migration does not mutate those rows.
+
 ## 8. Regression Test Plan
 
 Write real-PostgreSQL barrier tests for first-upload and retry races before the fix.
