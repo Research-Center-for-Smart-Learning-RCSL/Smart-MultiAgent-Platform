@@ -30,10 +30,6 @@ parallel.
   failure poisons the turn session and destroys an already-streamed reply, truncated tool-call
   JSON silently becomes empty arguments, and a failed final synthesis is persisted as the
   answer. Six sequenced commits; needs one empirical check before the design is fixed (§3 Q-2).
-- `2026-07-22-reingest-allowlist-propagation` (bugfix, draft) — `depends_on: []`. From
-  `docs/audits/2026-07-22-agent-config-runtime/` F-11 (major): re-uploading a document discards
-  the submitted per-agent allowlist on all four ingestion entry points, so the retry path cannot
-  correct a wrong binding. Backend plus a frontend 409 handler.
 - `2026-07-22-retention-sweep-fixes` (bugfix, draft) — `depends_on: []`. a2a F-17, F-42 plus
   verification-gap V-5. **Resolves a duplicate hand-off**: two audits routed the same purge-audit
   finding to two different slugs; this consolidates under one and records why.
@@ -76,6 +72,10 @@ Nothing currently blocked.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+- `2026-07-22-reingest-allowlist-propagation` (bugfix) — `depends_on: []`. From
+  `docs/audits/2026-07-22-agent-config-runtime/` F-11 (major): re-uploading a document discards
+  the submitted per-agent allowlist on all four ingestion entry points, so the retry path cannot
+  correct a wrong binding. Backend plus a frontend 409 handler.
 
 Removed on 2026-07-28 because their own frontmatter reads `implemented` and the board only
 lists unfinished work: `2026-07-22-activity-session-authz-and-validation`,
