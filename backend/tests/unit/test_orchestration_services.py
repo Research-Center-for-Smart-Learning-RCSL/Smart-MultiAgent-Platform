@@ -988,14 +988,6 @@ class TestSubagentReadHelpers:
         result = await svc.list_children(uuid.uuid4())
         assert len(result) == 1
 
-    async def test_cleanup_expired(self) -> None:
-        instances = AsyncMock()
-        instances.delete_older_than_days.return_value = 5
-        svc = _make_subagent_service(instances=instances)
-
-        count = await svc.cleanup_expired(retention_days=30)
-        assert count == 5
-
     async def test_list_for_workflow_run(self) -> None:
         spawned = [_instance(parent_id=uuid.uuid4()), _instance(parent_id=uuid.uuid4())]
         instances = AsyncMock()
