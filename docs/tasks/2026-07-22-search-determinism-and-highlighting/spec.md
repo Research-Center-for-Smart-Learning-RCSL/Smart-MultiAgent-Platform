@@ -609,10 +609,14 @@ feature that makes ordering a promise to users rather than an implementation inv
   `search` only on Enter (`frontend/src/shared/ui/SSearchInput.vue:36-40`), and
   `useChatroomSearch.runSearch` (`:25-36`) has no timer. Search-as-you-type was specified and
   never built.
-- **FU-7** — `backend/shared_kernel/text_extraction/parsers.py:338` fails `mypy .`
-  (`Argument 1 to "Document" has incompatible type "Path"; expected "str | IO[bytes] | None"`).
-  Pre-existing and untouched by this task — the file is byte-identical to base commit
-  `7f1b0e7` — so it did not block, but `mypy .` is not currently clean on `main`.
+- **FU-7** — **Resolved 2026-07-30.** `backend/shared_kernel/text_extraction/parsers.py:338`
+  failed `mypy .` (`Argument 1 to "Document" has incompatible type "Path"; expected
+  "str | IO[bytes] | None"`). Pre-existing and untouched by this task, so it did not block.
+  `_parse_docx_path` passed its `Path` straight to `docx.Document`; python-docx opens either,
+  but its stubs accept only `str | IO[bytes] | None`. Fixed by passing `str(path)` — a real
+  conformance fix rather than a `# type: ignore`, and no runtime behaviour change. `mypy .` is
+  now clean: 887 files, no issues. The sibling `parse_docx` at `:446` was already correct
+  (`io.BytesIO`).
 - **FU-8** — **Resolved 2026-07-30.** The coverage gap D-1 exposes is structural, not local.
   `/api/chatrooms/{id}/search` returned a 500 on every call and nothing noticed, because no test
   in any tier ever executed the endpoint's SQL against Postgres: the unit tier compiles with
@@ -644,10 +648,25 @@ feature that makes ordering a promise to users rather than an implementation inv
   the hazard is not "routes touching PG" but the far narrower "a constant bound into an argument
   whose PostgreSQL type is not `text`", which today is one query with one db-tier test. The
   documented rule is scoped to that condition rather than to every route.
-- **FU-9** — `sanitizeSnippet` widening is pinned behaviourally by T-5, but nothing pins the
-  *producer* side end-to-end above the repository: no test asserts that what
-  `/api/chatrooms/{id}/search` returns survives `sanitizeSnippet` with its highlight intact.
-  T-3 and T-6 each cover one half against a hand-written string in the middle. A single wiring
-  test posting a message and asserting the HTTP response snippet renders a `<mark>` would close
-  the seam that F-22 lived in.
+- **FU-9** — **Resolved 2026-07-30.** `sanitizeSnippet` widening was pinned behaviourally by
+  T-5, but nothing pinned the *producer* side above the repository: no test asserted that what
+  `/api/chatrooms/{id}/search` actually returns carries the marker the frontend allowlist is
+  written against. T-3 and T-6 each covered one half against a hand-written string in the middle
+  — which is precisely the seam F-22 lived in, since both halves were internally consistent.
+
+  `test_search_endpoint_returns_a_mark_delimited_snippet` (db tier) now asserts on the response
+  body, spanning route → `resolve_room_access` → service → repository → real Postgres →
+  `SearchHit` serialisation. Verified red by reverting the `StartSel`/`StopSel` options.
+
+  Two deliberate choices. It is driven through `httpx.ASGITransport` rather than `TestClient`, so
+  the request runs on the same event loop as the asyncpg engine — `TestClient` drives its own
+  portal loop and would cross loops with a live engine. And `is_admin` short-circuits only the
+  final read gate: `resolve_room_access` still resolves room, workspace, project and roles
+  against the real database, while room authorization keeps its own coverage in
+  `test_permission_matrix`.
+
+  What remains uncrossed is the language boundary: the backend asserts it *emits* `<mark>` and
+  the frontend asserts it *preserves* `<mark>`, but no single artifact forces the two literals to
+  be the same string. Closing that needs either an e2e scenario or a generated shared constant,
+  neither of which is justified by one element name.
 </content>
