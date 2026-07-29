@@ -343,6 +343,8 @@ async function onFiles(files: File[]): Promise<void> {
     // document could not be read, rather than a generic upload failure.
     if (isProblemWithType(err, '/document-unprocessable')) {
       toast.error(t('agents.knowmap.uploadUnprocessable'))
+    } else if (isProblemWithType(err, '/document-allowlist-conflict')) {
+      toast.error(t('agents.knowmap.uploadAllowlistConflict'))
     } else {
       toast.error(t('agents.knowmap.uploadFailed'))
     }
