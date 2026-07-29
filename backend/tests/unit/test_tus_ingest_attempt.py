@@ -180,6 +180,19 @@ async def test_rag_first_upload_uses_attempt_zero() -> None:
 
     assert cap.ingest == [f"rag-ingest:{new_id}:0"]
     assert cap.scan == [f"rag-scan:{new_id}:0"]
+
+
+@pytest.mark.asyncio
+async def test_rag_scan_required_enqueues_only_the_scan_gate() -> None:
+    fin = _make_rag_finalizer(None, claim_returns=[])
+    fin._scan_required = True
+    new_id = fin._docs.create.return_value.id
+
+    cap = _Captured()
+    await _run_rag(fin, cap)
+
+    assert cap.ingest == [f"rag-scan:{new_id}:0"]
+    assert cap.scan == []
     fin._docs.claim_for_reingest.assert_not_awaited()
 
 
@@ -216,7 +229,7 @@ async def test_rag_started_publish_failure_does_not_prevent_enqueue() -> None:
         ),
         patch(f"{_RAG_MOD}.enqueue", new=queued),
     ):
-        await fin._enqueue_index(
+        await fin._enqueue_scan_gate(
             doc_id,
             config_id=uuid.uuid4(),
             ingest_attempt=0,
@@ -416,6 +429,19 @@ async def test_knowmap_first_upload_uses_attempt_zero() -> None:
 
     assert cap.ingest == [f"knowmap-ingest:{new_id}:0"]
     assert cap.scan == [f"knowmap-scan:{new_id}:0"]
+
+
+@pytest.mark.asyncio
+async def test_knowmap_scan_required_enqueues_only_the_scan_gate() -> None:
+    fin = _make_km_finalizer(None, claim_returns=[])
+    fin._scan_required = True
+    new_id = fin._docs.create.return_value.id
+
+    cap = _Captured()
+    await _run_km(fin, cap)
+
+    assert cap.ingest == [f"knowmap-scan:{new_id}:0"]
+    assert cap.scan == []
     fin._docs.claim_for_reingest.assert_not_awaited()
 
 

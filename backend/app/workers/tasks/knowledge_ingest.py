@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from contexts.knowledge.domain.models import DocumentStatus, IngestClaim
+from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, ScanStatus
 from contexts.knowledge.infrastructure.knowmap_repositories import KnowmapDocumentRepository
 from contexts.knowledge.infrastructure.repositories import RagDocumentRepository
 from shared_kernel.db.session import get_sessionmaker
@@ -21,7 +21,15 @@ async def _enqueue_owned(
     prefix: str,
     document_id: str,
     claim: IngestClaim,
+    scan_gate: bool,
 ) -> None:
+    if scan_gate:
+        await enqueue(
+            name,
+            document_id=document_id,
+            _job_id=f"{prefix}:{document_id}:{claim.attempt}",
+        )
+        return
     await enqueue(
         name,
         document_id=document_id,
@@ -44,13 +52,23 @@ async def knowledge_ingest_reconcile(ctx: dict[str, Any]) -> int:
             claim = await rag_repo.claim_for_reingest(document_id)
             if claim is None:
                 continue
+            rag_doc = await rag_repo.get(document_id)
             await db.commit()
             try:
                 await _enqueue_owned(
-                    name="rag_ingest_document",
-                    prefix="rag-ingest",
+                    name=(
+                        "rag_ingest_document"
+                        if rag_doc is not None and rag_doc.scan_status is ScanStatus.CLEAN
+                        else "rag_scan_document"
+                    ),
+                    prefix=(
+                        "rag-ingest"
+                        if rag_doc is not None and rag_doc.scan_status is ScanStatus.CLEAN
+                        else "rag-scan"
+                    ),
                     document_id=str(document_id),
                     claim=claim,
+                    scan_gate=rag_doc is None or rag_doc.scan_status is not ScanStatus.CLEAN,
                 )
                 recovered += 1
             except Exception:
@@ -68,13 +86,23 @@ async def knowledge_ingest_reconcile(ctx: dict[str, Any]) -> int:
             claim = await knowmap_repo.claim_for_reingest(document_id)
             if claim is None:
                 continue
+            knowmap_doc = await knowmap_repo.get(document_id)
             await db.commit()
             try:
                 await _enqueue_owned(
-                    name="knowmap_ingest_document",
-                    prefix="knowmap-ingest",
+                    name=(
+                        "knowmap_ingest_document"
+                        if knowmap_doc is not None and knowmap_doc.scan_status is ScanStatus.CLEAN
+                        else "knowmap_scan_document"
+                    ),
+                    prefix=(
+                        "knowmap-ingest"
+                        if knowmap_doc is not None and knowmap_doc.scan_status is ScanStatus.CLEAN
+                        else "knowmap-scan"
+                    ),
                     document_id=str(document_id),
                     claim=claim,
+                    scan_gate=knowmap_doc is None or knowmap_doc.scan_status is not ScanStatus.CLEAN,
                 )
                 recovered += 1
             except Exception:

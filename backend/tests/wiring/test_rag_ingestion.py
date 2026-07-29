@@ -132,6 +132,7 @@ def _ingest_service(
         documents=RagDocumentRepository(db),
         chunks=RagChunkRepository(db),
         chunker=chunk_document,
+        scan_required=False,
         bucket="rag-sources",
     )
 

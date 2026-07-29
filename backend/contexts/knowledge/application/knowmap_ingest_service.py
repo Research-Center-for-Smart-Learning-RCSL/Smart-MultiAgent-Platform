@@ -19,6 +19,7 @@ import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,6 +79,7 @@ class KnowmapIngestService:
         documents: KnowmapDocumentIngestPort,
         chunks: KnowmapChunkIngestPort,
         chunker: DocumentChunker,
+        scan_required: bool,
         bucket: str = "knowmap-sources",
     ) -> None:
         self._db = db
@@ -88,6 +90,7 @@ class KnowmapIngestService:
         self._docs = documents
         self._chunks = chunks
         self._chunker = chunker
+        self._scan_required = scan_required
 
     async def ingest(
         self,
@@ -175,6 +178,14 @@ class KnowmapIngestService:
         # upload back to nothing — a failed upload must stay visible in the document
         # list as FAILED, not silently vanish.
         await self._db.commit()
+        if self._scan_required:
+            await enqueue_knowmap_scan(document_id=doc.id, ingest_attempt=claim.attempt)
+            return doc
+        await self._docs.mark_scan(
+            document_id=doc.id,
+            scan_status=ScanStatus.CLEAN,
+            scan_at=datetime.now(UTC),
+        )
         await self._docs.lock_for_ingest(doc.id)
         if not await self._docs.owns_claim(doc.id, claim):
             return await self._docs.require(doc.id)
@@ -188,7 +199,7 @@ class KnowmapIngestService:
             claim=claim,
         )
         await self._db.commit()
-        await enqueue_knowmap_scan(document_id=result.id)
+        await enqueue_knowmap_scan(document_id=result.id, ingest_attempt=claim.attempt)
         await self._enqueue_build_if_clean(cfg, result)
         return result
 
@@ -218,10 +229,18 @@ class KnowmapIngestService:
         await self._db.commit()
         if claim is None:
             return await self._docs.get(existing.id) or resolved
+
+        if self._scan_required:
+            await enqueue_knowmap_scan(document_id=resolved.id, ingest_attempt=claim.attempt)
+            return resolved
+        await self._docs.mark_scan(
+            document_id=resolved.id,
+            scan_status=ScanStatus.CLEAN,
+            scan_at=datetime.now(UTC),
+        )
         await self._docs.lock_for_ingest(existing.id)
         if not await self._docs.owns_claim(existing.id, claim):
             return await self._docs.get(existing.id) or resolved
-
         reindexed = await self._index_document(
             doc=resolved,
             cfg=cfg,
@@ -232,7 +251,7 @@ class KnowmapIngestService:
             claim=claim,
         )
         await self._db.commit()
-        await enqueue_knowmap_scan(document_id=reindexed.id)
+        await enqueue_knowmap_scan(document_id=reindexed.id, ingest_attempt=claim.attempt)
         await self._enqueue_build_if_clean(cfg, reindexed)
         return reindexed
 
@@ -306,6 +325,8 @@ class KnowmapIngestService:
         elif doc.ingest_claim_token is not None:
             return doc
         if doc.status is DocumentStatus.READY:
+            return doc
+        if doc.scan_status is not ScanStatus.CLEAN:
             return doc
         cfg = await self._configs.get(doc.knowmap_config_id)
         if cfg is None:

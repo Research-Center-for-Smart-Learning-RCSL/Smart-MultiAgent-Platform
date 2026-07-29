@@ -42,7 +42,7 @@ from contexts.knowledge.domain.errors import (
     RagDocumentNotFound,
     UnsupportedMime,
 )
-from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, RagDocument
+from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, RagDocument, ScanStatus
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from shared_kernel import audit
 from shared_kernel.queue import enqueue
@@ -68,11 +68,13 @@ class RagTusFinalizer:
         configs: RagConfigIngestPort,
         documents: RagDocumentIngestPort,
         staged_source: StagedSourcePort,
+        scan_required: bool,
     ) -> None:
         self._db = db
         self._configs = configs
         self._docs = documents
         self._minio = staged_source
+        self._scan_required = scan_required
 
     async def finalize(
         self,
@@ -150,15 +152,19 @@ class RagTusFinalizer:
             # uq_rag_chunk_doc_idx — commit the reupload audit and let it finish.
             claim = await self._docs.claim_for_reingest(existing.id)
             if claim is not None:
-                await self._enqueue_index(
+                await self._enqueue_scan_gate(
                     existing.id,
                     config_id=cfg.id,
                     ingest_attempt=claim.attempt,
                     claim_token=claim.token,
                 )
-                from contexts.knowledge.application.ingest_service import enqueue_rag_scan
+                if not getattr(self, "_scan_required", False):
+                    from contexts.knowledge.application.ingest_service import enqueue_rag_scan
 
-                await enqueue_rag_scan(document_id=existing.id, ingest_attempt=claim.attempt)
+                    await enqueue_rag_scan(
+                        document_id=existing.id,
+                        ingest_attempt=claim.attempt,
+                    )
             await self._db.commit()
             return updated
 
@@ -216,18 +222,19 @@ class RagTusFinalizer:
         claim = await self._docs.claim_initial(doc.id)
         if claim is None:
             raise RagDocumentNotFound(str(doc.id))
-        await self._enqueue_index(
+        await self._enqueue_scan_gate(
             doc.id,
             config_id=cfg.id,
             ingest_attempt=claim.attempt,
             claim_token=claim.token,
         )
-        from contexts.knowledge.application.ingest_service import enqueue_rag_scan
+        if not getattr(self, "_scan_required", False):
+            from contexts.knowledge.application.ingest_service import enqueue_rag_scan
 
-        await enqueue_rag_scan(document_id=doc.id, ingest_attempt=0)
+            await enqueue_rag_scan(document_id=doc.id, ingest_attempt=claim.attempt)
         return doc
 
-    async def _enqueue_index(
+    async def _enqueue_scan_gate(
         self,
         document_id: uuid.UUID,
         *,
@@ -251,13 +258,26 @@ class RagTusFinalizer:
         # uq_rag_chunk_doc_idx. Arq's own retry of a *failed* run reuses this id
         # (it is not a new enqueue), so transient failures still retry.
         try:
-            await enqueue(
-                "rag_ingest_document",
-                document_id=str(document_id),
-                ingest_attempt=ingest_attempt,
-                claim_token=str(claim_token),
-                _job_id=f"rag-ingest:{document_id}:{ingest_attempt}",
-            )
+            if getattr(self, "_scan_required", False):
+                await enqueue(
+                    "rag_scan_document",
+                    document_id=str(document_id),
+                    _job_id=f"rag-scan:{document_id}:{ingest_attempt}",
+                )
+            else:
+                await self._docs.mark_scan(
+                    document_id=document_id,
+                    scan_status=ScanStatus.CLEAN,
+                    scan_at=datetime.now(UTC),
+                )
+                await self._db.commit()
+                await enqueue(
+                    "rag_ingest_document",
+                    document_id=str(document_id),
+                    ingest_attempt=ingest_attempt,
+                    claim_token=str(claim_token),
+                    _job_id=f"rag-ingest:{document_id}:{ingest_attempt}",
+                )
         except Exception:
             # Arq/Redis unavailable: don't leave the committed row stuck
             # 'ingesting' with no worker. Mark it FAILED so a re-upload (re-drive)
@@ -275,7 +295,7 @@ class RagTusFinalizer:
             with contextlib.suppress(Exception):
                 await Publisher(rag_channel(config_id)).emit(
                     "ingestion.failed",
-                    {"document_id": str(document_id), "error": "could not enqueue indexing job"},
+                    {"document_id": str(document_id), "error": "could not enqueue scan job"},
                 )
             raise
 

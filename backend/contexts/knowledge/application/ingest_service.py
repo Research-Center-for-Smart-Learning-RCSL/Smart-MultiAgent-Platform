@@ -39,6 +39,7 @@ import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,7 +62,13 @@ from contexts.knowledge.domain.errors import (
     RagDocumentNotFound,
     UnsupportedMime,
 )
-from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, RagConfig, RagDocument
+from contexts.knowledge.domain.models import (
+    DocumentStatus,
+    IngestClaim,
+    RagConfig,
+    RagDocument,
+    ScanStatus,
+)
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from shared_kernel import audit
 from shared_kernel.realtime.pubsub import Publisher
@@ -122,6 +129,7 @@ class IngestService:
         documents: RagDocumentIngestPort,
         chunks: RagChunkIngestPort,
         chunker: DocumentChunker,
+        scan_required: bool,
         bucket: str = "rag-sources",
     ) -> None:
         self._db = db
@@ -133,6 +141,7 @@ class IngestService:
         self._docs = documents
         self._chunks = chunks
         self._chunker = chunker
+        self._scan_required = scan_required
 
     async def ingest(
         self,
@@ -243,6 +252,14 @@ class IngestService:
         # durable FAILED row (see _index_document) instead of rolling the whole
         # upload back to nothing — a failed upload must stay visible in the list.
         await self._db.commit()
+        if self._scan_required:
+            await enqueue_rag_scan(document_id=doc.id, ingest_attempt=claim.attempt)
+            return doc
+        await self._docs.mark_scan(
+            document_id=doc.id,
+            scan_status=ScanStatus.CLEAN,
+            scan_at=datetime.now(UTC),
+        )
         await self._docs.lock_for_ingest(doc.id)
         if not await self._docs.owns_claim(doc.id, claim):
             return await self._docs.require(doc.id)
@@ -256,7 +273,7 @@ class IngestService:
             claim=claim,
         )
         await self._db.commit()
-        await enqueue_rag_scan(document_id=result.id)
+        await enqueue_rag_scan(document_id=result.id, ingest_attempt=claim.attempt)
         return result
 
     async def _ingest_existing(
@@ -285,11 +302,19 @@ class IngestService:
         await self._db.commit()
         if claim is None:
             return await self._docs.get(existing.id) or resolved
+
+        await _publish_ingestion_started(config_id=cfg.id, document_id=resolved.id)
+        if self._scan_required:
+            await enqueue_rag_scan(document_id=resolved.id, ingest_attempt=claim.attempt)
+            return resolved
+        await self._docs.mark_scan(
+            document_id=resolved.id,
+            scan_status=ScanStatus.CLEAN,
+            scan_at=datetime.now(UTC),
+        )
         await self._docs.lock_for_ingest(existing.id)
         if not await self._docs.owns_claim(existing.id, claim):
             return await self._docs.get(existing.id) or resolved
-
-        await _publish_ingestion_started(config_id=cfg.id, document_id=resolved.id)
         reindexed = await self._index_document(
             doc=resolved,
             cfg=cfg,
@@ -300,7 +325,7 @@ class IngestService:
             claim=claim,
         )
         await self._db.commit()
-        await enqueue_rag_scan(document_id=reindexed.id)
+        await enqueue_rag_scan(document_id=reindexed.id, ingest_attempt=claim.attempt)
         return reindexed
 
     async def _resolve_existing(
@@ -386,6 +411,8 @@ class IngestService:
             # Already indexed — idempotent no-op (a duplicate enqueue or a retry
             # after success). A FAILED/INGESTING doc is (re)processed so an Arq
             # retry of a transient failure actually re-indexes.
+            return doc
+        if doc.scan_status is not ScanStatus.CLEAN:
             return doc
         cfg = await self._configs.get(doc.rag_config_id)
         if cfg is None:
