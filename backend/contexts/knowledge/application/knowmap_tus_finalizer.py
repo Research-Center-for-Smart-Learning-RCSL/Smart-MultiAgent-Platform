@@ -17,12 +17,19 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.application.knowmap_ingest_service import (
+    emit_knowmap_reupload_agents_set_audit,
+    emit_knowmap_reupload_audit,
     enqueue_knowmap_scan,
     knowmap_source_object_key,
 )
-from contexts.knowledge.domain.errors import KnowmapConfigNotFound, UnsupportedMime
+from contexts.knowledge.domain.errors import (
+    DocumentAllowlistConflict,
+    KnowmapConfigNotFound,
+    UnsupportedMime,
+)
 from contexts.knowledge.domain.knowmap import KnowmapDocument
 from contexts.knowledge.domain.models import DocumentStatus
+from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapConfigRepository,
     KnowmapDocumentRepository,
@@ -73,9 +80,45 @@ class KnowmapTusFinalizer:
 
         sha = await asyncio.to_thread(_sha256_file, staging_path)
         existing = await self._docs.find_by_sha(knowmap_config_id=cfg.id, sha256=sha)
-        if existing is not None and existing.status is DocumentStatus.READY:
-            return existing
         if existing is not None:
+            submitted_agent_ids = agent_ids or []
+            action = resolve_existing_document(
+                status=existing.status,
+                stored_agent_ids=existing.agent_ids,
+                submitted_agent_ids=submitted_agent_ids,
+            )
+            await emit_knowmap_reupload_audit(
+                self._db,
+                doc=existing,
+                submitted_agent_ids=submitted_agent_ids,
+                outcome=action,
+                actor_user_id=uploaded_by,
+                actor_ip=actor_ip,
+                request_id=request_id,
+            )
+            if action is ReuploadAction.CONFLICT:
+                await self._db.commit()
+                raise DocumentAllowlistConflict(
+                    f"document {existing.id} already exists with a different agent allowlist; "
+                    f"use PATCH /api/knowmap-documents/{existing.id}/agents"
+                )
+            if action is ReuploadAction.DEDUP_NOOP:
+                await self._db.commit()
+                return existing
+
+            updated = await self._docs.set_agents(
+                document_id=existing.id,
+                agent_ids=submitted_agent_ids,
+            )
+            assert updated is not None
+            await emit_knowmap_reupload_agents_set_audit(
+                self._db,
+                doc=updated,
+                project_id=cfg.project_id,
+                actor_user_id=uploaded_by,
+                actor_ip=actor_ip,
+                request_id=request_id,
+            )
             # F-23: claim_for_reingest transitions a TERMINAL row
             # (FAILED/QUARANTINED) to INGESTING and bumps ingest_attempt in ONE
             # atomic UPDATE. A returned counter means this call is the genuine retry
@@ -88,7 +131,8 @@ class KnowmapTusFinalizer:
             if attempt is not None:
                 await self._enqueue_index(existing.id, ingest_attempt=attempt)
                 await enqueue_knowmap_scan(document_id=existing.id, ingest_attempt=attempt)
-            return existing
+            await self._db.commit()
+            return updated
 
         key = knowmap_source_object_key(project_id=cfg.project_id, config_id=cfg.id, sha256=sha)
         await self._minio.put_file(
@@ -121,6 +165,7 @@ class KnowmapTusFinalizer:
                     "mime": norm_mime,
                     "size_bytes": size_bytes,
                     "sha256": sha,
+                    "agent_ids": [str(agent_id) for agent_id in (agent_ids or [])],
                     "via": "tus",
                 },
                 request_id=request_id,

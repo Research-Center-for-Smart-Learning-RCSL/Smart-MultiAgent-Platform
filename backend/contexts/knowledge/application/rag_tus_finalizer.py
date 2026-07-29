@@ -23,11 +23,17 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.application.ingest_service import (
+    emit_reupload_agents_set_audit,
     emit_reupload_audit,
     rag_source_object_key,
 )
-from contexts.knowledge.domain.errors import RagConfigNotFound, UnsupportedMime
+from contexts.knowledge.domain.errors import (
+    DocumentAllowlistConflict,
+    RagConfigNotFound,
+    UnsupportedMime,
+)
 from contexts.knowledge.domain.models import DocumentStatus, RagDocument
+from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from contexts.knowledge.infrastructure.channels import rag_channel
 from contexts.knowledge.infrastructure.repositories import (
     RagConfigRepository,
@@ -82,16 +88,41 @@ class RagTusFinalizer:
         # the web process.
         sha = await asyncio.to_thread(_sha256_file, staging_path)
         existing = await self._docs.find_by_sha(rag_config_id=cfg.id, sha256=sha)
-        if existing is not None and existing.status is DocumentStatus.READY:
-            # Same bytes already indexed for this config — true dedup; the caller
-            # cleans up the staging file.
-            return existing
         if existing is not None:
-            # A prior attempt left this sha in a non-READY state; the blob is
-            # already in MinIO. Record the re-upload (the first upload is long past).
+            submitted_agent_ids = agent_ids or []
+            action = resolve_existing_document(
+                status=existing.status,
+                stored_agent_ids=existing.agent_ids,
+                submitted_agent_ids=submitted_agent_ids,
+            )
             await emit_reupload_audit(
                 self._db,
                 doc=existing,
+                submitted_agent_ids=submitted_agent_ids,
+                outcome=action,
+                actor_user_id=uploaded_by,
+                actor_ip=actor_ip,
+                request_id=request_id,
+            )
+            if action is ReuploadAction.CONFLICT:
+                await self._db.commit()
+                raise DocumentAllowlistConflict(
+                    f"document {existing.id} already exists with a different agent allowlist; "
+                    f"use PATCH /api/rag-documents/{existing.id}/agents"
+                )
+            if action is ReuploadAction.DEDUP_NOOP:
+                await self._db.commit()
+                return existing
+
+            updated = await self._docs.set_agents(
+                document_id=existing.id,
+                agent_ids=submitted_agent_ids,
+            )
+            assert updated is not None
+            await emit_reupload_agents_set_audit(
+                self._db,
+                doc=updated,
+                project_id=cfg.project_id,
                 actor_user_id=uploaded_by,
                 actor_ip=actor_ip,
                 request_id=request_id,
@@ -111,9 +142,8 @@ class RagTusFinalizer:
                 from contexts.knowledge.application.ingest_service import enqueue_rag_scan
 
                 await enqueue_rag_scan(document_id=existing.id, ingest_attempt=attempt)
-            else:
-                await self._db.commit()
-            return existing
+            await self._db.commit()
+            return updated
 
         key = rag_source_object_key(project_id=cfg.project_id, config_id=cfg.id, sha256=sha)
         await self._minio.put_file(
@@ -146,6 +176,7 @@ class RagTusFinalizer:
                     "mime": norm_mime,
                     "size_bytes": size_bytes,
                     "sha256": sha,
+                    "agent_ids": [str(agent_id) for agent_id in (agent_ids or [])],
                     "via": "tus",
                 },
                 request_id=request_id,
