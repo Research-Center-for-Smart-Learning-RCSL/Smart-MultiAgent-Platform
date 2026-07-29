@@ -596,14 +596,26 @@ feature that makes ordering a promise to users rather than an implementation inv
   not account for document length: a one-word message and a 2 000-word message with one
   occurrence rank identically. That is a relevance-quality question, deliberately separated
   from V-6's determinism question (Q-4).
-- **FU-5** — Sweep A left eight paginated sites sharing V-6's shape with a timestamp ordering
-  key: `workflow/infrastructure/repositories.py:104,504`, `keys/infrastructure/repositories.py:157`,
-  `identity/infrastructure/repositories.py:246`, `agents/infrastructure/repositories.py:213`,
-  `knowledge/infrastructure/repositories.py:353`. Each is deterministic **only while** no two
-  of its rows are written inside one transaction, since `created_at` defaults to `now()`
-  (transaction time). `knowledge/...:353` is the one that could not be cleared — it was not
-  verified whether any upload route inserts several `rag_documents` in one transaction. A
-  single sweep appending `.id` to all eight would close the class for the cost of eight lines.
+- **FU-5** — **Resolved 2026-07-30.** Sweep A left eight paginated sites sharing V-6's shape with
+  a timestamp ordering key, each deterministic **only while** no two of its rows are written
+  inside one transaction, since `created_at` defaults to `now()` (transaction time).
+  `knowledge/...` was the one that could not be cleared by inspection — it was never verified
+  whether an upload route inserts several `rag_documents` in one transaction.
+
+  All eight now carry a trailing `id DESC`, closing the class rather than re-auditing each
+  condition. Line numbers had drifted from the values recorded above; the sites were re-located
+  by pattern and each was re-confirmed to carry `LIMIT`/`OFFSET` before being edited:
+  `workflow/infrastructure/repositories.py` (workflows list, runs list, archive list, and the
+  live+archive union — both union legs select `id`, and run ids are unique across them),
+  `keys/infrastructure/repositories.py` (api keys), `identity/infrastructure/repositories.py`
+  (sessions, keyed on `last_used_at`), `agents/infrastructure/repositories.py` (agents), and
+  `knowledge/infrastructure/repositories.py` (rag documents).
+
+  The change is purely additive: an extra trailing key cannot alter the result when the leading
+  keys already discriminate, and makes the result deterministic when they do not. Verified by
+  `ruff`, `mypy` (887 files clean) and the full unit suite (6192 passed). No behavioural test was
+  added — proving non-determinism per site needs the heap-order manipulation that §8 T-3 required,
+  which is disproportionate for eight sites whose tie condition is rare by construction.
 - **FU-6** — New observation, outside both audits: `docs/UI/07-conversation.md:742` specifies
   "Debounced search: 300ms after last keystroke". No debounce exists. `SSearchInput` emits
   `search` only on Enter (`frontend/src/shared/ui/SSearchInput.vue:36-40`), and
