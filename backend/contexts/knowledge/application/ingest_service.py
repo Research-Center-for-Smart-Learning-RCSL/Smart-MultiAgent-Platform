@@ -50,6 +50,7 @@ from contexts.knowledge.domain.errors import (
     DocumentUnprocessable,
     IngestFailed,
     RagConfigNotFound,
+    RagDocumentNotFound,
     UnsupportedMime,
 )
 from contexts.knowledge.domain.models import DocumentStatus, RagConfig, RagDocument
@@ -266,6 +267,12 @@ class IngestService:
         )
         if action is ReuploadAction.DEDUP_NOOP:
             return resolved
+        if existing.status is DocumentStatus.INGESTING:
+            return resolved
+        attempt = await self._docs.claim_for_reingest(existing.id)
+        await self._db.commit()
+        if attempt is None:
+            return await self._docs.get(existing.id) or resolved
 
         await _publish_ingestion_started(config_id=cfg.id, document_id=resolved.id)
         reindexed = await self._index_document(
@@ -318,7 +325,8 @@ class IngestService:
             document_id=existing.id,
             agent_ids=ipt.agent_ids,
         )
-        assert updated is not None
+        if updated is None:
+            raise RagDocumentNotFound(str(existing.id))
         await emit_reupload_agents_set_audit(
             self._db,
             doc=updated,

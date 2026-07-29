@@ -25,6 +25,7 @@ from contexts.knowledge.application.knowmap_ingest_service import (
 from contexts.knowledge.domain.errors import (
     DocumentAllowlistConflict,
     KnowmapConfigNotFound,
+    KnowmapDocumentNotFound,
     UnsupportedMime,
 )
 from contexts.knowledge.domain.knowmap import KnowmapDocument
@@ -110,7 +111,8 @@ class KnowmapTusFinalizer:
                 document_id=existing.id,
                 agent_ids=submitted_agent_ids,
             )
-            assert updated is not None
+            if updated is None:
+                raise KnowmapDocumentNotFound(str(existing.id))
             await emit_knowmap_reupload_agents_set_audit(
                 self._db,
                 doc=updated,
