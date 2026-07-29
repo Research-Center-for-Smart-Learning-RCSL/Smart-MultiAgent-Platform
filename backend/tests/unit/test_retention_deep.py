@@ -672,6 +672,19 @@ class TestSweepOrphanedSubagentRoots:
         assert session.execute.await_count == 1
 
 
+class TestSingleAgentInstanceRetentionPath:
+    def test_no_second_agent_instance_retention_implementation(self) -> None:
+        from contexts.orchestration.application.subagent_service import SubagentService
+        from contexts.orchestration.infrastructure.repositories import (
+            AgentInstanceRepository,
+        )
+        from contexts.orchestration.interfaces.facade import OrchestrationFacade
+
+        assert not hasattr(SubagentService, "cleanup_expired")
+        assert not hasattr(OrchestrationFacade, "cleanup_expired_instances")
+        assert not hasattr(AgentInstanceRepository, "delete_older_than_days")
+
+
 class TestCloseIdleImpersonations:
     @patch("app.workers.tasks.retention.ADMIN_IMPERSONATION_SESSIONS_ACTIVE")
     @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)

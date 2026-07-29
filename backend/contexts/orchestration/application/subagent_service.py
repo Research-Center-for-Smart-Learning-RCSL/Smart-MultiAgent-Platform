@@ -317,8 +317,4 @@ class SubagentService:
         """Project owning a workflow run — authz helper for the backstage (API-2)."""
         return await self._instances.project_for_workflow_run(workflow_run_id)
 
-    async def cleanup_expired(self, retention_days: int = 30) -> int:
-        return await self._instances.delete_older_than_days(retention_days)
-
-
 __all__ = ["SubagentService"]
