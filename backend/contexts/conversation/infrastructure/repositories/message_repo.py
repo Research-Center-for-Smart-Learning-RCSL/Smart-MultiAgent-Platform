@@ -240,6 +240,13 @@ class MessageRepository:
         The `english` configuration matches the trigger in 0017; any
         localisation overrides land in that migration (F.10 follow-up).
 
+        Hits are delimited with `<mark>`, not PostgreSQL's default `<b>`, per
+        `docs/UI/07-conversation.md`. The marker is a cross-layer contract: the
+        frontend sanitiser allowlists exactly this element and the search panel
+        styles it. Changing it here without changing `SNIPPET_CONFIG` in
+        `frontend/src/slices/conversation/utils/renderMarkdown.ts` makes the
+        highlight vanish, because DOMPurify keeps the text and drops the element.
+
         The ordering carries two tiebreaks after `rank`, and neither is
         decorative. `ts_rank_cd` ties whenever two messages mention the term
         the same number of times at the same weight, which is the normal
@@ -266,7 +273,7 @@ class MessageRepository:
                     config,
                     t.messages.c.content_md,
                     tsq,
-                    sa.literal("MaxWords=35,MinWords=15,ShortWord=3"),
+                    sa.literal("StartSel=<mark>,StopSel=</mark>,MaxWords=35,MinWords=15,ShortWord=3"),
                 ).label("snippet"),
             )
             .where(
