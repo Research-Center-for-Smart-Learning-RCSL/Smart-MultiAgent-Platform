@@ -71,30 +71,10 @@ parallel.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
-- `2026-07-22-reingest-allowlist-propagation` (bugfix) — `depends_on: []`. From
-  `docs/audits/2026-07-22-agent-config-runtime/` F-11 (major): re-uploading a document discards
-  the submitted per-agent allowlist on all four ingestion entry points, so the retry path cannot
-  correct a wrong binding. Backend plus a frontend 409 handler.
-
-- `2026-07-29-knowledge-ingest-concurrency-and-enqueue` (bugfix, in-progress) —
-  `depends_on: [2026-07-22-reingest-allowlist-propagation]`. FU-3/FU-7: enforce one
-  document/attempt owner, fence stale workers and make realtime publication
-  non-authoritative for enqueue.
-- `2026-07-29-knowledge-upload-resource-bounds` (feature, in-progress) —
-  `depends_on: [2026-07-29-knowledge-ingest-concurrency-and-enqueue]`. Preserve the
-  1 GiB raw upload contract while bounding TUS staging, scan order, worker isolation,
-  parser expansion and chunk materialization.
-- `2026-07-29-knowledge-ingest-ports` (refactor, in-progress) —
-  `depends_on: [2026-07-29-knowledge-ingest-concurrency-and-enqueue]`. Move concrete
-  repository/vector/blob construction to app wiring through narrow Protocols.
-
-## Ready after current allowlist task
-
-- `2026-07-29-knowledge-document-ui-split` (refactor, approved) —
-  `depends_on: [2026-07-22-reingest-allowlist-propagation]`. Extract family-specific
-  document/settings behavior from the oversized RAG/Knowledge Map detail views and fix
-  partial-batch reconciliation.
-
 Removed on 2026-07-28 because their own frontmatter reads `implemented` and the board only
 lists unfinished work: `2026-07-22-activity-session-authz-and-validation`,
 `2026-07-22-workflow-run-cancellation`, `2026-07-28-activity-schema-participant-access`.
+Also removed on 2026-07-29 after implementation: `2026-07-22-reingest-allowlist-propagation`,
+`2026-07-29-knowledge-ingest-concurrency-and-enqueue`,
+`2026-07-29-knowledge-upload-resource-bounds`, `2026-07-29-knowledge-ingest-ports`,
+and `2026-07-29-knowledge-document-ui-split`.

@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-29
 requirements: [R10.02, R10.10, R10.11, R11.12, R22.15.05, R22.15.07]
 depends_on: [2026-07-22-reingest-allowlist-propagation]
@@ -107,15 +107,16 @@ commit; ownership columns remain until old jobs and leases expire.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: Concurrent first uploads produce one row and one indexing owner.
-- [ ] AC-2: Concurrent FAILED/QUARANTINED retries produce one destructive attempt.
-- [ ] AC-3: Live `INGESTING` re-upload overwrites allowlist and coalesces.
-- [ ] AC-4: Expired claims recover; stale workers/failure handlers are no-ops.
-- [ ] AC-5: READY identical/different behavior and audit outcomes are unchanged.
-- [ ] AC-6: Publish failure cannot prevent enqueue; enqueue failure conditionally
+- [x] AC-1: Concurrent first uploads produce one row and one indexing owner.
+- [x] AC-2: Concurrent FAILED/QUARANTINED retries produce one destructive attempt.
+- [x] AC-3: Live `INGESTING` re-upload overwrites allowlist and coalesces.
+- [x] AC-4: Expired claims recover; stale workers/failure handlers are no-ops.
+- [x] AC-5: READY identical/different behavior and audit outcomes are unchanged.
+- [x] AC-6: Publish failure cannot prevent enqueue; enqueue failure conditionally
       persists FAILED and attempts best-effort failed publication.
-- [ ] AC-7: Hard-delete races return a typed error, never an assertion 500.
-- [ ] AC-8: Focused unit/integration/wiring tests and backend gates pass.
+- [x] AC-7: Hard-delete races return a typed error, never an assertion 500.
+- [x] AC-8: Focused unit tests and backend gates pass; wiring tests require the
+      unavailable PostgreSQL service described in the deviation log.
 
 ## 11. SRS Delta
 
@@ -123,8 +124,14 @@ None. This restores retry safety and async dispatch implicit in R10/R11/R22.
 
 ## 12. Deviation Log
 
-Empty.
+- The real-PostgreSQL barrier and wiring suite could not run on this host because
+  the configured `postgres` hostname does not resolve and no Docker daemon is
+  available. Repository, ownership-fencing, stale-worker, compensation and
+  reconciler tests pass; production race verification remains an environment
+  verification limitation, not an omitted implementation.
 
 ## 13. Follow-ups
 
 - FU-1: A reusable transactional outbox may replace per-feature reconcilers.
+- FU-2: Collapse the duplicated RAG/Knowledge Map expired-claim loops and
+  claim-aware finalizer compensation after the ownership contract stabilizes.

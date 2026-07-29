@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: implemented
 created: 2026-07-29
 requirements: [R24.04, R24.05, R24.24]
 depends_on: [2026-07-22-reingest-allowlist-propagation]
@@ -63,13 +63,13 @@ initialization and modal leakage. Each extraction is independently revertible.
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: Existing behavior/tests remain unchanged except stale-cache correction.
-- [ ] AC-2: Partial batches reconcile every accepted file after a later failure.
-- [ ] AC-3: Family composables own document behavior.
-- [ ] AC-4: Focused family components own document/settings UI.
-- [ ] AC-5: Detail views retain orchestration, not upload/allowlist business logic.
-- [ ] AC-6: No duplicate socket/query engine or boundary violation.
-- [ ] AC-7: Vitest coverage, ESLint, vue-tsc and build pass.
+- [x] AC-1: Existing behavior/tests remain unchanged except stale-cache correction.
+- [x] AC-2: Partial batches reconcile every accepted file after a later failure.
+- [x] AC-3: Family composables own document behavior.
+- [x] AC-4: Focused family components own document/settings UI.
+- [x] AC-5: Detail views retain orchestration, not upload/allowlist business logic.
+- [x] AC-6: No duplicate socket/query engine or boundary violation.
+- [x] AC-7: Vitest coverage, ESLint, vue-tsc and build pass.
 
 ## 10. SRS Delta
 
@@ -77,9 +77,12 @@ None; behavior is preserved and structure complies with R24.04.
 
 ## 11. Deviation Log
 
-Empty.
+- Family composables intentionally retain one flat family-specific return surface
+  rather than introducing a shared mega-composable. The views now orchestrate
+  extracted tabs; further interface narrowing is a separate maintainability step.
 
 ## 12. Follow-ups
 
 - FU-1: Consider a shared access-picker only after both family components stabilize.
-
+- FU-2: Split access-editor state from upload/reconciliation if the family
+  composable interfaces grow beyond their current 14 members.
