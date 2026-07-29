@@ -27,12 +27,13 @@ from contexts.conversation.application.tus_service import (
     TUS_MAX_CHUNK,
     TUS_VERSION,
     TusService,
+    parse_metadata,
 )
 from contexts.conversation.domain.errors import (
     AttachmentTooLarge,
     TusMetadataInvalid,
 )
-from contexts.conversation.infrastructure.tus_store import parse_metadata
+from contexts.conversation.infrastructure.tus_store import TusUploadStore
 from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.context import RequestContext
@@ -52,6 +53,7 @@ def _tus_service(db: AsyncSession) -> TusService:
     wiring = KnowledgeIngestWiring(db)
     return TusService(
         db,
+        store=TusUploadStore(),
         knowledge=KnowledgeFacade(
             db,
             rag_finalizer=wiring.rag_finalizer(),
@@ -60,7 +62,7 @@ def _tus_service(db: AsyncSession) -> TusService:
     )
 
 
-async def _read_patch_chunk(request: Request) -> bytes:
+async def _read_patch_chunk(request: Request) -> bytearray:
     body = bytearray()
     async for chunk in request.stream():
         if len(body) + len(chunk) > TUS_MAX_CHUNK:
@@ -68,7 +70,82 @@ async def _read_patch_chunk(request: Request) -> bytes:
                 f"PATCH chunk exceeds 16 MB cap ({TUS_MAX_CHUNK} bytes)",
             )
         body.extend(chunk)
-    return bytes(body)
+    return body
+
+
+async def _reauthorize_completion(
+    db: AsyncSession,
+    *,
+    principal: Principal,
+    metadata_raw: str,
+) -> None:
+    """Recheck mutable membership and allowlist constraints before finalization."""
+    try:
+        meta = parse_metadata(metadata_raw)
+    except ValueError as exc:
+        raise TusMetadataInvalid(str(exc)) from exc
+    purpose = meta.get("purpose")
+    if purpose == "chat_attachment":
+        try:
+            chatroom_id = uuid.UUID(meta.get("chatroom_id", ""))
+        except ValueError as exc:
+            raise TusMetadataInvalid("chatroom_id must be UUID") from exc
+        access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+        ensure_can_send(access, is_admin=principal.is_admin)
+        return
+    if purpose == "rag_source":
+        try:
+            config_id = uuid.UUID(meta.get("rag_config_id", ""))
+            agent_ids = [
+                uuid.UUID(token.strip())
+                for token in meta.get("rag_agent_ids", "").split(",")
+                if token.strip()
+            ]
+        except ValueError as exc:
+            raise TusMetadataInvalid("rag upload metadata must contain UUIDs") from exc
+        rag_cfg = await KnowledgeFacade(db).get_rag_config(config_id)
+        if rag_cfg is None:
+            raise HTTPException(status_code=404, detail="rag config not found")
+        if rag_cfg.embed_key_id is None:
+            raise HTTPException(status_code=422, detail="rag config has no embed_key_id")
+        await _require_rag_owner(db, project_id=rag_cfg.project_id, principal=principal)
+        from app.api.v1.rag import validate_agent_allowlist
+
+        await validate_agent_allowlist(
+            db=db,
+            config_id=config_id,
+            project_id=rag_cfg.project_id,
+            agent_ids=agent_ids,
+        )
+        return
+    if purpose == "knowmap_source":
+        try:
+            config_id = uuid.UUID(meta.get("knowmap_config_id", ""))
+            agent_ids = [
+                uuid.UUID(token.strip())
+                for token in meta.get("knowmap_agent_ids", "").split(",")
+                if token.strip()
+            ]
+        except ValueError as exc:
+            raise TusMetadataInvalid("knowmap upload metadata must contain UUIDs") from exc
+        knowmap_cfg = await KnowledgeFacade(db).get_knowmap_config(config_id)
+        if knowmap_cfg is None:
+            raise HTTPException(status_code=404, detail="knowmap config not found")
+        await _require_rag_owner(
+            db,
+            project_id=knowmap_cfg.project_id,
+            principal=principal,
+        )
+        from app.api.v1.knowmap import validate_knowmap_agent_allowlist
+
+        await validate_knowmap_agent_allowlist(
+            db=db,
+            config_id=config_id,
+            project_id=knowmap_cfg.project_id,
+            agent_ids=agent_ids,
+        )
+        return
+    raise HTTPException(status_code=403, detail=f"TUS upload purpose {purpose!r} is not enabled")
 
 
 async def _require_rag_owner(
@@ -299,6 +376,13 @@ async def tus_patch(
     body = await _read_patch_chunk(request)
 
     service = _tus_service(db)
+    info = await service.head(upload_id=upload_id, user_id=principal.user_id)
+    if upload_offset + len(body) == info.upload_length:
+        await _reauthorize_completion(
+            db,
+            principal=principal,
+            metadata_raw=info.metadata_raw,
+        )
     result = await service.patch(
         upload_id=upload_id,
         user_id=principal.user_id,

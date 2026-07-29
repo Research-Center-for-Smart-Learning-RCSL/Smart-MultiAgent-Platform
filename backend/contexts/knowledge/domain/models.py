@@ -100,6 +100,9 @@ DEFAULT_FIXED_CHUNK_PARAMS: dict[str, int] = {
     "chunk_size_tokens": 512,
     "chunk_overlap_tokens": 64,
 }
+MAX_CHUNK_SIZE_TOKENS = 8_192
+MAX_CHUNK_OVERLAP_TOKENS = 2_048
+MAX_CHUNK_OUTPUT_BYTES = 128 * 1024 * 1024
 # similarity_threshold is compared against the cosine of a sentence to the
 # running chunk centroid; for in-topic prose that cosine often sits well below
 # 0.6, so a high default over-fragments into ~1-sentence chunks. Default low —
@@ -126,6 +129,34 @@ def normalized_chunk_params(strategy: ChunkStrategy, params: dict[str, Any]) -> 
         DEFAULT_FIXED_CHUNK_PARAMS if strategy is ChunkStrategy.FIXED else DEFAULT_SEMANTIC_CHUNK_PARAMS
     )
     return {key: params.get(key, default) for key, default in defaults.items()}
+
+
+def validate_chunk_params(strategy: ChunkStrategy, params: dict[str, Any]) -> None:
+    from contexts.knowledge.domain.errors import ChunkParamsInvalid
+
+    merged = normalized_chunk_params(strategy, params)
+    try:
+        if strategy is ChunkStrategy.FIXED:
+            size = int(merged["chunk_size_tokens"])
+            overlap = int(merged["chunk_overlap_tokens"])
+            if not 1 <= size <= MAX_CHUNK_SIZE_TOKENS:
+                raise ChunkParamsInvalid(f"chunk_size_tokens must be in [1, {MAX_CHUNK_SIZE_TOKENS}]")
+            if overlap < 0 or overlap >= size:
+                raise ChunkParamsInvalid("chunk_overlap_tokens must be in [0, chunk_size)")
+            if overlap > MAX_CHUNK_OVERLAP_TOKENS or overlap * 2 > size:
+                raise ChunkParamsInvalid(
+                    "chunk_overlap_tokens must not exceed 2048 or half of chunk_size_tokens"
+                )
+            return
+
+        max_tokens = int(merged["max_tokens_per_chunk"])
+        threshold = float(merged["similarity_threshold"])
+        if not 1 <= max_tokens <= MAX_CHUNK_SIZE_TOKENS:
+            raise ChunkParamsInvalid(f"max_tokens_per_chunk must be in [1, {MAX_CHUNK_SIZE_TOKENS}]")
+        if not 0.0 < threshold <= 1.0:
+            raise ChunkParamsInvalid("similarity_threshold must be in (0, 1]")
+    except (TypeError, ValueError) as exc:
+        raise ChunkParamsInvalid(f"invalid chunk params: {exc}") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +242,9 @@ __all__ = [
     "EmbedCatalogEntry",
     "EmbedModelOption",
     "IngestClaim",
+    "MAX_CHUNK_OUTPUT_BYTES",
+    "MAX_CHUNK_OVERLAP_TOKENS",
+    "MAX_CHUNK_SIZE_TOKENS",
     "RagChunk",
     "RagConfig",
     "RagConfigDraft",
@@ -218,4 +252,6 @@ __all__ = [
     "ScanStatus",
     "embed_dimension",
     "embedding_catalog",
+    "normalized_chunk_params",
+    "validate_chunk_params",
 ]

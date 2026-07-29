@@ -53,6 +53,8 @@ async def test_expired_claims_are_reclaimed_and_enqueued_with_new_ownership() ->
     assert enqueue_owned.await_count == 2
     assert enqueue_owned.await_args_list[0].kwargs["claim"] is rag_claim
     assert enqueue_owned.await_args_list[1].kwargs["claim"] is knowmap_claim
+    rag_repo.lock_for_ingest.assert_awaited_once_with(rag_id)
+    knowmap_repo.lock_for_ingest.assert_awaited_once_with(knowmap_id)
     assert db.commit.await_count == 2
 
 
@@ -85,3 +87,23 @@ async def test_reenqueue_failure_only_fails_the_current_claim() -> None:
         status=DocumentStatus.FAILED,
     )
 
+
+@pytest.mark.asyncio
+async def test_claim_loser_releases_transaction_lock_before_continuing() -> None:
+    rag_id = uuid.uuid4()
+    rag_repo = AsyncMock()
+    rag_repo.list_expired_claim_ids.return_value = [rag_id]
+    rag_repo.claim_for_reingest.return_value = None
+    knowmap_repo = AsyncMock()
+    knowmap_repo.list_expired_claim_ids.return_value = []
+    db = AsyncMock()
+
+    with (
+        patch(f"{_MOD}.get_sessionmaker", return_value=_sessionmaker(db)),
+        patch(f"{_MOD}.RagDocumentRepository", return_value=rag_repo),
+        patch(f"{_MOD}.KnowmapDocumentRepository", return_value=knowmap_repo),
+    ):
+        recovered = await knowledge_ingest_reconcile({})
+
+    assert recovered == 0
+    db.rollback.assert_awaited_once()

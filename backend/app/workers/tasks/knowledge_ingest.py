@@ -28,6 +28,8 @@ async def _enqueue_owned(
         await enqueue(
             name,
             document_id=document_id,
+            ingest_attempt=claim.attempt,
+            claim_token=str(claim.token),
             _job_id=f"{prefix}:{document_id}:{claim.attempt}",
             _queue_name=KNOWLEDGE_SCAN_QUEUE,
         )
@@ -52,8 +54,10 @@ async def knowledge_ingest_reconcile(ctx: dict[str, Any]) -> int:
         rag_repo = RagDocumentRepository(db)
         rag_ids = await rag_repo.list_expired_claim_ids(limit=_SWEEP_LIMIT)
         for document_id in rag_ids:
+            await rag_repo.lock_for_ingest(document_id)
             claim = await rag_repo.claim_for_reingest(document_id)
             if claim is None:
+                await db.rollback()
                 continue
             rag_doc = await rag_repo.get(document_id)
             await db.commit()
@@ -86,8 +90,10 @@ async def knowledge_ingest_reconcile(ctx: dict[str, Any]) -> int:
         knowmap_repo = KnowmapDocumentRepository(db)
         knowmap_ids = await knowmap_repo.list_expired_claim_ids(limit=_SWEEP_LIMIT)
         for document_id in knowmap_ids:
+            await knowmap_repo.lock_for_ingest(document_id)
             claim = await knowmap_repo.claim_for_reingest(document_id)
             if claim is None:
+                await db.rollback()
                 continue
             knowmap_doc = await knowmap_repo.get(document_id)
             await db.commit()

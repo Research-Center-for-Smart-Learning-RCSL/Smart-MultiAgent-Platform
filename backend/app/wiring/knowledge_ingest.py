@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+from minio import Minio
+from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
@@ -11,12 +15,14 @@ from contexts.knowledge.application.knowmap_ingest_service import KnowmapIngestS
 from contexts.knowledge.application.knowmap_tus_finalizer import KnowmapTusFinalizer
 from contexts.knowledge.application.ports import BlobStore, Embedder
 from contexts.knowledge.application.rag_tus_finalizer import RagTusFinalizer
+from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
 from contexts.knowledge.infrastructure.chunkers import chunk_document
 from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapChunkRepository,
     KnowmapConfigRepository,
     KnowmapDocumentRepository,
 )
+from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
 from contexts.knowledge.infrastructure.repositories import (
     RagChunkRepository,
     RagConfigRepository,
@@ -70,6 +76,52 @@ class KnowledgeIngestWiring:
             chunker=chunk_document,
             scan_required=self._scan_required,
             bucket=bucket,
+        )
+
+    def rag_upload_service(
+        self,
+        *,
+        embedder: Any,
+    ) -> tuple[IngestService, AsyncQdrantClient]:
+        settings = get_settings()
+        blob = MinioBlobStore(
+            Minio(
+                settings.minio.endpoint,
+                access_key=settings.minio.root_access_key,
+                secret_key=settings.minio.root_secret_key,
+                secure=settings.minio.use_tls,
+                region=settings.minio.region,
+            )
+        )
+        qclient = AsyncQdrantClient(
+            url=settings.qdrant.url,
+            api_key=settings.qdrant.api_key or None,
+        )
+        return (
+            self.rag_service(
+                blob=blob,
+                embedder=embedder,
+                qdrant=QdrantStore(qclient),
+                bucket=settings.minio.bucket_rag_sources,
+            ),
+            qclient,
+        )
+
+    def knowmap_upload_service(self, *, embedder: Any) -> KnowmapIngestService:
+        settings = get_settings()
+        blob = MinioBlobStore(
+            Minio(
+                settings.minio.endpoint,
+                access_key=settings.minio.root_access_key,
+                secret_key=settings.minio.root_secret_key,
+                secure=settings.minio.use_tls,
+                region=settings.minio.region,
+            )
+        )
+        return self.knowmap_service(
+            blob=blob,
+            embedder=embedder,
+            bucket=settings.minio.bucket_knowmap_sources,
         )
 
     def rag_finalizer(self) -> RagTusFinalizer:

@@ -16,6 +16,8 @@ The module deliberately does not depend on FastAPI — routers in
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import contextlib
 import logging
 import os
@@ -33,6 +35,13 @@ from contexts.conversation.application.attachment_service import (
     TUS_MAX_BYTES,
     AttachmentService,
 )
+from contexts.conversation.application.tus_ports import (
+    KnowledgeUploadFinalizer,
+    TusOffsetUpdateResult,
+    TusReserveResult,
+    TusUpload,
+    TusUploadStorePort,
+)
 from contexts.conversation.domain.errors import (
     AttachmentTooLarge,
     TusMetadataInvalid,
@@ -43,14 +52,6 @@ from contexts.conversation.domain.errors import (
     TusUploadNotFound,
 )
 from contexts.conversation.domain.models import MessageAttachment
-from contexts.conversation.infrastructure.tus_store import (
-    TusOffsetUpdateResult,
-    TusReserveResult,
-    TusUpload,
-    TusUploadStore,
-    parse_metadata,
-)
-from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from shared_kernel.observability.metrics import TUS_UPLOAD_BYTES
 
 _log = logging.getLogger(__name__)
@@ -60,6 +61,27 @@ TUS_MAX_CHUNK: Final = 16 * 1024 * 1024  # R22.15.04
 TUS_EXTENSIONS: Final = "creation,termination"
 TUS_STAGING_MIN_FREE_BYTES: Final = 2 * 1024 * 1024 * 1024
 TUS_STAGING_MIN_FREE_RATIO: Final = 0.20
+
+
+def parse_metadata(raw: str) -> dict[str, str]:
+    """Parse a TUS ``Upload-Metadata`` header into decoded values."""
+    out: dict[str, str] = {}
+    if not raw:
+        return out
+    for part in raw.split(","):
+        pair = part.strip().split(" ", 1)
+        key = pair[0].strip()
+        if not key:
+            continue
+        if len(pair) == 1:
+            out[key] = ""
+            continue
+        try:
+            decoded = base64.b64decode(pair[1].strip(), validate=True).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError) as exc:
+            raise ValueError(f"invalid base64 in Upload-Metadata key {key!r}") from exc
+        out[key] = decoded
+    return out
 
 
 def _staging_dir() -> str:
@@ -75,17 +97,19 @@ def _staging_path(upload_id: uuid.UUID) -> str:
     return os.path.join(_staging_dir(), f"{upload_id}.part")
 
 
-def _ensure_staging_headroom(upload_length: int) -> None:
+def _staging_reservation_capacity(upload_length: int) -> int:
     usage = shutil.disk_usage(_staging_dir())
     required_headroom = max(
         TUS_STAGING_MIN_FREE_BYTES,
         int(usage.total * TUS_STAGING_MIN_FREE_RATIO),
     )
-    if usage.free - upload_length < required_headroom:
+    capacity = max(0, usage.free - required_headroom)
+    if upload_length > capacity:
         raise TusStagingUnavailable("insufficient staging-disk headroom")
+    return capacity
 
 
-def _append_chunk(path: str, chunk: bytes) -> None:
+def _append_chunk(path: str, chunk: bytes | bytearray) -> None:
     """Blocking append, run in a worker thread by `patch`.
 
     Module-level rather than a closure so a partial-write fault can be injected
@@ -123,10 +147,11 @@ class TusService:
         self,
         db: AsyncSession,
         *,
-        knowledge: KnowledgeFacade | None = None,
+        store: TusUploadStorePort,
+        knowledge: KnowledgeUploadFinalizer | None = None,
     ) -> None:
         self._db = db
-        self._store = TusUploadStore()
+        self._store = store
         self._attachments = AttachmentService(db)
         self._knowledge = knowledge
 
@@ -181,7 +206,7 @@ class TusService:
                 "knowmap_source uploads require knowmap_config_id",
             )
 
-        _ensure_staging_headroom(upload_length)
+        host_max_reserved_bytes = _staging_reservation_capacity(upload_length)
         upload_id = uuid.uuid4()
         path = _staging_path(upload_id)
         upload = TusUpload(
@@ -199,7 +224,10 @@ class TusService:
             staging_path=path,
             metadata_raw=metadata_raw,
         )
-        reserved = await self._store.create(upload)
+        reserved = await self._store.create(
+            upload,
+            host_max_reserved_bytes=host_max_reserved_bytes,
+        )
         if reserved is not TusReserveResult.ACCEPTED:
             raise TusUploadCapacityExceeded(f"TUS reservation rejected: {reserved.name.lower()}")
         try:
@@ -242,7 +270,7 @@ class TusService:
         upload_id: uuid.UUID,
         user_id: uuid.UUID,
         offset: int,
-        chunk: bytes,
+        chunk: bytes | bytearray,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
     ) -> TusPatchResult:
@@ -469,4 +497,5 @@ __all__ = [
     "TusHeadResult",
     "TusPatchResult",
     "TusService",
+    "parse_metadata",
 ]

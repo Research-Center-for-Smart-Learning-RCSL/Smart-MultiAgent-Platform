@@ -72,6 +72,17 @@ class RagDocumentIngestPort(Protocol):
         scan_at: datetime,
     ) -> None: ...
 
+    async def mark_scan_owned(
+        self,
+        *,
+        document_id: uuid.UUID,
+        claim: IngestClaim,
+        scan_status: ScanStatus,
+        scan_at: datetime,
+        terminal_status: DocumentStatus | None = None,
+        failure_code: str | None = None,
+    ) -> bool: ...
+
     async def claim_for_reingest(self, document_id: uuid.UUID) -> IngestClaim | None: ...
 
     async def claim_initial(self, document_id: uuid.UUID) -> IngestClaim | None: ...
@@ -178,6 +189,17 @@ class KnowmapDocumentIngestPort(Protocol):
         scan_at: datetime,
     ) -> None: ...
 
+    async def mark_scan_owned(
+        self,
+        *,
+        document_id: uuid.UUID,
+        claim: IngestClaim,
+        scan_status: ScanStatus,
+        scan_at: datetime,
+        terminal_status: DocumentStatus | None = None,
+        failure_code: str | None = None,
+    ) -> bool: ...
+
     async def claim_for_reingest(self, document_id: uuid.UUID) -> IngestClaim | None: ...
 
     async def claim_initial(self, document_id: uuid.UUID) -> IngestClaim | None: ...
@@ -231,6 +253,7 @@ class DocumentChunker(Protocol):
         strategy: ChunkStrategy,
         params: dict[str, Any],
         embedder: Embedder,
+        max_chunks: int,
     ) -> list[str]: ...
 
 

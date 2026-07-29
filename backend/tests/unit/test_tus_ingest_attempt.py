@@ -148,9 +148,9 @@ async def test_rag_failed_reupload_bumps_and_enqueues_fresh_ids() -> None:
     # Two genuine retries -> two distinct ingest ids (…:1 then …:2), each with a
     # matching scan id — never the pre-fix document-only id.
     assert cap1.ingest == [f"rag-ingest:{doc_id}:1"]
-    assert cap1.scan == [f"rag-scan:{doc_id}:1"]
+    assert cap1.scan == []
     assert cap2.ingest == [f"rag-ingest:{doc_id}:2"]
-    assert cap2.scan == [f"rag-scan:{doc_id}:2"]
+    assert cap2.scan == []
     assert fin._docs.claim_for_reingest.await_count == 2
 
 
@@ -179,7 +179,7 @@ async def test_rag_first_upload_uses_attempt_zero() -> None:
     await _run_rag(fin, cap)
 
     assert cap.ingest == [f"rag-ingest:{new_id}:0"]
-    assert cap.scan == [f"rag-scan:{new_id}:0"]
+    assert cap.scan == []
 
 
 @pytest.mark.asyncio
@@ -239,6 +239,31 @@ async def test_rag_started_publish_failure_does_not_prevent_enqueue() -> None:
     publish.assert_awaited_once()
     queued.assert_awaited_once()
     fin._docs.set_status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_rag_enqueue_ambiguity_does_not_publish_false_failure() -> None:
+    fin = _make_rag_finalizer(None, claim_returns=[])
+    fin._docs.finish_claim.return_value = False
+    failed_emit = AsyncMock()
+
+    with (
+        patch(f"{_RAG_MOD}._publish_ingestion_started", new=AsyncMock()),
+        patch(f"{_RAG_MOD}.enqueue", new=AsyncMock(side_effect=ConnectionError("ambiguous"))),
+        patch(
+            f"{_RAG_MOD}.Publisher",
+            new=MagicMock(return_value=MagicMock(emit=failed_emit)),
+        ),
+        pytest.raises(ConnectionError, match="ambiguous"),
+    ):
+        await fin._enqueue_scan_gate(
+            uuid.uuid4(),
+            config_id=uuid.uuid4(),
+            ingest_attempt=2,
+            claim_token=uuid.uuid4(),
+        )
+
+    failed_emit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -401,9 +426,9 @@ async def test_knowmap_failed_reupload_bumps_and_enqueues_fresh_ids() -> None:
     await _run_km(fin, cap2)
 
     assert cap1.ingest == [f"knowmap-ingest:{doc_id}:1"]
-    assert cap1.scan == [f"knowmap-scan:{doc_id}:1"]
+    assert cap1.scan == []
     assert cap2.ingest == [f"knowmap-ingest:{doc_id}:2"]
-    assert cap2.scan == [f"knowmap-scan:{doc_id}:2"]
+    assert cap2.scan == []
 
 
 @pytest.mark.asyncio
@@ -428,7 +453,7 @@ async def test_knowmap_first_upload_uses_attempt_zero() -> None:
     await _run_km(fin, cap)
 
     assert cap.ingest == [f"knowmap-ingest:{new_id}:0"]
-    assert cap.scan == [f"knowmap-scan:{new_id}:0"]
+    assert cap.scan == []
 
 
 @pytest.mark.asyncio

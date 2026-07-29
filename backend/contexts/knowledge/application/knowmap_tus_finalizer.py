@@ -26,7 +26,6 @@ from contexts.knowledge.application.ingest_ports import (
 from contexts.knowledge.application.knowmap_ingest_service import (
     emit_knowmap_reupload_agents_set_audit,
     emit_knowmap_reupload_audit,
-    enqueue_knowmap_scan,
     knowmap_source_object_key,
 )
 from contexts.knowledge.domain.errors import (
@@ -148,11 +147,6 @@ class KnowmapTusFinalizer:
                     ingest_attempt=claim.attempt,
                     claim_token=claim.token,
                 )
-                if not getattr(self, "_scan_required", False):
-                    await enqueue_knowmap_scan(
-                        document_id=existing.id,
-                        ingest_attempt=claim.attempt,
-                    )
             await self._db.commit()
             return updated
 
@@ -215,8 +209,6 @@ class KnowmapTusFinalizer:
             ingest_attempt=claim.attempt,
             claim_token=claim.token,
         )
-        if not getattr(self, "_scan_required", False):
-            await enqueue_knowmap_scan(document_id=doc.id, ingest_attempt=claim.attempt)
         return doc
 
     async def _enqueue_scan_gate(
@@ -234,6 +226,8 @@ class KnowmapTusFinalizer:
                 await enqueue(
                     "knowmap_scan_document",
                     document_id=str(document_id),
+                    ingest_attempt=ingest_attempt,
+                    claim_token=str(claim_token),
                     _job_id=f"knowmap-scan:{document_id}:{ingest_attempt}",
                     _queue_name=KNOWLEDGE_SCAN_QUEUE,
                 )

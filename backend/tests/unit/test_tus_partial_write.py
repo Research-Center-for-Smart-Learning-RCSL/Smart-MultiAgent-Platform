@@ -106,10 +106,9 @@ def _make(
     )
     # Patch AttachmentService out of __init__ so constructing the service does
     # not reach for a MinIO client this unit test has no use for.
-    with patch("contexts.conversation.application.tus_service.AttachmentService"):
-        svc = TusService(db=None)  # type: ignore[arg-type]
     store = _FakeStore(upload)
-    svc._store = store  # type: ignore[assignment]
+    with patch("contexts.conversation.application.tus_service.AttachmentService"):
+        svc = TusService(db=None, store=store)  # type: ignore[arg-type]
     return svc, store, staging_path, user_id
 
 
