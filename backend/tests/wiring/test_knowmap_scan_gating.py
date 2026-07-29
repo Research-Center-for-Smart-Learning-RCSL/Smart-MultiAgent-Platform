@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -49,6 +50,9 @@ class _FakeBlob:
 
     async def get(self, *, bucket: str, key: str) -> bytes:
         return _TEXT
+
+    async def download_to_path(self, *, bucket: str, key: str, path: Path) -> None:
+        path.write_bytes(_TEXT)
 
 
 async def _seed(db) -> SimpleNamespace:

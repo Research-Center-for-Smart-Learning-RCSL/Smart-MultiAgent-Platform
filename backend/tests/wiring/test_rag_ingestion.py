@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -60,6 +61,10 @@ class _FakeBlob:
     async def get(self, *, bucket: str, key: str) -> bytes:
         self.gets.append((bucket, key))
         return self._data
+
+    async def download_to_path(self, *, bucket: str, key: str, path: Path) -> None:
+        self.gets.append((bucket, key))
+        path.write_bytes(self._data)
 
 
 class _FakeEmbedder:

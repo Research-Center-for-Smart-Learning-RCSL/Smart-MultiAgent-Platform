@@ -473,13 +473,13 @@ class TestIngestFailureSemantics:
         blob.put.return_value = doc.minio_path
         svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=chunk_repo, blob=blob)
 
-        def _unparseable(_: bytes) -> str:
+        def _unparseable(*_args) -> str:
             from shared_kernel.text_extraction.parsers import ParserError
 
             raise ParserError("pdf parse failed: no extractable text layer")
 
         with (
-            patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": _unparseable}, clear=False),
+            patch(f"{_MOD}.parse_path", _unparseable),
             patch(f"{_MOD}.audit.emit", AsyncMock()),
             patch(f"{_MOD}.Publisher", _fake_publisher()),
             patch(f"{_MOD}.enqueue_rag_scan", AsyncMock()),
@@ -492,9 +492,9 @@ class TestIngestFailureSemantics:
             document_id=doc.id,
             claim=ANY,
             status=DocumentStatus.FAILED,
+            failure_code="document_unprocessable",
         )
         svc._db.commit.assert_awaited()
-
 
     @pytest.mark.asyncio
     async def test_scan_required_defers_parser_and_indexing_until_clean(self) -> None:
@@ -537,11 +537,12 @@ class TestIngestFailureSemantics:
         existing = _make_document(status=DocumentStatus.FAILED)
         doc_repo = AsyncMock()
         doc_repo.find_by_sha.return_value = existing
+        doc_repo.set_agents.return_value = existing
         chunk_repo = AsyncMock()
         svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=chunk_repo)
 
         with (
-            patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": lambda b: "parsed body"}, clear=False),
+            patch(f"{_MOD}.parse_path", return_value="parsed body"),
             patch.object(svc, "_chunker", AsyncMock(side_effect=RuntimeError("boom"))),
             patch(f"{_MOD}.emit_reupload_audit", AsyncMock()) as reupload_audit,
             patch(f"{_MOD}.Publisher", _fake_publisher()),
@@ -569,7 +570,7 @@ class TestIngestFailureSemantics:
         svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=chunk_repo, blob=blob)
 
         with (
-            patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": lambda b: "parsed body"}, clear=False),
+            patch(f"{_MOD}.parse_path", return_value="parsed body"),
             patch.object(svc, "_chunker", AsyncMock(side_effect=RuntimeError("boom"))),
             patch(f"{_MOD}.audit.emit", AsyncMock()),
             patch(f"{_MOD}.Publisher", _fake_publisher()),
@@ -582,5 +583,6 @@ class TestIngestFailureSemantics:
             document_id=doc.id,
             claim=ANY,
             status=DocumentStatus.FAILED,
+            failure_code="ingest_failed",
         )
         svc._db.commit.assert_awaited()

@@ -760,10 +760,9 @@ class RagConfigService:
         from qdrant_client import AsyncQdrantClient
 
         from app.config.settings import get_settings
+        from app.wiring.knowledge_ingest import KnowledgeIngestWiring
         from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
         from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
-
-        from app.wiring.knowledge_ingest import KnowledgeIngestWiring
 
         settings = get_settings()
 

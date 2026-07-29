@@ -496,7 +496,7 @@ class TestIngest:
         svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=chunk_repo, blob=blob)
 
         with (
-            patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": lambda b: "parsed"}, clear=False),
+            patch(f"{_MOD}.parse_path", return_value="parsed"),
             patch.object(svc, "_chunker", AsyncMock(side_effect=RuntimeError("boom"))),
             patch(f"{_MOD}.audit.emit", AsyncMock()),
             patch(f"{_MOD}.enqueue_knowmap_scan", AsyncMock()),
@@ -510,9 +510,9 @@ class TestIngest:
             document_id=doc.id,
             claim=ANY,
             status=DocumentStatus.FAILED,
+            failure_code="ingest_failed",
         )
         svc._db.commit.assert_awaited()
-
 
     @pytest.mark.asyncio
     async def test_scan_required_defers_knowmap_parser_and_indexing_until_clean(self) -> None:
@@ -561,11 +561,11 @@ class TestIngest:
         blob.put.return_value = doc.minio_path
         svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=chunk_repo, blob=blob)
 
-        def _unparseable(_: bytes) -> str:
+        def _unparseable(*_args) -> str:
             raise ParserError("pdf parse failed: no extractable text layer")
 
         with (
-            patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": _unparseable}, clear=False),
+            patch(f"{_MOD}.parse_path", _unparseable),
             patch(f"{_MOD}.audit.emit", AsyncMock()),
             patch(f"{_MOD}.enqueue_knowmap_scan", AsyncMock()),
             patch(f"{_MOD}.enqueue_knowmap_build", AsyncMock()),
@@ -578,5 +578,6 @@ class TestIngest:
             document_id=doc.id,
             claim=ANY,
             status=DocumentStatus.FAILED,
+            failure_code="document_unprocessable",
         )
         svc._db.commit.assert_awaited()

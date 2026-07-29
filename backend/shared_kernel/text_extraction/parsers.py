@@ -21,14 +21,19 @@ import mimetypes
 import shutil
 import subprocess  # — invocation is fully controlled below
 import tempfile
+import zipfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = [
     "MIME_TO_PARSER",
     "SUPPORTED_MIMES",
+    "ExtractionLimits",
     "ParserError",
+    "ResourceBudgetError",
     "normalise_mime",
+    "parse_path",
     "parse_docx",
     "parse_markdown",
     "parse_pdf",
@@ -53,6 +58,185 @@ def normalise_mime(raw: str, filename: str) -> str:
 
 class ParserError(RuntimeError):
     """Generic parser failure; mapped to `knowledge/ingest-failed` at the edge."""
+
+
+class ResourceBudgetError(ParserError):
+    """Extraction stopped at a deterministic resource boundary."""
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractionLimits:
+    extracted_utf8_bytes: int = 64 * 1024 * 1024
+    estimated_tokens: int = 10_000_000
+    pdf_pages: int = 5_000
+    ocr_pages: int = 100
+    docx_expanded_bytes: int = 256 * 1024 * 1024
+    docx_compression_ratio: int = 100
+    docx_entries: int = 10_000
+    docx_single_entry_bytes: int = 64 * 1024 * 1024
+
+
+DEFAULT_EXTRACTION_LIMITS = ExtractionLimits()
+
+
+class _BoundedText:
+    def __init__(self, limits: ExtractionLimits) -> None:
+        self._limits = limits
+        self._parts: list[str] = []
+        self._utf8_bytes = 0
+        self._characters = 0
+
+    def append(self, value: str) -> None:
+        encoded_size = len(value.encode("utf-8"))
+        if self._utf8_bytes + encoded_size > self._limits.extracted_utf8_bytes:
+            raise ResourceBudgetError("extracted_utf8_bytes")
+        if (self._characters + len(value) + 3) // 4 > self._limits.estimated_tokens:
+            raise ResourceBudgetError("estimated_tokens")
+        self._parts.append(value)
+        self._utf8_bytes += encoded_size
+        self._characters += len(value)
+
+    def append_section(self, value: str) -> None:
+        self.append(("\n\n" if self._parts else "") + value)
+
+    def finish(self) -> str:
+        return "".join(self._parts)
+
+
+def parse_path(
+    path: Path,
+    mime: str,
+    *,
+    limits: ExtractionLimits = DEFAULT_EXTRACTION_LIMITS,
+) -> str:
+    """Extract a spooled source while enforcing deterministic hard budgets."""
+    if mime in {"text/plain", "text/markdown"}:
+        return _parse_text_path(path, limits)
+    if mime == "application/pdf":
+        return _parse_pdf_path(path, limits)
+    if mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        return _parse_docx_path(path, limits)
+    raise ParserError(f"unsupported mime {mime!r}")
+
+
+def _parse_text_path(path: Path, limits: ExtractionLimits) -> str:
+    import codecs
+
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    output = _BoundedText(limits)
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            output.append(decoder.decode(chunk))
+    output.append(decoder.decode(b"", final=True))
+    return output.finish()
+
+
+def _parse_pdf_path(path: Path, limits: ExtractionLimits) -> str:
+    try:
+        import pypdf
+    except ImportError as exc:  # pragma: no cover
+        raise ParserError("pypdf not installed") from exc
+    try:
+        reader = pypdf.PdfReader(path)
+        if len(reader.pages) > limits.pdf_pages:
+            raise ResourceBudgetError("pdf_pages")
+        output = _BoundedText(limits)
+        for page in reader.pages:
+            try:
+                text = (page.extract_text() or "").strip()
+            except Exception:
+                text = ""
+            if text:
+                output.append_section(text)
+    except ResourceBudgetError:
+        raise
+    except Exception as exc:
+        raise ParserError(f"pdf parse failed: {exc}") from exc
+    extracted = output.finish()
+    if extracted:
+        return extracted
+    if shutil.which("tesseract") is None:
+        return ""
+    if len(reader.pages) > limits.ocr_pages:
+        raise ResourceBudgetError("ocr_pages")
+    return _tesseract_ocr_path(path, limits)
+
+
+def _tesseract_ocr_path(path: Path, limits: ExtractionLimits) -> str:
+    if shutil.which("pdftoppm") is None:
+        return ""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        try:
+            subprocess.run(  # noqa: S603
+                ["pdftoppm", "-r", "200", "-png", str(path), str(base / "page")],  # noqa: S607
+                check=True,
+                capture_output=True,
+                timeout=120,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return ""
+        images = sorted(base.glob("page-*.png"))
+        if len(images) > limits.ocr_pages:
+            raise ResourceBudgetError("ocr_pages")
+        output = _BoundedText(limits)
+        for image in images:
+            try:
+                result = subprocess.run(  # noqa: S603
+                    ["tesseract", str(image), "-"],  # noqa: S607
+                    check=True,
+                    capture_output=True,
+                    timeout=120,
+                )
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                continue
+            text = result.stdout.decode("utf-8", errors="replace").strip()
+            if text:
+                output.append_section(text)
+        return output.finish()
+
+
+def _parse_docx_path(path: Path, limits: ExtractionLimits) -> str:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            entries = archive.infolist()
+            if len(entries) > limits.docx_entries:
+                raise ResourceBudgetError("docx_entries")
+            expanded = 0
+            compressed = 0
+            for entry in entries:
+                if entry.flag_bits & 0x1:
+                    raise ParserError("encrypted docx is not supported")
+                if entry.file_size > limits.docx_single_entry_bytes:
+                    raise ResourceBudgetError("docx_single_entry_bytes")
+                expanded += entry.file_size
+                compressed += entry.compress_size
+                if expanded > limits.docx_expanded_bytes:
+                    raise ResourceBudgetError("docx_expanded_bytes")
+            if expanded > limits.docx_compression_ratio * max(compressed, 1):
+                raise ResourceBudgetError("docx_compression_ratio")
+    except (ParserError, ResourceBudgetError):
+        raise
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise ParserError(f"docx parse failed: {exc}") from exc
+    try:
+        import docx
+
+        document = docx.Document(path)
+    except Exception as exc:
+        raise ParserError(f"docx parse failed: {exc}") from exc
+    output = _BoundedText(limits)
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        if text:
+            output.append_section(text)
+    for table in document.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                text = cell.text.strip()
+                if text:
+                    output.append_section(text)
+    return output.finish()
 
 
 def parse_plaintext(data: bytes) -> str:

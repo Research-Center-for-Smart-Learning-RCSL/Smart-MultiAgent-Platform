@@ -33,13 +33,16 @@ SoC:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import logging
+import tempfile
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,6 +56,7 @@ from contexts.knowledge.application.ingest_ports import (
     RagVectorIngestPort,
 )
 from contexts.knowledge.application.ports import BlobStore, Embedder
+from contexts.knowledge.application.resource_budgets import enforce_chunk_budget
 from contexts.knowledge.domain.errors import (
     DocumentAllowlistConflict,
     DocumentTooLarge,
@@ -73,7 +77,13 @@ from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_
 from shared_kernel import audit
 from shared_kernel.queue_names import KNOWLEDGE_SCAN_QUEUE
 from shared_kernel.realtime.pubsub import Publisher
-from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, ParserError, normalise_mime
+from shared_kernel.text_extraction.parsers import (
+    MIME_TO_PARSER,
+    ParserError,
+    ResourceBudgetError,
+    normalise_mime,
+    parse_path,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -420,23 +430,26 @@ class IngestService:
             raise RagConfigNotFound(str(doc.rag_config_id))
 
         bucket, _, key = doc.minio_path.partition("/")
-        data = await self._blob.get(bucket=bucket, key=key)
-        return await self._index_document(
-            doc=doc,
-            cfg=cfg,
-            data=data,
-            actor_user_id=doc.uploaded_by,
-            actor_ip=actor_ip,
-            request_id=request_id,
-            claim=claim,
-        )
+        with tempfile.TemporaryDirectory(prefix="smap-rag-source-") as tmpdir:
+            source_path = Path(tmpdir) / "source"
+            await self._blob.download_to_path(bucket=bucket, key=key, path=source_path)
+            return await self._index_document(
+                doc=doc,
+                cfg=cfg,
+                source_path=source_path,
+                actor_user_id=doc.uploaded_by,
+                actor_ip=actor_ip,
+                request_id=request_id,
+                claim=claim,
+            )
 
     async def _index_document(
         self,
         *,
         doc: RagDocument,
         cfg: RagConfig,
-        data: bytes,
+        data: bytes | None = None,
+        source_path: Path | None = None,
         actor_user_id: uuid.UUID | None,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
@@ -448,13 +461,22 @@ class IngestService:
         so both index identically. The caller owns registration + the
         ``ingestion.started`` event."""
         try:
-            text = MIME_TO_PARSER[doc.mime](data)
+            if source_path is not None:
+                text = await asyncio.to_thread(parse_path, source_path, doc.mime)
+            elif data is not None:
+                with tempfile.TemporaryDirectory(prefix="smap-rag-source-") as tmpdir:
+                    source_path = Path(tmpdir) / "source"
+                    await asyncio.to_thread(source_path.write_bytes, data)
+                    text = await asyncio.to_thread(parse_path, source_path, doc.mime)
+            else:
+                raise ValueError("data or source_path is required")
             pieces = await self._chunker(
                 text,
                 strategy=cfg.chunk_strategy,
                 params=cfg.chunk_params,
                 embedder=self._embedder,
             )
+            enforce_chunk_budget(pieces)
             await self._qdrant.ensure_collection(
                 cfg.project_id,
                 vector_size=self._embedder.vector_size,
@@ -561,6 +583,13 @@ class IngestService:
                 "ingestion.completed", {"document_id": str(doc.id), "chunks": len(pieces)}
             )
         except Exception as exc:  # — any failure → mark + surface
+            failure_code = (
+                "resource_budget_exceeded"
+                if isinstance(exc, ResourceBudgetError)
+                else "document_unprocessable"
+                if isinstance(exc, ParserError)
+                else "ingest_failed"
+            )
             # Sweep any Qdrant points written by partial batches of this attempt
             # NOW (not just on a future retry), so an abandoned document — one
             # never re-uploaded — does not leak vectors forever. Filtered by
@@ -577,17 +606,20 @@ class IngestService:
                     await self._docs.set_status(
                         document_id=doc.id,
                         status=DocumentStatus.FAILED,
+                        failure_code=failure_code,
                     )
                 else:
                     await self._docs.finish_claim(
                         document_id=doc.id,
                         claim=claim,
                         status=DocumentStatus.FAILED,
+                        failure_code=failure_code,
                     )
                 await self._db.commit()
             with contextlib.suppress(Exception):
                 await Publisher(rag_channel(cfg.id)).emit(
-                    "ingestion.failed", {"document_id": str(doc.id), "error": str(exc)}
+                    "ingestion.failed",
+                    {"document_id": str(doc.id), "failure_code": failure_code},
                 )
             # A parse failure is a client-fixable input problem (unparseable, no text
             # layer, or unsupported content) → 422; any other failure (embedding,

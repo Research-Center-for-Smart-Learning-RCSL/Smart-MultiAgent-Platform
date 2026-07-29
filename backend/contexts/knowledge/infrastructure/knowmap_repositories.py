@@ -76,6 +76,7 @@ def _row_to_document(row: Any) -> KnowmapDocument:
         ingest_attempt=getattr(row, "ingest_attempt", 0),
         ingest_claim_token=getattr(row, "ingest_claim_token", None),
         ingest_claim_until=getattr(row, "ingest_claim_until", None),
+        failure_code=getattr(row, "failure_code", None),
     )
 
 
@@ -453,11 +454,17 @@ class KnowmapDocumentRepository:
         ).first()
         return _row_to_document(row) if row else None
 
-    async def set_status(self, *, document_id: uuid.UUID, status: DocumentStatus) -> None:
+    async def set_status(
+        self,
+        *,
+        document_id: uuid.UUID,
+        status: DocumentStatus,
+        failure_code: str | None = None,
+    ) -> None:
         await self._db.execute(
             t.knowmap_documents.update()
             .where(t.knowmap_documents.c.id == document_id)
-            .values(status=status.value)
+            .values(status=status.value, failure_code=failure_code)
         )
 
     async def claim_for_reingest(self, document_id: uuid.UUID) -> IngestClaim | None:
@@ -497,6 +504,7 @@ class KnowmapDocumentRepository:
                 )
                 .values(
                     status=DocumentStatus.INGESTING.value,
+                    failure_code=None,
                     ingest_attempt=t.knowmap_documents.c.ingest_attempt + 1,
                     ingest_claim_token=token,
                     ingest_claim_until=until,
@@ -570,6 +578,7 @@ class KnowmapDocumentRepository:
         document_id: uuid.UUID,
         claim: IngestClaim,
         status: DocumentStatus,
+        failure_code: str | None = None,
     ) -> bool:
         row = (
             await self._db.execute(
@@ -583,6 +592,7 @@ class KnowmapDocumentRepository:
                 )
                 .values(
                     status=status.value,
+                    failure_code=failure_code,
                     ingest_claim_token=None,
                     ingest_claim_until=None,
                 )

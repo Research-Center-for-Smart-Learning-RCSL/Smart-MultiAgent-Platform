@@ -1,4 +1,4 @@
-﻿{
+{
   "components": {
     "schemas": {
       "AcceptByTokenIn": {
@@ -5205,6 +5205,17 @@
             "title": "Agent Ids",
             "type": "array"
           },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
           "filename": {
             "title": "Filename",
             "type": "string"
@@ -5251,6 +5262,7 @@
           "sha256",
           "status",
           "scan_status",
+          "failure_code",
           "uploaded_at",
           "agent_ids"
         ],
@@ -6786,6 +6798,17 @@
             "title": "Agent Ids",
             "type": "array"
           },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
           "filename": {
             "title": "Filename",
             "type": "string"
@@ -6832,6 +6855,7 @@
           "sha256",
           "status",
           "scan_status",
+          "failure_code",
           "uploaded_at",
           "agent_ids"
         ],

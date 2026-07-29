@@ -70,6 +70,7 @@ def _row_to_document(row: Any) -> RagDocument:
         ingest_attempt=getattr(row, "ingest_attempt", 0),
         ingest_claim_token=getattr(row, "ingest_claim_token", None),
         ingest_claim_until=getattr(row, "ingest_claim_until", None),
+        failure_code=getattr(row, "failure_code", None),
     )
 
 
@@ -261,9 +262,12 @@ class RagDocumentRepository:
         *,
         document_id: uuid.UUID,
         status: DocumentStatus,
+        failure_code: str | None = None,
     ) -> None:
         await self._db.execute(
-            t.rag_documents.update().where(t.rag_documents.c.id == document_id).values(status=status.value)
+            t.rag_documents.update()
+            .where(t.rag_documents.c.id == document_id)
+            .values(status=status.value, failure_code=failure_code)
         )
 
     async def claim_for_reingest(self, document_id: uuid.UUID) -> IngestClaim | None:
@@ -307,6 +311,7 @@ class RagDocumentRepository:
                 )
                 .values(
                     status=DocumentStatus.INGESTING.value,
+                    failure_code=None,
                     ingest_attempt=t.rag_documents.c.ingest_attempt + 1,
                     ingest_claim_token=token,
                     ingest_claim_until=until,
@@ -380,6 +385,7 @@ class RagDocumentRepository:
         document_id: uuid.UUID,
         claim: IngestClaim,
         status: DocumentStatus,
+        failure_code: str | None = None,
     ) -> bool:
         row = (
             await self._db.execute(
@@ -393,6 +399,7 @@ class RagDocumentRepository:
                 )
                 .values(
                     status=status.value,
+                    failure_code=failure_code,
                     ingest_claim_token=None,
                     ingest_claim_until=None,
                 )
