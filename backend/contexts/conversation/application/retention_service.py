@@ -58,6 +58,7 @@ class RetentionService:
                     t.messages.c.chatroom_id,
                 )
                 .where(t.messages.c.created_at < horizon)
+                .order_by(t.messages.c.created_at, t.messages.c.id)
                 .limit(PURGE_CHUNK)
             )
         ).all()
@@ -96,7 +97,22 @@ class RetentionService:
 
         summaries_by_room = await self._delete_summaries_covering(list(by_room), victim_ids)
 
+        # What each affected room — and the table as a whole — actually still
+        # holds, computed after every delete above (messages and summaries):
+        # `oldest_kept_at` must be an observed fact, not the purge horizon.
+        room_mins = dict(
+            (
+                await self._db.execute(
+                    sa.select(t.messages.c.chatroom_id, sa.func.min(t.messages.c.created_at))
+                    .where(t.messages.c.chatroom_id.in_(list(by_room)))
+                    .group_by(t.messages.c.chatroom_id)
+                )
+            ).all()
+        )
+        global_min = (await self._db.execute(sa.select(sa.func.min(t.messages.c.created_at)))).scalar()
+
         for chatroom_id, mids in by_room.items():
+            room_oldest = room_mins.get(chatroom_id)
             await audit.emit(
                 self._db,
                 audit.AuditEvent(
@@ -105,7 +121,7 @@ class RetentionService:
                     resource_id=chatroom_id,
                     metadata={
                         "count": len(mids),
-                        "oldest_kept_at": horizon.isoformat(),
+                        "oldest_kept_at": room_oldest.isoformat() if room_oldest is not None else None,
                         "summaries_deleted": summaries_by_room.get(chatroom_id, 0),
                     },
                 ),
@@ -114,7 +130,7 @@ class RetentionService:
         return PurgeReport(
             messages_deleted=len(victim_ids),
             attachments_objects_removed=removed_objects,
-            oldest_kept_at=horizon,
+            oldest_kept_at=global_min,
             summaries_deleted=sum(summaries_by_room.values()),
         )
 
