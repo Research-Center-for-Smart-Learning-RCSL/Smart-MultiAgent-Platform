@@ -27,14 +27,29 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "CREATE INDEX ix_agent_instances_synthetic_root "
-        "ON agent_instances (spawned_at) "
-        "WHERE parent_id IS NULL AND run_context->>'synthetic_root' = 'true'"
-    )
-    op.execute("CREATE INDEX ix_messages_created_at ON messages (created_at)")
+    # CONCURRENTLY, in an autocommit block: a plain CREATE INDEX takes a SHARE
+    # lock for the whole build, which on `messages` -- the highest-write table in
+    # the system -- is a write outage for the length of the migration. The
+    # concurrent build cannot run inside a transaction, which is what
+    # autocommit_block provides.
+    #
+    # IF NOT EXISTS makes a retry safe: a failed concurrent build leaves an
+    # INVALID index behind rather than nothing, and re-running would otherwise
+    # fail on the duplicate name. An INVALID index left by a failed build must be
+    # dropped by hand before retrying -- it is not used by the planner but it does
+    # occupy the name.
+    with op.get_context().autocommit_block():
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_agent_instances_synthetic_root "
+            "ON agent_instances (spawned_at) "
+            "WHERE parent_id IS NULL AND run_context->>'synthetic_root' = 'true'"
+        )
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_messages_created_at ON messages (created_at)"
+        )
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS ix_messages_created_at")
-    op.execute("DROP INDEX IF EXISTS ix_agent_instances_synthetic_root")
+    with op.get_context().autocommit_block():
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS ix_messages_created_at")
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS ix_agent_instances_synthetic_root")
