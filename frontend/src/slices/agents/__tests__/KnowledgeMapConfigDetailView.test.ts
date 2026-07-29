@@ -11,6 +11,7 @@ import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
 import { useSessionStore } from '@shared/stores/session'
 import type * as SharedComposables from '@shared/composables'
+import { SFileUpload } from '@shared/ui'
 import KnowledgeMapConfigDetailView from '../views/KnowledgeMapConfigDetailView.vue'
 
 // Spy the build-state engine so we can assert the view's watchBuild call sites
@@ -19,6 +20,12 @@ const socket = vi.hoisted(() => ({
   watch: vi.fn(),
   unwatch: vi.fn(),
   liveState: null as unknown as Ref<Record<string, string>>,
+}))
+const toast = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  warning: vi.fn(),
+  info: vi.fn(),
 }))
 vi.mock('../composables/useKnowmapSocket', async () => {
   const { ref } = await import('vue')
@@ -31,7 +38,11 @@ vi.mock('../composables/useKnowmapSocket', async () => {
 // Auto-confirm the delete dialog; keep every other shared composable intact.
 vi.mock('@shared/composables', async (importOriginal) => {
   const actual = await importOriginal<typeof SharedComposables>()
-  return { ...actual, useConfirmDialog: () => ({ confirm: async () => true }) }
+  return {
+    ...actual,
+    useConfirmDialog: () => ({ confirm: async () => true }),
+    useToast: () => toast,
+  }
 })
 
 const routes = [
@@ -152,5 +163,36 @@ describe('KnowledgeMapConfigDetailView build-state visibility (F-22)', () => {
     // The delete success handler re-opens the build channel so the auto-build's
     // `running` frame reaches a live subscriber (F-22 §7.2).
     expect(socket.watch.mock.calls.length).toBeGreaterThan(callsAfterMount)
+  })
+
+  it('shows an actionable error when a duplicate has a different allowlist', async () => {
+    seed({ docs: [doc()], role: 'owner' })
+    server.use(
+      http.post('/api/knowmap-configs/cfg_1/documents', () =>
+        HttpResponse.json(
+          {
+            type: 'https://smap.local/problems/knowledge/document-allowlist-conflict',
+            title: 'Document allowlist differs',
+            status: 409,
+            detail:
+              'document doc_1 already exists with a different agent allowlist; use PATCH /api/knowmap-documents/doc_1/agents',
+          },
+          { status: 409, headers: { 'Content-Type': 'application/problem+json' } },
+        ),
+      ),
+    )
+    const wrapper = await renderView(KnowledgeMapConfigDetailView, {
+      routes,
+      initialRoute: '/projects/proj_1/knowmap-configs/cfg_1?tab=documents',
+    })
+    signInOwner()
+    await settle(wrapper)
+
+    wrapper.findComponent(SFileUpload).vm.$emit('files', [
+      new File(['same bytes'], 'guide.pdf', { type: 'application/pdf' }),
+    ])
+    await settle(wrapper)
+
+    expect(toast.error).toHaveBeenCalledWith('agents.knowmap.uploadAllowlistConflict')
   })
 })
