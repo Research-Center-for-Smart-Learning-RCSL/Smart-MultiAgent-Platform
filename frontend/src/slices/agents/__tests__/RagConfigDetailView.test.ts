@@ -168,6 +168,69 @@ describe('RagConfigDetailView', () => {
     expect(toast.error).toHaveBeenCalledWith('agents.rag.uploadAllowlistConflict')
   })
 
+  it.each([
+    ['conflict', 409, 'agents.rag.uploadAllowlistConflict'],
+    ['unprocessable', 422, 'agents.rag.uploadUnprocessable'],
+    ['network', 0, 'agents.rag.uploadFailed'],
+  ])(
+    'reconciles the first accepted file when the second upload fails with %s',
+    async (_kind, status, expectedToast) => {
+      seedHandlers()
+      let uploads = 0
+      let documentReads = 0
+      server.use(
+        http.get('/api/rag-configs/cfg_1/documents', () => {
+          documentReads += 1
+          return HttpResponse.json([])
+        }),
+        http.post('/api/rag-configs/cfg_1/documents', () => {
+          uploads += 1
+          if (uploads === 1) {
+            return HttpResponse.json({
+              id: 'accepted',
+              rag_config_id: 'cfg_1',
+              filename: 'first.txt',
+              mime: 'text/plain',
+              size_bytes: 5,
+              status: 'ingesting',
+              scan_status: 'pending',
+              failure_code: null,
+              uploaded_at: '2026-01-02T00:00:00Z',
+              agent_ids: [],
+            })
+          }
+          if (status === 0) return HttpResponse.error()
+          const slug =
+            status === 409 ? 'document-allowlist-conflict' : 'document-unprocessable'
+          return HttpResponse.json(
+            {
+              type: `https://smap.local/problems/knowledge/${slug}`,
+              title: 'upload failed',
+              status,
+            },
+            { status, headers: { 'Content-Type': 'application/problem+json' } },
+          )
+        }),
+      )
+      const wrapper = await renderView(RagConfigDetailView, {
+        routes,
+        initialRoute: '/projects/proj_1/rag-configs/cfg_1?tab=documents',
+      })
+      await settle(wrapper)
+
+      wrapper.findComponent(SFileUpload).vm.$emit('files', [
+        new File(['first'], 'first.txt', { type: 'text/plain' }),
+        new File(['second'], 'second.txt', { type: 'text/plain' }),
+      ])
+      await settle(wrapper)
+
+      expect(uploads).toBe(2)
+      expect(documentReads).toBeGreaterThan(1)
+      expect(toast.error).toHaveBeenCalledWith(expectedToast)
+      expect(toast.success).not.toHaveBeenCalledWith('agents.rag.uploadStarted')
+    },
+  )
+
   // F-20 (R10.04): chunk params are fixed once documents exist. The detail view
   // disables the fixed-strategy chunk-size / overlap inputs and shows the
   // immutability hint when the documents query is non-empty; the create form
