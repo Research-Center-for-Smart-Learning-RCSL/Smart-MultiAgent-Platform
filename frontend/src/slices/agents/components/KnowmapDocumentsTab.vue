@@ -180,51 +180,57 @@ function scanVariant(status: string): 'neutral' | 'success' | 'danger' {
         </template>
       </DocsTable>
     </SCard>
-  </div>
-  <SModal
-    :open="editDoc !== null"
-    :title="t('agents.rag.agentsModalTitle')"
-    size="md"
-    @close="emit('closeEditor')"
-  >
-    <p class="text-sm text-[var(--color-muted)] mb-3">
-      {{ t('agents.knowmap.visibleToAgentsHint') }}
-    </p>
-    <p
-      v-if="boundAgents.length === 0"
-      class="text-sm text-[var(--color-muted)]"
+
+    <!-- Inside the wrapper on purpose: the parent binds v-show to this
+         component, and Vue silently drops a runtime directive on a component
+         with more than one root node. SModal teleports to body, so nesting it
+         here costs nothing -- a Teleport leaves only a comment anchor, which
+         space-y-* sibling selectors ignore. -->
+    <SModal
+      :open="editDoc !== null"
+      :title="t('agents.rag.agentsModalTitle')"
+      size="md"
+      @close="emit('closeEditor')"
     >
-      {{ t('agents.knowmap.noBoundAgents') }}
-    </p>
-    <div
-      v-else
-      class="flex flex-col gap-1"
-    >
-      <SCheckbox
-        v-for="agent in boundAgents"
-        :key="agent.id"
-        :model-value="editAgentIds.includes(agent.id)"
-        @update:model-value="emit('toggleEditAgent', agent.id, $event)"
+      <p class="text-sm text-[var(--color-muted)] mb-3">
+        {{ t('agents.knowmap.visibleToAgentsHint') }}
+      </p>
+      <p
+        v-if="boundAgents.length === 0"
+        class="text-sm text-[var(--color-muted)]"
       >
-        {{ agent.name }}
-      </SCheckbox>
-    </div>
-    <template #footer>
-      <div class="flex justify-end gap-3">
-        <SButton
-          variant="secondary"
-          @click="emit('closeEditor')"
+        {{ t('agents.knowmap.noBoundAgents') }}
+      </p>
+      <div
+        v-else
+        class="flex flex-col gap-1"
+      >
+        <SCheckbox
+          v-for="agent in boundAgents"
+          :key="agent.id"
+          :model-value="editAgentIds.includes(agent.id)"
+          @update:model-value="emit('toggleEditAgent', agent.id, $event)"
         >
-          {{ t('agents.ragList.cancel') }}
-        </SButton>
-        <SButton
-          variant="primary"
-          :loading="savingAgents"
-          @click="emit('saveAgents')"
-        >
-          {{ t('agents.detail.save') }}
-        </SButton>
+          {{ agent.name }}
+        </SCheckbox>
       </div>
-    </template>
-  </SModal>
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <SButton
+            variant="secondary"
+            @click="emit('closeEditor')"
+          >
+            {{ t('agents.ragList.cancel') }}
+          </SButton>
+          <SButton
+            variant="primary"
+            :loading="savingAgents"
+            @click="emit('saveAgents')"
+          >
+            {{ t('agents.detail.save') }}
+          </SButton>
+        </div>
+      </template>
+    </SModal>
+  </div>
 </template>
