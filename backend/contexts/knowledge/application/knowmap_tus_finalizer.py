@@ -18,6 +18,11 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.ingest_ports import (
+    KnowmapConfigIngestPort,
+    KnowmapDocumentIngestPort,
+    StagedSourcePort,
+)
 from contexts.knowledge.application.knowmap_ingest_service import (
     emit_knowmap_reupload_agents_set_audit,
     emit_knowmap_reupload_audit,
@@ -33,13 +38,8 @@ from contexts.knowledge.domain.errors import (
 from contexts.knowledge.domain.knowmap import KnowmapDocument
 from contexts.knowledge.domain.models import DocumentStatus, IngestClaim
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
-from contexts.knowledge.infrastructure.knowmap_repositories import (
-    KnowmapConfigRepository,
-    KnowmapDocumentRepository,
-)
 from shared_kernel import audit
 from shared_kernel.queue import enqueue
-from shared_kernel.storage import get_minio_client
 from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, normalise_mime
 
 _SHA_BLOCK = 1024 * 1024  # 1 MiB streaming read — never loads the whole file
@@ -54,11 +54,18 @@ def _sha256_file(path: str) -> str:
 
 
 class KnowmapTusFinalizer:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        configs: KnowmapConfigIngestPort,
+        documents: KnowmapDocumentIngestPort,
+        staged_source: StagedSourcePort,
+    ) -> None:
         self._db = db
-        self._configs = KnowmapConfigRepository(db)
-        self._docs = KnowmapDocumentRepository(db)
-        self._minio = get_minio_client()
+        self._configs = configs
+        self._docs = documents
+        self._minio = staged_source
 
     async def finalize(
         self,

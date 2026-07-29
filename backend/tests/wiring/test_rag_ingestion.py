@@ -32,6 +32,7 @@ from contexts.knowledge.application.ingest_service import (
     IngestService,
 )
 from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus, ScanStatus
+from contexts.knowledge.infrastructure.chunkers import chunk_document
 from contexts.knowledge.infrastructure.repositories import (
     RagChunkRepository,
     RagConfigRepository,
@@ -127,6 +128,10 @@ def _ingest_service(
         blob=blob,  # type: ignore[arg-type]
         embedder=embedder or _FakeEmbedder(),  # type: ignore[arg-type]
         qdrant=qdrant or _FakeQdrant(),  # type: ignore[arg-type]
+        configs=RagConfigRepository(db),
+        documents=RagDocumentRepository(db),
+        chunks=RagChunkRepository(db),
+        chunker=chunk_document,
         bucket="rag-sources",
     )
 

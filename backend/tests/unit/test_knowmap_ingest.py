@@ -110,15 +110,15 @@ def _make_service(
             until=claim.until,
         )
     doc_repo.owns_claim.return_value = True
-    svc = KnowmapIngestService(
+    return KnowmapIngestService(
         AsyncMock(),
         blob=blob or AsyncMock(),
         embedder=MagicMock(vector_size=1536),
+        configs=config_repo,
+        documents=doc_repo,
+        chunks=chunk_repo,
+        chunker=AsyncMock(return_value=["chunk"]),
     )
-    svc._configs = config_repo
-    svc._docs = doc_repo
-    svc._chunks = chunk_repo
-    return svc
 
 
 def _ipt(
@@ -415,7 +415,7 @@ class TestIngest:
 
         with (
             patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": lambda b: "parsed body"}, clear=False),
-            patch(f"{_MOD}.chunk_document", AsyncMock(return_value=["p0", "p1"])),
+            patch.object(svc, "_chunker", AsyncMock(return_value=["p0", "p1"])),
             patch(f"{_MOD}.audit.emit", AsyncMock()) as audit_emit,
             patch(f"{_MOD}.enqueue_knowmap_scan", AsyncMock()) as scan,
             patch(f"{_MOD}.enqueue_knowmap_build", AsyncMock()) as build,
@@ -465,7 +465,7 @@ class TestIngest:
 
         with (
             patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": lambda b: "parsed body"}, clear=False),
-            patch(f"{_MOD}.chunk_document", AsyncMock(return_value=["p0"])),
+            patch.object(svc, "_chunker", AsyncMock(return_value=["p0"])),
             patch(f"{_MOD}.audit.emit", AsyncMock()),
             patch(f"{_MOD}.enqueue_knowmap_scan", AsyncMock()) as scan,
             patch(f"{_MOD}.enqueue_knowmap_build", AsyncMock()) as build,
@@ -496,7 +496,7 @@ class TestIngest:
 
         with (
             patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": lambda b: "parsed"}, clear=False),
-            patch(f"{_MOD}.chunk_document", AsyncMock(side_effect=RuntimeError("boom"))),
+            patch.object(svc, "_chunker", AsyncMock(side_effect=RuntimeError("boom"))),
             patch(f"{_MOD}.audit.emit", AsyncMock()),
             patch(f"{_MOD}.enqueue_knowmap_scan", AsyncMock()),
             patch(f"{_MOD}.enqueue_knowmap_build", AsyncMock()),

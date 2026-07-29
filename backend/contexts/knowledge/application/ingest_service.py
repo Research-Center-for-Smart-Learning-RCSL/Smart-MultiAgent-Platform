@@ -43,6 +43,14 @@ from dataclasses import dataclass
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.channels import rag_channel
+from contexts.knowledge.application.ingest_ports import (
+    DocumentChunker,
+    RagChunkIngestPort,
+    RagConfigIngestPort,
+    RagDocumentIngestPort,
+    RagVectorIngestPort,
+)
 from contexts.knowledge.application.ports import BlobStore, Embedder
 from contexts.knowledge.domain.errors import (
     DocumentAllowlistConflict,
@@ -55,14 +63,6 @@ from contexts.knowledge.domain.errors import (
 )
 from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, RagConfig, RagDocument
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
-from contexts.knowledge.infrastructure.channels import rag_channel
-from contexts.knowledge.infrastructure.chunkers import chunk_document
-from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
-from contexts.knowledge.infrastructure.repositories import (
-    RagChunkRepository,
-    RagConfigRepository,
-    RagDocumentRepository,
-)
 from shared_kernel import audit
 from shared_kernel.realtime.pubsub import Publisher
 from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, ParserError, normalise_mime
@@ -117,7 +117,11 @@ class IngestService:
         *,
         blob: BlobStore,
         embedder: Embedder,
-        qdrant: QdrantStore,
+        qdrant: RagVectorIngestPort,
+        configs: RagConfigIngestPort,
+        documents: RagDocumentIngestPort,
+        chunks: RagChunkIngestPort,
+        chunker: DocumentChunker,
         bucket: str = "rag-sources",
     ) -> None:
         self._db = db
@@ -125,9 +129,10 @@ class IngestService:
         self._embedder = embedder
         self._qdrant = qdrant
         self._bucket = bucket
-        self._configs = RagConfigRepository(db)
-        self._docs = RagDocumentRepository(db)
-        self._chunks = RagChunkRepository(db)
+        self._configs = configs
+        self._docs = documents
+        self._chunks = chunks
+        self._chunker = chunker
 
     async def ingest(
         self,
@@ -416,7 +421,7 @@ class IngestService:
         ``ingestion.started`` event."""
         try:
             text = MIME_TO_PARSER[doc.mime](data)
-            pieces = await chunk_document(
+            pieces = await self._chunker(
                 text,
                 strategy=cfg.chunk_strategy,
                 params=cfg.chunk_params,

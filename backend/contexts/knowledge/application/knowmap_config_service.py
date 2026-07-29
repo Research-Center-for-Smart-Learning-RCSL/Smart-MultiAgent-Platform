@@ -433,7 +433,7 @@ class KnowmapConfigService:
         from minio import Minio
 
         from app.config.settings import get_settings
-        from contexts.knowledge.application.knowmap_ingest_service import KnowmapIngestService
+        from app.wiring.knowledge_ingest import KnowledgeIngestWiring
         from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
 
         settings = get_settings()
@@ -444,8 +444,7 @@ class KnowmapConfigService:
             secure=settings.minio.use_tls,
             region=settings.minio.region,
         )
-        return KnowmapIngestService(
-            db,
+        return KnowledgeIngestWiring(db).knowmap_service(
             blob=MinioBlobStore(minio),
             embedder=embedder,
             bucket=settings.minio.bucket_knowmap_sources,

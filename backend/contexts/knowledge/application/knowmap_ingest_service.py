@@ -23,6 +23,12 @@ from dataclasses import dataclass
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.ingest_ports import (
+    DocumentChunker,
+    KnowmapChunkIngestPort,
+    KnowmapConfigIngestPort,
+    KnowmapDocumentIngestPort,
+)
 from contexts.knowledge.application.knowmap_triggers import enqueue_knowmap_build
 from contexts.knowledge.application.ports import BlobStore, Embedder
 from contexts.knowledge.domain.errors import (
@@ -37,12 +43,6 @@ from contexts.knowledge.domain.errors import (
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapDocument
 from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, ScanStatus
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
-from contexts.knowledge.infrastructure.chunkers import chunk_document
-from contexts.knowledge.infrastructure.knowmap_repositories import (
-    KnowmapChunkRepository,
-    KnowmapConfigRepository,
-    KnowmapDocumentRepository,
-)
 from shared_kernel import audit
 from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, ParserError, normalise_mime
 
@@ -74,15 +74,20 @@ class KnowmapIngestService:
         *,
         blob: BlobStore,
         embedder: Embedder,
+        configs: KnowmapConfigIngestPort,
+        documents: KnowmapDocumentIngestPort,
+        chunks: KnowmapChunkIngestPort,
+        chunker: DocumentChunker,
         bucket: str = "knowmap-sources",
     ) -> None:
         self._db = db
         self._blob = blob
         self._embedder = embedder
         self._bucket = bucket
-        self._configs = KnowmapConfigRepository(db)
-        self._docs = KnowmapDocumentRepository(db)
-        self._chunks = KnowmapChunkRepository(db)
+        self._configs = configs
+        self._docs = documents
+        self._chunks = chunks
+        self._chunker = chunker
 
     async def ingest(
         self,
@@ -334,7 +339,7 @@ class KnowmapIngestService:
         chunks are the build corpus, not directly-retrievable vectors."""
         try:
             text = MIME_TO_PARSER[doc.mime](data)
-            pieces = await chunk_document(
+            pieces = await self._chunker(
                 text,
                 strategy=cfg.chunk_strategy,
                 params=cfg.chunk_params,

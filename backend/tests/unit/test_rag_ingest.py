@@ -104,16 +104,16 @@ def _make_service(
             until=claim.until,
         )
     doc_repo.owns_claim.return_value = True
-    svc = IngestService(
+    return IngestService(
         AsyncMock(),
         blob=blob or AsyncMock(),
         embedder=MagicMock(vector_size=1536),
         qdrant=AsyncMock(),
+        configs=config_repo,
+        documents=doc_repo,
+        chunks=chunk_repo,
+        chunker=AsyncMock(return_value=["chunk"]),
     )
-    svc._configs = config_repo
-    svc._docs = doc_repo
-    svc._chunks = chunk_repo
-    return svc
 
 
 def _ipt(
@@ -509,7 +509,7 @@ class TestIngestFailureSemantics:
 
         with (
             patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": lambda b: "parsed body"}, clear=False),
-            patch(f"{_MOD}.chunk_document", AsyncMock(side_effect=RuntimeError("boom"))),
+            patch.object(svc, "_chunker", AsyncMock(side_effect=RuntimeError("boom"))),
             patch(f"{_MOD}.emit_reupload_audit", AsyncMock()) as reupload_audit,
             patch(f"{_MOD}.Publisher", _fake_publisher()),
             patch(f"{_MOD}.enqueue_rag_scan", AsyncMock()),
@@ -537,7 +537,7 @@ class TestIngestFailureSemantics:
 
         with (
             patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": lambda b: "parsed body"}, clear=False),
-            patch(f"{_MOD}.chunk_document", AsyncMock(side_effect=RuntimeError("boom"))),
+            patch.object(svc, "_chunker", AsyncMock(side_effect=RuntimeError("boom"))),
             patch(f"{_MOD}.audit.emit", AsyncMock()),
             patch(f"{_MOD}.Publisher", _fake_publisher()),
             patch(f"{_MOD}.enqueue_rag_scan", AsyncMock()),

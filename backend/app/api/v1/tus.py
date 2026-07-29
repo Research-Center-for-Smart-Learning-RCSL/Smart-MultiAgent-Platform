@@ -16,6 +16,7 @@ import uuid
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.wiring.knowledge_ingest import KnowledgeIngestWiring
 from contexts.conversation.application.access import (
     ensure_can_send,
     resolve_room_access,
@@ -45,6 +46,18 @@ router = APIRouter(prefix="/api/tus", tags=["tus"])
 def _tus_base_headers() -> dict[str, str]:
     # These headers must be present on every TUS response.
     return {"Tus-Resumable": TUS_VERSION}
+
+
+def _tus_service(db: AsyncSession) -> TusService:
+    wiring = KnowledgeIngestWiring(db)
+    return TusService(
+        db,
+        knowledge=KnowledgeFacade(
+            db,
+            rag_finalizer=wiring.rag_finalizer(),
+            knowmap_finalizer=wiring.knowmap_finalizer(),
+        ),
+    )
 
 
 async def _read_patch_chunk(request: Request) -> bytes:
@@ -216,7 +229,7 @@ async def tus_create(
             detail=f"TUS upload purpose {purpose!r} is not enabled",
         )
 
-    service = TusService(db)
+    service = _tus_service(db)
     result = await service.create(
         user_id=principal.user_id,
         upload_length=upload_length,
@@ -239,7 +252,7 @@ async def tus_head(
     db: AsyncSession = Depends(db_session),
 ) -> Response:
     _require_version(tus_resumable)
-    service = TusService(db)
+    service = _tus_service(db)
     info = await service.head(upload_id=upload_id, user_id=principal.user_id)
     headers = _tus_base_headers() | {
         "Upload-Length": str(info.upload_length),
@@ -285,7 +298,7 @@ async def tus_patch(
             )
     body = await _read_patch_chunk(request)
 
-    service = TusService(db)
+    service = _tus_service(db)
     result = await service.patch(
         upload_id=upload_id,
         user_id=principal.user_id,
@@ -314,7 +327,7 @@ async def tus_terminate(
     db: AsyncSession = Depends(db_session),
 ) -> Response:
     _require_version(tus_resumable)
-    service = TusService(db)
+    service = _tus_service(db)
     await service.terminate(upload_id=upload_id, user_id=principal.user_id)
     return Response(status_code=204, headers=_tus_base_headers())
 

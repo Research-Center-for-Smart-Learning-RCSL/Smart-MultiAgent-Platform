@@ -24,6 +24,12 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.channels import rag_channel
+from contexts.knowledge.application.ingest_ports import (
+    RagConfigIngestPort,
+    RagDocumentIngestPort,
+    StagedSourcePort,
+)
 from contexts.knowledge.application.ingest_service import (
     _publish_ingestion_started,
     emit_reupload_agents_set_audit,
@@ -38,15 +44,9 @@ from contexts.knowledge.domain.errors import (
 )
 from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, RagDocument
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
-from contexts.knowledge.infrastructure.channels import rag_channel
-from contexts.knowledge.infrastructure.repositories import (
-    RagConfigRepository,
-    RagDocumentRepository,
-)
 from shared_kernel import audit
 from shared_kernel.queue import enqueue
 from shared_kernel.realtime.pubsub import Publisher
-from shared_kernel.storage import get_minio_client
 from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, normalise_mime
 
 _SHA_BLOCK = 1024 * 1024  # 1 MiB streaming read — never loads the whole file
@@ -61,11 +61,18 @@ def _sha256_file(path: str) -> str:
 
 
 class RagTusFinalizer:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        configs: RagConfigIngestPort,
+        documents: RagDocumentIngestPort,
+        staged_source: StagedSourcePort,
+    ) -> None:
         self._db = db
-        self._configs = RagConfigRepository(db)
-        self._docs = RagDocumentRepository(db)
-        self._minio = get_minio_client()
+        self._configs = configs
+        self._docs = documents
+        self._minio = staged_source
 
     async def finalize(
         self,
