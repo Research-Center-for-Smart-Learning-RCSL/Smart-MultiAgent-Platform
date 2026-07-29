@@ -501,6 +501,20 @@ class KnowmapDocumentRepository:
                                 t.knowmap_documents.c.ingest_claim_until.is_not(None),
                                 t.knowmap_documents.c.ingest_claim_until < datetime.now(UTC),
                             ),
+                            # Rows written before 0069 added the claim columns
+                            # carry no claim at all. Current code always writes
+                            # status and claim in one statement, so a committed
+                            # INGESTING row with a NULL claim is by construction
+                            # a leftover; the age guard keeps the sweep off
+                            # anything recent regardless of path. Mutual
+                            # exclusion still holds: the first racer to commit
+                            # sets a non-NULL claim, so `is_(None)` stops
+                            # matching for everyone else.
+                            sa.and_(
+                                t.knowmap_documents.c.status == DocumentStatus.INGESTING.value,
+                                t.knowmap_documents.c.ingest_claim_until.is_(None),
+                                t.knowmap_documents.c.uploaded_at < datetime.now(UTC) - _INGEST_CLAIM_TTL,
+                            ),
                         ),
                     )
                 )
@@ -609,10 +623,21 @@ class KnowmapDocumentRepository:
                 sa.select(t.knowmap_documents.c.id)
                 .where(
                     t.knowmap_documents.c.status == DocumentStatus.INGESTING.value,
-                    t.knowmap_documents.c.ingest_claim_until.is_not(None),
-                    t.knowmap_documents.c.ingest_claim_until < datetime.now(UTC),
+                    sa.or_(
+                        t.knowmap_documents.c.ingest_claim_until < datetime.now(UTC),
+                        # Claim-less legacy rows -- see claim_for_reingest. Without
+                        # this the reconciler cannot see a job orphaned by the move
+                        # to the dedicated knowledge queues, and the document stays
+                        # `ingesting` forever.
+                        sa.and_(
+                            t.knowmap_documents.c.ingest_claim_until.is_(None),
+                            t.knowmap_documents.c.uploaded_at < datetime.now(UTC) - _INGEST_CLAIM_TTL,
+                        ),
+                    ),
                 )
-                .order_by(t.knowmap_documents.c.ingest_claim_until)
+                # NULLs first so the one-off legacy backlog drains ahead of the
+                # steady-state expired claims.
+                .order_by(t.knowmap_documents.c.ingest_claim_until.asc().nullsfirst())
                 .limit(limit)
             )
         ).all()
