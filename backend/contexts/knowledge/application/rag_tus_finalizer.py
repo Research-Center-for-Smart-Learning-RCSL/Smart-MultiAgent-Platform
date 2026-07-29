@@ -46,6 +46,7 @@ from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, RagDoc
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from shared_kernel import audit
 from shared_kernel.queue import enqueue
+from shared_kernel.queue_names import KNOWLEDGE_INGEST_QUEUE, KNOWLEDGE_SCAN_QUEUE
 from shared_kernel.realtime.pubsub import Publisher
 from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, normalise_mime
 
@@ -263,6 +264,7 @@ class RagTusFinalizer:
                     "rag_scan_document",
                     document_id=str(document_id),
                     _job_id=f"rag-scan:{document_id}:{ingest_attempt}",
+                    _queue_name=KNOWLEDGE_SCAN_QUEUE,
                 )
             else:
                 await self._docs.mark_scan(
@@ -277,6 +279,7 @@ class RagTusFinalizer:
                     ingest_attempt=ingest_attempt,
                     claim_token=str(claim_token),
                     _job_id=f"rag-ingest:{document_id}:{ingest_attempt}",
+                    _queue_name=KNOWLEDGE_INGEST_QUEUE,
                 )
         except Exception:
             # Arq/Redis unavailable: don't leave the committed row stuck

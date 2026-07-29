@@ -45,6 +45,7 @@ from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapDocument
 from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, ScanStatus
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from shared_kernel import audit
+from shared_kernel.queue_names import KNOWLEDGE_SCAN_QUEUE
 from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, ParserError, normalise_mime
 
 _log = logging.getLogger(__name__)
@@ -514,6 +515,7 @@ async def enqueue_knowmap_scan(*, document_id: uuid.UUID, ingest_attempt: int = 
             "knowmap_scan_document",
             document_id=str(document_id),
             _job_id=f"knowmap-scan:{document_id}:{ingest_attempt}",
+            _queue_name=KNOWLEDGE_SCAN_QUEUE,
         )
     except Exception:
         _log.warning(

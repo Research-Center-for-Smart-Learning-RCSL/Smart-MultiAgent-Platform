@@ -96,6 +96,7 @@ from contexts.orchestration.application.a2a_consumer import A2AConsumerSuperviso
 from contexts.orchestration.application.a2a_handler import handle_envelope
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.logging.setup import configure_logging
+from shared_kernel.queue_names import KNOWLEDGE_INGEST_QUEUE, KNOWLEDGE_SCAN_QUEUE
 
 
 async def noop(ctx: dict[str, Any]) -> str:
@@ -244,6 +245,16 @@ async def _startup(ctx: dict[str, Any]) -> None:
     )
 
 
+async def _knowledge_startup(ctx: dict[str, Any]) -> None:
+    _ = ctx
+    configure_logging(get_settings().logging)
+    _start_healthz_sidecar()
+
+
+async def _knowledge_shutdown(ctx: dict[str, Any]) -> None:
+    _ = ctx
+
+
 async def _shutdown(ctx: dict[str, Any]) -> None:
     """Wind down the long-lived background tasks started in `_startup`."""
     supervisor = ctx.get("_a2a_supervisor")
@@ -303,10 +314,6 @@ class WorkerSettings:
         func(graphrag_build, name="graphrag_build", timeout=GRAPHRAG_BUILD_TIMEOUT_S),
         graphrag_reconcile,
         graphrag_silence_sweep,
-        rag_ingest_document,
-        rag_scan_document,
-        knowmap_ingest_document,
-        knowmap_scan_document,
         knowmap_revision_sweep,
         knowledge_ingest_reconcile,
         skill_scan_file,
@@ -375,3 +382,25 @@ class WorkerSettings:
             run_at_startup=False,
         ),
     ]
+
+
+class KnowledgeScanWorkerSettings:
+    functions: ClassVar[list[Any]] = [rag_scan_document, knowmap_scan_document]
+    on_startup = _knowledge_startup
+    on_shutdown = _knowledge_shutdown
+    redis_settings = _arq_redis_settings()
+    queue_name = KNOWLEDGE_SCAN_QUEUE
+    job_timeout = 20 * 60
+    max_jobs = 2
+    keep_result = 3600
+
+
+class KnowledgeIngestWorkerSettings:
+    functions: ClassVar[list[Any]] = [rag_ingest_document, knowmap_ingest_document]
+    on_startup = _knowledge_startup
+    on_shutdown = _knowledge_shutdown
+    redis_settings = _arq_redis_settings()
+    queue_name = KNOWLEDGE_INGEST_QUEUE
+    job_timeout = 30 * 60
+    max_jobs = 1
+    keep_result = 3600
