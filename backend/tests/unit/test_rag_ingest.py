@@ -9,8 +9,8 @@ failed upload stays visible in the list instead of vanishing.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime, timedelta
+from unittest.mock import ANY, DEFAULT, AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -25,6 +25,7 @@ from contexts.knowledge.domain.errors import (
 from contexts.knowledge.domain.models import (
     ChunkStrategy,
     DocumentStatus,
+    IngestClaim,
     RagConfig,
     RagDocument,
     ScanStatus,
@@ -36,6 +37,14 @@ _NOW = datetime(2026, 7, 23, 12, 0, 0)
 _PROJECT_ID = uuid.uuid4()
 _CONFIG_ID = uuid.uuid4()
 _USER_ID = uuid.uuid4()
+
+
+def _claim(attempt: int = 1) -> IngestClaim:
+    return IngestClaim(
+        attempt=attempt,
+        token=uuid.uuid4(),
+        until=datetime.now(UTC) + timedelta(minutes=30),
+    )
 
 
 def _make_config() -> RagConfig:
@@ -85,6 +94,16 @@ def _make_document(
 def _make_service(
     *, config_repo: AsyncMock, doc_repo: AsyncMock, chunk_repo: AsyncMock, blob: AsyncMock | None = None
 ) -> IngestService:
+    claim = _claim()
+    if doc_repo.claim_for_reingest._mock_return_value is DEFAULT:
+        doc_repo.claim_for_reingest.return_value = claim
+    if doc_repo.claim_initial._mock_return_value is DEFAULT:
+        doc_repo.claim_initial.return_value = IngestClaim(
+            attempt=0,
+            token=uuid.uuid4(),
+            until=claim.until,
+        )
+    doc_repo.owns_claim.return_value = True
     svc = IngestService(
         AsyncMock(),
         blob=blob or AsyncMock(),
@@ -119,6 +138,29 @@ def _fake_publisher() -> MagicMock:
 
 
 class TestIngestFailureSemantics:
+    async def test_stale_worker_claim_performs_no_indexing_work(self) -> None:
+        doc = _make_document(status=DocumentStatus.INGESTING)
+        doc_repo = AsyncMock()
+        doc_repo.get.return_value = doc
+        doc_repo.owns_claim.return_value = False
+        blob = AsyncMock()
+        svc = _make_service(
+            config_repo=AsyncMock(),
+            doc_repo=doc_repo,
+            chunk_repo=AsyncMock(),
+            blob=blob,
+        )
+        doc_repo.owns_claim.return_value = False
+        stale = _claim(attempt=7)
+
+        returned = await svc.process_document(document_id=doc.id, claim=stale)
+
+        assert returned is doc
+        doc_repo.lock_for_ingest.assert_awaited_once_with(doc.id)
+        doc_repo.owns_claim.assert_awaited_once_with(doc.id, stale)
+        blob.get.assert_not_awaited()
+        svc._qdrant.delete_document.assert_not_awaited()
+
     async def test_fresh_upload_audit_records_agent_ids(self) -> None:
         agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
         cfg_repo = AsyncMock()
@@ -172,7 +214,7 @@ class TestIngestFailureSemantics:
         doc_repo = AsyncMock()
         doc_repo.find_by_sha.return_value = existing
         doc_repo.set_agents.return_value = refreshed
-        doc_repo.claim_for_reingest.return_value = 1
+        doc_repo.claim_for_reingest.return_value = _claim()
         chunk_repo = AsyncMock()
         svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=chunk_repo)
         svc._index_document = AsyncMock(return_value=refreshed)
@@ -445,7 +487,11 @@ class TestIngestFailureSemantics:
             await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
 
         # The row is persisted FAILED, not rolled back to nothing.
-        doc_repo.set_status.assert_awaited_with(document_id=doc.id, status=DocumentStatus.FAILED)
+        doc_repo.finish_claim.assert_awaited_with(
+            document_id=doc.id,
+            claim=ANY,
+            status=DocumentStatus.FAILED,
+        )
         svc._db.commit.assert_awaited()
 
     async def test_reindex_retry_failure_still_records_reupload_audit(self) -> None:
@@ -499,5 +545,9 @@ class TestIngestFailureSemantics:
         ):
             await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
 
-        doc_repo.set_status.assert_awaited_with(document_id=doc.id, status=DocumentStatus.FAILED)
+        doc_repo.finish_claim.assert_awaited_with(
+            document_id=doc.id,
+            claim=ANY,
+            status=DocumentStatus.FAILED,
+        )
         svc._db.commit.assert_awaited()

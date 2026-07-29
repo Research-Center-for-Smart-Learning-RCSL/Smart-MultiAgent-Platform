@@ -19,7 +19,9 @@ import asyncio
 import contextlib
 import hashlib
 import uuid
+from datetime import UTC, datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.application.ingest_service import (
@@ -34,7 +36,7 @@ from contexts.knowledge.domain.errors import (
     RagDocumentNotFound,
     UnsupportedMime,
 )
-from contexts.knowledge.domain.models import DocumentStatus, RagDocument
+from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, RagDocument
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from contexts.knowledge.infrastructure.channels import rag_channel
 from contexts.knowledge.infrastructure.repositories import (
@@ -139,12 +141,17 @@ class RagTusFinalizer:
             # concurrent re-upload already claimed it): skip the re-enqueue so two
             # workers never index the same document and collide on
             # uq_rag_chunk_doc_idx — commit the reupload audit and let it finish.
-            attempt = await self._docs.claim_for_reingest(existing.id)
-            if attempt is not None:
-                await self._enqueue_index(existing.id, config_id=cfg.id, ingest_attempt=attempt)
+            claim = await self._docs.claim_for_reingest(existing.id)
+            if claim is not None:
+                await self._enqueue_index(
+                    existing.id,
+                    config_id=cfg.id,
+                    ingest_attempt=claim.attempt,
+                    claim_token=claim.token,
+                )
                 from contexts.knowledge.application.ingest_service import enqueue_rag_scan
 
-                await enqueue_rag_scan(document_id=existing.id, ingest_attempt=attempt)
+                await enqueue_rag_scan(document_id=existing.id, ingest_attempt=claim.attempt)
             await self._db.commit()
             return updated
 
@@ -155,16 +162,30 @@ class RagTusFinalizer:
             file_path=staging_path,
             content_type=norm_mime,
         )
-        doc = await self._docs.create(
-            rag_config_id=cfg.id,
-            filename=filename,
-            mime=norm_mime,
-            size_bytes=size_bytes,
-            sha256=sha,
-            minio_path=f"{self._minio.rag_sources_bucket}/{key}",
-            uploaded_by=uploaded_by,
-            agent_ids=agent_ids or [],
-        )
+        try:
+            doc = await self._docs.create(
+                rag_config_id=cfg.id,
+                filename=filename,
+                mime=norm_mime,
+                size_bytes=size_bytes,
+                sha256=sha,
+                minio_path=f"{self._minio.rag_sources_bucket}/{key}",
+                uploaded_by=uploaded_by,
+                agent_ids=agent_ids or [],
+            )
+        except IntegrityError:
+            await self._db.rollback()
+            return await self.finalize(
+                rag_config_id=rag_config_id,
+                filename=filename,
+                mime=mime,
+                staging_path=staging_path,
+                size_bytes=size_bytes,
+                uploaded_by=uploaded_by,
+                actor_ip=actor_ip,
+                agent_ids=agent_ids,
+                request_id=request_id,
+            )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -185,15 +206,27 @@ class RagTusFinalizer:
                 request_id=request_id,
             ),
         )
-        # First-time ingest: the new row carries ingest_attempt=0 (column default).
-        await self._enqueue_index(doc.id, config_id=cfg.id, ingest_attempt=0)
+        claim = await self._docs.claim_initial(doc.id)
+        if claim is None:
+            raise RagDocumentNotFound(str(doc.id))
+        await self._enqueue_index(
+            doc.id,
+            config_id=cfg.id,
+            ingest_attempt=claim.attempt,
+            claim_token=claim.token,
+        )
         from contexts.knowledge.application.ingest_service import enqueue_rag_scan
 
         await enqueue_rag_scan(document_id=doc.id, ingest_attempt=0)
         return doc
 
     async def _enqueue_index(
-        self, document_id: uuid.UUID, *, config_id: uuid.UUID, ingest_attempt: int
+        self,
+        document_id: uuid.UUID,
+        *,
+        config_id: uuid.UUID,
+        ingest_attempt: int,
+        claim_token: uuid.UUID,
     ) -> None:
         # Commit the rag_documents row BEFORE enqueuing: the rag_ingest_document
         # worker runs on a separate connection and must see a committed row. The
@@ -214,13 +247,23 @@ class RagTusFinalizer:
             await enqueue(
                 "rag_ingest_document",
                 document_id=str(document_id),
+                ingest_attempt=ingest_attempt,
+                claim_token=str(claim_token),
                 _job_id=f"rag-ingest:{document_id}:{ingest_attempt}",
             )
         except Exception:
             # Arq/Redis unavailable: don't leave the committed row stuck
             # 'ingesting' with no worker. Mark it FAILED so a re-upload (re-drive)
             # or operator can retry, and tell the frontend.
-            await self._docs.set_status(document_id=document_id, status=DocumentStatus.FAILED)
+            await self._docs.finish_claim(
+                document_id=document_id,
+                claim=IngestClaim(
+                    attempt=ingest_attempt,
+                    token=claim_token,
+                    until=datetime.max.replace(tzinfo=UTC),
+                ),
+                status=DocumentStatus.FAILED,
+            )
             await self._db.commit()
             with contextlib.suppress(Exception):
                 await Publisher(rag_channel(config_id)).emit(

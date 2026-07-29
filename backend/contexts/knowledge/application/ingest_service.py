@@ -53,7 +53,7 @@ from contexts.knowledge.domain.errors import (
     RagDocumentNotFound,
     UnsupportedMime,
 )
-from contexts.knowledge.domain.models import DocumentStatus, RagConfig, RagDocument
+from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, RagConfig, RagDocument
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from contexts.knowledge.infrastructure.channels import rag_channel
 from contexts.knowledge.infrastructure.chunkers import chunk_document
@@ -225,6 +225,9 @@ class IngestService:
                 request_id=request_id,
             ),
         )
+        claim = await self._docs.claim_initial(doc.id)
+        if claim is None:
+            raise RagDocumentNotFound(str(doc.id))
         # Live status for clients watching ws:rag:{config_id} (useRagConfigSocket).
         # Multipart ingest is synchronous (one doc per request), so we emit the
         # start/terminal events only — there is no incremental progress to report.
@@ -235,6 +238,9 @@ class IngestService:
         # durable FAILED row (see _index_document) instead of rolling the whole
         # upload back to nothing — a failed upload must stay visible in the list.
         await self._db.commit()
+        await self._docs.lock_for_ingest(doc.id)
+        if not await self._docs.owns_claim(doc.id, claim):
+            return await self._docs.require(doc.id)
         result = await self._index_document(
             doc=doc,
             cfg=cfg,
@@ -242,6 +248,7 @@ class IngestService:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            claim=claim,
         )
         await self._db.commit()
         await enqueue_rag_scan(document_id=result.id)
@@ -269,9 +276,12 @@ class IngestService:
             return resolved
         if existing.status is DocumentStatus.INGESTING:
             return resolved
-        attempt = await self._docs.claim_for_reingest(existing.id)
+        claim = await self._docs.claim_for_reingest(existing.id)
         await self._db.commit()
-        if attempt is None:
+        if claim is None:
+            return await self._docs.get(existing.id) or resolved
+        await self._docs.lock_for_ingest(existing.id)
+        if not await self._docs.owns_claim(existing.id, claim):
             return await self._docs.get(existing.id) or resolved
 
         await _publish_ingestion_started(config_id=cfg.id, document_id=resolved.id)
@@ -282,6 +292,7 @@ class IngestService:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            claim=claim,
         )
         await self._db.commit()
         await enqueue_rag_scan(document_id=reindexed.id)
@@ -344,6 +355,7 @@ class IngestService:
         self,
         *,
         document_id: uuid.UUID,
+        claim: IngestClaim | None = None,
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> RagDocument:
@@ -356,9 +368,15 @@ class IngestService:
         pipeline off the request path — large files (up to 1 GiB) must not embed
         synchronously inside the final PATCH.
         """
+        await self._docs.lock_for_ingest(document_id)
         doc = await self._docs.get(document_id)
         if doc is None:
             raise IngestFailed(f"document {document_id} not found")
+        if claim is not None:
+            if not await self._docs.owns_claim(document_id, claim):
+                return doc
+        elif doc.ingest_claim_token is not None:
+            return doc
         if doc.status is DocumentStatus.READY:
             # Already indexed — idempotent no-op (a duplicate enqueue or a retry
             # after success). A FAILED/INGESTING doc is (re)processed so an Arq
@@ -377,6 +395,7 @@ class IngestService:
             actor_user_id=doc.uploaded_by,
             actor_ip=actor_ip,
             request_id=request_id,
+            claim=claim,
         )
 
     async def _index_document(
@@ -388,6 +407,7 @@ class IngestService:
         actor_user_id: uuid.UUID | None,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
+        claim: IngestClaim | None = None,
     ) -> RagDocument:
         """Parse → chunk → embed → upsert for a registered document, then flip
         status + emit the terminal ws event. Shared by the synchronous
@@ -481,10 +501,17 @@ class IngestService:
                             for i, (pid, vec) in enumerate(zip(point_ids, vectors, strict=True))
                         ],
                     )
-            await self._docs.set_status(
+            if claim is None:
+                await self._docs.set_status(
+                    document_id=doc.id,
+                    status=DocumentStatus.READY,
+                )
+            elif not await self._docs.finish_claim(
                 document_id=doc.id,
+                claim=claim,
                 status=DocumentStatus.READY,
-            )
+            ):
+                raise IngestFailed(f"ingest claim for document {doc.id} is no longer current")
             await audit.emit(
                 self._db,
                 audit.AuditEvent(
@@ -513,10 +540,17 @@ class IngestService:
             # as FAILED instead of vanishing from the list.
             with contextlib.suppress(Exception):
                 await self._db.rollback()
-                await self._docs.set_status(
-                    document_id=doc.id,
-                    status=DocumentStatus.FAILED,
-                )
+                if claim is None:
+                    await self._docs.set_status(
+                        document_id=doc.id,
+                        status=DocumentStatus.FAILED,
+                    )
+                else:
+                    await self._docs.finish_claim(
+                        document_id=doc.id,
+                        claim=claim,
+                        status=DocumentStatus.FAILED,
+                    )
                 await self._db.commit()
             with contextlib.suppress(Exception):
                 await Publisher(rag_channel(cfg.id)).emit(

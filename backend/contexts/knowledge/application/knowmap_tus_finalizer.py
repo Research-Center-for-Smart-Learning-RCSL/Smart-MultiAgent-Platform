@@ -13,7 +13,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import uuid
+from datetime import UTC, datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.application.knowmap_ingest_service import (
@@ -29,7 +31,7 @@ from contexts.knowledge.domain.errors import (
     UnsupportedMime,
 )
 from contexts.knowledge.domain.knowmap import KnowmapDocument
-from contexts.knowledge.domain.models import DocumentStatus
+from contexts.knowledge.domain.models import DocumentStatus, IngestClaim
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapConfigRepository,
@@ -129,10 +131,14 @@ class KnowmapTusFinalizer:
             # row was not terminal (a worker is still in flight, or a concurrent
             # re-upload already claimed it): skip the re-enqueue so two workers never
             # index the same doc and collide on uq_knowmap_chunk_doc_idx.
-            attempt = await self._docs.claim_for_reingest(existing.id)
-            if attempt is not None:
-                await self._enqueue_index(existing.id, ingest_attempt=attempt)
-                await enqueue_knowmap_scan(document_id=existing.id, ingest_attempt=attempt)
+            claim = await self._docs.claim_for_reingest(existing.id)
+            if claim is not None:
+                await self._enqueue_index(
+                    existing.id,
+                    ingest_attempt=claim.attempt,
+                    claim_token=claim.token,
+                )
+                await enqueue_knowmap_scan(document_id=existing.id, ingest_attempt=claim.attempt)
             await self._db.commit()
             return updated
 
@@ -143,16 +149,30 @@ class KnowmapTusFinalizer:
             file_path=staging_path,
             content_type=norm_mime,
         )
-        doc = await self._docs.create(
-            knowmap_config_id=cfg.id,
-            filename=filename,
-            mime=norm_mime,
-            size_bytes=size_bytes,
-            sha256=sha,
-            minio_path=f"{self._minio.knowmap_sources_bucket}/{key}",
-            uploaded_by=uploaded_by,
-            agent_ids=agent_ids or [],
-        )
+        try:
+            doc = await self._docs.create(
+                knowmap_config_id=cfg.id,
+                filename=filename,
+                mime=norm_mime,
+                size_bytes=size_bytes,
+                sha256=sha,
+                minio_path=f"{self._minio.knowmap_sources_bucket}/{key}",
+                uploaded_by=uploaded_by,
+                agent_ids=agent_ids or [],
+            )
+        except IntegrityError:
+            await self._db.rollback()
+            return await self.finalize(
+                knowmap_config_id=knowmap_config_id,
+                filename=filename,
+                mime=mime,
+                staging_path=staging_path,
+                size_bytes=size_bytes,
+                uploaded_by=uploaded_by,
+                actor_ip=actor_ip,
+                agent_ids=agent_ids,
+                request_id=request_id,
+            )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -173,12 +193,24 @@ class KnowmapTusFinalizer:
                 request_id=request_id,
             ),
         )
-        # First-time ingest: the new row carries ingest_attempt=0 (column default).
-        await self._enqueue_index(doc.id, ingest_attempt=0)
+        claim = await self._docs.claim_initial(doc.id)
+        if claim is None:
+            raise KnowmapDocumentNotFound(str(doc.id))
+        await self._enqueue_index(
+            doc.id,
+            ingest_attempt=claim.attempt,
+            claim_token=claim.token,
+        )
         await enqueue_knowmap_scan(document_id=doc.id, ingest_attempt=0)
         return doc
 
-    async def _enqueue_index(self, document_id: uuid.UUID, *, ingest_attempt: int) -> None:
+    async def _enqueue_index(
+        self,
+        document_id: uuid.UUID,
+        *,
+        ingest_attempt: int,
+        claim_token: uuid.UUID,
+    ) -> None:
         # Commit the knowmap_documents row BEFORE enqueuing: the worker runs on a
         # separate connection and must see a committed row.
         await self._db.commit()
@@ -186,6 +218,8 @@ class KnowmapTusFinalizer:
             await enqueue(
                 "knowmap_ingest_document",
                 document_id=str(document_id),
+                ingest_attempt=ingest_attempt,
+                claim_token=str(claim_token),
                 # Per-attempt job id (F-23): a bumped attempt is a distinct id that
                 # always enqueues; a concurrent duplicate of the same attempt dedups.
                 _job_id=f"knowmap-ingest:{document_id}:{ingest_attempt}",
@@ -193,7 +227,15 @@ class KnowmapTusFinalizer:
         except Exception:
             # Arq/Redis unavailable: don't leave the committed row stuck
             # 'ingesting' with no worker. Mark it FAILED so a re-upload can retry.
-            await self._docs.set_status(document_id=document_id, status=DocumentStatus.FAILED)
+            await self._docs.finish_claim(
+                document_id=document_id,
+                claim=IngestClaim(
+                    attempt=ingest_attempt,
+                    token=claim_token,
+                    until=datetime.max.replace(tzinfo=UTC),
+                ),
+                status=DocumentStatus.FAILED,
+            )
             await self._db.commit()
             raise
 

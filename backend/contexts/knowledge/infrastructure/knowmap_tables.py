@@ -110,6 +110,9 @@ knowmap_documents = sa.Table(
     # bumped on each genuine tus re-upload of a terminal-non-READY document and
     # folded into the ingest/scan Arq job ids. See migration 0055.
     sa.Column("ingest_attempt", sa.Integer, nullable=False, server_default=sa.text("0")),
+    sa.Column("ingest_claim_token", pg.UUID(as_uuid=True), nullable=True),
+    sa.Column("ingest_claim_until", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.UniqueConstraint("knowmap_config_id", "sha256", name="uq_knowmap_documents_config_sha"),
 )
 
 

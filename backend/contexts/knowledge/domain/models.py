@@ -163,6 +163,16 @@ class RagDocument:
     uploaded_at: datetime
     # Strict per-agent allowlist. Empty = no agent may retrieve this document.
     agent_ids: tuple[uuid.UUID, ...] = ()
+    ingest_attempt: int = 0
+    ingest_claim_token: uuid.UUID | None = None
+    ingest_claim_until: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class IngestClaim:
+    attempt: int
+    token: uuid.UUID
+    until: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +209,7 @@ __all__ = [
     "EMBED_MODEL_WHITELIST",
     "EmbedCatalogEntry",
     "EmbedModelOption",
+    "IngestClaim",
     "RagChunk",
     "RagConfig",
     "RagConfigDraft",

@@ -49,6 +49,7 @@ from app.workers.tasks.graphrag import (
     graphrag_reconcile,
     graphrag_silence_sweep,
 )
+from app.workers.tasks.knowledge_ingest import knowledge_ingest_reconcile
 from app.workers.tasks.knowmap import (
     KNOWMAP_BUILD_TIMEOUT_S,
     knowmap_build,
@@ -307,6 +308,7 @@ class WorkerSettings:
         knowmap_ingest_document,
         knowmap_scan_document,
         knowmap_revision_sweep,
+        knowledge_ingest_reconcile,
         skill_scan_file,
         skill_import_bundle,
         skill_export_bundle,
@@ -360,6 +362,8 @@ class WorkerSettings:
         # finalize/enqueue path dropped. arq's cron lock keeps it singleton across
         # replicas; the revision-keyed job id makes a repeated offer a no-op.
         cron(knowmap_revision_sweep, minute=set(range(60)), run_at_startup=False),
+        # Every minute — reclaim knowledge-ingest leases whose worker disappeared.
+        cron(knowledge_ingest_reconcile, minute=set(range(60)), run_at_startup=False),
         # Every minute — Concept Map silence-trigger sweep (F-4 / R11.02): fire a
         # graphrag_build for maps whose coverage has been idle for silence_minutes.
         # arq's cron lock keeps it singleton; keep_result backs the _job_id dedup.

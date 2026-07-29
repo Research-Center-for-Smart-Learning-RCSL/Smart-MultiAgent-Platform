@@ -93,6 +93,9 @@ rag_documents = sa.Table(
     # Arq job ids so a real retry always enqueues a fresh job while a concurrent
     # duplicate of the same attempt still dedups. See migration 0055.
     sa.Column("ingest_attempt", sa.Integer, nullable=False, server_default=sa.text("0")),
+    sa.Column("ingest_claim_token", pg.UUID(as_uuid=True), nullable=True),
+    sa.Column("ingest_claim_until", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.UniqueConstraint("rag_config_id", "sha256", name="uq_rag_documents_config_sha"),
 )
 
 

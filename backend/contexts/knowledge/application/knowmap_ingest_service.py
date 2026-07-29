@@ -35,7 +35,7 @@ from contexts.knowledge.domain.errors import (
     UnsupportedMime,
 )
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapDocument
-from contexts.knowledge.domain.models import DocumentStatus, ScanStatus
+from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, ScanStatus
 from contexts.knowledge.domain.reupload import ReuploadAction, resolve_existing_document
 from contexts.knowledge.infrastructure.chunkers import chunk_document
 from contexts.knowledge.infrastructure.knowmap_repositories import (
@@ -162,11 +162,17 @@ class KnowmapIngestService:
                 request_id=request_id,
             ),
         )
+        claim = await self._docs.claim_initial(doc.id)
+        if claim is None:
+            raise KnowmapDocumentNotFound(str(doc.id))
         # Commit the accepted upload before indexing so a parse/index failure leaves
         # a durable FAILED row (mirroring the tus path) instead of rolling the whole
         # upload back to nothing — a failed upload must stay visible in the document
         # list as FAILED, not silently vanish.
         await self._db.commit()
+        await self._docs.lock_for_ingest(doc.id)
+        if not await self._docs.owns_claim(doc.id, claim):
+            return await self._docs.require(doc.id)
         result = await self._index_document(
             doc=doc,
             cfg=cfg,
@@ -174,6 +180,7 @@ class KnowmapIngestService:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            claim=claim,
         )
         await self._db.commit()
         await enqueue_knowmap_scan(document_id=result.id)
@@ -202,9 +209,12 @@ class KnowmapIngestService:
             return resolved
         if existing.status is DocumentStatus.INGESTING:
             return resolved
-        attempt = await self._docs.claim_for_reingest(existing.id)
+        claim = await self._docs.claim_for_reingest(existing.id)
         await self._db.commit()
-        if attempt is None:
+        if claim is None:
+            return await self._docs.get(existing.id) or resolved
+        await self._docs.lock_for_ingest(existing.id)
+        if not await self._docs.owns_claim(existing.id, claim):
             return await self._docs.get(existing.id) or resolved
 
         reindexed = await self._index_document(
@@ -214,6 +224,7 @@ class KnowmapIngestService:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            claim=claim,
         )
         await self._db.commit()
         await enqueue_knowmap_scan(document_id=reindexed.id)
@@ -275,13 +286,20 @@ class KnowmapIngestService:
         self,
         *,
         document_id: uuid.UUID,
+        claim: IngestClaim | None = None,
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> KnowmapDocument:
         """Index an already-registered document (async tus path)."""
+        await self._docs.lock_for_ingest(document_id)
         doc = await self._docs.get(document_id)
         if doc is None:
             raise IngestFailed(f"knowmap document {document_id} not found")
+        if claim is not None:
+            if not await self._docs.owns_claim(document_id, claim):
+                return doc
+        elif doc.ingest_claim_token is not None:
+            return doc
         if doc.status is DocumentStatus.READY:
             return doc
         cfg = await self._configs.get(doc.knowmap_config_id)
@@ -298,6 +316,7 @@ class KnowmapIngestService:
             actor_user_id=doc.uploaded_by,
             actor_ip=actor_ip,
             request_id=request_id,
+            claim=claim,
         )
 
     async def _index_document(
@@ -309,6 +328,7 @@ class KnowmapIngestService:
         actor_user_id: uuid.UUID | None,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
+        claim: IngestClaim | None = None,
     ) -> KnowmapDocument:
         """Parse → chunk → persist ``knowmap_chunks``, then flip status. No Qdrant:
         chunks are the build corpus, not directly-retrievable vectors."""
@@ -327,7 +347,14 @@ class KnowmapIngestService:
                 await self._chunks.insert_many(
                     [{"document_id": doc.id, "chunk_idx": i, "text": piece} for i, piece in enumerate(pieces)]
                 )
-            await self._docs.set_status(document_id=doc.id, status=DocumentStatus.READY)
+            if claim is None:
+                await self._docs.set_status(document_id=doc.id, status=DocumentStatus.READY)
+            elif not await self._docs.finish_claim(
+                document_id=doc.id,
+                claim=claim,
+                status=DocumentStatus.READY,
+            ):
+                raise IngestFailed(f"ingest claim for document {doc.id} is no longer current")
             # F-12: a document became part of the buildable corpus — bump the
             # monotonic corpus revision in this same transaction so the build
             # enqueued for it gets a job id distinct from any prior corpus state's.
@@ -353,7 +380,14 @@ class KnowmapIngestService:
             # path re-marks FAILED in its own session either way.
             with contextlib.suppress(Exception):
                 await self._db.rollback()
-                await self._docs.set_status(document_id=doc.id, status=DocumentStatus.FAILED)
+                if claim is None:
+                    await self._docs.set_status(document_id=doc.id, status=DocumentStatus.FAILED)
+                else:
+                    await self._docs.finish_claim(
+                        document_id=doc.id,
+                        claim=claim,
+                        status=DocumentStatus.FAILED,
+                    )
                 await self._db.commit()
             # A parse failure is a client-fixable input problem (unparseable, no text
             # layer, or unsupported content) → 422; any other failure (embedding,
