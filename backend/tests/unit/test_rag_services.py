@@ -95,19 +95,16 @@ def _make_ingest_service(
     qdrant: AsyncMock | None = None,
 ) -> IngestService:
     db = AsyncMock()
-    svc = IngestService(
+    return IngestService(
         db,
         blob=blob or AsyncMock(),
         embedder=embedder or MagicMock(vector_size=1536),
         qdrant=qdrant or AsyncMock(),
+        configs=config_repo or AsyncMock(),
+        documents=doc_repo or AsyncMock(),
+        chunks=chunk_repo or AsyncMock(),
+        chunker=AsyncMock(return_value=["chunk"]),
     )
-    if config_repo is not None:
-        svc._configs = config_repo
-    if doc_repo is not None:
-        svc._docs = doc_repo
-    if chunk_repo is not None:
-        svc._chunks = chunk_repo
-    return svc
 
 
 # ---------------------------------------------------------------------------
@@ -208,14 +205,9 @@ class TestIngestHappyPath:
     @patch("contexts.knowledge.application.ingest_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.knowledge.application.ingest_service.Publisher")
     @patch(
-        "contexts.knowledge.application.ingest_service.chunk_document",
-        new_callable=AsyncMock,
-        return_value=["chunk1", "chunk2"],
-    )
-    @patch(
         "contexts.knowledge.application.ingest_service.MIME_TO_PARSER", {"text/plain": lambda d: d.decode()}
     )
-    async def test_new_doc_ingested(self, _chunk, mock_pub, _audit, _scan) -> None:
+    async def test_new_doc_ingested(self, mock_pub, _audit, _scan) -> None:
         mock_pub.return_value = AsyncMock()
         cfg = _make_config()
         new_doc = _make_document()
@@ -241,6 +233,7 @@ class TestIngestHappyPath:
             embedder=embedder,
             qdrant=qdrant,
         )
+        svc._chunker = AsyncMock(return_value=["chunk1", "chunk2"])
 
         result = await svc.ingest(
             ipt=IngestInput(
@@ -271,14 +264,9 @@ class TestIngestFailure:
     @patch("contexts.knowledge.application.ingest_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.knowledge.application.ingest_service.Publisher")
     @patch(
-        "contexts.knowledge.application.ingest_service.chunk_document",
-        new_callable=AsyncMock,
-        return_value=["c1"],
-    )
-    @patch(
         "contexts.knowledge.application.ingest_service.MIME_TO_PARSER", {"text/plain": lambda d: d.decode()}
     )
-    async def test_embed_failure_raises_ingest_failed(self, _chunk, mock_pub, _audit) -> None:
+    async def test_embed_failure_raises_ingest_failed(self, mock_pub, _audit) -> None:
         mock_pub.return_value = AsyncMock()
         cfg = _make_config()
         new_doc = _make_document()
@@ -300,6 +288,7 @@ class TestIngestFailure:
             embedder=embedder,
             qdrant=qdrant,
         )
+        svc._chunker = AsyncMock(return_value=["c1"])
 
         with pytest.raises(IngestFailed, match="provider down"):
             await svc.ingest(
@@ -325,14 +314,9 @@ class TestIngestVectorMismatch:
     @patch("contexts.knowledge.application.ingest_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.knowledge.application.ingest_service.Publisher")
     @patch(
-        "contexts.knowledge.application.ingest_service.chunk_document",
-        new_callable=AsyncMock,
-        return_value=["c1", "c2"],
-    )
-    @patch(
         "contexts.knowledge.application.ingest_service.MIME_TO_PARSER", {"text/plain": lambda d: d.decode()}
     )
-    async def test_short_vector_list_raises(self, _chunk, mock_pub, _audit, _scan) -> None:
+    async def test_short_vector_list_raises(self, mock_pub, _audit, _scan) -> None:
         mock_pub.return_value = AsyncMock()
         cfg = _make_config()
         new_doc = _make_document()
@@ -354,6 +338,7 @@ class TestIngestVectorMismatch:
             embedder=embedder,
             qdrant=qdrant,
         )
+        svc._chunker = AsyncMock(return_value=["c1", "c2"])
 
         with pytest.raises(IngestFailed, match="1 vectors for 2 chunks"):
             await svc.ingest(

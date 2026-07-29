@@ -763,7 +763,7 @@ class RagConfigService:
         from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
         from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
 
-        from .ingest_service import IngestService
+        from app.wiring.knowledge_ingest import KnowledgeIngestWiring
 
         settings = get_settings()
 
@@ -784,8 +784,7 @@ class RagConfigService:
         )
         qdrant = QdrantStore(qclient)
 
-        ingest = IngestService(
-            db,
+        ingest = KnowledgeIngestWiring(db).rag_service(
             blob=blob,
             embedder=embedder,
             qdrant=qdrant,

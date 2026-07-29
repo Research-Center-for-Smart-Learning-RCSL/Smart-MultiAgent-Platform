@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: in-progress
 created: 2026-07-29
 requirements: [R23.03]
 depends_on: [2026-07-29-knowledge-ingest-concurrency-and-enqueue]
@@ -80,4 +80,3 @@ Empty.
 ## 12. Follow-ups
 
 - FU-1: Introduce a Unit of Work only if transaction duplication remains.
-

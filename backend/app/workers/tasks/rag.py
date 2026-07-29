@@ -19,8 +19,8 @@ from minio import Minio
 from qdrant_client import AsyncQdrantClient
 
 from app.config.settings import get_settings
+from app.wiring.knowledge_ingest import KnowledgeIngestWiring
 from contexts.keys.infrastructure.adapters import build_router
-from contexts.knowledge.application.ingest_service import IngestService
 from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, ScanStatus
 from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
 from contexts.knowledge.infrastructure.channels import rag_channel
@@ -109,8 +109,7 @@ async def rag_ingest_document(
             url=settings.qdrant.url,
             api_key=settings.qdrant.api_key or None,
         )
-        ingest = IngestService(
-            db,
+        ingest = KnowledgeIngestWiring(db).rag_service(
             blob=MinioBlobStore(minio),
             embedder=embedder,
             qdrant=QdrantStore(qclient),

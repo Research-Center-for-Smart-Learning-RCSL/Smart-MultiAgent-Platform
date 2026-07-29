@@ -50,6 +50,7 @@ from contexts.conversation.infrastructure.tus_store import (
     TusUploadStore,
     parse_metadata,
 )
+from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from shared_kernel.observability.metrics import TUS_UPLOAD_BYTES
 
 _log = logging.getLogger(__name__)
@@ -118,10 +119,16 @@ class TusPatchResult:
 
 
 class TusService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        knowledge: KnowledgeFacade | None = None,
+    ) -> None:
         self._db = db
         self._store = TusUploadStore()
         self._attachments = AttachmentService(db)
+        self._knowledge = knowledge
 
     # ---- create -----------------------------------------------------------
 
@@ -357,7 +364,8 @@ class TusService:
                 )
             elif upload.purpose == "knowmap_source":
                 assert upload.knowmap_config_id is not None
-                from contexts.knowledge.interfaces.facade import KnowledgeFacade
+                if self._knowledge is None:
+                    raise RuntimeError("knowledge upload finalizers were not wired")
 
                 # The per-agent allowlist was validated at tus-create; re-parse it
                 # from the stored metadata so the finaliser writes it atomically.
@@ -369,7 +377,7 @@ class TusService:
                         with contextlib.suppress(ValueError):
                             km_agent_ids.append(uuid.UUID(token))
 
-                km_doc = await KnowledgeFacade(self._db).finalize_knowmap_upload(
+                km_doc = await self._knowledge.finalize_knowmap_upload(
                     knowmap_config_id=upload.knowmap_config_id,
                     filename=upload.filename,
                     mime=upload.mime,
@@ -383,7 +391,8 @@ class TusService:
                 knowmap_document_id = km_doc.id
             else:
                 assert upload.rag_config_id is not None
-                from contexts.knowledge.interfaces.facade import KnowledgeFacade
+                if self._knowledge is None:
+                    raise RuntimeError("knowledge upload finalizers were not wired")
 
                 # The per-agent allowlist was validated at tus-create; re-parse
                 # it from the stored metadata so the finaliser writes it
@@ -396,7 +405,7 @@ class TusService:
                         with contextlib.suppress(ValueError):
                             agent_ids.append(uuid.UUID(token))
 
-                doc = await KnowledgeFacade(self._db).finalize_rag_upload(
+                doc = await self._knowledge.finalize_rag_upload(
                     rag_config_id=upload.rag_config_id,
                     filename=upload.filename,
                     mime=upload.mime,

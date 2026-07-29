@@ -18,8 +18,10 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
+from minio import Minio
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.wiring.knowledge_ingest import KnowledgeIngestWiring
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
 from contexts.knowledge.application.graphrag_builder import (
@@ -30,7 +32,6 @@ from contexts.knowledge.application.graphrag_builder import (
 )
 from contexts.knowledge.application.graphrag_ports import ConfigLike
 from contexts.knowledge.application.knowmap_config_service import build_knowmap_embedder
-from contexts.knowledge.application.knowmap_ingest_service import KnowmapIngestService
 from contexts.knowledge.application.knowmap_triggers import (
     EnqueueOutcome,
     enqueue_knowmap_build,
@@ -457,8 +458,6 @@ async def knowmap_ingest_document(
     _ = ctx
     from datetime import UTC, datetime
 
-    from minio import Minio
-
     from app.config.settings import get_settings
 
     doc_id = uuid.UUID(document_id)
@@ -509,8 +508,7 @@ async def knowmap_ingest_document(
             secure=settings.minio.use_tls,
             region=settings.minio.region,
         )
-        ingest = KnowmapIngestService(
-            db,
+        ingest = KnowledgeIngestWiring(db).knowmap_service(
             blob=MinioBlobStore(minio),
             embedder=embedder,
             bucket=settings.minio.bucket_knowmap_sources,

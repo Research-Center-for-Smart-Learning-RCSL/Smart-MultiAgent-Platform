@@ -22,7 +22,9 @@ from contexts.knowledge.application.knowmap_ingest_service import (
     KnowmapIngestService,
 )
 from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus, ScanStatus
+from contexts.knowledge.infrastructure.chunkers import chunk_document
 from contexts.knowledge.infrastructure.knowmap_repositories import (
+    KnowmapChunkRepository,
     KnowmapConfigRepository,
     KnowmapDocumentRepository,
 )
@@ -141,6 +143,10 @@ async def test_failed_reupload_applies_submitted_allowlist() -> None:
             db,
             blob=_FakeBlob(),
             embedder=MagicMock(vector_size=1536),
+            configs=KnowmapConfigRepository(db),
+            documents=KnowmapDocumentRepository(db),
+            chunks=KnowmapChunkRepository(db),
+            chunker=chunk_document,
         )
         with patch(
             "contexts.knowledge.application.knowmap_ingest_service.enqueue_knowmap_scan",
