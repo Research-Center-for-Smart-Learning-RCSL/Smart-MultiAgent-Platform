@@ -671,6 +671,21 @@ class TestSweepOrphanedSubagentRoots:
         assert count == 0
         assert session.execute.await_count == 1
 
+    @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
+    async def test_candidate_query_filters_before_limit(self, _audit) -> None:
+        from app.workers.tasks.retention import _sweep_orphaned_subagent_roots
+
+        session = AsyncMock()
+        root_result = MagicMock()
+        root_result.all.return_value = []
+        session.execute.return_value = root_result
+
+        await _sweep_orphaned_subagent_roots(session)
+
+        sql = str(session.execute.call_args_list[0][0][0])
+        assert sql.index("NOT EXISTS") < sql.index("LIMIT")
+        assert "ORDER BY" in sql
+
 
 class TestSingleAgentInstanceRetentionPath:
     def test_no_second_agent_instance_retention_implementation(self) -> None:

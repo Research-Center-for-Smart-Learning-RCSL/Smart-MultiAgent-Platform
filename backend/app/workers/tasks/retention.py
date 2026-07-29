@@ -531,18 +531,16 @@ async def _sweep_orphaned_subagent_roots(session: AsyncSession) -> int:
     """
     root_rows = await session.execute(
         sa.text(
-            "WITH synth AS ("
-            "  SELECT id, run_context->>'workflow_run_id' AS wf_run_id "
-            "  FROM agent_instances "
-            "  WHERE parent_id IS NULL "
-            "    AND run_context->>'synthetic_root' = 'true' "
-            "  LIMIT 500"
-            ") "
-            "SELECT s.id FROM synth s "
-            "WHERE s.wf_run_id IS NOT NULL "
+            "SELECT id FROM agent_instances "
+            "WHERE parent_id IS NULL "
+            "  AND run_context->>'synthetic_root' = 'true' "
+            "  AND run_context->>'workflow_run_id' IS NOT NULL "
             "  AND NOT EXISTS ("
-            "    SELECT 1 FROM workflow_runs wr WHERE wr.id = s.wf_run_id::uuid"
-            "  )"
+            "    SELECT 1 FROM workflow_runs wr "
+            "    WHERE wr.id = (run_context->>'workflow_run_id')::uuid"
+            "  ) "
+            "ORDER BY spawned_at "
+            "LIMIT 500"
         )
     )
     root_ids = [r[0] for r in root_rows.all()]
