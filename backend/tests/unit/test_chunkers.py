@@ -76,6 +76,41 @@ def test_fixed_rejects_bad_params() -> None:
         chunk_fixed("a b c", chunk_size_tokens=20_000, chunk_overlap_tokens=0)
 
 
+async def test_chunk_document_clamps_legacy_out_of_range_params() -> None:
+    """A config stored under the old `0 <= overlap < size` rule must still ingest.
+
+    F-20 freezes `chunk_params` once a config has any document, so a stored
+    `{512, 300}` -- legal when it was written, now violating `overlap * 2 <= size`
+    -- could never be edited back into range. Raising here would make that config
+    permanently unable to ingest, so the ingest path clamps.
+    """
+    txt = " ".join(str(i) for i in range(2000))
+
+    out = await chunk_document(
+        txt,
+        strategy=ChunkStrategy.FIXED,
+        params={"chunk_size_tokens": 512, "chunk_overlap_tokens": 300},
+        embedder=_StubEmbedder({}),
+    )
+
+    assert out
+    # Clamped to size // 2, so the window still advances.
+    assert all(len(c.split()) <= 512 for c in out)
+
+
+async def test_chunk_document_clamps_oversized_legacy_params() -> None:
+    txt = " ".join(str(i) for i in range(300))
+
+    out = await chunk_document(
+        txt,
+        strategy=ChunkStrategy.FIXED,
+        params={"chunk_size_tokens": 20_000, "chunk_overlap_tokens": 9_000},
+        embedder=_StubEmbedder({}),
+    )
+
+    assert out
+
+
 def test_fixed_output_budget_fails_before_joining_amplified_chunk() -> None:
     with pytest.raises(ResourceBudgetError, match="chunk_output_bytes"):
         chunk_fixed(

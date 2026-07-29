@@ -47,6 +47,7 @@ from contexts.knowledge.domain.models import (
     DEFAULT_SEMANTIC_CHUNK_PARAMS,
     MAX_CHUNK_OUTPUT_BYTES,
     ChunkStrategy,
+    clamp_chunk_params,
     validate_chunk_params,
 )
 from shared_kernel.text_extraction.parsers import ResourceBudgetError
@@ -314,8 +315,10 @@ async def chunk_document(
     ``fixed`` (kept in the signature so the ingest path can call uniformly).
     """
     if strategy is ChunkStrategy.FIXED:
-        merged = {**DEFAULT_FIXED_CHUNK_PARAMS, **(params or {})}
-        validate_chunk_params(strategy, merged)
+        # Clamped, not validated: `params` comes from a stored config, and configs
+        # predating the current bounds cannot be edited back into range (F-20
+        # freezes chunk_params once documents exist). See clamp_chunk_params.
+        merged = clamp_chunk_params(strategy, {**DEFAULT_FIXED_CHUNK_PARAMS, **(params or {})})
         try:
             size = int(merged["chunk_size_tokens"])
             overlap = int(merged["chunk_overlap_tokens"])
@@ -328,8 +331,7 @@ async def chunk_document(
             max_chunks=max_chunks,
         )
     if strategy is ChunkStrategy.SEMANTIC:
-        merged = {**DEFAULT_SEMANTIC_CHUNK_PARAMS, **(params or {})}
-        validate_chunk_params(strategy, merged)
+        merged = clamp_chunk_params(strategy, {**DEFAULT_SEMANTIC_CHUNK_PARAMS, **(params or {})})
         try:
             max_tok = int(merged["max_tokens_per_chunk"])
             sim_thresh = float(merged["similarity_threshold"])
