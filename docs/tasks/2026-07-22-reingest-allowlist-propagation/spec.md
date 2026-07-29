@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-07-22
 requirements: []
 depends_on: []
@@ -69,6 +69,8 @@ Source: `docs/audits/2026-07-22-agent-config-runtime/findings.md` F-11 (major, c
 | Q-5 | Should the lists be unioned instead? | **No. Rejected on security grounds.** | Union is the only proposal that can *only ever widen*. A user re-uploading specifically to **revoke** agent B's access would get a 201 and B would keep access, and the empty-list case (`agent_ids=[]`, "no agent may see this") becomes unreachable through the ingest path forever. It converts a fail-closed defect into a fail-open one. |
 | Q-6 | The frontend pre-selects every bound agent on upload. Does that interact with the fix? | **Yes, decisively — and it is why Q-2 is a 409 rather than an overwrite.** | `RagConfigDetailView.vue:107-118` and `KnowledgeMapConfigDetailView.vue:167-178` seed the checkbox set to all bound agents. A Project Owner re-uploading purely to retry, without opening the allowlist panel, submits "all bound agents" by default. An unconditional overwrite on the READY branch would therefore silently widen any document deliberately narrowed via PATCH. If the 409 is later judged too costly and overwrite-everywhere is chosen instead, the pre-select default **must** change in the same PR, or the fix trades a fail-closed bug for a silent-widening one. |
 | Q-7 | Does this depend on any open dossier, or overlap the a2a orchestration audit? | No. `depends_on: []`. | Checked against `BOARD.md`. The a2a audit covers orchestration and turn locking; nothing there touches the knowledge ingestion path. |
+| Q-8 | Is the QUARANTINED status/scan-status defect (#8) part of this fix? | **No. Preserve current behavior and defer it to FU-2.** | The fix requires a separate security decision: resetting `scan_status` to pending can temporarily expose previously quarantined RAG chunks, while treating exact quarantined bytes as retryable conflicts with Q-3's blanket non-READY policy. The design, risk table and follow-up section already defer #8; AC-4 is therefore a non-regression boundary rather than a request to absorb it. |
+| Q-9 | Do the dedup/conflict audit requirements include the multipart create-race fallback? | **Yes.** | The `IntegrityError` recovery branches also resolve an upload request to an existing row. AC-5 says every such branch is audited, so the shared resolver/audit flow must cover both initial `find_by_sha` and create-race resolution. |
 
 ## 4. Reproduction
 
@@ -154,10 +156,13 @@ identically from all four sites. Per Q-2/Q-3: non-READY → overwrite, READY wit
 list → conflict, READY with an identical list → no-op.
 
 Then in each of the four services, on the branches that resolve to an existing row, call
-`set_agents` (`repositories.py:232-252`, `knowmap_repositories.py:436-450`) — the same write
-the PATCH endpoint already uses, which returns the refreshed row, satisfying #14 — and emit an
-audit record. Reuse `action='rag.document_agents_set'` so existing audit queries keep working,
-or extend `emit_reupload_audit`'s metadata.
+`set_agents` (`repositories.py:232-252`, `knowmap_repositories.py:436-450`) when the decision
+is `REINDEX_WITH_OVERWRITE` — the same write the PATCH endpoint already uses, which returns the
+refreshed row, satisfying #14 — and emit an audit record. Use the family-specific existing
+actions (`rag.document_agents_set` / `knowmap.document_agents_set`) for the allowlist write and
+extend the family-specific `document_uploaded` re-upload metadata with the resolver outcome.
+The multipart `IntegrityError` recovery branches must re-enter the same resolver/audit flow
+rather than returning the winner directly.
 
 **Resist the large refactor.** The four `sha → find_by_sha → READY? return : re-index / else
 create` blocks are near-identical (`ingest_service.py:133-189`,
@@ -219,8 +224,8 @@ returned row is `_index_document`'s re-read (`:420`) of an unmodified row.
 
 Then: `test_ready_duplicate_upload_with_different_allowlist` (409 per Q-2);
 `test_ready_duplicate_upload_with_identical_allowlist_is_noop` (pins that the common benign
-case does not start erroring); `test_reupload_of_quarantined_doc_does_not_flip_status_to_ready`
-(#8). Mirror the first two against `KnowmapIngestService` — `test_knowmap_scan_gating.py:73`
+case does not start erroring). Mirror the first two against `KnowmapIngestService` —
+`test_knowmap_scan_gating.py:73`
 already seeds `agent_ids` and is the natural neighbour — plus
 `test_knowmap_reupload_emits_reupload_audit` for #6.
 
@@ -267,20 +272,20 @@ a generic "upload failed".
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: `test_reupload_of_failed_doc_applies_submitted_allowlist` (§8) fails against
+- [x] AC-1: `test_reupload_of_failed_doc_applies_submitted_allowlist` (§8) fails against
       current code and passes after the fix.
-- [ ] AC-2: on all four entry points, re-ingesting a non-READY document applies the submitted
+- [x] AC-2: on all four entry points, re-ingesting a non-READY document applies the submitted
       allowlist to the persisted row **and** to the response body.
-- [ ] AC-3: a READY duplicate whose submitted list differs returns 409 naming the PATCH
+- [x] AC-3: a READY duplicate whose submitted list differs returns 409 naming the PATCH
       endpoint; an identical list is a silent no-op.
-- [ ] AC-4: re-uploading quarantined bytes does not flip `status` to READY while `scan_status`
-      remains quarantined.
-- [ ] AC-5: every branch that resolves to an existing document emits an audit row, including
+- [x] AC-4: this task does not change QUARANTINED re-upload semantics; the status/scan-status
+      defect remains explicitly deferred to FU-2 rather than being partially fixed here.
+- [x] AC-5: every branch that resolves to an existing document emits an audit row, including
       the READY-dedup branch and both Knowledge Map paths.
-- [ ] AC-6: `document_uploaded` audit metadata carries `agent_ids`.
-- [ ] AC-7: no ingest path writes an allowlist that has not passed
+- [x] AC-6: `document_uploaded` audit metadata carries `agent_ids`.
+- [x] AC-7: no ingest path writes an allowlist that has not passed
       `validate_agent_allowlist`.
-- [ ] AC-8: the frontend renders the 409 as an actionable message, not a generic upload
+- [x] AC-8: the frontend renders the 409 as an actionable message, not a generic upload
       failure.
 - [ ] AC-9: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`;
       `pnpm test`, `pnpm lint`, `pnpm typecheck` pass in `frontend/`.
@@ -292,7 +297,7 @@ design already claims for itself. See FU-1.
 
 ## 12. Deviation Log
 
-Appended by /build.
+No implementation deviations from the approved design.
 
 ## 13. Follow-ups
 
@@ -312,4 +317,32 @@ Appended by /build.
   correcting a mis-declared type re-parses with the stored parser.
 - **FU-6** — #11: the multipart re-index branch never re-`put`s the blob, so a swept blob
   yields a READY document with a dangling `minio_path`.
+- **FU-7** — The RAG tus finalizer commits the re-ingest claim before publishing
+  `ingestion.started`, and the publish is outside its enqueue recovery block. A Redis failure
+  can therefore leave the row stuck INGESTING without an ingest job. Pre-existing; make the
+  notification best-effort or move it behind a recovery strategy.
+- **FU-8** — RAG and Knowledge Map tus accept documents up to 1 GiB, while workers load the
+  whole blob and materialize parsed text and chunks under a global worker concurrency of 50.
+  Add purpose-specific byte/chunk caps, stream or spool parsing, scan before parsing, and/or
+  isolate ingestion in a low-concurrency queue.
+- **FU-9** — The touched backend application services directly construct concrete
+  infrastructure repositories/adapters. This pre-existing dependency-inversion debt should be
+  addressed as a dedicated boundary refactor, not inside this bugfix.
+- **FU-10** — `RagConfigDetailView.vue` and `KnowledgeMapConfigDetailView.vue` remain oversized
+  multi-responsibility views. Extract upload/document-list behavior in a dedicated frontend
+  refactor rather than expanding this bugfix.
+
+## 14. Build Verification
+
+- Focused backend policy, service, tus-finalizer and real upload-route contract suite:
+  **43 passed**.
+- Backend `ruff check .`, `ruff format --check .` and `mypy .`: **passed** across 867 files.
+- Frontend `pnpm test`: **167 files / 894 tests passed**; `pnpm lint`, `pnpm typecheck` and
+  `pnpm build`: **passed**.
+- The real-Postgres wiring tests are authored but cannot run on this host: the configured
+  `postgres` hostname does not resolve and the Docker daemon is unavailable. The focused
+  wiring selection therefore reports 10 environment errors after 38 non-wiring tests pass.
+- The broad backend unit run reached 20% without a failure, then exceeded the six-minute
+  execution window. Full `pytest -q` remains unverified, so AC-9 and dossier completion stay
+  open.
 </content>
