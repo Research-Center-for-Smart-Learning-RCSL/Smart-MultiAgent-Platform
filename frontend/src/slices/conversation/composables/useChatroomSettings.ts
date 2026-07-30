@@ -64,21 +64,30 @@ export function useChatroomSettings(chatroomId: string) {
     syncedName = found.name
   }
 
-  /** Adopt a server object that arrived without the user asking for it — the
-   *  background revalidation. Two things it must not trample:
+  /** Adopt a server object the user did not ask for by name: the background
+   *  revalidation, and the response to a flag patch (which carries whatever
+   *  name the server already had, because the patch deliberately sent none).
+   *  Two things it must not trample:
    *
    *  - An in-progress rename. The draft the user is holding is theirs to
-   *    submit or discard.
+   *    submit or discard — overwriting it here would be the rename bleed in
+   *    reverse, deleting instead of committing.
    *  - A newer room already in hand. A revalidation issued before a save can
    *    land after it; `version` is monotonic per room, so an older response
    *    is dropped rather than winding the form back to a pre-save state whose
    *    next save would 409. */
-  function applyRevalidated(found: Chatroom): void {
+  function applyKeepingDraft(found: Chatroom): void {
     if (room.value && found.version < room.value.version) return
     const typing = name.value !== syncedName
     room.value = found
-    syncedName = found.name
-    if (!typing) name.value = found.name
+    // `syncedName` only moves with the field it describes. Advancing it while
+    // keeping the draft would let a later revalidation conclude the user had
+    // stopped typing, purely because their draft happened to match whatever
+    // name the server moved to.
+    if (!typing) {
+      name.value = found.name
+      syncedName = found.name
+    }
   }
 
   /** Record a failed save on both surfaces the UI offers: the inline alert in
@@ -135,7 +144,7 @@ export function useChatroomSettings(chatroomId: string) {
 
   async function revalidate(): Promise<void> {
     try {
-      applyRevalidated(await getChatroom(chatroomId))
+      applyKeepingDraft(await getChatroom(chatroomId))
     } catch {
       /* the cached paint stands; a save surfaces any real problem */
     }
@@ -179,7 +188,7 @@ export function useChatroomSettings(chatroomId: string) {
     saving.value = true
     saveError.value = null
     try {
-      applyRoom(await patchChatroom(chatroomId, room.value.version, { [key]: value }))
+      applyKeepingDraft(await patchChatroom(chatroomId, room.value.version, { [key]: value }))
       await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
       toast.success(t('conversation.settings.saved'))
     } catch (e) {
