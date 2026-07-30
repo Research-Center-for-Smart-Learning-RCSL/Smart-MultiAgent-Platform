@@ -151,6 +151,7 @@ The JSON Schema catches only structural errors. The following checks are enforce
 4. `approval_gate.timeout_seconds` > 1 hour.
 5. Cron expression with sub-minute frequency.
 6. `loop_guard.max_visits_per_node` > 1 000.
+7. `subagent_spawn` present: the node is not implemented and always exits its `failure` port. Advisory only — a blocking rule would reject the edit that removes the node, since create and patch share one validator.
 
 ---
 
