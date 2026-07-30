@@ -55,6 +55,30 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+# `continue` means "do not fail the run; take the node's normal-completion path".
+# It resolved to "default" for every node type, but a node whose port set excludes
+# "default" (linter._ALLOWED_PORTS) can never have such an edge — rule 3 rejects one
+# at save time — so _advance_from matched nothing and the branch silently dead-ended,
+# leaving the run RUNNING until the idle watchdog killed it half an hour later.
+#
+# approval_gate resolves to "rejected", never "approved": an error inside the approval
+# machinery must never manufacture an approval. Fail closed.
+_CONTINUE_PORTS: dict[NodeType, str] = {
+    NodeType.AGENT_INVOCATION: "success",
+    NodeType.INSTRUCT: "success",
+    NodeType.SUBAGENT_SPAWN: "success",
+    NodeType.APPROVAL_GATE: "rejected",
+}
+
+
+def _continue_port(node: NodeSpec) -> str:
+    """Output port an on_error='continue' node advances from."""
+    if node.type == NodeType.CONDITION:
+        # condition declares its ports in config; "default" is only the fallback name.
+        return str(node.config.get("default_port", "default"))
+    return _CONTINUE_PORTS.get(node.type, "default")
+
+
 def _parse_node(raw: dict[str, Any]) -> NodeSpec:
     config = dict(raw.get("config", {}))
     on_error_raw = config.get("on_error") or {}
@@ -638,6 +662,7 @@ class RunEngine:
             )
 
         # Apply on-error strategy if failed (W21: log the failure first)
+        continued_on_error = False
         if outcome.state == StepState.FAILED:
             logger.warning(
                 "run %s: node %s failed (strategy=%s): %s",
@@ -646,6 +671,8 @@ class RunEngine:
                 node.on_error.strategy.value,
                 outcome.error,
             )
+            continued_on_error = node.on_error.strategy == OnErrorStrategy.CONTINUE
+            original_error = outcome.error
             outcome = await self._apply_on_error(ctx, node, outcome, step.id)
 
         # Update step record, observe metrics, flush, and emit event
@@ -711,7 +738,19 @@ class RunEngine:
             return
 
         # Follow outgoing edges
-        await self._advance_from(ctx, node_id, port=outcome.port)
+        advanced = await self._advance_from(ctx, node_id, port=outcome.port)
+
+        # An on_error='continue' node that resolves to a port with no outgoing edge
+        # would otherwise leave the branch stopped and the run RUNNING forever, to be
+        # force-failed by the idle watchdog ~30 min later with an unrelated cause.
+        # Fail here instead, naming the port the author needs to wire.
+        if continued_on_error and not advanced:
+            await self._fail_run(
+                ctx,
+                f"Node '{node_id}' has on_error.strategy='continue' but no outgoing edge "
+                f"on port '{outcome.port}', so the run cannot proceed past it. "
+                f"Original error: {original_error or 'unknown'}",
+            )
 
     async def _advance_from(
         self,
@@ -719,8 +758,8 @@ class RunEngine:
         node_id: str,
         *,
         port: str = "default",
-    ) -> None:
-        """Follow edges from a node's output port."""
+    ) -> bool:
+        """Follow edges from a node's output port. False if no edge matched."""
         edges = _parse_edges(ctx.workflow_def.get("edges", []))
         outgoing = _build_outgoing(edges)
 
@@ -733,7 +772,7 @@ class RunEngine:
             matching = outgoing.get(node_id, [])
 
         if not matching:
-            return
+            return False
 
         if len(matching) == 1:
             await self._execute_node(ctx, matching[0].to_node, from_edge=matching[0].id)
@@ -747,6 +786,7 @@ class RunEngine:
                 self._pending_enqueues.append(
                     ("run_workflow_step", str(ctx.run_id), edge.to_node, 0, edge.id),
                 )
+        return True
 
     async def _apply_on_error(
         self,
@@ -762,7 +802,7 @@ class RunEngine:
             return StepOutcome(
                 state=StepState.SUCCEEDED,
                 output=outcome.output,
-                port="default",
+                port=_continue_port(node),
             )
 
         if strategy == OnErrorStrategy.RETRY:

@@ -53,7 +53,8 @@ _UNIMPLEMENTED_ERROR = (
     "runtime: spawning would create an agent instance whose task never runs, then park "
     "this run until the idle watchdog killed it. The node fails immediately on its "
     "'failure' port instead. With on_error.strategy='continue' the run proceeds past "
-    "this node and output_variable is left unset. This capability is deferred to a "
+    "this node on its 'success' port and output_variable is left unset. This "
+    "capability is deferred to a "
     "feature dossier, not cancelled — see "
     "docs/tasks/2026-07-22-subagent-spawn-fail-fast/spec.md."
 )

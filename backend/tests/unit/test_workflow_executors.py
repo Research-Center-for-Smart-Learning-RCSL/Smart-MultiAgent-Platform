@@ -898,7 +898,9 @@ class TestSubagentSpawnExecutor:
         assert "2026-07-22-subagent-spawn-fail-fast" in outcome.error
 
     # AC-5 — R1's deliberate behaviour change: a `continue` node now proceeds past
-    # this node instead of never reaching it, with output_variable unset.
+    # this node instead of never reaching it, with output_variable unset. The port is
+    # 'success', not 'default': subagent_spawn cannot emit 'default' (rule 3), so the
+    # old hardcoded 'default' matched no edge and stalled the run. See D-2.
     async def test_on_error_continue_proceeds_with_output_variable_unset(self) -> None:
         from contexts.workflow.application.run_engine import RunEngine
         from contexts.workflow.domain.models import OnErrorConfig, OnErrorStrategy
@@ -915,7 +917,7 @@ class TestSubagentSpawnExecutor:
         resolved = await RunEngine(db=MagicMock())._apply_on_error(ctx, node, outcome, uuid.uuid4())
 
         assert resolved.state is StepState.SUCCEEDED
-        assert resolved.port == "default"
+        assert resolved.port == "success"
         assert "child_id" not in ctx.variables
 
     # AC-6 — the executor default used to be 3600 against a schema maximum of 600.

@@ -161,7 +161,7 @@ The JSON Schema catches only structural errors. The following checks are enforce
 - The engine consumes one node at a time per branch from the event bus. Parallel branches run as independent consumers.
 - On-error strategies:
   - `fail`: mark the run failed. Sibling `parallel` branches observe the terminal run state at their next node boundary and stop; a branch already inside an agent turn completes its current provider request, while remaining tool rounds are cancelled when the call reaches its next cancellation boundary.
-  - `continue`: treat the node as succeeded with `output = null`; follow default port.
+  - `continue`: treat the node as succeeded with `output = null`; follow the node's normal-completion port. That is `default` for node types that can emit it, `success` for `agent_invocation` / `instruct` / `subagent_spawn`, the declared `default_port` for `condition`, and `rejected` for `approval_gate` (an error inside the approval machinery must never manufacture an approval). If the resolved port has no outgoing edge the run fails immediately naming that port, rather than stalling until the idle watchdog.
   - `retry`: retry up to `retry_max` times with `retry_backoff_ms` linear backoff.
   - `fallback`: follow an edge to `fallback_node_id` (must be a valid node id in the same workflow).
 - `instruct` nodes always carry `chain_id` and `path` per REQUIREMENTS §15.5. Max chain depth and wall-clock are project-scoped config, not in this schema.
