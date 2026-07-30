@@ -11,6 +11,8 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from contexts.workflow.application.run_engine import RunEngine
 from contexts.workflow.domain.models import (
     NodeSpec,
@@ -349,12 +351,121 @@ async def test_mark_run_failed_isolated_cancels_pending_steps(monkeypatch) -> No
 async def test_on_error_continue_converts_to_succeeded() -> None:
     engine = _engine()
     ctx = _make_ctx()
-    node = _make_node(strategy=OnErrorStrategy.CONTINUE)
+    node = _make_node(strategy=OnErrorStrategy.CONTINUE, node_type=NodeType.SET_VARIABLE)
 
     result = await engine._apply_on_error(ctx, node, _failed_outcome(), uuid.uuid4())
 
     assert result.state == StepState.SUCCEEDED
     assert result.port == "default"
+
+
+# `continue` resolved to "default" for every node type, but the four multi-port types
+# cannot emit "default" (linter._ALLOWED_PORTS; a "default" edge from one of them is a
+# rule-3 save error). _advance_from matched nothing, the branch dead-ended, and the run
+# sat RUNNING until the idle watchdog killed it ~30 min later.
+@pytest.mark.parametrize(
+    ("node_type", "expected_port"),
+    [
+        (NodeType.AGENT_INVOCATION, "success"),
+        (NodeType.INSTRUCT, "success"),
+        (NodeType.SUBAGENT_SPAWN, "success"),
+        (NodeType.APPROVAL_GATE, "rejected"),
+        (NodeType.SET_VARIABLE, "default"),
+        (NodeType.WAIT_FOR_EVENT, "default"),
+        (NodeType.JOIN, "default"),
+        (NodeType.PARALLEL, "default"),
+    ],
+)
+async def test_on_error_continue_resolves_an_emittable_port(
+    node_type: NodeType,
+    expected_port: str,
+) -> None:
+    engine = _engine()
+    ctx = _make_ctx()
+    node = _make_node(strategy=OnErrorStrategy.CONTINUE, node_type=node_type)
+
+    result = await engine._apply_on_error(ctx, node, _failed_outcome(), uuid.uuid4())
+
+    assert result.port == expected_port
+
+
+async def test_on_error_continue_never_manufactures_an_approval() -> None:
+    # An error inside the approval machinery must fail closed. Routing `continue` to
+    # "approved" would let a crashed gate authorize whatever it guards.
+    engine = _engine()
+    ctx = _make_ctx()
+    node = _make_node(strategy=OnErrorStrategy.CONTINUE, node_type=NodeType.APPROVAL_GATE)
+
+    result = await engine._apply_on_error(ctx, node, _failed_outcome(), uuid.uuid4())
+
+    assert result.port != "approved"
+
+
+async def test_on_error_continue_uses_conditions_declared_default_port() -> None:
+    engine = _engine()
+    ctx = _make_ctx()
+    node = NodeSpec(
+        id="n1",
+        type=NodeType.CONDITION,
+        config={"default_port": "fallback"},
+        on_error=OnErrorConfig(strategy=OnErrorStrategy.CONTINUE),
+    )
+
+    result = await engine._apply_on_error(ctx, node, _failed_outcome(), uuid.uuid4())
+
+    assert result.port == "fallback"
+
+
+def _continue_harness(engine: RunEngine) -> AsyncMock:
+    engine._runs.get = AsyncMock(return_value=_run(RunState.RUNNING))
+    engine._recorder.insert_step = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
+    engine._recorder.emit_step_started = AsyncMock()
+    engine._recorder.update_step = AsyncMock()
+    engine._recorder.emit_step_event = AsyncMock()
+    engine._runs.update_variables = AsyncMock(return_value=True)
+    engine._fail_run = AsyncMock()  # type: ignore[method-assign]
+    # The wired-port case advances into the end node; stub its terminal write so the
+    # test exercises real _advance_from routing without a live DB.
+    engine._finalize_run = AsyncMock()  # type: ignore[method-assign]
+    return AsyncMock(return_value=StepOutcome(state=StepState.FAILED, error="boom"))
+
+
+def _continue_def(from_port: str) -> dict:
+    return {
+        "nodes": [
+            {"id": "s1", "type": "subagent_spawn", "config": {"on_error": {"strategy": "continue"}}},
+            {"id": "fin", "type": "end", "config": {}},
+        ],
+        "edges": [{"id": "x1", "from": "s1", "to": "fin", "from_port": from_port}],
+    }
+
+
+async def test_continue_with_no_matching_edge_fails_the_run_instead_of_stalling() -> None:
+    # Only "failure" is wired, but `continue` resolves to "success". Before the guard
+    # the branch just stopped and the run sat RUNNING until the idle watchdog.
+    engine = _engine()
+    ctx = _make_ctx(_continue_def("failure"))
+    executor = _continue_harness(engine)
+
+    with patch("contexts.workflow.application.run_engine.get_executor", return_value=executor):
+        await engine._execute_node(ctx, "s1")
+
+    engine._fail_run.assert_awaited_once()
+    reason = engine._fail_run.await_args[0][1]
+    assert "success" in reason
+    # The original error must survive into the reason, or the failure is undiagnosable.
+    assert "boom" in reason
+
+
+async def test_continue_advances_normally_when_the_resolved_port_is_wired() -> None:
+    engine = _engine()
+    ctx = _make_ctx(_continue_def("success"))
+    executor = _continue_harness(engine)
+
+    with patch("contexts.workflow.application.run_engine.get_executor", return_value=executor):
+        await engine._execute_node(ctx, "s1")
+
+    engine._fail_run.assert_not_awaited()
 
 
 async def test_on_error_continue_preserves_output() -> None:
