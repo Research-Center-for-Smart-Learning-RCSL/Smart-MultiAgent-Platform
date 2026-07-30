@@ -281,6 +281,71 @@ describe('useChatroomMessages optimistic delete', () => {
   })
 })
 
+describe('useChatroomMessages moderator affordances (V-4)', () => {
+  // The backend already grants edit/delete to project and org owners
+  // (`messages.py` delete gate, `message_service.edit`); the affordances stayed
+  // hidden because the DTO carried no signal. `is_moderator` is that signal.
+  function mountModerator(isModerator: boolean) {
+    api.listMessages.mockResolvedValue([])
+    mountQueryHost(() => {
+      const listRef: Ref<HTMLElement | null> = ref(null)
+      composable = useChatroomMessages(
+        ROOM,
+        listRef,
+        () => [],
+        () => isModerator,
+      )
+    })
+    const session = useSessionStore()
+    session.me = {
+      id: 'u1',
+      email: 'u@smap.test',
+      email_verified: true,
+      is_admin: false,
+      status: 'active',
+    }
+  }
+
+  // Someone else's message, well past the five-minute author window.
+  function aged(over: Partial<Message> = {}): Message {
+    return msg({
+      id: 'm_other',
+      sender_id: 'u2',
+      created_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+      ...over,
+    })
+  }
+
+  it('lets a non-admin project owner edit another user\'s aged message', async () => {
+    mountModerator(true)
+    await flushPromises()
+    expect(composable.canEdit(aged())).toBe(true)
+  })
+
+  it('lets a non-admin project owner delete another user\'s message', async () => {
+    mountModerator(true)
+    await flushPromises()
+    expect(composable.canDelete(aged())).toBe(true)
+  })
+
+  it('grants a plain member neither affordance', async () => {
+    mountModerator(false)
+    await flushPromises()
+    expect(composable.canEdit(aged())).toBe(false)
+    expect(composable.canDelete(aged())).toBe(false)
+  })
+
+  it('never offers either affordance on an optimistic message', async () => {
+    // An unsent bubble has no server id to PATCH or DELETE, so the `_status`
+    // guard has to stay ahead of the moderator grant.
+    mountModerator(true)
+    await flushPromises()
+    const optimistic = { ...aged({ id: 'pending-1' }), _status: 'sending' as const }
+    expect(composable.canEdit(optimistic)).toBe(false)
+    expect(composable.canDelete(optimistic)).toBe(false)
+  })
+})
+
 describe('useChatroomMessages loading/error state (F-17)', () => {
   it('exposes isPending until the first fetch settles', async () => {
     const fetch = deferred<Message[]>()
