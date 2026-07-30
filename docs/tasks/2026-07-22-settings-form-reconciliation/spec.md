@@ -648,6 +648,21 @@ coupling note. See Q-1.
   by `test_name_only_patch_keeps_moderator_semantics` at the route. Agreed with the user
   on 2026-07-30.
 
+- **D-8** — post-merge `/code-review` found a defect this task introduced and its own tests
+  missed: `patchFlag`'s **success** path called `applyRoom`, and a flag patch's response
+  carries the server's old name (the patch deliberately sends none), so flipping a toggle
+  while a rename sat unsaved in the General field silently deleted the draft. The rename
+  bleed in reverse — committing the draft was the original defect, discarding it was the fix's
+  — and T-3 could not catch it because it asserted the request body and never the draft's
+  fate. Success now routes through the draft-preserving apply, pinned by "keeps an
+  unsubmitted rename when a toggle succeeds". The same review found that `syncedName`
+  advanced even on the branch that keeps the draft, letting a later revalidation conclude the
+  user had stopped typing purely because their draft matched the server's new name; it now
+  moves only with the field it describes.
+- **D-9** — `patch_chatroom` no longer resolves roles for a platform admin, whose bypass
+  discards the result. Deliberate follow-on from §7.1's per-flag patch: the settings form now
+  sends one PATCH per toggle rather than one per save, so the wasted round trip was paid per
+  click.
 ## 13. Follow-ups
 
 - **FU-1** — No e2e coverage for a non-admin project owner's moderation affordances.
@@ -699,3 +714,27 @@ coupling note. See Q-1.
   this task's to fix. Replaced the fixed sleep with `vi.waitFor` on the condition; the
   synchronous first assertion, which is the actual F-17 guard, is untouched. The remaining
   `settle()` call sites elsewhere in the file have the same latent shape and were left alone.
+- **FU-9** — `revalidate` writes the fresh room into the composable's local `room` ref but
+  never back into the `['conversation','chatrooms']` entry it was painted from, so the stale
+  sidebar row survives its own revalidation. Bounded, because `loadRoom` revalidates on every
+  entry to the page, so the form is never wrong for more than a tick — F-8's actual damage
+  (laundering a stale write through a 409) is closed either way. Closing it properly probably
+  means retiring the hand-rolled read-then-revalidate for a `useQuery` on
+  `convKeys.chatroom(id)`, the key `ChatroomView` already uses, which would bring cache-write,
+  dedupe and staleTime along with it. Raised by `/code-review`.
+- **FU-10** — `read_chatroom` gates on "holds any role in the project" rather than
+  `ensure_can_read`, so a room's own access tiers do not protect its metadata: an `ORG_MEMBER`
+  can `GET /api/chatrooms/{id}` on an `allow_project_owners_only` room and read its name, all
+  four flags, `created_by_user_id` and `disclose_observers`, while
+  `GET /api/chatrooms/{id}/messages` correctly 403s through `_satisfies_room_flags`.
+  Pre-existing and not a tenant-boundary breach (the caller is inside the org), but this task
+  routed a new authority field through that same return, and this dossier's own security pass
+  missed the angle — it verified `is_moderator` could not out-grant the enforcement gate and
+  did not re-check the gate the field rides on. Raised by `/code-review`.
+- **FU-11** — `create_chatroom` is the one `ChatroomOut` producer that still answers
+  `is_moderator: false` unconditionally, so a PROJECT_OWNER's 201 disagrees with their own GET
+  on the same room. §7.2 decided this deliberately ("`create_chatroom` may pass the default;
+  the frontend invalidates the list after create") and no consumer trusts the create response
+  today, so it was left as decided rather than silently redesigned — but the DTO contract is
+  inconsistent at one of four call sites, and closing it costs one `roles_for`. Raised by
+  `/code-review`; needs a decision, not just an edit.
