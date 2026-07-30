@@ -55,11 +55,6 @@ parallel.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
-- `2026-07-22-subagent-spawn-fail-fast` (bugfix) — `depends_on: []`. From the a2a audit F-1
-  and the config audit F-3. Makes the dead `subagent_spawn` node fail fast instead of parking for
-  half an hour. **Deviates from the a2a triage**, which grouped five findings here: only one is
-  actionable today, the other four are latent until sub-agent execution is built and are recorded
-  as follow-ups for that feature dossier.
 Removed on 2026-07-28 because their own frontmatter reads `implemented` and the board only
 lists unfinished work: `2026-07-22-activity-session-authz-and-validation`,
 `2026-07-22-workflow-run-cancellation`, `2026-07-28-activity-schema-participant-access`.
@@ -70,3 +65,8 @@ Also removed on 2026-07-29 after implementation: `2026-07-22-reingest-allowlist-
 Removed on 2026-07-29 after implementation: `2026-07-22-search-determinism-and-highlighting`.
 Removed on 2026-07-30 after implementation: `2026-07-22-settings-form-reconciliation`. Nothing
 listed it in `depends_on`, so no row moved out of Blocked.
+Removed on 2026-07-30 after implementation: `2026-07-22-subagent-spawn-fail-fast`. Nothing listed
+it in `depends_on`, so no row moved out of Blocked. It does validate two standing assumptions in
+`2026-07-22-workflow-capability-enforcement`: `SubagentService.spawn` now has **zero** production
+callers, so that dossier's Q-2 (no runtime gate for `can_create_subagent`) and its R6 (zero file
+overlap) both hold as written.
