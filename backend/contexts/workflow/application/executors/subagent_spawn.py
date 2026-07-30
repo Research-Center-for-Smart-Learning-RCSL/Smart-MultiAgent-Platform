@@ -1,26 +1,13 @@
 """subagent_spawn executor — fails fast; sub-agent execution is not implemented.
 
-The node's contract is "spawn a sub-agent and run its task". Only the bookkeeping
-half of G.8 ([R15.18]-[R15.23]) was ever built: ``SubagentService.spawn`` inserts an
-``agent_instances`` row, but nothing hydrates a runtime, runs the task, or tears the
-instance down. The completion protocol had a writer and no reader — the node armed
-``wf:subagent_callback:{instance_id}`` and parked, and the only reader sits behind
-``SubagentService.destroy``, which has no production caller. Every run therefore
-parked until the watchdog force-failed it on ``idle_max_seconds``, reporting a cause
-unrelated to the actual defect, and leaking one synthetic root plus one child
-instance per spawn.
+Only the bookkeeping half of G.8 ([R15.18]-[R15.23]) was ever built: the node created
+an ``agent_instances`` row and armed a Redis callback nothing ever read, so every run
+parked until the idle watchdog killed it. Failing immediately on the ``failure`` port
+is the truthful outcome. The capability is deferred, NOT cancelled — [R15.18]-[R15.23]
+remain live requirements.
 
-Failing immediately on the ``failure`` port is the truthful outcome: the platform
-cannot honour the node's contract, and the workflow's own declared failure path is
-the designed channel for that. Linter rule 13 (``application/linter.py``) already
-makes an unconnected ``failure`` port a blocking save error unless
-``on_error.strategy`` is ``continue``, so every saved workflow containing this node
-already has that path wired — fail-fast lands where the author designed.
-
-Deferred, NOT cancelled: [R15.18]-[R15.23] remain live requirements. The runtime
-hydration, turn execution and teardown this node needs are a feature, tracked with
-their inherited follow-ups in
-``docs/tasks/2026-07-22-subagent-spawn-fail-fast/spec.md``.
+Rationale, deferral and inherited follow-ups:
+``docs/tasks/2026-07-22-subagent-spawn-fail-fast/spec.md``
 """
 
 from __future__ import annotations
