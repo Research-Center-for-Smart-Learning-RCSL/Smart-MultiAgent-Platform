@@ -11,6 +11,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { useSessionStore } from '@shared/stores/session'
 import { ApiError } from '@shared/api-client'
+import { deferred } from '../../../../tests/utils'
 import type { Message } from '../types'
 
 function apiError(status: number): ApiError {
@@ -55,16 +56,6 @@ import { convKeys } from '../queries'
 const ROOM = 'cr_1'
 type Composable = ReturnType<typeof useChatroomMessages>
 let composable: Composable
-
-function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void } {
-  let resolve!: (v: T) => void
-  let reject!: (e: unknown) => void
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-  return { promise, resolve, reject }
-}
 
 function msg(over: Partial<Message> = {}): Message {
   return {
