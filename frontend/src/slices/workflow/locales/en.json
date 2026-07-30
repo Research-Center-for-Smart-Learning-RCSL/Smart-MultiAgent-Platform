@@ -168,10 +168,13 @@
       "agents": "Agents",
       "logic": "Logic",
       "events": "Events",
-      "terminal": "Terminal"
+      "terminal": "Terminal",
+      "unavailable": "Unavailable"
     },
     "config": {
       "label": "Label",
+      "subagentUnavailableTitle": "Sub-agent spawn is not available yet",
+      "subagentUnavailableBody": "This node fails immediately on its failure port, so make sure that path is wired. Sub-agent execution is not implemented yet; the capability is deferred, not cancelled.",
       "deleteNode": "Delete Node",
       "deleteConfirm": "Delete this node and all its edges?",
       "deleteConfirmTitle": "Delete Node",

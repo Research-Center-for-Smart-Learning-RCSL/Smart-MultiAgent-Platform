@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import { SCheckbox, SFormField, SInput, SSelect, STextarea } from '@shared/ui'
+import { SAlert, SCheckbox, SFormField, SInput, SSelect, STextarea } from '@shared/ui'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
 
@@ -29,6 +29,15 @@ const agentOptions = computed(() => [
 
 <template>
   <div class="space-y-4">
+    <!-- The engine cannot execute this node; it exits its failure port immediately.
+         The fields below stay editable so a saved workflow round-trips unchanged. -->
+    <SAlert
+      variant="warning"
+      :title="t('workflow.config.subagentUnavailableTitle')"
+    >
+      {{ t('workflow.config.subagentUnavailableBody') }}
+    </SAlert>
+
     <!-- Parent Agent -->
     <SFormField
       :label="t('workflow.config.parentAgentId')"
