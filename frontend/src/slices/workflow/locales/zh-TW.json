@@ -172,7 +172,7 @@
     "config": {
       "label": "標籤",
       "subagentUnavailableTitle": "子代理產生功能尚未提供",
-      "subagentUnavailableBody": "此節點會立即從 failure 連接埠失敗，請確認該路徑已連線。子代理執行功能尚未實作；此功能是延後推出，並非取消。",
+      "subagentUnavailableBody": "子代理執行功能尚未實作，因此此節點一律立即失敗。請確認 failure 路徑已連線；若你將 on-error 設為 continue，則需連線 success 路徑。此功能是延後推出，並非取消。",
       "deleteNode": "刪除節點",
       "deleteConfirm": "確定刪除此節點及其所有連線？",
       "deleteConfirmTitle": "刪除節點",
