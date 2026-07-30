@@ -488,7 +488,12 @@ describe('ChatroomView', () => {
     })
     expect(wrapper.find('.load-earlier').exists()).toBe(false)
 
-    await settle()
-    expect(wrapper.find('.load-earlier').exists()).toBe(true)
+    // Wait for the condition, not for a fixed 100ms: rendering 100 messages
+    // (each through markdown) overruns that budget under full-suite load, and
+    // the control then reads as "still absent" for a reason the test is not
+    // about. The assertion above is the F-17 guard and stays synchronous.
+    await vi.waitFor(() => {
+      expect(wrapper.find('.load-earlier').exists()).toBe(true)
+    })
   })
 })
