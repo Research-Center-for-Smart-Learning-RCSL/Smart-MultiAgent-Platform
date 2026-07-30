@@ -147,6 +147,12 @@ known-first-party = ["app", "contexts", "shared_kernel", "smap"]
 # ---------- Mypy ----------
 [tool.mypy]
 python_version = "3.12"
+# The app only ever runs in Linux containers, and typeshed gates POSIX-only
+# symbols (os.setsid, os.killpg, resource) on sys.platform. Without this pin a
+# Windows workstation and CI disagree about which ignores are needed, so
+# `warn_unused_ignores` in the strict zones fails whichever side didn't author
+# the file.
+platform = "linux"
 strict = false           # default relaxed; strict on selected packages below
 plugins = ["pydantic.mypy"]
 show_error_codes = true
