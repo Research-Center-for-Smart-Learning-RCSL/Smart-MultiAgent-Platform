@@ -663,6 +663,7 @@ class RunEngine:
 
         # Apply on-error strategy if failed (W21: log the failure first)
         continued_on_error = False
+        original_error: str | None = None
         if outcome.state == StepState.FAILED:
             logger.warning(
                 "run %s: node %s failed (strategy=%s): %s",
