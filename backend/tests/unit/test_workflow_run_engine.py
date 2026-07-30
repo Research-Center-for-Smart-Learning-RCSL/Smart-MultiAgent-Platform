@@ -468,6 +468,128 @@ async def test_continue_advances_normally_when_the_resolved_port_is_wired() -> N
     engine._fail_run.assert_not_awaited()
 
 
+async def test_continue_on_an_edgeless_node_does_not_fail_the_run() -> None:
+    # linter rule 5 permits a wait_for_event with NO outgoing edges as a warning
+    # ("permanent listener"), so that branch is meant to stop. Failing the run there
+    # would cancel healthy parallel siblings.
+    engine = _engine()
+    ctx = _make_ctx(
+        {
+            "nodes": [
+                {
+                    "id": "listener",
+                    "type": "wait_for_event",
+                    "config": {"on_error": {"strategy": "continue"}},
+                }
+            ],
+            "edges": [],
+        }
+    )
+    executor = _continue_harness(engine)
+
+    with patch("contexts.workflow.application.run_engine.get_executor", return_value=executor):
+        await engine._execute_node(ctx, "listener")
+
+    engine._fail_run.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Dry run — same port mismatch, reached without on_error
+# ---------------------------------------------------------------------------
+
+
+async def test_dry_run_mock_advances_on_a_port_the_node_can_emit() -> None:
+    # The dry-run mock hardcoded port="default", which none of the mocked (multi-port)
+    # types can emit, so every dry run dead-ended at its first agent_invocation.
+    engine = _engine()
+    ctx = _make_ctx(
+        {
+            "nodes": [
+                {"id": "a1", "type": "agent_invocation", "config": {}},
+                {"id": "fin", "type": "end", "config": {}},
+            ],
+            "edges": [{"id": "x1", "from": "a1", "to": "fin", "from_port": "success"}],
+        }
+    )
+    ctx.is_dry_run = True
+    engine._runs.get = AsyncMock(return_value=_run(RunState.RUNNING))
+    engine._recorder.insert_step = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
+    engine._recorder.emit_step_started = AsyncMock()
+    engine._recorder.update_step = AsyncMock()
+    engine._recorder.emit_step_event = AsyncMock()
+    engine._runs.update_variables = AsyncMock(return_value=True)
+    engine._advance_from = AsyncMock(return_value=True)  # type: ignore[method-assign]
+
+    executor = AsyncMock()
+    with patch("contexts.workflow.application.run_engine.get_executor", return_value=executor):
+        await engine._execute_node(ctx, "a1")
+
+    executor.assert_not_awaited()  # mocked, not really invoked
+    assert engine._advance_from.await_args.kwargs["port"] == "success"
+
+
+# ---------------------------------------------------------------------------
+# resume_at_port — dead-end onto an unwired port
+# ---------------------------------------------------------------------------
+
+
+def _resume_engine(edges: list[dict]):
+    engine = _engine()
+    engine._runs.get = AsyncMock(
+        return_value=SimpleNamespace(
+            state=RunState.WAITING,
+            workflow_id=uuid.uuid4(),
+            variables={},
+            context={},
+            trigger_type="manual",
+        )
+    )
+    engine._runs.update_state = AsyncMock(return_value=True)
+    engine._runs.get_project_id = AsyncMock(return_value=uuid.uuid4())
+    engine._db.execute = AsyncMock()
+    engine._fail_run = AsyncMock()  # type: ignore[method-assign]
+    engine._advance_from = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    definition = {
+        "nodes": [
+            {"id": "w1", "type": "wait_for_event", "config": {}},
+            {"id": "fin", "type": "end", "config": {}},
+        ],
+        "edges": edges,
+    }
+    return engine, SimpleNamespace(definition=definition)
+
+
+async def test_resume_onto_an_unwired_port_fails_instead_of_stalling() -> None:
+    # W3 (wait_for_event with no 'timeout' edge) is advisory, so a resolver can resume
+    # onto a port nothing is wired to. Previously the branch just stopped.
+    engine, workflow = _resume_engine([{"id": "x1", "from": "w1", "to": "fin", "from_port": "default"}])
+
+    with patch(
+        "contexts.workflow.infrastructure.repositories.WorkflowRepository.get",
+        new=AsyncMock(return_value=workflow),
+    ):
+        resumed = await engine.resume_at_port(uuid.uuid4(), "w1", "timeout")
+
+    # True: the resume happened, so the caller must consume its single-shot claim.
+    # Returning False would send it into a restore-and-retry loop that cannot succeed.
+    assert resumed is True
+    engine._fail_run.assert_awaited_once()
+    assert "timeout" in engine._fail_run.await_args[0][1]
+
+
+async def test_resume_onto_an_edgeless_node_does_not_fail_the_run() -> None:
+    engine, workflow = _resume_engine([])
+
+    with patch(
+        "contexts.workflow.infrastructure.repositories.WorkflowRepository.get",
+        new=AsyncMock(return_value=workflow),
+    ):
+        resumed = await engine.resume_at_port(uuid.uuid4(), "w1", "default")
+
+    assert resumed is True
+    engine._fail_run.assert_not_awaited()
+
+
 async def test_on_error_continue_preserves_output() -> None:
     engine = _engine()
     ctx = _make_ctx()

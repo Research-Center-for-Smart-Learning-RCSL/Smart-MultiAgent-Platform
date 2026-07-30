@@ -55,15 +55,16 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-# `continue` means "do not fail the run; take the node's normal-completion path".
-# It resolved to "default" for every node type, but a node whose port set excludes
-# "default" (linter._ALLOWED_PORTS) can never have such an edge — rule 3 rejects one
-# at save time — so _advance_from matched nothing and the branch silently dead-ended,
-# leaving the run RUNNING until the idle watchdog killed it half an hour later.
+# The port a node advances from when the engine completes it without a real executor
+# verdict — on_error='continue' and the dry-run mock. Both used to hardcode "default",
+# but a node whose port set excludes "default" (linter._ALLOWED_PORTS) can never have
+# such an edge — rule 3 rejects one at save time — so _advance_from matched nothing and
+# the branch silently dead-ended, leaving the run RUNNING until the idle watchdog killed
+# it half an hour later.
 #
 # approval_gate resolves to "rejected", never "approved": an error inside the approval
 # machinery must never manufacture an approval. Fail closed.
-_CONTINUE_PORTS: dict[NodeType, str] = {
+_NORMAL_COMPLETION_PORTS: dict[NodeType, str] = {
     NodeType.AGENT_INVOCATION: "success",
     NodeType.INSTRUCT: "success",
     NodeType.SUBAGENT_SPAWN: "success",
@@ -71,12 +72,12 @@ _CONTINUE_PORTS: dict[NodeType, str] = {
 }
 
 
-def _continue_port(node: NodeSpec) -> str:
-    """Output port an on_error='continue' node advances from."""
+def _normal_completion_port(node: NodeSpec) -> str:
+    """Output port a node advances from when the engine completes it itself."""
     if node.type == NodeType.CONDITION:
         # condition declares its ports in config; "default" is only the fallback name.
         return str(node.config.get("default_port", "default"))
-    return _CONTINUE_PORTS.get(node.type, "default")
+    return _NORMAL_COMPLETION_PORTS.get(node.type, "default")
 
 
 def _parse_node(raw: dict[str, Any]) -> NodeSpec:
@@ -417,7 +418,7 @@ class RunEngine:
             return False
 
         # Close the parked step so it doesn't remain RUNNING indefinitely.
-        # Parked executors (wait_for_event, subagent_spawn) leave their step in
+        # Parked executors (wait_for_event, approval_gate, instruct) leave their step in
         # RUNNING/no-ended_at; the resume path must seal it before advancing.
         import sqlalchemy as sa
         from sqlalchemy.dialects import postgresql as pg
@@ -448,7 +449,21 @@ class RunEngine:
             )
         )
 
-        await self._advance_from(ctx, node_id, port=port)
+        # Same dead-end as the on_error='continue' guard below, reached from the resume
+        # side: rule 13 stops requiring port coverage once on_error is 'continue', and
+        # rule 5's W3 (wait_for_event with no 'timeout' edge) is advisory only, so a
+        # resolver can legitimately resume onto a port nothing is wired to. Fail the run
+        # rather than leave it RUNNING with no live branch.
+        #
+        # Still returns True: the resume DID happen (the step is sealed above), so the
+        # caller must consume its single-shot claim. Returning False would send it into
+        # a restore-and-retry loop that cannot succeed.
+        if not await self._advance_from(ctx, node_id, port=port) and self._has_outgoing(ctx, node_id):
+            await self._fail_run(
+                ctx,
+                f"Node '{node_id}' resumed at port '{port}' but has no outgoing edge on "
+                f"it, so the run cannot proceed past it",
+            )
         return True
 
     async def force_fail(self, run_id: uuid.UUID, *, reason: str) -> bool:
@@ -651,7 +666,9 @@ class RunEngine:
                 outcome = StepOutcome(
                     state=StepState.SUCCEEDED,
                     output={"_dry_run": True, "node_type": node.type.value},
-                    port="default",
+                    # Not "default": every mocked type here is multi-port and cannot
+                    # emit it, so a dry run dead-ended at its first agent_invocation.
+                    port=_normal_completion_port(node),
                 )
             else:
                 outcome = await executor(ctx, node, self._db)
@@ -745,13 +762,27 @@ class RunEngine:
         # would otherwise leave the branch stopped and the run RUNNING forever, to be
         # force-failed by the idle watchdog ~30 min later with an unrelated cause.
         # Fail here instead, naming the port the author needs to wire.
-        if continued_on_error and not advanced:
+        #
+        # Only when the node has edges on *other* ports: linter rule 5 deliberately
+        # permits a wait_for_event with no outgoing edges at all ("permanent listener",
+        # a warning not an error), and that branch is meant to stop. Failing the run
+        # there would cancel healthy parallel siblings.
+        if continued_on_error and not advanced and self._has_outgoing(ctx, node_id):
             await self._fail_run(
                 ctx,
                 f"Node '{node_id}' has on_error.strategy='continue' but no outgoing edge "
                 f"on port '{outcome.port}', so the run cannot proceed past it. "
                 f"Original error: {original_error or 'unknown'}",
             )
+
+    @staticmethod
+    def _has_outgoing(ctx: RunContext, node_id: str) -> bool:
+        """Whether the node has any outgoing edge, on any port.
+
+        Distinguishes "the author wired nothing here on purpose" (rule 5's permanent
+        listener) from "the author wired other ports but not this one".
+        """
+        return any(e.get("from") == node_id for e in ctx.workflow_def.get("edges", []))
 
     async def _advance_from(
         self,
@@ -803,7 +834,7 @@ class RunEngine:
             return StepOutcome(
                 state=StepState.SUCCEEDED,
                 output=outcome.output,
-                port=_continue_port(node),
+                port=_normal_completion_port(node),
             )
 
         if strategy == OnErrorStrategy.RETRY:
