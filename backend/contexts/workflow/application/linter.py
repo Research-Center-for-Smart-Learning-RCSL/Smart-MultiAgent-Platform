@@ -826,22 +826,6 @@ def advisory_warnings(defn: dict[str, Any]) -> list[LintIssue]:
                     LintIssue(0, "warning", f"approval timeout_seconds={ts} > 3600", node_id=n["id"]),
                 )
 
-        # W7: subagent_spawn is not implemented and always exits its 'failure' port.
-        # Advisory, never blocking: create and patch share one validator and
-        # WorkflowService raises on any error, so a blocking rule would lock authors
-        # out of every edit to a workflow containing the node — including the edit
-        # that removes it.
-        if ntype == "subagent_spawn":
-            issues.append(
-                LintIssue(
-                    0,
-                    "warning",
-                    "subagent_spawn is not implemented: the node fails immediately on its "
-                    "'failure' port. Sub-agent execution is deferred, not cancelled",
-                    node_id=n["id"],
-                )
-            )
-
         # W5: Cron sub-minute frequency
         if ntype == "trigger" and config.get("trigger_type") == "cron":
             cron_expr = config.get("cron_expression", "")
@@ -857,6 +841,22 @@ def advisory_warnings(defn: dict[str, Any]) -> list[LintIssue]:
                         node_id=n["id"],
                     ),
                 )
+
+        # W7: subagent_spawn is not implemented and always exits its 'failure' port.
+        # Advisory, never blocking: create and patch share one validator and
+        # WorkflowService raises on any error, so a blocking rule would lock authors
+        # out of every edit to a workflow containing the node — including the edit
+        # that removes it.
+        if ntype == "subagent_spawn":
+            issues.append(
+                LintIssue(
+                    0,
+                    "warning",
+                    "subagent_spawn is not implemented: the node fails immediately on its "
+                    "'failure' port. Sub-agent execution is deferred, not cancelled",
+                    node_id=n["id"],
+                )
+            )
 
     # W6: loop_guard > 1000
     lg = defn.get("loop_guard", {}).get("max_visits_per_node", 200)

@@ -33,7 +33,7 @@ export const NODE_TYPE_LABELS: Record<NodeType, string> = {
 // is a JSONB blob validated on write, so dropping a type would make every saved
 // workflow containing it unloadable, and the node/config components key off the type
 // string. See docs/tasks/2026-07-22-subagent-spawn-fail-fast/spec.md.
-export const UNAVAILABLE_NODE_TYPES: NodeType[] = ['subagent_spawn']
+export const UNAVAILABLE_NODE_TYPES: readonly NodeType[] = ['subagent_spawn'] as const
 
 // Palette groups for the "Add Node" dropdown (trigger excluded — only one allowed)
 export const NODE_PALETTE_GROUPS = [
