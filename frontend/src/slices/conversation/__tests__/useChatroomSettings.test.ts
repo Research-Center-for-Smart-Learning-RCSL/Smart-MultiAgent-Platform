@@ -185,6 +185,31 @@ describe('useChatroomSettings.setFlag', () => {
     expect(body).toEqual({ allow_org_members: true })
   })
 
+  it('keeps an unsubmitted rename when a toggle succeeds', async () => {
+    // The successful PATCH returns the room with its *old* name, because the
+    // toggle deliberately does not send one. Adopting that response wholesale
+    // would delete the draft the user is still typing — the mirror image of
+    // the rename bleed this task removed, and just as silent.
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(makeChatroom({ name: 'Room One' }))),
+      http.patch('/api/chatrooms/:id', () =>
+        HttpResponse.json(
+          makeChatroom({ name: 'Room One', allow_org_members: true, version: 2 }),
+        ),
+      ),
+    )
+    const wrapper = await renderView(Host, { props: { chatroomId: 'cr_1' } })
+    await wrapper.vm.loadRoom()
+
+    wrapper.vm.name = 'Half-typed re'
+    await wrapper.vm.setFlag('allow_org_members', true)
+    await flushPromises()
+
+    expect(wrapper.vm.name).toBe('Half-typed re')
+    expect(wrapper.vm.flags.allow_org_members).toBe(true)
+    expect(wrapper.vm.room?.version).toBe(2)
+  })
+
   it('applies the new flag once the server confirms it', async () => {
     server.use(
       http.get('/api/chatrooms/:id', () => HttpResponse.json(makeChatroom())),
