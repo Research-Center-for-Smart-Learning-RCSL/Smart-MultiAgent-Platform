@@ -599,7 +599,12 @@ const {
   canDelete,
   dropOlderMessage,
   refreshOlderMessage,
-} = useChatroomMessages(chatroomId, listRef, () => agentList.value)
+} = useChatroomMessages(
+  chatroomId,
+  listRef,
+  () => agentList.value,
+  () => roomQuery.data.value?.is_moderator ?? false,
+)
 
 // The member roster is fetched once, but new authors (and renames) appear over
 // the room's lifetime via WebSocket. When a user message arrives from a sender
