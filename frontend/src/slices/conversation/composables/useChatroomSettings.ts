@@ -2,7 +2,7 @@
 // Extracted from ChatroomSettingsView.vue (H16 SoC fix).
 
 import { useQueryClient } from '@tanstack/vue-query'
-import { reactive, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { useConfirmDialog, useToast } from '@shared/composables'
@@ -15,6 +15,14 @@ import {
 } from '../api'
 import type { Chatroom } from '../types'
 
+/** The access flags `setFlag` may patch. `disclose_observers` is excluded by
+ *  type: it is creator-only on the server (R28.09) and has its own path. */
+export type AccessFlag =
+  | 'allow_org_members'
+  | 'allow_project_members'
+  | 'allow_project_owners_only'
+  | 'allow_guest_links'
+
 export function useChatroomSettings(chatroomId: string) {
   const { t } = useI18n()
   const toast = useToast()
@@ -23,31 +31,70 @@ export function useChatroomSettings(chatroomId: string) {
   const qc = useQueryClient()
 
   const name = ref('')
-  const flags = reactive({
-    allow_org_members: false,
-    allow_project_members: true,
-    allow_project_owners_only: false,
-    allow_guest_links: false,
+  const room = ref<Chatroom | null>(null)
+  // The name the form last took from the server. `name` diverging from it is
+  // the definition of "the user is typing", which a background revalidation
+  // must not overwrite.
+  let syncedName = ''
+
+  // F-7: a projection of server state, never a mirror of it. `SToggle` is
+  // fully controlled, so a toggle reading this cannot display a value the
+  // server did not accept — there is no second copy to forget to revert, and
+  // R13.04's server-side auto-correction of the sibling flags renders for
+  // free. Do not reintroduce local coupling between these.
+  const flags = computed(() => ({
+    allow_org_members: room.value?.allow_org_members ?? false,
+    allow_project_members: room.value?.allow_project_members ?? true,
+    allow_project_owners_only: room.value?.allow_project_owners_only ?? false,
+    allow_guest_links: room.value?.allow_guest_links ?? false,
     // R28.09 — creator-only; the server rejects a non-creator patch of this
     // field, so the UI only exposes the toggle to the creator.
-    disclose_observers: true,
-  })
-  const room = ref<Chatroom | null>(null)
+    disclose_observers: room.value?.disclose_observers ?? true,
+  }))
 
   const loading = ref(true)
   const loadError = ref(false)
   const saving = ref(false)
   const saveError = ref<string | null>(null)
 
-  /** Copy a chatroom into the form fields. */
+  /** Adopt a server object wholesale, name draft included. */
   function applyRoom(found: Chatroom): void {
     room.value = found
     name.value = found.name
-    flags.allow_org_members = found.allow_org_members
-    flags.allow_project_members = found.allow_project_members
-    flags.allow_project_owners_only = found.allow_project_owners_only
-    flags.allow_guest_links = found.allow_guest_links
-    flags.disclose_observers = found.disclose_observers
+    syncedName = found.name
+  }
+
+  /** Adopt a server object that arrived without the user asking for it — the
+   *  background revalidation. Two things it must not trample:
+   *
+   *  - An in-progress rename. The draft the user is holding is theirs to
+   *    submit or discard.
+   *  - A newer room already in hand. A revalidation issued before a save can
+   *    land after it; `version` is monotonic per room, so an older response
+   *    is dropped rather than winding the form back to a pre-save state whose
+   *    next save would 409. */
+  function applyRevalidated(found: Chatroom): void {
+    if (room.value && found.version < room.value.version) return
+    const typing = name.value !== syncedName
+    room.value = found
+    syncedName = found.name
+    if (!typing) name.value = found.name
+  }
+
+  /** Record a failed save on both surfaces the UI offers: the inline alert in
+   *  the General card and a toast next to wherever the user actually clicked
+   *  (docs/UI/07-conversation.md — the toggles are nowhere near the alert).
+   *  Returns true when the cause was a version conflict. */
+  function reportSaveFailure(e: unknown): boolean {
+    const conflict = e instanceof ApiError && e.status === 409
+    if (conflict) {
+      saveError.value = 'conversation.settings.versionConflict'
+      toast.warning(t(saveError.value))
+    } else {
+      saveError.value = 'conversation.settings.saveFailed'
+      toast.error(t(saveError.value))
+    }
+    return conflict
   }
 
   /** Find this chatroom in any cached `['conversation','chatrooms']` list. */
@@ -67,8 +114,14 @@ export function useChatroomSettings(chatroomId: string) {
     loadError.value = false
     const cached = findInCache()
     if (cached) {
+      // F-8: paint instantly, then revalidate. The cache entry the prefix
+      // match finds may be the sidebar's recent-chatrooms list, which carries
+      // a 60s staleTime (useRecentChatrooms) — a form painted from it and
+      // never refreshed re-submits stale values behind the fresh version it
+      // picks up from a 409, silently reverting another user's save.
       applyRoom(cached)
       loading.value = false
+      void revalidate()
       return
     }
     try {
@@ -80,80 +133,79 @@ export function useChatroomSettings(chatroomId: string) {
     }
   }
 
+  async function revalidate(): Promise<void> {
+    try {
+      applyRevalidated(await getChatroom(chatroomId))
+    } catch {
+      /* the cached paint stands; a save surfaces any real problem */
+    }
+  }
+
+  /** F-8: a conflict means someone else's values are the current ones, so the
+   *  whole form adopts them — `name` included. Refreshing only `room.version`
+   *  inverted the control: the mechanism that exists to prevent a stale
+   *  overwrite instead authorised one on the retry
+   *  (docs/UI/12-shared-patterns.md §4.3). */
+  async function resyncAfterConflict(): Promise<void> {
+    try {
+      applyRoom(await getChatroom(chatroomId))
+    } catch {
+      /* keep the form as-is; the inline error already explains the retry */
+    }
+  }
+
+  /** Save the name form, and only the name form. Each flag owns its own patch
+   *  now, so a toggle no longer commits a half-typed rename the user never
+   *  submitted and this no longer re-sends flags it did not change — which
+   *  also makes the `chatroom.updated` audit's `changed` list truthful. */
   async function onSave(): Promise<void> {
     if (!room.value || saving.value) return
     saving.value = true
     saveError.value = null
     try {
-      // Deliberately omit `disclose_observers` — it is creator-only on the
-      // server (R28.09). Including it in every generic save would 403 a
-      // non-creator moderator editing the other access flags. Disclosure has
-      // its own save path (`saveDisclosure`).
-      const { disclose_observers: _omit, ...patchFlags } = flags
-      applyRoom(
-        await patchChatroom(chatroomId, room.value.version, {
-          name: name.value,
-          ...patchFlags,
-        }),
-      )
+      applyRoom(await patchChatroom(chatroomId, room.value.version, { name: name.value }))
       await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
       toast.success(t('conversation.settings.saved'))
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409) {
-        saveError.value = 'conversation.settings.versionConflict'
-        try {
-          room.value = await getChatroom(chatroomId)
-        } catch {
-          /* keep the form as-is; the inline error already explains the retry */
-        }
+      if (reportSaveFailure(e)) await resyncAfterConflict()
+    } finally {
+      saving.value = false
+    }
+  }
+
+  /** Patch exactly one flag, ending on a server object however it goes. */
+  async function patchFlag(key: AccessFlag | 'disclose_observers', value: boolean): Promise<void> {
+    if (!room.value || saving.value) return
+    saving.value = true
+    saveError.value = null
+    try {
+      applyRoom(await patchChatroom(chatroomId, room.value.version, { [key]: value }))
+      await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
+      toast.success(t('conversation.settings.saved'))
+    } catch (e) {
+      if (reportSaveFailure(e)) {
+        await resyncAfterConflict()
       } else {
-        saveError.value = 'conversation.settings.saveFailed'
+        // Not a conflict, so the name draft is still the user's — refresh the
+        // flags around it rather than adopting the whole room.
+        await revalidate()
       }
     } finally {
       saving.value = false
     }
   }
 
-  /** Creator-only patch of just `disclose_observers` (R28.09). Kept separate
-   *  from `onSave` so the field is never sent by a non-creator.
-   *
-   *  Optimistic: the toggle flips immediately, but every failure path must
-   *  leave `flags.disclose_observers` matching the server's actual value —
-   *  otherwise the creator sees a toggle position that doesn't reflect
-   *  whether the room actually discloses observers, which matters for what
-   *  members/guests are told. */
+  /** Immediate-save access toggle (docs/UI/07-conversation.md §4.2). */
+  async function setFlag(key: AccessFlag, value: boolean): Promise<void> {
+    await patchFlag(key, value)
+  }
+
+  /** Creator-only patch of just `disclose_observers` (R28.09). Kept as its own
+   *  entry point, not folded into `setFlag`, so the field is never sent by a
+   *  non-creator: a generic save carrying it would 403 a non-creator moderator
+   *  editing the access flags. */
   async function saveDisclosure(value: boolean): Promise<void> {
-    if (!room.value || saving.value) return
-    const previous = flags.disclose_observers
-    saving.value = true
-    saveError.value = null
-    flags.disclose_observers = value
-    try {
-      applyRoom(
-        await patchChatroom(chatroomId, room.value.version, {
-          disclose_observers: value,
-        }),
-      )
-      await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
-      toast.success(t('conversation.settings.saved'))
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 409) {
-        saveError.value = 'conversation.settings.versionConflict'
-        try {
-          // applyRoom resyncs flags.* (including disclose_observers) from
-          // the authoritative server state, not just `room.value`.
-          applyRoom(await getChatroom(chatroomId))
-        } catch {
-          /* fetch itself failed; fall through to the manual revert below */
-          flags.disclose_observers = previous
-        }
-      } else {
-        saveError.value = 'conversation.settings.saveFailed'
-        flags.disclose_observers = previous
-      }
-    } finally {
-      saving.value = false
-    }
+    await patchFlag('disclose_observers', value)
   }
 
   async function onDelete(): Promise<void> {
@@ -186,6 +238,7 @@ export function useChatroomSettings(chatroomId: string) {
     applyRoom,
     loadRoom,
     onSave,
+    setFlag,
     saveDisclosure,
     onDelete,
   }
