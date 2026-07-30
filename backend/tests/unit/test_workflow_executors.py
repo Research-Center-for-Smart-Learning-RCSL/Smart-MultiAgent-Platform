@@ -795,12 +795,157 @@ class TestAgentInvocationExecutor:
 
 
 # ===========================================================================
+# subagent_spawn executor — fail-fast (2026-07-22-subagent-spawn-fail-fast)
+#
+# Sub-agent execution (R15.18-R15.23) has no runtime: the node used to insert an
+# agent_instances row, arm a Redis callback nothing ever read, and park until the
+# idle watchdog killed the run. These pin the fail-fast contract that replaced it.
+# ===========================================================================
+
+
+def _spawn_config(**overrides) -> dict:
+    config = {
+        "parent_agent_id": str(uuid.uuid4()),
+        "task_template": "do {{ thing }}",
+        "output_variable": "child_id",
+    }
+    config.update(overrides)
+    return config
+
+
+class TestSubagentSpawnExecutor:
+    @staticmethod
+    def _patched_deps() -> tuple[AsyncMock, _RecordingRedis]:
+        facade_mock = AsyncMock()
+        root = MagicMock()
+        root.id = uuid.uuid4()
+        instance = MagicMock()
+        instance.id = uuid.uuid4()
+        facade_mock.ensure_subagent_root.return_value = root
+        facade_mock.spawn_subagent.return_value = instance
+        return facade_mock, _RecordingRedis()
+
+    async def _run(self, ctx, node) -> tuple:
+        from contexts.workflow.application.executors.subagent_spawn import execute
+
+        facade_mock, redis = self._patched_deps()
+        with (
+            patch(
+                "contexts.orchestration.interfaces.facade.OrchestrationFacade",
+                return_value=facade_mock,
+            ),
+            patch("shared_kernel.auth.clients.get_redis", return_value=redis),
+        ):
+            outcome = await execute(ctx, node, AsyncMock())
+        return outcome, facade_mock, redis
+
+    # AC-1
+    async def test_spawn_fails_fast_on_failure_port(self) -> None:
+        ctx = _make_ctx()
+        node = _make_node(NodeType.SUBAGENT_SPAWN, _spawn_config())
+
+        outcome, _, _ = await self._run(ctx, node)
+
+        assert outcome.state is StepState.FAILED
+        assert outcome.port == "failure"
+        assert outcome.park is False
+        assert outcome.error
+
+    # AC-2 — the assertion that pins the actual defect.
+    async def test_spawn_creates_no_instance_and_no_redis_key(self) -> None:
+        ctx = _make_ctx()
+        node = _make_node(NodeType.SUBAGENT_SPAWN, _spawn_config())
+
+        _, facade_mock, redis = await self._run(ctx, node)
+
+        facade_mock.ensure_subagent_root.assert_not_awaited()
+        facade_mock.spawn_subagent.assert_not_awaited()
+        assert redis.sets == {}
+
+    # AC-3 — wait_for_all=False used to return SUCCEEDED with an instance id whose
+    # task never ran: a workflow that silently lies.
+    async def test_wait_for_all_false_also_fails_fast(self) -> None:
+        ctx = _make_ctx()
+        node = _make_node(NodeType.SUBAGENT_SPAWN, _spawn_config(wait_for_all=False))
+
+        outcome, facade_mock, redis = await self._run(ctx, node)
+
+        assert outcome.state is StepState.FAILED
+        assert outcome.port == "failure"
+        assert outcome.park is False
+        facade_mock.spawn_subagent.assert_not_awaited()
+        assert redis.sets == {}
+
+    # AC-3
+    async def test_output_variable_is_not_populated(self) -> None:
+        ctx = _make_ctx()
+        node = _make_node(NodeType.SUBAGENT_SPAWN, _spawn_config())
+
+        outcome, _, _ = await self._run(ctx, node)
+
+        assert "child_id" not in ctx.variables
+        assert not outcome.output
+
+    # AC-4 — the failure must be self-diagnosing, and must not read as "sub-agents
+    # were cancelled" (R6).
+    async def test_error_is_self_diagnosing(self) -> None:
+        ctx = _make_ctx()
+        node = _make_node(NodeType.SUBAGENT_SPAWN, _spawn_config())
+
+        outcome, _, _ = await self._run(ctx, node)
+
+        assert "not implemented" in outcome.error
+        assert "2026-07-22-subagent-spawn-fail-fast" in outcome.error
+
+    # AC-5 — R1's deliberate behaviour change: a `continue` node now proceeds past
+    # this node instead of never reaching it, with output_variable unset.
+    async def test_on_error_continue_proceeds_with_output_variable_unset(self) -> None:
+        from contexts.workflow.application.run_engine import RunEngine
+        from contexts.workflow.domain.models import OnErrorConfig, OnErrorStrategy
+
+        ctx = _make_ctx()
+        node = NodeSpec(
+            id="n1",
+            type=NodeType.SUBAGENT_SPAWN,
+            config=_spawn_config(),
+            on_error=OnErrorConfig(strategy=OnErrorStrategy.CONTINUE),
+        )
+
+        outcome, _, _ = await self._run(ctx, node)
+        resolved = await RunEngine(db=MagicMock())._apply_on_error(ctx, node, outcome, uuid.uuid4())
+
+        assert resolved.state is StepState.SUCCEEDED
+        assert resolved.port == "default"
+        assert "child_id" not in ctx.variables
+
+    # AC-6 — the executor default used to be 3600 against a schema maximum of 600.
+    def test_executor_default_timeout_matches_schema(self) -> None:
+        import json
+        import pathlib
+
+        from contexts.workflow.application.executors.subagent_spawn import (
+            DEFAULT_TIMEOUT_SECONDS,
+        )
+
+        # tests/unit/<this>.py → parents[3] == repo root.
+        schema_path = pathlib.Path(__file__).resolve().parents[3] / "docs" / "workflow.schema.json"
+        spec = json.loads(schema_path.read_text(encoding="utf-8"))
+        declared = spec["$defs"]["subagent_spawn_config"]["properties"]["timeout_seconds"]
+
+        assert declared["default"] == DEFAULT_TIMEOUT_SECONDS
+        assert declared["minimum"] <= DEFAULT_TIMEOUT_SECONDS <= declared["maximum"]
+
+
+# ===========================================================================
 # Producer claim-key TTL characterization (FU-3 / claim-ttl-single-source)
 #
 # Pins the exact initial TTL each producer writes so the single-source refactor
 # is proven behaviour-preserving. approval_gate/instruct use timeout + 300;
-# wait_for_event (claim key AND its by-event index) and subagent_spawn use
-# timeout + 60.
+# wait_for_event (claim key AND its by-event index) uses timeout + 60.
+#
+# subagent_spawn was a fourth producer until 2026-07-22-subagent-spawn-fail-fast
+# removed its park; TestSubagentSpawnExecutor now pins that it writes no claim key
+# at all.
 # ===========================================================================
 
 
@@ -822,41 +967,3 @@ class TestWaitForEventClaimTtl:
         assert redis.sets[f"wf:wait:{ctx.run_id}:{node.id}"] == 600 + 60
         # The by-event index tracks the same window (second grace use, :78).
         assert redis.ttls["wf:wait:by_event:message_in_room"] == 600 + 60
-
-
-class TestSubagentSpawnClaimTtl:
-    @patch("contexts.workflow.application.executors.subagent_spawn.interpolate", return_value="task")
-    async def test_callback_ttl_is_timeout_plus_60(self, _interp) -> None:
-        from contexts.workflow.application.executors.subagent_spawn import execute
-
-        redis = _RecordingRedis()
-        root = MagicMock()
-        root.id = uuid.uuid4()
-        instance = MagicMock()
-        instance.id = uuid.uuid4()
-        facade_mock = AsyncMock()
-        facade_mock.ensure_subagent_root.return_value = root
-        facade_mock.spawn_subagent.return_value = instance
-
-        ctx = _make_ctx()
-        node = _make_node(
-            NodeType.SUBAGENT_SPAWN,
-            {
-                "parent_agent_id": str(uuid.uuid4()),
-                "task_template": "t",
-                "timeout_seconds": 1800,
-                "wait_for_all": True,
-            },
-        )
-
-        with (
-            patch(
-                "contexts.orchestration.interfaces.facade.OrchestrationFacade",
-                return_value=facade_mock,
-            ),
-            patch("shared_kernel.auth.clients.get_redis", return_value=redis),
-        ):
-            outcome = await execute(ctx, node, AsyncMock())
-
-        assert outcome.park is True
-        assert redis.sets[f"wf:subagent_callback:{instance.id}"] == 1800 + 60
