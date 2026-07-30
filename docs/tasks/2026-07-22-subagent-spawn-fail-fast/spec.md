@@ -387,6 +387,41 @@ being made.
   tense misdescribes live code. Corrected in place with a pointer to this dossier; the sweep
   itself is untouched, and §9 R4 still holds — pre-existing orphaned rows are not cleaned up.
 
+- **D-6 — post-review round; two more siblings of D-2's port defect fixed, one regression
+  in D-2's own guard corrected.** `/code-review` over the branch found that D-2 had fixed the
+  `continue` path but left the same hardcoded-`"default"` mismatch at two other sites, and that
+  the new guard over-reached. All verified against the code before acting:
+  - **The dry-run mock had the identical defect** (`run_engine.py:650-655`). `_DRY_RUN_SAFE_TYPES`
+    excludes all four multi-port types, so it synthesised `port="default"` for exactly the nodes
+    that cannot emit it — **every dry run dead-ended at its first `agent_invocation`**. Fixed by
+    the same helper, renamed `_continue_port` → `_normal_completion_port` since it now serves both
+    callers. Pre-existing, but the same bug this dossier exists to remove and one block away from
+    D-2's fix, so it was treated as a confirmed sibling per /build's sibling-sweep rule.
+  - **`resume_at_port` discarded the new `_advance_from` boolean** (`:451`). Rule 13 stops
+    requiring port coverage once `on_error` is `continue`, and W3 (a `wait_for_event` with no
+    `timeout` edge) is advisory only, so a resolver can legitimately resume onto an unwired port
+    and the branch stalled. It now fails the run with a named port — and still returns `True`,
+    because the resume *did* happen and the caller must consume its single-shot claim; returning
+    `False` would start a restore-and-retry loop that cannot succeed.
+  - **Regression in D-2's guard, introduced by this task.** Linter rule 5 deliberately permits a
+    `wait_for_event` with **no** outgoing edges (`linter.py:302`, "permanent listener?", a warning
+    not an error). The guard would have failed the whole run for such a node, cancelling healthy
+    parallel siblings. Now gated on `_has_outgoing`, which distinguishes "the author wired nothing
+    here on purpose" from "the author wired other ports but not this one".
+  - The executor docstring claimed rule 13 means "every saved workflow containing this node
+    already has that path wired" — false precisely in the `continue` case it names as the
+    exception. Removed. The editor copy told authors to wire `failure`, which is the wrong port
+    under `continue`; both locales now name both cases.
+  - A stale comment at `run_engine.py:420` still listed `subagent_spawn` as a parked executor.
+    Corrected. (The review also flagged `workflow_steps.py:28` for the same drift — **checked and
+    rejected**: that docstring is about parallel fan-out and never mentions `subagent_spawn`.)
+
+  **One review finding rejected on the merits.** It called `DEFAULT_TIMEOUT_SECONDS` dead code
+  whose test only proves a copy matches its source. That is accurate as far as it goes, but the
+  constant is what AC-6 and §7 B ask for, and D-3 records why it took this shape. Removing it
+  would fail an approved acceptance criterion, so it stays; if the constant is genuinely unwanted,
+  that is an AC-6 amendment for the user, not a review-time edit.
+
 - **D-5 — documentation touched beyond the spec.** `docs/workflow.schema.md` §5.2 gained the W7
   advisory rule, and its `continue` on-error description was rewritten for D-2. The spec named
   neither, but leaving the normative schema doc contradicting the code it describes is the exact
@@ -487,6 +522,14 @@ Discovered during /build's Definition of Done and deliberately **not** fixed her
   rather than fixed here. Likely an unmet ingestion dependency in the local stack (the CI wiring
   job brings up only `postgres redis vault mailhog`, and these passed there historically) —
   worth confirming against CI before assuming it is environmental.
+
+- **FU-15 (code review, low)** — `WorkflowEditorView.test.ts` and
+  `SubagentSpawnConfigForm.test.ts` call `i18n.global.mergeLocaleMessage` in `beforeAll` against
+  the app-wide singleton from `@shared/i18n` with no teardown, so a test that asserts on an
+  *unresolved* key becomes order-dependent. Latent only — Vitest isolates per file — and it is
+  the established convention in this repo (`prompt-studio/__tests__/kit.ts:13`,
+  `skills/__tests__/kit.ts:12` do the same). Changing only these two files would make them
+  inconsistent with the pattern, so the fix belongs to a sweep across all four.
 
 **Local-stack note for whoever re-runs this.** `compose.test.yml` sets `POSTGRES_DB: smap_test`,
 which only takes effect on **first** volume init; a developer with an existing `smap` volume must
