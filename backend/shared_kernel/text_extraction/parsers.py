@@ -137,13 +137,13 @@ def _isolated_parse_worker(
         if os.name == "posix":
             import resource
 
-            os.setsid()  # type: ignore[attr-defined]
-            resource.setrlimit(  # type: ignore[attr-defined]
-                resource.RLIMIT_AS,  # type: ignore[attr-defined]
+            os.setsid()
+            resource.setrlimit(
+                resource.RLIMIT_AS,
                 (_PARSER_MEMORY_BYTES, _PARSER_MEMORY_BYTES),
             )
-            resource.setrlimit(  # type: ignore[attr-defined]
-                resource.RLIMIT_CPU,  # type: ignore[attr-defined]
+            resource.setrlimit(
+                resource.RLIMIT_CPU,
                 (_PARSER_TIMEOUT_SECONDS, _PARSER_TIMEOUT_SECONDS),
             )
         connection.send(("ok", parse_path(Path(path), mime, limits=limits)))
@@ -169,7 +169,7 @@ def _terminate_process_tree(process: BaseProcess) -> None:
         )
     else:
         with contextlib.suppress(ProcessLookupError):
-            os.killpg(process.pid, signal.SIGKILL)  # type: ignore[attr-defined]
+            os.killpg(process.pid, signal.SIGKILL)
     process.join(timeout=5)
     if process.is_alive():
         process.kill()
