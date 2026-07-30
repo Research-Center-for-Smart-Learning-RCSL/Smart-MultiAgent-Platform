@@ -307,13 +307,23 @@ revert independently with no ordering dependency.
       `WorkerSettings.functions`.*
 - [x] AC-10: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`;
       `pnpm test`, `pnpm lint`, `pnpm typecheck` pass in `frontend/`.
-      **Partially — stated honestly.** Backend: unit tier green, `ruff check .` and
-      `ruff format --check .` clean over 888 files, `mypy .` clean over 888 files. Frontend:
-      `pnpm test` 932/932, `pnpm lint`, `pnpm typecheck` and `pnpm build` all green.
-      The `integration` and `wiring` tiers **could not run** — every failure in them is
-      `getaddrinfo failed` for `redis:6379` / `neo4j:7687`, i.e. the Docker Compose stack is
-      not up in this environment. Zero assertion failures and zero unit-tier failures. Those
-      two tiers must be re-run against a live stack before merge.
+      All four backend test tiers were run, the last three against a live
+      `docker-compose.yml + compose.test.yml` stack at schema head `0071`:
+
+      | Tier | Command | Result |
+      |---|---|---|
+      | unit | `pytest tests/unit` | **6222 passed**, 6 skipped |
+      | integration | `pytest -m "integration and not wiring and not db"` | **250 passed** |
+      | db | `pytest -m db` | **52 passed**, 3 skipped |
+      | wiring | `pytest -m wiring` | **55 passed**, 3 skipped, 2 failed |
+
+      The 2 wiring failures are `test_rag_ingestion.py::test_process_document_indexes_registered_doc`
+      and `::test_process_document_reprocesses_failed_doc`. **Proven pre-existing**: both fail
+      identically at base commit `65aa8ac` in a clean worktree, and neither touches any file this
+      task changed. Recorded as FU-14.
+
+      `ruff check .` and `ruff format --check .` clean over 889 files; `mypy .` clean over 888.
+      Frontend: `pnpm test` 932/932, `pnpm lint`, `pnpm typecheck`, `pnpm build` all green.
 
 ## 11. SRS Delta
 
@@ -461,10 +471,27 @@ Discovered during /build's Definition of Done and deliberately **not** fixed her
   Deliberate, and recorded so the feature dossier revives them rather than a later dead-code
   sweep deleting them.
 
-- **FU-13 (verification gap)** — the `integration` and `wiring` test tiers could not run in the
-  build environment (no Postgres / Redis / Neo4j / Vault; every failure is `getaddrinfo failed`).
-  `tests/integration/test_retention_subagent_root_sweep.py` and
-  `tests/integration/test_workflow_join_epoch.py` are the two that touch this task's surface and
-  must be re-run against a live stack before merge. Likewise the full-app visual check of AC-7
-  (Definition of Done gate 4) was satisfied only at component level.
+- **FU-13 (verification gap — mostly closed)** — the `integration`, `db` and `wiring` tiers have
+  now been run against a live stack; see AC-10 for the counts. The two files that touch this
+  task's surface, `tests/integration/test_retention_subagent_root_sweep.py` and
+  `tests/integration/test_workflow_join_epoch.py`, both **pass**, as does
+  `tests/wiring/test_wiring.py::test_workflow_golden_run`. **What remains:** the full-app visual
+  check of AC-7 (Definition of Done gate 4) is still satisfied only at component level — the
+  tests mount the real components with the real i18n bundle, but no one has looked at the running
+  editor. That needs `backend-web` + the Vite dev server, not just the data services.
+
+- **FU-14 (pre-existing, unrelated)** — `tests/wiring/test_rag_ingestion.py::
+  test_process_document_indexes_registered_doc` leaves its document in `INGESTING` and
+  `::test_process_document_reprocesses_failed_doc` leaves it `FAILED`, where both assert `READY`.
+  Reproduced identically at base commit `65aa8ac`, so they predate this task and are recorded
+  rather than fixed here. Likely an unmet ingestion dependency in the local stack (the CI wiring
+  job brings up only `postgres redis vault mailhog`, and these passed there historically) —
+  worth confirming against CI before assuming it is environmental.
+
+**Local-stack note for whoever re-runs this.** `compose.test.yml` sets `POSTGRES_DB: smap_test`,
+which only takes effect on **first** volume init; a developer with an existing `smap` volume must
+`CREATE DATABASE smap_test` rather than `down -v`, which would destroy their dev data. Migrations
+must also be applied through the **bind-mounted** source (`--volume <repo>/backend:/app`), not the
+baked image, or the schema stops at whatever migration the cached image shipped — that surfaced
+here as `column agents.wakeup_last_refreshed_at does not exist` across 41 wiring tests.
 </content>
