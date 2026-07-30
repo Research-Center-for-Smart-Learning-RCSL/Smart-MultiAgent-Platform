@@ -338,6 +338,11 @@ async def patch_chatroom(
             access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
             ensure_room_creator(access, principal=principal)
             roles = access.roles
+        elif principal.is_admin:
+            # The bypass below decides the answer, and the settings form now
+            # sends one PATCH per toggle — no reason to pay for a resolution
+            # whose result cannot change it.
+            roles = frozenset()
         else:
             resolver = await get_role_resolver(db)
             roles = await resolver.roles_for(principal, Scope(project_id=project_id))
