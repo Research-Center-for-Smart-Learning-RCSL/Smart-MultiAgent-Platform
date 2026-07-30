@@ -3342,6 +3342,11 @@
             "title": "Id",
             "type": "string"
           },
+          "is_moderator": {
+            "default": false,
+            "title": "Is Moderator",
+            "type": "boolean"
+          },
           "name": {
             "title": "Name",
             "type": "string"

@@ -12,6 +12,7 @@ export type ChatroomOut = {
     deleted_at: (string | null);
     disclose_observers: boolean;
     id: string;
+    is_moderator?: boolean;
     name: string;
     observers_present: boolean;
     version: number;

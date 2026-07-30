@@ -342,7 +342,7 @@ async def test_unbind_observer_leaves_observations_readable(monkeypatch) -> None
     assert obs_repo_calls == ["list"]
 
 
-def _wire_patch_handler(monkeypatch, *, access, cap_calls, patched):
+def _wire_patch_handler(monkeypatch, *, access, cap_calls, patched, roles=frozenset()):
     import app.api.v1.chatrooms as chatrooms_mod
 
     async def _pid(db, chatroom_id):
@@ -355,6 +355,17 @@ def _wire_patch_handler(monkeypatch, *, access, cap_calls, patched):
         if access is None:
             raise AssertionError("resolve_room_access must not run without a disclosure field")
         return access
+
+    # V-4: a plain-flags patch resolves the caller's roles for the response
+    # DTO's `is_moderator` without paying for a full `resolve_room_access`.
+    class _Resolver:
+        async def roles_for(self, principal, scope):
+            return roles
+
+    async def _get_resolver(db):
+        return _Resolver()
+
+    monkeypatch.setattr(chatrooms_mod, "get_role_resolver", _get_resolver)
 
     class _Service:
         def __init__(self, db) -> None:
@@ -426,9 +437,15 @@ async def test_name_only_patch_keeps_moderator_semantics(monkeypatch) -> None:
 
     cap_calls: list = []
     patched: list = []
-    mod = _wire_patch_handler(monkeypatch, access=None, cap_calls=cap_calls, patched=patched)
+    mod = _wire_patch_handler(
+        monkeypatch,
+        access=None,
+        cap_calls=cap_calls,
+        patched=patched,
+        roles=frozenset({Role.PROJECT_OWNER}),
+    )
 
-    await mod.patch_chatroom(
+    out = await mod.patch_chatroom(
         chatrooms_mod.ChatroomPatchIn(name="renamed"),
         chatroom_id=uuid.uuid4(),
         if_match="1",
@@ -438,6 +455,9 @@ async def test_name_only_patch_keeps_moderator_semantics(monkeypatch) -> None:
     )
     assert len(cap_calls) == 1
     assert len(patched) == 1
+    # V-4: the patch response reports the caller's real moderator standing,
+    # resolved without the `resolve_room_access` the harness forbids here.
+    assert out.is_moderator is True
 
 
 # --------------------------------------------------------------------------- #
