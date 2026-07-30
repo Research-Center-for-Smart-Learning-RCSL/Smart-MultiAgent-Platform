@@ -142,6 +142,19 @@ def _ingest_service(
     )
 
 
+async def _mark_clean(db: AsyncSession, document_id: uuid.UUID) -> None:
+    """Stand in for the scan gate the worker path always passes through.
+
+    ``process_document`` indexes only a document whose verdict is ``clean``;
+    with scanning disabled ``RagTusFinalizer`` writes that verdict itself before
+    enqueuing ``rag_ingest_document``, and with it enabled the scan worker does.
+    These tests register rows through the repository, so they must do the same.
+    """
+    await RagDocumentRepository(db).mark_scan(
+        document_id=document_id, scan_status=ScanStatus.CLEAN, scan_at=now()
+    )
+
+
 async def _chunk_count(db: AsyncSession, document_id: uuid.UUID) -> int:
     return (
         await db.execute(
@@ -199,6 +212,7 @@ async def test_process_document_indexes_registered_doc() -> None:
             minio_path=f"rag-sources/{cfg.project_id}/{cfg.id}/{sha}",
             uploaded_by=user.id,
         )
+        await _mark_clean(db, doc.id)
         await db.commit()
         assert doc.status is DocumentStatus.INGESTING
 
@@ -231,6 +245,9 @@ async def test_process_document_idempotent_when_already_ready() -> None:
             uploaded_by=user.id,
         )
         await RagDocumentRepository(db).set_status(document_id=doc.id, status=DocumentStatus.READY)
+        # Clean, so the early return under test is the READY guard and not the
+        # scan gate that sits behind it.
+        await _mark_clean(db, doc.id)
         await db.commit()
 
         blob = _FakeBlob(_TEXT)
@@ -261,6 +278,7 @@ async def test_process_document_reprocesses_failed_doc() -> None:
             uploaded_by=user.id,
         )
         await RagDocumentRepository(db).set_status(document_id=doc.id, status=DocumentStatus.FAILED)
+        await _mark_clean(db, doc.id)
         await db.commit()
 
         blob = _FakeBlob(_TEXT)
