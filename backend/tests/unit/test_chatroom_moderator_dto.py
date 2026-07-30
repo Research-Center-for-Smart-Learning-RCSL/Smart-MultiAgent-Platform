@@ -16,7 +16,7 @@ import uuid
 import pytest
 
 from contexts.conversation.application.access import RoomAccess, is_moderator_roles
-from shared_kernel.auth.permissions import Role
+from shared_kernel.auth.permissions import _MATRIX, Capability, Outcome, Role
 from tests.unit.chatroom_fakes import chatroom_row
 
 
@@ -67,3 +67,43 @@ def test_dto_predicate_matches_enforcement_predicate(
     )
     assert is_moderator_roles(roles) is expected
     assert access.is_moderator is expected
+
+
+def test_create_chatroom_serializes_the_creator_as_a_moderator() -> None:
+    """`create_chatroom` was the one `_to_out` call site never given the flag, so
+    its 201 body claimed the creator was not a moderator while a GET one request
+    later said they were.
+
+    Asserted against the route's real source rather than a live request: the fix
+    is only sound because the capability gate above it already proves the roles,
+    and that is what this pins.
+    """
+    import inspect
+
+    import app.api.v1.chatrooms as chatrooms_mod
+
+    source = inspect.getsource(chatrooms_mod.create_chatroom)
+    assert "is_moderator=True" in source, (
+        "create_chatroom must serialize the creator as a moderator; _to_out defaults "
+        "the field to False and every other call site in the module passes it"
+    )
+
+
+def test_chat_create_grants_exactly_the_moderator_roles() -> None:
+    """What makes `create_chatroom`'s hardcoded ``is_moderator=True`` sound.
+
+    Getting past ``_require_project_cap(..., CHAT_CREATE)`` proves the caller holds
+    a role the moderator predicate also accepts, so the route needs no second role
+    lookup. Widen CHAT_CREATE to a non-owner role and that stops being true — this
+    fails, rather than the 201 body quietly starting to lie.
+    """
+    granted = {
+        role for role, outcome in _MATRIX[Capability.CHAT_CREATE].items() if outcome is not Outcome.DENY
+    }
+
+    assert granted, "CHAT_CREATE grants nothing — the invariant would be vacuous"
+    for role in granted:
+        assert is_moderator_roles(frozenset({role})), (
+            f"CHAT_CREATE allows {role}, which is not a moderator role. "
+            "create_chatroom's is_moderator=True is now wrong."
+        )

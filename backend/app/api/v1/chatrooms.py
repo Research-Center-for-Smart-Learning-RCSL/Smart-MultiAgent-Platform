@@ -260,7 +260,12 @@ async def create_chatroom(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    return _to_out(room)
+    # CHAT_CREATE is granted to exactly ORG_OWNER and PROJECT_OWNER
+    # (permissions.py `_MATRIX`), which is precisely `is_moderator_roles`'
+    # predicate — so clearing the gate above already proves the caller moderates
+    # this room, and no second role lookup is needed. Without this the 201 body
+    # said `is_moderator: false` while a GET one request later said true.
+    return _to_out(room, is_moderator=True)
 
 
 # --------------------------------------------------------------------------- #
