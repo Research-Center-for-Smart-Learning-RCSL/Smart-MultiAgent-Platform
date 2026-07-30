@@ -66,6 +66,60 @@ def test_chatroom_reference_accepted_when_in_scope() -> None:
     assert not any(e.rule == 8 for e in result.errors)
 
 
+def _defn_with_subagent_spawn(*, include_spawn: bool = True) -> dict:
+    """trigger -> subagent_spawn -> end, with the failure port wired (rule 13).
+
+    ``include_spawn=False`` is the same workflow with the node removed — the edit an
+    author must still be able to save (R2).
+    """
+    nodes: list[dict] = [
+        {"id": "t1", "type": "trigger", "config": {"trigger_type": "manual"}},
+        {"id": "e1", "type": "end", "config": {"status": "success"}},
+    ]
+    edges: list[dict] = []
+    if include_spawn:
+        nodes.insert(
+            1,
+            {
+                "id": "s1",
+                "type": "subagent_spawn",
+                "config": {"parent_agent_id": _AGENT_ID, "task_template": "do it"},
+            },
+        )
+        edges = [
+            {"id": "x1", "from": "t1", "to": "s1", "from_port": "default"},
+            {"id": "x2", "from": "s1", "to": "e1", "from_port": "success"},
+            {"id": "x3", "from": "s1", "to": "e1", "from_port": "failure"},
+        ]
+    else:
+        edges = [{"id": "x1", "from": "t1", "to": "e1", "from_port": "default"}]
+    return {"entry_node_id": "t1", "nodes": nodes, "edges": edges}
+
+
+def test_subagent_spawn_emits_advisory_warning() -> None:
+    result = validate_definition(
+        _defn_with_subagent_spawn(),
+        valid_agent_ids=frozenset({_AGENT_ID}),
+    )
+
+    assert any("subagent_spawn is not implemented" in w.message for w in result.warnings)
+    # Advisory, not blocking: the definition must still save.
+    assert result.valid is True
+    assert result.errors == []
+
+
+def test_removing_subagent_spawn_still_validates() -> None:
+    # R2: create and patch share one validator, so a blocking rule would reject the
+    # very edit that removes the node. This pins that the escape hatch stays open.
+    result = validate_definition(
+        _defn_with_subagent_spawn(include_spawn=False),
+        valid_agent_ids=frozenset({_AGENT_ID}),
+    )
+
+    assert result.valid is True
+    assert not any("subagent_spawn" in w.message for w in result.warnings)
+
+
 def test_approval_gate_config_rejects_chatroom_id() -> None:
     definition = {
         "schema_version": "1.0",

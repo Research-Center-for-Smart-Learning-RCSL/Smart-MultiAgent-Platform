@@ -525,6 +525,11 @@ async def _sweep_orphaned_subagent_roots(session: AsyncSession) -> int:
     archived by ``_archive_workflow_runs``, or hard-deleted — the whole
     synthetic subtree is dead weight.
 
+    Since ``2026-07-22-subagent-spawn-fail-fast`` the node fails before spawning,
+    so no new synthetic roots are created and this sweep only drains rows left by
+    runs from before that change. It stays until those are gone, and becomes live
+    again when sub-agent execution ships with a teardown path.
+
     Children are deleted before roots: ``agent_instances.parent_id`` is
     ``ON DELETE SET NULL``, so deleting a root first would merely orphan the
     children (``parent_id`` → NULL) and leak them as parentless rows.
