@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-22
 requirements: []
 depends_on: []
@@ -274,26 +274,46 @@ revert independently with no ordering dependency.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: `test_spawn_fails_fast_on_failure_port` (§8) fails against current code and passes
-      after the fix.
-- [ ] AC-2: executing a `subagent_spawn` node creates **no** `agent_instances` row and writes
-      **no** `wf:subagent_callback` key.
-- [ ] AC-3: both `wait_for_all: true` and `wait_for_all: false` take the `failure` port; neither
+- [x] AC-1: `test_spawn_fails_fast_on_failure_port` (§8) fails against current code and passes
+      after the fix. *Verified: failed with `state=RUNNING, port=success, park=True,
+      timeout_ms=3600000` before the fix; passes after.*
+- [x] AC-2: executing a `subagent_spawn` node creates **no** `agent_instances` row and writes
+      **no** `wf:subagent_callback` key. *`test_spawn_creates_no_instance_and_no_redis_key` —
+      failed with "ensure_subagent_root awaited 1 times" before the fix.*
+- [x] AC-3: both `wait_for_all: true` and `wait_for_all: false` take the `failure` port; neither
       returns `success`, and `output_variable` is never populated.
-- [ ] AC-4: the node's error string names the capability as not implemented and points at the
-      feature dossier, so the failure is self-diagnosing.
-- [ ] AC-5: a run whose node carries `on_error.strategy: continue` proceeds past the node with
+      *`test_wait_for_all_false_also_fails_fast`, `test_output_variable_is_not_populated`.*
+- [x] AC-4: the node's error string names the capability as not implemented and points at the
+      feature dossier, so the failure is self-diagnosing. *`test_error_is_self_diagnosing`.*
+- [x] AC-5: a run whose node carries `on_error.strategy: continue` proceeds past the node with
       `output_variable` unset — verified deliberately, since it is R1's behaviour change.
-- [ ] AC-6: the executor's default `timeout_seconds` equals the schema's declared default and is
-      within the schema's maximum.
-- [ ] AC-7: the workflow editor marks the node unavailable, in both locales, with no hardcoded
-      strings.
-- [ ] AC-8: `validate_definition` emits a warning, not an error, for a definition containing the
+      **Only true after the engine fix in D-2** — as approved, this AC asserted behaviour the
+      engine could not deliver. See D-2; covered by
+      `test_on_error_continue_proceeds_with_output_variable_unset` plus
+      `test_continue_advances_normally_when_the_resolved_port_is_wired` and
+      `test_continue_with_no_matching_edge_fails_the_run_instead_of_stalling`.
+- [x] AC-6: the executor's default `timeout_seconds` equals the schema's declared default and is
+      within the schema's maximum. *`test_executor_default_timeout_matches_schema` reads
+      `docs/workflow.schema.json` at runtime, so the two cannot drift again. See D-3.*
+- [x] AC-7: the workflow editor marks the node unavailable, in both locales, with no hardcoded
+      strings. *5 tests in `components/config/__tests__/SubagentSpawnConfigForm.test.ts` +
+      2 in `WorkflowEditorView.test.ts`; locale parity asserted for `en` and `zh-TW`.*
+- [x] AC-8: `validate_definition` emits a warning, not an error, for a definition containing the
       node — and saving such a definition still succeeds, including an edit that removes it.
-- [ ] AC-9: `workflow_subagent_timeout` and `workflow_subagent_complete` remain registered
-      worker tasks.
-- [ ] AC-10: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`;
+      *`test_subagent_spawn_emits_advisory_warning` (`valid is True`, `errors == []`) and
+      `test_removing_subagent_spawn_still_validates`.*
+- [x] AC-9: `workflow_subagent_timeout` and `workflow_subagent_complete` remain registered
+      worker tasks. *`test_subagent_tasks_stay_registered` asserts both are in
+      `WorkerSettings.functions`.*
+- [x] AC-10: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`;
       `pnpm test`, `pnpm lint`, `pnpm typecheck` pass in `frontend/`.
+      **Partially — stated honestly.** Backend: unit tier green, `ruff check .` and
+      `ruff format --check .` clean over 888 files, `mypy .` clean over 888 files. Frontend:
+      `pnpm test` 932/932, `pnpm lint`, `pnpm typecheck` and `pnpm build` all green.
+      The `integration` and `wiring` tiers **could not run** — every failure in them is
+      `getaddrinfo failed` for `redis:6379` / `neo4j:7687`, i.e. the Docker Compose stack is
+      not up in this environment. Zero assertion failures and zero unit-tier failures. Those
+      two tiers must be re-run against a live stack before merge.
 
 ## 11. SRS Delta
 
@@ -304,7 +324,63 @@ being made.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — deleted `TestSubagentSpawnClaimTtl`, which §8 asserted did not exist.**
+  §8 states "`backend/tests/unit/test_workflow_executors.py` has no `SUBAGENT_SPAWN` class" and
+  lists seven test classes. That was true when this dossier was written (2026-07-22) and false
+  by build time: `2026-07-23-claim-ttl-single-source` landed a day later and added
+  `TestSubagentSpawnClaimTtl`, which pinned `outcome.park is True` and the TTL of the very
+  `redis.set` AC-2 deletes. The class characterised a code path this dossier removes, so it was
+  deleted rather than weakened; `TestSubagentSpawnExecutor` now pins that **no** claim key is
+  written. `domain/claim_ttl.py`'s comment naming `subagent_spawn` as a producer was corrected
+  in the same commit. **Agreed with the user before any code was written.**
+
+- **D-2 — AC-5 and §9 R1 asserted behaviour the engine could not deliver; the engine was fixed.**
+  Both claim a node with `on_error.strategy: continue` "proceeds past the node". It did not.
+  `_apply_on_error` CONTINUE hardcoded `port="default"` (`run_engine.py:761-766`), but
+  `_ALLOWED_PORTS["subagent_spawn"] = {"success","failure"}` (`linter.py:39`) makes a `default`
+  edge a rule-3 **blocking save error**, so no saved workflow can have one. `_advance_from`
+  matched nothing and returned silently (`:735-736`), leaving the branch stopped and the run
+  `RUNNING` until the watchdog force-failed it on `idle_max_seconds` — the same 30-minute death
+  this dossier exists to remove, reinstated for every `continue` node. §3 Q-2's claim that
+  "`retry`/`fallback`/`continue` all behave" was wrong for `continue`.
+  Reported before implementing; **the user chose to fix the engine inside this task** over
+  correcting the claim or re-speccing. Scope therefore expanded to `run_engine.py`:
+  - `_CONTINUE_PORTS` / `_continue_port()` resolve the port per node type — `success` for
+    `agent_invocation` / `instruct` / `subagent_spawn`, the declared `default_port` for
+    `condition`, `default` elsewhere.
+  - **`approval_gate` resolves to `rejected`, never `approved`.** Routing an errored approval
+    gate to `approved` would be an authorization bypass. It only fires when the executor raises
+    *before* parking (`approval_gate.py:141-146` parks on `default`; the real verdict arrives
+    later via `resume_at_port`), so it can never override a resolved vote. Fail-closed before
+    and after. Pinned by `test_on_error_continue_never_manufactures_an_approval`.
+  - `_advance_from` now returns whether an edge matched; a `continue` node whose resolved port
+    has no outgoing edge fails the run immediately, naming the port and carrying the original
+    error, instead of stalling.
+  This changes `on_error` semantics for `agent_invocation`, `instruct` and `approval_gate` too —
+  all three previously stalled on `continue` and now follow their declared path. §11's "SRS
+  Delta: none" still holds; `docs/workflow.schema.md`'s `continue` description was updated to
+  match.
+
+- **D-3 — fix B landed as a module constant, not an edited literal.**
+  §7 B says change `subagent_spawn.py:47` "from 3600 to 180". Fix A deletes the config read
+  entirely, so there is no literal left to edit. The value became
+  `DEFAULT_TIMEOUT_SECONDS = 180` at module scope, and
+  `test_executor_default_timeout_matches_schema` parses `docs/workflow.schema.json` at runtime
+  and asserts equality plus min/max containment — so the divergence §2 documented cannot recur.
+  This is §7 B's own preferred form ("better still, hoist the schema default into a shared
+  constant"), and it satisfies AC-6 without leaving an unreachable branch.
+
+- **D-4 — corrected `retention.py`'s `_sweep_orphaned_subagent_roots` docstring.**
+  Listed in §13 FU-8 as a follow-up, but fix A made it a direct, immediate falsehood rather than
+  a latent one: `ensure_subagent_root` / `ensure_root_instance` now have **zero** production
+  callers (verified repo-wide), so a docstring describing synthetic-root creation in the present
+  tense misdescribes live code. Corrected in place with a pointer to this dossier; the sweep
+  itself is untouched, and §9 R4 still holds — pre-existing orphaned rows are not cleaned up.
+
+- **D-5 — documentation touched beyond the spec.** `docs/workflow.schema.md` §5.2 gained the W7
+  advisory rule, and its `continue` on-error description was rewritten for D-2. The spec named
+  neither, but leaving the normative schema doc contradicting the code it describes is the exact
+  class of drift §2 records as this defect's aggravating factor.
 
 ## 13. Follow-ups
 
@@ -351,5 +427,44 @@ rediscovering them. Each is quoted from `docs/audits/2026-07-22-agent-to-agent-o
   hook" that "OrchestrationFacade **should**" implement. The aspirational mood is the defect,
   written down; this fix must rewrite it. Likewise `retention.py:494-496` is a sweep whose
   docstring documents the bug it works around — it should carry a pointer to the feature dossier
-  rather than read as a permanent subsystem.
+  rather than read as a permanent subsystem. **Both done in this task** (the executor docstring
+  as part of fix A, the retention docstring as D-4).
+
+Discovered during /build's Definition of Done and deliberately **not** fixed here:
+
+- **FU-9 (quality gate, pre-existing)** — **a `failure` port edge is never traversed for any
+  multi-port node.** Under the default `fail` strategy `_apply_on_error` returns the outcome
+  unchanged (`run_engine.py:828-829`) and `_execute_node` calls `_fail_run` at `:709-711`
+  *before* reaching `_advance_from` at `:714`. So the `failure` edges that linter rule 13
+  **forces** authors to wire on `agent_invocation`, `instruct`, `approval_gate` and
+  `subagent_spawn` are dead in the default configuration — the linter demands a path the engine
+  never takes. Not blocking here: AC-1 is about the `StepOutcome`'s port, and the run still fails
+  in milliseconds with a self-diagnosing error. Predates this task and affects three other node
+  types identically, so it needs its own dossier rather than a widened `continue` fix.
+
+- **FU-10 (security gate, hardening)** — rule 13 exempts a node from port coverage whenever
+  `on_error.strategy == "continue"` (`linter.py:545`), so an author can save an `approval_gate`
+  with `continue` and no wired ports at all. D-2's guard now fails such a run immediately and
+  names the port, which is fail-closed and diagnosable, but `continue` on an approval gate is a
+  questionable authoring pattern that deserves its own advisory warning beside W7.
+
+- **FU-11 (security gate, hardening, pre-existing)** — executor error text flows into audit
+  metadata and the `workflow_channel(run_id)` WebSocket publish via `_finalize_run(reason=...)`
+  (`run_engine.py:898-912`), on both the pre-existing `fail` path and D-2's new guard. No path
+  was found where a decrypted provider key reaches `outcome.error` — keys are envelope-encrypted
+  and never materialised into exception text — but this was not proven exhaustively across all
+  11 executors. Worth a scrub review of executor error construction generally.
+
+- **FU-12 (quality gate)** — `OrchestrationFacade.ensure_subagent_root`
+  (`orchestration/interfaces/facade.py:331`) and `SubagentService.ensure_root_instance`
+  (`subagent_service.py:54`) now have **zero** production callers, joining `destroy` (FU-4).
+  Deliberate, and recorded so the feature dossier revives them rather than a later dead-code
+  sweep deleting them.
+
+- **FU-13 (verification gap)** — the `integration` and `wiring` test tiers could not run in the
+  build environment (no Postgres / Redis / Neo4j / Vault; every failure is `getaddrinfo failed`).
+  `tests/integration/test_retention_subagent_root_sweep.py` and
+  `tests/integration/test_workflow_join_epoch.py` are the two that touch this task's surface and
+  must be re-run against a live stack before merge. Likewise the full-app visual check of AC-7
+  (Definition of Done gate 4) was satisfied only at component level.
 </content>
