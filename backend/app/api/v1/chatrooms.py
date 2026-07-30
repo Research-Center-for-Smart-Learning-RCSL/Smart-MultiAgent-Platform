@@ -341,6 +341,7 @@ async def patch_chatroom(
         else:
             resolver = await get_role_resolver(db)
             roles = await resolver.roles_for(principal, Scope(project_id=project_id))
+    moderator = principal.is_admin or is_moderator_roles(roles)
     expected = require_if_match(if_match)
     service = ChatroomService(db)
     room = await service.patch(
@@ -355,7 +356,7 @@ async def patch_chatroom(
     return _to_out(
         room,
         has_observers=chatroom_id in with_observers,
-        is_moderator=principal.is_admin or is_moderator_roles(roles),
+        is_moderator=moderator,
     )
 
 
