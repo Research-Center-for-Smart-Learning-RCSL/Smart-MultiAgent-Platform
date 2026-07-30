@@ -28,6 +28,13 @@ export const NODE_TYPE_LABELS: Record<NodeType, string> = {
   end: 'workflow.nodeTypes.end',
 }
 
+// Node types the editor still offers but the engine cannot execute: the node fails
+// immediately on its `failure` port. Badged rather than removed — workflows.definition
+// is a JSONB blob validated on write, so dropping a type would make every saved
+// workflow containing it unloadable, and the node/config components key off the type
+// string. See docs/tasks/2026-07-22-subagent-spawn-fail-fast/spec.md.
+export const UNAVAILABLE_NODE_TYPES: NodeType[] = ['subagent_spawn']
+
 // Palette groups for the "Add Node" dropdown (trigger excluded — only one allowed)
 export const NODE_PALETTE_GROUPS = [
   {
