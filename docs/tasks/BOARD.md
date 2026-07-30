@@ -20,11 +20,6 @@ parallel.
   F-7, F-18, F-22, F-23, F-39 and the config audit F-8, F-30. Six sequenced commits; one hard
   ordering constraint (cleanup before lock-liveness). Names two textual adjacencies with the
   compaction and tool-dispatch dossiers.
-- `2026-07-22-subagent-spawn-fail-fast` (bugfix, draft) — `depends_on: []`. From the a2a audit F-1
-  and the config audit F-3. Makes the dead `subagent_spawn` node fail fast instead of parking for
-  half an hour. **Deviates from the a2a triage**, which grouped five findings here: only one is
-  actionable today, the other four are latent until sub-agent execution is built and are recorded
-  as follow-ups for that feature dossier.
 - `2026-07-22-tool-dispatch-failure-categories` (bugfix, draft) — `depends_on: []`. From
   `docs/audits/2026-07-22-agent-config-runtime/` F-6, F-16, F-17 (all major): a tool's DB
   failure poisons the turn session and destroys an already-streamed reply, truncated tool-call
@@ -34,9 +29,6 @@ parallel.
   config F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read
   by nothing. **Blocked on Q-8** (migration posture) — enforcing without a backfill breaks every
   working approval gate on deploy.
-- `2026-07-22-settings-form-reconciliation` (bugfix, draft) — `depends_on: []`. a2u F-7, F-8 plus
-  verification-gap V-4. **Corrects the a2u audit's own §3 coupling note**: F-8 is not contingent on
-  F-1, and the evidence is in its Q-1.
 - `2026-07-22-turn-outcome-reporting` (bugfix, draft) — `depends_on: []`. a2u F-6, F-9, F-15 plus
   a2a F-40. A committed reply is recorded as a failed turn when the post-commit publish raises.
   Names two test-locked decisions that must be decided, not silently edited.
@@ -63,6 +55,11 @@ parallel.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+- `2026-07-22-subagent-spawn-fail-fast` (bugfix) — `depends_on: []`. From the a2a audit F-1
+  and the config audit F-3. Makes the dead `subagent_spawn` node fail fast instead of parking for
+  half an hour. **Deviates from the a2a triage**, which grouped five findings here: only one is
+  actionable today, the other four are latent until sub-agent execution is built and are recorded
+  as follow-ups for that feature dossier.
 Removed on 2026-07-28 because their own frontmatter reads `implemented` and the board only
 lists unfinished work: `2026-07-22-activity-session-authz-and-validation`,
 `2026-07-22-workflow-run-cancellation`, `2026-07-28-activity-schema-participant-access`.
@@ -71,3 +68,5 @@ Also removed on 2026-07-29 after implementation: `2026-07-22-reingest-allowlist-
 `2026-07-29-knowledge-upload-resource-bounds`, `2026-07-29-knowledge-ingest-ports`,
 `2026-07-29-knowledge-document-ui-split`, and `2026-07-22-retention-sweep-fixes`.
 Removed on 2026-07-29 after implementation: `2026-07-22-search-determinism-and-highlighting`.
+Removed on 2026-07-30 after implementation: `2026-07-22-settings-form-reconciliation`. Nothing
+listed it in `depends_on`, so no row moved out of Blocked.

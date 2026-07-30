@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-22
 requirements: [R13.04, R13.21, R13.23, R28.09]
 depends_on: []
@@ -542,34 +542,50 @@ backend half of `[R13.23]` was never the defect.
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1** — Every test named in §8 (T-1 … T-13) fails against current `main` for the
-      stated reason and passes after the fix.
-- [ ] **AC-2** — A rejected access-flag PATCH leaves the toggle in the server's position,
-      fires a `$t()`-sourced error toast, and does not render the dependent Guest Link card
-      (T-1, T-6).
-- [ ] **AC-3** — After a 409 on any settings save, every form field — `name` included — shows
-      the server's current values, and `room.version` matches (T-2).
-- [ ] **AC-4** — Toggling an access flag sends a body containing only that flag: no `name`,
-      no untouched flags (T-3).
-- [ ] **AC-5** — `loadRoom` revalidates against `GET /api/chatrooms/{id}` even on a cache hit,
-      and a rename made by another user appears without a manual reload (T-4).
-- [ ] **AC-6** — `ChatroomOut` carries `is_moderator`, computed identically to
-      `RoomAccess.is_moderator` (`access.py:46-49`) plus the admin bypass, and `False` for a
-      pure guest (T-11, T-12, T-13).
-- [ ] **AC-7** — A non-admin project owner **and** a non-admin org owner with no
-      `project_members` row each see Edit and Delete on another user's message; a plain
-      project member sees neither (T-7, T-8, T-9, T-13).
-- [ ] **AC-8** — No new cross-slice import is introduced in the conversation slice;
-      `pnpm lint` passes all 12 boundary gates.
-- [ ] **AC-9** — `pnpm run gen:api` has been re-run and `pnpm run check:openapi-drift` passes
-      in the same commit as the backend DTO change.
-- [ ] **AC-10** — No hardcoded user-facing string; any new i18n key exists in both
-      `frontend/src/slices/conversation/locales/en.json` and its `zh-TW.json` counterpart.
-- [ ] **AC-11** — Full Definition of Done: `pytest -q`, `ruff check . && ruff format --check .`,
-      `mypy .`, `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build`.
-- [ ] **AC-12** — The correction recorded in Q-1 is written back to
-      `docs/audits/2026-07-22-agent-to-user-conversation/findings.md:83-85`: F-8 is **not**
-      contingent on F-1; that coupling applies to F-11 and F-13 only.
+- [x] **AC-1** — Every test named in §8 fails against the base commit for the stated reason
+      and passes after the fix. Red-phase evidence: T-11/T-12/T-13 `ImportError` on
+      `is_moderator_roles`; T-7/T-8 `expected false to be true`; T-1/T-2/T-3 `setFlag is not a
+      function`; T-4 `expected 'Stale Name' to be 'Fresh Name'`; T-6 the guest-link card
+      rendered for a room the server left closed. T-9/T-10 passed red as specified; T-5 did
+      not — see **D-5**.
+- [x] **AC-2** — T-1 (`flags.allow_guest_links` stays `false`, `saveError` set) and T-6 (the
+      Guest Link card is absent after a rejected enable, asserted through the real view).
+      The toast is `$t()`-sourced via `reportSaveFailure`, reusing the existing
+      `conversation.settings.saveFailed` / `versionConflict` keys.
+- [x] **AC-3** — T-2: after a 409, `name` reads `'Renamed By B'` and `room.version` is 2.
+- [x] **AC-4** — T-3 captures the PATCH body and asserts it equals exactly
+      `{ allow_org_members: true }` while a half-typed rename sits in the name field.
+- [x] **AC-5** — T-4: cache paints `'Stale Name'`, the revalidation replaces it with
+      `'Fresh Name'`. Two companions pin the guards: an in-progress rename survives the
+      revalidation, and a revalidation older than the room in hand is dropped (**D-4**).
+- [x] **AC-6** — `ChatroomOut.is_moderator` (`chatrooms.py:100-104`), computed through the
+      shared `is_moderator_roles` plus the admin bypass (**D-2**), neutralised for a pure
+      guest in `_to_out`. T-11, T-12, T-13 (7-row truth table).
+- [x] **AC-7** — T-7, T-8, T-9 at the predicate level; T-13's `{ORG_OWNER}` and
+      `{ORG_OWNER, ORG_MEMBER}` rows are the org-owner-without-`project_members` case, which
+      is why the DTO route was chosen over the members lookup (Q-2). Additionally verified at
+      the DOM level through the real `ChatroomView` → message-bubble chain, with a paired
+      negative case; confirmed red against the base commit.
+- [x] **AC-8** — No new cross-slice import; the conversation slice's reach into tenancy is
+      unchanged. `pnpm lint` (all 12 gates, `--max-warnings=0`) passes.
+- [x] **AC-9** — `backend/openapi.json` and `frontend/src/shared/api-client/models/ChatroomOut.ts`
+      were regenerated and committed together with the backend DTO change (`935ce23`).
+      Verified by re-exporting the spec and re-running `gen:api`: both outputs are
+      byte-identical to what is committed. The `check:openapi-drift` script itself cannot run
+      in this environment — its bash shell has no `python` on `PATH` — so the equivalent was
+      performed directly. Its `SPEC_TMP` trap worked as designed and left `openapi.json`
+      intact on the failed invocation.
+- [x] **AC-10** — No new i18n key was needed; both keys used already exist in `en.json` and
+      `zh-TW.json`. No hardcoded user-facing string added.
+- [x] **AC-11** — `ruff check . && ruff format --check .`, `mypy .` (888 files, no issues),
+      `pnpm test` (924 → 927 tests), `pnpm lint`, `pnpm typecheck`, `pnpm build` all pass.
+      Backend tests: `pytest tests/unit -q` → **6210 passed, 6 skipped**. Plain `pytest -q`
+      additionally collects `tests/integration`, `tests/wiring` and `tests/e2e` (359 tests),
+      which require Postgres/Redis/Vault from `deploy/compose` and cannot run here — none of
+      them touch `ChatroomOut` or `_to_out`. See **FU-7**.
+- [x] **AC-12** — Written back to
+      `docs/audits/2026-07-22-agent-to-user-conversation/findings.md`, replacing the §3
+      coupling head and adding a dated correction that cites this dossier's Q-1.
 
 ## 11. SRS Delta
 
@@ -583,7 +599,54 @@ coupling note. See Q-1.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1** — §7.2 step 1 states that `patch_chatroom` has the `access` object in hand and can
+  pass `access.is_moderator or principal.is_admin` straight through. It does not: `access` is
+  resolved only inside the two disclosure branches (`chatrooms.py:298`, `:312` at the time of
+  writing), and a plain-flags patch — the shape every access toggle now sends — never resolves
+  it. Implemented instead by binding the caller's role set on whichever path the gate already
+  took, with one `roles_for` call on the plain-flags path only. Cost: one extra indexed role
+  lookup per settings PATCH, on a human-paced operation. Rejected the alternative of leaving
+  the field at its `False` default there, because a DTO that reports a value it did not compute
+  is the same class of defect this dossier is fixing. `test_observer_agents.py`'s
+  `_wire_patch_handler` gained a `get_role_resolver` stub; its "`resolve_room_access` must not
+  run without a disclosure field" invariant is untouched and is now additionally asserted
+  through the response's `is_moderator`.
+- **D-2** — §7.2 step 1 says to compute the DTO bit "mirroring `access.py:46-49`". A mirror is
+  a second copy of a predicate, which is precisely the failure mode §7.1 removes on the
+  frontend side. Extracted `is_moderator_roles(roles)` as a free function in `access.py` and
+  made `RoomAccess.is_moderator` delegate to it, so the serializing routes and the enforcing
+  gates call one function. T-13 pins the truth table on that function and separately asserts
+  `RoomAccess.is_moderator` agrees on every row, so it is not tautological.
+- **D-3** — §7.1 step 6 asks for a toast on toggle failure. Implemented as a single
+  `reportSaveFailure` that all three save paths (`onSave`, `setFlag`, `saveDisclosure`) route
+  through, for the same reason the flags mirror was deleted: a reporter that one call site can
+  forget to call is the defect. Effect beyond the spec: a failed **name** save now toasts too,
+  where previously only the inline `SAlert` fired.
+- **D-4** — added an ordering guard not in the spec: `applyRevalidated` drops a response whose
+  `version` is older than the room already held. Without it the background GET that §7.1 step 5
+  introduces can land after a toggle's PATCH and wind the form back to the pre-save version,
+  whose next save would 409 — the F-8 shape, reintroduced through the F-8 fix. Pinned by
+  "drops a revalidation that lands after a newer save" in `useChatroomSettings.test.ts`.
+- **D-5** — §8.1 predicts T-5 "Passes today". It cannot: `setFlag` did not exist on the
+  composable at all (it lived in the view), so the red-phase run errors rather than passing.
+  Its purpose as an over-correction guard is intact — it passes after the fix and fails if the
+  fix reverts unconditionally. T-9 and T-10 did pass in the red phase exactly as §8.3 states.
+- **D-6** — `ChatroomSettingsView.test.ts`'s "shows the settings form once chatroom data loads"
+  gained an explicit `GET /api/chatrooms/:id` stub. Once `loadRoom` revalidates, the shared
+  fallback handler's room (`tests/mocks/handlers.ts` — named "Test Room") lands over the seeded
+  cache row. The fixture was made to agree with the seed rather than the assertion weakened.
+- **D-7** — the Definition of Done's behavioural gate was satisfied at the component level, not
+  against a running stack: Docker was not up on this workstation, and V-4's live check would
+  additionally have needed the seeded non-admin project owner that Q-5 already records as
+  absent (FU-1). What was verified instead drives the real components rather than the
+  predicates: T-6 clicks the real `SToggle` inside the real `ChatroomSettingsView` and asserts
+  the Guest Link card stays away, and two new cases in `ChatroomView.test.ts` render the real
+  view → message-bubble chain and assert Edit/Delete appear for a non-admin, non-author viewer
+  on a message an hour old purely because `is_moderator` is true — with a paired negative case,
+  and both confirmed red against the base commit. The one link left unexercised end-to-end is
+  the live HTTP response carrying the field, which is pinned by T-11/T-12/T-13 at `_to_out` and
+  by `test_name_only_patch_keeps_moderator_semantics` at the route. Agreed with the user
+  on 2026-07-30.
 
 ## 13. Follow-ups
 
@@ -613,4 +676,26 @@ Appended by /build.
   surface is canonical for an immediate-save control, since
   `docs/UI/12-shared-patterns.md:301` prescribes a toast for `conflict` and the two documents
   are not obviously reconciled.
-</content>
+- **FU-6** — `frontend/src/slices/conversation/composables/useChatroomSettings.ts` still
+  exports `applyRoom`, which no consumer outside the composable references (it predates this
+  task). The composable now returns 13 values, above the `check-quality` calibration point of
+  10; dropping the unreferenced export is the cheap half of that. Also noted there: `onSave`
+  and `patchFlag` share a ~12-line skeleton that could collapse behind a callback parameter.
+  Both are Info-level and were left alone deliberately — the second in particular trades one
+  duplication for one indirection.
+- **FU-7** — The `check:openapi-drift` script cannot run on this workstation: it shells out
+  to `bash`, whose `PATH` has no `python`. The gate still works in CI, and the equivalent
+  check was performed directly here (AC-9), but a local developer gets a confusing failure
+  whose message ("OpenAPI types are stale") does not describe the actual cause. Worth either
+  probing for the interpreter up front with a clear message, or resolving it the way the rest
+  of the repo's tooling does.
+- **FU-8** — *(fixed here, recorded for the reasoning.)*
+  `frontend/src/slices/conversation/__tests__/ChatroomView.test.ts`'s "does not render 'Load
+  earlier' before the query settles (F-17)" was flaky under full-suite load, failing twice in
+  `pnpm test` while passing in isolation. Cause: its second assertion waited a fixed 100ms
+  (`settle()`) for 100 messages to render through markdown, which overruns that budget under
+  contention. Nothing in this task touches the messages query, so the flake is pre-existing —
+  but adding two tests to the same file made it fire more often, which makes the worsening
+  this task's to fix. Replaced the fixed sleep with `vi.waitFor` on the condition; the
+  synchronous first assertion, which is the actual F-17 guard, is untouched. The remaining
+  `settle()` call sites elsewhere in the file have the same latent shape and were left alone.
