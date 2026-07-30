@@ -4,7 +4,7 @@ import { flushPromises } from '@vue/test-utils'
 import { QueryClient } from '@tanstack/vue-query'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
-import { renderView } from '../../../../tests/utils'
+import { deferred, renderView } from '../../../../tests/utils'
 import { useChatroomSettings } from '../composables/useChatroomSettings'
 import type { Chatroom } from '../types'
 
@@ -253,10 +253,14 @@ describe('useChatroomSettings.loadRoom', () => {
     // The GET is issued at paint time but resolves after the toggle's PATCH.
     // Applying it would wind the form back to the pre-save version, whose
     // next save would 409 against the room the user just wrote.
-    let releaseGet: (() => void) | null = null
+    const held = deferred<void>()
+    let firstGet = true
     server.use(
       http.get('/api/chatrooms/:id', async () => {
-        if (!releaseGet) await new Promise<void>((res) => (releaseGet = res))
+        if (firstGet) {
+          firstGet = false
+          await held.promise
+        }
         return HttpResponse.json(makeChatroom({ name: 'Room One', version: 1 }))
       }),
       http.patch('/api/chatrooms/:id', () =>
@@ -277,7 +281,7 @@ describe('useChatroomSettings.loadRoom', () => {
     await flushPromises()
     expect(wrapper.vm.room?.version).toBe(2)
 
-    ;(releaseGet as unknown as () => void)()
+    held.resolve()
     await flushPromises()
 
     expect(wrapper.vm.room?.version).toBe(2)

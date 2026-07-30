@@ -12,38 +12,19 @@ the equality of the DTO predicate with the enforcement predicate
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
-from types import SimpleNamespace
 
 import pytest
 
 from contexts.conversation.application.access import RoomAccess, is_moderator_roles
 from shared_kernel.auth.permissions import Role
-
-
-def _room_row():
-    now = datetime.now(UTC)
-    return SimpleNamespace(
-        id=uuid.uuid4(),
-        workspace_id=uuid.uuid4(),
-        name="room",
-        allow_org_members=False,
-        allow_project_members=True,
-        allow_project_owners_only=False,
-        allow_guest_links=True,
-        version=1,
-        created_at=now,
-        deleted_at=None,
-        created_by_user_id=uuid.uuid4(),
-        disclose_observers=True,
-    )
+from tests.unit.chatroom_fakes import chatroom_row
 
 
 def test_to_out_reports_is_moderator_only_when_told_to() -> None:
     """T-11: the field defaults to False, so every call site grants explicitly."""
     import app.api.v1.chatrooms as chatrooms_mod
 
-    room = _room_row()
+    room = chatroom_row(created_by=uuid.uuid4())
     assert chatrooms_mod._to_out(room).is_moderator is False
     assert chatrooms_mod._to_out(room, is_moderator=True).is_moderator is True
 
@@ -53,7 +34,7 @@ def test_pure_guest_is_never_a_moderator() -> None:
     a guest link must not become an oracle for who moderates the room."""
     import app.api.v1.chatrooms as chatrooms_mod
 
-    room = _room_row()
+    room = chatroom_row(created_by=uuid.uuid4())
     view = chatrooms_mod._to_out(room, is_moderator=True, viewer_is_pure_guest=True)
     assert view.is_moderator is False
 
@@ -79,7 +60,7 @@ def test_dto_predicate_matches_enforcement_predicate(
     """T-13: the expression the routes feed into the DTO and the expression the
     delete/edit gates read must be the same function, on every role set."""
     access = RoomAccess(
-        chatroom=_room_row(),
+        chatroom=chatroom_row(created_by=uuid.uuid4()),
         project_id=uuid.uuid4(),
         roles=roles,
         is_guest=False,

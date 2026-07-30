@@ -39,6 +39,7 @@ from contexts.conversation.domain.models import (
 from contexts.conversation.infrastructure.repositories.observation_repo import ObservationRepository
 from contexts.skills.application.binding_service import BoundSet
 from shared_kernel.auth.permissions import Principal, Role
+from tests.unit.chatroom_fakes import chatroom_row
 from tests.unit.skill_fakes import make_skill
 
 # --------------------------------------------------------------------------- #
@@ -122,31 +123,13 @@ def test_ensure_room_creator_raises() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _room_row(*, created_by=None, disclose=True):
-    now = datetime.now(UTC)
-    return SimpleNamespace(
-        id=uuid.uuid4(),
-        workspace_id=uuid.uuid4(),
-        name="room",
-        allow_org_members=False,
-        allow_project_members=True,
-        allow_project_owners_only=False,
-        allow_guest_links=True,
-        version=1,
-        created_at=now,
-        deleted_at=None,
-        created_by_user_id=created_by,
-        disclose_observers=disclose,
-    )
-
-
 def test_to_out_hides_observer_fields_from_pure_guests() -> None:
     """O-8 (R28.02): a pure guest gets fail-closed neutral values for every
     observer-related DTO field; members keep the real values."""
     import app.api.v1.chatrooms as chatrooms_mod
 
     creator = uuid.uuid4()
-    room = _room_row(created_by=creator, disclose=True)
+    room = chatroom_row(created_by=creator, disclose=True)
 
     guest_view = chatrooms_mod._to_out(room, has_observers=True, viewer_is_pure_guest=True)
     assert guest_view.created_by_user_id is None
@@ -373,7 +356,7 @@ def _wire_patch_handler(monkeypatch, *, access, cap_calls, patched, roles=frozen
 
         async def patch(self, **kw):
             patched.append(kw)
-            return _room_row()
+            return chatroom_row()
 
         async def rooms_with_observers(self, ids):
             return set()
