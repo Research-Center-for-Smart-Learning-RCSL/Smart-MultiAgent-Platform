@@ -1202,7 +1202,7 @@ async def test_a_failed_synthesis_marks_the_observation_it_persists(monkeypatch)
     assert result.status == "completed"
     assert recorded["content_md"] == "Let me check that for you."
     assert recorded["metadata"]["synthesis_failed"] is True
-    assert recorded["metadata"]["error"] == "provider_stream_failed"
+    assert recorded["metadata"]["synthesis_error"] == "provider_stream_failed"
 
 
 @pytest.mark.asyncio

@@ -395,7 +395,7 @@ def _build_file_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps) -
                         content="file write requires 'content'; the file was not modified.",
                         is_error=True,
                     )
-                res = await tool.write(path, str(args.get("content", "")).encode("utf-8"))
+                res = await tool.write(path, str(args["content"]).encode("utf-8"))
             else:
                 return ToolResult(content=f"unknown file op {op!r}", is_error=True)
         except Exception as exc:
@@ -560,10 +560,12 @@ async def _audit_tool_invoke(
 ) -> bool:
     """Record one tool invocation. Returns whether the row was written.
 
-    The caller MUST honour a False: `mcp.tool_invoked` is the trail of what an agent
-    did with the user's keys and the sandbox, and the invariant is that a tool that
-    ran is recorded. Reporting a clean success on top of a lost record is the one
-    behaviour this function must not have (AC-4).
+    A caller that would otherwise report success MUST honour a False:
+    `mcp.tool_invoked` is the trail of what an agent did with the user's keys and
+    the sandbox, and the invariant is that a tool that ran is recorded. Reporting a
+    clean success on top of a lost record is the one behaviour this must not have
+    (AC-4). The fail-closed call sites ignore the result deliberately — they are
+    already returning `is_error`, so there is no success to qualify.
     """
     try:
         from shared_kernel import audit

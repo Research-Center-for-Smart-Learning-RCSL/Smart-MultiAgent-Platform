@@ -270,7 +270,7 @@ async def test_headless_turn_records_a_failed_synthesis(monkeypatch) -> None:
     assert result.status == "completed"
     finished = next(meta for action, meta in audits if action == "agent.turn_finished")
     assert finished["synthesis_failed"] is True
-    assert finished["error"] == "provider_exhausted:no_usable_key"
+    assert finished["synthesis_error"] == "provider_exhausted:no_usable_key"
 
 
 @pytest.mark.asyncio
@@ -297,7 +297,7 @@ async def test_a_healthy_headless_turn_records_no_synthesis_marker(monkeypatch) 
 
     finished = next(meta for action, meta in audits if action == "agent.turn_finished")
     assert "synthesis_failed" not in finished
-    assert "error" not in finished
+    assert "synthesis_error" not in finished
 
 
 @pytest.mark.asyncio
