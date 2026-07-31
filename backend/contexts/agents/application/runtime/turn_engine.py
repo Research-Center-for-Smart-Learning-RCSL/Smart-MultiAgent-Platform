@@ -21,7 +21,7 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Collection, Coroutine, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -116,6 +116,20 @@ _SYNTHESIS_FAILED = "synthesis_failed"
 # token like every other `_err_kind` output, not the exception class name: it
 # reaches the WS payload and the audit row, and the reaper keys off it.
 _CANCELLED_ERR_KIND = "cancelled"
+
+# `agent.progress` phases — the turn's liveness beacon (see `_emit_progress`).
+# Named rather than inlined because the client branches on one of them, so the
+# two sides have to agree on the exact token.
+_PROGRESS_CONTEXT = "context"
+_PROGRESS_SKILLS = "skills"
+_PROGRESS_WORKSPACE = "workspace"
+_PROGRESS_HISTORY = "history"
+_PROGRESS_COMPACTING = "compacting"
+# The one phase the client acts on beyond re-arming its watchdog: a tool round
+# has ended and the text streamed during it has been superseded by the next
+# round, so the draft resets here instead of accumulating every round and then
+# being replaced wholesale at `agent.finished` (F-40).
+_PROGRESS_TOOL_ROUND = "tool_round"
 
 # The skip reason for a trigger that lost its race with the lock AND could not be
 # parked for the holder. Distinct from `locked`, which asserts that somebody else
@@ -567,6 +581,55 @@ def _consume_cleanup_exception(what: str) -> Callable[[asyncio.Future[None]], No
             _log.error("turn cleanup raised during %s", what, exc_info=exc)
 
     return _done
+
+
+async def _emit_progress(room: str | None, agent_id: uuid.UUID, phase: str) -> None:
+    """Tell the room the turn is alive and where it has got to ([R13.19]).
+
+    Between ``agent.thinking`` and the first token the engine can legitimately
+    spend minutes — draining notifications, resolving skills, staging a
+    workspace, and folding history behind a 300s compaction lock that may run a
+    whole summariser call. The client's watchdog re-arms on this event; without
+    it the client had nothing but silence to read, and inferred a wedged turn
+    from a healthy one (F-15).
+
+    Ids and a phase only, never content: the room channel is a blind relay whose
+    ``can_read`` admits a chatroom guest who is not a project member, exactly as
+    argued at :meth:`_report_skill_drops`.
+
+    Best-effort — this reports liveness, not the turn's result, so a publish
+    failure must never be the reason a turn ends.
+    """
+    if room is None:
+        return
+    try:
+        await Publisher(room).emit("agent.progress", {"agent_id": str(agent_id), "phase": phase})
+    except Exception:
+        _log.warning("agent progress emit failed agent=%s phase=%s", agent_id, phase, exc_info=True)
+
+
+@contextlib.asynccontextmanager
+async def _post_commit(what: str) -> AsyncIterator[None]:
+    """Scope for one step that runs after the turn's outcome became durable.
+
+    The turn's outcome is decided at its commit. Everything after it is
+    bookkeeping, and bookkeeping that escaped into the turn's own ``except``
+    would rewrite a committed reply as ``failed`` — auditing ``turn_failed``
+    beside the ``turn_finished`` already written, requeueing notifications the
+    agent has consumed, and skipping the very dispatches the turn existed for
+    (F-6). Each step therefore reports its own failure and nothing else.
+
+    Logged with a stack rather than swallowed: on a Redis outage this is the
+    only trace that the turn's downstream effects never happened, and a warning
+    that can vanish without trace is not a signal (see ``_report_skill_drops``).
+
+    Deliberately per-step, not one guard around the block: a failed publish must
+    not skip the dispatches, and a failed dispatch must not skip the next one.
+    """
+    try:
+        yield
+    except Exception:
+        _log.warning("post-commit turn step failed: %s", what, exc_info=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -2316,6 +2379,7 @@ class TurnEngine:
             notify_block, extra_tools, pending_notes, voted_approvals = await self._pending_context_and_tools(
                 agent, chatroom_id
             )
+            await _emit_progress(room, agent.id, _PROGRESS_CONTEXT)
             # The turn's one tool snapshot. Three consumers below read it — the built-in
             # tool assembly, the staging gate, and the skills tap — and they must not
             # disagree about a tool toggled mid-turn.
@@ -2335,12 +2399,14 @@ class TurnEngine:
             # consumers: the tap is what proves these scripts may touch this agent's
             # volume at all.
             bound_skills = await self._resolve_skills(agent, agent_tools)
+            await _emit_progress(room, agent.id, _PROGRESS_SKILLS)
             # Stage the triggering message's uploads and the bound skills' scripts into
             # the kernel workspace so code_exec can read them; the returned note tells
             # the model the paths.
             staged_note, unstaged = await self._stage_workspace_inputs(
                 agent, chatroom_id, trigger_attachments, bound_skills, agent_tools
             )
+            await _emit_progress(room, agent.id, _PROGRESS_WORKSPACE)
             # A skill whose scripts never reached the volume leaves the snapshot here, so
             # the index and `read_skill` below never advertise a body that tells the model
             # to run a file that is not there. Reported once, with the tap's own drops.
@@ -2390,8 +2456,15 @@ class TurnEngine:
                 + _DEFAULT_MAX_TOKENS
             )
             history = await self._assemble_history(
-                agent, chatroom_id, context_limit, provider, model, extra_projected_tokens=prefix_tokens
+                agent,
+                chatroom_id,
+                context_limit,
+                provider,
+                model,
+                extra_projected_tokens=prefix_tokens,
+                room=room,
             )
+            await _emit_progress(room, agent.id, _PROGRESS_HISTORY)
 
             ceiling = _request_ceiling(agent, context_limit)
 
@@ -2557,7 +2630,9 @@ class TurnEngine:
                         provider,
                         model,
                         extra_projected_tokens=non_history_prefix,
+                        room=room,
                     )
+                    await _emit_progress(room, agent.id, _PROGRESS_HISTORY)
                     system_text, messages, rag_ctx, starved = await _assemble_request(history)
 
             # AC-11: judged only after the recompaction above, because shedding
@@ -2591,17 +2666,25 @@ class TurnEngine:
                 # starvation is deterministic, so nothing would ever change —
                 # burning the customer's own quota to make no progress.
                 await self._db.commit()
+                # [R13.27] — the skip is now durable; nothing below decides it.
                 # Committed, so the consumed /compact flag stays consumed: the
                 # compaction it asked for did happen and is kept.
                 self._compact_forced_rooms.pop(chatroom_id, None)
                 if is_observer:
-                    await self._emit_observation_event(
-                        chatroom_id, agent.id, "observation.failed", {"kind": "knowledge_starved"}
-                    )
+                    async with _post_commit("observation.failed emit (knowledge starved)"):
+                        await self._emit_observation_event(
+                            chatroom_id, agent.id, "observation.failed", {"kind": "knowledge_starved"}
+                        )
                 else:
-                    await emit_agent_finished_error(chatroom_id, agent.id, "knowledge_starved")
+                    async with _post_commit("agent.finished emit (knowledge starved)"):
+                        await emit_agent_finished_error(chatroom_id, agent.id, "knowledge_starved")
                 # The agent never acted on the drained notifications — restore them.
-                await self._requeue_notifications(agent, pending_notes)
+                # Guarded like the emit, and for the same reason: this branch is
+                # the notes' owner, but losing them is a bounded, logged loss,
+                # whereas letting it report `failed` would requeue them twice AND
+                # contradict a committed skip.
+                async with _post_commit("requeue notifications (knowledge starved)"):
+                    await self._requeue_notifications(agent, pending_notes)
                 return TurnResult(status="skipped", reason="knowledge_starved")
 
             if not messages:
@@ -2615,10 +2698,15 @@ class TurnEngine:
                     )
                 await self._audit(agent, chatroom_id, "agent.turn_finished", {"empty": True})
                 await self._db.commit()
+                # [R13.27] — the skip is now durable; nothing below decides it.
+                # The emit above is deliberately NOT guarded: it precedes this
+                # commit, so a failure there means nothing durable exists yet and
+                # routing to the failure path is the correct outcome (S-2).
                 self._compact_forced_rooms.pop(chatroom_id, None)
                 # The drained notifications were folded into a prompt that will
                 # never reach the provider — restore them for the next turn.
-                await self._requeue_notifications(agent, pending_notes)
+                async with _post_commit("requeue notifications (no input)"):
+                    await self._requeue_notifications(agent, pending_notes)
                 return TurnResult(status="skipped", reason="no_input")
 
             # Commit the pre-stream writes (turn_started audit, compaction
@@ -2662,24 +2750,28 @@ class TurnEngine:
                     {"tool_rounds": rounds, "reason": skip_reason, **synthesis_meta},
                 )
                 await self._db.commit()
+                # [R13.27] — the skip is now durable; nothing below decides it (S-1).
                 self._compact_forced_rooms.pop(chatroom_id, None)
                 if room is not None:
-                    await Publisher(room).emit(
-                        "agent.finished", {"reason": skip_reason, "agent_id": str(agent.id)}
-                    )
+                    async with _post_commit("agent.finished emit (empty reply)"):
+                        await Publisher(room).emit(
+                            "agent.finished", {"reason": skip_reason, "agent_id": str(agent.id)}
+                        )
                 elif is_observer:
                     # O-4 (R28.13): benign skip, not a failure — unless it was one.
-                    await self._emit_observation_event(
-                        chatroom_id,
-                        agent.id,
-                        "observation.failed" if outcome.synthesis_failed else "observation.skipped",
-                        {"kind": skip_reason},
-                    )
+                    async with _post_commit("observation skip emit (empty reply)"):
+                        await self._emit_observation_event(
+                            chatroom_id,
+                            agent.id,
+                            "observation.failed" if outcome.synthesis_failed else "observation.skipped",
+                            {"kind": skip_reason},
+                        )
                 # The provider was reached and the drained notes were in its context
                 # (rendering is delivery for notify/released_observation, R9.16/R28.07),
                 # but an approval ballot is only consumed once cast — re-arm it if the
                 # model saw the note and voted on nothing (/code-review, FU-7).
-                await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
+                async with _post_commit("settle pending approvals (empty reply)"):
+                    await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
                 return TurnResult(
                     status="skipped",
                     reason=skip_reason,
@@ -2720,19 +2812,25 @@ class TurnEngine:
                     {"tool_rounds": rounds, "observer": True, **synthesis_meta},
                 )
                 await self._db.commit()
+                # [R13.27] — the observation is now durable; nothing below
+                # decides the turn. `_emit_observation_event` already guards
+                # itself (S-3); the scope here makes that structural rather than
+                # a property of the callee that a refactor could drop.
                 self._compact_forced_rooms.pop(chatroom_id, None)
                 # Post-commit, mirroring message.created: the creator's refetch
                 # must see the committed row.
-                await self._emit_observation_event(
-                    chatroom_id,
-                    agent.id,
-                    "observation.created",
-                    {
-                        "observation_id": str(obs.id),
-                        "created_at": obs.created_at.isoformat() if obs.created_at else None,
-                    },
-                )
-                await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
+                async with _post_commit("observation.created emit"):
+                    await self._emit_observation_event(
+                        chatroom_id,
+                        agent.id,
+                        "observation.created",
+                        {
+                            "observation_id": str(obs.id),
+                            "created_at": obs.created_at.isoformat() if obs.created_at else None,
+                        },
+                    )
+                async with _post_commit("settle pending approvals (observer)"):
+                    await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
                 return TurnResult(
                     status="completed",
                     message_id=None,
@@ -2756,40 +2854,50 @@ class TurnEngine:
                 agent, chatroom_id, "agent.turn_finished", {"tool_rounds": rounds, **synthesis_meta}
             )
             await self._db.commit()
+            # [R13.27] — PAST THIS LINE THE TURN'S OUTCOME IS A FACT. Everything
+            # below is bookkeeping on a reply that already exists, so each step
+            # is individually guarded and none of them may decide the turn. Add
+            # a new step here only inside its own `_post_commit`.
             self._compact_forced_rooms.pop(chatroom_id, None)
             # Persist any code_exec artifacts (charts/files) and bind them to the
             # reply BEFORE the WS event so the client's refetch hydrates them.
-            await self._persist_artifacts(agent, chatroom_id, msg.id, artifact_sink)
+            async with _post_commit("persist artifacts"):
+                await self._persist_artifacts(agent, chatroom_id, msg.id, artifact_sink)
             # Publish AFTER commit so a client's refetch sees the committed row
             # (agent replies have no optimistic echo, unlike user sends).
             # `room is not None` always holds here (the observer branch returned
             # above) — the guard exists to narrow the type and stay fail-closed.
             if room is not None:
                 pub = Publisher(room)
-                await pub.emit(
-                    "message.created",
-                    {
-                        "message_id": str(msg.id),
-                        "sender_type": "agent",
-                        "sender_id": str(agent.id),
-                        "created_at": msg.created_at.isoformat() if msg.created_at else None,
-                    },
-                )
+                async with _post_commit("message.created emit"):
+                    await pub.emit(
+                        "message.created",
+                        {
+                            "message_id": str(msg.id),
+                            "sender_type": "agent",
+                            "sender_id": str(agent.id),
+                            "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                        },
+                    )
                 # `synthesis_meta` rides along so the client can mark the bubble
                 # without refetching the message to read its metadata.
-                await pub.emit(
-                    "agent.finished",
-                    {"message_id": str(msg.id), "agent_id": str(agent.id), **synthesis_meta},
-                )
+                async with _post_commit("agent.finished emit"):
+                    await pub.emit(
+                        "agent.finished",
+                        {"message_id": str(msg.id), "agent_id": str(agent.id), **synthesis_meta},
+                    )
             # K.4: agent replies feed workflow `message` triggers/waits exactly
             # like user sends do (sender_filter agent/any). Best-effort,
             # post-commit — never fails the turn.
-            await self._dispatch_agent_message_signal(chatroom_id, final_text)
+            async with _post_commit("workflow message signal"):
+                await self._dispatch_agent_message_signal(chatroom_id, final_text)
             # R15.01: an agent reply counts toward other bound agents'
             # every_n triggers and touches their silence timers; R11.02:
             # it also feeds GraphRAG message triggers.
-            await self._dispatch_agent_reply_wakeups(agent, chatroom_id, msg.id)
-            await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
+            async with _post_commit("agent reply wakeups"):
+                await self._dispatch_agent_reply_wakeups(agent, chatroom_id, msg.id)
+            async with _post_commit("settle pending approvals"):
+                await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
             return TurnResult(
                 status="completed",
                 message_id=msg.id,
@@ -3145,9 +3253,15 @@ class TurnEngine:
         model: str,
         *,
         extra_projected_tokens: int = 0,
+        room: str | None = None,
     ) -> list[tx.HistoryMessage]:
         """Load model-facing history, compacting it when the *next request* would
         cross the cap (R9.10).
+
+        ``room`` is only for the liveness beacon: folding runs a real summariser
+        call behind a 300s lock and is the longest thing a turn does before it
+        streams, so the client needs to hear that it started. Defaults to None so
+        the headless callers (``run_compaction``) stay unchanged.
 
         ``extra_projected_tokens`` is the estimated non-knowledge prefix of the
         assembled request — base + dynamic system blocks + tools + response
@@ -3213,6 +3327,10 @@ class TurnEngine:
                 agent_id=agent.id,
             )
             store = tx.MessagesTranscriptStore(self._db, chatroom_id=chatroom_id, agent_id=agent.id)
+            # Emitted here, not before the lock: a turn that waits on the lock
+            # and then finds nothing to fold has not started a summariser call,
+            # and saying it had would make the phase mean two different things.
+            await _emit_progress(room, agent.id, _PROGRESS_COMPACTING)
             try:
                 did = await ctxmod.run_compact(
                     messages=cast("list[ctxmod.MessageLike]", history),
@@ -3401,6 +3519,15 @@ class TurnEngine:
             # `web_search` returns a plausible empty result set flagged as success
             # and `file` op=write truncates its target.
             truncated = is_truncated_finish_reason(body.get("finish_reason"))
+            # This round's streamed text is now superseded: whatever the model
+            # narrated before calling a tool ("let me check…") is not the reply,
+            # and only the final round's text is persisted. Tell the client here,
+            # at the boundary, so its draft shows the current round only and
+            # matches the stored reply when `agent.finished` lands (F-40).
+            # Announced from here rather than suppressed at the source: the loop
+            # only learns a round was non-final after `StreamComplete`, so not
+            # streaming it would mean buffering the whole round.
+            await _emit_progress(room, agent.id, _PROGRESS_TOOL_ROUND)
             # Append the assistant tool-use turn, then one result per call —
             # Anthropic requires a tool_result for every tool_use block, so a
             # rejected call still gets answered.
