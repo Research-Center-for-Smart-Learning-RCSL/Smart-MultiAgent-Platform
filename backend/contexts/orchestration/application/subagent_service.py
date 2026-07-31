@@ -144,6 +144,15 @@ class SubagentService:
         if parent_agent is None:
             raise ValueError(f"parent agent {parent_agent_id} not found")
 
+        # AC-10 (workflow-capability-enforcement spec §7.3/Q-2): deliberately no
+        # workflow_capabilities.can_create_subagent check here. This method has
+        # zero production callers today (2026-07-22-subagent-spawn-fail-fast
+        # replaced the only one with an immediate failure outcome before either
+        # facade call it used to make), so a gate here would be unreachable code.
+        # When a real caller returns (the sub-agent feature dossier, this spec's
+        # FU-1), the check belongs here, reading `parent_agent.workflow_capabilities`
+        # — already resolved on the line above.
+
         run_context = self._build_inherited_context(parent_agent, task_description)
 
         child_id = uuid.uuid4()
