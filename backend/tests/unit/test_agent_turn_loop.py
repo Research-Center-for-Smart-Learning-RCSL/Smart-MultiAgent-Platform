@@ -21,6 +21,7 @@ from contexts.keys.application.provider_router import (
     StreamComplete,
     TokenDelta,
 )
+from contexts.keys.domain.errors import KeyGroupExhausted
 from contexts.keys.domain.providers import ApiKeyProvider
 
 
@@ -103,7 +104,7 @@ async def test_stream_with_tools_runs_one_tool_round(monkeypatch) -> None:
     )
     messages: list = [{"role": "user", "content": "set my cadence"}]
 
-    text, rounds = await engine._stream_with_tools(
+    outcome = await engine._stream_with_tools(
         agent=agent,
         chatroom_id=uuid.uuid4(),
         parent_agent_id=None,
@@ -115,8 +116,9 @@ async def test_stream_with_tools_runs_one_tool_round(monkeypatch) -> None:
         room="room",
     )
 
-    assert text == "done"
-    assert rounds == 1  # exactly one tool round executed
+    assert outcome.text == "done"
+    assert outcome.rounds == 1  # exactly one tool round executed
+    assert outcome.synthesis_failed is False
     assert registry.invoked == [("update_wakeup", {"every_n_messages": 3})]
 
     # The conversation grew by: assistant tool_use turn + tool result.
@@ -163,7 +165,7 @@ async def test_stream_with_tools_no_tools_single_round(monkeypatch) -> None:
         id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None
     )
 
-    text, rounds = await engine._stream_with_tools(
+    outcome = await engine._stream_with_tools(
         agent=agent,
         chatroom_id=uuid.uuid4(),
         parent_agent_id=None,
@@ -174,8 +176,8 @@ async def test_stream_with_tools_no_tools_single_round(monkeypatch) -> None:
         registry=_FakeRegistry(),
         room="room",
     )
-    assert text == "hi there"
-    assert rounds == 0
+    assert outcome.text == "hi there"
+    assert outcome.rounds == 0
 
 
 @pytest.mark.asyncio
@@ -206,7 +208,7 @@ async def test_final_no_tools_call_carries_the_same_provider_and_model() -> None
         id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None
     )
 
-    text, rounds = await engine._stream_with_tools(
+    outcome = await engine._stream_with_tools(
         agent=agent,
         chatroom_id=uuid.uuid4(),
         parent_agent_id=None,
@@ -218,13 +220,124 @@ async def test_final_no_tools_call_carries_the_same_provider_and_model() -> None
         room=None,
     )
 
-    assert text == "final"
-    assert rounds == te.MAX_TOOL_ROUNDS
+    assert outcome.text == "final"
+    assert outcome.rounds == te.MAX_TOOL_ROUNDS
     assert len(engine._router.requests) == te.MAX_TOOL_ROUNDS + 1  # type: ignore[attr-defined]
     final_request = engine._router.requests[-1]  # type: ignore[attr-defined]
     assert final_request.provider is ApiKeyProvider.CLAUDE
     assert final_request.payload["model"] == "claude-opus-4-8"
     assert "models" not in final_request.payload
+
+
+class _EightRoundsThenRouter:
+    """Burns every tool round, then hands the final synthesis call to `finish`."""
+
+    def __init__(self, finish) -> None:
+        self.requests: list = []
+        self._finish = finish
+
+    async def call_stream(self, *, group_id, request):
+        self.requests.append(request)
+        if len(self.requests) <= te.MAX_TOOL_ROUNDS:
+            yield StreamComplete(
+                ProviderCallResult(
+                    200,
+                    {
+                        "text": "Let me check that for you.",
+                        "tool_calls": [{"id": "t1", "name": "update_wakeup", "arguments": {}}],
+                        "finish_reason": "tool_use",
+                    },
+                )
+            )
+            return
+        async for ev in self._finish():
+            yield ev
+
+
+def _engine_with(router) -> tuple:
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._router = router  # type: ignore[attr-defined]
+    agent = SimpleNamespace(
+        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None
+    )
+    return engine, agent
+
+
+async def _run_to_synthesis(engine, agent):
+    return await engine._stream_with_tools(
+        agent=agent,
+        chatroom_id=uuid.uuid4(),
+        parent_agent_id=None,
+        system_text="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        provider=ApiKeyProvider.CLAUDE,
+        model="m",
+        registry=_FakeRegistry(),
+        room=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_synthesis_failure_is_reported_not_hidden() -> None:
+    """AC-7. A provider failure on the final call used to be swallowed and the
+    round-8 filler returned as the agent's answer, with a success audit."""
+
+    async def _explode():
+        raise KeyGroupExhausted(group_id=uuid.uuid4(), reason="no_usable_key")
+        yield  # pragma: no cover - makes this an async generator
+
+    engine, agent = _engine_with(_EightRoundsThenRouter(_explode))
+
+    outcome = await _run_to_synthesis(engine, agent)
+
+    assert outcome.synthesis_failed is True
+    assert outcome.error_kind is not None
+    assert outcome.error_kind.startswith("provider_exhausted")
+    # The filler still comes back: eight rounds of real tool work stand behind it,
+    # and losing that is worse than showing it flagged.
+    assert outcome.text == "Let me check that for you."
+    assert outcome.rounds == te.MAX_TOOL_ROUNDS
+
+
+@pytest.mark.asyncio
+async def test_synthesis_missing_terminal_event_is_reported() -> None:
+    """AC-9. The call succeeds but no StreamComplete arrives, so there is no
+    synthesised text. This fell through `final_body.get("text", last_text)` with
+    no log line and no marker at all."""
+
+    async def _tokens_only():
+        yield TokenDelta("partial")
+
+    engine, agent = _engine_with(_EightRoundsThenRouter(_tokens_only))
+
+    outcome = await _run_to_synthesis(engine, agent)
+
+    assert outcome.synthesis_failed is True
+    assert outcome.error_kind == "provider_no_terminal_event"
+    assert outcome.text == "Let me check that for you."
+
+
+@pytest.mark.asyncio
+async def test_a_successful_synthesis_carries_no_failure_marker() -> None:
+    async def _answers():
+        yield StreamComplete(ProviderCallResult(200, {"text": "the real answer", "tool_calls": []}))
+
+    engine, agent = _engine_with(_EightRoundsThenRouter(_answers))
+
+    outcome = await _run_to_synthesis(engine, agent)
+
+    assert outcome.synthesis_failed is False
+    assert outcome.error_kind is None
+    assert outcome.text == "the real answer"
+
+
+def test_the_synthesis_marker_is_absent_on_a_healthy_turn() -> None:
+    """The reply metadata, the audit row and the WS event all splat this, so an
+    empty dict is what keeps a healthy turn's records byte-identical."""
+    assert te._synthesis_meta(te.ToolLoopOutcome(text="ok", rounds=2)) == {}
+    assert te._synthesis_meta(
+        te.ToolLoopOutcome(text="filler", rounds=8, synthesis_failed=True, error_kind="database_error")
+    ) == {"synthesis_failed": True, "error": "database_error"}
 
 
 @pytest.mark.asyncio

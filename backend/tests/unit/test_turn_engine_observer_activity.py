@@ -208,7 +208,7 @@ def _wire_normal_engine(monkeypatch, agent, *, activity_block: str | None):
 
     async def _stream(**kw):
         stream_seen.update(kw)
-        return ("final reply", 1)
+        return te.ToolLoopOutcome(text="final reply", rounds=1)
 
     engine._audit = _noop  # type: ignore[attr-defined]
     engine._turn_rate_allowed = _true  # type: ignore[attr-defined]

@@ -949,7 +949,7 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
 
     async def _stream(**kw):
         stream_seen.update(kw)
-        return ("private analysis", 1)
+        return te.ToolLoopOutcome(text="private analysis", rounds=1)
 
     async def _memory(agent_, chatroom_id):
         return "[Your previous observations]\n- earlier"
@@ -1115,7 +1115,7 @@ async def test_observer_turn_empty_reply_emits_observation_skipped(monkeypatch) 
     engine, _recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
 
     async def _blank_stream(**kw):
-        return ("   ", 1)
+        return te.ToolLoopOutcome(text="   ", rounds=1)
 
     engine._stream_with_tools = _blank_stream  # type: ignore[attr-defined]
 
@@ -1136,6 +1136,73 @@ async def test_observer_turn_empty_reply_emits_observation_skipped(monkeypatch) 
     user_events = [e for e in _PublisherSpy.emitted if e[0] == f"ws:user:{creator}"]
     assert [e[1] for e in user_events] == ["observation.started", "observation.skipped"]
     assert user_events[-1][2]["kind"] == "empty_reply"
+
+
+@pytest.mark.asyncio
+async def test_an_empty_failed_synthesis_is_not_filed_as_a_benign_skip(monkeypatch) -> None:
+    """AC-7. A provider outage that leaves nothing to say is not the model
+    choosing silence: recorded as `empty_reply` it was indistinguishable from
+    one, and the creator's UI showed a clean skip."""
+    agent = _observer_agent()
+    creator = uuid.uuid4()
+    engine, _recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
+
+    async def _failed_stream(**kw):
+        return te.ToolLoopOutcome(
+            text="", rounds=8, synthesis_failed=True, error_kind="provider_exhausted:no_usable_key"
+        )
+
+    engine._stream_with_tools = _failed_stream  # type: ignore[attr-defined]
+
+    result = await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="every_n_messages",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert result.status == "skipped"
+    assert result.reason == "provider_exhausted:no_usable_key"
+    user_events = [e for e in _PublisherSpy.emitted if e[0] == f"ws:user:{creator}"]
+    assert [e[1] for e in user_events] == ["observation.started", "observation.failed"]
+    assert user_events[-1][2]["kind"] == "provider_exhausted:no_usable_key"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_synthesis_marks_the_observation_it_persists(monkeypatch) -> None:
+    """AC-7. The filler is kept — eight rounds of tool work stand behind it —
+    but the stored observation says so."""
+    agent = _observer_agent()
+    creator = uuid.uuid4()
+    engine, recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
+
+    async def _failed_stream(**kw):
+        return te.ToolLoopOutcome(
+            text="Let me check that for you.",
+            rounds=8,
+            synthesis_failed=True,
+            error_kind="provider_stream_failed",
+        )
+
+    engine._stream_with_tools = _failed_stream  # type: ignore[attr-defined]
+
+    result = await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="every_n_messages",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert result.status == "completed"
+    assert recorded["content_md"] == "Let me check that for you."
+    assert recorded["metadata"]["synthesis_failed"] is True
+    assert recorded["metadata"]["error"] == "provider_stream_failed"
 
 
 @pytest.mark.asyncio
@@ -1163,7 +1230,7 @@ async def test_empty_reply_settles_pending_approvals(monkeypatch) -> None:
     engine._settle_pending_approvals = _settle  # type: ignore[attr-defined]
 
     async def _blank_stream(**kw):
-        return ("   ", 1)
+        return te.ToolLoopOutcome(text="   ", rounds=1)
 
     engine._stream_with_tools = _blank_stream  # type: ignore[attr-defined]
 

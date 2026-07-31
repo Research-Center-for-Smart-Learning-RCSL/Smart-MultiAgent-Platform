@@ -108,7 +108,7 @@ def _headless_engine(monkeypatch, agent, *, member=True, drain=None):
 
     async def _fake_stream(**kw):
         captured.update(kw)
-        return ("reply", 0)
+        return te.ToolLoopOutcome(text="reply", rounds=0)
 
     async def _noop_audit(*a, **k):
         return None
@@ -218,7 +218,7 @@ async def test_run_input_turn_headless_completed(monkeypatch) -> None:
 
     async def _fake_stream(**kw):
         captured.update(kw)
-        return ("hello from agent", 0)
+        return te.ToolLoopOutcome(text="hello from agent", rounds=0)
 
     async def _noop_audit(*a, **k):
         return None
@@ -235,6 +235,69 @@ async def test_run_input_turn_headless_completed(monkeypatch) -> None:
     assert captured["room"] is None
     assert captured["chatroom_id"] is None
     assert captured["messages"] == [{"role": "user", "content": "hi"}]
+
+
+@pytest.mark.asyncio
+async def test_headless_turn_records_a_failed_synthesis(monkeypatch) -> None:
+    """AC-8. This path has no `if not final_text.strip()` guard, so before the
+    outcome carried the failure it audited even an empty failed synthesis as a
+    plainly finished turn — the room path's marker had no counterpart here."""
+    agent = _agent()
+    _wire_engine(monkeypatch, agent)
+
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = _FakeDB()  # type: ignore[attr-defined]
+    engine._router = object()  # type: ignore[attr-defined]
+    audits: list = []
+
+    async def _failed_stream(**_kw):
+        return te.ToolLoopOutcome(
+            text="Let me check that for you.",
+            rounds=8,
+            synthesis_failed=True,
+            error_kind="provider_exhausted:no_usable_key",
+        )
+
+    async def _capture_audit(_agent, _room, action, meta):
+        audits.append((action, meta))
+
+    engine._stream_with_tools = _failed_stream  # type: ignore[attr-defined]
+    engine._audit = _capture_audit  # type: ignore[attr-defined]
+    _wire_knowledge(engine)
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    assert result.status == "completed"
+    finished = next(meta for action, meta in audits if action == "agent.turn_finished")
+    assert finished["synthesis_failed"] is True
+    assert finished["error"] == "provider_exhausted:no_usable_key"
+
+
+@pytest.mark.asyncio
+async def test_a_healthy_headless_turn_records_no_synthesis_marker(monkeypatch) -> None:
+    agent = _agent()
+    _wire_engine(monkeypatch, agent)
+
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = _FakeDB()  # type: ignore[attr-defined]
+    engine._router = object()  # type: ignore[attr-defined]
+    audits: list = []
+
+    async def _ok_stream(**_kw):
+        return te.ToolLoopOutcome(text="the real answer", rounds=1)
+
+    async def _capture_audit(_agent, _room, action, meta):
+        audits.append((action, meta))
+
+    engine._stream_with_tools = _ok_stream  # type: ignore[attr-defined]
+    engine._audit = _capture_audit  # type: ignore[attr-defined]
+    _wire_knowledge(engine)
+
+    await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    finished = next(meta for action, meta in audits if action == "agent.turn_finished")
+    assert "synthesis_failed" not in finished
+    assert "error" not in finished
 
 
 @pytest.mark.asyncio
