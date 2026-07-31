@@ -1068,3 +1068,22 @@ def test_sandbox_from_settings_reads_pins(monkeypatch) -> None:
     assert sandbox.code_exec_image == "smap/code-exec@sha256:def"
     assert sandbox.egress_shared_secret == bytes.fromhex("0a0b")
     assert sandbox.supervisor_url == "http://mcp-sandbox-supervisor:9090"
+
+
+# -- A tool call whose `mcp.tool_invoked` row was lost -------------------------
+
+
+def test_an_unrecorded_call_is_always_reported_as_an_error() -> None:
+    """The lost audit row IS the error, whatever the tool itself returned.
+
+    `_AUDIT_NOT_RECORDED` tells the model the call ran and must not be repeated,
+    which only lands if the result is an error — a model reading a bare success
+    has no reason to surface it. The helper used to take an `is_error` argument
+    and ignore it, so three call sites passed `not res.ok` believing it was
+    honoured; the signature now says what the function does.
+    """
+    out = bt._marked_unrecorded("the tool's own output")
+
+    assert out.is_error is True
+    assert out.content.startswith(bt._AUDIT_NOT_RECORDED)
+    assert "the tool's own output" in out.content
