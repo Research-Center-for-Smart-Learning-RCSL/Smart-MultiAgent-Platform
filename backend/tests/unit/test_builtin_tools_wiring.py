@@ -17,6 +17,8 @@ from hashlib import sha256
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from contexts.agents.application.runtime import builtin_tools as bt
 from contexts.agents.domain.mcp import SearchResult, ToolCallResult
 from contexts.agents.domain.models import AgentTool, AgentToolType, McpToolSpec
@@ -34,6 +36,10 @@ def _session() -> AsyncMock:
     """
     db = AsyncMock()
     db.begin_nested = MagicMock(return_value=AsyncMock())
+    # A real AsyncSession's `.info` is a dict, and the audit emitter uses it for
+    # both the tail-event queue and the lost-write counter. A bare Mock attribute
+    # silently turns both into no-ops.
+    db.info = {}
     return db
 
 
@@ -769,6 +775,82 @@ async def test_mcp_tool_that_could_not_be_recorded_is_not_reported_as_clean(monk
     # that already ran, and the tool's real output is still worth having.
     assert "Do not repeat the call" in res.content
     assert "tool-output" in res.content
+
+
+async def test_a_database_fault_inside_a_builtin_tool_fails_the_turn(monkeypatch) -> None:
+    """Each built-in wraps its work in `except Exception` so a tool failure cannot
+    abort the turn. For a DB fault that is wrong twice: it hides the fault from
+    ToolRegistry's classification, and `str(exc)` on a SQLAlchemy error carries the
+    failing SQL and its parameters straight into the model's context."""
+    from sqlalchemy.exc import OperationalError
+
+    runner = AsyncMock()
+    runner.run_file_op.side_effect = OperationalError(
+        "SELECT secret FROM api_keys WHERE id = 'k-123'", {}, Exception("down")
+    )
+    tools = {
+        t.name: t
+        for t in bt.build_agent_tools(
+            _session(),
+            agent=_agent(),
+            tools=[_tool(AgentToolType.HOSTED_FILE_WORKSPACE)],
+            deps=_deps(runner=runner),
+        )
+    }
+
+    with pytest.raises(OperationalError):
+        await tools["file"].invoke({"op": "list", "path": "/workspace"})
+
+
+async def test_a_tool_failure_on_its_own_terms_still_degrades() -> None:
+    """The contrast pin: only infrastructure propagates."""
+    runner = AsyncMock()
+    runner.run_file_op.side_effect = RuntimeError("sandbox refused")
+    tools = {
+        t.name: t
+        for t in bt.build_agent_tools(
+            _session(),
+            agent=_agent(),
+            tools=[_tool(AgentToolType.HOSTED_FILE_WORKSPACE)],
+            deps=_deps(runner=runner),
+        )
+    }
+
+    res = await tools["file"].invoke({"op": "list", "path": "/workspace"})
+
+    assert res.is_error is True
+    assert "sandbox refused" in res.content
+
+
+async def test_a_file_write_whose_audit_row_was_lost_is_marked(monkeypatch) -> None:
+    """AC-4 for the façade tools. `FileTool` writes its own `mcp.tool_invoked` row
+    several frames below the code that shapes the result, so before the session
+    carried the loss count a sandbox write with no audit trail came back clean."""
+    from shared_kernel import audit
+
+    async def _lose(session, _event, *, isolated: bool = False):
+        assert isolated, "the tool path must savepoint its audit write"
+        audit._count_write_failure(session)
+        return False
+
+    monkeypatch.setattr(audit, "emit", _lose)
+    runner = AsyncMock()
+    runner.run_file_op.return_value = _ok("written: 12")
+    tools = {
+        t.name: t
+        for t in bt.build_agent_tools(
+            _session(),
+            agent=_agent(),
+            tools=[_tool(AgentToolType.HOSTED_FILE_WORKSPACE)],
+            deps=_deps(runner=runner),
+        )
+    }
+
+    res = await tools["file"].invoke({"op": "write", "path": "/workspace/notes.md", "content": "hi"})
+
+    assert res.is_error is True
+    assert "Do not repeat the call" in res.content
+    assert "written: 12" in res.content
 
 
 async def test_a_recorded_mcp_call_is_still_a_clean_success() -> None:

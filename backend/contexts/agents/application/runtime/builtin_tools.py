@@ -39,8 +39,40 @@ from contexts.agents.application.runtime.tool_registry import (
 )
 from contexts.agents.domain.mcp import SearchResult
 from contexts.agents.domain.models import Agent, AgentTool, AgentToolType
+from shared_kernel.db.faults import is_infrastructure_error
 
 logger = logging.getLogger(__name__)
+
+
+def _audit_losses(db: AsyncSession) -> int:
+    """Snapshot of this session's lost-audit-row count, for bracketing one call.
+
+    The three façade tools (`web_search`, `file`, `code_exec`) write their own
+    `mcp.tool_invoked` row several frames below the code that shapes the result the
+    model sees, and an isolated emit reports failure by return value. Bracketing the
+    counter is what lets those results carry the same notice the MCP and function
+    paths carry, without threading a flag through three tool façades — and it covers
+    the next tool added without it having to remember (AC-4).
+    """
+    from shared_kernel import audit
+
+    return audit.write_failures(db)
+
+
+def _reraise_if_infrastructure(exc: Exception, tool: str) -> None:
+    """Let a platform fault out of a tool's catch-all.
+
+    Each built-in wraps its work in ``except Exception`` so a tool failure cannot
+    abort the turn. That is right for a domain failure and wrong for a DB fault:
+    these tools read and write on the turn's own shared session, so swallowing one
+    hides it from ``ToolRegistry.call``'s classification, keeps the turn buying
+    provider tokens against a transaction whose reply can no longer be written, and
+    interpolates a SQLAlchemy message — which carries the failing SQL, table names
+    and parameter values — straight into the model's context.
+    """
+    if is_infrastructure_error(exc):
+        logger.error("%s hit an infrastructure fault; failing the turn", tool, exc_info=True)
+        raise exc
 
 
 class RagProviderProto(Protocol):
@@ -154,6 +186,7 @@ def _build_web_search_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolD
             rate_limiter=deps.rate_limiter,
             proxy=deps.proxy,
         )
+        losses = _audit_losses(db)
         try:
             results = await tool.search(
                 str(args.get("query", "")),
@@ -161,7 +194,10 @@ def _build_web_search_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolD
                 freshness=str(args.get("freshness", "any")),  # type: ignore[arg-type]
             )
         except Exception as exc:
+            _reraise_if_infrastructure(exc, "web_search")
             return ToolResult(content=f"web_search failed: {exc}", is_error=True)
+        if _audit_losses(db) > losses:
+            return _marked_unrecorded(_dump_results(results), is_error=False)
         return ToolResult(content=clip_tool_output(_dump_results(results)))
 
     return Tool(
@@ -199,9 +235,11 @@ def _build_code_exec_tool(
         if not source:
             return ToolResult(content="code_exec requires 'source'", is_error=True)
         tool = CodeExecTool(agent_id=agent.id, runner=deps.runner, db=db, chatroom_id=chatroom_id)
+        losses = _audit_losses(db)
         try:
             res = await tool.run(source, stdin=str(args.get("stdin", "")))
         except Exception as exc:
+            _reraise_if_infrastructure(exc, "code_exec")
             return ToolResult(content=f"code_exec failed: {exc}", is_error=True)
         meta = res.metadata if isinstance(res.metadata, dict) else {}
         # Collect any artifacts the kernel produced (charts/files) so the turn
@@ -228,6 +266,11 @@ def _build_code_exec_tool(
         # metadata flag rather than relying on a magic string in stdout.
         if meta.get("restarted"):
             body = "[kernel restarted: in-memory state was lost]\n" + body
+        if _audit_losses(db) > losses:
+            # `body` is already clipped; `_marked_unrecorded` re-clips, which is a
+            # no-op on a string already under the cap and correct if the notice
+            # pushes it over.
+            return _marked_unrecorded(body, is_error=not res.ok)
         return ToolResult(content=body, is_error=not res.ok)
 
     return Tool(
@@ -379,6 +422,7 @@ def _build_file_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps) -
         op = str(args.get("op", ""))
         path = str(args.get("path", ""))
         tool = FileTool(agent_id=agent.id, runner=deps.runner, db=db)
+        losses = _audit_losses(db)
         try:
             if op == "list":
                 # The path guard rejects "/" (only /workspace and below are
@@ -399,7 +443,10 @@ def _build_file_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps) -
             else:
                 return ToolResult(content=f"unknown file op {op!r}", is_error=True)
         except Exception as exc:
+            _reraise_if_infrastructure(exc, "file")
             return ToolResult(content=f"file {op} failed: {exc}", is_error=True)
+        if _audit_losses(db) > losses:
+            return _marked_unrecorded(res.stdout or "(ok)", is_error=not res.ok)
         return ToolResult(content=clip_tool_output(res.stdout or "(ok)"), is_error=not res.ok)
 
     return Tool(
@@ -448,6 +495,7 @@ def _build_file_search_tool(
                 top_k=top_k,
             )
         except Exception as exc:
+            _reraise_if_infrastructure(exc, "file_search")
             return ToolResult(content=f"file_search failed: {exc}", is_error=True)
         if ctx is None or not ctx.sources or not getattr(ctx, "block", None):
             return ToolResult(content="No matching passages found in the agent's files.")
@@ -553,6 +601,15 @@ _AUDIT_NOT_RECORDED = (
     "[platform: this call ran and its result below is valid, but the platform could not "
     "record the invocation. Do not repeat the call. Report this to the user.]"
 )
+
+
+def _marked_unrecorded(content: str, *, is_error: bool) -> ToolResult:
+    """The result shaping for a call whose `mcp.tool_invoked` row was lost.
+
+    Prepended before the clip, which only ever cuts the tail, so a chatty tool
+    cannot truncate the notice away.
+    """
+    return ToolResult(content=clip_tool_output(f"{_AUDIT_NOT_RECORDED}\n{content}"), is_error=True)
 
 
 async def _audit_tool_invoke(
@@ -665,6 +722,8 @@ def _build_mcp_tool_from_agent_tool(
                 auth=auth,
             )
         except Exception as exc:
+            # Before the audit write, as on the function path.
+            _reraise_if_infrastructure(exc, f"mcp tool {mcp_tool}")
             await _audit_tool_invoke(db, agent, tool, mcp_tool, ok=False)
             return ToolResult(content=f"mcp tool {mcp_tool} failed: {exc}", is_error=True)
         recorded = await _audit_tool_invoke(db, agent, tool, mcp_tool, ok=res.ok)
@@ -764,6 +823,10 @@ def _build_function_tool(
             await _audit_tool_invoke(db, agent, tool, fn_name, ok=False)
             return ToolResult(content="function blocked by egress policy.", is_error=True)
         except Exception as exc:
+            # Before the audit write: a re-raise fails the turn, and the row would
+            # be rolled back with it. `perform_egress_request` reads the egress
+            # allowlist from the turn's session, so a DB fault reaches here.
+            _reraise_if_infrastructure(exc, "function")
             await _audit_tool_invoke(db, agent, tool, fn_name, ok=False)
             return ToolResult(content=f"function call failed: {exc}", is_error=True)
 

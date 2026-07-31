@@ -342,6 +342,59 @@ async def test_a_complete_call_in_a_truncated_response_still_runs() -> None:
     assert outcome.rounds == 1
 
 
+@pytest.mark.asyncio
+async def test_a_no_argument_tool_is_not_refused_as_truncated() -> None:
+    """`{}` is complete by contract for a tool that declares no parameters, so it
+    cannot have been cut off — and "retry with a smaller payload" is advice the
+    model has no way to act on."""
+
+    class _NoArgRegistry(_FakeRegistry):
+        def specs(self):
+            return [{"name": "get_status", "description": "d", "input_schema": {"type": "object"}}]
+
+        def expects_arguments(self, name):
+            return False
+
+    class _Router:
+        def __init__(self) -> None:
+            self.requests: list = []
+
+        async def call_stream(self, *, group_id, request):
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                yield StreamComplete(
+                    ProviderCallResult(
+                        200,
+                        {
+                            "text": "a long preamble that hit the ceiling",
+                            "tool_calls": [{"id": "t1", "name": "get_status", "arguments": {}}],
+                            "finish_reason": "max_tokens",
+                        },
+                    )
+                )
+            else:
+                yield StreamComplete(ProviderCallResult(200, {"text": "ok", "tool_calls": []}))
+
+    engine, agent = _engine_with(_Router())
+    registry = _NoArgRegistry()
+    messages: list = [{"role": "user", "content": "status?"}]
+
+    outcome = await engine._stream_with_tools(
+        agent=agent,
+        chatroom_id=uuid.uuid4(),
+        parent_agent_id=None,
+        system_text="sys",
+        messages=messages,
+        provider=ApiKeyProvider.CLAUDE,
+        model="m",
+        registry=registry,
+        room=None,
+    )
+
+    assert registry.invoked == [("get_status", {})]
+    assert outcome.rounds == 1
+
+
 @pytest.mark.parametrize("reason", ["max_tokens", "length", "MAX_TOKENS"])
 def test_every_provider_spelling_of_truncation_maps_to_one_value(reason: str) -> None:
     """Anthropic, OpenAI and Gemini each name it differently and the field is

@@ -62,7 +62,10 @@ async def test_isolated_emit_reports_a_failed_write_instead_of_raising() -> None
     assert session.savepoints_opened == 1
     assert session.savepoints_rolled_back == 1
     # No tail event for a row that does not exist.
-    assert session.info == {}
+    assert "_audit_tail_queue" not in session.info
+    # The loss is counted on the session, which is how a tool several frames above
+    # learns its invocation went unrecorded (AC-4).
+    assert audit.write_failures(session) == 1  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio
@@ -75,6 +78,7 @@ async def test_isolated_emit_still_writes_and_queues_the_tail_event() -> None:
     assert session.savepoints_opened == 1
     assert session.savepoints_rolled_back == 0
     assert len(session.info["_audit_tail_queue"]) == 1
+    assert audit.write_failures(session) == 0  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

@@ -469,6 +469,41 @@ that check, none of which invalidated the design:
   `observation.failed` rather than `observation.skipped`. Required by §7 commit 5;
   recorded because `reason` is a user-visible string. `ObserverPanel.vue:118-120` guards
   unknown skip kinds with `te(key) ? t(key) : ''`, so nothing renders a raw key.
+- **D-12 — `_without_regex` stripped `pattern` in *name* position too.** Found by
+  `/code-review`. D-9's strip descended into `properties` and dropped a parameter
+  literally *named* `pattern` — an ordinary name for a search or glob tool, and MCP
+  servers built with the TypeScript SDK emit `additionalProperties: false`. With
+  `required` still listing it, the tool became uncallable in both directions: supply the
+  argument and it is "not allowed", omit it and it is "required". Reproduced, then fixed
+  by making the strip keyword-position-aware (`properties`, `$defs`, `definitions`,
+  `dependentSchemas` hold name-keyed subschemas; `enum`, `const`, `default`, `examples`
+  hold instance data).
+- **D-13 — the built-in tools' own catch-all defeated AC-3.** Also from `/code-review`.
+  `web_search`, `file`, `code_exec`, `file_search` and the function tool each wrap their
+  work in `except Exception`, so a DB fault inside them — `WebSearchTool._active_key`
+  reads `SearchKeyRepository` on the turn's session — never reached
+  `ToolRegistry.call`'s classification, and `str(exc)` put the failing SQL into the
+  model's context. AC-3 held only for tools that raise past those blocks. They now
+  re-raise infrastructure faults, and the classification moved to
+  `shared_kernel/db/faults.py` so the registry's predicate and the tools' cannot drift.
+- **D-14 — the façade tools' lost audit rows are now marked too**, reversing half of D-2.
+  The review was right that leaving `file`, `code_exec` and `web_search` unmarked put the
+  sandbox-write and BYO-key-search records — the ones AC-4's invariant most cares about —
+  in the one state AC-4 forbids. They audit several frames below the code that shapes the
+  result, so rather than thread a flag through three façades, `audit.emit` counts lost
+  isolated writes on `session.info` and the builders bracket the call. That also covers
+  the next tool added without it having to remember.
+- **D-15 — `TurnResult` carries the synthesis marker.** AC-8's parity held for the audit
+  row but not for the value the caller acts on: `a2a_handler` hands `result.text` on as a
+  REPLY, so a calling agent or an `agent_invocation` node consumed the filler as an
+  answer. `TurnResult` now carries `synthesis_failed` / `error_kind`, and the reply
+  envelope carries them when set. Still delivered rather than turned into an error — the
+  Q-9 reasoning is unchanged.
+- **D-16 — a no-argument tool is no longer refused as truncated.** `truncated and not
+  args` also caught tools that declare no parameters, where `{}` is complete by contract,
+  handing the model advice ("retry with a smaller payload") it could not act on.
+  `ToolRegistry.expects_arguments` now gates it; the permissive fallback an unprobed MCP
+  binding carries still counts as taking arguments.
 - **D-11 — three test fakes needed a savepoint-capable session.** A bare `AsyncMock` as
   the turn's `db` returns a coroutine from `begin_nested()`, so every isolated audit write
   failed into the swallow; with AC-4 in place that then reported the call as an error.
@@ -523,6 +558,20 @@ that check, none of which invalidated the design:
   validation by returning a schema jsonschema cannot build. Not a regression (before this
   work nothing was validated) and each tool's own guards still apply, but it means the gate
   is advisory for untrusted schemas rather than load-bearing.
+- **FU-12 — stringified numbers are now hard-rejected.** `_UPDATE_WAKEUP_SCHEMA` and
+  `_READ_SKILL_SCHEMA` type `every_n_messages` / `silence_minutes` / `offset` as
+  `integer`, and `_opt_int` exists precisely because function-calling models emit `"30"`.
+  With validation in front of dispatch, `{"silence_minutes": "30"}` is refused rather than
+  coerced, and `read_skill`'s own "offset must be an integer" branch is unreachable via
+  the registry. Deliberate — the schema is the advertised contract and the rejection names
+  the fix — but it costs a round on a known model quirk. If it shows up in practice, widen
+  those two schemas to `["integer", "string"]` rather than removing the gate.
+- **FU-13 — `session.begin_nested()` flushes before issuing the SAVEPOINT**, so a pending
+  ORM write that fails to flush would be logged as "isolated audit emit failed" and the
+  caller told only its audit row was lost while its transaction is dead. Theoretical
+  today: the codebase is Core-only (`session.add(` appears nowhere under `contexts/`), so
+  there is no pending ORM state to flush. Worth narrowing the `try` if ORM-style writes
+  ever land.
 - **FU-11** — `test_web_search_degrades_on_missing_key`
   (`tests/unit/test_builtin_tools_wiring.py`) leaks an un-awaited coroutine and emits a
   `RuntimeWarning`. Verified against `629c321` as pre-existing: the real `WebSearchTool`
