@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-22
 requirements: []
 depends_on: []
@@ -357,25 +357,40 @@ reverting any one leaves a coherent state.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: `test_truncated_tool_arguments_are_not_dispatched` (§8) fails against current code
+- [x] AC-1: `test_truncated_tool_arguments_are_not_dispatched` (§8) fails against current code
       and passes after the fix.
-- [ ] AC-2: a failed `audit_logs` insert during a tool invocation does not abort the turn's
+- [x] AC-2: a failed `audit_logs` insert during a tool invocation does not abort the turn's
       transaction — proven by the integration test, not only by unit control flow.
-- [ ] AC-3: a database error raised by a tool fails the turn rather than being reported to the
+      `tests/integration/test_tool_db_failure_does_not_poison_the_turn.py`, run against a real
+      Postgres at migration head, with a control test proving the savepoint (not the swallow)
+      is what saves the transaction.
+- [x] AC-3: a database error raised by a tool fails the turn rather than being reported to the
       model as a tool result, and no DB detail reaches model-visible content.
-- [ ] AC-4: `_audit_tool_invoke` never reports success to the model when its own write failed.
-- [ ] AC-5: a tool call whose arguments were truncated at the token ceiling is not dispatched;
+      `test_registry_reraises_infrastructure_errors`,
+      `test_a_database_fault_never_puts_sql_in_the_reported_error_kind`.
+- [x] AC-4: `_audit_tool_invoke` never reports success to the model when its own write failed.
+      `test_mcp_tool_that_could_not_be_recorded_is_not_reported_as_clean`.
+- [x] AC-5: a tool call whose arguments were truncated at the token ceiling is not dispatched;
       the model receives a message naming truncation and advising a smaller payload, in the
-      result `content` (not only `is_error`).
-- [ ] AC-6: arguments violating a tool's `input_schema` are rejected before dispatch with the
+      result `content` (not only `is_error`). Same test as AC-1; see D-5 for the per-call
+      refinement.
+- [x] AC-6: arguments violating a tool's `input_schema` are rejected before dispatch with the
       violations named; `file` op=write without `content` is rejected.
-- [ ] AC-7: a failed final synthesis is never reported as a successful turn — the persisted
+      `test_registry_rejects_arguments_violating_input_schema`,
+      `test_file_write_without_content_is_rejected`. See D-3 for where the `file` rule is
+      enforced and D-9 for the regex keywords excluded from validation.
+- [x] AC-7: a failed final synthesis is never reported as a successful turn — the persisted
       message carries a marker, the audit records the error kind, and the WS event carries it.
-- [ ] AC-8: the headless A2A path (`:870`, `:881`) receives the same treatment as the room path.
-- [ ] AC-9: a successful final call that yields no terminal event is logged and marked, not
-      silently degraded.
-- [ ] AC-10: `pytest -q`, `ruff check .`, `ruff format --check .` and `mypy .` pass in
-      `backend/`.
+      `test_synthesis_failure_is_reported_not_hidden`,
+      `test_a_failed_synthesis_marks_the_observation_it_persists`,
+      `test_an_empty_failed_synthesis_is_not_filed_as_a_benign_skip`. The field is
+      `synthesis_error`, not `error` — see D-8.
+- [x] AC-8: the headless A2A path receives the same treatment as the room path.
+      `test_headless_turn_records_a_failed_synthesis`.
+- [x] AC-9: a successful final call that yields no terminal event is logged and marked, not
+      silently degraded. `test_synthesis_missing_terminal_event_is_reported`.
+- [x] AC-10: `pytest -q`, `ruff check .`, `ruff format --check .` and `mypy .` pass in
+      `backend/` (mypy: 891 source files).
 
 ## 11. SRS Delta
 
@@ -385,7 +400,81 @@ reply guard the reply path already enforces. See FU-4.
 
 ## 12. Deviation Log
 
-Appended by /build.
+Line citations throughout §2 and §7 had drifted by roughly +50 to +280 lines
+(`turn_engine.py` is now ~3400 lines); every cited construct was verified present and
+unchanged in behaviour before implementation started. Three substantive drifts found at
+that check, none of which invalidated the design:
+
+- `_build_mcp_tool_from_agent_tool` now advertises a **captured** `input_schema` when the
+  MCP contract dossier's probe has run (`builtin_tools.py:687-689`), which partly closes
+  FU-3 — see the amended entry there.
+- A `file_search` tool was added since the spec was written; it is inside the validation
+  gate's blast radius and was audited with the rest.
+- The room path grew an **observer** branch, so commit 5 had three persist/audit sites to
+  cover rather than two, and nine `_stream_with_tools` test fakes rather than the seven §9
+  predicted.
+
+- **D-1 — Q-5 resolved as the injected predicate.** `ToolRegistry` takes an optional
+  `is_infra_error` callable; the engine supplies `_is_infrastructure_error`. Chosen by the
+  user over importing `SQLAlchemyError` directly, so `tool_registry`'s "no external infra"
+  docstring claim stays literally true. Absent a predicate the registry degrades
+  everything, exactly as before the seam existed.
+- **D-2 — `audit.emit(isolated=True)` returns `bool` and swallows, rather than
+  savepointing and re-raising.** §7 commit 1 did not say which. Returning a flag is what
+  lets commit 2's re-raise fire only on genuine domain-write faults instead of also on an
+  isolated audit failure that damaged nothing. Consequence: `web_search`, `file_tool` and
+  `code_exec` no longer set `is_error` when only their audit row is lost — previously they
+  did, by raising, at the cost of poisoning the transaction. §7 commit 3 named only
+  `_audit_tool_invoke`, which does now report it, so the scope is as specified; the change
+  for the other three is recorded here rather than left implicit.
+- **D-3 — F-20's conditional `required` is enforced in the `file` tool, not in
+  `_FILE_SCHEMA`.** §7 proposed `if/then` on `op == "write"`. Gemini receives
+  `input_schema` verbatim as an OpenAPI-subset `parameters` (`adapters/gemini.py:98`),
+  which does not carry `if/then`; a rejected schema is a deterministic 400, and the
+  Anthropic adapter's own comment records that a deterministic 400 burns every key in the
+  group via rotation. Enforcing in the tool holds on all three providers. The schema
+  keeps a description saying `content` is required for write.
+- **D-4 — truncation vocabulary normalised as a predicate, not by rewriting the field.**
+  `is_truncated_finish_reason` lives beside the `StreamComplete` contract in
+  `provider_router.py`. The adapters are untouched, so the raw provider value still
+  reaches logs and usage rows, and no existing adapter test had to change.
+- **D-5 — the truncation gate is per tool call, not per response.** §7 said "when it
+  indicates truncation and `tool_calls` is non-empty, do not dispatch". Only the
+  *empty-argument* case is actually ambiguous: blocks stream in order, so an earlier call
+  in a truncated response can have arrived whole, and refusing it would discard work the
+  model already paid for. A round is left uncharged only when nothing dispatched.
+- **D-6 — a rejected round does not consume the tool-round budget**, for the first
+  `_MAX_ARG_REJECTIONS = 2`; past that every rejection charges, which is what bounds the
+  loop at `MAX_TOOL_ROUNDS + 2` provider calls. §9 raised this as a "consider"; the user
+  chose it. Charging a round the model did no work in makes "retry with a smaller
+  payload" unusable advice.
+- **D-7 — a terminal event carrying no `text` now yields `""` rather than `last_text`.**
+  §7 only named the missing-terminal-event case. A synthesis that returned nothing is the
+  same failure, and falling back to the round-8 filler there is exactly defect C; the
+  empty-reply guard handles the result honestly.
+- **D-8 — the marker field is `synthesis_error`, not `error`.** Found by the quality gate:
+  on the success path this dict is splatted into an `agent.finished` event that also
+  carries a delivered `message_id`, and `useChatroomSocket.ts:377` reads a top-level
+  `error` there as "the turn failed", rendering *"please try again"* next to the reply
+  that just arrived. A regression test pins the key out.
+- **D-9 — `pattern` and `patternProperties` are stripped before validating.** Found by the
+  security gate as a HIGH: validating made `input_schema` executable, and that schema is
+  author-controlled for `LOCAL_FUNCTION` and MCP-server-controlled for bindings, so a
+  `pattern` is an attacker-chosen regex run against model-written arguments — measured at
+  45s of un-preemptible CPU for `^(a+)+$` against 30 characters, which blocks the worker's
+  event loop and therefore every concurrent turn on it. No built-in schema uses either
+  keyword and the provider still receives the full schema, so nothing is lost.
+- **D-10 — the skip path's `reason` vocabulary widened.** A failed synthesis with no text
+  reports the error kind instead of `empty_reply`, and the observer variant emits
+  `observation.failed` rather than `observation.skipped`. Required by §7 commit 5;
+  recorded because `reason` is a user-visible string. `ObserverPanel.vue:118-120` guards
+  unknown skip kinds with `te(key) ? t(key) : ''`, so nothing renders a raw key.
+- **D-11 — three test fakes needed a savepoint-capable session.** A bare `AsyncMock` as
+  the turn's `db` returns a coroutine from `begin_nested()`, so every isolated audit write
+  failed into the swallow; with AC-4 in place that then reported the call as an error.
+  Fixed in `test_builtin_tools_wiring.py` and `test_function_tool_result.py` rather than
+  loosening the production behaviour — a fake whose audit writes all fail is not covering
+  the audit path.
 
 ## 13. Follow-ups
 
@@ -399,6 +488,12 @@ Appended by /build.
   (`builtin_tools.py:593`), so the new validation gate cannot enforce anything for them. They
   still gain truncation detection. Closed by the MCP tool-contract dossier
   (`docs/tasks/2026-07-22-mcp-tool-contract/`).
+  **Amended at implementation:** that dossier has landed, so an MCP binding whose contract
+  was captured by the "Test" probe now advertises the server's real schema
+  (`builtin_tools.py:687-689`) and *does* get enforcement. The gap survives only for
+  bindings never probed and for legacy rows, which still fall back to
+  `{"type": "object", "additionalProperties": True}`. Note the inversion this creates: the
+  captured schema is written by the MCP server, which is why D-9 strips its regex keywords.
 - **FU-4** — No SRS entry states what the platform guarantees when a tool or a provider call
   fails mid-turn. The policy lives entirely in code comments.
 - **FU-5** — `update_wakeup` and `cast_approval_vote` have **opposite transaction contracts**:
@@ -408,4 +503,28 @@ Appended by /build.
   assembly, compaction, tool dispatch and cancellation. Six confirmed findings from this audit
   are "guard present in one region, absent in a sibling region". Route to `check-quality`; this
   dossier deliberately does not split the module.
+- **FU-7 — the UI half of Q-9 is still open.** The backend now emits `synthesis_failed` and
+  `synthesis_error` on the message metadata, the observation metadata, the audit row and the
+  `agent.finished` event, but no client reads them, so a marked reply renders identically to
+  a clean one. The new error kinds (`database_error`, `provider_no_terminal_event`,
+  `synthesis_failed`) also have no entry in `AGENT_ERROR_MESSAGE_KEYS`
+  (`frontend/src/slices/conversation/constants/agentErrors.ts`) and would resolve to the
+  generic fallback if they ever reached the `error` channel. Needs a conversation-slice
+  change plus `$t()` strings in both locales.
+- **FU-8** — the room path's failed-synthesis-with-no-text case emits `agent.finished` with a
+  `reason` but no `error`, so the client shows no badge at all. That matches the previous
+  `empty_reply` behaviour and is not a regression, but a provider outage that leaves nothing
+  to say is arguably worth surfacing. Decide with FU-7.
+- **FU-9** — `_chat_request` puts the caller's `messages` list into the payload by reference
+  and the loop appends to it afterwards. Harmless at runtime (the request is consumed before
+  the mutation) but it means any post-hoc assertion on `request.payload["messages"]` reads the
+  mutated list. Pre-existing; preserved exactly by the commit-4 refactor.
+- **FU-10** — `schema_violations` fails open, so an MCP server can opt its own tools out of
+  validation by returning a schema jsonschema cannot build. Not a regression (before this
+  work nothing was validated) and each tool's own guards still apply, but it means the gate
+  is advisory for untrusted schemas rather than load-bearing.
+- **FU-11** — `test_web_search_degrades_on_missing_key`
+  (`tests/unit/test_builtin_tools_wiring.py`) leaks an un-awaited coroutine and emits a
+  `RuntimeWarning`. Verified against `629c321` as pre-existing: the real `WebSearchTool`
+  runs against an `AsyncMock` session. Unrelated to this dossier.
 </content>

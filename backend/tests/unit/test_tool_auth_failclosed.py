@@ -75,7 +75,7 @@ async def test_mcp_fails_closed_when_unseal_raises(monkeypatch) -> None:
 
     runner = AsyncMock()
     tool = bt._build_mcp_tool_from_agent_tool(
-        AsyncMock(),
+        _session(),
         agent=_agent(),
         tool=_mcp_tool(with_auth=True),
         mcp_tool="alpha",
