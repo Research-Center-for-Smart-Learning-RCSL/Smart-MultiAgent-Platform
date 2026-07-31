@@ -720,6 +720,7 @@ Four composable flags per chat room:
   - `approval.requested`, `approval.resolved`
   - `workflow.state_changed`
 - **[R13.20]** Server maintains per-room WebSocket hub. On backend restart, the client reconnects and requests a delta via REST (`GET /api/chatrooms/{id}/messages?since=<id>`).
+- **[R13.27]** A turn's reported outcome reflects its durable result, not its last failed step. A turn that has committed a reply reports `completed` and audits `agent.turn_finished`; publishing the WS events and dispatching downstream signals happen after that commit, are best-effort, and never alter the reported outcome or trigger failure-path cleanup. The same holds for a committed skip (`empty_reply`, `no_input`, `knowledge_starved`), which reports `skipped`. Each post-commit step fails independently and is logged with a stack trace.
 
 ### 13.8 Message edit and deletion rules
 
