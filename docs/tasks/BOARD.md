@@ -34,16 +34,15 @@ parallel.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
-- `2026-07-22-turn-outcome-reporting` (bugfix) — `depends_on: []`. Approved 2026-07-31; SRS delta
-  applied as `[R13.27]`. a2u F-6, F-9, F-15 plus a2a F-40. A committed reply is recorded as a failed
-  turn when the post-commit publish raises. **Partially built: C2 only.** C1/C3/C4 all edit
-  `turn_engine.py`, which `2026-07-22-turn-idempotency-and-locking` is concurrently rebuilding, so
-  the backend half is deferred until that dossier finishes — see this dossier's D-1 and FU-7.
-  **STILL PRIORITISE — its C3 was meant to merge before or with `chatroom-socket-lifecycle`, which
-  landed first on 2026-07-24.** F-15 is therefore unmasked: the socket churn used to cancel the
-  client thinking-watchdog on every reconnect, so a pre-stream assembly window over 120s now
-  reports a healthy turn as `timeout` every time instead of intermittently. See that dossier's
-  FU-8.
+Removed on 2026-08-01 after implementation: `2026-07-22-turn-outcome-reporting` (C2 and C3's
+frontend-only slices on 2026-07-31, then C1, C4 and C3's backend half once
+`turn-idempotency-and-locking` released `turn_engine.py`). Nothing lists it in `depends_on`, so no
+row moved out of Blocked. Two things it leaves behind that a later reader will want: **FU-10** —
+`_post_commit` catches `Exception`, so a *cancellation* in the post-commit window still rewrites a
+committed turn as failed; the fix belongs with `_finalize_failed_turn`, which
+`turn-idempotency-and-locking` owns. **FU-11** — `agent.progress` beacons cover the gaps between
+assembly steps, not a single provider call that outlasts the 120s watchdog. It also closes
+`chatroom-socket-lifecycle`'s FU-8, which had been waiting on this dossier's C3.
 Removed on 2026-08-01 after implementation: `2026-07-22-workflow-capability-enforcement`
 (can_approve/can_instruct gated at runtime, advisory linter + picker markers, max_alive_subagents
 bounds, migration 0073 applied and downgrade-checked). Nothing lists it in `depends_on`, so no
