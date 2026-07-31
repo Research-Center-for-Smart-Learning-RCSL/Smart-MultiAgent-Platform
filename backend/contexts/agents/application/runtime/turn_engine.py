@@ -112,8 +112,13 @@ _SYNTHESIS_FAILED = "synthesis_failed"
 
 # What a turn killed by its job timeout or by worker shutdown reports. A fixed
 # token like every other `_err_kind` output, not the exception class name: it
-# reaches the WS payload and the audit row, and the reaper (C2) keys off it.
+# reaches the WS payload and the audit row, and the reaper keys off it.
 _CANCELLED_ERR_KIND = "cancelled"
+
+# The skip reason for a trigger that lost its race with the lock AND could not be
+# parked for the holder. Distinct from `locked`, which asserts that somebody else
+# will answer the message — an assertion that is false here.
+_COALESCE_FAILED = "coalesce_failed"
 
 # What the model is told when its tool call is refused for truncated arguments.
 # It has to live in the result `content`: `is_error` is translated only by the
@@ -313,8 +318,10 @@ def _resolve_provider_and_model(agent: Agent) -> tuple[ApiKeyProvider, str]:
     return provider, agent.model_id or DEFAULT_CHAT_MODELS[provider.value]
 
 
-# Must exceed any realistic heartbeat-extended turn; the flag is popped
-# after every turn so it never lingers under normal operation.
+# Must exceed any realistic heartbeat-extended turn. The flag is popped in
+# `run_turn`'s `finally`, so it survives a killed turn too and only lingers this
+# long when the whole worker process dies — which is the reaper's case, not this
+# TTL's.
 _QUEUED_TRIGGER_TTL_S = 3600
 
 
@@ -326,36 +333,90 @@ def _queued_trigger_message_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> 
     return f"turn:queued:msg:{agent_id}:{chatroom_id}"
 
 
+# Both scripts span the trigger key and its message-id key, which the protocol
+# treats as one value written and read together. Two round-trips could not: a
+# popper interleaving with a marker (a two-popper interleave is a case the
+# protocol's own design expects) read one key from each pair and lost the id,
+# silently degrading attachment resolution to "whatever is currently latest".
+#
+# The empty strings are not sentinel abuse: a Lua `nil` inside a returned table
+# truncates the array at that point, so an absent first key would come back as
+# an empty reply and be indistinguishable from an absent second one. No trigger
+# and no message id is ever written as an empty string, so "" means absent.
+_POP_QUEUED_LUA = (
+    "local t = redis.call('get', KEYS[1]) "
+    "local m = redis.call('get', KEYS[2]) "
+    "if t then redis.call('del', KEYS[1]) end "
+    "if m then redis.call('del', KEYS[2]) end "
+    "return {t or '', m or ''}"
+)
+
+_MARK_QUEUED_LUA = (
+    "redis.call('set', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[3]) "
+    "if ARGV[2] ~= '' then redis.call('set', KEYS[2], ARGV[2], 'EX', ARGV[3]) end "
+    "return 1"
+)
+
+
+class TriggerPopState(enum.Enum):
+    """Why :func:`_pop_queued_trigger` returned what it did.
+
+    The three cases used to collapse into a bare ``None``, and the caller read
+    that ``None`` as "another holder already popped our mark and enqueued the
+    follow-up" — an assertion it had no way to check. A Redis read failure then
+    produced the same ``None``, so a transient outage silently dropped the
+    user's message and audited it as ``locked``.
+    """
+
+    PARKED = "parked"
+    ABSENT = "absent"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class QueuedTrigger:
+    """A coalesced trigger, or the reason there isn't one."""
+
+    state: TriggerPopState
+    trigger: str | None = None
+    message_id: uuid.UUID | None = None
+
+
+def _decode(raw: object) -> str:
+    return raw.decode() if isinstance(raw, bytes) else str(raw)
+
+
 async def _mark_trigger_queued(
     agent_id: uuid.UUID,
     chatroom_id: uuid.UUID,
     trigger: str,
     trigger_message_id: uuid.UUID | None = None,
-) -> None:
-    """Record (at most once — SETNX) that a trigger landed while a turn held
+) -> bool:
+    """Record (at most once — SET NX) that a trigger landed while a turn held
     the lock, so the lock holder re-enqueues exactly one follow-up turn.
 
     The triggering message id is tracked in a separate key with last-write-wins
     semantics (plain SET, not NX): when several messages coalesce into the one
     follow-up turn, the most recently arrived id is the most relevant anchor
     for attachment resolution — matching how an uncontended turn would resolve
-    against whatever is currently latest."""
+    against whatever is currently latest.
+
+    Returns whether the mark is durable. A caller that gets ``False`` has NOT
+    handed its trigger to the lock holder and must not report the message as
+    merely ``locked``: nobody is going to answer it.
+    """
     try:
         from shared_kernel.auth.clients import get_redis
 
-        redis = get_redis()
-        await redis.set(
+        await get_redis().eval(
+            _MARK_QUEUED_LUA,
+            2,
             _queued_trigger_key(agent_id, chatroom_id),
+            _queued_trigger_message_key(agent_id, chatroom_id),
             trigger,
-            nx=True,
-            ex=_QUEUED_TRIGGER_TTL_S,
+            str(trigger_message_id) if trigger_message_id is not None else "",
+            str(_QUEUED_TRIGGER_TTL_S),
         )
-        if trigger_message_id is not None:
-            await redis.set(
-                _queued_trigger_message_key(agent_id, chatroom_id),
-                str(trigger_message_id),
-                ex=_QUEUED_TRIGGER_TTL_S,
-            )
     except Exception:
         _log.warning(
             "failed to queue coalesced trigger agent=%s room=%s",
@@ -363,19 +424,25 @@ async def _mark_trigger_queued(
             chatroom_id,
             exc_info=True,
         )
+        return False
+    return True
 
 
-async def _pop_queued_trigger(
-    agent_id: uuid.UUID, chatroom_id: uuid.UUID
-) -> tuple[str, uuid.UUID | None] | None:
-    """Atomically read-and-clear the coalesced-trigger flag (GETDEL) and its
-    associated (last-write-wins) triggering message id, if any."""
+async def _pop_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> QueuedTrigger:
+    """Read-and-clear the coalesced-trigger flag and its triggering message id.
+
+    One scripted round-trip over both keys, so a concurrent popper or marker
+    cannot interleave between them.
+    """
     try:
         from shared_kernel.auth.clients import get_redis
 
-        redis = get_redis()
-        val = await redis.getdel(_queued_trigger_key(agent_id, chatroom_id))
-        mid_raw = await redis.getdel(_queued_trigger_message_key(agent_id, chatroom_id))
+        raw = await get_redis().eval(
+            _POP_QUEUED_LUA,
+            2,
+            _queued_trigger_key(agent_id, chatroom_id),
+            _queued_trigger_message_key(agent_id, chatroom_id),
+        )
     except Exception:
         _log.warning(
             "failed to read coalesced trigger agent=%s room=%s",
@@ -383,18 +450,19 @@ async def _pop_queued_trigger(
             chatroom_id,
             exc_info=True,
         )
-        return None
-    if not val:
-        return None
-    trigger = val.decode() if isinstance(val, bytes) else str(val)
+        return QueuedTrigger(state=TriggerPopState.UNKNOWN)
+    values = list(raw or [])
+    trigger = _decode(values[0]) if values and values[0] else ""
+    mid_str = _decode(values[1]) if len(values) > 1 and values[1] else ""
+    if not trigger:
+        return QueuedTrigger(state=TriggerPopState.ABSENT)
     message_id: uuid.UUID | None = None
-    if mid_raw:
-        mid_str = mid_raw.decode() if isinstance(mid_raw, bytes) else str(mid_raw)
+    if mid_str:
         try:
             message_id = uuid.UUID(mid_str)
         except ValueError:
             message_id = None
-    return trigger, message_id
+    return QueuedTrigger(state=TriggerPopState.PARKED, trigger=trigger, message_id=message_id)
 
 
 async def _drain_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> None:
@@ -406,9 +474,11 @@ async def _drain_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> 
     otherwise sit for its full ``_QUEUED_TRIGGER_TTL_S`` with nobody answering
     the message that set it."""
     queued = await _pop_queued_trigger(agent_id, chatroom_id)
-    if queued is None:
+    if queued.state is not TriggerPopState.PARKED:
+        # ABSENT is the ordinary case (nothing landed mid-turn). UNKNOWN is a
+        # Redis failure, already logged by the pop: there is nothing safe to
+        # enqueue, since the trigger that would name it was never read.
         return
-    queued_trigger, queued_message_id = queued
     try:
         from shared_kernel.queue import enqueue
 
@@ -416,8 +486,8 @@ async def _drain_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> 
             "wakeup_agent",
             str(agent_id),
             str(chatroom_id),
-            queued_trigger,
-            str(queued_message_id) if queued_message_id else None,
+            queued.trigger,
+            str(queued.message_id) if queued.message_id else None,
         )
     except Exception:
         _log.warning(
@@ -782,6 +852,9 @@ class TurnEngine:
         # inside the loop rather than returned from a helper, so the `finally`
         # below can still read it when the turn is killed part-way through.
         held = False
+        # Whether the mark this call parked is durable. Only meaningful when the
+        # lock was never acquired; `True` until we actually try to park one.
+        marked = True
         try:
             for attempt in range(2):
                 async with turn_lock(agent_id, chatroom_id) as acquired:
@@ -794,15 +867,21 @@ class TurnEngine:
                             # redundant follow-up for a trigger we're about to
                             # serve.
                             parked = await _pop_queued_trigger(agent_id, chatroom_id)
-                            if parked is None:
+                            if parked.state is TriggerPopState.ABSENT:
                                 # Someone else already popped our mark — that was
                                 # the previous holder's post-release drain, which
                                 # has already enqueued a follow-up turn for it.
                                 # Running here too would duplicate that turn, so
                                 # let the enqueued follow-up serve it instead.
                                 break
-                            trigger, parked_mid = parked
-                            trigger_message_id = parked_mid or trigger_message_id
+                            if parked.state is TriggerPopState.PARKED:
+                                trigger = parked.trigger or trigger
+                                trigger_message_id = parked.message_id or trigger_message_id
+                            # UNKNOWN falls through deliberately: Redis could not
+                            # say whether a mark is parked, and we hold the lock.
+                            # Serving the trigger we were called for answers the
+                            # user; breaking here would drop the message on the
+                            # strength of a read that failed.
                         result = await self._run_locked(
                             agent_id=agent_id,
                             chatroom_id=chatroom_id,
@@ -813,7 +892,7 @@ class TurnEngine:
                             trigger_message_id=trigger_message_id,
                         )
                         break
-                    await _mark_trigger_queued(agent_id, chatroom_id, trigger, trigger_message_id)
+                    marked = await _mark_trigger_queued(agent_id, chatroom_id, trigger, trigger_message_id)
                     # Re-check: the holder may have released AND popped before our
                     # mark landed — if the lock is now free we take it; if still
                     # held the holder's post-release pop sees our mark.
@@ -832,6 +911,17 @@ class TurnEngine:
                 )
         if result is None:
             AGENT_TURNS_TOTAL.labels(result="skipped").inc()
+            if not marked:
+                # `locked` claims the lock holder will answer this message. It
+                # cannot: the mark that would have told it never landed, so the
+                # message is genuinely dropped and the record has to say so.
+                _log.warning(
+                    "coalesced trigger dropped agent=%s room=%s trigger=%s",
+                    agent_id,
+                    chatroom_id,
+                    trigger,
+                )
+                return TurnResult(status="skipped", reason=_COALESCE_FAILED)
             return TurnResult(status="skipped", reason="locked")
         AGENT_TURNS_TOTAL.labels(result=result.status).inc()
         AGENT_TURN_DURATION_SECONDS.observe(time.monotonic() - started)
