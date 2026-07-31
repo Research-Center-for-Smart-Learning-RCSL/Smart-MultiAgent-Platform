@@ -16,10 +16,6 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-07-22-turn-idempotency-and-locking` (bugfix, draft) — `depends_on: []`. From the a2a audit
-  F-7, F-18, F-22, F-23, F-39 and the config audit F-8, F-30. Six sequenced commits; one hard
-  ordering constraint (cleanup before lock-liveness). Names two textual adjacencies with the
-  compaction and tool-dispatch dossiers.
 - `2026-07-22-workflow-capability-enforcement` (bugfix, draft) — `depends_on: []`. a2a F-13 plus
   config F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read
   by nothing. **Blocked on Q-8** (migration posture) — enforcing without a backfill breaks every
@@ -50,6 +46,11 @@ parallel.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+- `2026-07-22-turn-idempotency-and-locking` (bugfix) — `depends_on: []`. Approved 2026-07-31 with two
+  decisions recorded (Q-9 timeout relation, Q-10 test tier). From the a2a audit F-7, F-18, F-22,
+  F-23, F-39 and the config audit F-8, F-30. Six sequenced commits; one hard ordering constraint
+  (cleanup before lock-liveness). Both dossiers it named as textual adjacencies have since landed —
+  see its §9 for the re-verification.
 Removed on 2026-07-28 because their own frontmatter reads `implemented` and the board only
 lists unfinished work: `2026-07-22-activity-session-authz-and-validation`,
 `2026-07-22-workflow-run-cancellation`, `2026-07-28-activity-schema-participant-access`.
