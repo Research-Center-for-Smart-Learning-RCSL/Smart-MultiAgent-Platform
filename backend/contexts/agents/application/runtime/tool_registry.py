@@ -31,6 +31,12 @@ if TYPE_CHECKING:
 
 ToolInvoke = Callable[[dict[str, Any]], Awaitable["ToolResult"]]
 
+# Tells an infrastructure fault apart from a tool failure (see ``ToolRegistry.call``).
+# Injected rather than imported so this module keeps the no-infrastructure claim its
+# docstring makes: the classification needs ``sqlalchemy.exc``, and the turn engine —
+# which owns the session the tools write to — is the layer that knows that.
+InfraErrorCheck = Callable[[BaseException], bool]
+
 # Per-tool output cap so a chatty tool can't blow the context window. It lives here
 # rather than beside its callers in ``builtin_tools`` because it is the registry's
 # contract with the turn loop, and ``read_skill`` — built in this module — has to size
@@ -149,9 +155,9 @@ logger = logging.getLogger(__name__)
 
 
 class ToolRegistry:
-    """Name → Tool table for one turn. Dispatch never raises into the loop."""
+    """Name → Tool table for one turn. Dispatch raises only on infrastructure."""
 
-    def __init__(self, tools: list[Tool]) -> None:
+    def __init__(self, tools: list[Tool], *, is_infra_error: InfraErrorCheck | None = None) -> None:
         # A duplicate name would silently shadow a built-in (last-wins dict),
         # so the first registration wins and any collision is dropped + logged.
         # Reserved-name validation upstream should make this unreachable; this is
@@ -162,6 +168,9 @@ class ToolRegistry:
                 logger.warning("duplicate tool name %r ignored (first registration kept)", t.name)
                 continue
             self._by_name[t.name] = t
+        # Absent a check, nothing is infrastructure and every failure degrades —
+        # the behaviour before this seam existed.
+        self._is_infra_error = is_infra_error
 
     def specs(self) -> list[dict[str, Any]]:
         return [t.spec() for t in self._by_name.values()]
@@ -170,12 +179,37 @@ class ToolRegistry:
         return self._by_name.get(name)
 
     async def call(self, name: str, args: dict[str, Any]) -> ToolResult:
+        """Dispatch one tool call, degrading *domain* failures into a result.
+
+        An unknown tool or a tool that raised on its own terms is something the
+        model can act on — a different tool, different arguments, or an apology —
+        so it comes back as ``is_error`` content and the turn continues.
+
+        An **infrastructure** fault is not. It is not a fact about the tool, the
+        model cannot route around it, and on a shared session it has already made
+        every later write fail — so continuing burns provider spend on a turn whose
+        reply can no longer be persisted. Those propagate and fail the turn now.
+        See docs/tasks/2026-07-22-tool-dispatch-failure-categories §3 Q-4.
+
+        The exception itself never reaches the model: a SQLAlchemy message can carry
+        the failing SQL, table names and parameter values.
+        """
         tool = self._by_name.get(name)
         if tool is None:
             return ToolResult(content=f"Unknown tool {name!r}.", is_error=True)
         try:
             return await tool.invoke(args)
-        except Exception as exc:  # a tool failure must not abort the turn
+        except Exception as exc:
+            if self._is_infra_error is not None and self._is_infra_error(exc):
+                # Logged here, where the classification is made, so the resulting
+                # rise in failed turns is attributable to this decision.
+                logger.error(
+                    "tool %r hit an infrastructure fault (%s); failing the turn",
+                    name,
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+                raise
             return ToolResult(content=f"Tool {name!r} failed: {exc}", is_error=True)
 
     def __len__(self) -> int:
@@ -637,6 +671,7 @@ def build_registry(
     skills: BoundSet,
     reads: list[SkillRead] | None = None,
     extra: list[Tool] | None = None,
+    is_infra_error: InfraErrorCheck | None = None,
 ) -> ToolRegistry:
     """Assemble the per-turn tool table for ``agent_id``.
 
@@ -654,7 +689,7 @@ def build_registry(
         tools.append(build_read_skill_tool(skills, db=db, reads=reads))
     if extra:
         tools.extend(extra)
-    return ToolRegistry(tools)
+    return ToolRegistry(tools, is_infra_error=is_infra_error)
 
 
 def _opt_int(value: Any) -> int | None:
@@ -668,6 +703,7 @@ def _opt_int(value: Any) -> int | None:
 
 __all__ = [
     "BUILTIN_TOOL_NAMES",
+    "InfraErrorCheck",
     "Tool",
     "ToolRegistry",
     "ToolResult",

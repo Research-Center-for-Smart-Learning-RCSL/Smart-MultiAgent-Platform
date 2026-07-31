@@ -7,6 +7,7 @@ import uuid
 from typing import ClassVar
 
 import pytest
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from contexts.agents.application.runtime import tool_registry as tr
 from contexts.agents.application.runtime.tool_registry import (
@@ -86,15 +87,57 @@ async def test_registry_dispatch_and_unknown() -> None:
 
 @pytest.mark.asyncio
 async def test_registry_swallows_tool_exception() -> None:
+    """A domain failure stays a tool result: the model can act on it."""
     from contexts.agents.application.runtime.tool_registry import Tool
 
     async def _boom(_args):
         raise RuntimeError("kaboom")
 
-    reg = ToolRegistry([Tool(name="x", description="d", input_schema={}, invoke=_boom)])
+    reg = ToolRegistry(
+        [Tool(name="x", description="d", input_schema={}, invoke=_boom)],
+        is_infra_error=_is_db_error,
+    )
     res = await reg.call("x", {})
     assert res.is_error
     assert "kaboom" in res.content
+
+
+def _is_db_error(exc: BaseException) -> bool:
+    return isinstance(exc, SQLAlchemyError)
+
+
+@pytest.mark.asyncio
+async def test_registry_reraises_infrastructure_errors() -> None:
+    """An infrastructure fault is not a tool outcome (AC-3).
+
+    Reported to the model, it would be a fact the model cannot act on, and the
+    turn would keep buying provider tokens against a transaction whose reply can
+    no longer be written.
+    """
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    async def _db_down(_args):
+        raise OperationalError("SELECT secret FROM keys WHERE id = 'k-123'", {}, Exception("down"))
+
+    reg = ToolRegistry(
+        [Tool(name="x", description="d", input_schema={}, invoke=_db_down)],
+        is_infra_error=_is_db_error,
+    )
+
+    with pytest.raises(OperationalError):
+        await reg.call("x", {})
+
+
+@pytest.mark.asyncio
+async def test_registry_without_a_classifier_degrades_everything() -> None:
+    """The seam is opt-in: a registry built without one behaves as before."""
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    async def _db_down(_args):
+        raise OperationalError("stmt", {}, Exception("down"))
+
+    reg = ToolRegistry([Tool(name="x", description="d", input_schema={}, invoke=_db_down)])
+    assert (await reg.call("x", {})).is_error
 
 
 @pytest.mark.asyncio

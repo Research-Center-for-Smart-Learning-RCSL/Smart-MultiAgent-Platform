@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from prometheus_client import Counter, Histogram
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.application.activity_context_provider import ActivityContextProvider
@@ -780,6 +781,7 @@ class TurnEngine:
                 # `message.metadata` for AC-19's records to land on. Passing a list nobody
                 # reads would look like the room path while recording nothing.
                 extra=extra_tools,
+                is_infra_error=_is_infrastructure_error,
             )
             tool_specs = registry.specs()
             tool_tokens = tx.estimate_tokens(json.dumps(tool_specs, ensure_ascii=False)) if tool_specs else 0
@@ -2026,6 +2028,7 @@ class TurnEngine:
                 skills=bound_skills,
                 reads=skill_reads,
                 extra=extra_tools,
+                is_infra_error=_is_infrastructure_error,
             )
             tool_specs = registry.specs()
             tool_tokens = tx.estimate_tokens(json.dumps(tool_specs, ensure_ascii=False)) if tool_specs else 0
@@ -3221,7 +3224,23 @@ def _err_kind(exc: Exception) -> str:
         return f"provider_exhausted:{exc.reason}"
     if isinstance(exc, ProviderStreamError):
         return "provider_stream_failed"
+    if isinstance(exc, SQLAlchemyError):
+        # A fixed token, never the class name: this one reaches the WS payload and
+        # the audit row, and a SQLAlchemy exception's identity is a detail of the
+        # failing statement, not something a client should be told.
+        return "database_error"
     return exc.__class__.__name__
+
+
+def _is_infrastructure_error(exc: BaseException) -> bool:
+    """Is this a fault of the platform rather than an outcome of the tool?
+
+    Handed to :class:`ToolRegistry` so that module can classify without importing
+    ``sqlalchemy``; the engine owns the session every tool writes to, so the engine
+    is what knows a DB fault is fatal to the turn rather than reportable to the
+    model. See docs/tasks/2026-07-22-tool-dispatch-failure-categories §3 Q-5.
+    """
+    return isinstance(exc, SQLAlchemyError)
 
 
 def _estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:

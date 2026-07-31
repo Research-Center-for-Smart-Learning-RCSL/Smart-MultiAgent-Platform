@@ -11,6 +11,7 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 import contexts.agents.application.runtime.transcript as tx
 import contexts.agents.application.runtime.turn_engine as te
@@ -224,6 +225,24 @@ async def test_final_no_tools_call_carries_the_same_provider_and_model() -> None
     assert final_request.provider is ApiKeyProvider.CLAUDE
     assert final_request.payload["model"] == "claude-opus-4-8"
     assert "models" not in final_request.payload
+
+
+def test_a_database_fault_is_classified_as_infrastructure() -> None:
+    """The predicate the engine hands the registry (AC-3)."""
+    assert te._is_infrastructure_error(OperationalError("stmt", {}, Exception("down"))) is True
+    assert te._is_infrastructure_error(RuntimeError("a tool said no")) is False
+
+
+def test_a_database_fault_never_puts_sql_in_the_reported_error_kind() -> None:
+    """`_err_kind` output reaches the WS payload and the audit row, and a
+    SQLAlchemy message can carry the failing SQL, table names and parameters."""
+    exc = OperationalError("SELECT secret FROM api_keys WHERE id = 'k-123'", {}, Exception("down"))
+
+    kind = te._err_kind(exc)
+
+    assert kind == "database_error"
+    assert "api_keys" not in kind
+    assert "OperationalError" not in kind
 
 
 def test_knowledge_queries_include_recent_context() -> None:
