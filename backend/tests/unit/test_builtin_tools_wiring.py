@@ -29,7 +29,7 @@ def _session() -> AsyncMock:
 
     The tool audit writes are savepointed (``audit.emit(isolated=True)``), and a
     bare ``AsyncMock`` returns a coroutine there rather than an async context
-    manager — so every audit write would fail into the swallow and these fakes
+    manager, so every audit write would fail into the swallow and these fakes
     would stop covering the audit path at all.
     """
     db = AsyncMock()
@@ -678,6 +678,50 @@ async def test_mcp_tool_degrades_on_error() -> None:
     res = await tools[name].invoke({})
     assert res.is_error is True
     assert "daemon down" in res.content
+
+
+async def test_mcp_tool_that_could_not_be_recorded_is_not_reported_as_clean(monkeypatch) -> None:
+    """AC-4. `mcp.tool_invoked` is the trail of what an agent did with the user's
+    keys and the sandbox; a lost row must not come back as an unqualified success."""
+
+    async def _lost(*_a, **_k) -> bool:
+        return False
+
+    monkeypatch.setattr(bt, "_audit_tool_invoke", _lost)
+    runner = AsyncMock()
+    runner.invoke_mcp_tool.return_value = _ok("tool-output")
+    tools = {
+        t.name: t
+        for t in bt.build_agent_tools(
+            _session(), agent=_agent(), tools=[_mcp(("alpha",))], deps=_deps(runner=runner)
+        )
+    }
+    name = next(n for n in tools if n.startswith("mcp__"))
+
+    res = await tools[name].invoke({})
+
+    assert res.is_error is True
+    # The call did happen: a bare error would invite the model to retry a tool
+    # that already ran, and the tool's real output is still worth having.
+    assert "Do not repeat the call" in res.content
+    assert "tool-output" in res.content
+
+
+async def test_a_recorded_mcp_call_is_still_a_clean_success() -> None:
+    runner = AsyncMock()
+    runner.invoke_mcp_tool.return_value = _ok("tool-output")
+    tools = {
+        t.name: t
+        for t in bt.build_agent_tools(
+            _session(), agent=_agent(), tools=[_mcp(("alpha",))], deps=_deps(runner=runner)
+        )
+    }
+    name = next(n for n in tools if n.startswith("mcp__"))
+
+    res = await tools[name].invoke({})
+
+    assert res.is_error is False
+    assert res.content == "tool-output"
 
 
 def test_mcp_tool_advertises_captured_schema() -> None:
