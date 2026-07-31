@@ -125,6 +125,45 @@ def _sampling_payload(agent: Agent) -> dict[str, Any]:
     }
 
 
+def _chat_request(
+    agent: Agent,
+    *,
+    provider: ApiKeyProvider,
+    model: str,
+    chatroom_id: uuid.UUID | None,
+    parent_agent_id: uuid.UUID | None,
+    system_text: str,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None = None,
+) -> ProviderRequest:
+    """One LLM_CHAT request for the turn loop.
+
+    Both the tool rounds and the final no-tools synthesis go through here. They
+    were two near-identical builds differing only in ``messages`` and ``tools``,
+    each carrying its own copy of the effort and sampling handling -- which is how
+    a control comes to be applied to one of the two calls and not the other.
+    """
+    payload: dict[str, Any] = {
+        "model": model,
+        "system": system_text,
+        "messages": messages,
+        "max_tokens": _DEFAULT_MAX_TOKENS,
+    }
+    if tools:
+        payload["tools"] = tools
+    if agent.effort:
+        payload["effort"] = agent.effort.value
+    payload.update(_sampling_payload(agent))
+    return ProviderRequest(
+        capability=ProviderCapability.LLM_CHAT,
+        payload=payload,
+        provider=provider,
+        agent_id=agent.id,
+        parent_agent_id=parent_agent_id,
+        chatroom_id=chatroom_id,
+    )
+
+
 _HISTORY_RESUME_NOTE = "[Conversation resumes; earlier turns were summarized in the system prompt.]"
 
 # R28.05 — how many of the observer's own past observations fold into its
@@ -2929,24 +2968,15 @@ class TurnEngine:
         for rounds in range(1, MAX_TOOL_ROUNDS + 1):
             if cancel_check is not None and await cancel_check():
                 raise _TurnCancelled(rounds - 1)
-            payload: dict[str, Any] = {
-                "model": model,
-                "system": system_text,
-                "messages": messages,
-                "max_tokens": _DEFAULT_MAX_TOKENS,
-            }
-            if tool_specs:
-                payload["tools"] = tool_specs
-            if agent.effort:
-                payload["effort"] = agent.effort.value
-            payload.update(_sampling_payload(agent))
-            request = ProviderRequest(
-                capability=ProviderCapability.LLM_CHAT,
-                payload=payload,
+            request = _chat_request(
+                agent,
                 provider=provider,
-                agent_id=agent.id,
-                parent_agent_id=parent_agent_id,
+                model=model,
                 chatroom_id=chatroom_id,
+                parent_agent_id=parent_agent_id,
+                system_text=system_text,
+                messages=messages,
+                tools=tool_specs,
             )
             body: dict[str, Any] = {}
             async for ev in self._router.call_stream(group_id=agent.key_group_id, request=request):
@@ -3007,22 +3037,17 @@ class TurnEngine:
                 )
             else:
                 final_messages.append(m)
-        final_payload: dict[str, Any] = {
-            "model": model,
-            "system": system_text,
-            "messages": final_messages,
-            "max_tokens": _DEFAULT_MAX_TOKENS,
-        }
-        if agent.effort:
-            final_payload["effort"] = agent.effort.value
-        final_payload.update(_sampling_payload(agent))
-        final_request = ProviderRequest(
-            capability=ProviderCapability.LLM_CHAT,
-            payload=final_payload,
+        final_request = _chat_request(
+            agent,
             provider=provider,
-            agent_id=agent.id,
-            parent_agent_id=parent_agent_id,
+            model=model,
             chatroom_id=chatroom_id,
+            parent_agent_id=parent_agent_id,
+            system_text=system_text,
+            messages=final_messages,
+            # No tools: the tool_use blocks were stripped above, and Anthropic
+            # rejects tool_result content when `tools` is absent.
+            tools=None,
         )
         try:
             final_body: dict[str, Any] = {}
