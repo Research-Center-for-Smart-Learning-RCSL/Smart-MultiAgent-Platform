@@ -489,12 +489,15 @@ If the new `agent.progress` event is added, it must also be listed in
 ## 12. Deviation Log
 
 - **D-1 — only C2 was built; C1, C3 and C4 are deferred.** Decided with the user on
-  2026-07-31 at the start of the build. `turn_engine.py` holds uncommitted work from
-  `2026-07-22-turn-idempotency-and-locking` (its C1: `_finalize_failed_turn`, the
+  2026-07-31 at the start of the build. `turn_engine.py` is **under concurrent
+  construction** by `2026-07-22-turn-idempotency-and-locking`: at the moment of the
+  decision its C1 sat uncommitted in the working tree (`_finalize_failed_turn`, the
   `except BaseException` cleanup path, `_run_uncancellable`, and the drain moved into
-  `run_turn`'s `finally`; its tests pass, 41/41). C1, C3 and C4 all edit that same file and
-  C1 edits the same function, and CLAUDE.md's commit discipline forbids staging another
-  task's in-progress work. The frontend-only C2 has zero overlap, so it shipped alone.
+  `run_turn`'s `finally`), it landed as `2fafc4e` while this build was in flight, and the
+  file was dirty again with that dossier's next commit before this one closed. C1, C3 and
+  C4 all edit that same file and C1 edits the same function, and CLAUDE.md's commit
+  discipline forbids staging another task's in-progress work. The frontend-only C2 has
+  zero overlap, so it shipped alone.
   **The remaining three commits are unstarted, not partially done** — the working tree
   carries nothing from them. See FU-7.
 - **D-2 — AC-8 was satisfied in substance but not in the letter, and cannot now be.** It

@@ -41,8 +41,8 @@ parallel.
 - `2026-07-22-turn-outcome-reporting` (bugfix) — `depends_on: []`. Approved 2026-07-31; SRS delta
   applied as `[R13.27]`. a2u F-6, F-9, F-15 plus a2a F-40. A committed reply is recorded as a failed
   turn when the post-commit publish raises. **Partially built: C2 only.** C1/C3/C4 all edit
-  `turn_engine.py`, which currently holds `2026-07-22-turn-idempotency-and-locking`'s uncommitted C1,
-  so the backend half is deferred until that tree is clean — see this dossier's D-2.
+  `turn_engine.py`, which `2026-07-22-turn-idempotency-and-locking` is concurrently rebuilding, so
+  the backend half is deferred until that dossier finishes — see this dossier's D-1 and FU-7.
   **STILL PRIORITISE — its C3 was meant to merge before or with `chatroom-socket-lifecycle`, which
   landed first on 2026-07-24.** F-15 is therefore unmasked: the socket churn used to cancel the
   client thinking-watchdog on every reconnect, so a pre-stream assembly window over 120s now
