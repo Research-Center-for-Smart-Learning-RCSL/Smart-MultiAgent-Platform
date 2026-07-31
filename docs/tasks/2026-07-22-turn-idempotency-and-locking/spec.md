@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-07-22
 requirements: []
 depends_on: []
@@ -108,6 +108,8 @@ explicitly expects (the comment at `:598-604`) and against a concurrent `_mark_t
 | Q-6 | Must the lock fix precede the idempotency fix? | **No — the preference runs the other way.** | They are orthogonal: C4 narrows the window, C6 catches what escapes it. Landing the duplicate-turn *detector* before the *guards* leaves a net in place if C3 or C4 regresses. |
 | Q-7 | Where should the idempotency key live? | `messages.metadata` (already JSONB, `tables.py:148`) with a partial unique index — **not** `audit_logs.request_id`. | That column exists (`shared_kernel/audit.py:53`) but is **unindexed** on an append-only high-volume table; a per-turn lookup would be a seq scan. |
 | Q-8 | `depends_on` on either draft dossier? | **No. `depends_on: []`, plus a coordination note (§9).** | Regions are disjoint by ~230 lines from the compaction dossier and by two lines from the tool-dispatch dossier — see §9 for the two real adjacencies, which are named rather than left to a merge conflict. |
+| Q-9 | Must `WAKEUP_TURN_TIMEOUT_S` be **shorter** than the lock TTL, as AC-4 was first written? | **No — `DEFAULT_TURN_TTL_S * 2` (600s), and AC-4 is amended.** Decided at approval, 2026-07-31. | §1's invariant (a) is a disjunction: shorter-than-TTL **or** losing the lock aborts the turn. C4 delivers the second branch, which is also how `graphrag_build` justifies `LOCK_TTL_S * 3`. The literal reading is actively harmful: one provider stream read may take `STREAM_TIMEOUT = 300s` (`contexts/keys/infrastructure/adapters/base.py:68`), so any timeout under the 300s TTL kills healthy turns mid-stream. 600s also keeps today's effective ceiling, so C3 changes retry behaviour only. |
+| Q-10 | Where does R6 (real-Redis lock expiry) live, given `fakeredis` is not a dependency? | **The `wiring` tier**, not `integration`, and no new dependency. Decided at approval, 2026-07-31. | `pyproject.toml:399` already defines `wiring` as "real Postgres+Redis+MailHog from compose.test.yml", and `tests/wiring/conftest.py` already disposes the process-global Redis singleton per test. §7 wrote this as an open decision because it only surveyed the `integration` tier; the tier that fits already exists. |
 
 ## 4. Fix Design — six independently revertible commits
 
@@ -265,7 +267,36 @@ its docstring argues exactly why unit fakes cannot carry it.
 
 ## 9. Coordination
 
-**No `depends_on`; two named adjacencies instead**, so neither is discovered as a merge conflict.
+**Both named adjacencies landed first (2026-07-30 and 2026-07-31), so the sequencing below is now
+history.** Re-verified against `baf82a8` at approval; recorded here rather than deleted, because the
+couplings it predicted are what the re-verification had to check.
+
+- **`2026-07-22-compaction-scoping-and-durability` is `implemented`.** Coupling 1 stands as the only
+  live one: `_assemble_history` now takes the lock at `turn_engine.py:2879` under a **per-(room,
+  agent)** key `compact:lock:{chatroom_id}:{agent.id}`, not the room-wide key this dossier cited, and
+  `tests/unit/test_turn_context_budget.py:420-432` monkeypatches `distributed_lock` with a fake whose
+  `__aenter__` returns a bare `True`. C4 must keep the yielded value truthy and must update that fake.
+  Coupling 3 resolved in our favour: `_restore_compact_flag` (`:3021-3037`) is now a per-agent marker
+  delete that no-ops when the room is absent from `_compact_forced_rooms`, and the committed-fold
+  `pop` landed at `:2946` — C1 composes with it as predicted.
+- **`2026-07-22-tool-dispatch-failure-categories` is `implemented`.** Its restructure of
+  `_stream_with_tools` moved the whole function to `:3039-3220` and made the tool loop a bounded
+  `for _attempt in range(MAX_TOOL_ROUNDS + _MAX_ARG_REJECTIONS)`, but **C4's extension point survived
+  intact**: `cancel_check` is still called at the loop head (`:3060`) and before the final no-tools
+  call (`:3142`), still raising `_TurnCancelled`. The predicted textual adjacency is gone — that
+  dossier landed first. One citation is superseded: §2's "9 provider calls" is now up to
+  `MAX_TOOL_ROUNDS + _MAX_ARG_REJECTIONS + 1` = 11, which does not change C3's sizing (Q-9 sizes the
+  timeout against the TTL, not the call budget).
+
+**Line-number drift.** Every `path:line` in §1–§7 predates those two merges and `turn_engine.py` has
+grown from ~2760 to 3255 lines; citations there are off by roughly +68 near the top of the file and
++350 near the bottom. Every cited *behaviour* was re-verified as still present at approval — the four
+guards, both violated invariants and all seven findings reproduce exactly as written. The stale
+numbers are left in place rather than rewritten: they are the addresses the audit findings were
+recorded against, and this section is the correction of record.
+
+**Original note — no `depends_on`; two named adjacencies instead**, so neither is discovered as a
+merge conflict.
 
 **With `2026-07-22-compaction-scoping-and-durability/`** (draft). Its regions are `:2483-2585`,
 `:2104`, plus `summariser.py` and `transcript.py`; ours are `:243-324`, `:576-650`, `:1778-1790`,
@@ -296,8 +327,10 @@ either way — but it is named in both specs rather than left to a merge.
       notifications, restores the compact flag, and drains its queued trigger.
 - [ ] AC-3: a stranded turn with no matching finish is resolved by the reaper within its budget,
       including after a SIGKILL.
-- [ ] AC-4: `wakeup_agent` is registered with `max_tries=1` and a scoped timeout shorter than the
-      lock TTL, with the relation stated in a comment.
+- [ ] AC-4: `wakeup_agent` is registered with `max_tries=1` and a scoped timeout whose relation to
+      the lock TTL is stated in a comment. **Amended at approval per Q-9** — originally "a scoped
+      timeout shorter than the lock TTL"; C4 satisfies §1's invariant (a) by its second branch, and
+      the literal reading kills healthy turns mid-stream.
 - [ ] AC-5: a turn that loses its lock aborts at the next round boundary rather than continuing;
       a transient Redis failure does **not** abort a healthy turn.
 - [ ] AC-6: the coalesced-trigger pop is a single atomic Redis operation.
