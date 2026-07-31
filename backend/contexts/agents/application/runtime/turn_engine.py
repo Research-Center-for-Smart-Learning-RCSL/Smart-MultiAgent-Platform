@@ -465,14 +465,18 @@ async def _pop_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> Qu
     return QueuedTrigger(state=TriggerPopState.PARKED, trigger=trigger, message_id=message_id)
 
 
-async def _drain_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> None:
+async def drain_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> None:
     """Hand a trigger that landed mid-turn to exactly one follow-up wakeup.
 
     Called from ``run_turn``'s ``finally`` so it also runs when the job is
     killed. That matters more than it used to: ``wakeup_agent`` is registered
     ``max_tries=1``, so nothing re-runs this turn, and a parked trigger would
     otherwise sit for its full ``_QUEUED_TRIGGER_TTL_S`` with nobody answering
-    the message that set it."""
+    the message that set it.
+
+    Public because the stranded-turn reaper calls it too: a turn killed by
+    ``SIGKILL`` never reaches that ``finally``, and the parked trigger is then
+    the reaper's to drain."""
     queued = await _pop_queued_trigger(agent_id, chatroom_id)
     if queued.state is not TriggerPopState.PARKED:
         # ABSENT is the ordinary case (nothing landed mid-turn). UNKNOWN is a
@@ -906,7 +910,7 @@ class TurnEngine:
             # `async with` above closes before the `finally` runs.
             if held:
                 await _run_uncancellable(
-                    _drain_queued_trigger(agent_id, chatroom_id),
+                    drain_queued_trigger(agent_id, chatroom_id),
                     what="queued-trigger drain",
                 )
         if result is None:

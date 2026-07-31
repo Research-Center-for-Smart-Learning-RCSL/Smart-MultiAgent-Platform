@@ -10,6 +10,8 @@ Task registry:
   - `rag_ingest_document`         — E.6 off-request RAG indexing for tus uploads
   - `agent_fs_gc`                 — E.10 nightly agent volume + workspace GC (60-day
                                     retention; dry-run until SMAP_AGENT_FS_GC_ARMED)
+  - `agent_turn_reaper`           — per-minute sweep for turns killed by SIGKILL,
+                                    the one cleanup no in-process handler survives
 
 Background tasks (started in `on_startup`, stopped in `on_shutdown`):
   - key-revocation listener  — ASYNC-2 / D.7 DEK cache invalidation
@@ -69,6 +71,7 @@ from app.workers.tasks.prompt_assistant import prompt_assistant_turn
 from app.workers.tasks.rag import rag_ingest_document, rag_scan_document
 from app.workers.tasks.retention import retention_sweep
 from app.workers.tasks.skills import skill_export_bundle, skill_import_bundle, skill_scan_file
+from app.workers.tasks.turn_reaper import agent_turn_reaper
 from app.workers.tasks.workflow_approvals import (
     workflow_instruct_timeout,
     workflow_resume_approval,
@@ -319,6 +322,7 @@ class WorkerSettings:
         workflow_resume_instruct,
         workflow_instruct_timeout,
         workflow_watchdog,
+        agent_turn_reaper,
         validate_activity_submission,
         activities_watchdog,
         retention_sweep,
@@ -368,6 +372,11 @@ class WorkerSettings:
         # Every minute — workflow timeout watchdog (K.4): fail runs past their
         # run_max_seconds / idle_max_seconds budgets.
         cron(workflow_watchdog, minute=set(range(60)), run_at_startup=False),
+        # Every minute — stranded agent turns: a turn killed by SIGKILL runs no
+        # cleanup of its own and `wakeup_agent` is `max_tries=1`, so this sweep
+        # is the only thing that unsticks the room. arq's cron lock keeps it
+        # singleton across replicas.
+        cron(agent_turn_reaper, minute=set(range(60)), run_at_startup=False),
         # Every minute — activities validation watchdog (R30.06): sweep stalled
         # pending mcp/webhook validations (or dropped enqueues) to error.
         cron(activities_watchdog, minute=set(range(60)), run_at_startup=False),
