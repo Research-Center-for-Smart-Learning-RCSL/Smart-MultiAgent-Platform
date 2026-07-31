@@ -25,7 +25,11 @@ import type { Message } from '../types'
 
 // Client-side watchdog for a wedged turn: if the worker crashes mid-turn no
 // `agent.finished` ever arrives, so without this the thinking spinner sticks
-// forever. Re-armed on every `agent.token`, cleared on `agent.finished`.
+// forever. Re-armed by every frame that proves the turn is alive — `agent.token`
+// plus `agent.progress`/`agent.warning`, which are the only ones the engine
+// sends during the pre-stream assembly window — and cleared on `agent.finished`.
+// It must never be the sole reading of a silence the protocol can produce
+// legitimately, or a healthy turn gets reported as `timeout` (F-15).
 export const AGENT_THINKING_TIMEOUT_MS = 120_000
 
 export function useChatroomSocket(roomId: string) {
@@ -381,6 +385,18 @@ export function useChatroomSocket(roomId: string) {
       // than falling to `default` and letting the watchdog count a healthy turn
       // down to a false `timeout`.
       case 'agent.warning':
+        armThinkingTimeout()
+        break
+      // The turn's liveness beacon through the assembly window (R13.19).
+      // One phase means more than "alive": at a tool-round boundary the text
+      // streamed during that round has been superseded — only the final round
+      // is persisted — so the draft resets to show the current round alone.
+      // Without it the rounds accumulate and are then replaced wholesale at
+      // `agent.finished`, which is the flash 07-conversation.md forbids (F-40).
+      case 'agent.progress':
+        if (ev.phase === 'tool_round' && agentId) {
+          store.clearAgentStream(roomId, agentId)
+        }
         armThinkingTimeout()
         break
       case 'agent.finished':
