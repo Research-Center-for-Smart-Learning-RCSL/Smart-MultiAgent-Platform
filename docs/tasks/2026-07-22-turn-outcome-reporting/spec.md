@@ -1,8 +1,8 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-07-22
-requirements: [R11.02, R13.19, R15.01, R24.23]
+requirements: [R11.02, R13.19, R13.27, R15.01, R24.23]
 depends_on: []
 ---
 
@@ -443,8 +443,11 @@ Q-7 no-backfill position.
       the `empty_reply` branch reporting `skipped`.
 - [ ] AC-3: every swallowed post-commit failure is logged with a stack, and none of them
       requeues notifications or restores the compact flag.
-- [ ] AC-4: a failed `/compact` restores the user's text, surfaces an error toast via
+- [x] AC-4: a failed `/compact` restores the user's text, surfaces an error toast via
       `$t()`, resolves `false`, and produces no unhandled rejection.
+      *Verified by the three tests in `useChatroomMessages.test.ts`'s
+      `/compact outcome reporting (F-9)` block, all three failing before C2 for the
+      documented reason.*
 - [ ] AC-5: the thinking watchdog is re-armed by `agent.progress` and `agent.warning`, and a
       turn that emits progress every < 120 s never reports `timeout`.
 - [ ] AC-6: when the watchdog does fire, it clears only the drafts of agents currently
@@ -485,7 +488,50 @@ If the new `agent.progress` event is added, it must also be listed in
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — only C2 was built; C1, C3 and C4 are deferred.** Decided with the user on
+  2026-07-31 at the start of the build. `turn_engine.py` holds uncommitted work from
+  `2026-07-22-turn-idempotency-and-locking` (its C1: `_finalize_failed_turn`, the
+  `except BaseException` cleanup path, `_run_uncancellable`, and the drain moved into
+  `run_turn`'s `finally`; its tests pass, 41/41). C1, C3 and C4 all edit that same file and
+  C1 edits the same function, and CLAUDE.md's commit discipline forbids staging another
+  task's in-progress work. The frontend-only C2 has zero overlap, so it shipped alone.
+  **The remaining three commits are unstarted, not partially done** — the working tree
+  carries nothing from them. See FU-7.
+- **D-2 — AC-8 was satisfied in substance but not in the letter, and cannot now be.** It
+  required the Q-3 ordering constraint to be recorded in
+  `docs/tasks/2026-07-22-chatroom-socket-lifecycle/` *before that dossier is approved*.
+  That dossier is `status: implemented` and landed 2026-07-24; it recorded the constraint
+  at close-out instead, as its FU-8, which names this dossier as the owner of the fix and
+  recommends prioritising it. Nothing further is achievable here.
+- **D-3 — the §11 SRS addition shipped as `[R13.27]`, worded slightly wider than the
+  draft.** Placed in §13.7 Realtime after R13.20 (`REQUIREMENTS.md:723`). The draft covered
+  the committed-reply case; the shipped text also names the committed *skip* branches
+  (`empty_reply`, `no_input`, `knowledge_starved`), which are the same invariant on the
+  same commit boundary and would otherwise have to be inferred. The §11 *correction* was
+  not applied — it is FU-3's to resolve, per D-4.
+- **D-4 — FU-3 decided: leave both test-locked assertions green (AC-9, first branch).**
+  Decided with the user on 2026-07-31. `useChatroomSocket.test.ts` and
+  `docs/UI/07-conversation.md:535` still contradict each other on whether the streaming
+  bubble survives an error; neither side was edited. Reasoning: C4 is designed not to
+  disturb the finish-time clear (Q-6), so the contradiction blocks nothing here, and
+  FU-3's own note is that the whole decision is worth re-deriving once reconnect
+  reconciliation lands — deciding it now would be deciding it on stale premises.
+- **D-5 — a sibling the spec did not have was found during freshness re-verification and
+  is added to C1's scope.** The `knowledge_starved` branch (`turn_engine.py:2438` commit →
+  `:2443`/`:2447` unguarded emit) is F-6's exact shape, alongside S-1. S-2 (`no_input`) was
+  re-checked and stays correctly cleared: its emit at `:2454` is still pre-commit
+  (`:2462`). C1's post-commit block has also grown two members the spec did not list —
+  `self._compact_forced_rooms.pop()` and `_settle_pending_approvals` — both of which must
+  move inside the new guard with their own individual guards.
+- **D-6 — every `path:line` in §1–§9 is stale.** `turn_engine.py` is now 3372 lines (was
+  ~2760 when this was written) and `useChatroomSocket.ts` was reshaped by
+  `chatroom-socket-lifecycle`. Every cited *behaviour* was re-verified as still present at
+  approval; the numbers were left in place rather than rewritten, matching the convention
+  `turn-idempotency-and-locking`'s §9 set. Current addresses: F-6 `:2597` commit /
+  `:2608`+`:2619` emits / `:2643` handler; S-1 `:2504` commit / `:2507` emit; F-9
+  `useChatroomMessages.ts:241-245` and `ChatroomView.vue:667-670`; F-15 watchdog
+  `useChatroomSocket.ts:269-279`, `default: break` at `:458`; F-40 round boundary
+  `turn_engine.py:3226`; AC-10's stale comment `useChatroomSocket.ts:289-291`.
 
 ## 13. Follow-ups
 
@@ -512,6 +558,23 @@ Appended by /build.
   identification query from §7 finds the audit-row evidence after the fact; nothing notices
   at the time. A counter on swallowed post-commit dispatch failures would make the class
   observable.
+- **FU-7** — **C1, C3 and C4 are unbuilt** (D-1). They are blocked only on
+  `turn_engine.py` being clean of `2026-07-22-turn-idempotency-and-locking`'s uncommitted
+  C1, not on any finding here. Two slices of C3 need **no** backend change and could ship
+  ahead of the rest: the missing `case 'agent.warning'` re-arm (that event already exists —
+  `turn_engine.py:1794`, and `REQUIREMENTS.md:717` already documents it), and scoping the
+  watchdog's `clearAgentStream(roomId)` to the agents in `agentThinking[roomId]` (AC-6).
+  AC-10's stale comment is likewise frontend-only.
+- **FU-8** — `onSend` (`useChatroomMessages.ts:236`) mixes slash-command dispatch,
+  optimistic insert, scroll, mention resolution, the POST and rollback across ~77 lines;
+  C2 added 13 of them. Extracting the `/compact` branch into a named local would undo the
+  increment. Raised by the quality gate as Info, not fixed, because C2's design was
+  explicitly an in-place mirror of `ChatroomSettingsView.vue:183-190`.
+- **FU-9** — that mirroring is now literal duplication: the
+  `compactChatroom` → `compactRequested`/`compactFailed` pair exists in both
+  `useChatroomMessages.ts:243-256` and `ChatroomSettingsView.vue:183-190`. Only ~5 lines
+  are shared and the surroundings differ (confirm dialog + spinner vs draft restore +
+  boolean return), so extraction is not yet worth it. A third surface would change that.
 - **FU-6** — `AGENT_THINKING_TIMEOUT_MS` (`useChatroomSocket.ts:24`) and
   `_IDLE_TIMEOUT_SECONDS` (`shared_kernel/realtime/connection.py`) are both 120 and are
   unrelated constants that happen to collide, which is what makes Q-2's masking near-total.

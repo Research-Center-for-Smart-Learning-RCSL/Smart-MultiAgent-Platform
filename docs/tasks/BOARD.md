@@ -20,14 +20,6 @@ parallel.
   config F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read
   by nothing. **Blocked on Q-8** (migration posture) — enforcing without a backfill breaks every
   working approval gate on deploy.
-- `2026-07-22-turn-outcome-reporting` (bugfix, draft) — `depends_on: []`. a2u F-6, F-9, F-15 plus
-  a2a F-40. A committed reply is recorded as a failed turn when the post-commit publish raises.
-  Names two test-locked decisions that must be decided, not silently edited.
-  **PRIORITISE — its C3 was meant to merge before or with `chatroom-socket-lifecycle`, which
-  landed first on 2026-07-24.** F-15 is therefore unmasked: the socket churn used to cancel the
-  client thinking-watchdog on every reconnect, so a pre-stream assembly window over 120s now
-  reports a healthy turn as `timeout` every time instead of intermittently. See that dossier's
-  FU-8.
 - `2026-07-22-wait-for-event-timer-and-join-ports` (bugfix, draft) — `depends_on: []`. a2a F-2,
   F-36: a `timer` wait — the editor's seeded default — parks until its timeout and exits the
   failure port, and the join `timeout` port is documented, linted, rendered and produced by
@@ -46,6 +38,16 @@ parallel.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+- `2026-07-22-turn-outcome-reporting` (bugfix) — `depends_on: []`. Approved 2026-07-31; SRS delta
+  applied as `[R13.27]`. a2u F-6, F-9, F-15 plus a2a F-40. A committed reply is recorded as a failed
+  turn when the post-commit publish raises. **Partially built: C2 only.** C1/C3/C4 all edit
+  `turn_engine.py`, which currently holds `2026-07-22-turn-idempotency-and-locking`'s uncommitted C1,
+  so the backend half is deferred until that tree is clean — see this dossier's D-2.
+  **STILL PRIORITISE — its C3 was meant to merge before or with `chatroom-socket-lifecycle`, which
+  landed first on 2026-07-24.** F-15 is therefore unmasked: the socket churn used to cancel the
+  client thinking-watchdog on every reconnect, so a pre-stream assembly window over 120s now
+  reports a healthy turn as `timeout` every time instead of intermittently. See that dossier's
+  FU-8.
 - `2026-07-22-turn-idempotency-and-locking` (bugfix) — `depends_on: []`. Approved 2026-07-31 with two
   decisions recorded (Q-9 timeout relation, Q-10 test tier). From the a2a audit F-7, F-18, F-22,
   F-23, F-39 and the config audit F-8, F-30. Six sequenced commits; one hard ordering constraint
