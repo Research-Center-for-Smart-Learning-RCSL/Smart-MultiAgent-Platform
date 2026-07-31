@@ -124,6 +124,7 @@ function mountEditing() {
 beforeEach(() => {
   Object.values(api).forEach((fn) => fn.mockReset())
   toast.error.mockClear()
+  toast.success.mockClear()
   dialog.confirm.mockClear()
   dialog.confirm.mockResolvedValue(true)
 })
@@ -199,6 +200,57 @@ describe('useChatroomMessages optimistic send', () => {
     await pending
     await flushPromises()
     expect(composable.messages.value.filter((m) => m.content_md === 'dup')).toHaveLength(1)
+  })
+})
+
+describe('useChatroomMessages /compact outcome reporting (F-9)', () => {
+  it('restores the draft and toasts when the request fails', async () => {
+    api.listMessages.mockResolvedValue([])
+    api.compactChatroom.mockRejectedValue(new Error('backend down'))
+
+    mountHost()
+    await flushPromises()
+
+    composable.draft.value = '/compact'
+    // Resolves false rather than rejecting: `send` in ChatroomView binds this
+    // as an event handler, so a rejection here becomes an unhandled rejection.
+    await expect(composable.onSend([])).resolves.toBe(false)
+    await flushPromises()
+
+    expect(composable.draft.value).toBe('/compact')
+    expect(toast.error).toHaveBeenCalledWith('conversation.settings.compactFailed')
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it('clears the draft and toasts on success', async () => {
+    api.listMessages.mockResolvedValue([])
+    api.compactChatroom.mockResolvedValue(undefined)
+
+    mountHost()
+    await flushPromises()
+
+    composable.draft.value = '/compact'
+    await expect(composable.onSend([])).resolves.toBe(true)
+    await flushPromises()
+
+    expect(composable.draft.value).toBe('')
+    expect(toast.success).toHaveBeenCalledWith('conversation.settings.compactRequested')
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('never posts a /compact draft as a message', async () => {
+    api.listMessages.mockResolvedValue([])
+    api.compactChatroom.mockRejectedValue(new Error('backend down'))
+
+    mountHost()
+    await flushPromises()
+
+    composable.draft.value = '/compact'
+    await composable.onSend([])
+    await flushPromises()
+
+    expect(api.sendMessage).not.toHaveBeenCalled()
+    expect(composable.messages.value).toHaveLength(0)
   })
 })
 
