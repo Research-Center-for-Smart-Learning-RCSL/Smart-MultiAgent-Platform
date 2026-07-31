@@ -270,10 +270,19 @@ export function useChatroomSocket(roomId: string) {
     clearThinkingTimeout()
     thinkingTimer = setTimeout(() => {
       thinkingTimer = null
-      // Watchdog fires — clear ALL thinking agents in this room (we don't
-      // know which specific agent is stuck when the backend is silent).
+      // Watchdog fires. Every thinking agent is suspect — a silent backend
+      // does not say which one is stuck — but the drafts are dropped per
+      // agent, read from the set before it is cleared, so a wedged agent
+      // cannot take a neighbour's draft with it (F-15's aggravating factor).
+      const running = [...(store.agentThinking[roomId] ?? [])]
       store.clearAllAgentThinking(roomId)
-      store.clearAgentStream(roomId)
+      if (running.length > 0) {
+        for (const id of running) store.clearAgentStream(roomId, id)
+      } else {
+        // No per-agent set to scope to, but the turn has still been declared
+        // dead — a draft left here has no later event to clear it.
+        store.clearAgentStream(roomId)
+      }
       store.setAgentError(roomId, 'timeout')
     }, AGENT_THINKING_TIMEOUT_MS)
   }
@@ -287,8 +296,11 @@ export function useChatroomSocket(roomId: string) {
         // merge cache is never replaced with a smaller window.
         void replayDelta()
         // clearAgentError stays eager (synchronous, from the event's own
-        // payload) — only clearAgentStream defers to applyMessageCreated
-        // (post-append) to avoid the streamed-draft flicker.
+        // payload); the draft is left to applyMessageCreated so its clear
+        // lands after the row is appended. That ordering is a flicker
+        // preference, not a guarantee — `agent.finished` clears the draft
+        // unconditionally (see its case), so whichever frame arrives first
+        // decides, and only this path avoids the gap.
         if (ev.sender_type === 'agent' && agentId) {
           store.clearAgentError(roomId, agentId)
         }
@@ -361,6 +373,14 @@ export function useChatroomSocket(roomId: string) {
         if (typeof ev.text === 'string' && ev.text && agentId) {
           store.appendAgentToken(roomId, agentId, ev.text)
         }
+        armThinkingTimeout()
+        break
+      // Non-terminal notice from a turn that is still running (R13.19) — the
+      // engine's only frame during the pre-stream assembly window. It carries
+      // no UI of its own yet, but it is proof of liveness, so it re-arms rather
+      // than falling to `default` and letting the watchdog count a healthy turn
+      // down to a false `timeout`.
+      case 'agent.warning':
         armThinkingTimeout()
         break
       case 'agent.finished':
