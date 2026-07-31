@@ -810,6 +810,7 @@ Per-agent JSON:
 - **[R15.12]** `majority`: > 50 % of listed approvers must approve. Ties are broken by the leader.
 - **[R15.13]** `consensus`: all approvers must propose, debate, and converge on the same verdict. If not converged by `timeout_seconds`, the leader's verdict wins.
 - **[R15.14]** Approver agents consume tokens from **their own** Key Group (Q52: "whoever owns the key"). The leader agent's Key Group covers the final decision announcement.
+- **[R15.10a]** Only an agent with `workflow_capabilities.can_approve = true` may be named as an approver or leader of an Approval Gate. A gate naming any agent without the capability is rejected in full; approvers are never silently dropped, since that would change the tally denominator defined by `[R15.12]` and `[R15.13]`.
 
 ### 15.5 Instruct (Q53)
 
@@ -883,7 +884,7 @@ The system records a structured event for every action in the following categori
 | Agents / RAG / GraphRAG / MCP | `agent.created`, `agent.edited`, `agent.deleted`, `rag.document_uploaded`, `rag.indexed`, `graphrag.build_started`, `graphrag.build_finished`, `mcp.tool_invoked` (with tool name + truncated args), `mcp.egress_blocked` |
 | Skills (§31) | `skill.created`, `skill.updated` (body hash before/after), `skill.deleted`, `skill.restored`, `skill.copied`, `skill.bundle_imported`, `skill.exported`, `skill.bound`, `skill.unbound`, `skill.file_created`, `skill.file_updated`, `skill.file_deleted`, `skill.resolution_failed` (turn-time containment or requirement failure) |
 | Chat | `chatroom.created`, `chatroom.deleted`, `message.sent`, `message.deleted`, `message.exported`, `attachment.uploaded`, `attachment.expired`, `guest.joined` |
-| Workflow | `workflow.created`, `workflow.edited`, `workflow.run_started`, `workflow.run_finished`, `workflow.step_started`, `workflow.step_finished`, `workflow.step_failed`, `approval.requested`, `approval.resolved`, `instruct.issued`, `instruct.rejected_loop`, `subagent.spawned`, `subagent.destroyed` |
+| Workflow | `workflow.created`, `workflow.edited`, `workflow.run_started`, `workflow.run_finished`, `workflow.step_started`, `workflow.step_finished`, `workflow.step_failed`, `approval.requested`, `approval.resolved`, `approval.forbidden`, `instruct.issued`, `instruct.rejected_loop`, `instruct.forbidden`, `subagent.spawned`, `subagent.destroyed`, `subagent.depth_exceeded` |
 | Admin | `admin.ban_user`, `admin.unban_user`, `admin.delete_user`, `admin.restore_resource`, `admin.view_as_started`, `admin.view_as_ended` |
 
 - **[R17.01]** Retention: **365 days**. After retention, rows are deleted nightly.

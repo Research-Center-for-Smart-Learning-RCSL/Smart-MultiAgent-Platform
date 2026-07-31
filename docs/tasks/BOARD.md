@@ -16,10 +16,9 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-07-22-workflow-capability-enforcement` (bugfix, draft) — `depends_on: []`. a2a F-13 plus
+- `2026-07-22-workflow-capability-enforcement` (bugfix, approved) — `depends_on: []`. a2a F-13 plus
   config F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read
-  by nothing. **Blocked on Q-8** (migration posture) — enforcing without a backfill breaks every
-  working approval gate on deploy.
+  by nothing. Q-8 (migration posture) resolved 2026-07-31: derived, narrow backfill.
 - `2026-07-22-wait-for-event-timer-and-join-ports` (bugfix, draft) — `depends_on: []`. a2a F-2,
   F-36: a `timer` wait — the editor's seeded default — parks until its timeout and exits the
   failure port, and the join `timeout` port is documented, linted, rendered and produced by
