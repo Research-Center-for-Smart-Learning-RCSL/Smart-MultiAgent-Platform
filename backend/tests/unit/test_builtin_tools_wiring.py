@@ -15,13 +15,26 @@ import uuid
 from datetime import datetime
 from hashlib import sha256
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from contexts.agents.application.runtime import builtin_tools as bt
 from contexts.agents.domain.mcp import SearchResult, ToolCallResult
 from contexts.agents.domain.models import AgentTool, AgentToolType, McpToolSpec
 
 _NOW = datetime(2026, 6, 22, 12, 0, 0)
+
+
+def _session() -> AsyncMock:
+    """A stand-in turn session that supports ``begin_nested()``.
+
+    The tool audit writes are savepointed (``audit.emit(isolated=True)``), and a
+    bare ``AsyncMock`` returns a coroutine there rather than an async context
+    manager — so every audit write would fail into the swallow and these fakes
+    would stop covering the audit path at all.
+    """
+    db = AsyncMock()
+    db.begin_nested = MagicMock(return_value=AsyncMock())
+    return db
 
 
 def _agent() -> SimpleNamespace:
@@ -116,7 +129,7 @@ def _ok(stdout: str = "", *, ok: bool = True, stderr: str = "") -> ToolCallResul
 def test_assembles_singletons_plus_mcp_tools() -> None:
     agent = _agent()
     tools = bt.build_agent_tools(
-        AsyncMock(), agent=agent, tools=[*_singletons(), _mcp(("alpha", "beta"))], deps=_deps()
+        _session(), agent=agent, tools=[*_singletons(), _mcp(("alpha", "beta"))], deps=_deps()
     )
     names = {t.name for t in tools}
     assert {"web_search", "code_exec", "file"} <= names
@@ -133,7 +146,7 @@ def test_hosted_builtin_names_are_all_reserved() -> None:
     from contexts.agents.application.runtime.tool_registry import BUILTIN_TOOL_NAMES
 
     tools = bt.build_agent_tools(
-        AsyncMock(),
+        _session(),
         agent=_agent(),
         tools=_singletons(web_search=True, code_exec=True, file=True, file_search=True),
         deps=_deps(),
@@ -148,7 +161,7 @@ def test_user_functions_are_appended_after_builtins() -> None:
     # First-registration-wins in ToolRegistry must always keep a built-in over a
     # same-named user function, so functions are assembled last regardless of row order.
     tools = bt.build_agent_tools(
-        AsyncMock(),
+        _session(),
         agent=_agent(),
         tools=[_function("aaa_user"), *_singletons()],
         deps=_deps(),
@@ -159,14 +172,14 @@ def test_user_functions_are_appended_after_builtins() -> None:
 
 
 def test_only_enabled_singletons_yield_tools() -> None:
-    tools = bt.build_agent_tools(AsyncMock(), agent=_agent(), tools=_singletons(), deps=_deps())
+    tools = bt.build_agent_tools(_session(), agent=_agent(), tools=_singletons(), deps=_deps())
     assert {t.name for t in tools} == {"web_search", "code_exec", "file"}
 
 
 def test_disabled_singletons_are_skipped() -> None:
     # Only web_search enabled; code_exec/file/file_search off.
     tools = bt.build_agent_tools(
-        AsyncMock(),
+        _session(),
         agent=_agent(),
         tools=_singletons(web_search=True, code_exec=False, file=False),
         deps=_deps(),
@@ -177,7 +190,7 @@ def test_disabled_singletons_are_skipped() -> None:
 
 
 def _tool_by_name(name: str):
-    tools = bt.build_agent_tools(AsyncMock(), agent=_agent(), tools=_singletons(), deps=_deps())
+    tools = bt.build_agent_tools(_session(), agent=_agent(), tools=_singletons(), deps=_deps())
     return next(t for t in tools if t.name == name)
 
 
@@ -273,7 +286,7 @@ def test_file_description_states_its_workspace_root() -> None:
 
 def test_file_search_appears_when_enabled() -> None:
     tools = bt.build_agent_tools(
-        AsyncMock(),
+        _session(),
         agent=_agent(),
         tools=_singletons(web_search=False, code_exec=False, file=False, file_search=True),
         deps=_deps(),
@@ -284,7 +297,7 @@ def test_file_search_appears_when_enabled() -> None:
 def test_singletons_coexist_with_mcp_server() -> None:
     agent = _agent()
     tools = bt.build_agent_tools(
-        AsyncMock(),
+        _session(),
         agent=agent,
         tools=[
             *_singletons(web_search=True, code_exec=False, file=False),
@@ -305,19 +318,19 @@ def test_disabled_mcp_tool_is_skipped() -> None:
         enabled=False,
         config={"source": "package", "reference": "npx:@scope/srv", "allowed_tools": ["alpha"]},
     )
-    tools = bt.build_agent_tools(AsyncMock(), agent=_agent(), tools=[disabled_mcp], deps=_deps())
+    tools = bt.build_agent_tools(_session(), agent=_agent(), tools=[disabled_mcp], deps=_deps())
     assert tools == []
 
 
 def test_local_shell_is_skipped() -> None:
     tools = bt.build_agent_tools(
-        AsyncMock(), agent=_agent(), tools=[_tool(AgentToolType.LOCAL_SHELL)], deps=_deps()
+        _session(), agent=_agent(), tools=[_tool(AgentToolType.LOCAL_SHELL)], deps=_deps()
     )
     assert tools == []
 
 
 def test_function_tool_appears() -> None:
-    tools = bt.build_agent_tools(AsyncMock(), agent=_agent(), tools=[_function("lookup_order")], deps=_deps())
+    tools = bt.build_agent_tools(_session(), agent=_agent(), tools=[_function("lookup_order")], deps=_deps())
     assert {t.name for t in tools} == {"lookup_order"}
 
 
@@ -332,7 +345,7 @@ async def test_code_exec_maps_ok_and_error() -> None:
     tools = {
         t.name: t
         for t in bt.build_agent_tools(
-            AsyncMock(),
+            _session(),
             agent=_agent(),
             tools=[_tool(AgentToolType.HOSTED_CODE_INTERPRETER)],
             deps=_deps(runner=runner),
@@ -366,7 +379,7 @@ async def test_code_exec_threads_chatroom_and_collects_artifacts() -> None:
     tools = {
         t.name: t
         for t in bt.build_agent_tools(
-            AsyncMock(),
+            _session(),
             agent=_agent(),
             tools=[_tool(AgentToolType.HOSTED_CODE_INTERPRETER)],
             deps=_deps(runner=runner),
@@ -393,7 +406,7 @@ def _code_exec_tool(runner, *, room=None, sink=None):
     return next(
         t
         for t in bt.build_agent_tools(
-            AsyncMock(),
+            _session(),
             agent=_agent(),
             tools=[_tool(AgentToolType.HOSTED_CODE_INTERPRETER)],
             deps=_deps(runner=runner),
@@ -558,7 +571,7 @@ async def test_the_artifact_note_is_bounded_but_survives_a_flooding_stdout() -> 
     tools = {
         t.name: t
         for t in bt.build_agent_tools(
-            AsyncMock(),
+            _session(),
             agent=_agent(),
             tools=[_tool(AgentToolType.HOSTED_CODE_INTERPRETER)],
             deps=_deps(runner=runner),
@@ -580,7 +593,7 @@ async def test_code_exec_surfaces_kernel_restart_from_metadata() -> None:
     tools = {
         t.name: t
         for t in bt.build_agent_tools(
-            AsyncMock(),
+            _session(),
             agent=_agent(),
             tools=[_tool(AgentToolType.HOSTED_CODE_INTERPRETER)],
             deps=_deps(runner=runner),
@@ -595,7 +608,7 @@ async def test_code_exec_requires_source() -> None:
     tools = {
         t.name: t
         for t in bt.build_agent_tools(
-            AsyncMock(),
+            _session(),
             agent=_agent(),
             tools=[_tool(AgentToolType.HOSTED_CODE_INTERPRETER)],
             deps=_deps(),
@@ -611,7 +624,7 @@ async def test_file_dispatches_op() -> None:
     tools = {
         t.name: t
         for t in bt.build_agent_tools(
-            AsyncMock(),
+            _session(),
             agent=_agent(),
             tools=[_tool(AgentToolType.HOSTED_FILE_WORKSPACE)],
             deps=_deps(runner=runner),
@@ -638,7 +651,7 @@ async def test_mcp_tool_passes_source_reference() -> None:
     tools = {
         t.name: t
         for t in bt.build_agent_tools(
-            AsyncMock(), agent=agent, tools=[_mcp(("alpha",))], deps=_deps(runner=runner)
+            _session(), agent=agent, tools=[_mcp(("alpha",))], deps=_deps(runner=runner)
         )
     }
     name = next(n for n in tools if n.startswith("mcp__"))
@@ -658,7 +671,7 @@ async def test_mcp_tool_degrades_on_error() -> None:
     tools = {
         t.name: t
         for t in bt.build_agent_tools(
-            AsyncMock(), agent=_agent(), tools=[_mcp(("alpha",))], deps=_deps(runner=runner)
+            _session(), agent=_agent(), tools=[_mcp(("alpha",))], deps=_deps(runner=runner)
         )
     }
     name = next(n for n in tools if n.startswith("mcp__"))
@@ -678,7 +691,7 @@ def test_mcp_tool_advertises_captured_schema() -> None:
     tools = {
         t.name: t
         for t in bt.build_agent_tools(
-            AsyncMock(),
+            _session(),
             agent=_agent(),
             tools=[_mcp(("alpha",), captured_tools=(captured,))],
             deps=_deps(),
@@ -694,7 +707,7 @@ def test_mcp_tool_falls_back_when_schema_absent() -> None:
     # build a working tool with today's permissive schema -- never an error.
     tools = {
         t.name: t
-        for t in bt.build_agent_tools(AsyncMock(), agent=_agent(), tools=[_mcp(("alpha",))], deps=_deps())
+        for t in bt.build_agent_tools(_session(), agent=_agent(), tools=[_mcp(("alpha",))], deps=_deps())
     }
     name = next(n for n in tools if n.startswith("mcp__"))
     assert tools[name].input_schema == {"type": "object", "additionalProperties": True}
@@ -710,7 +723,7 @@ _PROVIDER_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
 def test_mcp_advertised_name_is_provider_legal() -> None:
     tools = bt.build_agent_tools(
-        AsyncMock(),
+        _session(),
         agent=_agent(),
         tools=[_mcp(("a" * 80, "fs.read_file", "ns:tool"))],
         deps=_deps(),
@@ -727,7 +740,7 @@ def test_mcp_sanitised_names_stay_unique() -> None:
     # backstop must keep them distinct registry entries.
     shared_prefix = "a" * 50
     tools = bt.build_agent_tools(
-        AsyncMock(),
+        _session(),
         agent=_agent(),
         tools=[_mcp((shared_prefix + "_one", shared_prefix + "_two"))],
         deps=_deps(),
@@ -743,7 +756,7 @@ async def test_mcp_invoke_uses_the_real_upstream_name() -> None:
     runner = AsyncMock()
     runner.invoke_mcp_tool.return_value = _ok("ok")
     tools = bt.build_agent_tools(
-        AsyncMock(),
+        _session(),
         agent=_agent(),
         tools=[_mcp(("filesystem.read_file",))],
         deps=_deps(runner=runner),
@@ -763,7 +776,7 @@ def test_mcp_sanitised_name_never_collides_with_a_builtin() -> None:
     from contexts.agents.application.runtime.tool_registry import BUILTIN_TOOL_NAMES
 
     tools = bt.build_agent_tools(
-        AsyncMock(),
+        _session(),
         agent=_agent(),
         tools=[_mcp(("web_search", "code_exec", "file", "a.b:c\x01d " + "x" * 80))],
         deps=_deps(),
@@ -787,7 +800,7 @@ async def test_web_search_formats_results(monkeypatch) -> None:
     tools = {
         t.name: t
         for t in bt.build_agent_tools(
-            AsyncMock(),
+            _session(),
             agent=_agent(),
             tools=[_tool(AgentToolType.HOSTED_WEB_SEARCH)],
             deps=_deps(),
@@ -800,11 +813,11 @@ async def test_web_search_formats_results(monkeypatch) -> None:
 
 
 async def test_web_search_degrades_on_missing_key() -> None:
-    # Real WebSearchTool.search with no active key raises → tool returns is_error.
+    # Real WebSearchTool.search with no active key raises ??tool returns is_error.
     tools = {
         t.name: t
         for t in bt.build_agent_tools(
-            AsyncMock(),
+            _session(),
             agent=_agent(),
             tools=[_tool(AgentToolType.HOSTED_WEB_SEARCH)],
             deps=_deps(),
