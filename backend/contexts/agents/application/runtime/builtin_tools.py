@@ -526,13 +526,33 @@ def _auth_pair(auth: dict[str, Any] | None) -> tuple[str, str] | None:
     return None
 
 
+# Prepended to a tool result whose invocation could not be recorded. Platform-
+# authored and placed *before* the tool's own output, so agent-controlled text
+# cannot precede it and forge one of these lines (see `_artifact_note`).
+#
+# It says the call ran, in as many words: the audit failure makes this an error
+# result, and a model reading a bare error on a side-effecting tool retries it.
+# Nothing here is the tool's own output, so no detail of the DB failure leaks.
+_AUDIT_NOT_RECORDED = (
+    "[platform: this call ran and its result below is valid, but the platform could not "
+    "record the invocation. Do not repeat the call. Report this to the user.]"
+)
+
+
 async def _audit_tool_invoke(
     db: AsyncSession, agent: Agent, tool: AgentTool, mcp_tool: str, *, ok: bool
-) -> None:
+) -> bool:
+    """Record one tool invocation. Returns whether the row was written.
+
+    The caller MUST honour a False: `mcp.tool_invoked` is the trail of what an agent
+    did with the user's keys and the sandbox, and the invariant is that a tool that
+    ran is recorded. Reporting a clean success on top of a lost record is the one
+    behaviour this function must not have (AC-4).
+    """
     try:
         from shared_kernel import audit
 
-        await audit.emit(
+        return await audit.emit(
             db,
             audit.AuditEvent(
                 action="mcp.tool_invoked",
@@ -549,8 +569,12 @@ async def _audit_tool_invoke(
             # transaction the reply is persisted in.
             isolated=True,
         )
-    except Exception:  # pragma: no cover
-        logger.warning("Failed to write tool audit event", exc_info=True)
+    except Exception:
+        # `emit(isolated=True)` handles its own DB failure; reaching here means
+        # something above it broke. Error, not warning: on a BYO-key platform a
+        # lost invocation record is a hole in the trail, not a nuisance.
+        logger.error("Failed to write tool audit event", exc_info=True)
+        return False
 
 
 # Provider function-name limit both OpenAI and Anthropic enforce (F-12). MCP
@@ -625,9 +649,14 @@ def _build_mcp_tool_from_agent_tool(
         except Exception as exc:
             await _audit_tool_invoke(db, agent, tool, mcp_tool, ok=False)
             return ToolResult(content=f"mcp tool {mcp_tool} failed: {exc}", is_error=True)
-        await _audit_tool_invoke(db, agent, tool, mcp_tool, ok=res.ok)
+        recorded = await _audit_tool_invoke(db, agent, tool, mcp_tool, ok=res.ok)
         body = res.stdout if res.ok else f"{res.stdout}\n[stderr]\n{res.stderr}".strip()
-        return ToolResult(content=clip_tool_output(body or "(no output)"), is_error=not res.ok)
+        body = body or "(no output)"
+        if not recorded:
+            # Prepended before the clip, so a chatty tool cannot truncate the
+            # notice away — the clip only ever cuts the tail.
+            body = f"{_AUDIT_NOT_RECORDED}\n{body}"
+        return ToolResult(content=clip_tool_output(body), is_error=not res.ok or not recorded)
 
     # A captured contract (probed via "Test", 2026-07-22-mcp-tool-contract) gives
     # the model the server's real parameter schema and description instead of the
@@ -721,7 +750,7 @@ def _build_function_tool(
             return ToolResult(content=f"function call failed: {exc}", is_error=True)
 
         ok = outcome.ok
-        await _audit_tool_invoke(db, agent, tool, fn_name, ok=ok)
+        recorded = await _audit_tool_invoke(db, agent, tool, fn_name, ok=ok)
         if not ok and 300 <= outcome.status < 400:
             content = (
                 f"HTTP {outcome.status} — {outcome.redirect_detail}; "
@@ -730,7 +759,10 @@ def _build_function_tool(
         else:
             text = outcome.body.decode("utf-8", "replace")
             content = f"HTTP {outcome.status}\n{text}"
-        return ToolResult(content=clip_tool_output(content), is_error=not ok)
+        if not recorded:
+            # Before the clip: see the MCP path above.
+            content = f"{_AUDIT_NOT_RECORDED}\n{content}"
+        return ToolResult(content=clip_tool_output(content), is_error=not ok or not recorded)
 
     return Tool(name=fn_name, description=fn_desc, input_schema=fn_params, invoke=_invoke)
 
