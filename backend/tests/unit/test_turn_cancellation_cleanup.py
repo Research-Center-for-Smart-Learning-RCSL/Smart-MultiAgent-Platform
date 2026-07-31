@@ -360,7 +360,7 @@ class TestCancelledTurnDrainsItsQueuedTrigger:
     now, so a trigger parked mid-turn still becomes a follow-up wakeup when the
     job is killed. `max_tries=1` (C3) means nothing else will do it."""
 
-    async def _run(self, monkeypatch: pytest.MonkeyPatch, *, parked: tuple[str, None] | None):
+    async def _run(self, monkeypatch: pytest.MonkeyPatch, *, parked: te.QueuedTrigger):
         agent_id, room = uuid.uuid4(), uuid.uuid4()
         popped: list[tuple[uuid.UUID, uuid.UUID]] = []
         enqueued: list[tuple] = []
@@ -401,13 +401,18 @@ class TestCancelledTurnDrainsItsQueuedTrigger:
         return popped, enqueued, agent_id, room
 
     async def test_parked_trigger_becomes_a_follow_up_wakeup(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        popped, enqueued, agent_id, room = await self._run(monkeypatch, parked=("mention", None))
+        popped, enqueued, agent_id, room = await self._run(
+            monkeypatch,
+            parked=te.QueuedTrigger(state=te.TriggerPopState.PARKED, trigger="mention"),
+        )
 
         assert popped == [(agent_id, room)]
         assert enqueued == [("wakeup_agent", str(agent_id), str(room), "mention", None)]
 
     async def test_nothing_parked_enqueues_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        popped, enqueued, agent_id, room = await self._run(monkeypatch, parked=None)
+        popped, enqueued, agent_id, room = await self._run(
+            monkeypatch, parked=te.QueuedTrigger(state=te.TriggerPopState.ABSENT)
+        )
 
         assert popped == [(agent_id, room)]
         assert enqueued == []

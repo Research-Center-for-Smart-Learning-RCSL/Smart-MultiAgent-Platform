@@ -383,6 +383,17 @@ module = [
 ]
 disable_error_code = ["type-arg"]
 
+# `Redis.eval` is untyped in the redis-py 5.2 stubs (`no-untyped-call`) — the same
+# stub lag as the redis blocks above. The turn engine calls it for the two scripted
+# coalesced-trigger operations. Deliberately its own block relaxing ONLY that code:
+# this module is ~3300 lines and must keep full `attr-defined` / `union-attr`
+# checking, unlike the small redis-facing modules listed earlier.
+# The Redis calls themselves belong in `contexts.agents.infrastructure` (see the
+# dossier's FU-5); when they move, this block moves with them.
+[[tool.mypy.overrides]]
+module = ["contexts.agents.application.runtime.turn_engine"]
+disable_error_code = ["no-untyped-call"]
+
 # ---------- Pytest ----------
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
