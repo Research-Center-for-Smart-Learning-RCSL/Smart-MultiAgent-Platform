@@ -49,11 +49,15 @@ parallel.
   client thinking-watchdog on every reconnect, so a pre-stream assembly window over 120s now
   reports a healthy turn as `timeout` every time instead of intermittently. See that dossier's
   FU-8.
-- `2026-07-22-turn-idempotency-and-locking` (bugfix) — `depends_on: []`. Approved 2026-07-31 with two
-  decisions recorded (Q-9 timeout relation, Q-10 test tier). From the a2a audit F-7, F-18, F-22,
-  F-23, F-39 and the config audit F-8, F-30. Six sequenced commits; one hard ordering constraint
-  (cleanup before lock-liveness). Both dossiers it named as textual adjacencies have since landed —
-  see its §9 for the re-verification.
+Removed on 2026-07-31 after implementation: `2026-07-22-turn-idempotency-and-locking` (all six
+commits C1–C6, migration 0072 applied and downgrade-checked). Nothing lists it in `depends_on`, so
+no row moved out of Blocked. It does unblock `2026-07-22-turn-outcome-reporting`'s backend half:
+that dossier's D-1 deferred C1/C3/C4 because `turn_engine.py` was being rebuilt here, and that
+rebuild is now committed. Re-verify its citations before resuming — this work restructured
+`run_turn` (the lock loop is wrapped in a `try/finally` that drains the coalesced trigger), split
+`_run_locked`'s failure handling into a shared `_finalize_failed_turn` with a third `except` arm
+for a lost lock, and changed `distributed_lock` to yield a `LockHandle` instead of a bool.
+
 Removed on 2026-07-28 because their own frontmatter reads `implemented` and the board only
 lists unfinished work: `2026-07-22-activity-session-authz-and-validation`,
 `2026-07-22-workflow-run-cancellation`, `2026-07-28-activity-schema-participant-access`.

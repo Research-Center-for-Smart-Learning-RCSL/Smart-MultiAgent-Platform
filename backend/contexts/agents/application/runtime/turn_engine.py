@@ -530,6 +530,12 @@ async def _run_uncancellable(coro: Coroutine[Any, Any, None], *, what: str) -> N
     delays the cancellation rather than swallowing it.
     """
     task = asyncio.ensure_future(coro)
+    # Every path below can leave `task` unawaited, and an unretrieved exception
+    # on a garbage-collected task surfaces as a bare "Task exception was never
+    # retrieved" with no turn context. Today's two cleanup coroutines guard
+    # every step and cannot raise; this keeps that from being a trap for the
+    # next one.
+    task.add_done_callback(_consume_cleanup_exception(what))
     loop = asyncio.get_running_loop()
     deadline = loop.time() + _CLEANUP_BUDGET_S
     for _ in range(_CLEANUP_REAWAITS):
@@ -550,6 +556,17 @@ async def _run_uncancellable(coro: Coroutine[Any, Any, None], *, what: str) -> N
     if not task.done():
         task.cancel()
         _log.warning("turn cleanup did not finish within its budget during %s", what)
+
+
+def _consume_cleanup_exception(what: str) -> Callable[[asyncio.Future[None]], None]:
+    def _done(fut: asyncio.Future[None]) -> None:
+        if fut.cancelled():
+            return
+        exc = fut.exception()
+        if exc is not None:
+            _log.error("turn cleanup raised during %s", what, exc_info=exc)
+
+    return _done
 
 
 @dataclass(frozen=True, slots=True)
