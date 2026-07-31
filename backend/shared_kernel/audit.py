@@ -157,6 +157,7 @@ async def emit(session: AsyncSession, event: AuditEvent, *, isolated: bool = Fal
             # Error, not warning: on a BYO-key platform a lost audit row is the
             # loss of the record of what an agent did with the user's key.
             _log.error("isolated audit emit failed action=%s", event.action, exc_info=True)
+            _count_write_failure(session)
             return False
     else:
         await session.execute(stmt)
@@ -175,6 +176,27 @@ async def emit(session: AsyncSession, event: AuditEvent, *, isolated: bool = Fal
 
 
 _TAIL_QUEUE_KEY = "_audit_tail_queue"
+_WRITE_FAILURE_KEY = "_audit_write_failures"
+
+
+def _count_write_failure(session: AsyncSession) -> None:
+    info = getattr(session, "info", None)
+    if isinstance(info, dict):
+        info[_WRITE_FAILURE_KEY] = info.get(_WRITE_FAILURE_KEY, 0) + 1
+
+
+def write_failures(session: AsyncSession) -> int:
+    """How many isolated audit writes have been lost on this session so far.
+
+    A monotonic counter rather than a flag, so a caller can bracket one operation
+    and see whether *it* lost a row. It exists because an isolated emit reports its
+    failure through a return value, and the tools that write the sandbox and
+    BYO-key-search audit rows call it several frames below the code that shapes the
+    result the model sees — threading a flag up through three tool façades would put
+    the plumbing in every one of them and still miss the next tool added.
+    """
+    info = getattr(session, "info", None)
+    return int(info.get(_WRITE_FAILURE_KEY, 0)) if isinstance(info, dict) else 0
 
 
 def _queue_tail_event(session: AsyncSession, payload: dict[str, Any]) -> None:
@@ -199,4 +221,4 @@ async def flush_tail_events(session: AsyncSession) -> None:
             _log.warning("audit tail publish failed for action=%s", payload.get("action"), exc_info=True)
 
 
-__all__ = ["AuditEvent", "audit_logs", "emit", "flush_tail_events", "redact"]
+__all__ = ["AuditEvent", "audit_logs", "emit", "flush_tail_events", "redact", "write_failures"]

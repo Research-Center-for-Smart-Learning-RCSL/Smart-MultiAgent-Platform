@@ -89,6 +89,7 @@ from contexts.orchestration.domain.models import EXPLICIT_TRIGGERS
 from contexts.skills.domain.models import SkillRead
 from contexts.skills.interfaces.facade import BoundSet, DroppedSkill, SkillsFacade
 from shared_kernel import audit
+from shared_kernel.db.faults import is_infrastructure_error
 from shared_kernel.observability.metrics import REGISTRY
 from shared_kernel.realtime.pubsub import Publisher
 
@@ -406,6 +407,13 @@ class TurnResult:
     # touch more than one pending gate (pending_notify.drain is keyed only by
     # agent_id).
     voted_approval_ids: frozenset[uuid.UUID] = frozenset()
+    # A `completed` turn whose final synthesis call failed: `text` is the last tool
+    # round's filler, not an answer. On the room path the marker also rides on the
+    # persisted message, but a headless caller only ever sees this object — and it
+    # hands `text` straight on as the agent's reply, so without these the filler is
+    # indistinguishable from a real one.
+    synthesis_failed: bool = False
+    error_kind: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1038,6 +1046,8 @@ class TurnEngine:
                 tool_rounds=rounds,
                 approvals_voted=len(voted_approvals),
                 voted_approval_ids=frozenset(voted_approvals),
+                synthesis_failed=outcome.synthesis_failed,
+                error_kind=outcome.error_kind,
             )
         except _TurnCancelled as tc:
             _log.info("a2a turn cancelled agent=%s after %d rounds", agent_id, tc.rounds_completed)
@@ -2491,6 +2501,8 @@ class TurnEngine:
                     tool_rounds=rounds,
                     approvals_voted=len(voted_approvals),
                     voted_approval_ids=frozenset(voted_approvals),
+                    synthesis_failed=outcome.synthesis_failed,
+                    error_kind=outcome.error_kind,
                 )
 
             msg = await MessageService(self._db).send_agent(
@@ -2545,6 +2557,8 @@ class TurnEngine:
                 tool_rounds=rounds,
                 approvals_voted=len(voted_approvals),
                 voted_approval_ids=frozenset(voted_approvals),
+                synthesis_failed=outcome.synthesis_failed,
+                error_kind=outcome.error_kind,
             )
 
         except Exception as exc:
@@ -3085,11 +3099,13 @@ class TurnEngine:
             dispatched = 0
             for tc in tool_calls:
                 args = tc.get("arguments") or {}
-                # Only the empty-argument case is ambiguous. Blocks stream in
-                # order, so an earlier call in a truncated response can still have
-                # arrived whole, and refusing it would cost the model work it
-                # already paid for.
-                if truncated and not args:
+                # Only an empty argument object on a tool that takes arguments is
+                # ambiguous. Blocks stream in order, so an earlier call in a
+                # truncated response can still have arrived whole; and for a tool
+                # that declares no parameters, `{}` is complete by contract, so
+                # refusing it would give the model advice it cannot act on.
+                ambiguous = not args and _expects_arguments(registry, tc.get("name"))
+                if truncated and ambiguous:
                     content, is_error = _TRUNCATED_ARGS_NOTE, True
                 else:
                     result = await registry.call(tc.get("name"), args)
@@ -3395,6 +3411,25 @@ def _err_kind(exc: Exception) -> str:
     return exc.__class__.__name__
 
 
+def _expects_arguments(registry: Any, name: Any) -> bool:
+    """Ask the registry whether a tool takes arguments; assume it does if it cannot say.
+
+    `registry` is deliberately untyped in `_stream_with_tools` (the loop is driven by
+    fakes in tests), so this degrades to the previous behaviour — treat an empty
+    argument object as ambiguous — rather than making the method mandatory.
+    """
+    ask = getattr(registry, "expects_arguments", None)
+    if ask is None:
+        return True
+    try:
+        return bool(ask(name))
+    except Exception:
+        # A malformed schema must cost this one refinement, never the turn: the
+        # caller is mid-loop with no handler of its own.
+        _log.warning("could not read the schema for tool %r", name, exc_info=True)
+        return True
+
+
 def _synthesis_meta(outcome: ToolLoopOutcome) -> dict[str, Any]:
     """The synthesis-failure fields for a reply's metadata and its audit row.
 
@@ -3422,8 +3457,12 @@ def _is_infrastructure_error(exc: BaseException) -> bool:
     ``sqlalchemy``; the engine owns the session every tool writes to, so the engine
     is what knows a DB fault is fatal to the turn rather than reportable to the
     model. See docs/tasks/2026-07-22-tool-dispatch-failure-categories §3 Q-5.
+
+    The set itself is `shared_kernel.db.faults`, because the built-in tools have to
+    make the same call inside their own ``except`` blocks and the two must not
+    drift.
     """
-    return isinstance(exc, SQLAlchemyError)
+    return is_infrastructure_error(exc)
 
 
 def _estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:

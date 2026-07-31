@@ -27,6 +27,7 @@ def _session() -> AsyncMock:
     """
     db = AsyncMock()
     db.begin_nested = MagicMock(return_value=AsyncMock())
+    db.info = {}
     return db
 
 

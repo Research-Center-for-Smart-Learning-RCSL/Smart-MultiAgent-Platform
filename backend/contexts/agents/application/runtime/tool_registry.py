@@ -171,10 +171,31 @@ _MAX_REPORTED_VIOLATIONS = 10
 # full schema for constrained decoding; only this local copy is stripped.
 _UNSAFE_SCHEMA_KEYWORDS = frozenset({"pattern", "patternProperties"})
 
+# Keywords whose value is a map of *property names* to subschemas. Their keys are
+# author-chosen names, not schema keywords, so the strip must not read them as such
+# — `pattern` is an ordinary parameter name for a search or glob tool, and dropping
+# it while `required` still lists it leaves a tool the model can never call.
+_NAME_KEYED_SUBSCHEMAS = frozenset({"properties", "$defs", "definitions", "dependentSchemas"})
+
+# Keywords whose value is instance data rather than a subschema. Recursing into them
+# would rewrite a default or an enum member that happens to contain these keys.
+_INSTANCE_VALUED_KEYWORDS = frozenset({"enum", "const", "default", "examples"})
+
 
 def _without_regex(node: Any) -> Any:
+    """``node`` with the regex keywords removed, in keyword position only."""
     if isinstance(node, dict):
-        return {k: _without_regex(v) for k, v in node.items() if k not in _UNSAFE_SCHEMA_KEYWORDS}
+        out: dict[str, Any] = {}
+        for key, value in node.items():
+            if key in _UNSAFE_SCHEMA_KEYWORDS:
+                continue
+            if key in _INSTANCE_VALUED_KEYWORDS:
+                out[key] = value
+            elif key in _NAME_KEYED_SUBSCHEMAS and isinstance(value, dict):
+                out[key] = {name: _without_regex(sub) for name, sub in value.items()}
+            else:
+                out[key] = _without_regex(value)
+        return out
     if isinstance(node, list):
         return [_without_regex(v) for v in node]
     return node
@@ -224,6 +245,24 @@ class ToolRegistry:
 
     def get(self, name: str) -> Tool | None:
         return self._by_name.get(name)
+
+    def expects_arguments(self, name: str) -> bool:
+        """Does this tool declare any parameters at all?
+
+        The turn loop asks before refusing an empty argument object as truncated:
+        for a tool that takes none, `{}` is complete by contract and cannot have
+        been cut off, so refusing it would hand the model advice — "retry with a
+        smaller payload" — that it has no way to act on. Unknown names answer True
+        so an unknown tool still goes through the normal dispatch error.
+        """
+        tool = self._by_name.get(name)
+        if tool is None:
+            return True
+        schema = tool.input_schema or {}
+        # `additionalProperties: true` with no declared properties is the
+        # permissive fallback an unprobed MCP binding carries — it accepts
+        # arguments, so an empty object there is still ambiguous.
+        return bool(schema.get("properties")) or schema.get("additionalProperties") is not False
 
     async def call(self, name: str, args: dict[str, Any]) -> ToolResult:
         """Dispatch one tool call, degrading *domain* failures into a result.

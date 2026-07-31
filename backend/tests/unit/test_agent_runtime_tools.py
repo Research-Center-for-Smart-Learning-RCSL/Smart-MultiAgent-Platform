@@ -234,6 +234,79 @@ def test_regex_keywords_are_stripped_at_every_depth() -> None:
     }
 
 
+@pytest.mark.asyncio
+async def test_a_parameter_named_pattern_survives_the_strip() -> None:
+    """`pattern` is an ordinary parameter name for a search or glob tool, and MCP
+    servers built with the TypeScript SDK emit `additionalProperties: false`.
+
+    Stripping it as though it were the regex keyword dropped the property while
+    `required` still listed it, so the tool could not be called either way: supply
+    the argument and it is "not allowed", omit it and it is "required". The model
+    can satisfy neither.
+    """
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            # A regex keyword nested inside the property that is *named* `pattern`
+            # is still a keyword, and must still go.
+            "pattern": {"type": "string", "pattern": "^(a+)+$"},
+        },
+        "required": ["path", "pattern"],
+        "additionalProperties": False,
+    }
+    invoked: list = []
+
+    async def _record(args):
+        invoked.append(args)
+        return tr.ToolResult(content="ran")
+
+    reg = ToolRegistry([Tool(name="search_files", description="d", input_schema=schema, invoke=_record)])
+
+    res = await reg.call("search_files", {"path": "/a", "pattern": "a" * 34 + "!"})
+
+    assert not res.is_error, res.content
+    assert invoked == [{"path": "/a", "pattern": "a" * 34 + "!"}]
+    # And the property is still type-checked.
+    assert (await reg.call("search_files", {"path": "/a", "pattern": 5})).is_error
+
+
+def test_expects_arguments_reads_the_advertised_schema() -> None:
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    async def _ran(_args):
+        return tr.ToolResult(content="ran")
+
+    def _tool(name: str, schema: dict):
+        return Tool(name=name, description="d", input_schema=schema, invoke=_ran)
+
+    reg = ToolRegistry(
+        [
+            _tool("none", {"type": "object", "additionalProperties": False}),
+            _tool("some", {"type": "object", "properties": {"q": {"type": "string"}}}),
+            # The permissive fallback an unprobed MCP binding carries: it accepts
+            # arguments, so an empty object there is still ambiguous.
+            _tool("permissive", {"type": "object", "additionalProperties": True}),
+        ]
+    )
+
+    assert reg.expects_arguments("none") is False
+    assert reg.expects_arguments("some") is True
+    assert reg.expects_arguments("permissive") is True
+    # An unknown name falls through to the normal dispatch error, not a rejection.
+    assert reg.expects_arguments("nope") is True
+
+
+def test_instance_data_is_not_rewritten_by_the_strip() -> None:
+    """`default`/`enum` hold values, not subschemas; a key named `pattern` in one
+    is data the provider is shown, not a regex this validator would run."""
+    schema = {"type": "object", "default": {"pattern": "x"}, "enum": [{"pattern": "y"}]}
+
+    assert tr._without_regex(schema) == schema
+
+
 def test_the_violation_report_is_bounded() -> None:
     """The messages quote the model's own arguments back at it, and a large
     malformed payload would otherwise be echoed into the context window."""

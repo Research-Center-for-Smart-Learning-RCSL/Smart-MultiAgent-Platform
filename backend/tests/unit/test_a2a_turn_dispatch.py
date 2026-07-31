@@ -1375,9 +1375,7 @@ async def test_handle_call_delivers_reply(monkeypatch) -> None:
         delivered["cid"], delivered["env"] = cid, env
 
     monkeypatch.setattr(h.a2a_rendezvous, "deliver_reply", _deliver)
-    monkeypatch.setattr(
-        h, "_run_turn", _async_return(SimpleNamespace(status="completed", text="ANSWER", reason=None))
-    )
+    monkeypatch.setattr(h, "_run_turn", _async_return(te.TurnResult(status="completed", text="ANSWER")))
 
     env = _env(A2AMessageType.CALL, {"input": "do x"})
     await h.handle_envelope(env)
@@ -1396,9 +1394,7 @@ async def test_handle_call_failed_delivers_error(monkeypatch) -> None:
         delivered["env"] = env
 
     monkeypatch.setattr(h.a2a_rendezvous, "deliver_reply", _deliver)
-    monkeypatch.setattr(
-        h, "_run_turn", _async_return(SimpleNamespace(status="failed", text="", reason="boom"))
-    )
+    monkeypatch.setattr(h, "_run_turn", _async_return(te.TurnResult(status="failed", reason="boom")))
 
     await h.handle_envelope(_env(A2AMessageType.CALL, {"input": "x"}))
     assert h.a2a_rendezvous.A2A_ERROR_KEY in delivered["env"]["payload"]
@@ -1428,9 +1424,7 @@ async def test_handle_instruct_marks_states(monkeypatch) -> None:
         yield _FakeDB()
 
     monkeypatch.setattr(h, "async_session", _sess)
-    monkeypatch.setattr(
-        h, "_run_turn_with_db", _async_return(SimpleNamespace(status="completed", text="x", reason=None))
-    )
+    monkeypatch.setattr(h, "_run_turn_with_db", _async_return(te.TurnResult(status="completed", text="x")))
 
     iid = uuid.uuid4()
     await h.handle_envelope(_env(A2AMessageType.INSTRUCT, {"instruction_id": str(iid), "input": "go"}))
@@ -1472,9 +1466,7 @@ async def test_handle_instruct_failed_turn_marks_failed(monkeypatch) -> None:
         yield _FakeDB()
 
     monkeypatch.setattr(h, "async_session", _sess)
-    monkeypatch.setattr(
-        h, "_run_turn_with_db", _async_return(SimpleNamespace(status="failed", text="", reason="x"))
-    )
+    monkeypatch.setattr(h, "_run_turn_with_db", _async_return(te.TurnResult(status="failed", reason="x")))
 
     iid = uuid.uuid4()
     await h.handle_envelope(_env(A2AMessageType.INSTRUCT, {"instruction_id": str(iid), "input": "go"}))
@@ -1515,9 +1507,7 @@ async def test_handle_instruct_tolerates_rejected_completion(monkeypatch) -> Non
         yield _FakeDB()
 
     monkeypatch.setattr(h, "async_session", _sess)
-    monkeypatch.setattr(
-        h, "_run_turn_with_db", _async_return(SimpleNamespace(status="completed", text="x", reason=None))
-    )
+    monkeypatch.setattr(h, "_run_turn_with_db", _async_return(te.TurnResult(status="completed", text="x")))
     enqueue_mock = AsyncMock()
     monkeypatch.setattr("shared_kernel.queue.enqueue", enqueue_mock)
 
@@ -1541,7 +1531,7 @@ async def test_run_turn_with_db_passes_parent_agent_id(monkeypatch) -> None:
 
         async def run_input_turn(self, **kw):
             captured.update(kw)
-            return SimpleNamespace(status="completed", text="ok", reason=None)
+            return te.TurnResult(status="completed", text="ok")
 
     monkeypatch.setattr("contexts.agents.application.runtime.turn_engine.TurnEngine", _Engine)
     monkeypatch.setattr(
@@ -1571,7 +1561,7 @@ async def test_run_turn_with_db_tolerates_non_uuid_sender(monkeypatch) -> None:
 
         async def run_input_turn(self, **kw):
             captured.update(kw)
-            return SimpleNamespace(status="completed", text="ok", reason=None)
+            return te.TurnResult(status="completed", text="ok")
 
     monkeypatch.setattr("contexts.agents.application.runtime.turn_engine.TurnEngine", _Engine)
     monkeypatch.setattr(
