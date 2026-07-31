@@ -50,12 +50,6 @@ parallel.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
-- `2026-07-22-tool-dispatch-failure-categories` (bugfix) — `depends_on: []`. Approved by the
-  user on 2026-07-31 and started the same day. From
-  `docs/audits/2026-07-22-agent-config-runtime/` F-6, F-16, F-17 (all major): a tool's DB
-  failure poisons the turn session and destroys an already-streamed reply, truncated tool-call
-  JSON silently becomes empty arguments, and a failed final synthesis is persisted as the
-  answer. Six sequenced commits.
 Removed on 2026-07-28 because their own frontmatter reads `implemented` and the board only
 lists unfinished work: `2026-07-22-activity-session-authz-and-validation`,
 `2026-07-22-workflow-run-cancellation`, `2026-07-28-activity-schema-participant-access`.
@@ -66,6 +60,13 @@ Also removed on 2026-07-29 after implementation: `2026-07-22-reingest-allowlist-
 Removed on 2026-07-29 after implementation: `2026-07-22-search-determinism-and-highlighting`.
 Removed on 2026-07-30 after implementation: `2026-07-22-settings-form-reconciliation`. Nothing
 listed it in `depends_on`, so no row moved out of Blocked.
+Removed on 2026-07-31 after implementation: `2026-07-22-tool-dispatch-failure-categories`.
+Nothing lists it in `depends_on`, so no row moved out of Blocked. It does change the ground
+under `2026-07-22-turn-idempotency-and-locking`, which names it as a textual adjacency: this
+work restructured `_stream_with_tools` (the tool-round loop is now a bounded `for` over
+attempts with its own round counter, and the function returns `ToolLoopOutcome` instead of
+`tuple[str, int]`), so that dossier's citations into the turn loop need re-verifying before
+it starts.
 Removed on 2026-07-30 after implementation: `2026-07-22-subagent-spawn-fail-fast`. Nothing listed
 it in `depends_on`, so no row moved out of Blocked. It does validate two standing assumptions in
 `2026-07-22-workflow-capability-enforcement`: `SubagentService.spawn` now has **zero** production
