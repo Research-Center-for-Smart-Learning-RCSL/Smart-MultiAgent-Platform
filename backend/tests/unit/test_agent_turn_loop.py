@@ -227,6 +227,77 @@ async def test_final_no_tools_call_carries_the_same_provider_and_model() -> None
     assert "models" not in final_request.payload
 
 
+@pytest.mark.asyncio
+async def test_the_tool_rounds_and_the_final_call_are_built_the_same_way() -> None:
+    """Characterization. Both requests are assembled from one builder; the only
+    intended differences are the messages list and whether tools are offered.
+
+    Two near-identical builds with their own copies of the effort and sampling
+    handling is how they drift, and a sampling control silently dropped from the
+    synthesis call is invisible in any assertion about text.
+    """
+
+    class _ToolRoundRouter:
+        def __init__(self) -> None:
+            self.requests: list = []
+
+        async def call_stream(self, *, group_id, request):
+            self.requests.append(request)
+            if len(self.requests) <= te.MAX_TOOL_ROUNDS:
+                yield StreamComplete(
+                    ProviderCallResult(
+                        200,
+                        {
+                            "text": "",
+                            "tool_calls": [{"id": "t1", "name": "update_wakeup", "arguments": {}}],
+                            "finish_reason": "tool_use",
+                        },
+                    )
+                )
+            else:
+                yield StreamComplete(ProviderCallResult(200, {"text": "final"}))
+
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._router = _ToolRoundRouter()  # type: ignore[attr-defined]
+    agent = SimpleNamespace(
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        effort=SimpleNamespace(value="high"),
+        temperature=0.3,
+        top_p=0.9,
+        seed=7,
+    )
+
+    await engine._stream_with_tools(
+        agent=agent,
+        chatroom_id=uuid.uuid4(),
+        parent_agent_id=None,
+        system_text="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        provider=ApiKeyProvider.CLAUDE,
+        model="m",
+        registry=_FakeRegistry(),
+        room=None,
+    )
+
+    tool_round, final = (
+        engine._router.requests[0],  # type: ignore[attr-defined]
+        engine._router.requests[-1],  # type: ignore[attr-defined]
+    )
+    for request in (tool_round, final):
+        assert request.payload["effort"] == "high"
+        assert request.payload["temperature"] == 0.3
+        assert request.payload["top_p"] == 0.9
+        assert request.payload["seed"] == 7
+        assert request.payload["max_tokens"] == te._DEFAULT_MAX_TOKENS
+        assert request.payload["system"] == "sys"
+        assert request.capability is te.ProviderCapability.LLM_CHAT
+    # The one intended difference: the final call offers no tools, so the
+    # provider does not require the tool_use blocks that were stripped out.
+    assert "tools" in tool_round.payload
+    assert "tools" not in final.payload
+
+
 def test_a_database_fault_is_classified_as_infrastructure() -> None:
     """The predicate the engine hands the registry (AC-3)."""
     assert te._is_infrastructure_error(OperationalError("stmt", {}, Exception("down"))) is True
