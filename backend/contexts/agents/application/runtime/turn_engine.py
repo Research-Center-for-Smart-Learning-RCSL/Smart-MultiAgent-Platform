@@ -93,6 +93,7 @@ from contexts.skills.interfaces.facade import BoundSet, DroppedSkill, SkillsFaca
 from shared_kernel import audit
 from shared_kernel.db.faults import is_infrastructure_error
 from shared_kernel.observability.metrics import REGISTRY
+from shared_kernel.realtime.distributed_lock import LockHandle
 from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)
@@ -120,6 +121,10 @@ _CANCELLED_ERR_KIND = "cancelled"
 # parked for the holder. Distinct from `locked`, which asserts that somebody else
 # will answer the message — an assertion that is false here.
 _COALESCE_FAILED = "coalesce_failed"
+
+# What a turn reports when its lock lapsed while it was running, so a second
+# holder may already be serving the same room.
+_LOCK_LOST_ERR_KIND = "lock_lost"
 
 # What the model is told when its tool call is refused for truncated arguments.
 # It has to live in the result `content`: `is_error` is translated only by the
@@ -594,6 +599,22 @@ class ToolLoopOutcome:
     error_kind: str | None = None
 
 
+def _lock_liveness_check(lock: LockHandle | None) -> CancelCheck | None:
+    """A ``cancel_check`` that fires once the turn lock is no longer held.
+
+    ``None`` when there is no lock to watch (the headless paths), so
+    ``_stream_with_tools`` keeps its existing no-check behaviour rather than
+    paying for a predicate that can never fire.
+    """
+    if lock is None:
+        return None
+
+    async def _lost() -> bool:
+        return not lock.held
+
+    return _lost
+
+
 class _TurnCancelled(Exception):
     """Raised by _stream_with_tools when a cancel_check fires."""
 
@@ -897,6 +918,7 @@ class TurnEngine:
                             request_id=request_id,
                             trigger_message_id=trigger_message_id,
                             turn_job_id=turn_job_id,
+                            lock=acquired,
                         )
                         break
                     marked = await _mark_trigger_queued(agent_id, chatroom_id, trigger, trigger_message_id)
@@ -2145,6 +2167,7 @@ class TurnEngine:
         request_id: uuid.UUID | None,
         trigger_message_id: uuid.UUID | None = None,
         turn_job_id: str | None = None,
+        lock: LockHandle | None = None,
     ) -> TurnResult:
         agent = await AgentsFacade(self._db).get_agent(agent_id)
         if agent is None:
@@ -2598,6 +2621,11 @@ class TurnEngine:
                 model=model,
                 registry=registry,
                 room=room,
+                # Fail closed on a lost lock (F-23). Checked only at a round
+                # boundary, so a provider response is never truncated mid-stream;
+                # the cost of one more round on a lock we no longer hold is far
+                # below the cost of a half-written reply.
+                cancel_check=_lock_liveness_check(lock),
             )
             final_text, rounds = outcome.text, outcome.rounds
             synthesis_meta = _synthesis_meta(outcome)
@@ -2756,6 +2784,26 @@ class TurnEngine:
                 error_kind=outcome.error_kind,
             )
 
+        except _TurnCancelled:
+            # The turn lock lapsed under us and a second holder may already be
+            # serving this room. Stop rather than commit a reply nobody can tell
+            # apart from the other holder's — the idempotency key covers the
+            # case where one is committed anyway, this covers the spend.
+            _log.warning(
+                "agent turn abandoned after losing its lock agent=%s room=%s (%s)",
+                agent_id,
+                chatroom_id,
+                lock.lost_reason if lock is not None else None,
+            )
+            await self._finalize_failed_turn(
+                agent=agent,
+                chatroom_id=chatroom_id,
+                room=room,
+                error_kind=_LOCK_LOST_ERR_KIND,
+                pending_notes=pending_notes,
+                voted_approvals=voted_approvals,
+            )
+            return TurnResult(status="failed", reason=_LOCK_LOST_ERR_KIND)
         except Exception as exc:
             _log.exception("agent turn failed agent=%s room=%s", agent_id, chatroom_id)
             await self._finalize_failed_turn(
