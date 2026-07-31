@@ -387,6 +387,28 @@ class TurnResult:
     voted_approval_ids: frozenset[uuid.UUID] = frozenset()
 
 
+@dataclass(frozen=True, slots=True)
+class ToolLoopOutcome:
+    """What ``_stream_with_tools`` produced, and whether it is an actual answer.
+
+    A bare ``tuple[str, int]`` gave the caller no way to tell a synthesised reply
+    apart from the last tool round's filler ("let me check…") returned because the
+    final provider call failed. The caller then persisted the filler as the agent's
+    answer and audited the turn as finished, so a provider outage became permanent
+    conversation history with no error anywhere in the UI.
+
+    ``text`` is still worth persisting when ``synthesis_failed``: eight rounds of
+    real tool work stand behind it, and discarding that is worse for the user than
+    showing it honestly flagged. ``error_kind`` is the closed-vocabulary token from
+    :func:`_err_kind`, never a provider or driver message.
+    """
+
+    text: str
+    rounds: int
+    synthesis_failed: bool = False
+    error_kind: str | None = None
+
+
 class _TurnCancelled(Exception):
     """Raised by _stream_with_tools when a cancel_check fires."""
 
@@ -965,7 +987,7 @@ class TurnEngine:
                 )
 
             await self._db.flush()
-            final_text, rounds = await self._stream_with_tools(
+            outcome = await self._stream_with_tools(
                 agent=agent,
                 chatroom_id=None,
                 parent_agent_id=parent_agent_id,
@@ -977,7 +999,16 @@ class TurnEngine:
                 room=None,
                 cancel_check=cancel_check,
             )
-            await self._audit(agent, None, "agent.turn_finished", {"mode": "a2a", "tool_rounds": rounds})
+            final_text, rounds = outcome.text, outcome.rounds
+            # This path has no `if not final_text.strip()` guard, so before the
+            # outcome carried it, even an empty failed synthesis was audited here
+            # as a completed turn.
+            await self._audit(
+                agent,
+                None,
+                "agent.turn_finished",
+                {"mode": "a2a", "tool_rounds": rounds, **_synthesis_meta(outcome)},
+            )
             await self._db.commit()
             await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
             return TurnResult(
@@ -2332,7 +2363,7 @@ class TurnEngine:
             # transaction committed below — reply persistence stays atomic.
             await self._db.commit()
 
-            final_text, rounds = await self._stream_with_tools(
+            outcome = await self._stream_with_tools(
                 agent=agent,
                 chatroom_id=chatroom_id,
                 parent_agent_id=parent_agent_id,
@@ -2343,25 +2374,34 @@ class TurnEngine:
                 registry=registry,
                 room=room,
             )
+            final_text, rounds = outcome.text, outcome.rounds
+            synthesis_meta = _synthesis_meta(outcome)
 
             if not final_text.strip():
-                # Nothing to say — never persist an empty agent message.
+                # Nothing to say — never persist an empty agent message. When the
+                # synthesis failed, the reason is the failure and not the model
+                # choosing silence: recording it as `empty_reply` filed a provider
+                # outage as a benign skip.
+                skip_reason = outcome.error_kind if outcome.synthesis_failed else "empty_reply"
                 await self._audit(
                     agent,
                     chatroom_id,
                     "agent.turn_finished",
-                    {"tool_rounds": rounds, "reason": "empty_reply"},
+                    {"tool_rounds": rounds, "reason": skip_reason, **synthesis_meta},
                 )
                 await self._db.commit()
                 self._compact_forced_rooms.pop(chatroom_id, None)
                 if room is not None:
                     await Publisher(room).emit(
-                        "agent.finished", {"reason": "empty_reply", "agent_id": str(agent.id)}
+                        "agent.finished", {"reason": skip_reason, "agent_id": str(agent.id)}
                     )
                 elif is_observer:
-                    # O-4 (R28.13): benign skip, not a failure.
+                    # O-4 (R28.13): benign skip, not a failure — unless it was one.
                     await self._emit_observation_event(
-                        chatroom_id, agent.id, "observation.skipped", {"kind": "empty_reply"}
+                        chatroom_id,
+                        agent.id,
+                        "observation.failed" if outcome.synthesis_failed else "observation.skipped",
+                        {"kind": skip_reason},
                     )
                 # The provider was reached and the drained notes were in its context
                 # (rendering is delivery for notify/released_observation, R9.16/R28.07),
@@ -2370,13 +2410,16 @@ class TurnEngine:
                 await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
                 return TurnResult(
                     status="skipped",
-                    reason="empty_reply",
+                    reason=skip_reason,
                     tool_rounds=rounds,
                     approvals_voted=len(voted_approvals),
                     voted_approval_ids=frozenset(voted_approvals),
                 )
 
-            reply_meta: dict[str, Any] = {"trigger": trigger, "tool_rounds": rounds}
+            # Persisted even when the synthesis failed — eight rounds of real tool
+            # work stand behind this text — but never unmarked: `synthesis_meta`
+            # rides on the stored message so the UI can say the answer is partial.
+            reply_meta: dict[str, Any] = {"trigger": trigger, "tool_rounds": rounds, **synthesis_meta}
             if rag_ctx and rag_ctx.sources:
                 # Persist what RAG retrieved so the UI can cite it (R10.09).
                 reply_meta["rag_sources"] = rag_ctx.sources
@@ -2402,7 +2445,7 @@ class TurnEngine:
                     agent,
                     chatroom_id,
                     "agent.turn_finished",
-                    {"tool_rounds": rounds, "observer": True},
+                    {"tool_rounds": rounds, "observer": True, **synthesis_meta},
                 )
                 await self._db.commit()
                 self._compact_forced_rooms.pop(chatroom_id, None)
@@ -2434,7 +2477,9 @@ class TurnEngine:
                 metadata=reply_meta,
                 request_id=request_id,
             )
-            await self._audit(agent, chatroom_id, "agent.turn_finished", {"tool_rounds": rounds})
+            await self._audit(
+                agent, chatroom_id, "agent.turn_finished", {"tool_rounds": rounds, **synthesis_meta}
+            )
             await self._db.commit()
             self._compact_forced_rooms.pop(chatroom_id, None)
             # Persist any code_exec artifacts (charts/files) and bind them to the
@@ -2455,7 +2500,12 @@ class TurnEngine:
                         "created_at": msg.created_at.isoformat() if msg.created_at else None,
                     },
                 )
-                await pub.emit("agent.finished", {"message_id": str(msg.id), "agent_id": str(agent.id)})
+                # `synthesis_meta` rides along so the client can mark the bubble
+                # without refetching the message to read its metadata.
+                await pub.emit(
+                    "agent.finished",
+                    {"message_id": str(msg.id), "agent_id": str(agent.id), **synthesis_meta},
+                )
             # K.4: agent replies feed workflow `message` triggers/waits exactly
             # like user sends do (sender_filter agent/any). Best-effort,
             # post-commit — never fails the turn.
@@ -2962,7 +3012,7 @@ class TurnEngine:
         registry: Any,
         room: str | None,
         cancel_check: CancelCheck | None = None,
-    ) -> tuple[str, int]:
+    ) -> ToolLoopOutcome:
         tool_specs = registry.specs()
         last_text = ""
         for rounds in range(1, MAX_TOOL_ROUNDS + 1):
@@ -2992,7 +3042,7 @@ class TurnEngine:
             last_text = str(body.get("text", ""))
             tool_calls = body.get("tool_calls") or []
             if not tool_calls:
-                return last_text, rounds - 1
+                return ToolLoopOutcome(text=last_text, rounds=rounds - 1)
             # Append the assistant tool-use turn, then each tool result.
             messages.append({"role": "assistant", "content": last_text, "tool_calls": tool_calls})
             for tc in tool_calls:
@@ -3050,7 +3100,7 @@ class TurnEngine:
             tools=None,
         )
         try:
-            final_body: dict[str, Any] = {}
+            final_body: dict[str, Any] | None = None
             async for ev in self._router.call_stream(group_id=agent.key_group_id, request=final_request):
                 if isinstance(ev, TokenDelta):
                     AGENT_STREAM_TOKENS_TOTAL.inc()
@@ -3060,10 +3110,35 @@ class TurnEngine:
                         )
                 elif isinstance(ev, StreamComplete):
                     final_body = ev.result.body
-            return str(final_body.get("text", last_text)), MAX_TOOL_ROUNDS
-        except Exception:
-            _log.warning("final no-tools call failed; falling back to last tool-round text")
-            return last_text, MAX_TOOL_ROUNDS
+        except Exception as exc:
+            # Not a warning about a cosmetic fallback: `last_text` is the last
+            # tool round's partial text, typically "let me check…" or empty, and
+            # returning it unmarked is how a provider outage became the agent's
+            # committed answer.
+            _log.error(
+                "final no-tools call failed agent=%s; returning unsynthesised text",
+                agent.id,
+                exc_info=True,
+            )
+            return ToolLoopOutcome(
+                text=last_text,
+                rounds=MAX_TOOL_ROUNDS,
+                synthesis_failed=True,
+                error_kind=_err_kind(exc),
+            )
+        if final_body is None:
+            # The call did not raise but no terminal event arrived, so there is no
+            # synthesised text — the same failure as the except above, and it used
+            # to fall through `final_body.get("text", last_text)` with no log line
+            # at all.
+            _log.error("final no-tools call yielded no terminal event agent=%s", agent.id)
+            return ToolLoopOutcome(
+                text=last_text,
+                rounds=MAX_TOOL_ROUNDS,
+                synthesis_failed=True,
+                error_kind="provider_no_terminal_event",
+            )
+        return ToolLoopOutcome(text=str(final_body.get("text", "")), rounds=MAX_TOOL_ROUNDS)
 
     async def _rag_context(
         self, agent: Agent, queries: Sequence[str], *, token_budget: int | None = None
@@ -3255,6 +3330,19 @@ def _err_kind(exc: Exception) -> str:
         # failing statement, not something a client should be told.
         return "database_error"
     return exc.__class__.__name__
+
+
+def _synthesis_meta(outcome: ToolLoopOutcome) -> dict[str, Any]:
+    """The synthesis-failure fields for a reply's metadata and its audit row.
+
+    Empty on the ordinary path, so a healthy turn's records are unchanged and the
+    presence of a key is itself the signal. One helper rather than three literals
+    because the room reply, the observation and the headless turn all record it and
+    a reader has to be able to query one field name across all three.
+    """
+    if not outcome.synthesis_failed:
+        return {}
+    return {"synthesis_failed": True, "error": outcome.error_kind}
 
 
 def _is_infrastructure_error(exc: BaseException) -> bool:
