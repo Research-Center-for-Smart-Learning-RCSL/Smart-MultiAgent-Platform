@@ -20,11 +20,6 @@ parallel.
   F-7, F-18, F-22, F-23, F-39 and the config audit F-8, F-30. Six sequenced commits; one hard
   ordering constraint (cleanup before lock-liveness). Names two textual adjacencies with the
   compaction and tool-dispatch dossiers.
-- `2026-07-22-tool-dispatch-failure-categories` (bugfix, draft) — `depends_on: []`. From
-  `docs/audits/2026-07-22-agent-config-runtime/` F-6, F-16, F-17 (all major): a tool's DB
-  failure poisons the turn session and destroys an already-streamed reply, truncated tool-call
-  JSON silently becomes empty arguments, and a failed final synthesis is persisted as the
-  answer. Six sequenced commits; needs one empirical check before the design is fixed (§3 Q-2).
 - `2026-07-22-workflow-capability-enforcement` (bugfix, draft) — `depends_on: []`. a2a F-13 plus
   config F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read
   by nothing. **Blocked on Q-8** (migration posture) — enforcing without a backfill breaks every
@@ -55,6 +50,12 @@ parallel.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+- `2026-07-22-tool-dispatch-failure-categories` (bugfix) — `depends_on: []`. Approved by the
+  user on 2026-07-31 and started the same day. From
+  `docs/audits/2026-07-22-agent-config-runtime/` F-6, F-16, F-17 (all major): a tool's DB
+  failure poisons the turn session and destroys an already-streamed reply, truncated tool-call
+  JSON silently becomes empty arguments, and a failed final synthesis is persisted as the
+  answer. Six sequenced commits.
 Removed on 2026-07-28 because their own frontmatter reads `implemented` and the board only
 lists unfinished work: `2026-07-22-activity-session-authz-and-validation`,
 `2026-07-22-workflow-run-cancellation`, `2026-07-28-activity-schema-participant-access`.
