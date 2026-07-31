@@ -450,8 +450,13 @@ Q-7 no-backfill position.
       documented reason.*
 - [ ] AC-5: the thinking watchdog is re-armed by `agent.progress` and `agent.warning`, and a
       turn that emits progress every < 120 s never reports `timeout`.
-- [ ] AC-6: when the watchdog does fire, it clears only the drafts of agents currently
+      *Half done: the `agent.warning` re-arm shipped (that event already exists), verified by
+      `useChatroomSocket.test.ts`'s `re-arms the timeout on agent.warning (F-15)`. The
+      `agent.progress` half waits on C3's backend emit — see D-1/FU-7.*
+- [x] AC-6: when the watchdog does fire, it clears only the drafts of agents currently
       marked thinking in that room.
+      *Verified by `clears only the thinking agents drafts when it fires`, failing before the
+      change. A second test pins the empty-set fallback (D-7).*
 - [ ] AC-7: on a multi-round tool turn the streamed draft contains only the current round's
       text, so the draft at `agent.finished` matches the persisted reply.
 - [ ] AC-8: the Q-3 ordering constraint is recorded in
@@ -459,8 +464,10 @@ Q-7 no-backfill position.
 - [ ] AC-9: the two test-locked decisions in §8 are either left green with the reasoning
       recorded, or changed with the user's decision recorded in §12 — neither is silently
       edited.
-- [ ] AC-10: the comment at `useChatroomSocket.ts:180-183` describes what the code
-      guarantees (F-32 residue).
+- [x] AC-10: the comment at `useChatroomSocket.ts:180-183` describes what the code
+      guarantees (F-32 residue). *Now at `:297-302`; rewritten to say the deferral is a
+      flicker preference rather than a guarantee, since `agent.finished` clears the draft
+      unconditionally whichever frame wins.*
 - [ ] AC-11: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in
       `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` pass in
       `frontend/`.
@@ -526,6 +533,19 @@ If the new `agent.progress` event is added, it must also be listed in
   (`:2462`). C1's post-commit block has also grown two members the spec did not list —
   `self._compact_forced_rooms.pop()` and `_settle_pending_approvals` — both of which must
   move inside the new guard with their own individual guards.
+- **D-7 — C3's two backend-independent slices shipped ahead of the rest, and AC-6 gained a
+  fallback the spec did not ask for.** With the user's agreement on 2026-07-31, the
+  `agent.warning` re-arm (AC-5, half) and the watchdog draft scoping (AC-6) landed without
+  waiting on `turn_engine.py`, since neither needs a new event: `agent.warning` is already
+  emitted (`turn_engine.py:1794`) and already documented (`REQUIREMENTS.md:717`). AC-10
+  went with them. **`case 'agent.progress'` was deliberately not added**: its payload shape
+  and the round-boundary phase value C4 keys off are contract details C3's backend half
+  must settle, and writing them with no producer would pin them prematurely.
+  The fallback: when the thinking set is empty the clear stays room-wide. The literal AC
+  would clear nothing there and strand a draft with no later event to remove it. That state
+  needs a lost `agent.thinking` frame with no reconnect — near-unreachable, since a
+  reconnect clears both — so AC-6's scoping is defence in depth and the fallback keeps
+  today's behaviour for the one case it does not cover. Both arms are tested.
 - **D-6 — every `path:line` in §1–§9 is stale.** `turn_engine.py` is now 3372 lines (was
   ~2760 when this was written) and `useChatroomSocket.ts` was reshaped by
   `chatroom-socket-lifecycle`. Every cited *behaviour* was re-verified as still present at
@@ -561,13 +581,15 @@ If the new `agent.progress` event is added, it must also be listed in
   identification query from §7 finds the audit-row evidence after the fact; nothing notices
   at the time. A counter on swallowed post-commit dispatch failures would make the class
   observable.
-- **FU-7** — **C1, C3 and C4 are unbuilt** (D-1). They are blocked only on
-  `turn_engine.py` being clean of `2026-07-22-turn-idempotency-and-locking`'s uncommitted
-  C1, not on any finding here. Two slices of C3 need **no** backend change and could ship
-  ahead of the rest: the missing `case 'agent.warning'` re-arm (that event already exists —
-  `turn_engine.py:1794`, and `REQUIREMENTS.md:717` already documents it), and scoping the
-  watchdog's `clearAgentStream(roomId)` to the agents in `agentThinking[roomId]` (AC-6).
-  AC-10's stale comment is likewise frontend-only.
+- **FU-7** — **C1, C4 and the backend half of C3 are unbuilt** (D-1). They are blocked only
+  on `2026-07-22-turn-idempotency-and-locking` finishing with `turn_engine.py`, not on any
+  finding here. What remains, in order: **C1** (end the failure scope at the commit —
+  F-6, S-1, plus the `knowledge_starved` sibling of D-5), **C3's backend half** (emit
+  `agent.progress` at the four named assembly boundaries and around the compaction call,
+  then add its client `case`), then **C4** (reuse that event at the round boundary,
+  `turn_engine.py:3226`, and reset the draft on it). C3's frontend-independent slices and
+  AC-10 are already done (D-7). Unblocked ACs remaining: AC-1, AC-2, AC-3, the
+  `agent.progress` half of AC-5, and AC-7.
 - **FU-8** — `onSend` (`useChatroomMessages.ts:236`) mixes slash-command dispatch,
   optimistic insert, scroll, mention resolution, the POST and rollback across ~77 lines;
   C2 added 13 of them. Extracting the `/compact` branch into a named local would undo the
