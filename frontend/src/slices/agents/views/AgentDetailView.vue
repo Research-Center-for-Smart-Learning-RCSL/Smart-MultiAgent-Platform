@@ -340,11 +340,28 @@ function nullableNumberFromText(field: { value: number | null }) {
   })
 }
 
-// Workflow capabilities decomposed fields
+// Workflow capabilities decomposed fields. Default matches R15.20 /
+// SUBAGENT_MAX_CONCURRENT_DEFAULT (3), not the UI's former stale 5.
 const canInstruct = ref(false)
 const canApprove = ref(false)
 const canCreateSubagent = ref(false)
-const maxAliveSubagents = ref(5)
+const maxAliveSubagents = ref(3)
+
+// max_alive_subagents (R15.20: 1..20, default 3) is a required bounded int,
+// not nullable, but hits the same SInput type="number" cleared-field-becomes-0
+// trap as temperature/top_p/seed (config audit F-22 owns the shared-control
+// fix) -- mirror their type="text" + Number.isFinite guard. An empty or
+// non-numeric edit is a mid-typing intermediate state, not a value: leave the
+// field alone rather than writing 0.
+const maxAliveSubagentsModel = computed<string | number>({
+  get: () => maxAliveSubagents.value,
+  set: (v) => {
+    const s = String(v).trim()
+    if (s === '') return
+    const n = Number(s)
+    if (Number.isFinite(n)) maxAliveSubagents.value = n
+  },
+})
 
 // Wakeup + workflow-capability fields live outside the vee-validate form, so
 // `meta.dirty` never flips when only these change. Snapshot them at load time
@@ -391,7 +408,7 @@ watch(
     canInstruct.value = (wf.can_instruct as boolean) ?? false
     canApprove.value = (wf.can_approve as boolean) ?? false
     canCreateSubagent.value = (wf.can_create_subagent as boolean) ?? false
-    maxAliveSubagents.value = (wf.max_alive_subagents as number) ?? 5
+    maxAliveSubagents.value = (wf.max_alive_subagents as number) ?? 3
 
     // Re-baseline so the freshly loaded values don't read as dirty. A
     // successful patch invalidates the query, which re-fires this watcher and
@@ -1201,8 +1218,8 @@ const breadcrumbs = computed(() => [
                 name="max_alive_subagents"
               >
                 <SInput
-                  v-model="maxAliveSubagents"
-                  type="number"
+                  v-model="maxAliveSubagentsModel"
+                  type="text"
                 />
               </SFormField>
             </div>
