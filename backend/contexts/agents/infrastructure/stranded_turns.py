@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
@@ -24,7 +25,6 @@ from shared_kernel.audit import audit_logs
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import datetime
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,12 +37,18 @@ _FINISH_ACTIONS = (TURN_FINISHED, TURN_FAILED)
 
 @dataclass(frozen=True, slots=True)
 class TurnEvent:
-    """One ``agent.turn_*`` audit row, reduced to what pairing needs."""
+    """One ``agent.turn_*`` audit row, reduced to what pairing needs.
+
+    ``reaped_started_at`` is set only on the synthetic finish rows this sweep
+    writes, and carries the ``created_at`` of the start they resolved. See
+    :func:`stranded_from_events` for why pairing alone cannot use them.
+    """
 
     agent_id: uuid.UUID
     chatroom_id: uuid.UUID
     action: str
     created_at: datetime
+    reaped_started_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +71,22 @@ def stranded_from_events(events: Sequence[TurnEvent], *, deadline: datetime) -> 
     ``events`` must be ordered by ``created_at``. ``deadline`` is the youngest a
     start may be and still count as stranded; anything newer may simply still be
     running.
+
+    **A reaped turn is excluded by name, not by pairing.** Writing the missing
+    finish row is what makes this sweep idempotent, but only for the *last*
+    stranded start of a key: the row is stamped ``now``, so in the next sweep's
+    ordering it sits after every start in the window and can never fall between
+    the two starts that the pairing rule reads as evidence. Two stranded starts
+    for one (agent, room) therefore had the older one re-reported on every sweep
+    until it aged out of the horizon — an hour of ``agent.turn_failed`` rows and
+    ``agent.finished`` frames per minute, into a room running nothing. Matching
+    each reap row back to the start it resolved is what actually closes it.
     """
+    already_reaped = {
+        (ev.agent_id, ev.chatroom_id, ev.reaped_started_at)
+        for ev in events
+        if ev.reaped_started_at is not None
+    }
     pending: dict[tuple[uuid.UUID, uuid.UUID], datetime] = {}
     stranded: list[StrandedTurn] = []
     for ev in events:
@@ -82,6 +103,7 @@ def stranded_from_events(events: Sequence[TurnEvent], *, deadline: datetime) -> 
         for (agent_id, room), started_at in pending.items()
         if started_at < deadline
     )
+    stranded = [s for s in stranded if (s.agent_id, s.chatroom_id, s.started_at) not in already_reaped]
     stranded.sort(key=lambda s: s.started_at)
     return stranded
 
@@ -103,6 +125,9 @@ def turn_events_query(*, horizon: datetime, cap: int) -> sa.Select[Any]:
             chatroom.label("chatroom_id"),
             audit_logs.c.action,
             audit_logs.c.created_at,
+            # Present only on rows this sweep wrote; it is how the next sweep
+            # recognises a turn it has already resolved.
+            audit_logs.c.metadata["started_at"].astext.label("reaped_started_at"),
         )
         .where(
             audit_logs.c.action.in_((TURN_STARTED, *_FINISH_ACTIONS)),
@@ -142,11 +167,21 @@ def _row_to_event(row: Any) -> TurnEvent | None:
         chatroom_id = uuid.UUID(row.chatroom_id)
     except (ValueError, TypeError, AttributeError):
         return None
+    # Absent on every organic row, so a parse failure here is not an error —
+    # it just means this row resolves nothing by name and pairing decides it.
+    reaped_started_at: datetime | None = None
+    raw = getattr(row, "reaped_started_at", None)
+    if raw is not None:
+        try:
+            reaped_started_at = datetime.fromisoformat(raw)
+        except (ValueError, TypeError):
+            reaped_started_at = None
     return TurnEvent(
         agent_id=row.resource_id,
         chatroom_id=chatroom_id,
         action=row.action,
         created_at=row.created_at,
+        reaped_started_at=reaped_started_at,
     )
 
 

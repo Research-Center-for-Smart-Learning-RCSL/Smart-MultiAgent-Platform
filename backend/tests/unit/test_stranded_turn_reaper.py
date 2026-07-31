@@ -35,6 +35,17 @@ def _ev(agent: uuid.UUID, room: uuid.UUID, action: str, offset_s: int) -> TurnEv
     )
 
 
+def _reaped(agent: uuid.UUID, room: uuid.UUID, *, at_s: int, resolved_offset_s: int) -> TurnEvent:
+    """A finish row this sweep wrote, naming the start it resolved."""
+    return TurnEvent(
+        agent_id=agent,
+        chatroom_id=room,
+        action=TURN_FAILED,
+        created_at=_T0 + timedelta(seconds=at_s),
+        reaped_started_at=_T0 + timedelta(seconds=resolved_offset_s),
+    )
+
+
 class TestPairingStartsWithFinishes:
     def test_a_start_with_no_finish_is_stranded(self) -> None:
         a, r = uuid.uuid4(), uuid.uuid4()
@@ -74,6 +85,40 @@ class TestPairingStartsWithFinishes:
         ]
 
         out = stranded_from_events(events, deadline=_T0 + timedelta(seconds=30))
+
+        assert [s.started_at for s in out] == [_T0]
+
+    def test_an_already_reaped_turn_is_not_reaped_again(self) -> None:
+        """The sweep is idempotent only if it recognises its own work.
+
+        Its finish rows are stamped `now`, so they land after every start in the
+        window and can never sit between the two starts the pairing rule reads
+        as evidence. Replays sweep 2 over sweep 1's output: two stranded starts,
+        then the two `agent.turn_failed` rows the reaper wrote for them.
+        """
+        a, r = uuid.uuid4(), uuid.uuid4()
+        events = [
+            _ev(a, r, TURN_STARTED, 0),
+            _ev(a, r, TURN_STARTED, 60),
+            _reaped(a, r, at_s=600, resolved_offset_s=0),
+            _reaped(a, r, at_s=600, resolved_offset_s=60),
+        ]
+
+        out = stranded_from_events(events, deadline=_T0 + timedelta(seconds=300))
+
+        assert out == []
+
+    def test_a_reap_row_resolves_only_the_start_it_names(self) -> None:
+        """The older start stays stranded when only the newer one was reaped —
+        the reap row must not be readable as a blanket 'this key is clean'."""
+        a, r = uuid.uuid4(), uuid.uuid4()
+        events = [
+            _ev(a, r, TURN_STARTED, 0),
+            _ev(a, r, TURN_STARTED, 60),
+            _reaped(a, r, at_s=600, resolved_offset_s=60),
+        ]
+
+        out = stranded_from_events(events, deadline=_T0 + timedelta(seconds=300))
 
         assert [s.started_at for s in out] == [_T0]
 
