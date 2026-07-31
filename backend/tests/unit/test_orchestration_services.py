@@ -21,6 +21,7 @@ from contexts.orchestration.application.subagent_service import SubagentService
 from contexts.orchestration.domain.errors import (
     ApprovalCapabilityDenied,
     InstructBudgetExceeded,
+    InstructCapabilityDenied,
     InstructLoopDetected,
     SubagentConcurrencyExceeded,
     SubagentDepthExceeded,
@@ -675,7 +676,7 @@ class TestInstructIssue:
         instructions.insert.return_value = instr
         instructions.get_chain_start_time.return_value = None
         a2a = AsyncMock()
-        svc = _make_instruct_service(instructions=instructions, a2a=a2a)
+        svc = _make_instruct_service(instructions=instructions, a2a=a2a, agents_facade=_agents_facade({}))
 
         result = await svc.issue(
             issuer_agent_id=_AGENT_A,
@@ -691,7 +692,7 @@ class TestInstructIssue:
     async def test_loop_detected(self, _audit) -> None:
         instructions = AsyncMock()
         instructions.insert.return_value = _instruction(state=InstructionState.REJECTED_LOOP)
-        svc = _make_instruct_service(instructions=instructions)
+        svc = _make_instruct_service(instructions=instructions, agents_facade=_agents_facade({}))
 
         with pytest.raises(InstructLoopDetected):
             await svc.issue(
@@ -702,7 +703,7 @@ class TestInstructIssue:
             )
 
     async def test_depth_cap(self) -> None:
-        svc = _make_instruct_service()
+        svc = _make_instruct_service(agents_facade=_agents_facade({}))
 
         with pytest.raises(InstructBudgetExceeded, match="chain depth"):
             await svc.issue(
@@ -718,7 +719,7 @@ class TestInstructIssue:
         instructions = AsyncMock()
         instructions.count_issued_by_agent_since.return_value = 5
         instructions.get_chain_start_time.return_value = None
-        svc = _make_instruct_service(instructions=instructions)
+        svc = _make_instruct_service(instructions=instructions, agents_facade=_agents_facade({}))
 
         # The count cap is now phrased as an "issuing window" (the wakeup for a
         # wakeup-originated instruct; the run for a workflow one) and writes an
@@ -740,7 +741,7 @@ class TestInstructIssue:
         # check (datetime.now(UTC) - chain_start) always exceeds 0.
         instructions.get_chain_start_time.return_value = datetime(2020, 1, 1, tzinfo=UTC)
         a2a = AsyncMock()
-        svc = _make_instruct_service(instructions=instructions, a2a=a2a)
+        svc = _make_instruct_service(instructions=instructions, a2a=a2a, agents_facade=_agents_facade({}))
 
         with pytest.raises(InstructBudgetExceeded, match="elapsed"):
             await svc.issue(
@@ -750,6 +751,55 @@ class TestInstructIssue:
                 chain_id=chain_id,
                 max_chain_seconds=120,
             )
+
+    @patch("contexts.orchestration.application.instruct_service.audit.emit", new_callable=AsyncMock)
+    async def test_issue_denies_issuer_without_can_instruct(self, _audit) -> None:
+        """T-6 (leading test): an issuer whose workflow_capabilities is {}
+        (today's default for every existing agent) is denied before the
+        instructions row is inserted or a2a.send is ever awaited."""
+        instructions = AsyncMock()
+        a2a = AsyncMock()
+        incapable = _capable_agent(can_instruct=False)
+        svc = _make_instruct_service(
+            instructions=instructions,
+            a2a=a2a,
+            agents_facade=_agents_facade({_AGENT_A: incapable}),
+        )
+
+        with pytest.raises(InstructCapabilityDenied, match="can_instruct"):
+            await svc.issue(
+                issuer_agent_id=_AGENT_A,
+                target_agent_id=_AGENT_B,
+                payload={"task": "do"},
+            )
+
+        instructions.insert.assert_not_awaited()
+        a2a.send.assert_not_awaited()
+        _audit.assert_awaited_once()
+        assert _audit.call_args[0][1].action == "instruct.forbidden"
+
+    @patch("contexts.orchestration.application.instruct_service.audit.emit", new_callable=AsyncMock)
+    async def test_capability_check_precedes_loop_detection(self, _audit) -> None:
+        """T-7: a forbidden issuer with a cycling path must fail on
+        InstructCapabilityDenied, not InstructLoopDetected, and must leave no
+        rejected_loop row — the cycle branch runs an INSERT before it raises,
+        so authorization must be checked strictly earlier."""
+        instructions = AsyncMock()
+        incapable = _capable_agent(can_instruct=False)
+        svc = _make_instruct_service(
+            instructions=instructions,
+            agents_facade=_agents_facade({_AGENT_A: incapable}),
+        )
+
+        with pytest.raises(InstructCapabilityDenied):
+            await svc.issue(
+                issuer_agent_id=_AGENT_A,
+                target_agent_id=_AGENT_A,
+                payload={"task": "do"},
+                parent_path=(),
+            )
+
+        instructions.insert.assert_not_awaited()
 
 
 class TestInstructStateTransitions:
