@@ -234,6 +234,70 @@ def test_regex_keywords_are_stripped_at_every_depth() -> None:
     }
 
 
+def test_dropping_pattern_properties_also_relaxes_a_closed_object() -> None:
+    """The two keywords compose: `patternProperties` is what made those names
+    legal, so dropping it under a surviving `additionalProperties: false` turns
+    every one of them into a rejected additional property."""
+    schema = {
+        "type": "object",
+        "patternProperties": {"^x-": {"type": "string"}},
+        "additionalProperties": False,
+    }
+
+    assert tr._without_regex(schema) == {"type": "object"}
+
+
+def test_an_additional_properties_subschema_is_not_dropped() -> None:
+    """Only the `false` form is a closed-object rule. A subschema still
+    constrains exactly the values it always did, and must survive."""
+    schema = {
+        "type": "object",
+        "patternProperties": {"^x-": {"type": "string"}},
+        "additionalProperties": {"type": "string"},
+    }
+
+    assert tr._without_regex(schema) == {"type": "object", "additionalProperties": {"type": "string"}}
+
+
+def test_a_closed_object_without_pattern_properties_stays_closed() -> None:
+    """The relaxation is scoped to the node that lost its pattern rule — it must
+    not quietly open every closed object in the schema."""
+    schema = {
+        "type": "object",
+        "properties": {"a": {"type": "string"}},
+        "additionalProperties": False,
+    }
+
+    assert tr._without_regex(schema) == schema
+
+
+@pytest.mark.asyncio
+async def test_a_pattern_property_tool_stays_callable() -> None:
+    """End to end: before this, every call to such a tool came back as
+    "Additional properties are not allowed" — permanently, for every argument."""
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    schema = {
+        "type": "object",
+        "properties": {"name": {"type": "string"}},
+        "patternProperties": {"^x-": {"type": "string"}},
+        "additionalProperties": False,
+        "required": ["name"],
+    }
+    invoked: list = []
+
+    async def _record(args):
+        invoked.append(args)
+        return tr.ToolResult(content="ran")
+
+    reg = ToolRegistry([Tool(name="tagger", description="d", input_schema=schema, invoke=_record)])
+
+    res = await reg.call("tagger", {"name": "n", "x-team": "core"})
+
+    assert invoked == [{"name": "n", "x-team": "core"}]
+    assert res.is_error is False
+
+
 @pytest.mark.asyncio
 async def test_a_parameter_named_pattern_survives_the_strip() -> None:
     """`pattern` is an ordinary parameter name for a search or glob tool, and MCP
