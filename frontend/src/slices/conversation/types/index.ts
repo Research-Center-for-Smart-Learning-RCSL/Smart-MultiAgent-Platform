@@ -146,6 +146,7 @@ export type ChatroomEventType =
   | 'message.deleted'
   | 'agent.thinking'
   | 'agent.token'
+  | 'agent.progress'
   | 'agent.finished'
   | 'presence.joined'
   | 'presence.left'

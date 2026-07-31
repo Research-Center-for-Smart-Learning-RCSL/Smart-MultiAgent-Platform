@@ -583,6 +583,27 @@ def _consume_cleanup_exception(what: str) -> Callable[[asyncio.Future[None]], No
     return _done
 
 
+_COMPACTION_HEARTBEAT_INTERVAL_S = 60.0
+
+
+async def _compaction_heartbeat(room: str | None, agent_id: uuid.UUID) -> None:
+    """Re-arm the client's watchdog while one compaction call runs long.
+
+    ``_emit_progress(_PROGRESS_COMPACTING)`` fires once, right before
+    ``run_compact`` starts — but the summariser call it wraps is the one thing
+    in a turn explicitly budgeted to outlast the client's own thinking-timeout
+    (``AGENT_THINKING_TIMEOUT_MS`` = 120s in ``useChatroomSocket.ts``; the
+    compaction lock alone gives it up to 300s), so a single healthy fold
+    longer than 120s previously had no beacon of its own and could still trip
+    a false "timeout" on a turn that was working the whole time (code-review
+    finding). The caller cancels this task the instant ``run_compact``
+    returns — cancellation here is expected teardown, not an error.
+    """
+    while True:
+        await asyncio.sleep(_COMPACTION_HEARTBEAT_INTERVAL_S)
+        await _emit_progress(room, agent_id, _PROGRESS_COMPACTING)
+
+
 async def _emit_progress(room: str | None, agent_id: uuid.UUID, phase: str) -> None:
     """Tell the room the turn is alive and where it has got to ([R13.19]).
 
@@ -2282,6 +2303,7 @@ class TurnEngine:
                 )
                 await self._audit(agent, chatroom_id, "agent.turn_skipped", {"reason": "duplicate_job"})
                 await self._db.commit()
+                outcome_committed = True
                 return TurnResult(status="skipped", reason="duplicate_job", message_id=existing)
         # AuthZ tap: the agent's key group must still belong to the agent's
         # project (defends against a key-group move/delete racing the trigger).
@@ -2293,6 +2315,7 @@ class TurnEngine:
                 {"reason": "key_group_scope", "key_group_id": str(agent.key_group_id)},
             )
             await self._db.commit()
+            outcome_committed = True
             # Actionable for any trigger: a present user otherwise sees the agent
             # fall silent with no hint the key group was moved or deleted.
             # Observer variant goes to the creator channel only (R28.01).
@@ -2316,6 +2339,7 @@ class TurnEngine:
                 },
             )
             await self._db.commit()
+            outcome_committed = True
             if is_observer:
                 await self._emit_observation_event(
                     chatroom_id, agent.id, "observation.failed", {"kind": "model_hint_unserviceable"}
@@ -2331,6 +2355,7 @@ class TurnEngine:
                 {"reason": "rate_limited", "trigger": trigger},
             )
             await self._db.commit()
+            outcome_committed = True
             # Actionable for any trigger: the rate backstop is informative
             # regardless of who or what triggered the suppressed turn.
             if is_observer:
@@ -2357,6 +2382,19 @@ class TurnEngine:
         # exit path.
         pending_notes: list[dict[str, Any]] = []
         voted_approvals: set[uuid.UUID] = set()
+        # code-review finding: a cancellation (arq job_timeout, worker shutdown)
+        # during any post-commit step is a BaseException `_post_commit`'s own
+        # `except Exception` cannot catch, so it used to unwind to the
+        # `except BaseException` below and call `_finalize_failed_turn` on a
+        # turn whose outcome (skip or reply) was already committed and durable
+        # -- writing a contradictory `agent.turn_failed` beside the terminal
+        # audit action, re-emitting `agent.finished` with an error over the
+        # already-sent one, and requeueing notifications the turn already
+        # consumed. Set `True` immediately after every commit that makes a
+        # terminal outcome durable; the handler below reads it to tell "we
+        # already succeeded/skipped, a cleanup step was merely interrupted"
+        # apart from "the turn itself never reached a decided outcome".
+        outcome_committed = False
 
         try:
             # Emitted inside the try so any failure still routes to the
@@ -2647,10 +2685,20 @@ class TurnEngine:
                     starved.ceiling,
                     agent.context_token_cap,
                 )
+                # `turn_finished`, not `turn_skipped`, because this turn STARTED:
+                # `agent.turn_started` was audited at the top of this `try` and is
+                # committed by the same commit below. `agent.turn_skipped` is the
+                # action for a turn that never started (the pre-`try` gates), and
+                # the stranded-turn reaper pairs starts against finishes — a start
+                # whose only partner is a `turn_skipped` reads as never finished,
+                # so this branch was reaped as stranded roughly twelve minutes
+                # later, every time, for a room that was doing nothing. The two
+                # sibling committed skips (`no_input`, `empty_reply`) already
+                # report `turn_finished` with a reason; this one was the outlier.
                 await self._audit(
                     agent,
                     chatroom_id,
-                    "agent.turn_skipped",
+                    "agent.turn_finished",
                     {
                         "reason": "knowledge_starved",
                         "context_mode": agent.context_mode.value,
@@ -2666,6 +2714,7 @@ class TurnEngine:
                 # starvation is deterministic, so nothing would ever change —
                 # burning the customer's own quota to make no progress.
                 await self._db.commit()
+                outcome_committed = True
                 # [R13.27] — the skip is now durable; nothing below decides it.
                 # Committed, so the consumed /compact flag stays consumed: the
                 # compaction it asked for did happen and is kept.
@@ -2698,6 +2747,7 @@ class TurnEngine:
                     )
                 await self._audit(agent, chatroom_id, "agent.turn_finished", {"empty": True})
                 await self._db.commit()
+                outcome_committed = True
                 # [R13.27] — the skip is now durable; nothing below decides it.
                 # The emit above is deliberately NOT guarded: it precedes this
                 # commit, so a failure there means nothing durable exists yet and
@@ -2750,10 +2800,15 @@ class TurnEngine:
                     {"tool_rounds": rounds, "reason": skip_reason, **synthesis_meta},
                 )
                 await self._db.commit()
+                outcome_committed = True
                 # [R13.27] — the skip is now durable; nothing below decides it (S-1).
                 self._compact_forced_rooms.pop(chatroom_id, None)
                 if room is not None:
-                    async with _post_commit("agent.finished emit (empty reply)"):
+                    # code-review finding: this label used to read "(empty reply)"
+                    # unconditionally, even when skip_reason is actually a provider/
+                    # synthesis failure kind (see the `skip_reason` assignment above)
+                    # — diagnostic-only, but misleading in a post-commit-failure log.
+                    async with _post_commit(f"agent.finished emit ({skip_reason})"):
                         await Publisher(room).emit(
                             "agent.finished", {"reason": skip_reason, "agent_id": str(agent.id)}
                         )
@@ -2812,6 +2867,7 @@ class TurnEngine:
                     {"tool_rounds": rounds, "observer": True, **synthesis_meta},
                 )
                 await self._db.commit()
+                outcome_committed = True
                 # [R13.27] — the observation is now durable; nothing below
                 # decides the turn. `_emit_observation_event` already guards
                 # itself (S-3); the scope here makes that structural rather than
@@ -2854,6 +2910,7 @@ class TurnEngine:
                 agent, chatroom_id, "agent.turn_finished", {"tool_rounds": rounds, **synthesis_meta}
             )
             await self._db.commit()
+            outcome_committed = True
             # [R13.27] — PAST THIS LINE THE TURN'S OUTCOME IS A FACT. Everything
             # below is bookkeeping on a reply that already exists, so each step
             # is individually guarded and none of them may decide the turn. Add
@@ -2948,6 +3005,25 @@ class TurnEngine:
             # interrupted by the cancellation already in flight, hence the
             # uncancellable wrapper. Re-raised, never swallowed: arq must still
             # see the job as killed.
+            #
+            # code-review finding: `_post_commit`'s own `except Exception` cannot
+            # catch a `CancelledError` raised inside one of its guarded steps, so
+            # a cancellation arriving *after* `outcome_committed` was set — mid
+            # post-commit bookkeeping on an already-durable skip/reply — used to
+            # land here and call `_finalize_failed_turn` anyway: a contradictory
+            # `agent.turn_failed` audit beside the terminal one already committed,
+            # a second `agent.finished{error:...}` over the one already sent, and
+            # a requeue of notifications the turn already consumed. The turn's
+            # outcome was decided at its commit ([R13.27]); a cancelled cleanup
+            # step afterward does not undecide it.
+            if outcome_committed:
+                _log.warning(
+                    "agent turn's post-commit bookkeeping cancelled agent=%s room=%s "
+                    "(outcome already committed; not finalizing as failed)",
+                    agent_id,
+                    chatroom_id,
+                )
+                raise
             _log.warning("agent turn cancelled agent=%s room=%s", agent_id, chatroom_id)
             await _run_uncancellable(
                 self._finalize_failed_turn(
@@ -3331,6 +3407,10 @@ class TurnEngine:
             # and then finds nothing to fold has not started a summariser call,
             # and saying it had would make the phase mean two different things.
             await _emit_progress(room, agent.id, _PROGRESS_COMPACTING)
+            # Re-arms the client watchdog for as long as the single summariser
+            # call below runs (code-review finding) — cancelled the instant it
+            # returns, success or failure, by the `finally` below.
+            heartbeat = asyncio.create_task(_compaction_heartbeat(room, agent.id))
             try:
                 did = await ctxmod.run_compact(
                     messages=cast("list[ctxmod.MessageLike]", history),
@@ -3354,6 +3434,10 @@ class TurnEngine:
                 # The user's request is not silently lost — `agent.compact_failed`
                 # records why it was not served (R9.11).
                 return history
+            finally:
+                heartbeat.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await heartbeat
             if not did:
                 if forced:
                     await self._restore_compact_flag(chatroom_id)

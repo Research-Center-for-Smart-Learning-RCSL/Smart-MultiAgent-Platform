@@ -157,6 +157,49 @@ class TestSuccessfulTurnIsNotFinalizedAsFailed:
         assert trace.compact_restored == []
 
 
+class TestPostCommitCancellationDoesNotFinalizeAsFailed:
+    """code-review finding: `_post_commit`'s own `except Exception` cannot
+    catch a `CancelledError` raised inside one of its guarded steps, so a
+    cancellation arriving during post-commit bookkeeping on an already-
+    committed reply used to reach `except BaseException` and call
+    `_finalize_failed_turn` anyway -- writing a contradictory `agent.turn_failed`
+    beside the terminal audit already committed, and requeueing notifications
+    the turn already consumed. See the `outcome_committed` guard."""
+
+    async def test_no_turn_failed_audit_when_cancellation_happens_post_commit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        agent, room = make_agent(), uuid.uuid4()
+        engine, trace = wire_engine(monkeypatch, agent, note={"kind": "notify"})
+
+        async def _ok(**kw: Any) -> te.ToolLoopOutcome:
+            return te.ToolLoopOutcome(text="hi", rounds=0)
+
+        engine._stream_with_tools = _ok
+        # The first post-commit step on the success path: the reply is already
+        # committed by the time this fires.
+        PublisherSpy.fail_on = "message.created"
+        PublisherSpy.error = asyncio.CancelledError()
+
+        with pytest.raises(asyncio.CancelledError):
+            await engine._run_locked(
+                agent_id=agent.id,
+                chatroom_id=room,
+                trigger="every_n_messages",
+                parent_agent_id=None,
+                input_text=None,
+                request_id=None,
+                trigger_message_id=None,
+            )
+
+        assert [a for a, _ in trace.audits if a == "agent.turn_failed"] == []
+        # No second, error-carrying agent.finished over the (never-reached,
+        # since message.created is what raised) success one.
+        assert [p for _, e, p in PublisherSpy.emitted if e == "agent.finished" and "error" in p] == []
+        assert trace.requeued == []
+        assert trace.compact_restored == []
+
+
 class TestCancelledTurnDrainsItsQueuedTrigger:
     """AC-2's last clause, and the whole of F-18: the drain lives in a `finally`
     now, so a trigger parked mid-turn still becomes a follow-up wakeup when the
