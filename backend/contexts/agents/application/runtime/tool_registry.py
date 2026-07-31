@@ -161,20 +161,40 @@ logger = logging.getLogger(__name__)
 _MAX_REPORTED_VIOLATIONS = 10
 
 
+# Regex keywords, dropped before validating. A tool's `input_schema` is not ours:
+# a LOCAL_FUNCTION carries whatever `parameters` its author wrote, and an MCP
+# binding carries whatever its server returned from the capture probe. Executing an
+# attacker-chosen regex against model-written arguments is catastrophic
+# backtracking on demand — measured at 45s of un-preemptible CPU for `^(a+)+$`
+# against 30 characters, which blocks the worker's whole event loop, not just the
+# offending turn. No built-in schema uses them, and the provider still receives the
+# full schema for constrained decoding; only this local copy is stripped.
+_UNSAFE_SCHEMA_KEYWORDS = frozenset({"pattern", "patternProperties"})
+
+
+def _without_regex(node: Any) -> Any:
+    if isinstance(node, dict):
+        return {k: _without_regex(v) for k, v in node.items() if k not in _UNSAFE_SCHEMA_KEYWORDS}
+    if isinstance(node, list):
+        return [_without_regex(v) for v in node]
+    return node
+
+
 def schema_violations(schema: dict[str, Any], args: dict[str, Any]) -> list[str]:
-    """Every way ``args`` breaks ``schema`` (empty = valid).
+    """Every way ``args`` breaks ``schema`` (empty = valid), regex keywords aside.
 
     Deliberately a copy of `contexts/activities/.../validators/schema.py`'s
     `payload_errors` rather than an import: that helper belongs to the activities
     context, and a cross-context import for four lines would buy a coupling worth
     more than the duplication.
 
-    Fails **open** on a malformed schema. Built-in schemas are held well-formed by
+    Fails **open** on anything the validator cannot handle — a malformed schema, or
+    a `$ref` jsonschema refuses to resolve. Built-in schemas are held well-formed by
     a drift test, but an MCP server's captured contract is written by someone else
     and an unusable one must cost the agent its validation, not its turn.
     """
     try:
-        validator = Draft202012Validator(schema)
+        validator = Draft202012Validator(_without_regex(schema))
         return [err.message for err in validator.iter_errors(args)]
     except Exception:
         logger.warning("tool input_schema is not usable; skipping validation", exc_info=True)
@@ -754,4 +774,5 @@ __all__ = [
     "build_registry",
     "build_update_wakeup_tool",
     "clip_tool_output",
+    "schema_violations",
 ]

@@ -199,6 +199,41 @@ async def test_an_unusable_input_schema_costs_validation_not_the_turn() -> None:
     assert (await reg.call("x", {})).content == "ran"
 
 
+def test_a_hostile_regex_in_an_untrusted_schema_cannot_stall_the_worker() -> None:
+    """A tool's `input_schema` is not ours: a LOCAL_FUNCTION carries whatever
+    `parameters` its author wrote and an MCP binding whatever its server returned.
+    Running an attacker-chosen regex against model-written arguments is
+    catastrophic backtracking on demand — and it blocks the event loop, so it
+    stalls every concurrent turn on the worker, not just this one.
+
+    Measured before the fix: 12s at 28 characters, 45s at 30.
+    """
+    import time
+
+    schema = {"type": "object", "properties": {"q": {"type": "string", "pattern": "^(a+)+$"}}}
+
+    start = time.monotonic()
+    violations = tr.schema_violations(schema, {"q": "a" * 34 + "!"})
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 1.0, f"regex keyword was evaluated ({elapsed:.1f}s)"
+    # The rest of the schema still applies — only the regex keywords are dropped.
+    assert violations == []
+    assert tr.schema_violations(schema, {"q": 5}) != []
+
+
+def test_regex_keywords_are_stripped_at_every_depth() -> None:
+    nested = {
+        "type": "object",
+        "properties": {"outer": {"items": [{"pattern": "x"}], "patternProperties": {"^a": {}}}},
+    }
+
+    assert tr._without_regex(nested) == {
+        "type": "object",
+        "properties": {"outer": {"items": [{}]}},
+    }
+
+
 def test_the_violation_report_is_bounded() -> None:
     """The messages quote the model's own arguments back at it, and a large
     malformed payload would otherwise be echoed into the context window."""

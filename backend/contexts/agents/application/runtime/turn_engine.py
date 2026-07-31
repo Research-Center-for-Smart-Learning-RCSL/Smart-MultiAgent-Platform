@@ -104,6 +104,10 @@ MAX_TOOL_ROUNDS = 8
 # run in — but free forever would let a model that truncates every time loop.
 _MAX_ARG_REJECTIONS = 2
 
+# Fallback error kind for a synthesis failure with no more specific one, so the
+# WS `reason` and the audit row are never a bare null.
+_SYNTHESIS_FAILED = "synthesis_failed"
+
 # What the model is told when its tool call is refused for truncated arguments.
 # It has to live in the result `content`: `is_error` is translated only by the
 # Anthropic adapter, and OpenAI and Gemini drop it, so content is the one error
@@ -2399,7 +2403,9 @@ class TurnEngine:
                 # synthesis failed, the reason is the failure and not the model
                 # choosing silence: recording it as `empty_reply` filed a provider
                 # outage as a benign skip.
-                skip_reason = outcome.error_kind if outcome.synthesis_failed else "empty_reply"
+                skip_reason = (
+                    (outcome.error_kind or _SYNTHESIS_FAILED) if outcome.synthesis_failed else "empty_reply"
+                )
                 await self._audit(
                     agent,
                     chatroom_id,
@@ -3064,24 +3070,31 @@ class TurnEngine:
             tool_calls = body.get("tool_calls") or []
             if not tool_calls:
                 return ToolLoopOutcome(text=last_text, rounds=tool_rounds)
-            # The response was cut off at the output ceiling, so any tool_use
-            # block in it is cut off mid-arguments. Both adapters that parse
-            # streamed argument JSON map an unterminated document to `{}`, which
-            # is indistinguishable from a legitimate no-argument call — and the
-            # tools then degrade rather than reject, so `web_search` returns a
-            # plausible empty result set flagged as success and `file` op=write
-            # truncates its target. Nothing is dispatched.
+            # The response was cut off at the output ceiling, so whatever it was
+            # writing when it stopped is incomplete. For a tool_use block that
+            # means the argument JSON is unterminated, which both adapters that
+            # parse it can only map to `{}` — indistinguishable from a legitimate
+            # no-argument call. The tools then degrade rather than reject, so
+            # `web_search` returns a plausible empty result set flagged as success
+            # and `file` op=write truncates its target.
             truncated = is_truncated_finish_reason(body.get("finish_reason"))
             # Append the assistant tool-use turn, then one result per call —
             # Anthropic requires a tool_result for every tool_use block, so a
-            # rejected round still answers all of them.
+            # rejected call still gets answered.
             messages.append({"role": "assistant", "content": last_text, "tool_calls": tool_calls})
+            dispatched = 0
             for tc in tool_calls:
-                if truncated:
+                args = tc.get("arguments") or {}
+                # Only the empty-argument case is ambiguous. Blocks stream in
+                # order, so an earlier call in a truncated response can still have
+                # arrived whole, and refusing it would cost the model work it
+                # already paid for.
+                if truncated and not args:
                     content, is_error = _TRUNCATED_ARGS_NOTE, True
                 else:
-                    result = await registry.call(tc.get("name"), tc.get("arguments") or {})
+                    result = await registry.call(tc.get("name"), args)
                     content, is_error = result.content, result.is_error
+                    dispatched += 1
                 messages.append(
                     {
                         "role": "tool",
@@ -3091,17 +3104,17 @@ class TurnEngine:
                         "is_error": is_error,
                     }
                 )
-            if truncated:
+            if dispatched < len(tool_calls):
                 _log.warning(
-                    "tool call arguments truncated at the token ceiling agent=%s (rejection %d)",
+                    "rejected %d tool call(s) truncated at the token ceiling agent=%s (rejection %d)",
+                    len(tool_calls) - dispatched,
                     agent.id,
                     rejections + 1,
                 )
                 rejections += 1
-                if rejections <= _MAX_ARG_REJECTIONS:
-                    # Not charged: the model did no tool work this round, and
-                    # "retry with a smaller payload" is unusable advice if the
-                    # retry has no budget left to run in.
+                if dispatched == 0 and rejections <= _MAX_ARG_REJECTIONS:
+                    # Not charged: no tool ran, and "retry with a smaller payload"
+                    # is unusable advice if the retry has no budget to run in.
                     continue
             tool_rounds += 1
             if tool_rounds >= MAX_TOOL_ROUNDS:
@@ -3392,7 +3405,14 @@ def _synthesis_meta(outcome: ToolLoopOutcome) -> dict[str, Any]:
     """
     if not outcome.synthesis_failed:
         return {}
-    return {"synthesis_failed": True, "error": outcome.error_kind}
+    # `synthesis_error`, not `error`: on the success path this rides on an
+    # `agent.finished` event that also carries a delivered `message_id`, and the
+    # client reads a top-level `error` there as "the turn failed, try again" —
+    # copy that would contradict the reply sitting next to it.
+    #
+    # Never a bare None: this reaches a WS payload, and `error_kind` is optional
+    # on the dataclass.
+    return {"synthesis_failed": True, "synthesis_error": outcome.error_kind or _SYNTHESIS_FAILED}
 
 
 def _is_infrastructure_error(exc: BaseException) -> bool:

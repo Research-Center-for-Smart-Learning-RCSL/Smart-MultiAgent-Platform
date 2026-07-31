@@ -290,6 +290,58 @@ async def test_truncated_tool_arguments_are_not_dispatched() -> None:
     assert outcome.text == "ok"
 
 
+@pytest.mark.asyncio
+async def test_a_complete_call_in_a_truncated_response_still_runs() -> None:
+    """Tool blocks stream in order, so only the last one can be cut off. An
+    earlier call that arrived whole is work the model already paid for."""
+
+    class _MixedRouter:
+        def __init__(self) -> None:
+            self.requests: list = []
+
+        async def call_stream(self, *, group_id, request):
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                yield StreamComplete(
+                    ProviderCallResult(
+                        200,
+                        {
+                            "text": "",
+                            "tool_calls": [
+                                {"id": "t1", "name": "update_wakeup", "arguments": {"silence_minutes": 5}},
+                                {"id": "t2", "name": "web_search", "arguments": {}},
+                            ],
+                            "finish_reason": "max_tokens",
+                        },
+                    )
+                )
+            else:
+                yield StreamComplete(ProviderCallResult(200, {"text": "ok", "tool_calls": []}))
+
+    engine, agent = _engine_with(_MixedRouter())
+    registry = _FakeRegistry()
+    messages: list = [{"role": "user", "content": "do two things"}]
+
+    outcome = await engine._stream_with_tools(
+        agent=agent,
+        chatroom_id=uuid.uuid4(),
+        parent_agent_id=None,
+        system_text="sys",
+        messages=messages,
+        provider=ApiKeyProvider.CLAUDE,
+        model="m",
+        registry=registry,
+        room=None,
+    )
+
+    assert registry.invoked == [("update_wakeup", {"silence_minutes": 5})]
+    results = {m["tool_call_id"]: m for m in messages if m["role"] == "tool"}
+    assert results["t1"]["is_error"] is False
+    assert results["t2"]["is_error"] is True
+    # A tool did run, so the round is charged even though one call was refused.
+    assert outcome.rounds == 1
+
+
 @pytest.mark.parametrize("reason", ["max_tokens", "length", "MAX_TOKENS"])
 def test_every_provider_spelling_of_truncation_maps_to_one_value(reason: str) -> None:
     """Anthropic, OpenAI and Gemini each name it differently and the field is
@@ -435,7 +487,25 @@ def test_the_synthesis_marker_is_absent_on_a_healthy_turn() -> None:
     assert te._synthesis_meta(te.ToolLoopOutcome(text="ok", rounds=2)) == {}
     assert te._synthesis_meta(
         te.ToolLoopOutcome(text="filler", rounds=8, synthesis_failed=True, error_kind="database_error")
-    ) == {"synthesis_failed": True, "error": "database_error"}
+    ) == {"synthesis_failed": True, "synthesis_error": "database_error"}
+    # `error_kind` is optional on the dataclass, and this dict reaches a WS
+    # payload — it may not be a bare null.
+    assert te._synthesis_meta(te.ToolLoopOutcome(text="f", rounds=8, synthesis_failed=True)) == {
+        "synthesis_failed": True,
+        "synthesis_error": "synthesis_failed",
+    }
+
+
+def test_the_synthesis_marker_never_uses_the_turn_failed_error_key() -> None:
+    """On the success path this dict is splatted into an `agent.finished` event
+    that also carries a delivered `message_id`. The client reads a top-level
+    `error` there as "the turn failed, try again" — copy that would contradict
+    the reply sitting next to it."""
+    meta = te._synthesis_meta(
+        te.ToolLoopOutcome(text="filler", rounds=8, synthesis_failed=True, error_kind="database_error")
+    )
+
+    assert "error" not in meta
 
 
 @pytest.mark.asyncio
