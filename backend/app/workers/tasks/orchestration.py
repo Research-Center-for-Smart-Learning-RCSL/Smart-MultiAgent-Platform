@@ -143,7 +143,18 @@ async def wakeup_agent(
                     " resolution",
                     trigger_message_id,
                 )
-        result = await engine.run_turn(agent_id=aid, chatroom_id=rid, trigger=trigger, trigger_message_id=mid)
+        # Arq's per-enqueue job id is the turn's idempotency key: it rides into
+        # the reply row under a partial unique index, so a turn that somehow runs
+        # twice (a lapsed lock, not a retry -- `max_tries=1` covers retries)
+        # short-circuits before the provider call instead of posting a second
+        # reply. `None` when the caller is not an arq job, which only tests are.
+        result = await engine.run_turn(
+            agent_id=aid,
+            chatroom_id=rid,
+            trigger=trigger,
+            trigger_message_id=mid,
+            turn_job_id=ctx.get("job_id"),
+        )
 
         # Result-accurate audit slug: `wakeup.fired` is reserved for turns that
         # actually produced a reply (mirrors the agent.turn_* naming).
