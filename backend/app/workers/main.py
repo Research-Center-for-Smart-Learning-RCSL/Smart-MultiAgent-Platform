@@ -58,6 +58,7 @@ from app.workers.tasks.knowmap import (
     knowmap_scan_document,
 )
 from app.workers.tasks.orchestration import (
+    WAKEUP_TURN_TIMEOUT_S,
     approval_timeout,
     evaluate_silence,
     make_dlq_audit_callback,
@@ -288,7 +289,15 @@ class WorkerSettings:
         file_scan_requested,
         extract_attachment_text,
         chat_export,
-        wakeup_agent,
+        # A turn is not retry-safe: it commits its reply with post-commit work
+        # still to run, and the turn lock's `finally` releases during the
+        # cancellation unwind, so arq's worker-wide `retry_jobs` default would
+        # let a re-run re-assemble history that already contains the reply and
+        # post a second one. `max_tries=1` is arq's documented "prevent
+        # retrying" and is enforced before the job body runs. The scoped timeout
+        # is a runaway backstop over the turn lock TTL — see
+        # WAKEUP_TURN_TIMEOUT_S for why it is not tightened below it.
+        func(wakeup_agent, name="wakeup_agent", timeout=WAKEUP_TURN_TIMEOUT_S, max_tries=1),
         evaluate_silence,
         wakeup_refresh,
         approval_timeout,
