@@ -323,19 +323,28 @@ function nullableNumberModel(field: { value: number | null }) {
 // Sampling controls (R9.18) use a *text* input, not number: SInput type="number"
 // coerces a cleared field to 0 (Number('') === 0), which would make it impossible
 // to distinguish "provider default" (null) from the valid value temperature=0.
-// A text input emits '' when cleared (-> null) and the numeric string otherwise.
+// A text input emits '' when cleared and the numeric string otherwise.
+// Shared by nullableNumberFromText (nullable fields) and maxAliveSubagentsModel
+// (a required bounded field, below) so both stay on the same parse semantics
+// instead of drifting: empty is distinct from invalid, since a caller may want
+// to treat "cleared" as null while leaving a non-numeric mid-edit untouched.
+type ParsedNumberInput = { kind: 'empty' } | { kind: 'number'; value: number } | { kind: 'invalid' }
+
+function parseNumberInput(raw: string): ParsedNumberInput {
+  const s = raw.trim()
+  if (s === '') return { kind: 'empty' }
+  const n = Number(s)
+  return Number.isFinite(n) ? { kind: 'number', value: n } : { kind: 'invalid' }
+}
+
 // Non-numeric keystrokes are ignored so NaN never enters the model.
 function nullableNumberFromText(field: { value: number | null }) {
   return computed<string | number>({
     get: () => field.value ?? '',
     set: (v) => {
-      const s = String(v).trim()
-      if (s === '') {
-        field.value = null
-        return
-      }
-      const n = Number(s)
-      if (Number.isFinite(n)) field.value = n
+      const parsed = parseNumberInput(String(v))
+      if (parsed.kind === 'empty') field.value = null
+      else if (parsed.kind === 'number') field.value = parsed.value
     },
   })
 }
@@ -356,10 +365,8 @@ const maxAliveSubagents = ref(3)
 const maxAliveSubagentsModel = computed<string | number>({
   get: () => maxAliveSubagents.value,
   set: (v) => {
-    const s = String(v).trim()
-    if (s === '') return
-    const n = Number(s)
-    if (Number.isFinite(n)) maxAliveSubagents.value = n
+    const parsed = parseNumberInput(String(v))
+    if (parsed.kind === 'number') maxAliveSubagents.value = parsed.value
   },
 })
 
