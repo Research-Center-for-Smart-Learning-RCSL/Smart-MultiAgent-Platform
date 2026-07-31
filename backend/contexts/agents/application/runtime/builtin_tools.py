@@ -197,7 +197,7 @@ def _build_web_search_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolD
             _reraise_if_infrastructure(exc, "web_search")
             return ToolResult(content=f"web_search failed: {exc}", is_error=True)
         if _audit_losses(db) > losses:
-            return _marked_unrecorded(_dump_results(results), is_error=False)
+            return _marked_unrecorded(_dump_results(results))
         return ToolResult(content=clip_tool_output(_dump_results(results)))
 
     return Tool(
@@ -270,7 +270,7 @@ def _build_code_exec_tool(
             # `body` is already clipped; `_marked_unrecorded` re-clips, which is a
             # no-op on a string already under the cap and correct if the notice
             # pushes it over.
-            return _marked_unrecorded(body, is_error=not res.ok)
+            return _marked_unrecorded(body)
         return ToolResult(content=body, is_error=not res.ok)
 
     return Tool(
@@ -446,7 +446,7 @@ def _build_file_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps) -
             _reraise_if_infrastructure(exc, "file")
             return ToolResult(content=f"file {op} failed: {exc}", is_error=True)
         if _audit_losses(db) > losses:
-            return _marked_unrecorded(res.stdout or "(ok)", is_error=not res.ok)
+            return _marked_unrecorded(res.stdout or "(ok)")
         return ToolResult(content=clip_tool_output(res.stdout or "(ok)"), is_error=not res.ok)
 
     return Tool(
@@ -603,11 +603,17 @@ _AUDIT_NOT_RECORDED = (
 )
 
 
-def _marked_unrecorded(content: str, *, is_error: bool) -> ToolResult:
+def _marked_unrecorded(content: str) -> ToolResult:
     """The result shaping for a call whose `mcp.tool_invoked` row was lost.
 
     Prepended before the clip, which only ever cuts the tail, so a chatty tool
     cannot truncate the notice away.
+
+    **Always `is_error=True`, regardless of how the call itself went** — per
+    `_AUDIT_NOT_RECORDED`, the lost audit row *is* the error, and the notice
+    tells the model not to retry. It used to take an `is_error` argument that it
+    then ignored, which read as if the callers' `is_error=not res.ok` were being
+    honoured; they were not. Taking no argument is the honest signature.
     """
     return ToolResult(content=clip_tool_output(f"{_AUDIT_NOT_RECORDED}\n{content}"), is_error=True)
 
