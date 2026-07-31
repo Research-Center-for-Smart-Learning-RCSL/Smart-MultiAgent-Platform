@@ -14,13 +14,14 @@ turn lock assume a long-lived background context. The triggers that invoke this
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import enum
 import json
 import logging
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -108,6 +109,11 @@ _MAX_ARG_REJECTIONS = 2
 # Fallback error kind for a synthesis failure with no more specific one, so the
 # WS `reason` and the audit row are never a bare null.
 _SYNTHESIS_FAILED = "synthesis_failed"
+
+# What a turn killed by its job timeout or by worker shutdown reports. A fixed
+# token like every other `_err_kind` output, not the exception class name: it
+# reaches the WS payload and the audit row, and the reaper (C2) keys off it.
+_CANCELLED_ERR_KIND = "cancelled"
 
 # What the model is told when its tool call is refused for truncated arguments.
 # It has to live in the result `content`: `is_error` is translated only by the
@@ -389,6 +395,81 @@ async def _pop_queued_trigger(
         except ValueError:
             message_id = None
     return trigger, message_id
+
+
+async def _drain_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> None:
+    """Hand a trigger that landed mid-turn to exactly one follow-up wakeup.
+
+    Called from ``run_turn``'s ``finally`` so it also runs when the job is
+    killed. That matters more than it used to: ``wakeup_agent`` is registered
+    ``max_tries=1``, so nothing re-runs this turn, and a parked trigger would
+    otherwise sit for its full ``_QUEUED_TRIGGER_TTL_S`` with nobody answering
+    the message that set it."""
+    queued = await _pop_queued_trigger(agent_id, chatroom_id)
+    if queued is None:
+        return
+    queued_trigger, queued_message_id = queued
+    try:
+        from shared_kernel.queue import enqueue
+
+        await enqueue(
+            "wakeup_agent",
+            str(agent_id),
+            str(chatroom_id),
+            queued_trigger,
+            str(queued_message_id) if queued_message_id else None,
+        )
+    except Exception:
+        _log.warning(
+            "coalesced wakeup enqueue failed agent=%s room=%s",
+            agent_id,
+            chatroom_id,
+            exc_info=True,
+        )
+
+
+# How long a killed turn may spend on its cleanup before the engine gives up and
+# lets the cancellation through. The steps are a rollback, a WS emit, an audit
+# write and two Redis calls, so this is generous; the bound exists so a wedged
+# dependency cannot turn a job timeout into a hung worker slot.
+_CLEANUP_BUDGET_S = 15.0
+# How many times the cleanup may be re-awaited after our own cancellation is
+# re-delivered. Bounded rather than unbounded: one delivery is the normal case,
+# and a cap turns a pathological repeated-cancel into a dropped cleanup instead
+# of a spin against the wall-clock budget.
+_CLEANUP_REAWAITS = 4
+
+
+async def _run_uncancellable(coro: Coroutine[Any, Any, None], *, what: str) -> None:
+    """Run ``coro`` to completion even though the calling task is being cancelled.
+
+    ``asyncio.shield`` on its own is not enough. On a task whose cancellation is
+    being delivered, ``await shield(x)`` re-raises at once and abandons ``x``
+    part-way through; only re-awaiting the shielded task until it settles
+    actually lets it finish. Every caller here re-raises afterwards, so this
+    delays the cancellation rather than swallowing it.
+    """
+    task = asyncio.ensure_future(coro)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _CLEANUP_BUDGET_S
+    for _ in range(_CLEANUP_REAWAITS):
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            break
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
+            return
+        except asyncio.CancelledError:
+            if task.done():
+                return
+        except TimeoutError:
+            break
+        except Exception:
+            _log.exception("turn cleanup raised during %s", what)
+            return
+    if not task.done():
+        task.cancel()
+        _log.warning("turn cleanup did not finish within its budget during %s", what)
 
 
 @dataclass(frozen=True, slots=True)
@@ -695,65 +776,63 @@ class TurnEngine:
     ) -> TurnResult:
         started = time.monotonic()
         result: TurnResult | None = None
-        for attempt in range(2):
-            async with turn_lock(agent_id, chatroom_id) as acquired:
-                if acquired:
-                    if attempt > 0:
-                        # Acquired on retry — our mark from attempt 0 (or an
-                        # earlier stranded one) may still be parked. Consume it
-                        # now so the post-release pop doesn't re-enqueue a
-                        # redundant follow-up for a trigger we're about to serve.
-                        parked = await _pop_queued_trigger(agent_id, chatroom_id)
-                        if parked is None:
-                            # Someone else already popped our mark — that was
-                            # the previous holder's post-release drain, which
-                            # has already enqueued a follow-up turn for it.
-                            # Running here too would duplicate that turn, so
-                            # let the enqueued follow-up serve it instead.
-                            break
-                        trigger, parked_mid = parked
-                        trigger_message_id = parked_mid or trigger_message_id
-                    result = await self._run_locked(
-                        agent_id=agent_id,
-                        chatroom_id=chatroom_id,
-                        trigger=trigger,
-                        parent_agent_id=parent_agent_id,
-                        input_text=input_text,
-                        request_id=request_id,
-                        trigger_message_id=trigger_message_id,
-                    )
-                    break
-                await _mark_trigger_queued(agent_id, chatroom_id, trigger, trigger_message_id)
-                # Re-check: the holder may have released AND popped before our
-                # mark landed — if the lock is now free we take it; if still held
-                # the holder's post-release pop sees our mark.
-            if result is None and attempt == 0:
-                continue
+        # Whether this call ever held the lock. Only a holder owns the drain: a
+        # caller that never acquired has just parked its own mark, and it is the
+        # holder's drain that turns that mark into a follow-up turn. Assigned
+        # inside the loop rather than returned from a helper, so the `finally`
+        # below can still read it when the turn is killed part-way through.
+        held = False
+        try:
+            for attempt in range(2):
+                async with turn_lock(agent_id, chatroom_id) as acquired:
+                    if acquired:
+                        held = True
+                        if attempt > 0:
+                            # Acquired on retry — our mark from attempt 0 (or an
+                            # earlier stranded one) may still be parked. Consume
+                            # it now so the post-release pop doesn't re-enqueue a
+                            # redundant follow-up for a trigger we're about to
+                            # serve.
+                            parked = await _pop_queued_trigger(agent_id, chatroom_id)
+                            if parked is None:
+                                # Someone else already popped our mark — that was
+                                # the previous holder's post-release drain, which
+                                # has already enqueued a follow-up turn for it.
+                                # Running here too would duplicate that turn, so
+                                # let the enqueued follow-up serve it instead.
+                                break
+                            trigger, parked_mid = parked
+                            trigger_message_id = parked_mid or trigger_message_id
+                        result = await self._run_locked(
+                            agent_id=agent_id,
+                            chatroom_id=chatroom_id,
+                            trigger=trigger,
+                            parent_agent_id=parent_agent_id,
+                            input_text=input_text,
+                            request_id=request_id,
+                            trigger_message_id=trigger_message_id,
+                        )
+                        break
+                    await _mark_trigger_queued(agent_id, chatroom_id, trigger, trigger_message_id)
+                    # Re-check: the holder may have released AND popped before our
+                    # mark landed — if the lock is now free we take it; if still
+                    # held the holder's post-release pop sees our mark.
+                if result is None and attempt == 0:
+                    continue
+        finally:
+            # In a `finally`, and uncancellable, because the drain has to survive
+            # the job timeout that motivated it (F-18): a `CancelledError`
+            # unwinding through here used to skip it and strand the trigger for
+            # its full TTL. The lock is already released by this point — the
+            # `async with` above closes before the `finally` runs.
+            if held:
+                await _run_uncancellable(
+                    _drain_queued_trigger(agent_id, chatroom_id),
+                    what="queued-trigger drain",
+                )
         if result is None:
             AGENT_TURNS_TOTAL.labels(result="skipped").inc()
             return TurnResult(status="skipped", reason="locked")
-        # Lock released — drain the coalesced trigger (if any) into exactly one
-        # follow-up wakeup so the message that arrived mid-turn gets a reply.
-        queued = await _pop_queued_trigger(agent_id, chatroom_id)
-        if queued is not None:
-            queued_trigger, queued_message_id = queued
-            try:
-                from shared_kernel.queue import enqueue
-
-                await enqueue(
-                    "wakeup_agent",
-                    str(agent_id),
-                    str(chatroom_id),
-                    queued_trigger,
-                    str(queued_message_id) if queued_message_id else None,
-                )
-            except Exception:
-                _log.warning(
-                    "coalesced wakeup enqueue failed agent=%s room=%s",
-                    agent_id,
-                    chatroom_id,
-                    exc_info=True,
-                )
         AGENT_TURNS_TOTAL.labels(result=result.status).inc()
         AGENT_TURN_DURATION_SECONDS.observe(time.monotonic() - started)
         return result
@@ -2563,34 +2642,83 @@ class TurnEngine:
 
         except Exception as exc:
             _log.exception("agent turn failed agent=%s room=%s", agent_id, chatroom_id)
-            await self._db.rollback()
-            # Never leave the room stuck in "thinking". The WS emit and the
-            # audit row are independently guarded: a Redis outage must not
-            # swallow the agent.turn_failed audit (DB), and vice versa.
-            try:
-                if room is not None:
-                    await Publisher(room).emit(
-                        "agent.finished", {"error": _err_kind(exc), "agent_id": str(agent.id)}
-                    )
-                else:
-                    await self._emit_observation_event(
-                        chatroom_id, agent.id, "observation.failed", {"kind": _err_kind(exc)}
-                    )
-            except Exception:
-                _log.exception("agent turn failure-path WS emit failed")
-            try:
-                await self._audit(agent, chatroom_id, "agent.turn_failed", {"error": _err_kind(exc)})
-                await self._db.commit()
-            except Exception:
-                _log.exception("agent turn failure-path bookkeeping failed")
-            # The agent never acted on the drained notifications — restore them.
-            # Any vote already cast this turn is excluded (F-29): it committed on
-            # this same session independently of this rollback, so it must not be
-            # re-offered on a later failure.
-            await self._requeue_notifications(agent, pending_notes, voted=voted_approvals)
-            # Re-arm the one-shot /compact flag this turn consumed but wasted.
-            await self._restore_compact_flag(chatroom_id)
+            await self._finalize_failed_turn(
+                agent=agent,
+                chatroom_id=chatroom_id,
+                room=room,
+                error_kind=_err_kind(exc),
+                pending_notes=pending_notes,
+                voted_approvals=voted_approvals,
+            )
             return TurnResult(status="failed", reason=_err_kind(exc))
+        except BaseException:
+            # `job_timeout` and worker shutdown kill the turn with
+            # `CancelledError`, which is not an `Exception` — so none of the
+            # cleanup above used to run and the room stayed "thinking" forever
+            # (F-8). The same four steps apply, but every await in them would be
+            # interrupted by the cancellation already in flight, hence the
+            # uncancellable wrapper. Re-raised, never swallowed: arq must still
+            # see the job as killed.
+            _log.warning("agent turn cancelled agent=%s room=%s", agent_id, chatroom_id)
+            await _run_uncancellable(
+                self._finalize_failed_turn(
+                    agent=agent,
+                    chatroom_id=chatroom_id,
+                    room=room,
+                    error_kind=_CANCELLED_ERR_KIND,
+                    pending_notes=pending_notes,
+                    voted_approvals=voted_approvals,
+                ),
+                what="failed-turn finalize",
+            )
+            raise
+
+    async def _finalize_failed_turn(
+        self,
+        *,
+        agent: Agent,
+        chatroom_id: uuid.UUID,
+        room: str | None,
+        error_kind: str,
+        pending_notes: list[dict[str, Any]],
+        voted_approvals: set[uuid.UUID],
+    ) -> None:
+        """The four cleanup steps a turn owes the system when it does not finish.
+
+        One helper because both failure paths — a raised ``Exception`` and a
+        cancellation — owe exactly the same four, and a step that runs on only
+        one of them is the defect this exists to prevent. Every step is
+        idempotent and individually guarded: a Redis outage must not swallow the
+        ``agent.turn_failed`` audit row (DB), and vice versa. Never called on the
+        success path, so a committed reply is never re-reported as a failure.
+        """
+        # Guarded like the rest: on the cancellation path the session may already
+        # be in a state where rollback itself raises, and losing the remaining
+        # three steps to that would defeat the point.
+        with contextlib.suppress(Exception):
+            await self._db.rollback()
+        # Never leave the room stuck in "thinking".
+        try:
+            if room is not None:
+                await Publisher(room).emit("agent.finished", {"error": error_kind, "agent_id": str(agent.id)})
+            else:
+                await self._emit_observation_event(
+                    chatroom_id, agent.id, "observation.failed", {"kind": error_kind}
+                )
+        except Exception:
+            _log.exception("agent turn failure-path WS emit failed")
+        try:
+            await self._audit(agent, chatroom_id, "agent.turn_failed", {"error": error_kind})
+            await self._db.commit()
+        except Exception:
+            _log.exception("agent turn failure-path bookkeeping failed")
+        # The agent never acted on the drained notifications — restore them.
+        # Any vote already cast this turn is excluded (F-29): it committed on
+        # this same session independently of this rollback, so it must not be
+        # re-offered on a later failure.
+        await self._requeue_notifications(agent, pending_notes, voted=voted_approvals)
+        # Re-arm the one-shot /compact flag this turn consumed but wasted.
+        await self._restore_compact_flag(chatroom_id)
 
     async def _observer_memory_block(self, agent: Agent, chatroom_id: uuid.UUID) -> str | None:
         """R28.05 — the observer's own recent observations, oldest-first.
