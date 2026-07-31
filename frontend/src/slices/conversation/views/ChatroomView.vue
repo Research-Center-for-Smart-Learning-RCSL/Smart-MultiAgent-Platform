@@ -665,7 +665,16 @@ useMarkdownEnhance(listRef, { onAfterUpdate: maybeStick })
 
 /** Send the draft + resolved attachments, clearing uploads on success. */
 async function send(): Promise<void> {
-  const ok = await onSend(attachmentIds())
+  // Bound as an event handler, so nothing awaits this promise: a branch of
+  // onSend that rejects instead of reporting its outcome would surface only as
+  // an unhandled rejection (F-9). Every branch reports today — the catch is the
+  // structural guarantee that the next one added has to as well.
+  let ok = false
+  try {
+    ok = await onSend(attachmentIds())
+  } catch {
+    toast.error(t('conversation.chatroom.sendFailed'))
+  }
   if (ok) clearAttachments()
 }
 

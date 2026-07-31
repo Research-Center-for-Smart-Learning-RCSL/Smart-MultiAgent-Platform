@@ -238,10 +238,23 @@ export function useChatroomMessages(
     if (!text && attachmentIds.length === 0) return false
 
     // /compact slash command (G.10): forces compaction on the active agent.
+    // Reports its own outcome rather than riding the send path's `try` below,
+    // which this early return never reaches — mirrors ChatroomSettingsView's
+    // compact button, down to the i18n keys (both surfaces say the same thing).
     if (text === '/compact') {
       draft.value = ''
-      await compactChatroom(chatroomId)
-      return true
+      try {
+        await compactChatroom(chatroomId)
+        toast.success(t('conversation.settings.compactRequested'))
+        return true
+      } catch {
+        // Restore the command so the user can retry it; `send` binds onSend as
+        // an event handler, so resolving false is what keeps a failure from
+        // becoming an unhandled rejection.
+        if (!draft.value) draft.value = text
+        toast.error(t('conversation.settings.compactFailed'))
+        return false
+      }
     }
 
     // Optimistic insert: show the message immediately in a "sending" state and
