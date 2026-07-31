@@ -112,7 +112,7 @@ class AuditEvent:
     request_id: uuid.UUID | None = None
 
 
-async def emit(session: AsyncSession, event: AuditEvent) -> None:
+async def emit(session: AsyncSession, event: AuditEvent, *, isolated: bool = False) -> bool:
     """Insert one audit row using the caller's already-open transaction.
 
     Using the caller's session means the audit write joins the same unit of
@@ -120,20 +120,48 @@ async def emit(session: AsyncSession, event: AuditEvent) -> None:
     trail never describes an operation that the DB later un-did. `created_at`
     is left to the server default so clock-skew between app and DB never shows
     up in the append-only trail.
+
+    ``isolated`` wraps the INSERT in a SAVEPOINT and swallows its failure,
+    returning False. Set it where the caller's transaction carries work that
+    must survive a lost audit row — above all the agent tool path, where the
+    session is shared by the whole turn and a failed insert otherwise leaves
+    Postgres with the transaction marked aborted, so every later ``execute``
+    (the reply, the turn_finished row) raises ``InFailedSqlTransaction``. See
+    `contexts/keys/infrastructure/usage_events.py` for the same treatment on
+    the router's mid-stream usage write.
+
+    Off by default: joining the domain transaction is the right contract for a
+    request handler, where a rolled-back write must not leave an audit row
+    claiming it happened, and a savepoint per audit row is a round-trip on
+    every hot endpoint. Returns whether the row was written — ``isolated``
+    callers that report an outcome to a model MUST check it, or they claim a
+    tool ran cleanly when its record did not (docs/tasks/
+    2026-07-22-tool-dispatch-failure-categories AC-4).
     """
     payload = redact(event.metadata or {})
-    await session.execute(
-        audit_logs.insert().values(
-            actor_user_id=event.actor_user_id,
-            actor_ip=event.actor_ip,
-            action=event.action,
-            resource_type=event.resource_type,
-            resource_id=event.resource_id,
-            metadata=payload,
-            session_id=event.session_id,
-            request_id=event.request_id,
-        ),
+    stmt = audit_logs.insert().values(
+        actor_user_id=event.actor_user_id,
+        actor_ip=event.actor_ip,
+        action=event.action,
+        resource_type=event.resource_type,
+        resource_id=event.resource_id,
+        metadata=payload,
+        session_id=event.session_id,
+        request_id=event.request_id,
     )
+    if isolated:
+        try:
+            async with session.begin_nested():
+                await session.execute(stmt)
+        except Exception:
+            # Error, not warning: on a BYO-key platform a lost audit row is the
+            # loss of the record of what an agent did with the user's key.
+            _log.error("isolated audit emit failed action=%s", event.action, exc_info=True)
+            return False
+    else:
+        await session.execute(stmt)
+    # After the insert, so a rolled-back savepoint never publishes a tail event
+    # for a row that does not exist.
     _queue_tail_event(
         session,
         {
@@ -143,6 +171,7 @@ async def emit(session: AsyncSession, event: AuditEvent) -> None:
             "resource_id": str(event.resource_id) if event.resource_id else None,
         },
     )
+    return True
 
 
 _TAIL_QUEUE_KEY = "_audit_tail_queue"

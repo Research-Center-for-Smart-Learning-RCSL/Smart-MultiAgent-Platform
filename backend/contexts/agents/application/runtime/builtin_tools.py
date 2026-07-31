@@ -545,6 +545,9 @@ async def _audit_tool_invoke(
                     "ok": ok,
                 },
             ),
+            # Shares the turn's session: a failed insert here would abort the
+            # transaction the reply is persisted in.
+            isolated=True,
         )
     except Exception:  # pragma: no cover
         logger.warning("Failed to write tool audit event", exc_info=True)
