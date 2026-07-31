@@ -60,6 +60,7 @@ from contexts.conversation.application.observation_service import ObservationSer
 from contexts.conversation.domain.models import ChatroomAgentRole
 from contexts.conversation.infrastructure.repositories import (
     ChatroomAgentRepository,
+    MessageRepository,
     ObservationRepository,
 )
 from contexts.conversation.interfaces import emit_agent_finished_error, room_channel
@@ -847,6 +848,7 @@ class TurnEngine:
         input_text: str | None = None,
         request_id: uuid.UUID | None = None,
         trigger_message_id: uuid.UUID | None = None,
+        turn_job_id: str | None = None,
     ) -> TurnResult:
         started = time.monotonic()
         result: TurnResult | None = None
@@ -894,6 +896,7 @@ class TurnEngine:
                             input_text=input_text,
                             request_id=request_id,
                             trigger_message_id=trigger_message_id,
+                            turn_job_id=turn_job_id,
                         )
                         break
                     marked = await _mark_trigger_queued(agent_id, chatroom_id, trigger, trigger_message_id)
@@ -2141,6 +2144,7 @@ class TurnEngine:
         input_text: str | None,
         request_id: uuid.UUID | None,
         trigger_message_id: uuid.UUID | None = None,
+        turn_job_id: str | None = None,
     ) -> TurnResult:
         agent = await AgentsFacade(self._db).get_agent(agent_id)
         if agent is None:
@@ -2159,6 +2163,23 @@ class TurnEngine:
                 await emit_agent_finished_error(chatroom_id, agent_id, "not_bound")
             return TurnResult(status="skipped", reason="not_bound")
         is_observer = role is ChatroomAgentRole.OBSERVER
+        # Replay short-circuit (F-7). A turn is not retry-safe: it commits its
+        # reply with post-commit work still to run. `max_tries=1` stops arq
+        # replaying the job, but not a turn that ran twice because its lock
+        # lapsed under it. One indexed lookup here is what keeps that from
+        # costing a second provider call and a second reply — and it runs before
+        # any spend, above the key-group and rate checks' own early returns.
+        if turn_job_id is not None:
+            existing = await MessageRepository(self._db).id_for_turn_job(turn_job_id)
+            if existing is not None:
+                _log.warning(
+                    "turn job %s already produced message %s; not running it again",
+                    turn_job_id,
+                    existing,
+                )
+                await self._audit(agent, chatroom_id, "agent.turn_skipped", {"reason": "duplicate_job"})
+                await self._db.commit()
+                return TurnResult(status="skipped", reason="duplicate_job", message_id=existing)
         # AuthZ tap: the agent's key group must still belong to the agent's
         # project (defends against a key-group move/delete racing the trigger).
         if await self._key_group_out_of_scope(agent):
@@ -2684,6 +2705,7 @@ class TurnEngine:
                 content_md=final_text,
                 metadata=reply_meta,
                 request_id=request_id,
+                turn_job_id=turn_job_id,
             )
             await self._audit(
                 agent, chatroom_id, "agent.turn_finished", {"tool_rounds": rounds, **synthesis_meta}

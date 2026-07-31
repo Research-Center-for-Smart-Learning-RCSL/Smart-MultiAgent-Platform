@@ -64,6 +64,22 @@ class MessageRepository:
         ).one()
         return _row_to_message(row)
 
+    async def id_for_turn_job(self, turn_job_id: str) -> uuid.UUID | None:
+        """The reply a given turn job already committed, if any.
+
+        Backs the replay short-circuit at the top of a turn, so a re-run costs a
+        single indexed lookup instead of a full provider turn. Reads the same
+        `metadata->>'turn_job_id'` expression the unique index is built on, so
+        the check and the constraint cannot disagree. Soft-deleted rows count:
+        a reply that was posted and then removed was still posted, and a replay
+        must not resurrect it.
+        """
+        return (
+            await self._db.execute(
+                sa.select(t.messages.c.id).where(t.messages.c.metadata["turn_job_id"].astext == turn_job_id)
+            )
+        ).scalar_one_or_none()
+
     async def get(self, message_id: uuid.UUID) -> Message | None:
         row = (
             await self._db.execute(
