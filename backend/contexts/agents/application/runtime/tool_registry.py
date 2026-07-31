@@ -183,11 +183,24 @@ _INSTANCE_VALUED_KEYWORDS = frozenset({"enum", "const", "default", "examples"})
 
 
 def _without_regex(node: Any) -> Any:
-    """``node`` with the regex keywords removed, in keyword position only."""
+    """``node`` with the regex keywords removed, in keyword position only.
+
+    Dropping ``patternProperties`` also drops a sibling ``additionalProperties:
+    false``. The two compose: the pattern is what made those property names
+    legal, so removing it while the closed-object rule stands turns every one of
+    them into a rejected "additional property" and the tool becomes permanently
+    uncallable — a hard fail, where this module's posture for a third-party
+    schema it cannot use is to fail open (see :func:`schema_violations`). Only
+    the ``false`` form is dropped; an ``additionalProperties`` subschema still
+    constrains the same values it always did.
+    """
     if isinstance(node, dict):
+        drops_pattern_properties = "patternProperties" in node
         out: dict[str, Any] = {}
         for key, value in node.items():
             if key in _UNSAFE_SCHEMA_KEYWORDS:
+                continue
+            if key == "additionalProperties" and value is False and drops_pattern_properties:
                 continue
             if key in _INSTANCE_VALUED_KEYWORDS:
                 out[key] = value
