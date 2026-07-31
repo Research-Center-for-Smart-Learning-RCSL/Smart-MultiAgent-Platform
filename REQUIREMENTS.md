@@ -716,6 +716,12 @@ Four composable flags per chat room:
   - `agent.thinking`, `agent.token` (streaming), `agent.finished`
   - `agent.warning` — a non-terminal notice about a turn that is still running (the aggregated
     dropped-skill warning of [R31.08]); distinct from `agent.finished{error}`, which is terminal
+  - `agent.progress` — `{agent_id, phase}`, the turn's liveness beacon. Emitted at each named
+    boundary of the otherwise silent window between `agent.thinking` and the first `agent.token`
+    (`context`, `skills`, `workspace`, `history`, `compacting`), and at each tool-round boundary
+    (`tool_round`). Ids and phase only, never content — the room channel is readable by chatroom
+    guests who are not project members. Clients re-arm any wedged-turn watchdog on it, and on
+    `tool_round` also reset the streaming draft, whose text that round has superseded
   - `presence.joined`, `presence.left`
   - `approval.requested`, `approval.resolved`
   - `workflow.state_changed`

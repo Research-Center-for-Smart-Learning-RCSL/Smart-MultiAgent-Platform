@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-22
 requirements: [R11.02, R13.19, R13.27, R15.01, R24.23]
 depends_on: []
@@ -435,42 +435,55 @@ Q-7 no-backfill position.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: `test_committed_turn_survives_a_failed_message_created_publish` (§8) fails
-      against current code and passes after.
-- [ ] AC-2: a turn whose reply committed reports `status="completed"`, audits only
+- [x] AC-1: `test_committed_turn_survives_a_failed_message_created_publish` (§8) fails
+      against current code and passes after. *Shipped as
+      `test_a_failed_message_created_publish_does_not_fail_the_turn` (D-8). Verified by
+      running the new file against the pre-C1 file: 9 failed, 4 passed; after: 13 passed.*
+- [x] AC-2: a turn whose reply committed reports `status="completed"`, audits only
       `agent.turn_finished`, and runs both post-commit dispatches, regardless of any
       post-commit publish, artifact-persistence or dispatch failure — and the same holds for
-      the `empty_reply` branch reporting `skipped`.
-- [ ] AC-3: every swallowed post-commit failure is logged with a stack, and none of them
-      requeues notifications or restores the compact flag.
+      the `empty_reply` branch reporting `skipped`. *Plus `knowledge_starved` (D-5). One
+      residual, recorded rather than hidden: a **cancellation** in the post-commit window
+      still routes to the failure path — FU-10.*
+- [x] AC-3: every swallowed post-commit failure is logged with a stack, and none of them
+      requeues notifications or restores the compact flag. *`_post_commit` logs with
+      `exc_info=True`; `test_a_failed_publish_does_not_requeue_consumed_notifications`
+      pins both negatives.*
 - [x] AC-4: a failed `/compact` restores the user's text, surfaces an error toast via
       `$t()`, resolves `false`, and produces no unhandled rejection.
       *Verified by the three tests in `useChatroomMessages.test.ts`'s
       `/compact outcome reporting (F-9)` block, all three failing before C2 for the
       documented reason.*
-- [ ] AC-5: the thinking watchdog is re-armed by `agent.progress` and `agent.warning`, and a
+- [x] AC-5: the thinking watchdog is re-armed by `agent.progress` and `agent.warning`, and a
       turn that emits progress every < 120 s never reports `timeout`.
-      *Half done: the `agent.warning` re-arm shipped (that event already exists), verified by
-      `useChatroomSocket.test.ts`'s `re-arms the timeout on agent.warning (F-15)`. The
-      `agent.progress` half waits on C3's backend emit — see D-1/FU-7.*
+      *Both halves now shipped. `never times out an assembly that keeps reporting progress`
+      drives four beacons at 119 s apart through to the first token with no error raised.*
 - [x] AC-6: when the watchdog does fire, it clears only the drafts of agents currently
       marked thinking in that room.
       *Verified by `clears only the thinking agents drafts when it fires`, failing before the
       change. A second test pins the empty-set fallback (D-7).*
-- [ ] AC-7: on a multi-round tool turn the streamed draft contains only the current round's
+- [x] AC-7: on a multi-round tool turn the streamed draft contains only the current round's
       text, so the draft at `agent.finished` matches the persisted reply.
-- [ ] AC-8: the Q-3 ordering constraint is recorded in
+      *Backend: `test_a_round_boundary_is_announced_between_the_rounds` pins the emit order
+      `token("think") → progress(tool_round) → token("done")`. Client:
+      `resets the streaming draft at a tool-round boundary (F-40)`.*
+- [x] AC-8: the Q-3 ordering constraint is recorded in
       `docs/tasks/2026-07-22-chatroom-socket-lifecycle/` before that dossier is approved.
-- [ ] AC-9: the two test-locked decisions in §8 are either left green with the reasoning
+      *Satisfied in substance only, and not achievable in the letter — see D-2.*
+- [x] AC-9: the two test-locked decisions in §8 are either left green with the reasoning
       recorded, or changed with the user's decision recorded in §12 — neither is silently
-      edited.
+      edited. *Both left green and untouched (D-4). `test_agent_turn_loop.py`'s round-1 token
+      assertion still passes — C4 changes where the client resets, not what the engine
+      streams — so FU-2 stands exactly as written.*
 - [x] AC-10: the comment at `useChatroomSocket.ts:180-183` describes what the code
       guarantees (F-32 residue). *Now at `:297-302`; rewritten to say the deferral is a
       flicker preference rather than a guarantee, since `agent.finished` clears the draft
       unconditionally whichever frame wins.*
-- [ ] AC-11: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in
+- [x] AC-11: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in
       `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` pass in
-      `frontend/`.
+      `frontend/`. *Backend 6380 passed / 6 skipped (pre-existing platform skips: Windows
+      symlink and zipfile separator fixtures); mypy clean over 904 files. Frontend 948
+      passed over 170 files. No migration in any commit, so the contract gate is N/A.*
 
 ## 11. SRS Delta
 
@@ -546,6 +559,45 @@ If the new `agent.progress` event is added, it must also be listed in
   needs a lost `agent.thinking` frame with no reconnect — near-unreachable, since a
   reconnect clears both — so AC-6's scoping is defence in depth and the fallback keeps
   today's behaviour for the one case it does not cover. Both arms are tested.
+- **D-8 — C1 shipped as a per-step `_post_commit` scope, not a `_finish_committed_turn`
+  helper.** §7 offered both. The helper would have taken nine parameters to carry `msg`,
+  `final_text`, `synthesis_meta`, `artifact_sink`, `pending_notes` and `voted_approvals`
+  across, and would have had to be written four times over for the four committed branches
+  (reply, `empty_reply`, `knowledge_starved`, observer), which do not share a shape. An
+  `async with _post_commit("...")` per step gives the same per-step independence in place,
+  and puts the words *post-commit* on the line the reader is looking at. Test names differ
+  from §8's drafts in wording only; every assertion §8 listed is present.
+- **D-9 — the post-commit region had grown two members and the sweep found two more sites
+  than §7 named.** `_compact_forced_rooms.pop()` (in-memory, cannot raise) and
+  `_settle_pending_approvals` joined the block since the spec was written; both are now
+  inside the guard. And the two `_emit_observation_event` calls on the committed-skip paths
+  were left unguarded at the call site even though S-3 cleared the callee as
+  self-guarding — they are guarded now, because C1's claim is that the guarantee is
+  structural, not a property of a callee that a later refactor could drop.
+- **D-10 — `_assemble_history` gained a `room` parameter, and three test doubles with it.**
+  §7 asked for the beacon "including around the compaction call", which lives inside that
+  method; it had no way to reach the room. Added keyword-only, defaulting to `None`, so the
+  headless caller (`run_compaction`) is unchanged. Three unit-test stubs pinned the old
+  signature positionally and now accept `room=None`
+  (`test_observer_agents.py` ×2, `test_turn_engine_observer_activity.py` ×1).
+- **D-11 — the `_run_locked` harness was extracted to `tests/unit/turn_engine_fakes.py`.**
+  Driving `_run_locked` needs ~130 lines of collaborator wiring that
+  `test_turn_cancellation_cleanup.py` had just built for
+  `2026-07-22-turn-idempotency-and-locking`. Copying it would have been the largest DRY
+  violation in this diff, so it moved to a shared module following the existing
+  `chatroom_fakes.py` / `skill_fakes.py` convention, and both files import it. That file
+  belongs to a dossier that closed the same day; its tests were re-run against the extracted
+  version and pass unchanged.
+- **D-12 — the four commits became five, split by surface rather than by C-number.** §7
+  planned C1–C4 as independently revertible commits. C2 shipped alone on 2026-07-31 as
+  planned; C3's frontend-independent slices shipped next (D-7); but **C1, C4 and C3's
+  backend half interleave inside `turn_engine.py` and one new test file**, so they went in
+  one backend commit rather than three. Splitting them would have needed interactive
+  staging inside a shared file, which the commit discipline in CLAUDE.md rules out and
+  which was doubly unsafe with another session committing in the same repo (see the note
+  in D-1). Rollback granularity is correspondingly coarser than §9 describes: reverting the
+  backend commit unwinds C1, C3's emits and C4 together. The §9 ordering constraint
+  (unwind C4 before C3) is satisfied trivially, since they are the same commit.
 - **D-6 — every `path:line` in §1–§9 is stale.** `turn_engine.py` is now 3372 lines (was
   ~2760 when this was written) and `useChatroomSocket.ts` was reshaped by
   `chatroom-socket-lifecycle`. Every cited *behaviour* was re-verified as still present at
@@ -581,15 +633,26 @@ If the new `agent.progress` event is added, it must also be listed in
   identification query from §7 finds the audit-row evidence after the fact; nothing notices
   at the time. A counter on swallowed post-commit dispatch failures would make the class
   observable.
-- **FU-7** — **C1, C4 and the backend half of C3 are unbuilt** (D-1). They are blocked only
-  on `2026-07-22-turn-idempotency-and-locking` finishing with `turn_engine.py`, not on any
-  finding here. What remains, in order: **C1** (end the failure scope at the commit —
-  F-6, S-1, plus the `knowledge_starved` sibling of D-5), **C3's backend half** (emit
-  `agent.progress` at the four named assembly boundaries and around the compaction call,
-  then add its client `case`), then **C4** (reuse that event at the round boundary,
-  `turn_engine.py:3226`, and reset the draft on it). C3's frontend-independent slices and
-  AC-10 are already done (D-7). Unblocked ACs remaining: AC-1, AC-2, AC-3, the
-  `agent.progress` half of AC-5, and AC-7.
+- **FU-7** — *Closed.* C1, C3 and C4 landed on 2026-07-31 once
+  `2026-07-22-turn-idempotency-and-locking` released `turn_engine.py`. Kept as the record of
+  why the build was split across three sittings (D-1, D-7).
+- **FU-10** — **`_post_commit` catches `Exception`, so a cancellation in the post-commit
+  window still rewrites a committed turn as failed.** `job_timeout` or worker shutdown
+  raises `CancelledError`, which is a `BaseException`; it passes straight through the guard
+  to `_run_locked`'s `except BaseException` arm and runs `_finalize_failed_turn` — writing
+  `agent.turn_failed` and requeueing consumed notifications for a turn whose reply is on
+  disk. This is F-6's damage through a second door, and [R13.27] as written does not admit
+  it. Deliberately not fixed here: the window is the ~6 awaits after the commit, and the
+  correct fix belongs with `_finalize_failed_turn` and the stranded-turn reaper, which
+  `2026-07-22-turn-idempotency-and-locking` built the same day. Catching `BaseException` in
+  `_post_commit` would be wrong on its own — it would swallow the cancellation arq must
+  see. The shape wanted is a `committed` latch the failure arms consult.
+- **FU-11** — **a single provider call longer than the watchdog still trips it.**
+  `agent.progress` fires at boundaries, so it re-arms immediately before `run_compact`, but
+  a summariser call is one `await` and `STREAM_TIMEOUT` allows it 300 s — more than the
+  120 s watchdog. The boundary beacons cover every gap *between* steps, not a single step
+  that outlasts the window. A periodic keepalive for the duration of the assembly phase
+  would close it; that is a design change beyond C3, which §7 scoped to named boundaries.
 - **FU-8** — `onSend` (`useChatroomMessages.ts:236`) mixes slash-command dispatch,
   optimistic insert, scroll, mention resolution, the POST and rollback across ~77 lines;
   C2 added 13 of them. Extracting the `/compact` branch into a named local would undo the
