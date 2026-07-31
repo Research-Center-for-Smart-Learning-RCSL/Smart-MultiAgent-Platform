@@ -263,6 +263,30 @@ class TestACommittedSkipReportsSkipped:
         assert result.reason == "knowledge_starved"
         assert trace.audited("agent.turn_failed") == []
 
+    async def test_knowledge_starved_audits_a_finish_so_the_reaper_leaves_it_alone(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent.turn_started` is audited at the top of the try and committed by
+        this branch's own commit, so the turn started. Reporting the skip as
+        `agent.turn_skipped` left a start with no finish, and the stranded-turn
+        reaper pairs starts against finishes — it resolved this room as stranded
+        ~12 minutes later, every time, and pushed `agent.finished{stranded}` into
+        a room running nothing. `no_input` and `empty_reply` already report
+        `turn_finished` with a reason; this branch was the outlier.
+        """
+        from contexts.agents.infrastructure.stranded_turns import TURN_FINISHED
+
+        engine, trace, agent, room = _starved(monkeypatch)
+
+        result = await run_locked(engine, room, agent)
+
+        assert result.reason == "knowledge_starved"
+        assert trace.audited("agent.turn_skipped") == []
+        finishes = trace.audited(TURN_FINISHED)
+        assert [f["reason"] for f in finishes] == ["knowledge_starved"]
+        # The start it pairs with is in the same committed batch.
+        assert len(trace.audited("agent.turn_started")) == 1
+
     async def test_knowledge_starved_still_restores_its_notifications(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
