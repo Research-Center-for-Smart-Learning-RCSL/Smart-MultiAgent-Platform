@@ -206,6 +206,12 @@ def _validate_workflow_capabilities(value: dict[str, Any] | None) -> dict[str, A
 
     `BoundedConfig` alone bounds size/depth, not shape, which is what let both
     `{}` and `{"max_alive_subagents": 0}` round-trip unvalidated before this.
+
+    **Per-field only.** The cross-field rule — a bound is required once
+    `can_create_subagent` is true — lives in `AgentService`, applied to the
+    merged value, because this validator sees a PATCH fragment and neither key
+    is reliably in it. Deciding it here rejected valid patches and admitted
+    invalid ones; see `_assert_capability_invariants`.
     """
     if value is None:
         return value
@@ -220,10 +226,6 @@ def _validate_workflow_capabilities(value: dict[str, Any] | None) -> dict[str, A
             field="workflow_capabilities.max_alive_subagents",
             minimum=_MAX_ALIVE_SUBAGENTS_MIN,
             maximum=SUBAGENT_MAX_CONCURRENT_HARD,
-        )
-    elif value.get("can_create_subagent") is True:
-        raise ValueError(
-            "workflow_capabilities.max_alive_subagents is required when can_create_subagent is true"
         )
     return value
 

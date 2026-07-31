@@ -31,6 +31,7 @@ from contexts.agents.domain.errors import (
     KnowmapBuilderKeyGroupConflict,
     RagConfigOutOfProject,
     ToolNotAvailable,
+    WorkflowCapabilitiesInvalid,
 )
 from contexts.agents.domain.models import (
     Agent,
@@ -739,6 +740,69 @@ class TestPatch:
             )
 
         agents.patch.assert_not_awaited()
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_granting_spawn_keeps_a_bound_the_row_already_stores(self, _audit) -> None:
+        """The false *reject*. Validating the fragment saw no `max_alive_subagents`
+        in the patch and 422'd, even though the merge is perfectly valid."""
+        current = _make_agent(workflow_capabilities={"max_alive_subagents": 3})
+        agents = AsyncMock()
+        agents.get.return_value = current
+        svc = _make_service(agent_repo=agents)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(workflow_capabilities={"can_create_subagent": True}),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        merged = agents.patch.call_args.kwargs["values"]["workflow_capabilities"]
+        assert merged == {"can_create_subagent": True, "max_alive_subagents": 3}
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_clearing_the_bound_on_a_spawn_capable_agent_is_rejected(self, _audit) -> None:
+        """The false *accept*, and the worse half. The fragment has no
+        `can_create_subagent` to trip the old check, so this deleted the bound
+        and left exactly the unbounded spawn-capable row migration 0073 repaired."""
+        current = _make_agent(workflow_capabilities={"can_create_subagent": True, "max_alive_subagents": 3})
+        agents = AsyncMock()
+        agents.get.return_value = current
+        svc = _make_service(agent_repo=agents)
+
+        with pytest.raises(WorkflowCapabilitiesInvalid):
+            await svc.patch(
+                agent_id=current.id,
+                draft=AgentDraft(workflow_capabilities={"max_alive_subagents": None}),
+                expected_version=1,
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        agents.patch.assert_not_awaited()
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_turning_spawn_off_may_clear_the_bound_together(self, _audit) -> None:
+        """The payload the agent detail view actually sends when the toggle goes
+        off — both keys in one patch, so the merge is consistent."""
+        current = _make_agent(workflow_capabilities={"can_create_subagent": True, "max_alive_subagents": 3})
+        agents = AsyncMock()
+        agents.get.return_value = current
+        svc = _make_service(agent_repo=agents)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(
+                workflow_capabilities={"can_create_subagent": False, "max_alive_subagents": None}
+            ),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        merged = agents.patch.call_args.kwargs["values"]["workflow_capabilities"]
+        assert merged == {"can_create_subagent": False}
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_replace_flag_restores_the_authored_snapshot_verbatim(self, _audit) -> None:
