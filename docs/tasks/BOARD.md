@@ -33,11 +33,6 @@ parallel.
 
 ## In progress
 
-- `2026-07-22-workflow-capability-enforcement` (bugfix) — `depends_on: []`. a2a F-13 plus config
-  F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read by
-  nothing. Approved 2026-07-31, Q-8 resolved (derived, narrow backfill); SRS delta applied as
-  `[R15.10a]`. In progress: gating `can_approve`/`can_instruct`, advisory linter + picker markers,
-  `max_alive_subagents` bounds, then the backfill migration last.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 - `2026-07-22-turn-outcome-reporting` (bugfix) — `depends_on: []`. Approved 2026-07-31; SRS delta
   applied as `[R13.27]`. a2u F-6, F-9, F-15 plus a2a F-40. A committed reply is recorded as a failed
@@ -49,6 +44,10 @@ parallel.
   client thinking-watchdog on every reconnect, so a pre-stream assembly window over 120s now
   reports a healthy turn as `timeout` every time instead of intermittently. See that dossier's
   FU-8.
+Removed on 2026-08-01 after implementation: `2026-07-22-workflow-capability-enforcement`
+(can_approve/can_instruct gated at runtime, advisory linter + picker markers, max_alive_subagents
+bounds, migration 0073 applied and downgrade-checked). Nothing lists it in `depends_on`, so no
+row moved out of Blocked.
 Removed on 2026-07-31 after implementation: `2026-07-22-turn-idempotency-and-locking` (all six
 commits C1–C6, migration 0072 applied and downgrade-checked). Nothing lists it in `depends_on`, so
 no row moved out of Blocked. It does unblock `2026-07-22-turn-outcome-reporting`'s backend half:
