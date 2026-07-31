@@ -16,9 +16,6 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-07-22-workflow-capability-enforcement` (bugfix, approved) — `depends_on: []`. a2a F-13 plus
-  config F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read
-  by nothing. Q-8 (migration posture) resolved 2026-07-31: derived, narrow backfill.
 - `2026-07-22-wait-for-event-timer-and-join-ports` (bugfix, draft) — `depends_on: []`. a2a F-2,
   F-36: a `timer` wait — the editor's seeded default — parks until its timeout and exits the
   failure port, and the join `timeout` port is documented, linted, rendered and produced by
@@ -36,6 +33,11 @@ parallel.
 
 ## In progress
 
+- `2026-07-22-workflow-capability-enforcement` (bugfix) — `depends_on: []`. a2a F-13 plus config
+  F-21: the three `workflow_capabilities` flags are stored, displayed and inherited but read by
+  nothing. Approved 2026-07-31, Q-8 resolved (derived, narrow backfill); SRS delta applied as
+  `[R15.10a]`. In progress: gating `can_approve`/`can_instruct`, advisory linter + picker markers,
+  `max_alive_subagents` bounds, then the backfill migration last.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 - `2026-07-22-turn-outcome-reporting` (bugfix) — `depends_on: []`. Approved 2026-07-31; SRS delta
   applied as `[R13.27]`. a2u F-6, F-9, F-15 plus a2a F-40. A committed reply is recorded as a failed

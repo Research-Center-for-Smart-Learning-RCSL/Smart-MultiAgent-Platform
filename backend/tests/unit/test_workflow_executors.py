@@ -10,6 +10,10 @@ import uuid
 from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from contexts.orchestration.domain.errors import (
+    ApprovalCapabilityDenied,
+    InstructCapabilityDenied,
+)
 from contexts.workflow.domain.models import (
     NodeSpec,
     NodeType,
@@ -664,6 +668,39 @@ class TestInstructExecutor:
         assert "connection lost" in (outcome.error or "")
 
     @patch("contexts.workflow.application.executors.instruct.interpolate", return_value="t")
+    async def test_capability_denied_returns_failed(self, _interp) -> None:
+        """T-8: an issuer lacking can_instruct is denied inside InstructService.issue
+        (unit-tested separately); here the executor's port mapping is what's under
+        test — the same generic except-Exception path as any other issue_instruct
+        failure, but the error string must name the capability (AC-5)."""
+        from contexts.workflow.application.executors.instruct import execute
+
+        ctx = _make_ctx()
+        node = _make_node(
+            NodeType.INSTRUCT,
+            {
+                "issuer_agent_id": str(uuid.uuid4()),
+                "target_agent_id": str(uuid.uuid4()),
+                "instruction_template": "t",
+            },
+        )
+
+        facade_mock = AsyncMock()
+        facade_mock.issue_instruct.side_effect = InstructCapabilityDenied(
+            "agent lacks workflow_capabilities.can_instruct"
+        )
+
+        with patch(
+            "contexts.orchestration.interfaces.facade.OrchestrationFacade",
+            return_value=facade_mock,
+        ):
+            outcome = await execute(ctx, node, AsyncMock())
+
+        assert outcome.state == StepState.FAILED
+        assert outcome.port == "failure"
+        assert "can_instruct" in (outcome.error or "")
+
+    @patch("contexts.workflow.application.executors.instruct.interpolate", return_value="t")
     async def test_instruct_logs_when_deadline_arm_fails(self, _interp, caplog) -> None:
         """T-12: a failed deadline arm must not be silent (F-16 aggravating factor)
         — the node still parks, but a warning is logged so an unarmed deadline is
@@ -709,6 +746,45 @@ class TestInstructExecutor:
         assert outcome.state == StepState.RUNNING
         assert outcome.park is True
         assert any("deadline arm failed" in record.message for record in caplog.records)
+
+
+# ===========================================================================
+# approval_gate executor
+# ===========================================================================
+
+
+class TestApprovalGateExecutor:
+    async def test_capability_denied_returns_failed(self) -> None:
+        """T-8 (approval side): an approver/leader lacking can_approve is denied
+        inside ApprovalService.create_gate (unit-tested separately); here the
+        executor's port mapping is under test, and the error string must name
+        the capability (AC-5)."""
+        from contexts.workflow.application.executors.approval_gate import execute
+
+        ctx = _make_ctx()
+        node = _make_node(
+            NodeType.APPROVAL_GATE,
+            {
+                "leader_agent_id": str(uuid.uuid4()),
+                "approvers": [str(uuid.uuid4())],
+                "mode": "single",
+            },
+        )
+
+        facade_mock = AsyncMock()
+        facade_mock.create_approval_gate.side_effect = ApprovalCapabilityDenied(
+            "agent lacks workflow_capabilities.can_approve"
+        )
+
+        with patch(
+            "contexts.orchestration.interfaces.facade.OrchestrationFacade",
+            return_value=facade_mock,
+        ):
+            outcome = await execute(ctx, node, AsyncMock())
+
+        assert outcome.state == StepState.FAILED
+        assert outcome.port == "failure"
+        assert "can_approve" in (outcome.error or "")
 
 
 # ===========================================================================
