@@ -21,6 +21,8 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from jsonschema import Draft202012Validator
+
 from contexts.skills.domain.errors import SkillUnreadable
 from contexts.skills.domain.models import Skill, SkillFile, SkillFileKind, SkillRead
 from contexts.skills.domain.readability import assert_readable
@@ -153,6 +155,31 @@ class Tool:
 
 logger = logging.getLogger(__name__)
 
+# How many schema violations are named back to the model. All of them can be one
+# message per array element of a large malformed payload, and the whole thing is
+# echoed into the context window.
+_MAX_REPORTED_VIOLATIONS = 10
+
+
+def schema_violations(schema: dict[str, Any], args: dict[str, Any]) -> list[str]:
+    """Every way ``args`` breaks ``schema`` (empty = valid).
+
+    Deliberately a copy of `contexts/activities/.../validators/schema.py`'s
+    `payload_errors` rather than an import: that helper belongs to the activities
+    context, and a cross-context import for four lines would buy a coupling worth
+    more than the duplication.
+
+    Fails **open** on a malformed schema. Built-in schemas are held well-formed by
+    a drift test, but an MCP server's captured contract is written by someone else
+    and an unusable one must cost the agent its validation, not its turn.
+    """
+    try:
+        validator = Draft202012Validator(schema)
+        return [err.message for err in validator.iter_errors(args)]
+    except Exception:
+        logger.warning("tool input_schema is not usable; skipping validation", exc_info=True)
+        return []
+
 
 class ToolRegistry:
     """Name → Tool table for one turn. Dispatch raises only on infrastructure."""
@@ -193,10 +220,25 @@ class ToolRegistry:
 
         The exception itself never reaches the model: a SQLAlchemy message can carry
         the failing SQL, table names and parameter values.
+
+        A **protocol violation** — arguments that do not satisfy the schema the tool
+        advertised — is rejected here, before ``invoke``. Nothing downstream did
+        that: every tool coerced instead, so a missing required field became a
+        default and the model was told the call succeeded. `file` op=write with no
+        `content` truncated its target and reported `written: 0` without an error.
         """
         tool = self._by_name.get(name)
         if tool is None:
             return ToolResult(content=f"Unknown tool {name!r}.", is_error=True)
+        violations = schema_violations(tool.input_schema, args)
+        if violations:
+            shown = violations[:_MAX_REPORTED_VIOLATIONS]
+            more = len(violations) - len(shown)
+            detail = "; ".join(shown) + (f"; and {more} more" if more else "")
+            # `_tool_error` clips: the messages quote the model's own arguments
+            # back at it, and a large malformed payload would otherwise be echoed
+            # into the context window in full.
+            return _tool_error(f"Tool {name!r} was not run — invalid arguments: {detail}")
         try:
             return await tool.invoke(args)
         except Exception as exc:

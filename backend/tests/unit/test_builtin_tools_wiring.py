@@ -639,6 +639,70 @@ async def test_file_dispatches_op() -> None:
     assert bad.is_error is True
 
 
+async def test_file_write_without_content_is_rejected() -> None:
+    """F-20. `str(args.get("content", ""))` made a missing field an empty write,
+    so a truncated call silently truncated the file and reported no error."""
+    runner = AsyncMock()
+    runner.run_file_op.return_value = _ok("written: 0")
+    tools = {
+        t.name: t
+        for t in bt.build_agent_tools(
+            _session(),
+            agent=_agent(),
+            tools=[_tool(AgentToolType.HOSTED_FILE_WORKSPACE)],
+            deps=_deps(runner=runner),
+        )
+    }
+
+    res = await tools["file"].invoke({"op": "write", "path": "/workspace/notes.md"})
+
+    assert res.is_error is True
+    assert "content" in res.content
+    runner.run_file_op.assert_not_awaited()
+
+
+async def test_file_write_with_empty_content_is_still_allowed() -> None:
+    """Deliberately emptying a file is a legitimate write; the rejection is for
+    an absent field, not a falsy one."""
+    runner = AsyncMock()
+    runner.run_file_op.return_value = _ok("written: 0")
+    tools = {
+        t.name: t
+        for t in bt.build_agent_tools(
+            _session(),
+            agent=_agent(),
+            tools=[_tool(AgentToolType.HOSTED_FILE_WORKSPACE)],
+            deps=_deps(runner=runner),
+        )
+    }
+
+    res = await tools["file"].invoke({"op": "write", "path": "/workspace/notes.md", "content": ""})
+
+    assert res.is_error is False
+    runner.run_file_op.assert_awaited()
+
+
+def test_every_built_tool_advertises_a_well_formed_schema() -> None:
+    """Drift guard. `ToolRegistry.call` validates against `input_schema` and fails
+    open on an unusable one, so a malformed schema would silently turn the
+    validation gate off for that tool instead of failing anywhere visible."""
+    from jsonschema import Draft202012Validator
+
+    tools = bt.build_agent_tools(
+        _session(),
+        agent=_agent(),
+        tools=[
+            *_singletons(web_search=True, code_exec=True, file=True, file_search=True),
+            _mcp(("alpha",)),
+            _function("lookup_order"),
+        ],
+        deps=_deps(),
+    )
+    assert tools, "expected tools to be built"
+    for t in tools:
+        Draft202012Validator.check_schema(t.input_schema)
+
+
 # --------------------------------------------------------------------------- #
 # MCP tool                                                                      #
 # --------------------------------------------------------------------------- #

@@ -20,6 +20,7 @@ from contexts.keys.application.provider_router import (
     ProviderCallResult,
     StreamComplete,
     TokenDelta,
+    is_truncated_finish_reason,
 )
 from contexts.keys.domain.errors import KeyGroupExhausted
 from contexts.keys.domain.providers import ApiKeyProvider
@@ -227,6 +228,103 @@ async def test_final_no_tools_call_carries_the_same_provider_and_model() -> None
     assert final_request.provider is ApiKeyProvider.CLAUDE
     assert final_request.payload["model"] == "claude-opus-4-8"
     assert "models" not in final_request.payload
+
+
+class _TruncatingRouter:
+    """Emits a tool call cut off at the output ceiling, `rounds` times over."""
+
+    def __init__(self, truncated_rounds: int) -> None:
+        self.requests: list = []
+        self._truncated_rounds = truncated_rounds
+
+    async def call_stream(self, *, group_id, request):
+        self.requests.append(request)
+        if len(self.requests) <= self._truncated_rounds:
+            yield StreamComplete(
+                ProviderCallResult(
+                    200,
+                    {
+                        "text": "",
+                        # What the adapters produce from unterminated argument
+                        # JSON: `{}`, indistinguishable from a real empty call.
+                        "tool_calls": [{"id": "t1", "name": "web_search", "arguments": {}}],
+                        "finish_reason": "max_tokens",
+                    },
+                )
+            )
+        else:
+            yield StreamComplete(
+                ProviderCallResult(200, {"text": "ok", "tool_calls": [], "finish_reason": "end_turn"})
+            )
+
+
+@pytest.mark.asyncio
+async def test_truncated_tool_arguments_are_not_dispatched() -> None:
+    """AC-1/AC-5. `{}` from a truncated argument stream reached the tool, which
+    coerced it: `web_search` searched for the empty string and reported a
+    plausible empty result set as a success."""
+    engine, agent = _engine_with(_TruncatingRouter(1))
+    registry = _FakeRegistry()
+    messages: list = [{"role": "user", "content": "search for something long"}]
+
+    outcome = await engine._stream_with_tools(
+        agent=agent,
+        chatroom_id=uuid.uuid4(),
+        parent_agent_id=None,
+        system_text="sys",
+        messages=messages,
+        provider=ApiKeyProvider.CLAUDE,
+        model="m",
+        registry=registry,
+        room=None,
+    )
+
+    assert registry.invoked == []
+    tool_result = next(m for m in messages if m["role"] == "tool")
+    # The content, not just is_error: OpenAI and Gemini drop is_error entirely.
+    assert "not run" in tool_result["content"]
+    assert "smaller" in tool_result["content"]
+    assert tool_result["is_error"] is True
+    # Anthropic requires a tool_result for every tool_use block it sent.
+    assert tool_result["tool_call_id"] == "t1"
+    assert outcome.text == "ok"
+
+
+@pytest.mark.parametrize("reason", ["max_tokens", "length", "MAX_TOKENS"])
+def test_every_provider_spelling_of_truncation_maps_to_one_value(reason: str) -> None:
+    """Anthropic, OpenAI and Gemini each name it differently and the field is
+    passed through verbatim, so the turn loop needs one predicate."""
+    assert is_truncated_finish_reason(reason) is True
+
+
+@pytest.mark.parametrize("reason", ["end_turn", "tool_use", "stop", "STOP", None, 3])
+def test_a_normal_stop_is_not_truncation(reason) -> None:
+    assert is_truncated_finish_reason(reason) is False
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_round_does_not_cost_the_model_its_budget() -> None:
+    """Charging a round the model did no work in makes "retry with a smaller
+    payload" unusable advice, since the retry may have no budget to run in."""
+    engine, agent = _engine_with(_TruncatingRouter(2))
+
+    outcome = await _run_to_synthesis(engine, agent)
+
+    # Two rejections, then a clean answer: no tool round was actually completed.
+    assert outcome.rounds == 0
+    assert outcome.text == "ok"
+    assert len(engine._router.requests) == 3  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_a_model_that_truncates_forever_still_terminates() -> None:
+    """The uncharged rounds are capped, or the loop never ends."""
+    engine, agent = _engine_with(_TruncatingRouter(1000))
+
+    outcome = await _run_to_synthesis(engine, agent)
+
+    assert outcome.rounds == te.MAX_TOOL_ROUNDS
+    assert len(engine._router.requests) == te.MAX_TOOL_ROUNDS + te._MAX_ARG_REJECTIONS + 1
 
 
 class _EightRoundsThenRouter:

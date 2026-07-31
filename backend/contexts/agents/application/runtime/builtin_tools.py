@@ -121,11 +121,19 @@ _FILE_SCHEMA: dict[str, Any] = {
             "description": "Path under /workspace. Bare names are resolved against /workspace, "
             "not against code_exec's working directory.",
         },
-        "content": {"type": "string", "description": "UTF-8 content for write."},
+        "content": {
+            "type": "string",
+            "description": "UTF-8 content for write. Required when op is write.",
+        },
     },
     "required": ["op", "path"],
     "additionalProperties": False,
 }
+# `content` is conditionally required, but that conditional is NOT expressed in the
+# schema above: Gemini receives `input_schema` verbatim as an OpenAPI-subset
+# `parameters` (adapters/gemini.py), which does not carry if/then, and a rejected
+# schema is a deterministic 400 that burns every key in the group via rotation. The
+# requirement is enforced in the tool instead, where it holds on every provider.
 
 
 # --------------------------------------------------------------------------- #
@@ -379,6 +387,14 @@ def _build_file_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps) -
             elif op == "read":
                 res = await tool.read(path)
             elif op == "write":
+                if "content" not in args:
+                    # F-20: `str(args.get("content", ""))` made a missing field an
+                    # empty write, so a truncated call silently truncated the file
+                    # and came back as `written: 0` with no error.
+                    return ToolResult(
+                        content="file write requires 'content'; the file was not modified.",
+                        is_error=True,
+                    )
                 res = await tool.write(path, str(args.get("content", "")).encode("utf-8"))
             else:
                 return ToolResult(content=f"unknown file op {op!r}", is_error=True)
