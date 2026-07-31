@@ -132,3 +132,58 @@ def test_patch_rejects_a_non_bool_enabled_flag(trigger_key: str) -> None:
 def test_patch_rejects_a_non_bool_allow_self_open() -> None:
     with pytest.raises(ValidationError, match="allow_self_open"):
         AgentPatchIn(wakeup_config={"allow_self_open": "false"})
+
+
+# -- T-10 (workflow-capability-enforcement spec §7.6, AC-9): `max_alive_subagents`
+# is validated 1..20 at the API and required when `can_create_subagent` is true.
+# `BoundedConfig` alone bounded size/depth, not shape, which is what let both
+# `{}` and `{"max_alive_subagents": 0}` round-trip unvalidated before this. -----
+
+
+def test_patch_rejects_max_alive_subagents_zero() -> None:
+    with pytest.raises(ValidationError, match="max_alive_subagents"):
+        AgentPatchIn(workflow_capabilities={"can_create_subagent": True, "max_alive_subagents": 0})
+
+
+@pytest.mark.parametrize("value", [1, 3, 20])
+def test_patch_accepts_max_alive_subagents_in_range(value: int) -> None:
+    patch = AgentPatchIn(workflow_capabilities={"can_create_subagent": True, "max_alive_subagents": value})
+    assert patch.workflow_capabilities is not None
+    assert patch.workflow_capabilities["max_alive_subagents"] == value
+
+
+def test_patch_rejects_max_alive_subagents_above_hard_cap() -> None:
+    with pytest.raises(ValidationError, match="max_alive_subagents"):
+        AgentPatchIn(workflow_capabilities={"can_create_subagent": True, "max_alive_subagents": 21})
+
+
+def test_patch_rejects_can_create_subagent_true_without_max_alive_subagents() -> None:
+    with pytest.raises(ValidationError, match="max_alive_subagents"):
+        AgentPatchIn(workflow_capabilities={"can_create_subagent": True})
+
+
+def test_patch_accepts_can_create_subagent_false_with_null_max_alive_subagents() -> None:
+    # The exact payload AgentDetailView.vue sends when the toggle is off — null
+    # clears the key under the additive PATCH merge (shared_kernel.json_merge),
+    # rather than erroring.
+    patch = AgentPatchIn(workflow_capabilities={"can_create_subagent": False, "max_alive_subagents": None})
+    assert patch.workflow_capabilities is not None
+    assert patch.workflow_capabilities["max_alive_subagents"] is None
+
+
+def test_create_accepts_capable_agent_with_max_alive_subagents() -> None:
+    agent = _create(
+        workflow_capabilities={
+            "can_instruct": True,
+            "can_approve": True,
+            "can_create_subagent": True,
+            "max_alive_subagents": 5,
+        }
+    )
+    assert agent.workflow_capabilities["max_alive_subagents"] == 5
+
+
+@pytest.mark.parametrize("cap_key", ["can_instruct", "can_approve", "can_create_subagent"])
+def test_patch_rejects_a_non_bool_capability_flag(cap_key: str) -> None:
+    with pytest.raises(ValidationError, match=cap_key):
+        AgentPatchIn(workflow_capabilities={cap_key: "true"})

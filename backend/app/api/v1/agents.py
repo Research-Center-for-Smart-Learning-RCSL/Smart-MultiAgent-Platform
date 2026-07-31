@@ -34,6 +34,7 @@ from contexts.orchestration.domain.models import (
     AUTOSTOP_HARD_CAP,
     N_MAX,
     N_MIN,
+    SUBAGENT_MAX_CONCURRENT_HARD,
     T_MINUTES_MAX,
     T_MINUTES_MIN,
 )
@@ -188,6 +189,45 @@ def _validate_wakeup_config(value: dict[str, Any] | None) -> dict[str, Any] | No
     return value
 
 
+# R15.20's hard cap is shared with the domain (SUBAGENT_MAX_CONCURRENT_HARD);
+# the floor has no domain constant since 0 was never a valid value anywhere,
+# only an unvalidated default (workflow-capability-enforcement spec §7.6).
+_MAX_ALIVE_SUBAGENTS_MIN = 1
+
+
+def _validate_workflow_capabilities(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Validate the four documented `workflow_capabilities` keys
+    (docs/UI/06-agents.md:422-431), leaving every other key untouched so the
+    column stays free-form (same additive-merge contract as `wakeup_config` —
+    `agent_service.py` merges via `merge_json_config`, where an explicit `null`
+    clears a key rather than erroring, which is how the frontend signals
+    "not applicable" by sending `max_alive_subagents: null` when
+    `can_create_subagent` is false).
+
+    `BoundedConfig` alone bounds size/depth, not shape, which is what let both
+    `{}` and `{"max_alive_subagents": 0}` round-trip unvalidated before this.
+    """
+    if value is None:
+        return value
+    for key in ("can_instruct", "can_approve", "can_create_subagent"):
+        if key in value:
+            _check_wakeup_bool(value[key], field=f"workflow_capabilities.{key}")
+
+    max_alive = value.get("max_alive_subagents")
+    if max_alive is not None:
+        _check_wakeup_int(
+            max_alive,
+            field="workflow_capabilities.max_alive_subagents",
+            minimum=_MAX_ALIVE_SUBAGENTS_MIN,
+            maximum=SUBAGENT_MAX_CONCURRENT_HARD,
+        )
+    elif value.get("can_create_subagent") is True:
+        raise ValueError(
+            "workflow_capabilities.max_alive_subagents is required when can_create_subagent is true"
+        )
+    return value
+
+
 class AgentCreateIn(BaseModel):
     model_config = {"protected_namespaces": ()}
 
@@ -222,6 +262,13 @@ class AgentCreateIn(BaseModel):
     @classmethod
     def _check_wakeup_config(cls, v: dict[str, Any]) -> dict[str, Any]:
         result = _validate_wakeup_config(v)
+        assert result is not None  # non-Optional field: input is never None
+        return result
+
+    @field_validator("workflow_capabilities")
+    @classmethod
+    def _check_workflow_capabilities(cls, v: dict[str, Any]) -> dict[str, Any]:
+        result = _validate_workflow_capabilities(v)
         assert result is not None  # non-Optional field: input is never None
         return result
 
@@ -263,6 +310,11 @@ class AgentPatchIn(BaseModel):
     @classmethod
     def _check_wakeup_config(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
         return _validate_wakeup_config(v)
+
+    @field_validator("workflow_capabilities")
+    @classmethod
+    def _check_workflow_capabilities(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+        return _validate_workflow_capabilities(v)
 
 
 class AgentOut(BaseModel):
