@@ -157,9 +157,28 @@ def test_patch_rejects_max_alive_subagents_above_hard_cap() -> None:
         AgentPatchIn(workflow_capabilities={"can_create_subagent": True, "max_alive_subagents": 21})
 
 
-def test_patch_rejects_can_create_subagent_true_without_max_alive_subagents() -> None:
-    with pytest.raises(ValidationError, match="max_alive_subagents"):
-        AgentPatchIn(workflow_capabilities={"can_create_subagent": True})
+def test_patch_defers_the_cross_field_rule_to_the_merged_config() -> None:
+    """This model sees a PATCH *fragment*, and the column merges.
+
+    It used to reject this payload outright, which was wrong in both directions:
+    an agent already storing `max_alive_subagents: 3` could not be granted the
+    capability, while `{"max_alive_subagents": null}` alone sailed through and
+    deleted the bound from an agent whose `can_create_subagent` was true. The
+    rule is now decided on the merge, in `AgentService` — see
+    `test_agent_service.py`'s capability-invariant tests, which cover both.
+    """
+    patch = AgentPatchIn(workflow_capabilities={"can_create_subagent": True})
+    assert patch.workflow_capabilities == {"can_create_subagent": True}
+
+
+def test_create_rejects_can_create_subagent_true_without_max_alive_subagents() -> None:
+    """On create there is nothing to merge with, so the service rejects it — the
+    invariant did not move, only the layer that can decide it."""
+    from contexts.agents.application.agent_service import _assert_capability_invariants
+    from contexts.agents.domain.errors import WorkflowCapabilitiesInvalid
+
+    with pytest.raises(WorkflowCapabilitiesInvalid, match="max_alive_subagents"):
+        _assert_capability_invariants({"can_create_subagent": True}, field="workflow_capabilities")
 
 
 def test_patch_accepts_can_create_subagent_false_with_null_max_alive_subagents() -> None:
