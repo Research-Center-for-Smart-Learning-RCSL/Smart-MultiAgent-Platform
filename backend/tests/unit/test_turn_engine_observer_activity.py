@@ -179,7 +179,9 @@ def _wire_normal_engine(monkeypatch, agent, *, activity_block: str | None):
     async def _true(*a, **k):
         return True
 
-    async def _history(agent_, chatroom_id, context_limit, provider, model, *, extra_projected_tokens=0):
+    async def _history(
+        agent_, chatroom_id, context_limit, provider, model, *, extra_projected_tokens=0, room=None
+    ):
         return [
             SimpleNamespace(
                 role="user", content="hello", sender_id=uuid.uuid4(), id=uuid.uuid4(), token_count=2
