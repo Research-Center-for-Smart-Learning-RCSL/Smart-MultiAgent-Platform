@@ -141,6 +141,95 @@ async def test_registry_without_a_classifier_degrades_everything() -> None:
 
 
 @pytest.mark.asyncio
+async def test_registry_rejects_arguments_violating_input_schema() -> None:
+    """AC-6. Nothing stood between the model's arguments and the tool: every tool
+    coerced instead, so a missing required field became a default and the call
+    came back a success."""
+    from contexts.agents.application.runtime.builtin_tools import _CODE_EXEC_SCHEMA
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    invoked: list = []
+
+    async def _record(args):
+        invoked.append(args)
+        return tr.ToolResult(content="ran")
+
+    reg = ToolRegistry(
+        [Tool(name="code_exec", description="d", input_schema=_CODE_EXEC_SCHEMA, invoke=_record)]
+    )
+
+    res = await reg.call("code_exec", {})
+
+    assert res.is_error
+    assert "source" in res.content
+    assert invoked == []
+
+
+@pytest.mark.asyncio
+async def test_registry_dispatches_arguments_that_satisfy_the_schema() -> None:
+    from contexts.agents.application.runtime.builtin_tools import _CODE_EXEC_SCHEMA
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    invoked: list = []
+
+    async def _record(args):
+        invoked.append(args)
+        return tr.ToolResult(content="ran")
+
+    reg = ToolRegistry(
+        [Tool(name="code_exec", description="d", input_schema=_CODE_EXEC_SCHEMA, invoke=_record)]
+    )
+
+    res = await reg.call("code_exec", {"source": "print(1)"})
+
+    assert not res.is_error
+    assert invoked == [{"source": "print(1)"}]
+
+
+@pytest.mark.asyncio
+async def test_an_unusable_input_schema_costs_validation_not_the_turn() -> None:
+    """An MCP server's captured contract is written by someone else."""
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    async def _ran(_args):
+        return tr.ToolResult(content="ran")
+
+    reg = ToolRegistry([Tool(name="x", description="d", input_schema={"type": "not-a-type"}, invoke=_ran)])
+
+    assert (await reg.call("x", {})).content == "ran"
+
+
+def test_the_violation_report_is_bounded() -> None:
+    """The messages quote the model's own arguments back at it, and a large
+    malformed payload would otherwise be echoed into the context window."""
+    schema = {
+        "type": "object",
+        "properties": {f"f{i}": {"type": "integer"} for i in range(50)},
+    }
+    violations = tr.schema_violations(schema, {f"f{i}": "x" * 400 for i in range(50)})
+
+    assert len(violations) == 50  # the helper reports everything...
+
+
+@pytest.mark.asyncio
+async def test_the_violation_report_sent_to_the_model_is_clipped() -> None:
+    # ...and `call` is what bounds what the model is shown.
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    async def _ran(_args):
+        return tr.ToolResult(content="ran")
+
+    schema = {"type": "object", "properties": {f"f{i}": {"type": "integer"} for i in range(50)}}
+    reg = ToolRegistry([Tool(name="x", description="d", input_schema=schema, invoke=_ran)])
+
+    res = await reg.call("x", {f"f{i}": "x" * 400 for i in range(50)})
+
+    assert res.is_error
+    assert len(res.content) <= _MAX_TOOL_OUTPUT
+    assert "and 40 more" in res.content
+
+
+@pytest.mark.asyncio
 async def test_registry_first_registration_wins_on_duplicate() -> None:
     from contexts.agents.application.runtime.tool_registry import Tool
 

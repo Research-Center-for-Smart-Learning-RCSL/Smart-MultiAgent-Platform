@@ -134,6 +134,22 @@ class StreamComplete:
 
 StreamEvent = TokenDelta | StreamComplete
 
+# Each provider spells "I stopped because I hit the output ceiling" differently and
+# `finish_reason` is passed through verbatim: Anthropic `max_tokens`, OpenAI
+# `length`, Gemini `MAX_TOKENS`. Normalised here rather than in the adapters so the
+# raw provider value still reaches logs and usage rows unchanged.
+_TRUNCATED_FINISH_REASONS: frozenset[str] = frozenset({"max_tokens", "length"})
+
+
+def is_truncated_finish_reason(finish_reason: object) -> bool:
+    """Did the provider stop mid-output because it ran out of tokens?
+
+    Load-bearing for tool calls: a `tool_use` block cut off mid-arguments leaves
+    the adapters unable to parse its JSON, and an unparseable argument object is
+    indistinguishable from a legitimately empty one once it becomes `{}`.
+    """
+    return isinstance(finish_reason, str) and finish_reason.lower() in _TRUNCATED_FINISH_REASONS
+
 
 @runtime_checkable
 class StreamingAdapter(Protocol):

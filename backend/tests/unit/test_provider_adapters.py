@@ -18,6 +18,7 @@ from contexts.keys.application.provider_router import (
     ProviderRequest,
     StreamComplete,
     TokenDelta,
+    is_truncated_finish_reason,
 )
 from contexts.keys.domain.providers import ProviderCapability
 from contexts.keys.infrastructure.adapters.anthropic import AnthropicAdapter
@@ -122,6 +123,73 @@ async def test_anthropic_stream_assembles_tool_call() -> None:
     assert isinstance(final, StreamComplete)
     assert final.result.body["tool_calls"] == [{"id": "t1", "name": "lookup", "arguments": {"q": "x"}}]
     assert final.result.body["finish_reason"] == "tool_use"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_anthropic_truncated_tool_json_is_empty_but_flagged_by_finish_reason() -> None:
+    """The same closing fragment as the test above, omitted.
+
+    `_safe_json` cannot do better than `{}` here — there is no valid document to
+    parse — so `finish_reason` is the *only* thing separating a call whose
+    arguments were cut off from one that legitimately had none. It carried that
+    distinction and no consumer read it, which is defect B.
+    """
+    respx.post("https://api.anthropic.com/v1/messages").mock(
+        return_value=_sse(
+            {"type": "message_start", "message": {"usage": {"input_tokens": 5}}},
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "tool_use", "id": "t1", "name": "lookup"},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": '{"q"'},
+            },
+            {"type": "message_delta", "delta": {"stop_reason": "max_tokens"}},
+        )
+    )
+    events = [e async for e in AnthropicAdapter().stream(secret=_SECRET, request=_chat("claude-x"))]
+    final = events[-1]
+    assert isinstance(final, StreamComplete)
+    assert final.result.body["tool_calls"] == [{"id": "t1", "name": "lookup", "arguments": {}}]
+    assert is_truncated_finish_reason(final.result.body["finish_reason"]) is True
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_truncated_tool_json_is_empty_but_flagged_by_finish_reason() -> None:
+    respx.post("https://api.openai.com/v1/chat/completions").mock(
+        return_value=_sse(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "id": "c1", "function": {"name": "f", "arguments": '{"x"'}}
+                            ]
+                        },
+                        "finish_reason": None,
+                    }
+                ]
+            },
+            {"choices": [{"delta": {}, "finish_reason": "length"}]},
+            done=True,
+        )
+    )
+    events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-4o"))]
+    final = events[-1]
+    assert isinstance(final, StreamComplete)
+    assert final.result.body["tool_calls"] == [{"id": "c1", "name": "f", "arguments": {}}]
+    assert is_truncated_finish_reason(final.result.body["finish_reason"]) is True
+
+
+def test_a_legitimately_empty_tool_call_is_not_read_as_truncated() -> None:
+    """The pair to the two above: identical `arguments`, opposite meaning."""
+    assert is_truncated_finish_reason("tool_use") is False
+    assert is_truncated_finish_reason("tool_calls") is False
 
 
 @pytest.mark.asyncio

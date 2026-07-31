@@ -71,6 +71,7 @@ from contexts.keys.application.provider_router import (
     ProviderStreamError,
     StreamComplete,
     TokenDelta,
+    is_truncated_finish_reason,
 )
 from contexts.keys.domain.errors import KeyGroupExhausted
 from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability
@@ -96,6 +97,22 @@ _log = logging.getLogger(__name__)
 CancelCheck = Callable[[], Awaitable[bool]]
 
 MAX_TOOL_ROUNDS = 8
+
+# Argument-truncation rejections served before one starts costing a tool round.
+# Rejecting a round the model did no work in and still charging it makes "retry
+# with a smaller payload" unusable advice, since the retry may have no budget to
+# run in — but free forever would let a model that truncates every time loop.
+_MAX_ARG_REJECTIONS = 2
+
+# What the model is told when its tool call is refused for truncated arguments.
+# It has to live in the result `content`: `is_error` is translated only by the
+# Anthropic adapter, and OpenAI and Gemini drop it, so content is the one error
+# channel that reaches the model on all three providers.
+_TRUNCATED_ARGS_NOTE = (
+    "This tool call was not run. The response hit its output token ceiling while "
+    "the arguments were still being written, so they arrived incomplete. Call the "
+    "tool again with a smaller argument payload."
+)
 _DEFAULT_MAX_TOKENS = 4096
 # F-16: token budget the allocator reserves for each of the two small graph
 # blocks (Concept Map, Knowledge Map) before File RAG takes the remainder. Sized
@@ -3015,9 +3032,13 @@ class TurnEngine:
     ) -> ToolLoopOutcome:
         tool_specs = registry.specs()
         last_text = ""
-        for rounds in range(1, MAX_TOOL_ROUNDS + 1):
+        tool_rounds = 0
+        rejections = 0
+        # Terminates by construction: past `_MAX_ARG_REJECTIONS` every rejection
+        # charges a round, so there can be at most this many provider calls.
+        for _attempt in range(MAX_TOOL_ROUNDS + _MAX_ARG_REJECTIONS):
             if cancel_check is not None and await cancel_check():
-                raise _TurnCancelled(rounds - 1)
+                raise _TurnCancelled(tool_rounds)
             request = _chat_request(
                 agent,
                 provider=provider,
@@ -3042,26 +3063,55 @@ class TurnEngine:
             last_text = str(body.get("text", ""))
             tool_calls = body.get("tool_calls") or []
             if not tool_calls:
-                return ToolLoopOutcome(text=last_text, rounds=rounds - 1)
-            # Append the assistant tool-use turn, then each tool result.
+                return ToolLoopOutcome(text=last_text, rounds=tool_rounds)
+            # The response was cut off at the output ceiling, so any tool_use
+            # block in it is cut off mid-arguments. Both adapters that parse
+            # streamed argument JSON map an unterminated document to `{}`, which
+            # is indistinguishable from a legitimate no-argument call — and the
+            # tools then degrade rather than reject, so `web_search` returns a
+            # plausible empty result set flagged as success and `file` op=write
+            # truncates its target. Nothing is dispatched.
+            truncated = is_truncated_finish_reason(body.get("finish_reason"))
+            # Append the assistant tool-use turn, then one result per call —
+            # Anthropic requires a tool_result for every tool_use block, so a
+            # rejected round still answers all of them.
             messages.append({"role": "assistant", "content": last_text, "tool_calls": tool_calls})
             for tc in tool_calls:
-                result = await registry.call(tc.get("name"), tc.get("arguments") or {})
+                if truncated:
+                    content, is_error = _TRUNCATED_ARGS_NOTE, True
+                else:
+                    result = await registry.call(tc.get("name"), tc.get("arguments") or {})
+                    content, is_error = result.content, result.is_error
                 messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": tc.get("id"),
                         "name": tc.get("name"),
-                        "content": result.content,
-                        "is_error": result.is_error,
+                        "content": content,
+                        "is_error": is_error,
                     }
                 )
+            if truncated:
+                _log.warning(
+                    "tool call arguments truncated at the token ceiling agent=%s (rejection %d)",
+                    agent.id,
+                    rejections + 1,
+                )
+                rejections += 1
+                if rejections <= _MAX_ARG_REJECTIONS:
+                    # Not charged: the model did no tool work this round, and
+                    # "retry with a smaller payload" is unusable advice if the
+                    # retry has no budget left to run in.
+                    continue
+            tool_rounds += 1
+            if tool_rounds >= MAX_TOOL_ROUNDS:
+                break
         # Tool-round budget exhausted — give the model one final turn WITHOUT
         # tools so it can formulate a coherent reply from the accumulated tool
         # results instead of returning the partial text from the last tool-use
         # response (which is typically "let me check…" or empty).
         if cancel_check is not None and await cancel_check():
-            raise _TurnCancelled(MAX_TOOL_ROUNDS)
+            raise _TurnCancelled(tool_rounds)
         #
         # Strip tool_calls / role:tool from the history so the provider API
         # doesn't require a `tools` field (Anthropic rejects tool_use/tool_result
@@ -3122,7 +3172,7 @@ class TurnEngine:
             )
             return ToolLoopOutcome(
                 text=last_text,
-                rounds=MAX_TOOL_ROUNDS,
+                rounds=tool_rounds,
                 synthesis_failed=True,
                 error_kind=_err_kind(exc),
             )
@@ -3134,11 +3184,11 @@ class TurnEngine:
             _log.error("final no-tools call yielded no terminal event agent=%s", agent.id)
             return ToolLoopOutcome(
                 text=last_text,
-                rounds=MAX_TOOL_ROUNDS,
+                rounds=tool_rounds,
                 synthesis_failed=True,
                 error_kind="provider_no_terminal_event",
             )
-        return ToolLoopOutcome(text=str(final_body.get("text", "")), rounds=MAX_TOOL_ROUNDS)
+        return ToolLoopOutcome(text=str(final_body.get("text", "")), rounds=tool_rounds)
 
     async def _rag_context(
         self, agent: Agent, queries: Sequence[str], *, token_budget: int | None = None
