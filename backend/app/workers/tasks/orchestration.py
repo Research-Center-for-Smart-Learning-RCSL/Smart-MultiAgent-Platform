@@ -21,7 +21,18 @@ from typing import Any
 
 from loguru import logger
 
+from contexts.agents.infrastructure.turn_lock import DEFAULT_TURN_TTL_S
 from shared_kernel.db.session import async_session
+
+# The per-(agent, room) turn lock is the single-writer authority for a turn, not
+# this timeout: it is heartbeat-refreshed for as long as the turn runs and fails
+# closed on loss (the turn aborts at the next tool-round boundary). So the job
+# timeout is only a runaway backstop and is given headroom over the lock TTL,
+# mirroring `graphrag.py`'s GRAPHRAG_BUILD_TIMEOUT_S. It must not be tightened
+# below the TTL: one provider stream read alone may take STREAM_TIMEOUT (300 s,
+# `contexts/keys/infrastructure/adapters/base.py`), so a sub-TTL budget would
+# kill healthy turns mid-stream.
+WAKEUP_TURN_TIMEOUT_S = DEFAULT_TURN_TTL_S * 2
 
 
 async def wakeup_agent(
@@ -378,6 +389,7 @@ def make_dlq_audit_callback() -> Callable[[uuid.UUID, str, str, int], Awaitable[
 
 
 __all__ = [
+    "WAKEUP_TURN_TIMEOUT_S",
     "approval_timeout",
     "evaluate_silence",
     "make_dlq_audit_callback",
