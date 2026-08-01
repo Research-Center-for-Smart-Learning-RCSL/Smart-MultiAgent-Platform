@@ -41,6 +41,7 @@ dependencies = [
   "python-docx==1.*",  # DOCX text extraction on the same ingestion path; accepted upload type (imported as `docx`)
   "neo4j==5.24.*",
   "qdrant-client==1.12.*",
+  "protobuf>=5.29.6,<7.0.0",  # SEC-DEP: reject vulnerable protobuf releases (CVE-2026-0994)
   "prometheus-client==0.21.*",
   # >=0.16 for click 8.2+ support. 0.12.x mis-converts option defaults against
   # modern click: a bool flag arrives as the string "False" when absent and None
@@ -54,11 +55,11 @@ dependencies = [
 
 [project.optional-dependencies]
 otel = [
-  "opentelemetry-sdk==1.27.*",
-  "opentelemetry-exporter-otlp-proto-http==1.27.*",
-  "opentelemetry-instrumentation-fastapi==0.48b0",
-  "opentelemetry-instrumentation-sqlalchemy==0.48b0",
-  "opentelemetry-instrumentation-httpx==0.48b0",
+  "opentelemetry-sdk==1.44.*",
+  "opentelemetry-exporter-otlp-proto-http==1.44.*",
+  "opentelemetry-instrumentation-fastapi==0.65b0",
+  "opentelemetry-instrumentation-sqlalchemy==0.65b0",
+  "opentelemetry-instrumentation-httpx==0.65b0",
 ]
 dev = [
   "ruff==0.7.*",
