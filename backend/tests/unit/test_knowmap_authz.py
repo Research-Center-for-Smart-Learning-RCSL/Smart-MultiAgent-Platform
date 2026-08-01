@@ -112,6 +112,7 @@ class TestSetDocumentAgentsOwnerGate:
             sha256="x",
             status=DocumentStatus.READY,
             scan_status=ScanStatus.CLEAN,
+            failure_code=None,
             uploaded_at=datetime(2026, 1, 1),
             agent_ids=[],
         )

@@ -82,7 +82,9 @@
       "applyConfirmBody": "This will overwrite the system prompt in the editor.",
       "applyConfirm": "Replace",
       "quotaError": "You have reached your daily assistant request limit. Try again tomorrow.",
-      "turnError": "The assistant could not complete the request."
+      "turnError": "The assistant could not complete the request.",
+      "timeoutError": "The assistant took too long to respond. Try sending again.",
+      "sessionExpired": "This conversation has expired. Sending a message will start a new one."
     },
     "picker": {
       "button": "Insert template",

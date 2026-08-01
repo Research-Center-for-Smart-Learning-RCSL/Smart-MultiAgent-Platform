@@ -231,6 +231,72 @@ describe('AgentDetailView', () => {
     expect(body.wakeup_config.soft_bounds).toEqual({ n_min: 5, n_max: 10 })
   })
 
+  // T-11 (workflow-capability-enforcement spec §7.6, AC-9): the default was a
+  // stale 5 (R15.20 / SUBAGENT_MAX_CONCURRENT_DEFAULT says 3).
+  it('defaults max_alive_subagents to 3 when unset', async () => {
+    seed()
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({ ...AGENT, workflow_capabilities: { can_create_subagent: true } }),
+      ),
+    )
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1?tab=orchestration',
+    })
+    await settle(wrapper)
+
+    // SFormField assigns the control an id matching its `name` prop.
+    const maxAliveInput = wrapper.find('#max_alive_subagents').element as HTMLInputElement
+    expect(maxAliveInput.value).toBe('3')
+  })
+
+  // Clearing the box to retype used to persist 0 via SInput's type="number"
+  // coercion (0 * 0 = 0 is out of R15.20's 1..20 range). The guarded model
+  // leaves the in-memory value untouched on an empty/non-numeric edit, so a
+  // save triggered without retyping still submits the last valid number, not 0.
+  it('does not let clearing max_alive_subagents persist 0 on save', async () => {
+    const patched = vi.fn()
+    seed()
+    server.use(
+      http.get('/api/projects/proj_1/key-groups', () =>
+        HttpResponse.json([
+          { id: KEY_GROUP_ID, project_id: 'proj_1', name: 'Primary', created_at: '2026-01-01T00:00:00Z' },
+        ]),
+      ),
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({
+          ...AGENT,
+          key_group_id: KEY_GROUP_ID,
+          workflow_capabilities: { can_create_subagent: true, max_alive_subagents: 7 },
+        }),
+      ),
+      http.patch('/api/agents/agent_1', async ({ request }) => {
+        patched(await request.json())
+        return HttpResponse.json({ ...AGENT, version: 2 })
+      }),
+    )
+
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1?tab=orchestration',
+    })
+    await settle(wrapper)
+
+    await wrapper.find('#max_alive_subagents').setValue('')
+    await settle(wrapper)
+
+    // Touch an unrelated field so the form is dirty, then save.
+    await wrapper.findAll('.s-input__field')[0]!.setValue('Renamed Bot')
+    await settle(wrapper)
+    await wrapper.findAll('button.s-btn--primary')[0]!.trigger('click')
+    await settle(wrapper)
+
+    expect(patched).toHaveBeenCalledTimes(1)
+    const body = patched.mock.calls[0]![0] as { workflow_capabilities: Record<string, unknown> }
+    expect(body.workflow_capabilities.max_alive_subagents).toBe(7)
+  })
+
   it('shows read-only Concept Map coverage on the Knowledge tab (AC-6)', async () => {
     seed()
     const wrapper = await renderView(AgentDetailView, {

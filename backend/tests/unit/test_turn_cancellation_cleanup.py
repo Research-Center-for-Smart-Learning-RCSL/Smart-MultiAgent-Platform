@@ -1,0 +1,263 @@
+"""A turn must clean up after itself when its job is killed (F-8, F-18).
+
+`job_timeout` cancels the task, and `CancelledError` inherits `BaseException`,
+so neither `_run_locked`'s `except Exception` nor `run_turn`'s post-loop drain
+used to run: the room stayed "thinking", no `agent.turn_failed` was audited,
+drained notifications were lost and the coalesced trigger was stranded for its
+full hour of TTL.
+
+See docs/tasks/2026-07-22-turn-idempotency-and-locking/spec.md (C1, C3), R3.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+from arq.worker import Function
+
+import contexts.agents.application.runtime.turn_engine as te
+from tests.unit.turn_engine_fakes import PublisherSpy, make_agent, wire_engine
+
+# ---------------------------------------------------------------------------
+# C3 — the job registration that makes the cleanup load-bearing
+# ---------------------------------------------------------------------------
+
+
+def _entry(name: str) -> object:
+    from app.workers.main import WorkerSettings
+
+    for fn in WorkerSettings.functions:
+        if (getattr(fn, "name", None) or fn.__name__) == name:
+            return fn
+    raise AssertionError(f"{name} is not registered on WorkerSettings")
+
+
+def test_wakeup_agent_is_registered_without_retries() -> None:
+    """AC-4: a turn is not retry-safe, so its job must never be re-run."""
+    entry = _entry("wakeup_agent")
+    assert isinstance(entry, Function), "wakeup_agent must be registered via arq's func(...)"
+    assert entry.max_tries == 1
+
+
+def test_wakeup_agent_has_a_scoped_timeout_with_lock_headroom() -> None:
+    """AC-4: the timeout is scoped to this lane and sized against the lock TTL.
+
+    The relation is headroom, not tightness (Q-9): the heartbeat-refreshed,
+    fail-closed turn lock is the single-writer authority, and one provider
+    stream read alone may take as long as the TTL.
+    """
+    from app.workers.tasks.orchestration import WAKEUP_TURN_TIMEOUT_S
+    from contexts.agents.infrastructure.turn_lock import DEFAULT_TURN_TTL_S
+
+    entry = _entry("wakeup_agent")
+    assert isinstance(entry, Function)
+    assert entry.timeout_s == WAKEUP_TURN_TIMEOUT_S
+    assert WAKEUP_TURN_TIMEOUT_S > DEFAULT_TURN_TTL_S
+
+
+# ---------------------------------------------------------------------------
+# C1 — the cleanup itself
+# ---------------------------------------------------------------------------
+
+
+async def _run_cancelled(engine: Any, room: uuid.UUID, agent: SimpleNamespace) -> None:
+    async def _cancel(**kw: Any) -> te.ToolLoopOutcome:
+        raise asyncio.CancelledError
+
+    engine._stream_with_tools = _cancel
+    with pytest.raises(asyncio.CancelledError):
+        await engine._run_locked(
+            agent_id=agent.id,
+            chatroom_id=room,
+            trigger="every_n_messages",
+            parent_agent_id=None,
+            input_text=None,
+            request_id=None,
+            trigger_message_id=None,
+        )
+
+
+class TestCancelledTurnRunsItsCleanup:
+    """AC-2. Each of these fails against the pre-C1 `except Exception`."""
+
+    async def test_room_is_not_left_thinking(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        agent, room = make_agent(), uuid.uuid4()
+        engine, _ = wire_engine(monkeypatch, agent, note={"kind": "notify"})
+
+        await _run_cancelled(engine, room, agent)
+
+        finished = [p for _, e, p in PublisherSpy.emitted if e == "agent.finished"]
+        assert finished == [{"error": "cancelled", "agent_id": str(agent.id)}]
+
+    async def test_turn_failed_is_audited(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        agent, room = make_agent(), uuid.uuid4()
+        engine, trace = wire_engine(monkeypatch, agent, note={"kind": "notify"})
+
+        await _run_cancelled(engine, room, agent)
+
+        assert ("agent.turn_failed", {"error": "cancelled"}) in trace.audits
+
+    async def test_drained_notifications_are_restored(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        agent, room = make_agent(), uuid.uuid4()
+        note = {"kind": "notify", "body": "unseen"}
+        engine, trace = wire_engine(monkeypatch, agent, note=note)
+
+        await _run_cancelled(engine, room, agent)
+
+        assert trace.requeued == [([note], set())]
+
+    async def test_compact_flag_is_re_armed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        agent, room = make_agent(), uuid.uuid4()
+        engine, trace = wire_engine(monkeypatch, agent, note={"kind": "notify"})
+
+        await _run_cancelled(engine, room, agent)
+
+        assert trace.compact_restored == [room]
+
+    async def test_the_cancellation_still_reaches_arq(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The cleanup delays the cancellation; it must never swallow it, or a
+        killed job would be recorded as a successful turn."""
+        agent, room = make_agent(), uuid.uuid4()
+        engine, _ = wire_engine(monkeypatch, agent, note={"kind": "notify"})
+
+        # _run_cancelled asserts the raise; this pins the session was rolled back
+        # rather than left mid-transaction for the next user of the session.
+        await _run_cancelled(engine, room, agent)
+
+        assert engine._db.rollbacks == 1
+
+
+class TestSuccessfulTurnIsNotFinalizedAsFailed:
+    async def test_no_turn_failed_audit_on_the_success_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        agent, room = make_agent(), uuid.uuid4()
+        engine, trace = wire_engine(monkeypatch, agent, note={"kind": "notify"})
+
+        async def _ok(**kw: Any) -> te.ToolLoopOutcome:
+            return te.ToolLoopOutcome(text="hi", rounds=0)
+
+        engine._stream_with_tools = _ok
+
+        result = await engine._run_locked(
+            agent_id=agent.id,
+            chatroom_id=room,
+            trigger="every_n_messages",
+            parent_agent_id=None,
+            input_text=None,
+            request_id=None,
+            trigger_message_id=None,
+        )
+
+        assert result.status == "completed"
+        assert [a for a, _ in trace.audits if a == "agent.turn_failed"] == []
+        assert trace.requeued == []
+        assert trace.compact_restored == []
+
+
+class TestPostCommitCancellationDoesNotFinalizeAsFailed:
+    """code-review finding: `_post_commit`'s own `except Exception` cannot
+    catch a `CancelledError` raised inside one of its guarded steps, so a
+    cancellation arriving during post-commit bookkeeping on an already-
+    committed reply used to reach `except BaseException` and call
+    `_finalize_failed_turn` anyway -- writing a contradictory `agent.turn_failed`
+    beside the terminal audit already committed, and requeueing notifications
+    the turn already consumed. See the `outcome_committed` guard."""
+
+    async def test_no_turn_failed_audit_when_cancellation_happens_post_commit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        agent, room = make_agent(), uuid.uuid4()
+        engine, trace = wire_engine(monkeypatch, agent, note={"kind": "notify"})
+
+        async def _ok(**kw: Any) -> te.ToolLoopOutcome:
+            return te.ToolLoopOutcome(text="hi", rounds=0)
+
+        engine._stream_with_tools = _ok
+        # The first post-commit step on the success path: the reply is already
+        # committed by the time this fires.
+        PublisherSpy.fail_on = "message.created"
+        PublisherSpy.error = asyncio.CancelledError()
+
+        with pytest.raises(asyncio.CancelledError):
+            await engine._run_locked(
+                agent_id=agent.id,
+                chatroom_id=room,
+                trigger="every_n_messages",
+                parent_agent_id=None,
+                input_text=None,
+                request_id=None,
+                trigger_message_id=None,
+            )
+
+        assert [a for a, _ in trace.audits if a == "agent.turn_failed"] == []
+        # No second, error-carrying agent.finished over the (never-reached,
+        # since message.created is what raised) success one.
+        assert [p for _, e, p in PublisherSpy.emitted if e == "agent.finished" and "error" in p] == []
+        assert trace.requeued == []
+        assert trace.compact_restored == []
+
+
+class TestCancelledTurnDrainsItsQueuedTrigger:
+    """AC-2's last clause, and the whole of F-18: the drain lives in a `finally`
+    now, so a trigger parked mid-turn still becomes a follow-up wakeup when the
+    job is killed. `max_tries=1` (C3) means nothing else will do it."""
+
+    async def _run(self, monkeypatch: pytest.MonkeyPatch, *, parked: te.QueuedTrigger):
+        agent_id, room = uuid.uuid4(), uuid.uuid4()
+        popped: list[tuple[uuid.UUID, uuid.UUID]] = []
+        enqueued: list[tuple] = []
+
+        class _Lock:
+            def __init__(self, *a: Any, **k: Any) -> None:
+                pass
+
+            async def __aenter__(self) -> bool:
+                return True
+
+            async def __aexit__(self, *exc: object) -> bool:
+                return False
+
+        monkeypatch.setattr(te, "turn_lock", _Lock)
+
+        async def _pop(aid: uuid.UUID, rid: uuid.UUID):
+            popped.append((aid, rid))
+            return parked
+
+        monkeypatch.setattr(te, "_pop_queued_trigger", _pop)
+
+        async def _enqueue(*args: Any) -> None:
+            enqueued.append(args)
+
+        monkeypatch.setattr("shared_kernel.queue.enqueue", _enqueue)
+
+        engine = te.TurnEngine.__new__(te.TurnEngine)
+
+        async def _cancel(**kw: Any) -> te.TurnResult:
+            raise asyncio.CancelledError
+
+        engine._run_locked = _cancel  # type: ignore[attr-defined]
+
+        with pytest.raises(asyncio.CancelledError):
+            await engine.run_turn(agent_id=agent_id, chatroom_id=room, trigger="mention")
+
+        return popped, enqueued, agent_id, room
+
+    async def test_parked_trigger_becomes_a_follow_up_wakeup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        popped, enqueued, agent_id, room = await self._run(
+            monkeypatch,
+            parked=te.QueuedTrigger(state=te.TriggerPopState.PARKED, trigger="mention"),
+        )
+
+        assert popped == [(agent_id, room)]
+        assert enqueued == [("wakeup_agent", str(agent_id), str(room), "mention", None)]
+
+    async def test_nothing_parked_enqueues_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        popped, enqueued, agent_id, room = await self._run(
+            monkeypatch, parked=te.QueuedTrigger(state=te.TriggerPopState.ABSENT)
+        )
+
+        assert popped == [(agent_id, room)]
+        assert enqueued == []

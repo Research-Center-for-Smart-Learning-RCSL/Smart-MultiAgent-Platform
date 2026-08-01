@@ -80,9 +80,18 @@ A second pass should verify these before any of them is converted into a task do
 
 Ordered by severity. Never renumber — F-n identifiers are cited from spec dossiers.
 
-Note on coupling: **F-1 is the root cause several others depend on.** F-8, F-11 and F-13
-are defects only because F-1 keeps focused tabs reconnecting every two minutes; F-11
-conversely becomes *worse* once F-1 is fixed. Re-derive all four together.
+Note on coupling: **F-1 is the root cause several others depend on.** F-11 and F-13 are
+defects only because F-1 keeps focused tabs reconnecting every two minutes; F-11
+conversely becomes *worse* once F-1 is fixed. Re-derive those three together.
+
+**Correction (2026-07-30, from `docs/tasks/2026-07-22-settings-form-reconciliation/` Q-1):
+F-8 does not belong in that group.** It is not contingent on F-1 in either direction, and
+the two may be built in any order. The settings route mounts no socket at all, so F-1's
+reap/reconnect cycle never runs while the form is open; and even in `ChatroomView` the
+reconnect handler resyncs only delta, presence and activation, touching no
+`['conversation','chatrooms']` cache entry. F-8's staleness has an independent, sufficient
+cause: `loadRoom` prefix-matches that cache and the sidebar's recent-chatrooms entry
+carries a 60s `staleTime`. See that dossier's Q-1 for the full trace.
 
 ---
 

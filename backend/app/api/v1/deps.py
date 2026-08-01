@@ -63,6 +63,22 @@ def require_if_match(raw: str) -> int:
     return parsed
 
 
+async def is_project_owner_or_admin(
+    *,
+    db: AsyncSession,
+    principal: Principal,
+    project_id: uuid.UUID,
+) -> bool:
+    """Non-raising form of the admin-bypass + owner-check :func:`assert_project_owner`
+    enforces — for callers that brand behavior on ownership (e.g. redacting a
+    field) rather than rejecting the request outright."""
+    from contexts.tenancy.interfaces.facade import TenancyFacade
+
+    if principal.is_admin:
+        return True
+    return await TenancyFacade(db).is_project_owner(principal.user_id, project_id)
+
+
 async def assert_project_owner(
     *,
     db: AsyncSession,
@@ -76,12 +92,9 @@ async def assert_project_owner(
     decision lives in one place instead of being copy-pasted (and reaching into
     the private ``_raise_forbidden``) across routers.
     """
-    from contexts.tenancy.interfaces.facade import TenancyFacade
     from shared_kernel.auth.dependencies import _raise_forbidden
 
-    if principal.is_admin:
-        return
-    if not await TenancyFacade(db).is_project_owner(principal.user_id, project_id):
+    if not await is_project_owner_or_admin(db=db, principal=principal, project_id=project_id):
         _raise_forbidden(reason)
 
 

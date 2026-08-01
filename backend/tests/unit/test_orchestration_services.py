@@ -19,7 +19,9 @@ from contexts.orchestration.application.approval_service import ApprovalService
 from contexts.orchestration.application.instruct_service import InstructService
 from contexts.orchestration.application.subagent_service import SubagentService
 from contexts.orchestration.domain.errors import (
+    ApprovalCapabilityDenied,
     InstructBudgetExceeded,
+    InstructCapabilityDenied,
     InstructLoopDetected,
     SubagentConcurrencyExceeded,
     SubagentDepthExceeded,
@@ -124,6 +126,7 @@ def _make_approval_service(
     *,
     approvals: AsyncMock | None = None,
     votes: AsyncMock | None = None,
+    agents_facade: AsyncMock | None = None,
 ) -> ApprovalService:
     db = AsyncMock()
     svc = ApprovalService(db)
@@ -131,7 +134,29 @@ def _make_approval_service(
         svc._approvals = approvals
     if votes is not None:
         svc._votes = votes
+    if agents_facade is not None:
+        svc._agents = agents_facade
     return svc
+
+
+def _capable_agent(*, can_approve: bool = True, can_instruct: bool = True) -> MagicMock:
+    agent = MagicMock()
+    agent.workflow_capabilities = {"can_approve": can_approve, "can_instruct": can_instruct}
+    return agent
+
+
+def _agents_facade(agents_by_id: dict[uuid.UUID, MagicMock | None]) -> AsyncMock:
+    """AsyncMock AgentsFacade whose ``get_agent`` resolves per-id from a dict,
+    defaulting to a fully-capable agent for any id not listed."""
+    facade = AsyncMock()
+
+    async def _get_agent(agent_id: uuid.UUID, *, include_deleted: bool = False) -> MagicMock | None:
+        if agent_id in agents_by_id:
+            return agents_by_id[agent_id]
+        return _capable_agent()
+
+    facade.get_agent.side_effect = _get_agent
+    return facade
 
 
 def _make_instruct_service(
@@ -307,7 +332,7 @@ class TestApprovalCreateGate:
         approvals = AsyncMock()
         approvals.insert.return_value = ap
         _pub_cls.return_value = AsyncMock()
-        svc = _make_approval_service(approvals=approvals)
+        svc = _make_approval_service(approvals=approvals, agents_facade=_agents_facade({}))
 
         config = ApprovalGateConfig(
             mode=ApprovalMode.SINGLE,
@@ -338,6 +363,120 @@ class TestApprovalCreateGate:
         # to the announce enqueue -- it is what makes the room-scoped list
         # endpoint able to find this gate later.
         assert approvals.insert.call_args.kwargs["chatroom_id"] == _ROOM
+
+    @patch("shared_kernel.queue.enqueue", new_callable=AsyncMock)
+    @patch("contexts.orchestration.application.approval_service.audit.emit", new_callable=AsyncMock)
+    async def test_create_gate_denies_approver_without_can_approve(self, _audit, _enqueue) -> None:
+        """T-1 (leading test): an approver whose workflow_capabilities is {}
+        (today's default for every existing agent) denies the whole gate before
+        any row is inserted or any post-commit announce enqueue happens — the
+        enqueue is what eventually drives per-approver LLM turns and key spend."""
+        approvals = AsyncMock()
+        incapable = _capable_agent(can_approve=False)
+        agents_facade = _agents_facade({_AGENT_B: incapable})
+        svc = _make_approval_service(approvals=approvals, agents_facade=agents_facade)
+
+        config = ApprovalGateConfig(
+            mode=ApprovalMode.SINGLE,
+            approvers=(_AGENT_A, _AGENT_B, _AGENT_C),
+            leader_agent_id=_AGENT_A,
+        )
+
+        with pytest.raises(ApprovalCapabilityDenied, match="can_approve"):
+            await svc.create_gate(workflow_run_id=_RUN, config=config, chatroom_id=_ROOM, node_id="gate1")
+
+        approvals.insert.assert_not_awaited()
+        _enqueue.assert_not_awaited()
+        _audit.assert_awaited_once()
+        assert _audit.call_args[0][1].action == "approval.forbidden"
+
+    @patch("shared_kernel.queue.enqueue", new_callable=AsyncMock)
+    @patch("contexts.orchestration.application.approval_service.audit.emit", new_callable=AsyncMock)
+    async def test_create_gate_denies_when_only_the_leader_lacks_capability(self, _audit, _enqueue) -> None:
+        """T-2: the leader is folded into config.approvers by the executor
+        (approval_gate.py), so a leader-only denial must not silently pass."""
+        approvals = AsyncMock()
+        incapable_leader = _capable_agent(can_approve=False)
+        agents_facade = _agents_facade({_AGENT_A: incapable_leader})
+        svc = _make_approval_service(approvals=approvals, agents_facade=agents_facade)
+
+        config = ApprovalGateConfig(
+            mode=ApprovalMode.MAJORITY,
+            approvers=(_AGENT_A, _AGENT_B, _AGENT_C),
+            leader_agent_id=_AGENT_A,
+        )
+
+        with pytest.raises(ApprovalCapabilityDenied):
+            await svc.create_gate(workflow_run_id=_RUN, config=config, chatroom_id=_ROOM, node_id="gate1")
+
+        approvals.insert.assert_not_awaited()
+
+    @patch("shared_kernel.queue.enqueue", new_callable=AsyncMock)
+    @patch("contexts.orchestration.application.approval_service.audit.emit", new_callable=AsyncMock)
+    async def test_create_gate_rejects_whole_gate_not_a_subset(self, _audit, _enqueue) -> None:
+        """T-3: pins Q-6 — one ineligible approver out of three rejects the
+        entire gate rather than quietly inserting a two-approver majority gate,
+        which would change the tally denominator."""
+        approvals = AsyncMock()
+        incapable = _capable_agent(can_approve=False)
+        agents_facade = _agents_facade({_AGENT_C: incapable})
+        svc = _make_approval_service(approvals=approvals, agents_facade=agents_facade)
+
+        config = ApprovalGateConfig(
+            mode=ApprovalMode.MAJORITY,
+            approvers=(_AGENT_A, _AGENT_B, _AGENT_C),
+            leader_agent_id=_AGENT_A,
+        )
+
+        with pytest.raises(ApprovalCapabilityDenied):
+            await svc.create_gate(workflow_run_id=_RUN, config=config, chatroom_id=_ROOM, node_id="gate1")
+
+        approvals.insert.assert_not_awaited()
+
+    @patch("shared_kernel.queue.enqueue", new_callable=AsyncMock)
+    @patch("contexts.orchestration.application.approval_service.audit.emit", new_callable=AsyncMock)
+    async def test_create_gate_denies_missing_or_deleted_approver(self, _audit, _enqueue) -> None:
+        """T-4: get_agent returns None for a missing or soft-deleted approver
+        (AgentsFacade.get_agent defaults include_deleted=False) — fail closed."""
+        approvals = AsyncMock()
+        agents_facade = _agents_facade({_AGENT_B: None})
+        svc = _make_approval_service(approvals=approvals, agents_facade=agents_facade)
+
+        config = ApprovalGateConfig(
+            mode=ApprovalMode.SINGLE,
+            approvers=(_AGENT_A, _AGENT_B, _AGENT_C),
+            leader_agent_id=_AGENT_A,
+        )
+
+        with pytest.raises(ApprovalCapabilityDenied):
+            await svc.create_gate(workflow_run_id=_RUN, config=config, chatroom_id=_ROOM, node_id="gate1")
+
+        approvals.insert.assert_not_awaited()
+
+    @patch("shared_kernel.queue.enqueue", new_callable=AsyncMock)
+    @patch("contexts.orchestration.application.approval_service.audit.emit", new_callable=AsyncMock)
+    async def test_create_gate_allows_when_every_approver_is_capable(self, _audit, _enqueue) -> None:
+        """T-5: the positive control — stops the fail-closed gate from denying
+        everything. Passes before and after the fix, by construction."""
+        ap = _approval()
+        approvals = AsyncMock()
+        approvals.insert.return_value = ap
+        agents_facade = _agents_facade({})
+        svc = _make_approval_service(approvals=approvals, agents_facade=agents_facade)
+
+        config = ApprovalGateConfig(
+            mode=ApprovalMode.SINGLE,
+            approvers=(_AGENT_A, _AGENT_B, _AGENT_C),
+            leader_agent_id=_AGENT_A,
+        )
+
+        result = await svc.create_gate(
+            workflow_run_id=_RUN, config=config, chatroom_id=_ROOM, node_id="gate1"
+        )
+
+        assert result.mode is ApprovalMode.SINGLE
+        approvals.insert.assert_awaited_once()
+        _enqueue.assert_awaited_once()
 
     @patch("shared_kernel.queue.enqueue", new_callable=AsyncMock)
     @patch("contexts.orchestration.infrastructure.pending_notify.push", new_callable=AsyncMock)
@@ -537,7 +676,7 @@ class TestInstructIssue:
         instructions.insert.return_value = instr
         instructions.get_chain_start_time.return_value = None
         a2a = AsyncMock()
-        svc = _make_instruct_service(instructions=instructions, a2a=a2a)
+        svc = _make_instruct_service(instructions=instructions, a2a=a2a, agents_facade=_agents_facade({}))
 
         result = await svc.issue(
             issuer_agent_id=_AGENT_A,
@@ -553,7 +692,7 @@ class TestInstructIssue:
     async def test_loop_detected(self, _audit) -> None:
         instructions = AsyncMock()
         instructions.insert.return_value = _instruction(state=InstructionState.REJECTED_LOOP)
-        svc = _make_instruct_service(instructions=instructions)
+        svc = _make_instruct_service(instructions=instructions, agents_facade=_agents_facade({}))
 
         with pytest.raises(InstructLoopDetected):
             await svc.issue(
@@ -564,7 +703,7 @@ class TestInstructIssue:
             )
 
     async def test_depth_cap(self) -> None:
-        svc = _make_instruct_service()
+        svc = _make_instruct_service(agents_facade=_agents_facade({}))
 
         with pytest.raises(InstructBudgetExceeded, match="chain depth"):
             await svc.issue(
@@ -580,7 +719,7 @@ class TestInstructIssue:
         instructions = AsyncMock()
         instructions.count_issued_by_agent_since.return_value = 5
         instructions.get_chain_start_time.return_value = None
-        svc = _make_instruct_service(instructions=instructions)
+        svc = _make_instruct_service(instructions=instructions, agents_facade=_agents_facade({}))
 
         # The count cap is now phrased as an "issuing window" (the wakeup for a
         # wakeup-originated instruct; the run for a workflow one) and writes an
@@ -602,7 +741,7 @@ class TestInstructIssue:
         # check (datetime.now(UTC) - chain_start) always exceeds 0.
         instructions.get_chain_start_time.return_value = datetime(2020, 1, 1, tzinfo=UTC)
         a2a = AsyncMock()
-        svc = _make_instruct_service(instructions=instructions, a2a=a2a)
+        svc = _make_instruct_service(instructions=instructions, a2a=a2a, agents_facade=_agents_facade({}))
 
         with pytest.raises(InstructBudgetExceeded, match="elapsed"):
             await svc.issue(
@@ -612,6 +751,55 @@ class TestInstructIssue:
                 chain_id=chain_id,
                 max_chain_seconds=120,
             )
+
+    @patch("contexts.orchestration.application.instruct_service.audit.emit", new_callable=AsyncMock)
+    async def test_issue_denies_issuer_without_can_instruct(self, _audit) -> None:
+        """T-6 (leading test): an issuer whose workflow_capabilities is {}
+        (today's default for every existing agent) is denied before the
+        instructions row is inserted or a2a.send is ever awaited."""
+        instructions = AsyncMock()
+        a2a = AsyncMock()
+        incapable = _capable_agent(can_instruct=False)
+        svc = _make_instruct_service(
+            instructions=instructions,
+            a2a=a2a,
+            agents_facade=_agents_facade({_AGENT_A: incapable}),
+        )
+
+        with pytest.raises(InstructCapabilityDenied, match="can_instruct"):
+            await svc.issue(
+                issuer_agent_id=_AGENT_A,
+                target_agent_id=_AGENT_B,
+                payload={"task": "do"},
+            )
+
+        instructions.insert.assert_not_awaited()
+        a2a.send.assert_not_awaited()
+        _audit.assert_awaited_once()
+        assert _audit.call_args[0][1].action == "instruct.forbidden"
+
+    @patch("contexts.orchestration.application.instruct_service.audit.emit", new_callable=AsyncMock)
+    async def test_capability_check_precedes_loop_detection(self, _audit) -> None:
+        """T-7: a forbidden issuer with a cycling path must fail on
+        InstructCapabilityDenied, not InstructLoopDetected, and must leave no
+        rejected_loop row — the cycle branch runs an INSERT before it raises,
+        so authorization must be checked strictly earlier."""
+        instructions = AsyncMock()
+        incapable = _capable_agent(can_instruct=False)
+        svc = _make_instruct_service(
+            instructions=instructions,
+            agents_facade=_agents_facade({_AGENT_A: incapable}),
+        )
+
+        with pytest.raises(InstructCapabilityDenied):
+            await svc.issue(
+                issuer_agent_id=_AGENT_A,
+                target_agent_id=_AGENT_A,
+                payload={"task": "do"},
+                parent_path=(),
+            )
+
+        instructions.insert.assert_not_awaited()
 
 
 class TestInstructStateTransitions:
@@ -987,14 +1175,6 @@ class TestSubagentReadHelpers:
 
         result = await svc.list_children(uuid.uuid4())
         assert len(result) == 1
-
-    async def test_cleanup_expired(self) -> None:
-        instances = AsyncMock()
-        instances.delete_older_than_days.return_value = 5
-        svc = _make_subagent_service(instances=instances)
-
-        count = await svc.cleanup_expired(retention_days=30)
-        assert count == 5
 
     async def test_list_for_workflow_run(self) -> None:
         spawned = [_instance(parent_id=uuid.uuid4()), _instance(parent_id=uuid.uuid4())]

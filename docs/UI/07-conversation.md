@@ -454,10 +454,16 @@ Agent streaming renders token-by-token output from bound agents via `agent.token
 #### State Machine
 
 ```
+      ┌──[agent.progress]──┐        ┌──[agent.progress{tool_round}]──┐
+      │                    v        │  (draft resets to this round)  v
 Idle ──[agent.thinking]──> Thinking ──[agent.token]──> Streaming ──[agent.finished]──> Idle
                                          │                              │
                                          └──[agent.finished{error}]─────┘──> Error
 ```
+
+`agent.progress` is a self-loop on both states: it never changes which state the room is in, it
+only proves the turn is still running. Its `tool_round` phase additionally clears the streamed
+draft, so what Streaming shows is the current tool round rather than every round concatenated.
 
 #### Thinking State
 
@@ -485,7 +491,8 @@ When `agent.thinking` fires and no tokens have arrived yet:
 .thinking-dot:nth-child(3) { animation-delay: 0.4s; }
 ```
 
-- Client-side watchdog: if no `agent.token` or `agent.finished` arrives within 120 seconds, the composable sets `agentError[roomId] = 'timeout'` and the view surfaces a toast.
+- Client-side watchdog: if no `agent.token`, `agent.progress`, `agent.warning` or `agent.finished` arrives within 120 seconds, the composable sets `agentError[roomId] = 'timeout'` and the view surfaces a toast. It clears the drafts of the agents marked thinking in that room, not the whole room key, so a wedged agent does not take a neighbour's draft with it.
+- The Thinking state is **not** assumed to be short. Before the first token the engine drains notifications, resolves skills, stages a workspace and may fold history behind a summariser call, which can legitimately run for minutes. `agent.progress` is what makes that distinguishable from a wedged turn: the watchdog detects *silence*, and the engine is required not to be silent while it is working (R13.19).
 
 #### Streaming State
 
@@ -525,7 +532,10 @@ When `agent.finished` fires:
 1. The corresponding `message.created` event adds the final message to TanStack Query cache
 2. The streaming bubble for that agent is removed (`clearAgentStream`)
 3. The real message bubble appears in its place with final rendered content
-4. No visible flash — the transition is seamless because streaming content matches final content
+4. No visible flash — the transition is seamless because streaming content matches final content.
+   On a multi-round tool turn this holds only because each `agent.progress{tool_round}` already
+   reset the draft: the engine persists the final round's text alone, so an accumulated draft
+   would not match it.
 
 #### Error State
 
@@ -1384,6 +1394,8 @@ ChatroomSettingsView.vue
 | `message.updated` | Server -> Client | Refresh message in cache |
 | `message.deleted` | Server -> Client | Remove message from cache |
 | `agent.thinking` | Server -> Client | Set thinking flag in store, show thinking bubble |
+| `agent.progress` | Server -> Client | Re-arm the wedged-turn watchdog; on `phase: tool_round` also reset that agent's stream buffer |
+| `agent.warning` | Server -> Client | Re-arm the wedged-turn watchdog (no UI of its own yet) |
 | `agent.token` | Server -> Client | Append to stream buffer, render streaming bubble |
 | `agent.finished` | Server -> Client | Clear stream/thinking, real message takes over |
 | `presence.joined` | Server -> Client | Add user to presence set |

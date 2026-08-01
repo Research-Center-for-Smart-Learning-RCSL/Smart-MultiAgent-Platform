@@ -47,6 +47,8 @@ class TestRetentionServicePurgeOnce:
             MagicMock(all=MagicMock(return_value=att_rows)),
             MagicMock(rowcount=2),
             MagicMock(all=MagicMock(return_value=[])),  # no summaries in the room
+            MagicMock(all=MagicMock(return_value=[])),  # per-room min
+            MagicMock(scalar=MagicMock(return_value=None)),  # global min
         ]
 
         report = await svc.purge_once()
@@ -79,6 +81,8 @@ class TestRetentionServicePurgeOnce:
             MagicMock(all=MagicMock(return_value=[])),
             MagicMock(rowcount=3),
             MagicMock(all=MagicMock(return_value=[])),
+            MagicMock(all=MagicMock(return_value=[])),  # per-room min
+            MagicMock(scalar=MagicMock(return_value=None)),  # global min
         ]
 
         report = await svc.purge_once()
@@ -120,16 +124,18 @@ class TestRetentionServicePurgeOnce:
             MagicMock(rowcount=1),
             MagicMock(all=MagicMock(return_value=summary_rows)),
             MagicMock(rowcount=1),
+            MagicMock(all=MagicMock(return_value=[])),  # per-room min
+            MagicMock(scalar=MagicMock(return_value=None)),  # global min
         ]
 
         report = await svc.purge_once()
 
         assert report.summaries_deleted == 1
         assert _audit.call_args[0][1].metadata["summaries_deleted"] == 1
-        # Five statements: victims, attachments, delete messages, summaries,
-        # delete summaries. A summary covering only surviving messages is left
-        # alone.
-        assert db.execute.await_count == 5
+        # Seven statements: victims, attachments, delete messages, summaries,
+        # delete summaries, per-room min, global min. A summary covering only
+        # surviving messages is left alone.
+        assert db.execute.await_count == 7
 
     @patch("contexts.conversation.application.retention_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.conversation.application.retention_service.now", return_value=_NOW)
@@ -166,6 +172,8 @@ class TestRetentionServicePurgeOnce:
                 )
             ),
             MagicMock(rowcount=1),
+            MagicMock(all=MagicMock(return_value=[])),  # per-room min
+            MagicMock(scalar=MagicMock(return_value=None)),  # global min
         ]
 
         report = await svc.purge_once()
@@ -207,15 +215,17 @@ class TestRetentionServicePurgeOnce:
             # short page -> stop
             MagicMock(all=MagicMock(return_value=[_summary(c, [purged])])),
             MagicMock(rowcount=1),
+            MagicMock(all=MagicMock(return_value=[])),  # per-room min
+            MagicMock(scalar=MagicMock(return_value=None)),  # global min
         ]
         svc = RetentionService(db, minio=AsyncMock())
 
         report = await svc.purge_once()
 
         assert report.summaries_deleted == 2  # `a` and `c`; `b` covered nothing purged
-        # Seven statements: had the scan not paged, the second page would never
+        # Nine statements: had the scan not paged, the second page would never
         # have been requested and `c` would have survived the purge.
-        assert db.execute.await_count == 7
+        assert db.execute.await_count == 9
 
     @patch("contexts.conversation.application.retention_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.conversation.application.retention_service.now", return_value=_NOW)
@@ -240,12 +250,14 @@ class TestRetentionServicePurgeOnce:
                     ]
                 )
             ),
+            MagicMock(all=MagicMock(return_value=[])),  # per-room min
+            MagicMock(scalar=MagicMock(return_value=None)),  # global min
         ]
 
         report = await svc.purge_once()
 
         assert report.summaries_deleted == 0
-        assert db.execute.await_count == 4
+        assert db.execute.await_count == 6
 
     @patch("contexts.conversation.application.retention_service.now", return_value=_NOW)
     async def test_purge_empty_returns_oldest_kept(self, _now) -> None:
@@ -281,6 +293,8 @@ class TestRetentionServicePurgeOnce:
             MagicMock(all=MagicMock(return_value=att_rows)),
             MagicMock(rowcount=1),
             MagicMock(all=MagicMock(return_value=[])),
+            MagicMock(all=MagicMock(return_value=[])),  # per-room min
+            MagicMock(scalar=MagicMock(return_value=None)),  # global min
         ]
 
         report = await svc.purge_once()
@@ -305,6 +319,97 @@ class TestRetentionServicePurgeOnce:
         select_call = db.execute.call_args_list[0]
         compiled = str(select_call[0][0])
         assert "messages" in compiled
+
+    @patch("contexts.conversation.application.retention_service.now", return_value=_NOW)
+    async def test_purge_selects_oldest_first(self, _now) -> None:
+        db = AsyncMock()
+        minio = AsyncMock()
+        svc = RetentionService(db, minio=minio)
+
+        db.execute.side_effect = [
+            MagicMock(all=MagicMock(return_value=[])),
+            MagicMock(scalar=MagicMock(return_value=None)),
+        ]
+
+        await svc.purge_once()
+
+        compiled = str(db.execute.call_args_list[0][0][0])
+        assert "ORDER BY" in compiled
+        assert "created_at" in compiled
+        assert "messages.id" in compiled or " id" in compiled
+
+    @patch("contexts.conversation.application.retention_service.audit.emit", new_callable=AsyncMock)
+    @patch("contexts.conversation.application.retention_service.now", return_value=_NOW)
+    async def test_purge_reports_surviving_min_not_horizon(self, _now, _audit) -> None:
+        db = AsyncMock()
+        svc = RetentionService(db, minio=AsyncMock())
+
+        room = uuid.uuid4()
+        msg_rows = [MagicMock(id=uuid.uuid4(), chatroom_id=room)]
+        surviving_min = datetime(2019, 1, 1, tzinfo=UTC)
+        db.execute.side_effect = [
+            MagicMock(all=MagicMock(return_value=msg_rows)),  # victim select
+            MagicMock(all=MagicMock(return_value=[])),  # attachment select
+            MagicMock(rowcount=1),  # delete messages
+            MagicMock(all=MagicMock(return_value=[])),  # summary scan (empty page)
+            MagicMock(all=MagicMock(return_value=[(room, surviving_min)])),  # per-room min
+            MagicMock(scalar=MagicMock(return_value=surviving_min)),  # global min
+        ]
+
+        report = await svc.purge_once()
+
+        assert report.oldest_kept_at == surviving_min
+
+    @patch("contexts.conversation.application.retention_service.audit.emit", new_callable=AsyncMock)
+    @patch("contexts.conversation.application.retention_service.now", return_value=_NOW)
+    async def test_purge_audit_carries_each_rooms_own_oldest(self, _now, _audit) -> None:
+        db = AsyncMock()
+        svc = RetentionService(db, minio=AsyncMock())
+
+        room_a, room_b = uuid.uuid4(), uuid.uuid4()
+        msg_rows = [
+            MagicMock(id=uuid.uuid4(), chatroom_id=room_a),
+            MagicMock(id=uuid.uuid4(), chatroom_id=room_b),
+        ]
+        min_a = datetime(2019, 1, 1, tzinfo=UTC)
+        min_b = datetime(2020, 6, 15, tzinfo=UTC)
+        db.execute.side_effect = [
+            MagicMock(all=MagicMock(return_value=msg_rows)),
+            MagicMock(all=MagicMock(return_value=[])),
+            MagicMock(rowcount=2),
+            MagicMock(all=MagicMock(return_value=[])),
+            MagicMock(all=MagicMock(return_value=[(room_a, min_a), (room_b, min_b)])),
+            MagicMock(scalar=MagicMock(return_value=min_a)),
+        ]
+
+        await svc.purge_once()
+
+        events = {c[0][1].resource_id: c[0][1].metadata["oldest_kept_at"] for c in _audit.call_args_list}
+        assert events[room_a] == min_a.isoformat()
+        assert events[room_b] == min_b.isoformat()
+        assert events[room_a] != events[room_b]
+
+    @patch("contexts.conversation.application.retention_service.audit.emit", new_callable=AsyncMock)
+    @patch("contexts.conversation.application.retention_service.now", return_value=_NOW)
+    async def test_emptied_room_reports_null_oldest_kept(self, _now, _audit) -> None:
+        db = AsyncMock()
+        svc = RetentionService(db, minio=AsyncMock())
+
+        room = uuid.uuid4()
+        msg_rows = [MagicMock(id=uuid.uuid4(), chatroom_id=room)]
+        db.execute.side_effect = [
+            MagicMock(all=MagicMock(return_value=msg_rows)),
+            MagicMock(all=MagicMock(return_value=[])),
+            MagicMock(rowcount=1),
+            MagicMock(all=MagicMock(return_value=[])),
+            MagicMock(all=MagicMock(return_value=[])),  # per-room min: no surviving row
+            MagicMock(scalar=MagicMock(return_value=None)),
+        ]
+
+        await svc.purge_once()
+
+        event = _audit.call_args[0][1]
+        assert event.metadata["oldest_kept_at"] is None
 
 
 # ===========================================================================
@@ -670,6 +775,34 @@ class TestSweepOrphanedSubagentRoots:
 
         assert count == 0
         assert session.execute.await_count == 1
+
+    @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
+    async def test_candidate_query_filters_before_limit(self, _audit) -> None:
+        from app.workers.tasks.retention import _sweep_orphaned_subagent_roots
+
+        session = AsyncMock()
+        root_result = MagicMock()
+        root_result.all.return_value = []
+        session.execute.return_value = root_result
+
+        await _sweep_orphaned_subagent_roots(session)
+
+        sql = str(session.execute.call_args_list[0][0][0])
+        assert sql.index("NOT EXISTS") < sql.index("LIMIT")
+        assert "ORDER BY" in sql
+
+
+class TestSingleAgentInstanceRetentionPath:
+    def test_no_second_agent_instance_retention_implementation(self) -> None:
+        from contexts.orchestration.application.subagent_service import SubagentService
+        from contexts.orchestration.infrastructure.repositories import (
+            AgentInstanceRepository,
+        )
+        from contexts.orchestration.interfaces.facade import OrchestrationFacade
+
+        assert not hasattr(SubagentService, "cleanup_expired")
+        assert not hasattr(OrchestrationFacade, "cleanup_expired_instances")
+        assert not hasattr(AgentInstanceRepository, "delete_older_than_days")
 
 
 class TestCloseIdleImpersonations:

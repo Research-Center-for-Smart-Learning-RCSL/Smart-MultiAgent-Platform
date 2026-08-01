@@ -306,6 +306,7 @@
       "sizeHint": "PDF、TXT、MD、DOCX——最大 32 MB",
       "uploadStarted": "已接受上傳，索引進行中。",
       "uploadFailed": "上傳失敗。",
+      "uploadAllowlistConflict": "這份文件已存在，但 Agent 存取權限不同。請先更新文件的 Agent 存取權限，再重試。",
       "uploadUnprocessable": "無法讀取這份文件，可能是檔案損毀、沒有文字內容，或格式不支援。",
       "visibleToAgents": "可見的 AI Agents",
       "visibleToAgentsHint": "只有選取的 AI Agents 能檢索此文件。未選取任何 AI Agent 代表沒有 AI Agent 看得到它。",
@@ -559,6 +560,7 @@
       "uploading": "上傳中…",
       "uploadStarted": "已接受上傳，索引進行中。",
       "uploadFailed": "上傳失敗。",
+      "uploadAllowlistConflict": "這份文件已存在，但 Agent 存取權限不同。請先更新文件的 Agent 存取權限，再重試。",
       "uploadUnprocessable": "無法讀取這份文件，可能是檔案損毀、沒有文字內容，或格式不支援。",
       "sizeHint": "PDF、TXT、MD、DOCX——最大 32 MB",
       "loading": "載入文件中…",
@@ -580,6 +582,13 @@
         "ready": "就緒",
         "failed": "失敗",
         "quarantined": "已隔離"
+      },
+      "failure": {
+        "resource_budget_exceeded": "超出處理資源上限",
+        "document_unprocessable": "無法讀取文件",
+        "scan_too_large": "檔案超過惡意程式掃描上限",
+        "scan_failed": "惡意程式掃描失敗",
+        "ingest_failed": "文件處理失敗"
       },
       "scan": {
         "pending": "待掃描",

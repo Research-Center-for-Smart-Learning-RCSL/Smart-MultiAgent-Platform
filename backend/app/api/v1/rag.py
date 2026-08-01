@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
 from fastapi import (
     APIRouter,
@@ -27,12 +27,13 @@ from fastapi import (
     UploadFile,
     status,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
 from app.api.v1.deps import validate_agent_allowlist as _validate_agent_allowlist_generic
 from app.config.settings import get_settings
+from app.wiring.knowledge_ingest import KnowledgeIngestWiring
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.config_service import RagConfigService
 from contexts.knowledge.application.ingest_service import (
@@ -40,12 +41,13 @@ from contexts.knowledge.application.ingest_service import (
     IngestInput,
 )
 from contexts.knowledge.domain.embedding_pin import TeardownOutcome
-from contexts.knowledge.domain.errors import DocumentTooLarge
+from contexts.knowledge.domain.errors import ChunkParamsInvalid, DocumentTooLarge
 from contexts.knowledge.domain.models import (
     ChunkStrategy,
     DocumentStatus,
     RagConfigDraft,
     ScanStatus,
+    validate_chunk_params,
 )
 from contexts.knowledge.infrastructure.embedders import router_embedder_for
 from contexts.tenancy.interfaces.facade import TenancyFacade
@@ -79,6 +81,14 @@ class RagConfigCreateIn(BaseModel):
     rerank_provider: Literal["cohere", "bge"] | None = None
     rerank_model: str | None = Field(default=None, max_length=200)
     top_k: int = Field(default=8, gt=0, le=100)
+
+    @model_validator(mode="after")
+    def validate_chunking(self) -> Self:
+        try:
+            validate_chunk_params(ChunkStrategy(self.chunk_strategy), self.chunk_params)
+        except ChunkParamsInvalid as exc:
+            raise ValueError(str(exc)) from exc
+        return self
 
 
 class RagConfigPatchIn(BaseModel):
@@ -118,6 +128,7 @@ class RagDocumentOut(BaseModel):
     sha256: str
     status: DocumentStatus
     scan_status: ScanStatus
+    failure_code: str | None
     uploaded_at: str
     agent_ids: list[uuid.UUID]
 
@@ -158,6 +169,7 @@ def _to_document_out(d) -> RagDocumentOut:
         sha256=d.sha256,
         status=d.status,
         scan_status=d.scan_status,
+        failure_code=d.failure_code,
         uploaded_at=d.uploaded_at.isoformat(),
         agent_ids=list(d.agent_ids),
     )
@@ -509,10 +521,7 @@ async def upload_document(
         model=cfg.embed_model,
     )
 
-    ingest, qclient = RagConfigService.build_ingest_service(
-        db,
-        embedder=embedder,
-    )
+    ingest, qclient = KnowledgeIngestWiring(db).rag_upload_service(embedder=embedder)
     try:
         doc = await ingest.ingest(
             ipt=IngestInput(

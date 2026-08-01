@@ -3,6 +3,7 @@ import { computed, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { SButton, SFormField, SInput } from '@shared/ui'
 import type { WorkflowNode, NodeType } from '../types'
+import type { ProjectAgent } from '../utils/projectAgents'
 
 import TriggerConfigForm from './config/TriggerConfigForm.vue'
 import AgentInvocationConfigForm from './config/AgentInvocationConfigForm.vue'
@@ -20,7 +21,7 @@ const { t } = useI18n()
 
 const props = defineProps<{
   node: WorkflowNode
-  agents: Array<{ id: string; name: string }>
+  agents: ProjectAgent[]
   chatrooms: Array<{ id: string; name: string }>
   allNodeIds: string[]
 }>()

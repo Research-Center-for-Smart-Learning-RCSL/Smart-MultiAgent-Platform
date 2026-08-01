@@ -11,6 +11,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { useSessionStore } from '@shared/stores/session'
 import { ApiError } from '@shared/api-client'
+import { deferred } from '../../../../tests/utils'
 import type { Message } from '../types'
 
 function apiError(status: number): ApiError {
@@ -55,16 +56,6 @@ import { convKeys } from '../queries'
 const ROOM = 'cr_1'
 type Composable = ReturnType<typeof useChatroomMessages>
 let composable: Composable
-
-function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void } {
-  let resolve!: (v: T) => void
-  let reject!: (e: unknown) => void
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-  return { promise, resolve, reject }
-}
 
 function msg(over: Partial<Message> = {}): Message {
   return {
@@ -133,6 +124,7 @@ function mountEditing() {
 beforeEach(() => {
   Object.values(api).forEach((fn) => fn.mockReset())
   toast.error.mockClear()
+  toast.success.mockClear()
   dialog.confirm.mockClear()
   dialog.confirm.mockResolvedValue(true)
 })
@@ -211,6 +203,57 @@ describe('useChatroomMessages optimistic send', () => {
   })
 })
 
+describe('useChatroomMessages /compact outcome reporting (F-9)', () => {
+  it('restores the draft and toasts when the request fails', async () => {
+    api.listMessages.mockResolvedValue([])
+    api.compactChatroom.mockRejectedValue(new Error('backend down'))
+
+    mountHost()
+    await flushPromises()
+
+    composable.draft.value = '/compact'
+    // Resolves false rather than rejecting: `send` in ChatroomView binds this
+    // as an event handler, so a rejection here becomes an unhandled rejection.
+    await expect(composable.onSend([])).resolves.toBe(false)
+    await flushPromises()
+
+    expect(composable.draft.value).toBe('/compact')
+    expect(toast.error).toHaveBeenCalledWith('conversation.settings.compactFailed')
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it('clears the draft and toasts on success', async () => {
+    api.listMessages.mockResolvedValue([])
+    api.compactChatroom.mockResolvedValue(undefined)
+
+    mountHost()
+    await flushPromises()
+
+    composable.draft.value = '/compact'
+    await expect(composable.onSend([])).resolves.toBe(true)
+    await flushPromises()
+
+    expect(composable.draft.value).toBe('')
+    expect(toast.success).toHaveBeenCalledWith('conversation.settings.compactRequested')
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('never posts a /compact draft as a message', async () => {
+    api.listMessages.mockResolvedValue([])
+    api.compactChatroom.mockRejectedValue(new Error('backend down'))
+
+    mountHost()
+    await flushPromises()
+
+    composable.draft.value = '/compact'
+    await composable.onSend([])
+    await flushPromises()
+
+    expect(api.sendMessage).not.toHaveBeenCalled()
+    expect(composable.messages.value).toHaveLength(0)
+  })
+})
+
 describe('useChatroomMessageEditing optimistic edit', () => {
   it('reopens the editor with the user\'s text when the save fails', async () => {
     const { qc } = mountEditing()
@@ -278,6 +321,71 @@ describe('useChatroomMessages optimistic delete', () => {
     const { message } = dialog.confirm.mock.calls[0]![0] as { message: string }
     expect(message).toContain('conversation.chatroom.deleteSummaryNotice')
     expect(message).toContain('conversation.chatroom.deleteConfirm')
+  })
+})
+
+describe('useChatroomMessages moderator affordances (V-4)', () => {
+  // The backend already grants edit/delete to project and org owners
+  // (`messages.py` delete gate, `message_service.edit`); the affordances stayed
+  // hidden because the DTO carried no signal. `is_moderator` is that signal.
+  function mountModerator(isModerator: boolean) {
+    api.listMessages.mockResolvedValue([])
+    mountQueryHost(() => {
+      const listRef: Ref<HTMLElement | null> = ref(null)
+      composable = useChatroomMessages(
+        ROOM,
+        listRef,
+        () => [],
+        () => isModerator,
+      )
+    })
+    const session = useSessionStore()
+    session.me = {
+      id: 'u1',
+      email: 'u@smap.test',
+      email_verified: true,
+      is_admin: false,
+      status: 'active',
+    }
+  }
+
+  // Someone else's message, well past the five-minute author window.
+  function aged(over: Partial<Message> = {}): Message {
+    return msg({
+      id: 'm_other',
+      sender_id: 'u2',
+      created_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+      ...over,
+    })
+  }
+
+  it('lets a non-admin project owner edit another user\'s aged message', async () => {
+    mountModerator(true)
+    await flushPromises()
+    expect(composable.canEdit(aged())).toBe(true)
+  })
+
+  it('lets a non-admin project owner delete another user\'s message', async () => {
+    mountModerator(true)
+    await flushPromises()
+    expect(composable.canDelete(aged())).toBe(true)
+  })
+
+  it('grants a plain member neither affordance', async () => {
+    mountModerator(false)
+    await flushPromises()
+    expect(composable.canEdit(aged())).toBe(false)
+    expect(composable.canDelete(aged())).toBe(false)
+  })
+
+  it('never offers either affordance on an optimistic message', async () => {
+    // An unsent bubble has no server id to PATCH or DELETE, so the `_status`
+    // guard has to stay ahead of the moderator grant.
+    mountModerator(true)
+    await flushPromises()
+    const optimistic = { ...aged({ id: 'pending-1' }), _status: 'sending' as const }
+    expect(composable.canEdit(optimistic)).toBe(false)
+    expect(composable.canDelete(optimistic)).toBe(false)
   })
 })
 

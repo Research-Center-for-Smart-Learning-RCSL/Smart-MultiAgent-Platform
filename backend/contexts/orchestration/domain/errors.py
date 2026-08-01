@@ -93,6 +93,20 @@ class ApprovalTimeoutLeader(OrchestrationError):
     code = "approval-timeout-leader"
 
 
+class ApprovalCapabilityDenied(OrchestrationError):
+    """An approval gate named an agent without workflow_capabilities.can_approve
+    as an approver or leader (R15.10a). Rejected in full — never a subset."""
+
+    code = "approval-capability-denied"
+
+
+class InstructCapabilityDenied(OrchestrationError):
+    """The issuing agent lacks workflow_capabilities.can_instruct (R15.18-adjacent
+    AuthZ tap named in G-orchestration.md:250)."""
+
+    code = "instruct-capability-denied"
+
+
 __all__ = [
     "A2ACallDepthExceeded",
     "A2ACallCancelled",
@@ -100,8 +114,10 @@ __all__ = [
     "A2ADeliveryFailed",
     "A2AForbidden",
     "A2ATimeout",
+    "ApprovalCapabilityDenied",
     "ApprovalTimeoutLeader",
     "InstructBudgetExceeded",
+    "InstructCapabilityDenied",
     "InstructLoopDetected",
     "OrchestrationError",
     "SubagentConcurrencyExceeded",

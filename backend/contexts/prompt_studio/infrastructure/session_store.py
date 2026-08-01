@@ -54,7 +54,10 @@ class SessionStore:
             session_id=session_id,
             user_id=uuid.UUID(data["user_id"]),
             project_id=uuid.UUID(data["project_id"]),
-            messages=tuple(SessionMessage(role=m["role"], content=m["content"]) for m in data["messages"]),
+            messages=tuple(
+                SessionMessage(role=m["role"], content=m["content"], error=m.get("error", False))
+                for m in data["messages"]
+            ),
         )
 
     async def append_message(self, session_id: uuid.UUID, message: SessionMessage) -> AssistantSession | None:
@@ -89,7 +92,9 @@ class SessionStore:
             {
                 "user_id": str(session.user_id),
                 "project_id": str(session.project_id),
-                "messages": [{"role": m.role, "content": m.content} for m in session.messages],
+                "messages": [
+                    {"role": m.role, "content": m.content, "error": m.error} for m in session.messages
+                ],
             },
             separators=(",", ":"),
         )
