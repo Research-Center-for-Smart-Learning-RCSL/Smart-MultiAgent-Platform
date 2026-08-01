@@ -21,7 +21,10 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.interfaces import room_channel
+from contexts.orchestration.application.agent_capability import agent_has_capability
+from contexts.orchestration.domain.errors import ApprovalCapabilityDenied
 from contexts.orchestration.domain.models import (
     Approval,
     ApprovalGateConfig,
@@ -50,6 +53,7 @@ class ApprovalService:
         self._db = db
         self._approvals = ApprovalRepository(db)
         self._votes = ApprovalVoteRepository(db)
+        self._agents = AgentsFacade(db)
 
     # ------------------------------------------------------------------
     # Create gate
@@ -74,7 +78,41 @@ class ApprovalService:
         escapes before the row is durable (F-18). ``node_id`` and
         ``config.question`` are not persisted on the row, so they ride on the
         enqueue for the announce payloads.
+
+        Raises ``ApprovalCapabilityDenied`` (R15.10a) if any named approver —
+        the leader included, since the executor folds it into ``config.approvers``
+        — lacks ``workflow_capabilities.can_approve``, before this method's insert
+        or the post-commit announce enqueue that leads to approver-turn spend.
+        Rejects the whole gate rather than dropping ineligible approvers, since a
+        reduced approver list silently changes the majority/consensus tally
+        denominator (Q-6).
         """
+        ineligible_ids: list[uuid.UUID] = []
+        for approver_id in config.approvers:
+            agent = await self._agents.get_agent(approver_id)
+            if not agent_has_capability(agent, "can_approve"):
+                ineligible_ids.append(approver_id)
+
+        if ineligible_ids:
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="approval.forbidden",
+                    resource_type="workflow_run",
+                    resource_id=workflow_run_id,
+                    metadata={
+                        "workflow_run_id": str(workflow_run_id),
+                        "ineligible_agent_ids": [str(a) for a in ineligible_ids],
+                        "reason": "missing_can_approve_capability",
+                    },
+                ),
+            )
+            raise ApprovalCapabilityDenied(
+                "approval gate rejected: agent(s) "
+                f"{', '.join(str(a) for a in ineligible_ids)} lack "
+                "workflow_capabilities.can_approve"
+            )
+
         approval_id = uuid.uuid4()
         approval = await self._approvals.insert(
             id=approval_id,

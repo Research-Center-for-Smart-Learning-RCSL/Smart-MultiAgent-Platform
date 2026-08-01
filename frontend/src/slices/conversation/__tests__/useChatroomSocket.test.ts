@@ -251,6 +251,117 @@ describe('useChatroomSocket agent streaming', () => {
     expect(mounted.store.agentError[ROOM]).toBe('timeout')
   })
 
+  it('re-arms the timeout on agent.warning (F-15)', () => {
+    // The engine already emits this mid-turn (R13.19) and the client used to
+    // drop it at `default:` — a frame that proves the turn is alive was being
+    // spent on nothing while the watchdog counted down toward a false timeout.
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    vi.advanceTimersByTime(AGENT_THINKING_TIMEOUT_MS - 1)
+    emit({ type: 'agent.warning', agent_id: AGENT, kind: 'skills_unavailable', dropped: 2 })
+    vi.advanceTimersByTime(AGENT_THINKING_TIMEOUT_MS - 1)
+    expect(mounted.store.agentThinking[ROOM]?.has(AGENT)).toBe(true)
+    expect(mounted.store.agentError[ROOM]).toBeFalsy()
+    vi.advanceTimersByTime(1)
+    expect(mounted.store.agentError[ROOM]).toBe('timeout')
+  })
+
+  it('re-arms the timeout on agent.progress (F-15)', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    vi.advanceTimersByTime(AGENT_THINKING_TIMEOUT_MS - 1)
+    emit({ type: 'agent.progress', agent_id: AGENT, phase: 'history' })
+    vi.advanceTimersByTime(AGENT_THINKING_TIMEOUT_MS - 1)
+    expect(mounted.store.agentThinking[ROOM]?.has(AGENT)).toBe(true)
+    expect(mounted.store.agentError[ROOM]).toBeFalsy()
+    vi.advanceTimersByTime(1)
+    expect(mounted.store.agentError[ROOM]).toBe('timeout')
+  })
+
+  it('never times out an assembly that keeps reporting progress', () => {
+    // The whole of F-15: a compact-mode turn can spend minutes folding history
+    // behind a 300s lock before the first token. Four beacons under the window
+    // must carry it through with no error and no lost spinner.
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    for (const phase of ['context', 'skills', 'workspace', 'compacting']) {
+      vi.advanceTimersByTime(AGENT_THINKING_TIMEOUT_MS - 1_000)
+      emit({ type: 'agent.progress', agent_id: AGENT, phase })
+    }
+    emit({ type: 'agent.token', text: 'at last', agent_id: AGENT })
+    expect(mounted.store.agentError[ROOM]).toBeFalsy()
+    expect(mounted.store.agentThinking[ROOM]?.has(AGENT)).toBe(true)
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe('at last')
+  })
+
+  it('resets the streaming draft at a tool-round boundary (F-40)', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    emit({ type: 'agent.token', text: 'let me check', agent_id: AGENT })
+    emit({ type: 'agent.progress', agent_id: AGENT, phase: 'tool_round' })
+    emit({ type: 'agent.token', text: 'the answer', agent_id: AGENT })
+    // What agent.finished replaces this with is the persisted reply, which is
+    // the final round's text alone — so the two now match and nothing flashes.
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe('the answer')
+  })
+
+  it('leaves the draft alone on a non-boundary progress phase', () => {
+    // Only `tool_round` means "superseded". An assembly beacon arriving while
+    // an earlier agent still holds a draft must not wipe it.
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    emit({ type: 'agent.token', text: 'partial', agent_id: AGENT })
+    emit({ type: 'agent.progress', agent_id: AGENT, phase: 'history' })
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe('partial')
+  })
+
+  it('resets only the emitting agents draft at a boundary', () => {
+    const OTHER = 'agent_2'
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    emit({ type: 'agent.token', text: 'mine', agent_id: AGENT })
+    emit({ type: 'agent.thinking', agent_id: OTHER })
+    emit({ type: 'agent.token', text: 'theirs', agent_id: OTHER })
+    emit({ type: 'agent.progress', agent_id: AGENT, phase: 'tool_round' })
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBeUndefined()
+    expect(mounted.store.agentStreams[ROOM]?.[OTHER]).toBe('theirs')
+  })
+
+  it('clears only the thinking agents drafts when it fires', () => {
+    // Defensive: one shared timer covers the room, so a fire means nobody spoke
+    // for the whole window. Scoping the clear to the agents actually marked
+    // thinking keeps a wedged agent from taking a neighbour's draft with it.
+    const OTHER = 'agent_2'
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    emit({ type: 'agent.token', text: 'stuck', agent_id: AGENT })
+    // No agent.thinking for OTHER — it holds a draft but is not marked running.
+    emit({ type: 'agent.token', text: 'neighbour', agent_id: OTHER })
+    vi.advanceTimersByTime(AGENT_THINKING_TIMEOUT_MS)
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBeUndefined()
+    expect(mounted.store.agentStreams[ROOM]?.[OTHER]).toBe('neighbour')
+    expect(mounted.store.agentError[ROOM]).toBe('timeout')
+  })
+
+  it('still clears the room draft when nothing is marked thinking', () => {
+    // No per-agent set to scope to, but the watchdog has still declared the
+    // room's turn dead — leaving the draft would strand it with no event left
+    // to clear it.
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    emit({ type: 'agent.token', text: 'orphan', agent_id: AGENT })
+    vi.advanceTimersByTime(AGENT_THINKING_TIMEOUT_MS)
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBeUndefined()
+    expect(mounted.store.agentError[ROOM]).toBe('timeout')
+  })
+
   it('does not time out a turn that finished cleanly', () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper

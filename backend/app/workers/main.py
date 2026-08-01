@@ -10,6 +10,8 @@ Task registry:
   - `rag_ingest_document`         — E.6 off-request RAG indexing for tus uploads
   - `agent_fs_gc`                 — E.10 nightly agent volume + workspace GC (60-day
                                     retention; dry-run until SMAP_AGENT_FS_GC_ARMED)
+  - `agent_turn_reaper`           — per-minute sweep for turns killed by SIGKILL,
+                                    the one cleanup no in-process handler survives
 
 Background tasks (started in `on_startup`, stopped in `on_shutdown`):
   - key-revocation listener  — ASYNC-2 / D.7 DEK cache invalidation
@@ -49,6 +51,7 @@ from app.workers.tasks.graphrag import (
     graphrag_reconcile,
     graphrag_silence_sweep,
 )
+from app.workers.tasks.knowledge_ingest import knowledge_ingest_reconcile
 from app.workers.tasks.knowmap import (
     KNOWMAP_BUILD_TIMEOUT_S,
     knowmap_build,
@@ -57,6 +60,7 @@ from app.workers.tasks.knowmap import (
     knowmap_scan_document,
 )
 from app.workers.tasks.orchestration import (
+    WAKEUP_TURN_TIMEOUT_S,
     approval_timeout,
     evaluate_silence,
     make_dlq_audit_callback,
@@ -67,6 +71,7 @@ from app.workers.tasks.prompt_assistant import prompt_assistant_turn
 from app.workers.tasks.rag import rag_ingest_document, rag_scan_document
 from app.workers.tasks.retention import retention_sweep
 from app.workers.tasks.skills import skill_export_bundle, skill_import_bundle, skill_scan_file
+from app.workers.tasks.turn_reaper import agent_turn_reaper
 from app.workers.tasks.workflow_approvals import (
     workflow_instruct_timeout,
     workflow_resume_approval,
@@ -95,6 +100,7 @@ from contexts.orchestration.application.a2a_consumer import A2AConsumerSuperviso
 from contexts.orchestration.application.a2a_handler import handle_envelope
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.logging.setup import configure_logging
+from shared_kernel.queue_names import KNOWLEDGE_INGEST_QUEUE, KNOWLEDGE_SCAN_QUEUE
 
 
 async def noop(ctx: dict[str, Any]) -> str:
@@ -243,6 +249,23 @@ async def _startup(ctx: dict[str, Any]) -> None:
     )
 
 
+async def _knowledge_startup(ctx: dict[str, Any]) -> None:
+    configure_logging(get_settings().logging)
+    _start_healthz_sidecar()
+    ctx["_revocation_task"] = asyncio.create_task(
+        revocation_listener.run(),
+        name="key-revocation-listener",
+    )
+
+
+async def _knowledge_shutdown(ctx: dict[str, Any]) -> None:
+    task = ctx.get("_revocation_task")
+    if task is not None:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
 async def _shutdown(ctx: dict[str, Any]) -> None:
     """Wind down the long-lived background tasks started in `_startup`."""
     supervisor = ctx.get("_a2a_supervisor")
@@ -269,7 +292,15 @@ class WorkerSettings:
         file_scan_requested,
         extract_attachment_text,
         chat_export,
-        wakeup_agent,
+        # A turn is not retry-safe: it commits its reply with post-commit work
+        # still to run, and the turn lock's `finally` releases during the
+        # cancellation unwind, so arq's worker-wide `retry_jobs` default would
+        # let a re-run re-assemble history that already contains the reply and
+        # post a second one. `max_tries=1` is arq's documented "prevent
+        # retrying" and is enforced before the job body runs. The scoped timeout
+        # is a runaway backstop over the turn lock TTL — see
+        # WAKEUP_TURN_TIMEOUT_S for why it is not tightened below it.
+        func(wakeup_agent, name="wakeup_agent", timeout=WAKEUP_TURN_TIMEOUT_S, max_tries=1),
         evaluate_silence,
         wakeup_refresh,
         approval_timeout,
@@ -291,6 +322,7 @@ class WorkerSettings:
         workflow_resume_instruct,
         workflow_instruct_timeout,
         workflow_watchdog,
+        agent_turn_reaper,
         validate_activity_submission,
         activities_watchdog,
         retention_sweep,
@@ -302,11 +334,8 @@ class WorkerSettings:
         func(graphrag_build, name="graphrag_build", timeout=GRAPHRAG_BUILD_TIMEOUT_S),
         graphrag_reconcile,
         graphrag_silence_sweep,
-        rag_ingest_document,
-        rag_scan_document,
-        knowmap_ingest_document,
-        knowmap_scan_document,
         knowmap_revision_sweep,
+        knowledge_ingest_reconcile,
         skill_scan_file,
         skill_import_bundle,
         skill_export_bundle,
@@ -343,6 +372,11 @@ class WorkerSettings:
         # Every minute — workflow timeout watchdog (K.4): fail runs past their
         # run_max_seconds / idle_max_seconds budgets.
         cron(workflow_watchdog, minute=set(range(60)), run_at_startup=False),
+        # Every minute — stranded agent turns: a turn killed by SIGKILL runs no
+        # cleanup of its own and `wakeup_agent` is `max_tries=1`, so this sweep
+        # is the only thing that unsticks the room. arq's cron lock keeps it
+        # singleton across replicas.
+        cron(agent_turn_reaper, minute=set(range(60)), run_at_startup=False),
         # Every minute — activities validation watchdog (R30.06): sweep stalled
         # pending mcp/webhook validations (or dropped enqueues) to error.
         cron(activities_watchdog, minute=set(range(60)), run_at_startup=False),
@@ -360,6 +394,8 @@ class WorkerSettings:
         # finalize/enqueue path dropped. arq's cron lock keeps it singleton across
         # replicas; the revision-keyed job id makes a repeated offer a no-op.
         cron(knowmap_revision_sweep, minute=set(range(60)), run_at_startup=False),
+        # Every minute — reclaim knowledge-ingest leases whose worker disappeared.
+        cron(knowledge_ingest_reconcile, minute=set(range(60)), run_at_startup=False),
         # Every minute — Concept Map silence-trigger sweep (F-4 / R11.02): fire a
         # graphrag_build for maps whose coverage has been idle for silence_minutes.
         # arq's cron lock keeps it singleton; keep_result backs the _job_id dedup.
@@ -371,3 +407,25 @@ class WorkerSettings:
             run_at_startup=False,
         ),
     ]
+
+
+class KnowledgeScanWorkerSettings:
+    functions: ClassVar[list[Any]] = [rag_scan_document, knowmap_scan_document]
+    on_startup = _knowledge_startup
+    on_shutdown = _knowledge_shutdown
+    redis_settings = _arq_redis_settings()
+    queue_name = KNOWLEDGE_SCAN_QUEUE
+    job_timeout = 20 * 60
+    max_jobs = 2
+    keep_result = 3600
+
+
+class KnowledgeIngestWorkerSettings:
+    functions: ClassVar[list[Any]] = [rag_ingest_document, knowmap_ingest_document]
+    on_startup = _knowledge_startup
+    on_shutdown = _knowledge_shutdown
+    redis_settings = _arq_redis_settings()
+    queue_name = KNOWLEDGE_INGEST_QUEUE
+    job_timeout = 30 * 60
+    max_jobs = 1
+    keep_result = 3600

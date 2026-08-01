@@ -58,6 +58,7 @@ const {
   saveError,
   loadRoom: loadRoomBase,
   onSave,
+  setFlag,
   saveDisclosure,
   onDelete,
 } = useChatroomSettings(chatroomId)
@@ -119,7 +120,7 @@ const roleOptions = computed(() => [
 // exist, and disclosure is off (external guests observed without notice).
 const hasObserver = computed(() => boundAgents.value.some((a) => a.role === 'observer'))
 const showGuestObserverCallout = computed(
-  () => flags.allow_guest_links && hasObserver.value && !flags.disclose_observers,
+  () => flags.value.allow_guest_links && hasObserver.value && !flags.value.disclose_observers,
 )
 
 // ---- derived state --------------------------------------------------------
@@ -154,13 +155,6 @@ const hasNoAgents = computed(
     !boundAgents.value.length &&
     !orphanAgentIds.value.length,
 )
-
-// ---- access toggles (optimistic immediate save per spec §4.2) -------------
-
-function setFlag(key: keyof typeof flags, value: boolean): void {
-  flags[key] = value
-  void onSave()
-}
 
 // ---- guest link -----------------------------------------------------------
 
@@ -207,7 +201,7 @@ onMounted(loadRoom)
 
 // Refresh the guest link lazily, only while the panel is visible.
 watchEffect(async () => {
-  if (flags.allow_guest_links && room.value) {
+  if (flags.value.allow_guest_links && room.value) {
     try {
       const link = await getGuestLink(chatroomId)
       guestUrl.value = link.url

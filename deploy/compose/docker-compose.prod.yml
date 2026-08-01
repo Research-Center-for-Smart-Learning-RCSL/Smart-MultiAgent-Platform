@@ -145,6 +145,46 @@ services:
         limits: { cpus: "3.0", memory: 2G }
         reservations: { cpus: "1.0", memory: 1G }
 
+  knowledge-scan-worker:
+    <<: *security-defaults
+    restart: unless-stopped
+    environment:
+      SMAP_APP_ENV: prod
+      SMAP_APP_DOCS_ENABLED: "false"
+      SMAP_LOG_LEVEL: info
+      SMAP_VAULT_ADDR: https://vault:8200
+      SMAP_VAULT_CA_CERT: /vault-tls/vault-internal-ca.pem
+    volumes:
+      - ../vault/certs:/vault-tls:ro
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      vault: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1G }
+        reservations: { cpus: "0.25", memory: 512M }
+
+  knowledge-ingest-worker:
+    <<: *security-defaults
+    restart: unless-stopped
+    environment:
+      SMAP_APP_ENV: prod
+      SMAP_APP_DOCS_ENABLED: "false"
+      SMAP_LOG_LEVEL: info
+      SMAP_VAULT_ADDR: https://vault:8200
+      SMAP_VAULT_CA_CERT: /vault-tls/vault-internal-ca.pem
+    volumes:
+      - ../vault/certs:/vault-tls:ro
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      vault: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 2G }
+        reservations: { cpus: "0.5", memory: 1G }
+
   # ---------- Data services ----------
   # Credential overrides: the base compose uses DEV-ONLY hardcoded passwords.
   # In production every data service MUST receive operator-supplied secrets.

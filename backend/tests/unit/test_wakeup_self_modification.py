@@ -40,8 +40,11 @@ async def test_self_modification_preserves_designer_config_and_bounds(monkeypatc
             )
             return self.current
 
-    async def _emit(_db, event):
+    async def _emit(_db, event, *, isolated: bool = False):
+        # `isolated=True` on this path: the clamp audit rides the turn's own
+        # session, which the reply commit depends on.
         audits.append(event)
+        return True
 
     svc = WakeupService.__new__(WakeupService)
     svc._db = None

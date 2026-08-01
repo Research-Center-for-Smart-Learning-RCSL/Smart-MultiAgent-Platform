@@ -52,6 +52,12 @@
                   @click="addNode(nt)"
                 >
                   {{ $t(NODE_TYPE_LABELS[nt]) }}
+                  <span
+                    v-if="UNAVAILABLE_NODE_TYPES.includes(nt)"
+                    class="ml-1 align-middle rounded bg-warning-tint px-1 py-0.5 text-2xs text-warning-on"
+                  >
+                    {{ $t('workflow.palette.unavailable') }}
+                  </span>
                 </button>
               </template>
             </div>
@@ -327,12 +333,13 @@ import {
 } from '../api'
 import { wfKeys } from '../queries'
 import { useWorkflowStore } from '../stores/workflow'
-import { NODE_TYPE_LABELS, NODE_PALETTE_GROUPS } from '../constants'
+import { NODE_TYPE_LABELS, NODE_PALETTE_GROUPS, UNAVAILABLE_NODE_TYPES } from '../constants'
 import NodeConfigPanel from '../components/NodeConfigPanel.vue'
 import WorkflowNodeComponent from '../components/WorkflowNodeComponent.vue'
 import { useWorkflowEditor } from '../composables/useWorkflowEditor'
 import { useWorkflowLint } from '../composables/useWorkflowLint'
 import { fetchProjectAgents } from '../utils/projectAgents'
+import type { ProjectAgent } from '../utils/projectAgents'
 import type { Workflow } from '../types'
 
 import '@vue-flow/core/dist/style.css'
@@ -356,7 +363,7 @@ const loadError = ref<string | null>(null)
 const conflictDetected = ref(false)
 
 // Data for config forms (agents + chatrooms in the project)
-const agents = ref<Array<{ id: string; name: string }>>([])
+const agents = ref<ProjectAgent[]>([])
 const chatrooms = ref<Array<{ id: string; name: string }>>([])
 
 // Custom node type registration — markRaw prevents Vue from making the

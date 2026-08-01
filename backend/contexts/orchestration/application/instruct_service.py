@@ -23,8 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.orchestration.application import instruct_chain
 from contexts.orchestration.application.a2a_service import A2AService
+from contexts.orchestration.application.agent_capability import agent_has_capability
 from contexts.orchestration.domain.errors import (
     InstructBudgetExceeded,
+    InstructCapabilityDenied,
     InstructLoopDetected,
 )
 from contexts.orchestration.domain.models import (
@@ -76,7 +78,32 @@ class InstructService:
         A2AService derives rule 3a from (both agents must be run participants).
         For a workflow-originated instruct it is also the [R15.16] rule 3
         issuing window when no ``wakeup_started_at`` is supplied.
+
+        Raises ``InstructCapabilityDenied`` if the issuer lacks
+        ``workflow_capabilities.can_instruct`` (the AuthZ tap named in
+        G-orchestration.md:250). Checked before every [R15.16] chain rule —
+        authorization precedes budget — so a forbidden issuer never reaches the
+        rule-1 cycle branch, which would otherwise INSERT a ``rejected_loop`` row.
         """
+        issuer = await self._agents.get_agent(issuer_agent_id)
+        if not agent_has_capability(issuer, "can_instruct"):
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="instruct.forbidden",
+                    resource_type="agent",
+                    resource_id=issuer_agent_id,
+                    metadata={
+                        "issuer_agent_id": str(issuer_agent_id),
+                        "target_agent_id": str(target_agent_id),
+                        "reason": "missing_can_instruct_capability",
+                    },
+                ),
+            )
+            raise InstructCapabilityDenied(
+                f"agent {issuer_agent_id} lacks workflow_capabilities.can_instruct"
+            )
+
         # F-25 fallback: an instruct issued from inside a delivered instruct's
         # inline turn (no explicit chain supplied) inherits the ambient chain so
         # the loop/depth/budget guards continue rather than reset to a fresh chain.

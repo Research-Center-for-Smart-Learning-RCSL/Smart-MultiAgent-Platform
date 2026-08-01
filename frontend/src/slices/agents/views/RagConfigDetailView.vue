@@ -8,26 +8,13 @@ import { toTypedSchema } from '@vee-validate/zod'
 import {
   Cog6ToothIcon,
   DocumentIcon,
-  TrashIcon,
-  UserGroupIcon,
 } from '@heroicons/vue/24/outline'
 import {
   SPageHeader,
   STabs,
-  SCard,
-  SFormField,
-  SInput,
   SSelect,
-  SToggle,
   SButton,
-  STable,
-  SBadge,
-  SCheckbox,
-  SModal,
-  SFileUpload,
-  SProgressBar,
   SAlert,
-  SEmptyState,
   SSkeleton,
 } from '@shared/ui'
 import {
@@ -36,21 +23,19 @@ import {
   useToast,
   useBreakpoint,
 } from '@shared/composables'
-import { tusUpload, isProblemWithType } from '@shared/transport'
 import { projectKeysApi, CAPABILITIES, keysKeys } from '@slices/keys'
 import {
   agentsApi,
-  RAG_MULTIPART_MAX,
-  type Agent,
   type RagConfig,
-  type RagDocument,
   type RagConfigPatchInput,
 } from '../api'
 import { agentKeys } from '../queries'
 import { ragConfigCreateSchema, type RagConfigCreateInput } from '../types/schemas'
 import { useRagConfigSocket } from '../composables/useRagConfigSocket'
 import { useRagConfigForm } from '../composables/useRagConfigForm'
-import type { Column } from '@shared/ui/STable.vue'
+import { useRagDocuments } from '../composables/useRagDocuments'
+import RagDocumentsTab from '../components/RagDocumentsTab.vue'
+import RagSettingsTab from '../components/RagSettingsTab.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -71,19 +56,28 @@ const configQuery = useQuery({
   queryFn: () => agentsApi.getRagConfig(configId),
 })
 
-const docsQuery = useQuery({
-  queryKey: agentKeys.ragDocuments(configId),
-  queryFn: () => agentsApi.listDocuments(configId),
-})
-
 const projectKeysQuery = useQuery({
   queryKey: keysKeys.projectKeys(projectId),
   queryFn: () => projectKeysApi.listCarried(projectId),
 })
 
 const config = computed<RagConfig | undefined>(() => configQuery.data.value)
-const docs = computed<RagDocument[]>(() => docsQuery.data.value ?? [])
 const configError = computed(() => configQuery.error.value)
+const {
+  boundAgents,
+  confirmDeleteDoc,
+  docs,
+  docsQuery,
+  editAgentIds,
+  editDoc,
+  onFiles,
+  openAgentsEditor,
+  setAgentsMutation,
+  toggleEditAgent,
+  toggleUploadAgent,
+  uploadAgentIds,
+  uploading,
+} = useRagDocuments(configId, projectId)
 // F-20 (R10.04): chunk params describe the whole corpus and cannot be re-tuned
 // once documents exist (the backend rejects a changing patch with 409). Disable
 // the inputs as a UX guard once the config has any document — like the already
@@ -91,61 +85,10 @@ const configError = computed(() => configQuery.error.value)
 const chunkParamsLocked = computed(() => docs.value.length > 0)
 
 // --- Per-agent document scoping ---
-const agentsQuery = useQuery({
-  queryKey: agentKeys.agents(projectId),
-  queryFn: () => agentsApi.list(projectId),
-})
-
-// Only agents bound to THIS config may appear on a document's allowlist.
-const boundAgents = computed<Agent[]>(() =>
-  (agentsQuery.data.value ?? []).filter((a) => a.rag_config_id === configId),
-)
 // Upload allowlist: default to every bound agent so a fresh upload is visible
 // by default (the backend treats an empty allowlist as "no agent may see it").
 // Seed ONCE when the bound agents first load — re-seeding on every refetch
 // would silently discard the user's manual deselection before they upload.
-const uploadAgentIds = ref<string[]>([])
-const uploadAgentsSeeded = ref(false)
-watch(
-  boundAgents,
-  (agents) => {
-    if (!uploadAgentsSeeded.value && agents.length) {
-      uploadAgentIds.value = agents.map((a) => a.id)
-      uploadAgentsSeeded.value = true
-    }
-  },
-  { immediate: true },
-)
-function toggleUploadAgent(id: string, on: boolean): void {
-  uploadAgentIds.value = on
-    ? [...new Set([...uploadAgentIds.value, id])]
-    : uploadAgentIds.value.filter((x) => x !== id)
-}
-
-// --- Edit an existing document's allowlist ---
-const editDoc = ref<RagDocument | null>(null)
-const editAgentIds = ref<string[]>([])
-function openAgentsEditor(doc: RagDocument): void {
-  editDoc.value = doc
-  editAgentIds.value = [...doc.agent_ids]
-}
-function toggleEditAgent(id: string, on: boolean): void {
-  editAgentIds.value = on
-    ? [...new Set([...editAgentIds.value, id])]
-    : editAgentIds.value.filter((x) => x !== id)
-}
-const setAgentsMutation = useMutation({
-  mutationFn: async () => {
-    if (!editDoc.value) return
-    await agentsApi.setDocumentAgents(editDoc.value.id, [...editAgentIds.value])
-  },
-  onSuccess: () => {
-    editDoc.value = null
-    toast.success(t('agents.rag.agentsSaved'))
-    qc.invalidateQueries({ queryKey: agentKeys.ragDocuments(configId) })
-  },
-  onError: () => toast.error(t('agents.rag.agentsSaveFailed')),
-})
 
 const breadcrumbs = computed(() => [
   { label: t('agents.breadcrumb.ragConfigs'), to: { name: 'agents.ragConfigs', params: { projectId } } },
@@ -174,7 +117,7 @@ watch(
 
 // --- Settings form ---
 const formSchema = toTypedSchema(ragConfigCreateSchema)
-const { handleSubmit, errors, defineField, resetForm, setErrors, values } =
+const { handleSubmit, errors, defineField, resetForm, setErrors } =
   useForm<RagConfigCreateInput>({ validationSchema: formSchema })
 
 const [chunkStrategy] = defineField('chunk_strategy')
@@ -296,83 +239,6 @@ async function onDeleteConfig(): Promise<void> {
   deleteConfigMutation.mutate()
 }
 
-// --- Document upload ---
-const uploading = ref(false)
-
-async function onFiles(files: File[]): Promise<void> {
-  uploading.value = true
-  const agentIds = [...uploadAgentIds.value]
-  try {
-    for (const file of files) {
-      if (file.size <= RAG_MULTIPART_MAX) {
-        await agentsApi.uploadDocumentMultipart(configId, file, agentIds)
-      } else {
-        // The allowlist rides in tus metadata so the finaliser applies it
-        // atomically on the new document (no racy post-upload PATCH).
-        await tusUpload({
-          file,
-          purpose: 'rag_source',
-          projectId,
-          ragConfigId: configId,
-          ragAgentIds: agentIds,
-        })
-      }
-    }
-    toast.success(t('agents.rag.uploadStarted'))
-    qc.invalidateQueries({ queryKey: agentKeys.ragDocuments(configId) })
-  } catch (err) {
-    // A parse failure (422) is a client-fixable input problem — tell the user the
-    // document could not be read, rather than a generic upload failure.
-    if (isProblemWithType(err, '/document-unprocessable')) {
-      toast.error(t('agents.rag.uploadUnprocessable'))
-    } else {
-      toast.error(t('agents.rag.uploadFailed'))
-    }
-  } finally {
-    uploading.value = false
-  }
-}
-
-// --- Document delete ---
-const deleteDocMutation = useMutation({
-  mutationFn: (id: string) => agentsApi.deleteDocument(id),
-  onSuccess: () => {
-    toast.success(t('agents.rag.deleted'))
-    qc.invalidateQueries({ queryKey: agentKeys.ragDocuments(configId) })
-  },
-  onError: () => toast.error(t('agents.rag.deleteFailed')),
-})
-
-async function confirmDeleteDoc(doc: RagDocument): Promise<void> {
-  const ok = await confirm({
-    title: t('agents.rag.deleteTitle'),
-    message: t('agents.rag.deleteConfirm', { name: doc.filename }),
-    variant: 'warning',
-  })
-  if (!ok) return
-  deleteDocMutation.mutate(doc.id)
-}
-
-function humanSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
-const statusVariant = (status: string): 'info' | 'success' | 'danger' | 'warning' => {
-  const map: Record<string, 'info' | 'success' | 'danger' | 'warning'> = {
-    ingesting: 'info', ready: 'success', failed: 'danger', quarantined: 'warning',
-  }
-  return map[status] ?? 'info'
-}
-
-const scanVariant = (status: string): 'neutral' | 'success' | 'danger' => {
-  const map: Record<string, 'neutral' | 'success' | 'danger'> = {
-    pending: 'neutral', clean: 'success', quarantined: 'danger', skipped: 'neutral',
-  }
-  return map[status] ?? 'neutral'
-}
-
 const tabs = computed(() => [
   { key: 'settings', label: t('agents.ragForm.tabs.settings'), icon: Cog6ToothIcon },
   {
@@ -391,61 +257,6 @@ function onTabChange(tab: string | number): void {
   router.replace({ query: { ...route.query, tab: key } })
 }
 
-const chunkStrategyOptions = computed(() => [
-  { value: 'fixed', label: t('agents.ragForm.chunkFixed') },
-  { value: 'semantic', label: t('agents.ragForm.chunkSemantic') },
-])
-
-const docColumns = computed<Column[]>(() => [
-  { key: 'filename', label: t('agents.rag.colName') },
-  { key: 'size_bytes', label: t('agents.rag.colSize'), width: '80px' },
-  { key: 'status', label: t('agents.rag.colStatus'), width: '100px' },
-  { key: 'scan_status', label: t('agents.rag.colScanned'), width: '100px' },
-  { key: 'agents', label: t('agents.rag.colAgents'), width: '140px' },
-  { key: 'actions', label: '', width: '48px', align: 'right' },
-])
-
-// STable's row generic (`T extends Record<string, unknown> = Record<string, unknown>`)
-// falls back to its default type instead of inferring from `:data`/slot usage here (a
-// Volar limitation with generic script-setup props that declare a default type
-// argument). Pin it explicitly so `row` in slots resolves to `RagDocument` instead of
-// `Record<string, unknown>`.
-const _fixedSTable = STable<Record<string, unknown>>
-type STablePropsBase = Parameters<typeof _fixedSTable>[0]
-function typedSTable<T extends object>() {
-  return STable as unknown as new () => {
-    $props: Omit<STablePropsBase, 'data'> & { data?: T[] }
-    $slots: {
-      [key: string]: (arg: { row: T; value: unknown; index: number }) => unknown
-    }
-  }
-}
-const DocsTable = typedSTable<RagDocument>()
-
-const progressText = computed(() => {
-  const p = progress.value
-  if (p.state === 'ingesting' && p.documentsTotal > 0) {
-    return t('agents.rag.ingestionProgress', {
-      processed: p.documentsProcessed,
-      total: p.documentsTotal,
-    })
-  }
-  if (p.state === 'indexing') return t('agents.rag.indexing')
-  if (p.state === 'ingesting') return t('agents.rag.ingestionStarted')
-  return ''
-})
-
-const progressValue = computed(() => {
-  const p = progress.value
-  if (p.state === 'ingesting' && p.documentsTotal > 0) {
-    return Math.round((p.documentsProcessed / p.documentsTotal) * 100)
-  }
-  return 0
-})
-
-const showProgress = computed(() =>
-  ['ingesting', 'indexing'].includes(progress.value.state),
-)
 </script>
 
 <template>
@@ -516,360 +327,46 @@ const showProgress = computed(() =>
         @update:model-value="onTabChange"
       />
 
-      <!-- Tab: Settings -->
-      <div
+      <RagSettingsTab
         v-show="activeTab === 'settings'"
-        id="tabpanel-settings"
-        role="tabpanel"
-        aria-labelledby="settings"
-      >
-        <form
-          class="mt-6 space-y-6"
-          @submit.prevent="onSaveSettings"
-        >
-          <SCard>
-            <h3 class="text-lg font-semibold mb-4">
-              {{ t('agents.ragForm.embedProvider') }}
-            </h3>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <SFormField
-                :label="t('agents.ragForm.embedKey')"
-                name="embed_key_id"
-                :error="errors.embed_key_id ?? ''"
-                required
-              >
-                <SSelect
-                  v-model="embedKeyId"
-                  :options="embedKeyOptions"
-                  :placeholder="t('agents.ragForm.embedKeyPlaceholder')"
-                  disabled
-                />
-              </SFormField>
-              <SFormField
-                :label="t('agents.ragForm.embedModel')"
-                name="embed_model"
-                :error="errors.embed_model ?? ''"
-                required
-              >
-                <SInput
-                  v-model="embedModel"
-                  :placeholder="t('agents.ragForm.embedModelHint')"
-                  :error="!!errors.embed_model"
-                  disabled
-                />
-              </SFormField>
-            </div>
-            <p class="text-sm text-[var(--color-muted)] mt-2">
-              {{ t('agents.ragForm.immutableHint') }}
-            </p>
-          </SCard>
+        v-model:embed-key-id="embedKeyId"
+        v-model:embed-model="embedModel"
+        v-model:chunk-strategy="chunkStrategy"
+        v-model:chunk-size-tokens="chunkSizeTokens"
+        v-model:chunk-overlap-tokens="chunkOverlapTokens"
+        v-model:similarity-threshold="similarityThreshold"
+        v-model:top-k="topK"
+        v-model:rerank-enabled="rerankEnabled"
+        v-model:rerank-provider="rerankProvider"
+        v-model:rerank-key-id="rerankKeyId"
+        v-model:rerank-model-display="rerankModelDisplay"
+        :chunk-params-locked="chunkParamsLocked"
+        :embed-key-options="embedKeyOptions"
+        :errors="errors"
+        :rerank-key-options="rerankKeyOptions"
+        :rerank-provider-options="rerankProviderOptions"
+        @submit="onSaveSettings"
+      />
 
-          <SCard>
-            <h3 class="text-lg font-semibold mb-4">
-              {{ t('agents.ragForm.chunkStrategy') }}
-            </h3>
-            <SFormField
-              :label="t('agents.ragForm.chunkStrategy')"
-              name="chunk_strategy"
-            >
-              <SSelect
-                v-model="chunkStrategy"
-                :options="chunkStrategyOptions"
-                disabled
-              />
-            </SFormField>
-            <template v-if="values.chunk_strategy === 'fixed'">
-              <div class="grid grid-cols-2 gap-4 mt-4">
-                <SFormField
-                  :label="t('agents.ragForm.chunkSize')"
-                  name="chunk_size_tokens"
-                >
-                  <SInput
-                    v-model="chunkSizeTokens"
-                    type="number"
-                    :disabled="chunkParamsLocked"
-                  />
-                </SFormField>
-                <SFormField
-                  :label="t('agents.ragForm.chunkOverlap')"
-                  name="chunk_overlap_tokens"
-                >
-                  <SInput
-                    v-model="chunkOverlapTokens"
-                    type="number"
-                    :disabled="chunkParamsLocked"
-                  />
-                </SFormField>
-              </div>
-            </template>
-            <SFormField
-              v-else
-              :label="t('agents.ragForm.similarityThreshold')"
-              name="similarity_threshold"
-              class="mt-4"
-            >
-              <SInput
-                v-model="similarityThreshold"
-                type="number"
-                :disabled="chunkParamsLocked"
-              />
-            </SFormField>
-            <p
-              v-if="chunkParamsLocked"
-              class="text-sm text-[var(--color-muted)] mt-4"
-            >
-              {{ t('agents.ragForm.chunkParamsImmutableHint') }}
-            </p>
-          </SCard>
-
-          <SCard>
-            <h3 class="text-lg font-semibold mb-4">
-              {{ t('agents.ragForm.topK') }}
-            </h3>
-            <SFormField
-              :label="t('agents.ragForm.topK')"
-              name="top_k"
-              :error="errors.top_k ?? ''"
-            >
-              <SInput
-                v-model="topK"
-                type="number"
-              />
-            </SFormField>
-
-            <SFormField
-              :label="t('agents.ragForm.rerankEnabled')"
-              name="rerank_enabled"
-              class="mt-4"
-            >
-              <SToggle
-                v-model="rerankEnabled"
-                variant="robot"
-              />
-            </SFormField>
-
-            <template v-if="rerankEnabled">
-              <SFormField
-                :label="t('agents.ragForm.rerankProvider')"
-                name="rerank_provider"
-                class="mt-4"
-              >
-                <SSelect
-                  v-model="rerankProvider"
-                  :options="rerankProviderOptions"
-                />
-              </SFormField>
-              <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-                <SFormField
-                  v-if="rerankProvider === 'cohere'"
-                  :label="t('agents.ragForm.rerankKey')"
-                  name="rerank_key_id"
-                  :error="errors.rerank_key_id ?? ''"
-                >
-                  <SSelect
-                    v-model="rerankKeyId"
-                    :options="rerankKeyOptions"
-                    :placeholder="t('agents.ragForm.rerankKeyPlaceholder')"
-                  />
-                </SFormField>
-                <SFormField
-                  :label="t('agents.ragForm.rerankModel')"
-                  name="rerank_model"
-                  :error="errors.rerank_model ?? ''"
-                >
-                  <SInput v-model="rerankModelDisplay" />
-                </SFormField>
-              </div>
-            </template>
-          </SCard>
-        </form>
-      </div>
-
-      <!-- Tab: Documents -->
-      <div
+      <RagDocumentsTab
         v-show="activeTab === 'documents'"
-        id="tabpanel-documents"
-        role="tabpanel"
-        aria-labelledby="documents"
-      >
-        <div class="mt-6 space-y-6">
-          <SCard>
-            <h3 class="text-lg font-semibold mb-4">
-              {{ t('agents.rag.upload') }}
-            </h3>
-            <SFileUpload
-              accept=".pdf,.txt,.md,.docx,application/pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              :max-size="33554432"
-              multiple
-              :disabled="uploading"
-              @files="onFiles"
-            >
-              <p class="text-sm text-[var(--color-muted)]">
-                {{ t('agents.rag.sizeHint') }}
-              </p>
-            </SFileUpload>
-
-            <!-- Per-agent allowlist applied to uploads in this batch. -->
-            <div class="mt-4">
-              <p class="text-sm font-medium mb-1">
-                {{ t('agents.rag.visibleToAgents') }}
-              </p>
-              <p class="text-sm text-[var(--color-muted)] mb-2">
-                {{ t('agents.rag.visibleToAgentsHint') }}
-              </p>
-              <p
-                v-if="boundAgents.length === 0"
-                class="text-sm text-[var(--color-muted)]"
-              >
-                {{ t('agents.rag.noBoundAgents') }}
-              </p>
-              <div
-                v-else
-                class="flex flex-col gap-1"
-              >
-                <SCheckbox
-                  v-for="agent in boundAgents"
-                  :key="agent.id"
-                  :model-value="uploadAgentIds.includes(agent.id)"
-                  @update:model-value="toggleUploadAgent(agent.id, $event)"
-                >
-                  {{ agent.name }}
-                </SCheckbox>
-              </div>
-            </div>
-          </SCard>
-
-          <SCard>
-            <h3 class="text-lg font-semibold mb-4">
-              {{ t('agents.ragForm.tabs.documents') }}
-            </h3>
-
-            <DocsTable
-              :columns="docColumns"
-              :data="docs"
-              :loading="docsQuery.isLoading.value"
-              row-key="id"
-            >
-              <template #cell-size_bytes="{ row }">
-                {{ humanSize(row.size_bytes) }}
-              </template>
-
-              <template #cell-status="{ row }">
-                <SBadge :variant="statusVariant(row.status)">
-                  {{ t(`agents.rag.status.${row.status}`) }}
-                </SBadge>
-              </template>
-
-              <template #cell-scan_status="{ row }">
-                <SBadge :variant="scanVariant(row.scan_status)">
-                  {{ t(`agents.rag.scan.${row.scan_status}`) }}
-                </SBadge>
-              </template>
-
-              <template #cell-agents="{ row }">
-                <SButton
-                  variant="ghost"
-                  size="sm"
-                  @click="openAgentsEditor(row)"
-                >
-                  <template #icon-left>
-                    <UserGroupIcon class="w-4 h-4" />
-                  </template>
-                  <span :class="{ 'text-[var(--color-warning)]': row.agent_ids.length === 0 }">
-                    {{
-                      row.agent_ids.length === 0
-                        ? t('agents.rag.agentsNone')
-                        : t('agents.rag.agentsCount', { count: row.agent_ids.length })
-                    }}
-                  </span>
-                </SButton>
-              </template>
-
-              <template #actions="{ row }">
-                <SButton
-                  variant="ghost"
-                  icon-only
-                  size="sm"
-                  @click="confirmDeleteDoc(row)"
-                >
-                  <TrashIcon class="w-4 h-4 text-[var(--color-danger)]" />
-                </SButton>
-              </template>
-
-              <template #empty>
-                <SEmptyState
-                  :icon="DocumentIcon"
-                  :title="t('agents.rag.emptyTitle')"
-                  :text="t('agents.rag.emptyDescription')"
-                />
-              </template>
-            </DocsTable>
-
-            <div
-              v-if="showProgress"
-              class="mt-4"
-            >
-              <SProgressBar
-                :value="progressValue"
-                :indeterminate="progress.state === 'indexing' || (progress.state === 'ingesting' && progress.documentsTotal === 0)"
-                variant="info"
-              />
-              <p class="text-sm text-[var(--color-muted)] mt-1">
-                {{ progressText }}
-              </p>
-            </div>
-          </SCard>
-        </div>
-      </div>
-
-      <!-- Edit a document's per-agent allowlist -->
-      <SModal
-        :open="editDoc !== null"
-        :title="t('agents.rag.agentsModalTitle')"
-        size="md"
-        @close="editDoc = null"
-      >
-        <p class="text-sm text-[var(--color-muted)] mb-3">
-          {{ t('agents.rag.visibleToAgentsHint') }}
-        </p>
-        <p
-          v-if="boundAgents.length === 0"
-          class="text-sm text-[var(--color-muted)]"
-        >
-          {{ t('agents.rag.noBoundAgents') }}
-        </p>
-        <div
-          v-else
-          class="flex flex-col gap-1"
-        >
-          <SCheckbox
-            v-for="agent in boundAgents"
-            :key="agent.id"
-            :model-value="editAgentIds.includes(agent.id)"
-            @update:model-value="toggleEditAgent(agent.id, $event)"
-          >
-            {{ agent.name }}
-          </SCheckbox>
-        </div>
-
-        <template #footer>
-          <div class="flex justify-end gap-3">
-            <SButton
-              variant="secondary"
-              @click="editDoc = null"
-            >
-              {{ t('agents.ragList.cancel') }}
-            </SButton>
-            <SButton
-              variant="primary"
-              :loading="setAgentsMutation.isPending.value"
-              @click="setAgentsMutation.mutate()"
-            >
-              {{ t('agents.detail.save') }}
-            </SButton>
-          </div>
-        </template>
-      </SModal>
+        :bound-agents="boundAgents"
+        :docs="docs"
+        :edit-agent-ids="editAgentIds"
+        :edit-doc="editDoc"
+        :loading="docsQuery.isLoading.value"
+        :progress="progress"
+        :saving-agents="setAgentsMutation.isPending.value"
+        :upload-agent-ids="uploadAgentIds"
+        :uploading="uploading"
+        @close-editor="editDoc = null"
+        @delete-document="confirmDeleteDoc"
+        @files="onFiles"
+        @open-editor="openAgentsEditor"
+        @save-agents="setAgentsMutation.mutate()"
+        @toggle-edit-agent="toggleEditAgent"
+        @toggle-upload-agent="toggleUploadAgent"
+      />
     </template>
   </main>
 </template>

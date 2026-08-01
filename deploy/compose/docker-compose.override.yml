@@ -30,6 +30,24 @@ services:
       - ../../backend:/app
       - /var/run/docker.sock:/var/run/docker.sock
 
+  knowledge-scan-worker:
+    container_name: smap_knowledge_scan_worker
+    build:
+      target: dev
+    environment:
+      SMAP_APP_ENV: dev
+    volumes:
+      - ../../backend:/app
+
+  knowledge-ingest-worker:
+    container_name: smap_knowledge_ingest_worker
+    build:
+      target: dev
+    environment:
+      SMAP_APP_ENV: dev
+    volumes:
+      - ../../backend:/app
+
   minio:
     ports:
       - "29000:9000"
