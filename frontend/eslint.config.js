@@ -24,10 +24,16 @@ const SLICE_DEPS = {
   agents:        ['skills', 'prompt-studio', 'keys', 'tenancy', 'identity'],
   'agent-groups': ['agents', 'keys', 'tenancy', 'identity'],
   // activities renders inside the chatroom via a plugin host but must never
-  // import conversation back (Q-3: the dependency is one-way). shared only.
-  activities:    [],
-  conversation:  ['activities', 'agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
-  workflow:      ['conversation', 'agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
+  // import conversation back (Q-3: the dependency is one-way). It does depend
+  // downward on agents (agent pickers in activity-type forms) and tenancy
+  // (project-role gating).
+  activities:    ['agents', 'tenancy'],
+  // conversation sits ABOVE workflow: the chatroom hosts workflow UI
+  // (ApprovalCard, DlqViewer) and calls its approval/wakeup api. workflow must
+  // NOT import conversation back — it wraps the read-only workspace/chatroom
+  // lookups it needs in its own api/ instead.
+  conversation:  ['workflow', 'activities', 'agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
+  workflow:      ['agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
   admin:         ['prompt-studio', 'skills'],
   notifications: ['identity'],
   'prompt-studio': ['keys'],
@@ -117,6 +123,15 @@ export default [
       },
     },
     settings: {
+      // Without a TS-aware resolver, `@slices/*` / `@shared/*` aliases are
+      // unresolvable and eslint-plugin-boundaries silently treats every aliased
+      // import as external — making gate #1 blind to alias-based cross-slice
+      // imports. Do not remove.
+      'import/resolver': {
+        typescript: {
+          project: ['tsconfig.app.json'],
+        },
+      },
       'boundaries/elements': [
         { type: 'app', pattern: ['src/app/**'] },
         {
@@ -217,6 +232,43 @@ export default [
       }],
     },
   })),
+
+  // ---- Gate #7: Store isolation — stores hold client state only ----
+  // Pinia stores must not call the API layer directly: server state belongs to
+  // queries/ (TanStack Query); stores subscribe to queries or accept values
+  // from views. Blocks both same-slice relative imports and cross-slice paths.
+  {
+    files: ['src/slices/*/stores/**/*.ts'],
+    rules: {
+      // Merged with the gate #2 patterns because this override REPLACES the
+      // per-slice no-restricted-imports config for store files.
+      'no-restricted-imports': ['error', {
+        patterns: [
+          ...buildNoRestrictedImports(),
+          {
+            group: ['**/api', '**/api/*', '@shared/api-client', '@shared/api-client/*'],
+            message: 'Stores hold client state only — server state goes through queries/ (gate #7).',
+          },
+        ],
+      }],
+    },
+  },
+
+  // Gate #7 allowlist: the session store OWNS the auth lifecycle (login,
+  // logout, silent refresh, hydrate-at-boot) which must run outside component
+  // and query context (route guards, axios interceptors) — so it calls
+  // authApi directly. It is the single sanctioned store→api edge; do not add
+  // files here without the same justification.
+  {
+    files: ['src/slices/identity/stores/session.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: buildNoRestrictedImports().filter(
+          (p) => !p.message.includes('@slices/identity/'),
+        ),
+      }],
+    },
+  },
 
   // Transport + slice api/ may use axios, WebSocket, fetch
   {

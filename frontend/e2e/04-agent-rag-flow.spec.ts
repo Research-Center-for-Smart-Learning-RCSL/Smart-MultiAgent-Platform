@@ -87,9 +87,16 @@ test.describe('Create Agent → attach RAG → ingest doc → grounded answer', 
     await expect(ragSelect).toBeVisible({ timeout: 10_000 })
 
     // Option 0 is agents.form.noRagConfig (value=""), so any option beyond it is
-    // a real config.
+    // a real config. The options land when the configs query resolves — poll
+    // instead of sampling once, or a slow query turns this into a silent skip.
     const options = ragSelect.locator('option:not([value=""])')
-    test.skip((await options.count()) === 0, 'needs at least one RAG config')
+    let hasConfig = true
+    try {
+      await expect.poll(() => options.count(), { timeout: 8_000 }).toBeGreaterThan(0)
+    } catch {
+      hasConfig = false
+    }
+    test.skip(!hasConfig, 'needs at least one RAG config')
     await ragSelect.selectOption({ index: 1 })
 
     await page.locator('.s-page-header').getByRole('button', { name: 'Save Changes' }).click()
@@ -108,9 +115,16 @@ test.describe('Create Agent → attach RAG → ingest doc → grounded answer', 
     await expect(table).toBeVisible({ timeout: 10_000 })
 
     // RagConfigListView renders the name cell as a plain <span>, not a link —
-    // navigation to a config is the STable row click.
+    // navigation to a config is the STable row click. Rows land when the query
+    // resolves — poll rather than sampling the count once.
     const firstRow = table.locator(DATA_ROW).first()
-    test.skip((await table.locator(DATA_ROW).count()) === 0, 'no RAG configs')
+    let hasRows = true
+    try {
+      await firstRow.waitFor({ state: 'visible', timeout: 8_000 })
+    } catch {
+      hasRows = false
+    }
+    test.skip(!hasRows, 'no RAG configs')
     await firstRow.click()
     await expect(page).toHaveURL(/rag-configs\//)
   })

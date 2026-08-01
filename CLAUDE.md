@@ -15,7 +15,8 @@ backend/          Python 3.12 — FastAPI + Arq workers + Alembic migrations
                   text_extraction
   services/       Standalone microservices (egress_proxy, mcp_supervisor)
   smap/           CLI tools (bootstrap, maintenance, rotation)
-  tests/e2e/      Backend end-to-end tests
+  tests/e2e/      Backend end-to-end tier (currently empty; e2e coverage lives in
+                  frontend/e2e against the full compose stack, plus tests/wiring)
 frontend/         Vue 3.5 + Tailwind v4 + TypeScript 5.6
   src/app/        Router, layouts, App.vue
   src/slices/     Feature slices (activities, admin, agent-groups, agents, conversation,

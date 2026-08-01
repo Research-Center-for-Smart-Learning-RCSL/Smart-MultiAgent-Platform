@@ -55,8 +55,16 @@ test.describe('Export + attachments: download + expired state (M.3/M.5)', () => 
     // .attachment-image__fallback button) for an active image, a
     // .attachment-link button for any other active file, or a .attachment-gone
     // label for a quarantined/expired one.
+    // Messages stream in after the chatroom socket/query settles — wait for an
+    // attachment item rather than sampling the count at page load.
     const items = page.locator('.messages .bubble__attachments > li')
-    test.skip((await items.count()) === 0, 'no messages with attachments')
+    let hasAttachments = true
+    try {
+      await items.first().waitFor({ state: 'visible', timeout: 10_000 })
+    } catch {
+      hasAttachments = false
+    }
+    test.skip(!hasAttachments, 'no messages with attachments')
     await expect(
       items
         .first()
