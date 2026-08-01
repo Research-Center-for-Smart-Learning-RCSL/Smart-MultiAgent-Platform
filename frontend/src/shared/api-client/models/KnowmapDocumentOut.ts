@@ -6,6 +6,7 @@ import type { DocumentStatus } from './DocumentStatus';
 import type { ScanStatus } from './ScanStatus';
 export type KnowmapDocumentOut = {
     agent_ids: Array<string>;
+    failure_code: (string | null);
     filename: string;
     id: string;
     knowmap_config_id: string;

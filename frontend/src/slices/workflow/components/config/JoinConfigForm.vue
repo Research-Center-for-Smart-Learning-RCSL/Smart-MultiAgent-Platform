@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import { SFormField, SInput, SSelect } from '@shared/ui'
+import { SAlert, SFormField, SInput, SSelect } from '@shared/ui'
 
 const { t } = useI18n()
 
@@ -28,6 +28,16 @@ const joinModeOptions = computed(() =>
 
 <template>
   <div class="space-y-4">
+    <!-- The join fan-in never times out on its own (F-36); the timeout port and
+         edges into it stay valid for stored definitions, but this field is gone
+         because nothing reads it. -->
+    <SAlert
+      variant="warning"
+      :title="t('workflow.config.joinTimeoutNotImplementedTitle')"
+    >
+      {{ t('workflow.config.joinTimeoutNotImplementedBody') }}
+    </SAlert>
+
     <!-- Mode -->
     <SFormField
       :label="t('workflow.config.mode')"
@@ -57,21 +67,6 @@ const joinModeOptions = computed(() =>
         min="1"
         max="50"
         @input="update('count', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      />
-    </SFormField>
-
-    <!-- Timeout -->
-    <SFormField
-      :label="t('workflow.config.timeoutSeconds')"
-      name="join-timeout"
-    >
-      <SInput
-        id="join-timeout"
-        :model-value="(local.timeout_seconds as number) ?? 600"
-        type="number"
-        min="1"
-        max="86400"
-        @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       />
     </SFormField>
   </div>

@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 
     from redis.asyncio import Redis
 
+    from shared_kernel.realtime.distributed_lock import LockHandle
+
 DEFAULT_TURN_TTL_S = DEFAULT_LOCK_TTL_S
 
 
@@ -35,11 +37,14 @@ async def turn_lock(
     ttl_s: int = DEFAULT_TURN_TTL_S,
     redis: Redis | None = None,
     heartbeat_interval_s: float | None = None,
-) -> AsyncIterator[bool]:
-    """Async context manager yielding True if the lock was acquired, else False.
+) -> AsyncIterator[LockHandle]:
+    """Async context manager yielding a handle, truthy if the lock was acquired.
 
     Thin wrapper that builds the domain-specific key and delegates to the
-    generic ``distributed_lock``.
+    generic ``distributed_lock``. The handle's ``held`` is what lets a turn stop
+    at its next round boundary rather than run beside a second holder: the
+    scoped `wakeup_agent` job timeout deliberately outlives this TTL, so a body
+    that outlives its lock is a supported state and has to be detectable.
     """
     key = turn_lock_key(agent_id, chatroom_id)
     async with distributed_lock(

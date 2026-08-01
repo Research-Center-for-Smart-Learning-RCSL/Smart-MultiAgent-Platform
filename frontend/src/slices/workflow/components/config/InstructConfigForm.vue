@@ -6,12 +6,13 @@ import { SCharCount, SCheckbox, SFormField, SInput, SSelect, STextarea } from '@
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
+import type { ProjectAgent } from '../../utils/projectAgents'
 
 const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: Record<string, unknown>
-  agents: Array<{ id: string; name: string }>
+  agents: ProjectAgent[]
   chatrooms: Array<{ id: string; name: string }>
   allNodeIds: string[]
 }>()
@@ -22,7 +23,18 @@ const emit = defineEmits<{
 
 const { local, update } = useConfigModel(props, emit)
 
-const agentOptions = computed(() => [
+// The runtime gate lives in InstructService.issue; this is an advisory cue
+// only (spec §7.4) — an issuer already saved without can_instruct must stay
+// visible and selectable so the author can see what is wrong.
+const issuerAgentOptions = computed(() => [
+  { value: '', label: t('workflow.config.none') },
+  ...props.agents.map((agent) => ({
+    value: agent.id,
+    label: agent.canInstruct ? agent.name : `${agent.name} ${t('workflow.config.agentMissingCanInstruct')}`,
+  })),
+])
+
+const targetAgentOptions = computed(() => [
   { value: '', label: t('workflow.config.none') },
   ...props.agents.map((agent) => ({ value: agent.id, label: agent.name })),
 ])
@@ -38,7 +50,7 @@ const agentOptions = computed(() => [
       <SSelect
         id="instruct-issuer-agent"
         :model-value="(local.issuer_agent_id as string) ?? ''"
-        :options="agentOptions"
+        :options="issuerAgentOptions"
         @update:model-value="update('issuer_agent_id', $event)"
       />
     </SFormField>
@@ -51,7 +63,7 @@ const agentOptions = computed(() => [
       <SSelect
         id="instruct-target-agent"
         :model-value="(local.target_agent_id as string) ?? ''"
-        :options="agentOptions"
+        :options="targetAgentOptions"
         @update:model-value="update('target_agent_id', $event)"
       />
     </SFormField>

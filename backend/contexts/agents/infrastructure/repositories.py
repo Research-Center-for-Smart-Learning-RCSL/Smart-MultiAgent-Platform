@@ -234,7 +234,8 @@ class AgentRepository:
                     t.agents.c.deleted_at.is_(None),
                 )
             )
-            .order_by(t.agents.c.created_at.desc())
+            # Trailing id keeps the order total under LIMIT/OFFSET (V-6).
+            .order_by(t.agents.c.created_at.desc(), t.agents.c.id.desc())
             .offset(offset)
         )
         if limit is not None:

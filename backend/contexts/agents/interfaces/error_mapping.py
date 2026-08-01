@@ -124,6 +124,11 @@ _MAP: ErrorMap = {
         413,
         "Merged agent config exceeds the size limit for a config column",
     ),
+    errors.WorkflowCapabilitiesInvalid: (
+        "agents/invalid-workflow-capabilities",
+        422,
+        "Merged workflow capabilities are inconsistent",
+    ),
 }
 
 

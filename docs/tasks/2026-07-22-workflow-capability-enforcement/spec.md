@@ -1,8 +1,8 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-22
-requirements: [R15.18, R15.20, R15.22]
+requirements: [R15.10a, R15.18, R15.20, R15.22]
 depends_on: []
 ---
 
@@ -147,7 +147,7 @@ Two concrete divergences from the spec, both persisted:
 | Q-5 | Blocking lint error, or advisory warning? | **Advisory warning, for all three flags.** | Two reasons. (i) A blocking rule makes capability *revocation* lock authors out of unrelated edits to every workflow referencing the agent — `workflow_service.py:135-140` (create) and `:179-184` (patch) share one validator and `:185-189` raises on any error, so the edit that removes the offending node is blocked along with everything else. This is the same lockout argument as `subagent-spawn-fail-fast` §3 Q-5, and it applies with more force here because a capability can be withdrawn at any time. (ii) For instruct and approval the runtime gate is the real enforcement, so the linter is defence in depth, not the boundary. `validate_definition` computes `valid` from errors alone (`linter.py:824-829`), so a warning is non-blocking on both paths with no create/patch asymmetry. |
 | Q-6 | A gate lists five approvers; two lack `can_approve`. Drop them, or reject the gate? | **Reject the whole gate.** | Dropping them silently changes the tally denominator: `majority` is "&gt;50 % of listed approvers" (`[R15.12]`, `REQUIREMENTS.md:773`) and `consensus` requires all of them (`[R15.13]`). Removing approvers would quietly convert a 3-of-5 gate into a 2-of-3 gate — a changed decision rule, not a changed participant list. Rejecting is deterministic and routes to the node's existing `failure` port via `approval_gate.py:112-118`. |
 | Q-7 | Where does the check live — executor or service? | **Service** (`InstructService.issue`, `ApprovalService.create_gate`). | Same constraint the a2a dossier fixes in its Q-3: an executor-supplied authorization input is self-authorization. The service must derive the fact from the DB. It is also the only placement that covers a future agent-facing tool: `OrchestrationFacade.issue_instruct` (`interfaces/facade.py:241-264`) and `cast_approval_vote` (`:199-214`) are public surface. |
-| Q-8 | **Every existing agent has `workflow_capabilities: {}`. Enforcing on deploy breaks every currently-working approval gate. What is the migration position?** | **OPEN — user decision required. Recommended: (i) derived, narrow backfill.** | Three options, detailed in §7.5. (i) grant `can_instruct` / `can_approve` only to agents actually named in that role by a saved, non-deleted workflow definition — preserves today's effective behaviour exactly, widens nothing an author had not already wired, and mirrors the derived insert-only backfill precedent in `2026-07-22-egress-allowlist-provisioning`. (ii) blanket-grant every agent — rejected, widest possible grant. (iii) no backfill: operators grant manually — fails **closed** and is the most honest, but breaks running approval workflows at deploy with no warning. Because (iii) is safe-but-disruptive and (i) is a security-relevant automatic grant, this is the user's call, not the implementer's. |
+| Q-8 | **Every existing agent has `workflow_capabilities: {}`. Enforcing on deploy breaks every currently-working approval gate. What is the migration position?** | **Decided (2026-07-31): (i) derived, narrow backfill.** | Three options, detailed in §7.5. (i) grant `can_instruct` / `can_approve` only to agents actually named in that role by a saved, non-deleted workflow definition — preserves today's effective behaviour exactly, widens nothing an author had not already wired, and mirrors the derived insert-only backfill precedent in `2026-07-22-egress-allowlist-provisioning`. (ii) blanket-grant every agent — rejected, widest possible grant. (iii) no backfill: operators grant manually — fails **closed** and is the most honest, but breaks running approval workflows at deploy with no warning. User confirmed (i) at spec approval. |
 | Q-9 | Does the persisted `0` get repaired, or only prevented? | **Both.** | See §7.6. Prevention without repair leaves rows that a newly added `1..20` validator rejects on the *next* unrelated PATCH, converting a dormant bad value into a user-visible 422 on an unrelated edit. |
 
 ## 4. Reproduction
@@ -479,31 +479,31 @@ run in a real environment.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: T-1 (§8) fails against current code and passes after the fix.
-- [ ] AC-2: an approval gate naming any approver — leader included — without `can_approve` is
+- [x] AC-1: T-1 (§8) fails against current code and passes after the fix.
+- [x] AC-2: an approval gate naming any approver — leader included — without `can_approve` is
       rejected before the gate row is inserted and before any `drive_approver_turn` job is
       enqueued, so no provider key is spent.
-- [ ] AC-3: a partially-ineligible approver list rejects the whole gate; no gate is ever created
+- [x] AC-3: a partially-ineligible approver list rejects the whole gate; no gate is ever created
       with a silently reduced approver set (Q-6).
-- [ ] AC-4: an instruct whose issuer lacks `can_instruct` is denied inside `InstructService.issue`
+- [x] AC-4: an instruct whose issuer lacks `can_instruct` is denied inside `InstructService.issue`
       before any `instructions` row is written, before loop detection, and before `a2a.send`.
-- [ ] AC-5: both denials emit an audit row (`approval.forbidden` / `instruct.forbidden`) and
+- [x] AC-5: both denials emit an audit row (`approval.forbidden` / `instruct.forbidden`) and
       surface on the node's `failure` port with an error string naming the capability.
-- [ ] AC-6: a missing or soft-deleted agent in any of these roles is denied (fail-closed), pinned
+- [x] AC-6: a missing or soft-deleted agent in any of these roles is denied (fail-closed), pinned
       by T-4.
-- [ ] AC-7: a definition naming an incapable agent produces a linter **warning**, `valid` stays
+- [x] AC-7: a definition naming an incapable agent produces a linter **warning**, `valid` stays
       `True`, and the definition still saves — including the edit that removes the offending node.
-- [ ] AC-8: the workflow editor marks ineligible agents in the instruct, approval and
+- [x] AC-8: the workflow editor marks ineligible agents in the instruct, approval and
       subagent-spawn pickers without removing them, in both locales, with no hardcoded strings.
-- [ ] AC-9: `max_alive_subagents` is validated `1..20` at the API and required when
+- [x] AC-9: `max_alive_subagents` is validated `1..20` at the API and required when
       `can_create_subagent` is true; persisted out-of-range values are repaired to 3; the frontend
       default is 3, not 5.
-- [ ] AC-10: **no runtime `can_create_subagent` gate is added**, and the reason is recorded in
+- [x] AC-10: **no runtime `can_create_subagent` gate is added**, and the reason is recorded in
       code where a future implementer will find it — at the sub-agent spawn seam, pointing at the
       feature dossier.
-- [ ] AC-11: Q-8 is answered by the user and the chosen migration option is implemented and
+- [x] AC-11: Q-8 is answered by the user and the chosen migration option is implemented and
       recorded in §12. Implementation must not proceed on A without it.
-- [ ] AC-12: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`;
+- [x] AC-12: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`;
       `pnpm test`, `pnpm lint`, `pnpm typecheck` pass in `frontend/`.
 
 ## 11. SRS Delta
@@ -535,7 +535,47 @@ as FU-5.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — `ApprovalService.create_gate`'s architecture drifted between spec-writing and
+  implementation.** `F-18` (a separate, already-landed fix) split gate creation from its
+  post-commit effects: `create_gate` now only inserts the row and enqueues
+  `approval_gate_announce`; `_notify_and_arm` (timeout arm, approver notify, `drive_approver_turn`
+  enqueue) moved to a separate `announce_gate` method invoked by that post-commit job, not called
+  synchronously from `create_gate` at all. T-1's literal assertion ("`_notify_and_arm` is never
+  awaited") no longer applies to `create_gate` directly — the capability check still runs in the
+  same place §7.1 specifies (before the row insert), so AC-2's guarantee holds exactly as written;
+  only the test's specific mock assertions changed, to `approvals.insert.assert_not_awaited()` and
+  `shared_kernel.queue.enqueue` (the `approval_gate_announce` job) `.assert_not_awaited()` — an
+  equivalent no-spend proof, since without that enqueue `announce_gate`/`_notify_and_arm` never
+  run. Caught during freshness re-verification (Step 2) and confirmed non-material before
+  implementing.
+- **D-2 — one regression beyond the Regression Test Plan's named tests.** The full backend suite
+  (not scoped to this dossier's own tests) surfaced `test_approval_gate_fixes.py::
+  test_create_gate_publishes_nothing_before_commit` and `::test_create_gate_fails_when_announce_enqueue_fails`
+  failing with `AttributeError` — their `_bare_service` helper constructs `ApprovalService` via
+  `__new__` (bypassing `__init__`) and never set `_agents`, so the new capability-check loop had
+  no facade to call. Fixed by giving that helper a fake `AgentsFacade` granting every id both
+  capabilities (own commit `4788408`), since these two tests pin the F-18 post-commit-effect
+  deferral, not capability enforcement.
+- **D-3 — three quality-audit findings fixed rather than deferred.** `check-quality`'s Warning
+  tier flagged `agent_has_capability`'s `capability: str` param as un-narrowed (a typo'd name
+  would silently always resolve `False`) and `AgentDetailView.vue`'s new `maxAliveSubagentsModel`
+  as duplicating `nullableNumberFromText`'s parse body. Both were small, contained fixes (a
+  `Literal["can_instruct", "can_approve", "can_create_subagent"]` type alias; a shared
+  `parseNumberInput` helper distinguishing empty/number/invalid) applied in commit `5da3abd`
+  rather than deferred — see §13 FU-8..FU-11 for the findings deferred instead (the OCP/SRP-tier
+  ones, which would have widened the diff's blast radius for a hypothetical future capability
+  rather than fixing a present defect).
+- **D-4 — no live browser/E2E behavioral verification.** The dev stack's Vault runs in dev mode
+  (memory-backed) and had lost its transit keys/KV secrets on a container restart mid-task,
+  requiring a multi-step re-bootstrap (`vault-init`, per-secret `vault kv put` calls) documented
+  in the `frontend:verify` skill; the stack is also shared with a concurrent session's in-progress
+  work. Given the shared-environment risk and that the two user-visible changes (a picker label
+  suffix; a default-value change) are both covered by Vitest component tests that mount the real
+  Vue components and assert on actual rendered DOM/emitted-payload state (not mocked render
+  output — see `AgentDetailView.test.ts`'s new tests, which find the real input by its
+  `SFormField`-assigned id, set values, click the real save button, and assert the real emitted
+  PATCH body), a live click-through was not performed. Flagged per the `/build` skill's own
+  guidance to say so explicitly rather than claim a check that didn't happen.
 
 ## 13. Follow-ups
 
@@ -569,4 +609,26 @@ Appended by /build.
   nothing about shape, which is what let both `{}` and `{"max_alive_subagents": 0}` through. Every
   other `BoundedConfig` field on the agent surface carries the same exposure and is worth a sweep
   independent of these bugs.
+- **FU-8 — `linter.py`'s `advisory_warnings` is an 8-check monolith.** Every blocking rule
+  (`rule_01`..`rule_17`) gets its own top-level function aggregated by `validate_definition`;
+  `advisory_warnings` instead holds W1-W8 inline in one ~150-line function with a sequential
+  per-node-type branch chain (this dossier added W8, following the file's own established
+  convention rather than introducing a new one). Split each `Wn` into its own function mirroring
+  `rule_XX`, aggregated the same way (check-quality, dimension 5).
+- **FU-9 — six parallel `frozenset[str]` reference-scoping params.** `validate_definition`,
+  `WorkflowService.create/patch/validate`, and `_linter_valid_ids`'s three call sites in
+  `workflows.py` each carry `valid_agent_ids` / `valid_chatroom_ids` / `subagent_parent_ids` (pre-
+  existing) plus this dossier's `can_instruct_agent_ids` / `can_approve_agent_ids` /
+  `can_create_subagent_agent_ids`. The three new ones are destructured identically at all three
+  API call sites. Bundle the three capability sets into one object (e.g. widen `_LinterValidIds`
+  or a sibling `CapabilityAgentIds`) before a fourth capability repeats the pattern
+  (check-quality, dimensions 6/12-DRY).
+- **FU-10 — `ApprovalService.create_gate`'s capability check is N sequential `get_agent` calls.**
+  One per approver, not a batch fetch — fine today since `approvers` is schema-capped at 20
+  (`workflow.schema.json`), worth a batch `AgentsFacade.get_agents(ids)` if that cap ever grows
+  (check-quality, dimension 10).
+- **FU-11 — two independent "capable `AgentsFacade`" test doubles.** `test_orchestration_services.py`'s
+  `_capable_agent`/`_agents_facade` and `test_approval_gate_fixes.py`'s `_CapableAgent`/
+  `_CapableAgents` reinvent the same fake with different shapes. Consolidate into one shared fake
+  if a third test file needs it (check-quality, dimension 12-DRY).
 </content>

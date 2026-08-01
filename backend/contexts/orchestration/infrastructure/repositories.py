@@ -7,7 +7,7 @@ with domain rules and audit writes.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import sqlalchemy as sa
@@ -647,17 +647,6 @@ class AgentInstanceRepository:
             .all()
         )
         return [_row_to_instance(r) for r in rows]
-
-    async def delete_older_than_days(self, days: int) -> int:
-        cutoff = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-        cutoff = cutoff - timedelta(days=days)
-        result = await self._db.execute(
-            agent_instances.delete().where(
-                agent_instances.c.destroyed_at.isnot(None),
-                agent_instances.c.destroyed_at < cutoff,
-            ),
-        )
-        return result.rowcount
 
 
 def _row_to_instance(row: Any) -> AgentInstance:

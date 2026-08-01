@@ -38,14 +38,19 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Iterable
+from itertools import islice
 from typing import Any, Protocol
 
 from contexts.knowledge.domain.errors import ChunkParamsInvalid
 from contexts.knowledge.domain.models import (
     DEFAULT_FIXED_CHUNK_PARAMS,
     DEFAULT_SEMANTIC_CHUNK_PARAMS,
+    MAX_CHUNK_OUTPUT_BYTES,
     ChunkStrategy,
+    clamp_chunk_params,
+    validate_chunk_params,
 )
+from shared_kernel.text_extraction.parsers import ResourceBudgetError
 
 __all__ = ["chunk_document", "chunk_fixed", "chunk_semantic"]
 
@@ -86,7 +91,11 @@ def _token_len(text: str) -> int:
     character over-estimates vs BPE, which is the safe direction — it yields
     smaller, never larger, chunks.
     """
-    return len(text.split()) + sum(1 for c in text if _is_cjk(c))
+    word_count = sum(1 for _ in re.finditer(r"\S+", text))
+    cjk_count = sum(1 for c in text if _is_cjk(c))
+    if word_count <= 1:
+        return max(len(text), word_count + cjk_count)
+    return word_count + cjk_count
 
 
 def _tokens(text: str) -> list[str]:
@@ -103,28 +112,76 @@ def chunk_fixed(
     *,
     chunk_size_tokens: int,
     chunk_overlap_tokens: int,
+    max_chunks: int = 20_000,
+    max_output_bytes: int = MAX_CHUNK_OUTPUT_BYTES,
 ) -> list[str]:
-    if chunk_size_tokens <= 0:
-        raise ChunkParamsInvalid("chunk_size_tokens must be positive")
-    if chunk_overlap_tokens < 0 or chunk_overlap_tokens >= chunk_size_tokens:
-        raise ChunkParamsInvalid("chunk_overlap_tokens must be in [0, chunk_size)")
+    validate_chunk_params(
+        ChunkStrategy.FIXED,
+        {
+            "chunk_size_tokens": chunk_size_tokens,
+            "chunk_overlap_tokens": chunk_overlap_tokens,
+        },
+    )
 
-    tokens = _tokens(text)
-    if not tokens:
-        return []
     step = chunk_size_tokens - chunk_overlap_tokens
     out: list[str] = []
-    i = 0
-    while i < len(tokens):
-        window = tokens[i : i + chunk_size_tokens]
-        out.append(_detokenise(window))
-        if i + chunk_size_tokens >= len(tokens):
-            break
-        i += step
+    window: list[str] = []
+    fresh_since_emit = 0
+    output_bytes = 0
+    for match in re.finditer(r"\S+", text):
+        window.append(match.group())
+        fresh_since_emit += 1
+        if len(window) < chunk_size_tokens:
+            continue
+        output_bytes = _append_tokens_bounded(
+            out,
+            window,
+            max_chunks=max_chunks,
+            output_bytes=output_bytes,
+            max_output_bytes=max_output_bytes,
+        )
+        fresh_since_emit = 0
+        window = window[step:]
+    if window and (not out or fresh_since_emit):
+        _append_tokens_bounded(
+            out,
+            window,
+            max_chunks=max_chunks,
+            output_bytes=output_bytes,
+            max_output_bytes=max_output_bytes,
+        )
     return out
 
 
-def _segment(text: str, max_tokens: int) -> list[str]:
+def _append_tokens_bounded(
+    out: list[str],
+    tokens: list[str],
+    *,
+    max_chunks: int,
+    output_bytes: int,
+    max_output_bytes: int,
+) -> int:
+    if len(out) >= max_chunks:
+        raise ResourceBudgetError("chunks")
+    value_bytes = sum(len(token.encode("utf-8")) for token in tokens) + max(0, len(tokens) - 1)
+    if output_bytes + value_bytes > max_output_bytes:
+        raise ResourceBudgetError("chunk_output_bytes")
+    out.append(_detokenise(tokens))
+    return output_bytes + value_bytes
+
+
+def _append_bounded(out: list[str], value: str, max_chunks: int) -> None:
+    if len(out) >= max_chunks:
+        raise ResourceBudgetError("chunks")
+    out.append(value)
+
+
+def _segment_unspaced(text: str, max_tokens: int) -> Iterable[str]:
+    for start in range(0, len(text), max_tokens):
+        yield text[start : start + max_tokens]
+
+
+def _segment(text: str, max_tokens: int) -> Iterable[str]:
     """Hard-split a single over-capacity unit into <= max_tokens pieces.
 
     Guards against a delimiter-less blob (CJK without spaces, CSV, minified
@@ -132,34 +189,48 @@ def _segment(text: str, max_tokens: int) -> list[str]:
     on characters.
     """
     if _token_len(text) <= max_tokens:
-        return [text]
-    words = text.split()
-    if len(words) > 1:
-        units, joiner = words, " "
-    else:
-        units, joiner = list(text), ""  # space-less: fall back to characters
-    out: list[str] = []
+        yield text
+        return
+    if re.search(r"\s", text) is None:
+        yield from _segment_unspaced(text, max_tokens)
+        return
+
     cur: list[str] = []
     cur_len = 0
-    for unit in units:
-        unit_len = _token_len(unit) or 1
+    for match in re.finditer(r"\S+", text):
+        unit = match.group()
+        unit_len = 1 + sum(1 for char in unit if _is_cjk(char))
+        if len(unit) > max_tokens or unit_len > max_tokens:
+            if cur:
+                yield " ".join(cur)
+                cur, cur_len = [], 0
+            yield from _segment_unspaced(unit, max_tokens)
+            continue
         if cur and cur_len + unit_len > max_tokens:
-            out.append(joiner.join(cur))
+            yield " ".join(cur)
             cur, cur_len = [], 0
         cur.append(unit)
         cur_len += unit_len
     if cur:
-        out.append(joiner.join(cur))
-    return out
+        yield " ".join(cur)
+
+
+def _iter_sentences(text: str, max_tokens: int) -> Iterable[str]:
+    start = 0
+    for match in _SENTENCE_RE.finditer(text):
+        raw = text[start : match.start()]
+        start = match.end()
+        stripped = raw.strip() if raw else ""
+        if stripped:
+            yield from _segment(stripped, max_tokens)
+    tail = text[start:]
+    stripped = tail.strip()
+    if stripped:
+        yield from _segment(stripped, max_tokens)
 
 
 def _split_sentences(text: str, max_tokens: int) -> list[str]:
-    sentences: list[str] = []
-    for raw in _SENTENCE_RE.split(text):
-        stripped = raw.strip() if raw else ""
-        if stripped:
-            sentences.extend(_segment(stripped, max_tokens))
-    return sentences
+    return list(_iter_sentences(text, max_tokens))
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -184,6 +255,7 @@ async def chunk_semantic(
     embedder: _Embedder,
     max_tokens_per_chunk: int,
     similarity_threshold: float,
+    max_chunks: int = 20_000,
 ) -> list[str]:
     """Similarity-aware semantic chunking.
 
@@ -197,40 +269,35 @@ async def chunk_semantic(
     if not 0.0 < similarity_threshold <= 1.0:
         raise ChunkParamsInvalid("similarity_threshold must be in (0, 1]")
 
-    sentences = _split_sentences(text, max_tokens_per_chunk)
-    if not sentences:
-        return []
-    vectors = await _embed_sentences(embedder, sentences)
-    if len(vectors) != len(sentences):
-        # A short vector list would silently misalign sentences with embeddings
-        # and corrupt every downstream boundary decision — fail instead.
-        raise ChunkParamsInvalid(f"embedder returned {len(vectors)} vectors for {len(sentences)} sentences")
-
     chunks: list[str] = []
     current: list[str] = []
     current_tokens = 0
     centroid: list[float] | None = None
     count = 0
+    sentences = iter(_iter_sentences(text, max_tokens_per_chunk))
 
-    for sentence, vec in zip(sentences, vectors, strict=True):
-        sentence_tokens = _token_len(sentence)
-        over_capacity = current_tokens + sentence_tokens > max_tokens_per_chunk
-        topic_shift = centroid is not None and _cosine(centroid, vec) < similarity_threshold
-        if current and (over_capacity or topic_shift):
-            chunks.append(" ".join(current))
-            current, current_tokens, centroid, count = [], 0, None, 0
+    while batch := list(islice(sentences, _SENTENCE_EMBED_BATCH)):
+        vectors = await embedder.embed_batch(batch)
+        if len(vectors) != len(batch):
+            raise ChunkParamsInvalid(f"embedder returned {len(vectors)} vectors for {len(batch)} sentences")
+        for sentence, vec in zip(batch, vectors, strict=True):
+            sentence_tokens = _token_len(sentence)
+            over_capacity = current_tokens + sentence_tokens > max_tokens_per_chunk
+            topic_shift = centroid is not None and _cosine(centroid, vec) < similarity_threshold
+            if current and (over_capacity or topic_shift):
+                _append_bounded(chunks, " ".join(current), max_chunks)
+                current, current_tokens, centroid, count = [], 0, None, 0
 
-        current.append(sentence)
-        current_tokens += sentence_tokens
-        count += 1
-        # Incremental running-mean centroid of the chunk's sentence vectors.
-        if centroid is None:
-            centroid = list(vec)
-        else:
-            centroid = [c + (v - c) / count for c, v in zip(centroid, vec, strict=True)]
+            current.append(sentence)
+            current_tokens += sentence_tokens
+            count += 1
+            if centroid is None:
+                centroid = list(vec)
+            else:
+                centroid = [c + (v - c) / count for c, v in zip(centroid, vec, strict=True)]
 
     if current:
-        chunks.append(" ".join(current))
+        _append_bounded(chunks, " ".join(current), max_chunks)
     return chunks
 
 
@@ -240,6 +307,7 @@ async def chunk_document(
     strategy: ChunkStrategy,
     params: dict[str, Any],
     embedder: _Embedder,
+    max_chunks: int = 20_000,
 ) -> list[str]:
     """Dispatch to the configured strategy with sane defaults for missing params.
 
@@ -247,15 +315,23 @@ async def chunk_document(
     ``fixed`` (kept in the signature so the ingest path can call uniformly).
     """
     if strategy is ChunkStrategy.FIXED:
-        merged = {**DEFAULT_FIXED_CHUNK_PARAMS, **(params or {})}
+        # Clamped, not validated: `params` comes from a stored config, and configs
+        # predating the current bounds cannot be edited back into range (F-20
+        # freezes chunk_params once documents exist). See clamp_chunk_params.
+        merged = clamp_chunk_params(strategy, {**DEFAULT_FIXED_CHUNK_PARAMS, **(params or {})})
         try:
             size = int(merged["chunk_size_tokens"])
             overlap = int(merged["chunk_overlap_tokens"])
         except (ValueError, TypeError) as exc:
             raise ChunkParamsInvalid(f"invalid fixed chunk params: {exc}") from exc
-        return chunk_fixed(text, chunk_size_tokens=size, chunk_overlap_tokens=overlap)
+        return chunk_fixed(
+            text,
+            chunk_size_tokens=size,
+            chunk_overlap_tokens=overlap,
+            max_chunks=max_chunks,
+        )
     if strategy is ChunkStrategy.SEMANTIC:
-        merged = {**DEFAULT_SEMANTIC_CHUNK_PARAMS, **(params or {})}
+        merged = clamp_chunk_params(strategy, {**DEFAULT_SEMANTIC_CHUNK_PARAMS, **(params or {})})
         try:
             max_tok = int(merged["max_tokens_per_chunk"])
             sim_thresh = float(merged["similarity_threshold"])
@@ -266,5 +342,6 @@ async def chunk_document(
             embedder=embedder,
             max_tokens_per_chunk=max_tok,
             similarity_threshold=sim_thresh,
+            max_chunks=max_chunks,
         )
     raise ChunkParamsInvalid(f"unknown chunk strategy {strategy!r}")
