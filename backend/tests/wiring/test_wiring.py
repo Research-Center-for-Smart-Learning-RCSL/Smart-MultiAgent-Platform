@@ -225,7 +225,11 @@ async def _seed_agent_and_room(
         seed=None,
         a2a_enabled=a2a_enabled,
         wakeup_config=wakeup_config or {},
-        workflow_capabilities={},
+        # Capable by default: this fixture predates workflow-capability enforcement
+        # and is reused as an instruct issuer / approval-gate leader by tests that
+        # have nothing to do with that feature (e.g. the golden-run test's
+        # approval_gate leader). {} would now deny those roles at the service layer.
+        workflow_capabilities={"can_instruct": True, "can_approve": True},
     )
     workspace = await WorkspaceRepository(db).create(project_id=project.id, name=f"ws-{u}")
     room = await ChatroomRepository(db).create(workspace_id=workspace.id, name=f"room-{u}")
@@ -627,7 +631,10 @@ async def _add_agent(env: SimpleNamespace, *, a2a_enabled: bool = True, call_onl
             seed=None,
             a2a_enabled=a2a_enabled,
             wakeup_config=wakeup,
-            workflow_capabilities={},
+            # Capable by default (see _seed_agent_and_room): this agent plays both
+            # issuer and target/approver roles across the section below, and {}
+            # would now deny the issuer role at InstructService.issue.
+            workflow_capabilities={"can_instruct": True, "can_approve": True},
         )
         await db.commit()
         return agent

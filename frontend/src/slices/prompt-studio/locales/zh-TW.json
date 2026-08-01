@@ -82,7 +82,9 @@
       "applyConfirmBody": "這會覆寫編輯器中的系統提示詞。",
       "applyConfirm": "取代",
       "quotaError": "你已達每日助手請求上限。請明天再試。",
-      "turnError": "助手無法完成此請求。"
+      "turnError": "助手無法完成此請求。",
+      "timeoutError": "助手回應逾時。請重新傳送。",
+      "sessionExpired": "此對話已過期。傳送訊息將開始一段新的對話。"
     },
     "picker": {
       "button": "插入範本",

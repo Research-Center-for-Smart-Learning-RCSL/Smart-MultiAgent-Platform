@@ -202,6 +202,7 @@ class MessageService:
         content_md: str,
         metadata: dict[str, Any] | None = None,
         request_id: uuid.UUID | None = None,
+        turn_job_id: str | None = None,
     ) -> Message:
         """Persist an agent's reply (K.2). The turn engine's only write surface.
 
@@ -212,9 +213,17 @@ class MessageService:
         (otherwise the client's refetch races an uncommitted row and the reply is
         invisible). The caller publishes post-commit. Agent messages are
         immutable (R13.22) — there is no edit/delete here.
+
+        ``turn_job_id`` is the idempotency key: the arq job id of the turn that
+        produced this reply, carried in ``metadata`` under a partial unique index
+        (migration 0072). It goes in the message row rather than beside the
+        ``request_id`` on the audit row because that column is unindexed on an
+        append-only table, so a per-turn lookup there would be a seq scan.
         """
         meta = dict(metadata or {})
         meta.setdefault("type", "agent_reply")
+        if turn_job_id is not None:
+            meta["turn_job_id"] = turn_job_id
         msg = await self._messages.create(
             chatroom_id=chatroom_id,
             sender_type=SenderType.AGENT,

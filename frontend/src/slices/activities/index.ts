@@ -33,8 +33,15 @@ export type {
 
 export { activitiesRoutes } from './routes'
 export { activityKeys } from './queries'
-export { getActiveActivation } from './api'
-export type { ActivityActivation, ActivityOutcome, ActivityType, ActivityValidationStatus, ActivationView } from './types'
+export { getActiveActivation, getRoomActivityType } from './api'
+export type {
+  ActivityActivation,
+  ActivityOutcome,
+  ActivityType,
+  ActivityTypePublic,
+  ActivityValidationStatus,
+  ActivationView,
+} from './types'
 
 export function installActivitiesSlice(): void {
   registerLocaleLoaders({

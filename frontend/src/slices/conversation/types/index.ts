@@ -29,6 +29,11 @@ export interface Chatroom {
   // link and holds no org/project role. Lets the UI hide guest-forbidden
   // controls; the server still enforces every action.
   viewer_is_guest?: boolean
+  // R13.21/R13.23 — may this viewer edit and delete other people's messages
+  // here? Serialized by the server because the client cannot derive it: an org
+  // owner moderates without any `project_members` row (R5.03). Absent means
+  // "no", so an older response fails closed.
+  is_moderator?: boolean
 }
 
 export type SenderType = 'user' | 'agent' | 'system'
@@ -141,6 +146,7 @@ export type ChatroomEventType =
   | 'message.deleted'
   | 'agent.thinking'
   | 'agent.token'
+  | 'agent.progress'
   | 'agent.finished'
   | 'presence.joined'
   | 'presence.left'

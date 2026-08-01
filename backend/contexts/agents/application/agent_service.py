@@ -53,6 +53,7 @@ from contexts.agents.domain.errors import (
     KnowmapConfigOutOfProject,
     RagConfigOutOfProject,
     ToolNotAvailable,
+    WorkflowCapabilitiesInvalid,
 )
 from contexts.agents.domain.models import (
     SINGLETON_TOOL_TYPES,
@@ -365,6 +366,22 @@ def _assert_config_within_bounds(value: dict[str, Any], *, field: str) -> None:
         raise AgentConfigTooLarge(f"{field}: {violation}")
 
 
+def _assert_capability_invariants(value: dict[str, Any], *, field: str) -> None:
+    """A spawn-capable agent must carry a bound on its live subagents.
+
+    Applied to the value about to be *stored*, never to the request: this column
+    merges, so neither key is reliably in the patch. `{"can_create_subagent":
+    true}` alone was rejected even when the row already held a bound, and
+    `{"max_alive_subagents": null}` alone was accepted and deleted the bound from
+    a row whose `can_create_subagent` was true — reproducing exactly the state
+    migration 0073 was written to repair.
+    """
+    if value.get("can_create_subagent") is True and value.get("max_alive_subagents") is None:
+        raise WorkflowCapabilitiesInvalid(
+            f"{field}.max_alive_subagents is required when can_create_subagent is true"
+        )
+
+
 def _normalize_wakeup_config(merged: dict[str, Any]) -> dict[str, Any]:
     """Normalize the documented `WakeupConfig` shape within a merged
     `wakeup_config` / `wakeup_authored_snapshot` dict, so a partial PATCH persists
@@ -630,6 +647,10 @@ class AgentService:
         wakeup = _normalize_wakeup_config(
             draft.wakeup_config if draft.wakeup_config is not None else _DEFAULT_WAKEUP_CONFIG
         )
+        # Checked here as well as on the patch path so the invariant belongs to
+        # the stored value, not to one request shape. On create the draft is the
+        # whole config, so this agrees with what the route already rejected.
+        _assert_capability_invariants(draft.workflow_capabilities or {}, field="workflow_capabilities")
         agent = await self._agents.create(
             project_id=project_id,
             name=draft.name.strip(),
@@ -869,6 +890,7 @@ class AgentService:
                 current.workflow_capabilities, draft.workflow_capabilities
             )
             _assert_config_within_bounds(merged_capabilities, field="workflow_capabilities")
+            _assert_capability_invariants(merged_capabilities, field="workflow_capabilities")
             values["workflow_capabilities"] = merged_capabilities
 
         updated = await self._agents.patch(
