@@ -79,7 +79,7 @@ By close:
 | `subagent_spawn` | `success`, `failure` | Reuses G.8; `parent_agent_id` must not itself be a sub-agent (H.5 rule 9). |
 | `wait_for_event` | `default`, `timeout` | Park branch until a matching event (room message, A2A message, timer, variable condition). Releases worker slot; resume via dispatcher XADD. |
 | `parallel` | `default` | Fan-out; all outgoing edges taken concurrently. |
-| `join` | `default`, `timeout` | Fan-in with `strategy ∈ {all, any, count:N}`. |
+| `join` | `default`, `timeout` (not implemented — no code arms a join timeout; see `workflow.schema.md` §2 footnote) | Fan-in with `strategy ∈ {all, any, count:N}`. |
 | `set_variable` | `default` | Evaluate SEL assignments, write to workflow variables. |
 | `end` | — | Terminal. `status: success|failure`, optional `return_variables`. |
 
