@@ -246,7 +246,7 @@ The 12% mix ensures the left-border type color remains clearly visible.
 | `subagent_spawn` | `['success', 'failure']` | Two outcomes |
 | `approval_gate` | `['approved', 'rejected', 'timeout']` | Three outcomes |
 | `condition` | Dynamic from `config.branches[].port` + `config.default_port` | Variable count |
-| `wait_for_event` | `['default', 'timeout']` | Event received or timed out |
+| `wait_for_event` | `['default', 'timeout']` | Event received or timed out; for `event_type: timer` the `timeout` port is **not reachable** — a timer resumes at `default` after `delay_seconds` |
 | `join` | `['default', 'timeout']` | All joined; `timeout` is **not implemented** (no code arms it) — kept for stored-definition compatibility only |
 | `parallel` | `['default']` | Single fan-out (edges connect to multiple targets) |
 | `set_variable` | `['default']` | Single output |
