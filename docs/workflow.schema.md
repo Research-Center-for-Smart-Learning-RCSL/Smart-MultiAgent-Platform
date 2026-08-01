@@ -26,7 +26,7 @@ Reference: `REQUIREMENTS.md` §14 "Workflow Engine" and §15 "Wake-up, Approval,
 | `subagent_spawn` | `success`, `failure` | Create child agent(s) under a parent. Max recursion depth = 1 (REQUIREMENTS §15.6). |
 | `wait_for_event` | `default`, `timeout` | Pause the branch until a qualifying event arrives (room message, A2A message, timer, variable condition). |
 | `parallel` | `default` | Fan-out marker. All outgoing edges are taken concurrently. |
-| `join` | `default`, `timeout` | Fan-in marker. Waits for `all` / `any` / `count(N)` incoming branches. |
+| `join` | `default`, `timeout`¹ | Fan-in marker. Waits for `all` / `any` / `count(N)` incoming branches. |
 | `set_variable` | `default` | Compute expressions and assign to workflow variables. |
 | `end` | — | Terminal. Marks the workflow run as `success` or `failure`. |
 
@@ -42,8 +42,16 @@ Reserved ports by node type:
 | `agent_invocation`, `instruct`, `subagent_spawn` | `success`, `failure` |
 | `approval_gate` | `approved`, `rejected`, `timeout` |
 | `condition` | any user-declared `branches[].port` + `default_port` |
-| `wait_for_event`, `join` | `default`, `timeout` |
+| `wait_for_event`, `join`¹ | `default`, `timeout` |
 | `end` | (no outgoing edges) |
+
+¹ `join`'s `timeout` port is **not implemented**: no code arms a timeout for a join, so
+a `timeout` edge out of a join is never taken. The port stays in the schema, the linter's
+allowed-port set, and the canvas so stored definitions that reference it keep saving and
+rendering (see `join_config.timeout_seconds` in `workflow.schema.json`, deprecated for the
+same reason). A join whose fan-in never completes stalls until the run's `idle_max_seconds`
+watchdog force-fails the run — there is no join-level bound.
+See `docs/tasks/2026-07-22-wait-for-event-timer-and-join-ports/spec.md` §3 Q-2.
 
 ---
 

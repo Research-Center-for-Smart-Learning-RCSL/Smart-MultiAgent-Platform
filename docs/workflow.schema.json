@@ -408,7 +408,7 @@
       "properties": {
         "mode":             { "enum": ["all", "any", "count"] },
         "count":            { "type": "integer", "minimum": 1, "maximum": 50 },
-        "timeout_seconds":  { "type": "integer", "minimum": 1, "maximum": 86400, "default": 600 }
+        "timeout_seconds":  { "type": "integer", "minimum": 1, "maximum": 86400, "default": 600, "deprecated": true, "description": "Not implemented -- no code arms a timeout for a join. Kept so definitions saved before this was known still validate; new definitions should not set it. See docs/workflow.schema.md §2 footnote." }
       },
       "allOf": [
         {
