@@ -11,7 +11,6 @@ import { ApiError, RateLimitError } from '@shared/errors'
 import { useConfirmDialog, useRateLimitCountdown } from '@shared/composables'
 import { authApi } from '../api/auth'
 import { useSessionStore } from '../stores/session'
-import { orgsApi } from '@slices/tenancy'
 import { errorAttrs } from '../validation'
 
 const { t } = useI18n()
@@ -61,7 +60,7 @@ async function submit(): Promise<void> {
       serverError.value = t('identity.deleteAccount.blocked')
       submitting.value = false
       try {
-        const orgs = await orgsApi.list()
+        const orgs = await authApi.listMyOrgs()
         const nameMap = new Map(orgs.map(o => [o.id, o.name]))
         blockedOrgNames.value = ids.map(id => nameMap.get(id) ?? id)
       } catch {
