@@ -80,7 +80,15 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
       .locator('main table')
       .getByRole('button', { name: 'Test', exact: true })
       .first()
-    test.skip(!(await testBtn.isVisible().catch(() => false)), 'no MCP binding to test')
+    // The bindings table fills when the tools query resolves (the previous
+    // test created a binding) — wait rather than sampling visibility once.
+    let hasBinding = true
+    try {
+      await testBtn.waitFor({ state: 'visible', timeout: 10_000 })
+    } catch {
+      hasBinding = false
+    }
+    test.skip(!hasBinding, 'no MCP binding to test')
     await testBtn.click()
 
     // There is no inline status element: a successful probe raises a toast, an

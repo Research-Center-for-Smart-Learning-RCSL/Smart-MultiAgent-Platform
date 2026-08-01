@@ -70,7 +70,15 @@ test.describe('Concept Maps overview: filter → create (owner picker) → build
       .locator('main table tbody tr')
       .filter({ has: buildBtn })
       .first()
-    test.skip(!(await row.isVisible().catch(() => false)), 'no buildable Concept Map on the page')
+    // Rows land when the configs query resolves (the previous test created
+    // one) — wait rather than sampling visibility once, or this self-skips.
+    let buildable = true
+    try {
+      await row.waitFor({ state: 'visible', timeout: 10_000 })
+    } catch {
+      buildable = false
+    }
+    test.skip(!buildable, 'no buildable Concept Map on the page')
     await row.getByRole('button', { name: 'Build', exact: true }).click()
 
     // The click optimistically flips this row's pill to "Running"; a real build
