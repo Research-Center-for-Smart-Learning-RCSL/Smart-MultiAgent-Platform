@@ -9,26 +9,42 @@ failed upload stays visible in the list instead of vanishing.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime, timedelta
+from unittest.mock import ANY, DEFAULT, AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from contexts.knowledge.application.ingest_service import IngestInput, IngestService
-from contexts.knowledge.domain.errors import DocumentUnprocessable, IngestFailed
+from contexts.knowledge.domain.errors import (
+    DocumentAllowlistConflict,
+    DocumentUnprocessable,
+    IngestFailed,
+    RagDocumentNotFound,
+)
 from contexts.knowledge.domain.models import (
     ChunkStrategy,
     DocumentStatus,
+    IngestClaim,
     RagConfig,
     RagDocument,
     ScanStatus,
 )
+from contexts.knowledge.domain.reupload import ReuploadAction
 
 _MOD = "contexts.knowledge.application.ingest_service"
 _NOW = datetime(2026, 7, 23, 12, 0, 0)
 _PROJECT_ID = uuid.uuid4()
 _CONFIG_ID = uuid.uuid4()
 _USER_ID = uuid.uuid4()
+
+
+def _claim(attempt: int = 1) -> IngestClaim:
+    return IngestClaim(
+        attempt=attempt,
+        token=uuid.uuid4(),
+        until=datetime.now(UTC) + timedelta(minutes=30),
+    )
 
 
 def _make_config() -> RagConfig:
@@ -51,9 +67,15 @@ def _make_config() -> RagConfig:
     )
 
 
-def _make_document(*, status: DocumentStatus = DocumentStatus.INGESTING, sha: str = "abc123") -> RagDocument:
+def _make_document(
+    *,
+    status: DocumentStatus = DocumentStatus.INGESTING,
+    sha: str = "abc123",
+    agent_ids: tuple[uuid.UUID, ...] = (),
+    doc_id: uuid.UUID | None = None,
+) -> RagDocument:
     return RagDocument(
-        id=uuid.uuid4(),
+        id=doc_id or uuid.uuid4(),
         rag_config_id=_CONFIG_ID,
         filename="test.txt",
         mime="text/plain",
@@ -65,31 +87,48 @@ def _make_document(*, status: DocumentStatus = DocumentStatus.INGESTING, sha: st
         scan_at=None,
         uploaded_by=_USER_ID,
         uploaded_at=_NOW,
+        agent_ids=agent_ids,
     )
 
 
 def _make_service(
     *, config_repo: AsyncMock, doc_repo: AsyncMock, chunk_repo: AsyncMock, blob: AsyncMock | None = None
 ) -> IngestService:
-    svc = IngestService(
+    claim = _claim()
+    if doc_repo.claim_for_reingest._mock_return_value is DEFAULT:
+        doc_repo.claim_for_reingest.return_value = claim
+    if doc_repo.claim_initial._mock_return_value is DEFAULT:
+        doc_repo.claim_initial.return_value = IngestClaim(
+            attempt=0,
+            token=uuid.uuid4(),
+            until=claim.until,
+        )
+    doc_repo.owns_claim.return_value = True
+    return IngestService(
         AsyncMock(),
         blob=blob or AsyncMock(),
         embedder=MagicMock(vector_size=1536),
         qdrant=AsyncMock(),
+        configs=config_repo,
+        documents=doc_repo,
+        chunks=chunk_repo,
+        chunker=AsyncMock(return_value=["chunk"]),
+        scan_required=False,
     )
-    svc._configs = config_repo
-    svc._docs = doc_repo
-    svc._chunks = chunk_repo
-    return svc
 
 
-def _ipt(data: bytes = b"hello world") -> IngestInput:
+def _ipt(
+    data: bytes = b"hello world",
+    *,
+    agent_ids: tuple[uuid.UUID, ...] = (),
+) -> IngestInput:
     return IngestInput(
         rag_config_id=_CONFIG_ID,
         filename="test.txt",
         mime="text/plain",
         data=data,
         uploaded_by=_USER_ID,
+        agent_ids=agent_ids,
     )
 
 
@@ -100,6 +139,327 @@ def _fake_publisher() -> MagicMock:
 
 
 class TestIngestFailureSemantics:
+    async def test_stale_worker_claim_performs_no_indexing_work(self) -> None:
+        doc = _make_document(status=DocumentStatus.INGESTING)
+        doc_repo = AsyncMock()
+        doc_repo.get.return_value = doc
+        doc_repo.owns_claim.return_value = False
+        blob = AsyncMock()
+        svc = _make_service(
+            config_repo=AsyncMock(),
+            doc_repo=doc_repo,
+            chunk_repo=AsyncMock(),
+            blob=blob,
+        )
+        doc_repo.owns_claim.return_value = False
+        stale = _claim(attempt=7)
+
+        returned = await svc.process_document(document_id=doc.id, claim=stale)
+
+        assert returned is doc
+        doc_repo.lock_for_ingest.assert_awaited_once_with(doc.id)
+        doc_repo.owns_claim.assert_awaited_once_with(doc.id, stale)
+        blob.get.assert_not_awaited()
+        svc._qdrant.delete_document.assert_not_awaited()
+
+    async def test_fresh_upload_audit_records_agent_ids(self) -> None:
+        agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        doc = _make_document(agent_ids=(agent_a, agent_b))
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = None
+        doc_repo.create.return_value = doc
+        blob = AsyncMock()
+        blob.put.return_value = doc.minio_path
+        svc = _make_service(
+            config_repo=cfg_repo,
+            doc_repo=doc_repo,
+            chunk_repo=AsyncMock(),
+            blob=blob,
+        )
+        svc._index_document = AsyncMock(return_value=doc)
+
+        with (
+            patch(f"{_MOD}.audit.emit", AsyncMock()) as audit_emit,
+            patch(f"{_MOD}.Publisher", _fake_publisher()),
+            patch(f"{_MOD}.enqueue_rag_scan", AsyncMock()),
+        ):
+            await svc.ingest(
+                ipt=_ipt(agent_ids=(agent_a, agent_b)),
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        uploaded = next(
+            call.args[1]
+            for call in audit_emit.await_args_list
+            if call.args[1].action == "rag.document_uploaded"
+        )
+        assert uploaded.metadata["agent_ids"] == [str(agent_a), str(agent_b)]
+
+    async def test_reupload_of_failed_doc_applies_submitted_allowlist(self) -> None:
+        agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        existing = _make_document(
+            status=DocumentStatus.FAILED,
+            agent_ids=(agent_a,),
+        )
+        refreshed = _make_document(
+            status=DocumentStatus.READY,
+            sha=existing.sha256,
+            agent_ids=(agent_a, agent_b),
+            doc_id=existing.id,
+        )
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = existing
+        doc_repo.set_agents.return_value = refreshed
+        doc_repo.claim_for_reingest.return_value = _claim()
+        chunk_repo = AsyncMock()
+        svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=chunk_repo)
+        svc._index_document = AsyncMock(return_value=refreshed)
+
+        with (
+            patch(f"{_MOD}.emit_reupload_audit", AsyncMock()) as reupload_audit,
+            patch(f"{_MOD}.emit_reupload_agents_set_audit", AsyncMock()) as agents_set_audit,
+            patch(f"{_MOD}.Publisher", _fake_publisher()),
+            patch(f"{_MOD}.enqueue_rag_scan", AsyncMock()),
+        ):
+            returned = await svc.ingest(
+                ipt=_ipt(agent_ids=(agent_a, agent_b)),
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        doc_repo.set_agents.assert_awaited_once_with(
+            document_id=existing.id,
+            agent_ids=(agent_a, agent_b),
+        )
+        assert reupload_audit.await_args.kwargs["outcome"] is ReuploadAction.REINDEX_WITH_OVERWRITE
+        assert reupload_audit.await_args.kwargs["submitted_agent_ids"] == (agent_a, agent_b)
+        assert agents_set_audit.await_args.kwargs["doc"] is refreshed
+        assert returned.agent_ids == (agent_a, agent_b)
+
+    async def test_failed_reupload_losing_claim_coalesces_without_indexing(self) -> None:
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        existing = _make_document(status=DocumentStatus.FAILED)
+        updated = _make_document(
+            status=DocumentStatus.INGESTING,
+            sha=existing.sha256,
+            doc_id=existing.id,
+        )
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = existing
+        doc_repo.set_agents.return_value = updated
+        doc_repo.claim_for_reingest.return_value = None
+        doc_repo.get.return_value = updated
+        svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=AsyncMock())
+        svc._index_document = AsyncMock()
+
+        with (
+            patch(f"{_MOD}.emit_reupload_audit", AsyncMock()),
+            patch(f"{_MOD}.emit_reupload_agents_set_audit", AsyncMock()),
+            patch(f"{_MOD}.enqueue_rag_scan", AsyncMock()) as scan,
+        ):
+            returned = await svc.ingest(
+                ipt=_ipt(),
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        assert returned is updated
+        doc_repo.claim_for_reingest.assert_awaited_once_with(existing.id)
+        doc_repo.get.assert_awaited_once_with(existing.id)
+        svc._index_document.assert_not_awaited()
+        scan.assert_not_awaited()
+
+    async def test_reupload_deleted_before_allowlist_update_is_typed_not_found(self) -> None:
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        existing = _make_document(status=DocumentStatus.FAILED)
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = existing
+        doc_repo.set_agents.return_value = None
+        svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=AsyncMock())
+
+        with (
+            patch(f"{_MOD}.emit_reupload_audit", AsyncMock()),
+            pytest.raises(RagDocumentNotFound, match=str(existing.id)),
+        ):
+            await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
+
+    async def test_reupload_continues_when_realtime_publish_fails(self) -> None:
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        existing = _make_document(status=DocumentStatus.FAILED)
+        updated = _make_document(
+            status=DocumentStatus.INGESTING,
+            sha=existing.sha256,
+            doc_id=existing.id,
+        )
+        ready = _make_document(
+            status=DocumentStatus.READY,
+            sha=existing.sha256,
+            doc_id=existing.id,
+        )
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = existing
+        doc_repo.set_agents.return_value = updated
+        svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=AsyncMock())
+        svc._index_document = AsyncMock(return_value=ready)
+        publisher = MagicMock()
+        publisher.emit = AsyncMock(side_effect=ConnectionError("redis unavailable"))
+
+        with (
+            patch(f"{_MOD}.emit_reupload_audit", AsyncMock()),
+            patch(f"{_MOD}.emit_reupload_agents_set_audit", AsyncMock()),
+            patch(f"{_MOD}.Publisher", MagicMock(return_value=publisher)),
+            patch(f"{_MOD}.enqueue_rag_scan", AsyncMock()),
+        ):
+            returned = await svc.ingest(
+                ipt=_ipt(),
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        assert returned is ready
+        svc._index_document.assert_awaited_once()
+        publisher.emit.assert_awaited_once()
+
+    async def test_live_ingesting_reupload_coalesces_without_indexing(self) -> None:
+        agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        existing = _make_document(
+            status=DocumentStatus.INGESTING,
+            agent_ids=(agent_a,),
+        )
+        updated = _make_document(
+            status=DocumentStatus.INGESTING,
+            sha=existing.sha256,
+            agent_ids=(agent_a, agent_b),
+            doc_id=existing.id,
+        )
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = existing
+        doc_repo.set_agents.return_value = updated
+        svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=AsyncMock())
+        svc._index_document = AsyncMock()
+
+        with (
+            patch(f"{_MOD}.emit_reupload_audit", AsyncMock()),
+            patch(f"{_MOD}.emit_reupload_agents_set_audit", AsyncMock()),
+            patch(f"{_MOD}.enqueue_rag_scan", AsyncMock()) as scan,
+        ):
+            returned = await svc.ingest(
+                ipt=_ipt(agent_ids=(agent_a, agent_b)),
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        assert returned is updated
+        svc._index_document.assert_not_awaited()
+        scan.assert_not_awaited()
+
+    async def test_create_race_applies_allowlist_without_duplicate_indexing(self) -> None:
+        agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        winner = _make_document(
+            status=DocumentStatus.INGESTING,
+            agent_ids=(agent_a,),
+        )
+        updated = _make_document(
+            status=DocumentStatus.INGESTING,
+            sha=winner.sha256,
+            agent_ids=(agent_a, agent_b),
+            doc_id=winner.id,
+        )
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.side_effect = [None, winner]
+        doc_repo.create.side_effect = IntegrityError("insert", {}, Exception("duplicate"))
+        doc_repo.set_agents.return_value = updated
+        blob = AsyncMock()
+        blob.put.return_value = winner.minio_path
+        svc = _make_service(
+            config_repo=cfg_repo,
+            doc_repo=doc_repo,
+            chunk_repo=AsyncMock(),
+            blob=blob,
+        )
+        svc._index_document = AsyncMock()
+
+        with (
+            patch(f"{_MOD}.emit_reupload_audit", AsyncMock()),
+            patch(f"{_MOD}.emit_reupload_agents_set_audit", AsyncMock()),
+        ):
+            returned = await svc.ingest(
+                ipt=_ipt(agent_ids=(agent_a, agent_b)),
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        assert returned is updated
+        doc_repo.set_agents.assert_awaited_once_with(
+            document_id=winner.id,
+            agent_ids=(agent_a, agent_b),
+        )
+        svc._index_document.assert_not_awaited()
+        svc._db.rollback.assert_awaited_once()
+        svc._db.commit.assert_awaited_once()
+
+    async def test_ready_duplicate_with_different_allowlist_conflicts(self) -> None:
+        agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        existing = _make_document(
+            status=DocumentStatus.READY,
+            agent_ids=(agent_a,),
+        )
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = existing
+        svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=AsyncMock())
+
+        with (
+            patch(f"{_MOD}.emit_reupload_audit", AsyncMock()) as reupload_audit,
+            pytest.raises(DocumentAllowlistConflict, match="/api/rag-documents/.+/agents"),
+        ):
+            await svc.ingest(
+                ipt=_ipt(agent_ids=(agent_a, agent_b)),
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        reupload_audit.assert_awaited_once()
+        doc_repo.set_agents.assert_not_awaited()
+        svc._db.commit.assert_awaited_once()
+
+    async def test_ready_duplicate_with_identical_allowlist_is_noop(self) -> None:
+        agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        existing = _make_document(
+            status=DocumentStatus.READY,
+            agent_ids=(agent_a, agent_b),
+        )
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = existing
+        svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=AsyncMock())
+
+        with patch(f"{_MOD}.emit_reupload_audit", AsyncMock()) as reupload_audit:
+            returned = await svc.ingest(
+                ipt=_ipt(agent_ids=(agent_b, agent_a)),
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        assert returned is existing
+        reupload_audit.assert_awaited_once()
+        doc_repo.set_agents.assert_not_awaited()
+        svc._db.commit.assert_awaited_once()
+
     async def test_parse_failure_raises_document_unprocessable(self) -> None:
         cfg = _make_config()
         cfg_repo = AsyncMock()
@@ -113,13 +473,13 @@ class TestIngestFailureSemantics:
         blob.put.return_value = doc.minio_path
         svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=chunk_repo, blob=blob)
 
-        def _unparseable(_: bytes) -> str:
+        def _unparseable(*_args) -> str:
             from shared_kernel.text_extraction.parsers import ParserError
 
             raise ParserError("pdf parse failed: no extractable text layer")
 
         with (
-            patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": _unparseable}, clear=False),
+            patch(f"{_MOD}.parse_path", _unparseable),
             patch(f"{_MOD}.audit.emit", AsyncMock()),
             patch(f"{_MOD}.Publisher", _fake_publisher()),
             patch(f"{_MOD}.enqueue_rag_scan", AsyncMock()),
@@ -128,8 +488,124 @@ class TestIngestFailureSemantics:
             await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
 
         # The row is persisted FAILED, not rolled back to nothing.
-        doc_repo.set_status.assert_awaited_with(document_id=doc.id, status=DocumentStatus.FAILED)
+        doc_repo.finish_claim.assert_awaited_with(
+            document_id=doc.id,
+            claim=ANY,
+            status=DocumentStatus.FAILED,
+            failure_code="document_unprocessable",
+        )
         svc._db.commit.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_scan_dispatch_failure_terminally_fails_owned_rag_claim(self) -> None:
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        doc = _make_document(status=DocumentStatus.INGESTING)
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = None
+        doc_repo.create.return_value = doc
+        blob = AsyncMock()
+        blob.put.return_value = doc.minio_path
+        svc = _make_service(
+            config_repo=cfg_repo,
+            doc_repo=doc_repo,
+            chunk_repo=AsyncMock(),
+            blob=blob,
+        )
+        svc._scan_required = True
+
+        with (
+            patch(f"{_MOD}.audit.emit", AsyncMock()),
+            patch(f"{_MOD}.Publisher", _fake_publisher()),
+            patch(
+                f"{_MOD}.enqueue_rag_scan",
+                AsyncMock(side_effect=ConnectionError("redis unavailable")),
+            ),
+            pytest.raises(IngestFailed, match="scan dispatch"),
+        ):
+            await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
+
+        doc_repo.finish_claim.assert_awaited_once_with(
+            document_id=doc.id,
+            claim=ANY,
+            status=DocumentStatus.FAILED,
+            failure_code="ingest_failed",
+        )
+
+    @pytest.mark.asyncio
+    async def test_scan_required_defers_parser_and_indexing_until_clean(self) -> None:
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        doc = _make_document(status=DocumentStatus.INGESTING)
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = None
+        doc_repo.create.return_value = doc
+        chunk_repo = AsyncMock()
+        blob = AsyncMock()
+        blob.put.return_value = doc.minio_path
+        svc = _make_service(
+            config_repo=cfg_repo,
+            doc_repo=doc_repo,
+            chunk_repo=chunk_repo,
+            blob=blob,
+        )
+        svc._scan_required = True
+        svc._index_document = AsyncMock()
+
+        with (
+            patch(f"{_MOD}.audit.emit", AsyncMock()),
+            patch(f"{_MOD}.Publisher", _fake_publisher()),
+            patch(f"{_MOD}.enqueue_rag_scan", AsyncMock()) as scan,
+        ):
+            returned = await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
+
+        assert returned is doc
+        svc._index_document.assert_not_awaited()
+        scan.assert_awaited_once_with(
+            document_id=doc.id,
+            ingest_attempt=0,
+            claim_token=ANY,
+        )
+
+    async def test_clean_scan_verdict_is_committed_before_indexing(self) -> None:
+        """The CLEAN verdict must survive an indexing failure.
+
+        `_index_document`'s failure handler rolls back before persisting FAILED.
+        An uncommitted `mark_scan(CLEAN)` is discarded by that rollback, leaving
+        the document FAILED with `scan_status` still `pending` -- which the
+        re-ingest guard reads as "never scanned" and refuses to index, so the
+        document can never be recovered.
+        """
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = _make_config()
+        doc = _make_document(status=DocumentStatus.INGESTING)
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = None
+        doc_repo.create.return_value = doc
+        svc = _make_service(
+            config_repo=cfg_repo,
+            doc_repo=doc_repo,
+            chunk_repo=AsyncMock(),
+            blob=AsyncMock(),
+        )
+        svc._scan_required = False
+        svc._index_document = AsyncMock()
+
+        calls: list[str] = []
+        doc_repo.mark_scan.side_effect = lambda **_kw: calls.append("mark_scan")
+        svc._db.commit.side_effect = lambda: calls.append("commit")
+        svc._index_document.side_effect = lambda **_kw: calls.append("index")
+
+        with (
+            patch(f"{_MOD}.audit.emit", AsyncMock()),
+            patch(f"{_MOD}.Publisher", _fake_publisher()),
+        ):
+            await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
+
+        assert "mark_scan" in calls
+        assert "index" in calls
+        # A commit must separate the verdict from the indexing attempt.
+        assert "commit" in calls[calls.index("mark_scan") : calls.index("index")]
 
     async def test_reindex_retry_failure_still_records_reupload_audit(self) -> None:
         # The re-upload audit must be committed before indexing, so a failed retry of
@@ -141,12 +617,13 @@ class TestIngestFailureSemantics:
         existing = _make_document(status=DocumentStatus.FAILED)
         doc_repo = AsyncMock()
         doc_repo.find_by_sha.return_value = existing
+        doc_repo.set_agents.return_value = existing
         chunk_repo = AsyncMock()
         svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=chunk_repo)
 
         with (
-            patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": lambda b: "parsed body"}, clear=False),
-            patch(f"{_MOD}.chunk_document", AsyncMock(side_effect=RuntimeError("boom"))),
+            patch(f"{_MOD}.parse_path", return_value="parsed body"),
+            patch.object(svc, "_chunker", AsyncMock(side_effect=RuntimeError("boom"))),
             patch(f"{_MOD}.emit_reupload_audit", AsyncMock()) as reupload_audit,
             patch(f"{_MOD}.Publisher", _fake_publisher()),
             patch(f"{_MOD}.enqueue_rag_scan", AsyncMock()),
@@ -173,8 +650,8 @@ class TestIngestFailureSemantics:
         svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=chunk_repo, blob=blob)
 
         with (
-            patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": lambda b: "parsed body"}, clear=False),
-            patch(f"{_MOD}.chunk_document", AsyncMock(side_effect=RuntimeError("boom"))),
+            patch(f"{_MOD}.parse_path", return_value="parsed body"),
+            patch.object(svc, "_chunker", AsyncMock(side_effect=RuntimeError("boom"))),
             patch(f"{_MOD}.audit.emit", AsyncMock()),
             patch(f"{_MOD}.Publisher", _fake_publisher()),
             patch(f"{_MOD}.enqueue_rag_scan", AsyncMock()),
@@ -182,5 +659,10 @@ class TestIngestFailureSemantics:
         ):
             await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
 
-        doc_repo.set_status.assert_awaited_with(document_id=doc.id, status=DocumentStatus.FAILED)
+        doc_repo.finish_claim.assert_awaited_with(
+            document_id=doc.id,
+            claim=ANY,
+            status=DocumentStatus.FAILED,
+            failure_code="ingest_failed",
+        )
         svc._db.commit.assert_awaited()

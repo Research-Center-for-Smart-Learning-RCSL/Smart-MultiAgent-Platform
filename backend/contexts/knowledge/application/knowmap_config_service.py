@@ -41,7 +41,11 @@ from contexts.knowledge.domain.errors import (
     KnowmapResetCompensationFailed,
 )
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapConfigDraft, KnowmapDocument
-from contexts.knowledge.domain.models import embed_dimension, normalized_chunk_params
+from contexts.knowledge.domain.models import (
+    embed_dimension,
+    normalized_chunk_params,
+    validate_chunk_params,
+)
 from contexts.knowledge.infrastructure.embedding_pin_repository import EmbeddingPinRepository
 from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapConfigRepository,
@@ -89,6 +93,7 @@ class KnowmapConfigService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> KnowmapConfig:
+        validate_chunk_params(draft.chunk_strategy, draft.chunk_params)
         await self._assert_builder_group_in_project(draft.builder_key_group_id, project_id)
         # The builder group MUST resolve an embedding key: the corpus is chunked
         # and graph entities are embedded into knowmap_{project_id} at build, so a
@@ -234,6 +239,8 @@ class KnowmapConfigService:
         can inform the designer. Empty on any non-colliding change.
         """
         cfg = await self.get(config_id)
+        if "chunk_params" in patch:
+            validate_chunk_params(cfg.chunk_strategy, patch["chunk_params"])
 
         # F-20 (R10.04): chunk params are fixed once the config has any locking
         # document — chunking is a live read at each ingest with no per-document
@@ -422,34 +429,6 @@ class KnowmapConfigService:
             return None
         provider, model, _key_id = resolved
         return provider, model, embed_dimension(provider, model)
-
-    @staticmethod
-    def build_ingest_service(db: AsyncSession, *, embedder: Any) -> Any:
-        """Construct a :class:`KnowmapIngestService` wired to real MinIO.
-
-        No Qdrant client: knowmap ingest never upserts chunk vectors (chunks are
-        the build corpus). The caller owns no external client to close.
-        """
-        from minio import Minio
-
-        from app.config.settings import get_settings
-        from contexts.knowledge.application.knowmap_ingest_service import KnowmapIngestService
-        from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
-
-        settings = get_settings()
-        minio = Minio(
-            settings.minio.endpoint,
-            access_key=settings.minio.root_access_key,
-            secret_key=settings.minio.root_secret_key,
-            secure=settings.minio.use_tls,
-            region=settings.minio.region,
-        )
-        return KnowmapIngestService(
-            db,
-            blob=MinioBlobStore(minio),
-            embedder=embedder,
-            bucket=settings.minio.bucket_knowmap_sources,
-        )
 
     async def teardown_orphan_collection(self, *, project_id: uuid.UUID) -> TeardownOutcome:
         """Drop ``knowmap_{project_id}`` and release the pin, iff configless (F-3/F-11).

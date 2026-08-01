@@ -5,14 +5,14 @@ import { getActivityPlugin } from '../plugins'
 import { InProcessBridge, type HostBridge } from '../sdk/bridge'
 import type { ActivityTeardown, JSONSchema } from '../sdk/types'
 import { useActivityHost } from '../composables/useActivityHost'
-import type { ActivityType } from '../types'
+import type { ActivityTypePublic } from '../types'
 import SchemaForm from './SchemaForm.vue'
 import ActivityOutcomeBadge from './ActivityOutcomeBadge.vue'
 
 const props = withDefaults(
   defineProps<{
     chatroomId: string
-    activityType: ActivityType
+    activityType: ActivityTypePublic
     sessionId?: string | null
     subjectUserId?: string | null
     /** Injectable for tests; production always uses the trusted in-process bridge. */

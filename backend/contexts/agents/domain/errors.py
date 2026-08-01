@@ -187,6 +187,20 @@ class AgentConfigTooLarge(AgentsError):
     code = "agents/config-too-large"
 
 
+class WorkflowCapabilitiesInvalid(AgentsError):
+    """The *merged* `workflow_capabilities` breaks a cross-field rule.
+
+    Sibling of `AgentConfigTooLarge`, and for the same reason: the column
+    merges, so a rule spanning two keys cannot be decided from the request
+    alone. A PATCH naming only `can_create_subagent` has no bound in it but may
+    have one in the row; a PATCH clearing `max_alive_subagents` has no
+    `can_create_subagent` in it but may have one in the row. Judged on the merge
+    or not at all.
+    """
+
+    code = "agents/invalid-workflow-capabilities"
+
+
 class WorkspaceFileNotFound(AgentsError):
     code = "agents/workspace-file-not-found"
 
@@ -217,6 +231,7 @@ __all__ = [
     "SearchQuotaExceeded",
     "FileSearchNeedsKnowledge",
     "ToolNotAvailable",
+    "WorkflowCapabilitiesInvalid",
     "WorkspaceFileNotFound",
     "WorkspaceQuotaExceeded",
 ]

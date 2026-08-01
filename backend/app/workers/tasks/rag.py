@@ -9,18 +9,22 @@ must not embed synchronously inside the final PATCH.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
+import tempfile
 import uuid
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from minio import Minio
 from qdrant_client import AsyncQdrantClient
 
 from app.config.settings import get_settings
+from app.wiring.knowledge_ingest import KnowledgeIngestWiring
 from contexts.keys.infrastructure.adapters import build_router
-from contexts.knowledge.application.ingest_service import IngestService
-from contexts.knowledge.domain.models import DocumentStatus, ScanStatus
+from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, ScanStatus
 from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
 from contexts.knowledge.infrastructure.channels import rag_channel
 from contexts.knowledge.infrastructure.embedders import router_embedder_for
@@ -30,12 +34,21 @@ from contexts.knowledge.infrastructure.repositories import (
     RagDocumentRepository,
 )
 from shared_kernel.db.session import get_sessionmaker
+from shared_kernel.queue import enqueue
+from shared_kernel.queue_names import KNOWLEDGE_INGEST_QUEUE
 from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)
+_SCAN_MAX_TRIES = 3
 
 
-async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
+async def rag_ingest_document(
+    ctx: dict[str, Any],
+    *,
+    document_id: str,
+    ingest_attempt: int | None = None,
+    claim_token: str | None = None,
+) -> str:
     """Index one registered RAG document. Idempotent: re-runs on a document no
     longer in ``ingesting`` state are a no-op (``process_document`` guards)."""
     _ = ctx
@@ -48,9 +61,33 @@ async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
         if doc is None:
             _log.warning("rag_ingest_document: document %s not found", document_id)
             return f"document {document_id} not found"
+        claim = (
+            IngestClaim(
+                attempt=ingest_attempt,
+                token=uuid.UUID(claim_token),
+                until=doc.ingest_claim_until or datetime.max.replace(tzinfo=UTC),
+            )
+            if ingest_attempt is not None and claim_token is not None
+            else None
+        )
+        if (ingest_attempt is None) is not (claim_token is None):
+            _log.warning("rag_ingest_document: incomplete claim for %s", document_id)
+            return "invalid ingest claim"
+        if doc.scan_status is not ScanStatus.CLEAN:
+            return f"scan_{doc.scan_status.value}"
         cfg = await RagConfigRepository(db).get(doc.rag_config_id)
         if cfg is None or cfg.embed_key_id is None:
-            await RagDocumentRepository(db).set_status(document_id=doc_id, status=DocumentStatus.FAILED)
+            if claim is None:
+                await RagDocumentRepository(db).set_status(
+                    document_id=doc_id,
+                    status=DocumentStatus.FAILED,
+                )
+            else:
+                await RagDocumentRepository(db).finish_claim(
+                    document_id=doc_id,
+                    claim=claim,
+                    status=DocumentStatus.FAILED,
+                )
             await db.commit()
             # Emit the terminal event the frontend waits on; without it the docs
             # table sticks on 'ingesting' until a manual reload.
@@ -80,15 +117,14 @@ async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
             url=settings.qdrant.url,
             api_key=settings.qdrant.api_key or None,
         )
-        ingest = IngestService(
-            db,
+        ingest = KnowledgeIngestWiring(db).rag_service(
             blob=MinioBlobStore(minio),
             embedder=embedder,
             qdrant=QdrantStore(qclient),
             bucket=settings.minio.bucket_rag_sources,
         )
         try:
-            result = await ingest.process_document(document_id=doc_id)
+            result = await ingest.process_document(document_id=doc_id, claim=claim)
             await db.commit()
             return f"status={result.status.value} document={document_id}"
         except Exception:
@@ -105,9 +141,17 @@ async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
                 # race): only mark FAILED if it is still mid-flight.
                 current = await RagDocumentRepository(db2).get(doc_id)
                 if current is not None and current.status is not DocumentStatus.READY:
-                    await RagDocumentRepository(db2).set_status(
-                        document_id=doc_id, status=DocumentStatus.FAILED
-                    )
+                    if claim is None:
+                        await RagDocumentRepository(db2).set_status(
+                            document_id=doc_id,
+                            status=DocumentStatus.FAILED,
+                        )
+                    else:
+                        await RagDocumentRepository(db2).finish_claim(
+                            document_id=doc_id,
+                            claim=claim,
+                            status=DocumentStatus.FAILED,
+                        )
                     await db2.commit()
             _log.exception("rag_ingest_document failed for %s", document_id)
             raise
@@ -123,92 +167,189 @@ async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
 rag_ingest_document.max_tries = 3  # type: ignore[attr-defined]
 
 
-async def rag_scan_document(ctx: dict[str, Any], *, document_id: str) -> str:
-    """AV scan for a RAG document (R22.15.07). Mirrors file_scan_requested."""
-    _ = ctx
+async def _enqueue_rag_ingest_after_clean(document_id: uuid.UUID) -> None:
+    sm = get_sessionmaker()
+    async with sm() as db:
+        doc = await RagDocumentRepository(db).get(document_id)
+    if (
+        doc is None
+        or doc.status is not DocumentStatus.INGESTING
+        or doc.scan_status is not ScanStatus.CLEAN
+        or doc.ingest_claim_token is None
+    ):
+        return
+    await enqueue(
+        "rag_ingest_document",
+        document_id=str(document_id),
+        ingest_attempt=doc.ingest_attempt,
+        claim_token=str(doc.ingest_claim_token),
+        _job_id=f"rag-ingest:{document_id}:{doc.ingest_attempt}",
+        _queue_name=KNOWLEDGE_INGEST_QUEUE,
+    )
 
-    if not get_settings().security.file_scan_enabled:
-        doc_id = uuid.UUID(document_id)
-        sm = get_sessionmaker()
-        async with sm() as db, db.begin():
-            from shared_kernel.auth.clients import now
 
-            await RagDocumentRepository(db).mark_scan(
-                document_id=doc_id,
-                scan_status=ScanStatus.CLEAN,
-                scan_at=now(),
+async def _finish_rag_scan_claim(
+    document_id: uuid.UUID,
+    claim: IngestClaim,
+    *,
+    scan_status: ScanStatus,
+    failure_code: str,
+) -> bool:
+    sm = get_sessionmaker()
+    async with sm() as db, db.begin():
+        repo = RagDocumentRepository(db)
+        doc = await repo.get(document_id)
+        updated = await repo.mark_scan_owned(
+            document_id=document_id,
+            claim=claim,
+            scan_status=scan_status,
+            scan_at=datetime.now(UTC),
+            terminal_status=DocumentStatus.FAILED,
+            failure_code=failure_code,
+        )
+    if updated and doc is not None:
+        with contextlib.suppress(Exception):
+            await Publisher(rag_channel(doc.rag_config_id)).emit(
+                "ingestion.failed",
+                {"document_id": str(document_id), "error": failure_code},
             )
-        return "clean"
+    return updated
 
-    from shared_kernel.scanning import ScanError, get_scanner
+
+async def _enqueue_rag_ingest_guarded(
+    ctx: dict[str, Any],
+    document_id: uuid.UUID,
+    claim: IngestClaim,
+) -> None:
+    try:
+        await _enqueue_rag_ingest_after_clean(document_id)
+    except asyncio.CancelledError:
+        await _finish_rag_scan_claim(
+            document_id,
+            claim,
+            scan_status=ScanStatus.CLEAN,
+            failure_code="ingest_failed",
+        )
+        raise
+    except Exception:
+        if int(ctx.get("job_try", 1)) >= _SCAN_MAX_TRIES:
+            await _finish_rag_scan_claim(
+                document_id,
+                claim,
+                scan_status=ScanStatus.CLEAN,
+                failure_code="ingest_failed",
+            )
+        raise
+
+
+async def rag_scan_document(
+    ctx: dict[str, Any],
+    *,
+    document_id: str,
+    ingest_attempt: int | None = None,
+    claim_token: str | None = None,
+) -> str:
+    """Scan only the currently owned ingest attempt; stale verdicts are no-ops."""
+    from shared_kernel import audit
+    from shared_kernel.auth.clients import now
+    from shared_kernel.scanning import get_scanner
     from shared_kernel.storage.minio_client import get_minio_client
 
-    scanner = get_scanner()
-    if scanner is None:
-        raise RuntimeError("file_scan_enabled is True but SMAP_SEC_CLAMAV_HOST is not set")
-
-    settings = get_settings()
     doc_id = uuid.UUID(document_id)
     sm = get_sessionmaker()
     async with sm() as db:
         doc = await RagDocumentRepository(db).get(doc_id)
-        if doc is None:
-            _log.warning("rag_scan_document: document %s not found", document_id)
-            return "not_found"
+    if doc is None:
+        _log.warning("rag_scan_document: document %s not found", document_id)
+        return "not_found"
+    if ingest_attempt is None and claim_token is None and doc.ingest_attempt == 0:
+        ingest_attempt = 0
+        claim_token = str(doc.ingest_claim_token) if doc.ingest_claim_token else None
+    if ingest_attempt is None or claim_token is None:
+        return "stale"
+    claim = IngestClaim(
+        attempt=ingest_attempt,
+        token=uuid.UUID(claim_token),
+        until=doc.ingest_claim_until or datetime.max.replace(tzinfo=UTC),
+    )
+    async with sm() as db:
+        if not await RagDocumentRepository(db).owns_claim(doc_id, claim):
+            return "stale"
+
+    settings = get_settings()
+    if not settings.security.file_scan_enabled:
+        async with sm() as db, db.begin():
+            updated = await RagDocumentRepository(db).mark_scan_owned(
+                document_id=doc_id,
+                claim=claim,
+                scan_status=ScanStatus.CLEAN,
+                scan_at=now(),
+            )
+        if updated:
+            await _enqueue_rag_ingest_guarded(ctx, doc_id, claim)
+        return "clean" if updated else "stale"
 
     if doc.size_bytes > settings.security.clamav_max_scan_bytes:
-        _log.warning(
-            "rag_scan_document: document %s skipped — %d bytes exceeds scan limit %d",
-            document_id,
-            doc.size_bytes,
-            settings.security.clamav_max_scan_bytes,
-        )
-        from shared_kernel.auth.clients import now as _now2
-
-        async with sm() as db2, db2.begin():
-            await RagDocumentRepository(db2).mark_scan(
+        async with sm() as db, db.begin():
+            updated = await RagDocumentRepository(db).mark_scan_owned(
                 document_id=doc_id,
+                claim=claim,
                 scan_status=ScanStatus.SKIPPED,
-                scan_at=_now2(),
+                scan_at=now(),
+                terminal_status=DocumentStatus.FAILED,
+                failure_code="scan_too_large",
             )
-        return "skipped:too_large"
+        return "skipped:too_large" if updated else "stale"
+
+    scanner = get_scanner()
+    if scanner is None:
+        async with sm() as db, db.begin():
+            await RagDocumentRepository(db).mark_scan_owned(
+                document_id=doc_id,
+                claim=claim,
+                scan_status=ScanStatus.SKIPPED,
+                scan_at=now(),
+                terminal_status=DocumentStatus.FAILED,
+                failure_code="scan_failed",
+            )
+        return "failed:scanner_unavailable"
 
     bucket, _, key = doc.minio_path.partition("/")
-    minio = get_minio_client()
-    data = await minio.get_object(bucket=bucket, key=key)
-
-    try:
-        result = await scanner.scan(data)
-    except ScanError:
-        _log.exception("rag_scan_document: ClamAV error for document %s", document_id)
-        from shared_kernel.auth.clients import now as _now
-
-        async with sm() as db2, db2.begin():
-            await RagDocumentRepository(db2).mark_scan(
-                document_id=doc_id,
+    with tempfile.TemporaryDirectory(prefix="smap-rag-scan-") as tmpdir:
+        source_path = Path(tmpdir) / "source"
+        try:
+            await get_minio_client().download_to_path(bucket=bucket, key=key, path=source_path)
+            result = await scanner.scan_file(source_path)
+        except asyncio.CancelledError:
+            await _finish_rag_scan_claim(
+                doc_id,
+                claim,
                 scan_status=ScanStatus.SKIPPED,
-                scan_at=_now(),
+                failure_code="scan_failed",
             )
-        raise
-
-    from shared_kernel import audit
-    from shared_kernel.auth.clients import now
+            raise
+        except Exception:
+            _log.exception("rag_scan_document: scan pipeline error for document %s", document_id)
+            if int(ctx.get("job_try", 1)) >= _SCAN_MAX_TRIES:
+                await _finish_rag_scan_claim(
+                    doc_id,
+                    claim,
+                    scan_status=ScanStatus.SKIPPED,
+                    failure_code="scan_failed",
+                )
+            raise
 
     scan_status = ScanStatus.CLEAN if result.clean else ScanStatus.QUARANTINED
-    if not result.clean:
-        _log.warning(
-            "rag_scan_document: document %s quarantined — threat=%s",
-            document_id,
-            result.threat_name,
-        )
-
+    terminal = None if result.clean else DocumentStatus.QUARANTINED
     async with sm() as db, db.begin():
-        await RagDocumentRepository(db).mark_scan(
+        updated = await RagDocumentRepository(db).mark_scan_owned(
             document_id=doc_id,
+            claim=claim,
             scan_status=scan_status,
             scan_at=now(),
+            terminal_status=terminal,
         )
-        if scan_status is ScanStatus.QUARANTINED:
+        if updated and terminal is DocumentStatus.QUARANTINED:
             await audit.emit(
                 db,
                 audit.AuditEvent(
@@ -221,9 +362,13 @@ async def rag_scan_document(ctx: dict[str, Any], *, document_id: str) -> str:
                     },
                 ),
             )
+    if not updated:
+        return "stale"
+    if scan_status is ScanStatus.CLEAN:
+        await _enqueue_rag_ingest_guarded(ctx, doc_id, claim)
     return scan_status.value
 
 
-rag_scan_document.max_tries = 3  # type: ignore[attr-defined]
+rag_scan_document.max_tries = _SCAN_MAX_TRIES  # type: ignore[attr-defined]
 
 __all__ = ["rag_ingest_document", "rag_scan_document"]

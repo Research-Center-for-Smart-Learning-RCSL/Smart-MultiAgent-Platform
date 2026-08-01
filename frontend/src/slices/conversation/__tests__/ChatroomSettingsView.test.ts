@@ -80,6 +80,10 @@ describe('ChatroomSettingsView', () => {
   })
 
   it('shows the settings form once chatroom data loads', async () => {
+    // `loadRoom` paints from the cache and then revalidates, so the GET has to
+    // agree with the seeded room or the assertion below is testing the
+    // fallback handler's room instead.
+    server.use(http.get('/api/chatrooms/:id', () => HttpResponse.json(makeChatroom())))
     const wrapper = await renderView(ChatroomSettingsView, {
       routes,
       initialRoute: '/chatrooms/cr_1/settings',
@@ -247,5 +251,34 @@ describe('ChatroomSettingsView', () => {
 
     expect(wrapper.text()).toContain('Partial Agent')
     expect(wrapper.find('.wakeup-editor').exists()).toBe(true)
+  })
+
+  it('keeps the Guest Link card hidden when enabling guest links was rejected (F-7)', async () => {
+    // The card is the user-visible half of F-7: gated on the toggle's own
+    // state, it appeared — and started fetching a link — for a room the server
+    // had left closed.
+    const room = makeChatroom({ allow_guest_links: false })
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+      http.patch('/api/chatrooms/:id', () =>
+        HttpResponse.json(
+          { type: 'https://smap.local/problems/internal', title: 'Internal', status: 500 },
+          { status: 500 },
+        ),
+      ),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1/settings',
+      queryClient: seededClient([room]),
+    })
+    await flushPromises()
+
+    const toggles = wrapper.findAll('.access-row button[role="switch"]')
+    expect(toggles).toHaveLength(4) // non-creator: no disclosure toggle
+    await toggles[3]!.trigger('click') // Allow guest links
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('conversation.settings.guestLinkLabel')
   })
 })

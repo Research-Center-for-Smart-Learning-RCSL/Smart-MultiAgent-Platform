@@ -84,6 +84,16 @@ const PURIFY_CONFIG: Config = {
   FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'meta'],
 }
 
+// Search snippets arrive from `ts_headline` with the matched terms wrapped in
+// `<mark>`. Derived from PURIFY_CONFIG rather than editing it, so message bodies
+// -- the far larger attack surface -- stay exactly as strict as they are, and so
+// ALLOWED_ATTR/FORBID_ATTR/FORBID_TAGS cannot drift apart between the two. The
+// delta is one content-only element with no attribute, URL or scripting surface.
+const SNIPPET_CONFIG: Config = {
+  ...PURIFY_CONFIG,
+  ALLOWED_TAGS: [...(PURIFY_CONFIG.ALLOWED_TAGS ?? []), 'mark'],
+}
+
 /** Render markdown → sanitised HTML. Returns a string safe to pass to v-html. */
 export function renderMarkdown(source: string): string {
   const raw = getMd().render(source ?? '')
@@ -92,7 +102,7 @@ export function renderMarkdown(source: string): string {
 
 /** Sanitise a snippet that's already HTML (e.g. ts_headline output). */
 export function sanitizeSnippet(html: string): string {
-  return DOMPurify.sanitize(html ?? '', PURIFY_CONFIG) as unknown as string
+  return DOMPurify.sanitize(html ?? '', SNIPPET_CONFIG) as unknown as string
 }
 
 /** Syntax-highlight pass — lazy-loads highlight.js/lib/common on first use. */
