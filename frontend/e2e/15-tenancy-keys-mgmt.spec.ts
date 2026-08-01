@@ -29,7 +29,15 @@ test.describe('Tenancy/keys mgmt: roles, rename, key-group, usage (M.4)', () => 
     // all for yourself, the original creator, or an inherited org member — so
     // the row menu only exists once the project has another direct member.
     const rowMenus = page.locator('.s-table__row .s-dropdown__trigger button')
-    test.skip((await rowMenus.count()) === 0, 'no member with role actions')
+    // Rows land when the members query resolves — wait rather than sampling
+    // the count at page load.
+    let hasMenus = true
+    try {
+      await rowMenus.first().waitFor({ state: 'visible', timeout: 8_000 })
+    } catch {
+      hasMenus = false
+    }
+    test.skip(!hasMenus, 'no member with role actions')
 
     await rowMenus.first().click()
     const menu = page.getByRole('menu')
@@ -113,7 +121,16 @@ test.describe('Tenancy/keys mgmt: roles, rename, key-group, usage (M.4)', () => 
     // keys.project.usage ("Usage"); the column header of the same name is a
     // <th>, so the button role keeps this unambiguous.
     const usageBtn = page.getByRole('button', { name: 'Usage', exact: true })
-    test.skip((await usageBtn.count()) === 0, 'no carried keys')
+    // The carried-keys table fills when its query resolves — wait rather than
+    // sampling the count at page load (the seed carries a key, so this should
+    // normally run, not skip).
+    let hasKeys = true
+    try {
+      await usageBtn.first().waitFor({ state: 'visible', timeout: 8_000 })
+    } catch {
+      hasKeys = false
+    }
+    test.skip(!hasKeys, 'no carried keys')
 
     await usageBtn.first().click()
     // UsageDashboard's stat tiles: Requests / Input Tokens / Output Tokens /

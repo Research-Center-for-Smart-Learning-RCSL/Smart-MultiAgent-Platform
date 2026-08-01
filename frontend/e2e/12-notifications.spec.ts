@@ -28,7 +28,15 @@ test.describe('Notifications: bell badge → list → mark-read (M.2)', () => {
     test.skip(!env('E2E_HAS_NOTIFICATIONS'), 'needs seeded notifications')
     await page.goto('/notifications')
     const markAll = page.getByRole('button', { name: 'Mark all read', exact: true })
-    test.skip(!(await markAll.isEnabled()), 'no unread notifications')
+    // Disabled until the unread query resolves with a non-zero count — wait
+    // for enablement rather than sampling once.
+    let hasUnread = true
+    try {
+      await expect(markAll).toBeEnabled({ timeout: 8_000 })
+    } catch {
+      hasUnread = false
+    }
+    test.skip(!hasUnread, 'no unread notifications')
     await markAll.click()
     // The badge is only rendered while the unread count is above zero, which
     // markAll invalidates once the server confirms the batch.

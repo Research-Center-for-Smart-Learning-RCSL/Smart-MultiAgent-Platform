@@ -41,12 +41,18 @@ src/
 4. **v-html guard**: allowed only in the 5-file allowlist in `eslint.config.js` (`ChatroomView.vue` plus the message/search/observation components it was split into), each binding only `renderMarkdown()`/`sanitizeSnippet()` output — do not extend without a security review
 5. **No `alert`/`confirm`/`prompt`**: use `SConfirmDialog` component
 6. **No global CSS** outside `shared/styles/`
-7. **Store isolation**: no cross-slice API imports
+7. **Store isolation**: stores never import `api/` or `@shared/api-client` (server state goes through `queries/`); single allowlisted exception is `identity/stores/session.ts` (auth lifecycle)
 8. **View test coverage**: every view has at least 1 test
 9. **Bundle budget**: initial <= 250 KB gzip, per-view lazy <= 200 KB gzip
 10. **Type coverage**: >= 95%
 11. **Accessibility**: vuejs-accessibility plugin rules
 12. **i18n**: no bare string literals in templates
+
+Gate #1's cross-slice direction lives in the `SLICE_DEPS` map in `eslint.config.js`
+(`conversation` is the top-level host and imports `workflow`/`activities` one-way).
+It only works because the `import/resolver` setting wires the TS-alias resolver in —
+without it, `@slices/*` imports are invisible to the boundaries plugin and the gate
+silently stops enforcing. See `src/slices/README.md` for the full dependency table.
 
 ## Shared UI Components
 

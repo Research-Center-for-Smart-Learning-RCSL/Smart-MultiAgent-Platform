@@ -12,8 +12,9 @@ import { computed } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 
 import { useSessionStore } from '@slices/identity'
-import { getWorkspace } from '@slices/conversation'
 import { useProjectRole as useProjectRoleForProject } from '@slices/tenancy'
+
+import { getWorkspace } from '../api'
 
 export function useProjectRole(workspaceId: string) {
   const session = useSessionStore()

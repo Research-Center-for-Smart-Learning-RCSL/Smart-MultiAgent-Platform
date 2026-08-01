@@ -198,7 +198,7 @@ R24.02,"24. Frontend Architecture","L2 API/WS is the ONLY layer that may import 
 R24.03,"24. Frontend Architecture","Transport (the axios instance and WS client singletons) lives in shared/transport/ and is imported only by L2."
 R24.04,"24. Frontend Architecture","Views are thin: parse route params, call composables, pass props to components. No inline business logic."
 R24.05,"24. Frontend Architecture","Barrel rule. A slice's index.ts exports only what other slices may consume: route table, public composables, public types. Everything else (components, stores, queries, internal types) is internal. ESLint's no-restric..."
-R24.06,"24. Frontend Architecture","Cross-slice dependency direction. Allowed: conversation → agents → keys → tenancy → identity → shared. Disallowed: any reverse direction. Codified in .eslintrc with boundaries plugin; violations fail CI."
+R24.06,"24. Frontend Architecture","Cross-slice dependency direction. Allowed: conversation → agent-groups → agents → keys → tenancy → identity → shared; conversation also imports workflow and activities (one-way, never back). Disallowed: any reverse direction. Codified in eslint.config.js SLICE_DEPS with boundaries plugin; violations fail CI."
 R24.07,"24. Frontend Architecture","shared/ has no imports from any slice. One-way dependency by construction."
 R24.08,"24. Frontend Architecture","TanStack Query owns every remote resource's cache. Query keys follow the pattern [slice, resource, ...params], e.g. ['agents','list', projectId]."
 R24.09,"24. Frontend Architecture","Mutations use useMutation; on success they queryClient.invalidateQueries the relevant keys. WS events call the same invalidateQueries (or apply optimistic patches via setQueryData) — see §24.7."

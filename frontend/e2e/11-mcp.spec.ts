@@ -80,7 +80,15 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
       .locator('main table')
       .getByRole('button', { name: 'Test', exact: true })
       .first()
-    test.skip(!(await testBtn.isVisible().catch(() => false)), 'no MCP binding to test')
+    // The bindings table fills when the tools query resolves (the previous
+    // test created a binding) — wait rather than sampling visibility once.
+    let hasBinding = true
+    try {
+      await testBtn.waitFor({ state: 'visible', timeout: 10_000 })
+    } catch {
+      hasBinding = false
+    }
+    test.skip(!hasBinding, 'no MCP binding to test')
     await testBtn.click()
 
     // There is no inline status element: a successful probe raises a toast, an
@@ -88,6 +96,16 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
     // Any of the three proves the round trip completed. Discovery boots a
     // sandbox, so allow well past the usual request budget.
     const ok = page.getByText(/Connection OK/)
+
+    // On a gVisor-capable host (staging), E2E_SANDBOX=1 tightens this to
+    // success-only: the probe must actually boot the runsc-sandboxed MCP
+    // runtime and answer. CI runners have no gVisor and the backend fails
+    // closed (SandboxRuntimeViolation), so the default keeps the tri-state
+    // acceptance where completing the round trip is the assertion.
+    if (process.env.E2E_SANDBOX === '1') {
+      await expect(ok).toBeVisible({ timeout: 60_000 })
+      return
+    }
     const failureModal = page.getByRole('dialog').filter({ hasText: 'MCP Test Failed' })
     const requestFailed = page.getByText('MCP test request failed.')
     await expect(ok.or(failureModal).or(requestFailed)).toBeVisible({ timeout: 30_000 })
