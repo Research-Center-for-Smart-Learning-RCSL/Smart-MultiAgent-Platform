@@ -1,10 +1,12 @@
 // Resolve the agents belonging to a workspace's project, as `{ id, name }`
 // pairs for config-form selectors and backstage label maps.
 //
-// Cross-slice access goes through the public barrels of the `conversation`
-// and `agents` slices (the allowed SoC boundary). Lives here so the workflow
-// editor and the backstage view share one definition of the
-// workspace -> project -> agents resolution instead of duplicating it.
+// Cross-slice access goes through the public barrel of the `agents` slice
+// (the allowed SoC boundary); the workspace read uses workflow's own thin
+// wrapper because conversation sits above workflow in the dependency
+// direction. Lives here so the workflow editor and the backstage view share
+// one definition of the workspace -> project -> agents resolution instead of
+// duplicating it.
 
 export interface ProjectAgent {
   id: string
@@ -20,7 +22,7 @@ export interface ProjectAgent {
 export async function fetchProjectAgents(
   workspaceId: string,
 ): Promise<ProjectAgent[]> {
-  const { getWorkspace } = await import('@slices/conversation')
+  const { getWorkspace } = await import('../api')
   const ws = await getWorkspace(workspaceId)
   const { agentsApi } = await import('@slices/agents')
   const res = await agentsApi.list(ws.project_id)

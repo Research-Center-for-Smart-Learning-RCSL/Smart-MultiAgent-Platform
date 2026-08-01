@@ -11,7 +11,7 @@
 // and CaptchaConfigOut are not (optional display_name / widened unions), so they cross
 // the boundary through the toMe / toCaptchaConfig bridges.
 
-import { AuthService } from '@shared/api-client'
+import { AuthService, OrgsService } from '@shared/api-client'
 import type { CaptchaConfigOut, UserOut } from '@shared/api-client'
 
 export interface LoginRequest {
@@ -129,6 +129,13 @@ export const authApi = {
   // with other members; the `blocked_org_ids` problem extra lists them.
   deleteAccount: (password: string) =>
     AuthService.deleteAccountApiAuthMeDelete({ requestBody: { password } }),
+
+  // Deletion can 409 with blocked_org_ids; resolving those to display names is
+  // an identity concern. identity is a leaf slice (tenancy imports identity, so
+  // importing tenancy back would be a cycle) — hence this local read-only
+  // wrapper instead of tenancy's orgsApi.list.
+  listMyOrgs: (): Promise<{ id: string; name: string }[]> =>
+    OrgsService.listOrgsApiOrgsGet({}),
 
   listSessions: (): Promise<Session[]> => AuthService.listSessionsApiAuthSessionsGet({}),
 

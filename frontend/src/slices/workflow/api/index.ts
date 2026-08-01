@@ -11,9 +11,11 @@
 
 import {
   AgentsService,
+  ChatroomsService,
   OrchestrationService,
   WorkflowRunsService,
   WorkflowsService,
+  WorkspacesService,
 } from '@shared/api-client'
 import type {
   Approval,
@@ -28,6 +30,25 @@ import type {
   WorkflowDefinition,
   WakeupConfig,
 } from '../types'
+
+// ---- Workspace context reads ----------------------------------------------
+// conversation sits ABOVE workflow in the slice dependency direction (the
+// chatroom hosts ApprovalCard/DlqViewer), so workflow cannot import
+// conversation's api wrappers. These two read-only lookups are wrapped locally
+// against the generated client instead; only the fields workflow needs are
+// exposed.
+
+export async function getWorkspace(
+  workspaceId: string,
+): Promise<{ id: string; project_id: string }> {
+  return WorkspacesService.readWorkspaceApiWorkspacesWorkspaceIdGet({ workspaceId })
+}
+
+export async function listChatrooms(
+  workspaceId: string,
+): Promise<{ id: string; name: string }[]> {
+  return ChatroomsService.listChatroomsApiWorkspacesWorkspaceIdChatroomsGet({ workspaceId })
+}
 
 // ---- Workflow CRUD (H.1 / §22.11) -----------------------------------------
 
