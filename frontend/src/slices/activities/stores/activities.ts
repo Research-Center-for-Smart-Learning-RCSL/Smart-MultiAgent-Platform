@@ -77,6 +77,7 @@ export const useActivitiesStore = defineStore('activities', () => {
           id: activation.id,
           activityTypeId: activation.activity_type_id,
           startedByUserId: activation.started_by_user_id,
+          activityType: activation.activity_type ?? null,
         }
       : activation
     activationVersions[roomId] = (activationVersions[roomId] ?? 0) + 1

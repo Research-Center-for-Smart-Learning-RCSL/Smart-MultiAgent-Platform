@@ -15,12 +15,25 @@ import type {
   ActivitySubmissionsPageOut,
   ActivityTypeIn,
   ActivityTypeOut,
+  ActivityTypePublicOut,
   ActivityTypeUpdateIn,
   ActivityValidatorOut,
 } from '@shared/api-client'
 
 export async function listActivityTypes(projectId: string): Promise<ActivityTypeOut[]> {
   return ActivitiesService.listActivityTypesApiProjectsProjectIdActivityTypesGet({ projectId })
+}
+
+/** Room-scoped rendering-contract read (Q-1): the recovery path when the
+ *  activation-started broadcast was missed or the store was reset. */
+export async function getRoomActivityType(
+  chatroomId: string,
+  typeId: string,
+): Promise<ActivityTypePublicOut> {
+  return ActivitiesService.getRoomActivityTypeApiChatroomsChatroomIdActivityTypesTypeIdGet({
+    chatroomId,
+    typeId,
+  })
 }
 
 export async function listActivityValidators(): Promise<ActivityValidatorOut[]> {

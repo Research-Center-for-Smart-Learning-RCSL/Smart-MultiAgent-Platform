@@ -26,7 +26,7 @@ const resolved = useResolvedAssistantQuery(() => props.projectId)
 const available = computed(() => resolved.data.value?.available === true)
 
 const sessionId = ref<string | null>(null)
-const { messages, streamingText, streaming, errorCode, pushUserMessage } =
+const { messages, streamingText, streaming, errorCode, sessionExpired, pushUserMessage } =
   usePromptAssistantSocket(sessionId)
 
 const input = ref('')
@@ -34,7 +34,9 @@ const sending = ref(false)
 const listEl = ref<HTMLElement | null>(null)
 
 async function ensureSession(): Promise<string | null> {
-  if (sessionId.value) return sessionId.value
+  // Ignore a cached id once its session has expired (AC-6) -- reusing it would
+  // just 404 the POST again. Creating a fresh one is the documented recovery.
+  if (sessionId.value && !sessionExpired.value) return sessionId.value
   try {
     const created = await promptStudioApi.createSession(props.projectId)
     sessionId.value = created.session_id
@@ -74,13 +76,26 @@ function extractDraft(text: string): string | null {
 
 interface DisplayMessage extends AssistantMessage {
   draft: string | null
+  errorText: string | null
+}
+
+/** Shared with `errorMessage` below: a recovered failure marker's `content`
+ *  is the same error code the live `prompt.error` banner carries. */
+function errorLabel(code: string): string {
+  if (code === 'prompt-studio/quota-exceeded') return t('promptStudio.panel.quotaError')
+  if (code === 'prompt-studio/timeout') return t('promptStudio.panel.timeoutError')
+  return t('promptStudio.panel.turnError')
 }
 
 // Computed once per pushed message (messages.value only changes reference on
 // push), not on every render -- streamingText updates on every WS token and
 // would otherwise re-run extractDraft over every prior message each time.
 const displayMessages = computed<DisplayMessage[]>(() =>
-  messages.value.map((m) => ({ ...m, draft: m.role === 'assistant' ? extractDraft(m.content) : null })),
+  messages.value.map((m) => ({
+    ...m,
+    draft: m.role === 'assistant' && !m.error ? extractDraft(m.content) : null,
+    errorText: m.error ? errorLabel(m.content) : null,
+  })),
 )
 
 async function apply(draft: string): Promise<void> {
@@ -96,11 +111,7 @@ async function apply(draft: string): Promise<void> {
   emit('applyDraft', draft)
 }
 
-const errorMessage = computed(() => {
-  if (!errorCode.value) return null
-  if (errorCode.value === 'prompt-studio/quota-exceeded') return t('promptStudio.panel.quotaError')
-  return t('promptStudio.panel.turnError')
-})
+const errorMessage = computed(() => (errorCode.value ? errorLabel(errorCode.value) : null))
 
 watch([messages, streamingText], async () => {
   await nextTick()
@@ -147,9 +158,12 @@ watch([messages, streamingText], async () => {
         >
           <div
             class="max-w-[85%] whitespace-pre-wrap rounded px-3 py-2 text-sm"
-            :class="m.role === 'user' ? 'bg-[var(--color-primary-soft)]' : 'bg-[var(--color-surface-2)]'"
+            :class="[
+              m.role === 'user' ? 'bg-[var(--color-primary-soft)]' : 'bg-[var(--color-surface-2)]',
+              { 'italic text-[var(--color-muted)]': m.errorText },
+            ]"
           >
-            {{ m.content }}
+            {{ m.errorText ?? m.content }}
             <div
               v-if="m.draft"
               class="mt-2"
@@ -174,6 +188,14 @@ watch([messages, streamingText], async () => {
           </div>
         </div>
       </div>
+
+      <SAlert
+        v-if="sessionExpired"
+        variant="info"
+        class="mx-3"
+      >
+        {{ t('promptStudio.panel.sessionExpired') }}
+      </SAlert>
 
       <SAlert
         v-if="errorMessage"

@@ -15,8 +15,10 @@ can be exercised without them:
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -31,6 +33,7 @@ from contexts.knowledge.application.ingest_service import (
     IngestService,
 )
 from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus, ScanStatus
+from contexts.knowledge.infrastructure.chunkers import chunk_document
 from contexts.knowledge.infrastructure.repositories import (
     RagChunkRepository,
     RagConfigRepository,
@@ -58,6 +61,10 @@ class _FakeBlob:
     async def get(self, *, bucket: str, key: str) -> bytes:
         self.gets.append((bucket, key))
         return self._data
+
+    async def download_to_path(self, *, bucket: str, key: str, path: Path) -> None:
+        self.gets.append((bucket, key))
+        path.write_bytes(self._data)
 
 
 class _FakeEmbedder:
@@ -126,7 +133,25 @@ def _ingest_service(
         blob=blob,  # type: ignore[arg-type]
         embedder=embedder or _FakeEmbedder(),  # type: ignore[arg-type]
         qdrant=qdrant or _FakeQdrant(),  # type: ignore[arg-type]
+        configs=RagConfigRepository(db),
+        documents=RagDocumentRepository(db),
+        chunks=RagChunkRepository(db),
+        chunker=chunk_document,
+        scan_required=False,
         bucket="rag-sources",
+    )
+
+
+async def _mark_clean(db: AsyncSession, document_id: uuid.UUID) -> None:
+    """Stand in for the scan gate the worker path always passes through.
+
+    ``process_document`` indexes only a document whose verdict is ``clean``;
+    with scanning disabled ``RagTusFinalizer`` writes that verdict itself before
+    enqueuing ``rag_ingest_document``, and with it enabled the scan worker does.
+    These tests register rows through the repository, so they must do the same.
+    """
+    await RagDocumentRepository(db).mark_scan(
+        document_id=document_id, scan_status=ScanStatus.CLEAN, scan_at=now()
     )
 
 
@@ -187,6 +212,7 @@ async def test_process_document_indexes_registered_doc() -> None:
             minio_path=f"rag-sources/{cfg.project_id}/{cfg.id}/{sha}",
             uploaded_by=user.id,
         )
+        await _mark_clean(db, doc.id)
         await db.commit()
         assert doc.status is DocumentStatus.INGESTING
 
@@ -219,6 +245,9 @@ async def test_process_document_idempotent_when_already_ready() -> None:
             uploaded_by=user.id,
         )
         await RagDocumentRepository(db).set_status(document_id=doc.id, status=DocumentStatus.READY)
+        # Clean, so the early return under test is the READY guard and not the
+        # scan gate that sits behind it.
+        await _mark_clean(db, doc.id)
         await db.commit()
 
         blob = _FakeBlob(_TEXT)
@@ -249,6 +278,7 @@ async def test_process_document_reprocesses_failed_doc() -> None:
             uploaded_by=user.id,
         )
         await RagDocumentRepository(db).set_status(document_id=doc.id, status=DocumentStatus.FAILED)
+        await _mark_clean(db, doc.id)
         await db.commit()
 
         blob = _FakeBlob(_TEXT)
@@ -259,6 +289,46 @@ async def test_process_document_reprocesses_failed_doc() -> None:
         assert result.status is DocumentStatus.READY
         assert blob.gets != []
         assert await _chunk_count(db, doc.id) >= 1
+
+
+async def test_reupload_of_failed_doc_applies_submitted_allowlist() -> None:
+    async with async_session() as db:
+        user, cfg = await _seed_config(db)
+        agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+        sha = hashlib.sha256(_TEXT).hexdigest()
+        existing = await RagDocumentRepository(db).create(
+            rag_config_id=cfg.id,
+            filename="retry.txt",
+            mime="text/plain",
+            size_bytes=len(_TEXT),
+            sha256=sha,
+            minio_path=f"rag-sources/{cfg.project_id}/{cfg.id}/{sha}",
+            uploaded_by=user.id,
+            agent_ids=[agent_a],
+        )
+        await RagDocumentRepository(db).set_status(
+            document_id=existing.id,
+            status=DocumentStatus.FAILED,
+        )
+        await db.commit()
+
+        returned = await _ingest_service(db, _FakeBlob(_TEXT)).ingest(
+            ipt=IngestInput(
+                rag_config_id=cfg.id,
+                filename="retry.txt",
+                mime="text/plain",
+                data=_TEXT,
+                uploaded_by=user.id,
+                agent_ids=(agent_a, agent_b),
+            ),
+            actor_user_id=user.id,
+            actor_ip=None,
+        )
+        await db.commit()
+
+        persisted = await RagDocumentRepository(db).require(existing.id)
+        assert returned.agent_ids == (agent_a, agent_b)
+        assert persisted.agent_ids == (agent_a, agent_b)
 
 
 # --------------------------------------------------------------------------- #

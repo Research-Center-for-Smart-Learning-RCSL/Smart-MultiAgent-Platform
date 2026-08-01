@@ -67,7 +67,7 @@ def make_context_handler(
             type=problem_type(slug),
             title=title,
             status=status_code,
-            detail=str(exc),
+            detail=str(exc) if status_code < 500 else title,
             extras=extras(exc) if extras is not None else {},
         )
         body = problem.dump()

@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { AssistantConfigOut } from '../models/AssistantConfigOut';
 import type { AssistantConfigPutIn } from '../models/AssistantConfigPutIn';
+import type { AssistantSessionOut } from '../models/AssistantSessionOut';
 import type { Body_admin_upload_file_api_admin_prompt_assistant_config_files_post } from '../models/Body_admin_upload_file_api_admin_prompt_assistant_config_files_post';
 import type { Body_me_upload_file_api_me_prompt_assistant_config_files_post } from '../models/Body_me_upload_file_api_me_prompt_assistant_config_files_post';
 import type { Body_org_upload_file_api_orgs__org_id__prompt_assistant_config_files_post } from '../models/Body_org_upload_file_api_orgs__org_id__prompt_assistant_config_files_post';
@@ -597,6 +598,27 @@ export class PromptStudioService {
             url: '/api/projects/{project_id}/prompt-templates',
             path: {
                 'project_id': projectId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Session
+     * @returns AssistantSessionOut Successful Response
+     * @throws ApiError
+     */
+    public static getSessionApiPromptAssistantSessionsSessionIdGet({
+        sessionId,
+    }: {
+        sessionId: string,
+    }): CancelablePromise<AssistantSessionOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/prompt-assistant/sessions/{session_id}',
+            path: {
+                'session_id': sessionId,
             },
             errors: {
                 422: `Validation Error`,

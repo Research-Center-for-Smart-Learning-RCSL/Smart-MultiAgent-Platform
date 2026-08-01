@@ -35,6 +35,13 @@ const fileOut = {
   created_at: 't',
 }
 const resolved = { available: true, source_scope: 'org', model_id: 'm' }
+const assistantSession = {
+  session_id: 'sess_1',
+  messages: [
+    { role: 'user', content: 'hi', error: false },
+    { role: 'assistant', content: 'prompt-studio/turn-failed', error: true },
+  ],
+}
 
 function captureAll(): { value: CapturedRequest | null } {
   const { cap, on } = createRequestCapture()
@@ -60,6 +67,7 @@ function captureAll(): { value: CapturedRequest | null } {
     on('get', '/api/projects/:pid/prompt-templates', [template]),
     on('post', '/api/projects/:pid/prompt-assistant/sessions', { session_id: 'sess_1' }, 201),
     on('post', '/api/prompt-assistant/sessions/:sid/messages', { ok: true }),
+    on('get', '/api/prompt-assistant/sessions/:sid', assistantSession),
   )
   return cap
 }
@@ -199,5 +207,12 @@ describe('prompt-studio api wire contract', () => {
       path: '/api/prompt-assistant/sessions/sess_1/messages',
       body: { content: 'hi', editor_draft: null },
     })
+  })
+
+  it('getSession GETs the session route and returns the bare body, error flag included (F-13 fix)', async () => {
+    const cap = captureAll()
+    const session = await promptStudioApi.getSession('sess_1')
+    expect(cap.value).toMatchObject({ method: 'GET', path: '/api/prompt-assistant/sessions/sess_1' })
+    expect(session).toEqual(assistantSession)
   })
 })

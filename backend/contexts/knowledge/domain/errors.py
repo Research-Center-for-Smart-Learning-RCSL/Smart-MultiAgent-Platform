@@ -19,6 +19,12 @@ class RagDocumentNotFound(KnowledgeError):
     code = "knowledge/rag-document-not-found"
 
 
+class DocumentAllowlistConflict(KnowledgeError):
+    """A live duplicate has a different allowlist and requires an explicit PATCH."""
+
+    code = "knowledge/document-allowlist-conflict"
+
+
 class UnsupportedMime(KnowledgeError):
     """R10.03 — we support pdf / docx / md / txt. No HTML."""
 
@@ -271,6 +277,7 @@ __all__ = [
     "ChunkParamsImmutable",
     "ChunkParamsInvalid",
     "DocumentTooLarge",
+    "DocumentAllowlistConflict",
     "EmbedDimensionConflict",
     "EmbedModelNotWhitelisted",
     "GraphRagAgentProjectMismatch",

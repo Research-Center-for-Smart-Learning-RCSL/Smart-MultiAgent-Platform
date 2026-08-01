@@ -10,6 +10,10 @@ import uuid
 from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from contexts.orchestration.domain.errors import (
+    ApprovalCapabilityDenied,
+    InstructCapabilityDenied,
+)
 from contexts.workflow.domain.models import (
     NodeSpec,
     NodeType,
@@ -563,6 +567,70 @@ class TestJoinExecutor:
 
 
 # ===========================================================================
+# wait_for_event executor
+# ===========================================================================
+
+
+class TestWaitForEventExecutor:
+    async def _run(self, config: dict) -> tuple:
+        from contexts.workflow.application.executors.wait_for_event import execute
+
+        redis = _RecordingRedis()
+        ctx = _make_ctx()
+        node = _make_node(NodeType.WAIT_FOR_EVENT, config)
+
+        with patch("shared_kernel.auth.clients.get_redis", return_value=redis):
+            outcome = await execute(ctx, node, AsyncMock())
+        return outcome, redis, ctx, node
+
+    async def test_timer_wait_arms_delay_not_timeout(self) -> None:
+        outcome, _, _, _ = await self._run(
+            {"event_type": "timer", "timeout_seconds": 300, "delay_seconds": 60}
+        )
+
+        assert outcome.timeout_ms == 60_000
+        assert outcome.timeout_task == "workflow_event_resume"
+        # The recorded step output must show the deadline that actually governs
+        # the park, not just the inert timeout_seconds (debuggability, found in
+        # self-audit: WorkflowBackstageView renders this output verbatim).
+        assert outcome.output["delay_seconds"] == 60
+
+    async def test_timer_claim_ttl_covers_the_delay(self) -> None:
+        outcome, redis, ctx, node = await self._run(
+            {"event_type": "timer", "timeout_seconds": 300, "delay_seconds": 3600}
+        )
+
+        assert redis.sets[f"wf:wait:{ctx.run_id}:{node.id}"] == 3600 + 60
+        assert outcome.park is True
+
+    async def test_timer_index_ttl_covers_the_delay(self) -> None:
+        _, redis, _, _ = await self._run(
+            {"event_type": "timer", "timeout_seconds": 300, "delay_seconds": 3600}
+        )
+
+        assert redis.ttls["wf:wait:by_event:timer"] == 3600 + 60
+
+    async def test_message_wait_unchanged(self) -> None:
+        outcome, redis, ctx, node = await self._run(
+            {
+                "event_type": "message_in_room",
+                "timeout_seconds": 300,
+                "chatroom_id": str(uuid.uuid4()),
+            }
+        )
+
+        assert outcome.timeout_ms == 300_000
+        assert outcome.timeout_task == "workflow_event_timeout"
+        assert redis.sets[f"wf:wait:{ctx.run_id}:{node.id}"] == 300 + 60
+        assert "delay_seconds" not in outcome.output
+
+    async def test_timer_defaults_delay_when_absent(self) -> None:
+        outcome, _, _, _ = await self._run({"event_type": "timer", "timeout_seconds": 300})
+
+        assert outcome.timeout_ms == 60_000
+
+
+# ===========================================================================
 # instruct executor
 # ===========================================================================
 
@@ -664,6 +732,39 @@ class TestInstructExecutor:
         assert "connection lost" in (outcome.error or "")
 
     @patch("contexts.workflow.application.executors.instruct.interpolate", return_value="t")
+    async def test_capability_denied_returns_failed(self, _interp) -> None:
+        """T-8: an issuer lacking can_instruct is denied inside InstructService.issue
+        (unit-tested separately); here the executor's port mapping is what's under
+        test — the same generic except-Exception path as any other issue_instruct
+        failure, but the error string must name the capability (AC-5)."""
+        from contexts.workflow.application.executors.instruct import execute
+
+        ctx = _make_ctx()
+        node = _make_node(
+            NodeType.INSTRUCT,
+            {
+                "issuer_agent_id": str(uuid.uuid4()),
+                "target_agent_id": str(uuid.uuid4()),
+                "instruction_template": "t",
+            },
+        )
+
+        facade_mock = AsyncMock()
+        facade_mock.issue_instruct.side_effect = InstructCapabilityDenied(
+            "agent lacks workflow_capabilities.can_instruct"
+        )
+
+        with patch(
+            "contexts.orchestration.interfaces.facade.OrchestrationFacade",
+            return_value=facade_mock,
+        ):
+            outcome = await execute(ctx, node, AsyncMock())
+
+        assert outcome.state == StepState.FAILED
+        assert outcome.port == "failure"
+        assert "can_instruct" in (outcome.error or "")
+
+    @patch("contexts.workflow.application.executors.instruct.interpolate", return_value="t")
     async def test_instruct_logs_when_deadline_arm_fails(self, _interp, caplog) -> None:
         """T-12: a failed deadline arm must not be silent (F-16 aggravating factor)
         — the node still parks, but a warning is logged so an unarmed deadline is
@@ -709,6 +810,45 @@ class TestInstructExecutor:
         assert outcome.state == StepState.RUNNING
         assert outcome.park is True
         assert any("deadline arm failed" in record.message for record in caplog.records)
+
+
+# ===========================================================================
+# approval_gate executor
+# ===========================================================================
+
+
+class TestApprovalGateExecutor:
+    async def test_capability_denied_returns_failed(self) -> None:
+        """T-8 (approval side): an approver/leader lacking can_approve is denied
+        inside ApprovalService.create_gate (unit-tested separately); here the
+        executor's port mapping is under test, and the error string must name
+        the capability (AC-5)."""
+        from contexts.workflow.application.executors.approval_gate import execute
+
+        ctx = _make_ctx()
+        node = _make_node(
+            NodeType.APPROVAL_GATE,
+            {
+                "leader_agent_id": str(uuid.uuid4()),
+                "approvers": [str(uuid.uuid4())],
+                "mode": "single",
+            },
+        )
+
+        facade_mock = AsyncMock()
+        facade_mock.create_approval_gate.side_effect = ApprovalCapabilityDenied(
+            "agent lacks workflow_capabilities.can_approve"
+        )
+
+        with patch(
+            "contexts.orchestration.interfaces.facade.OrchestrationFacade",
+            return_value=facade_mock,
+        ):
+            outcome = await execute(ctx, node, AsyncMock())
+
+        assert outcome.state == StepState.FAILED
+        assert outcome.port == "failure"
+        assert "can_approve" in (outcome.error or "")
 
 
 # ===========================================================================
@@ -795,12 +935,159 @@ class TestAgentInvocationExecutor:
 
 
 # ===========================================================================
+# subagent_spawn executor — fail-fast (2026-07-22-subagent-spawn-fail-fast)
+#
+# Sub-agent execution (R15.18-R15.23) has no runtime: the node used to insert an
+# agent_instances row, arm a Redis callback nothing ever read, and park until the
+# idle watchdog killed the run. These pin the fail-fast contract that replaced it.
+# ===========================================================================
+
+
+def _spawn_config(**overrides) -> dict:
+    config = {
+        "parent_agent_id": str(uuid.uuid4()),
+        "task_template": "do {{ thing }}",
+        "output_variable": "child_id",
+    }
+    config.update(overrides)
+    return config
+
+
+class TestSubagentSpawnExecutor:
+    @staticmethod
+    def _patched_deps() -> tuple[AsyncMock, _RecordingRedis]:
+        facade_mock = AsyncMock()
+        root = MagicMock()
+        root.id = uuid.uuid4()
+        instance = MagicMock()
+        instance.id = uuid.uuid4()
+        facade_mock.ensure_subagent_root.return_value = root
+        facade_mock.spawn_subagent.return_value = instance
+        return facade_mock, _RecordingRedis()
+
+    async def _run(self, ctx, node) -> tuple:
+        from contexts.workflow.application.executors.subagent_spawn import execute
+
+        facade_mock, redis = self._patched_deps()
+        with (
+            patch(
+                "contexts.orchestration.interfaces.facade.OrchestrationFacade",
+                return_value=facade_mock,
+            ),
+            patch("shared_kernel.auth.clients.get_redis", return_value=redis),
+        ):
+            outcome = await execute(ctx, node, AsyncMock())
+        return outcome, facade_mock, redis
+
+    # AC-1
+    async def test_spawn_fails_fast_on_failure_port(self) -> None:
+        ctx = _make_ctx()
+        node = _make_node(NodeType.SUBAGENT_SPAWN, _spawn_config())
+
+        outcome, _, _ = await self._run(ctx, node)
+
+        assert outcome.state is StepState.FAILED
+        assert outcome.port == "failure"
+        assert outcome.park is False
+        assert outcome.error
+
+    # AC-2 — the assertion that pins the actual defect.
+    async def test_spawn_creates_no_instance_and_no_redis_key(self) -> None:
+        ctx = _make_ctx()
+        node = _make_node(NodeType.SUBAGENT_SPAWN, _spawn_config())
+
+        _, facade_mock, redis = await self._run(ctx, node)
+
+        facade_mock.ensure_subagent_root.assert_not_awaited()
+        facade_mock.spawn_subagent.assert_not_awaited()
+        assert redis.sets == {}
+
+    # AC-3 — wait_for_all=False used to return SUCCEEDED with an instance id whose
+    # task never ran: a workflow that silently lies.
+    async def test_wait_for_all_false_also_fails_fast(self) -> None:
+        ctx = _make_ctx()
+        node = _make_node(NodeType.SUBAGENT_SPAWN, _spawn_config(wait_for_all=False))
+
+        outcome, facade_mock, redis = await self._run(ctx, node)
+
+        assert outcome.state is StepState.FAILED
+        assert outcome.port == "failure"
+        assert outcome.park is False
+        facade_mock.spawn_subagent.assert_not_awaited()
+        assert redis.sets == {}
+
+    # AC-3
+    async def test_output_variable_is_not_populated(self) -> None:
+        ctx = _make_ctx()
+        node = _make_node(NodeType.SUBAGENT_SPAWN, _spawn_config())
+
+        outcome, _, _ = await self._run(ctx, node)
+
+        assert "child_id" not in ctx.variables
+        assert not outcome.output
+
+    # AC-4 — the failure must be self-diagnosing, and must not read as "sub-agents
+    # were cancelled" (R6).
+    async def test_error_is_self_diagnosing(self) -> None:
+        ctx = _make_ctx()
+        node = _make_node(NodeType.SUBAGENT_SPAWN, _spawn_config())
+
+        outcome, _, _ = await self._run(ctx, node)
+
+        assert "not implemented" in outcome.error
+        assert "2026-07-22-subagent-spawn-fail-fast" in outcome.error
+
+    # AC-5 — R1's deliberate behaviour change: a `continue` node now proceeds past
+    # this node instead of never reaching it, with output_variable unset. The port is
+    # 'success', not 'default': subagent_spawn cannot emit 'default' (rule 3), so the
+    # old hardcoded 'default' matched no edge and stalled the run. See D-2.
+    async def test_on_error_continue_proceeds_with_output_variable_unset(self) -> None:
+        from contexts.workflow.application.run_engine import RunEngine
+        from contexts.workflow.domain.models import OnErrorConfig, OnErrorStrategy
+
+        ctx = _make_ctx()
+        node = NodeSpec(
+            id="n1",
+            type=NodeType.SUBAGENT_SPAWN,
+            config=_spawn_config(),
+            on_error=OnErrorConfig(strategy=OnErrorStrategy.CONTINUE),
+        )
+
+        outcome, _, _ = await self._run(ctx, node)
+        resolved = await RunEngine(db=MagicMock())._apply_on_error(ctx, node, outcome, uuid.uuid4())
+
+        assert resolved.state is StepState.SUCCEEDED
+        assert resolved.port == "success"
+        assert "child_id" not in ctx.variables
+
+    # AC-6 — the executor default used to be 3600 against a schema maximum of 600.
+    def test_executor_default_timeout_matches_schema(self) -> None:
+        import json
+        import pathlib
+
+        from contexts.workflow.application.executors.subagent_spawn import (
+            DEFAULT_TIMEOUT_SECONDS,
+        )
+
+        # tests/unit/<this>.py → parents[3] == repo root.
+        schema_path = pathlib.Path(__file__).resolve().parents[3] / "docs" / "workflow.schema.json"
+        spec = json.loads(schema_path.read_text(encoding="utf-8"))
+        declared = spec["$defs"]["subagent_spawn_config"]["properties"]["timeout_seconds"]
+
+        assert declared["default"] == DEFAULT_TIMEOUT_SECONDS
+        assert declared["minimum"] <= DEFAULT_TIMEOUT_SECONDS <= declared["maximum"]
+
+
+# ===========================================================================
 # Producer claim-key TTL characterization (FU-3 / claim-ttl-single-source)
 #
 # Pins the exact initial TTL each producer writes so the single-source refactor
 # is proven behaviour-preserving. approval_gate/instruct use timeout + 300;
-# wait_for_event (claim key AND its by-event index) and subagent_spawn use
-# timeout + 60.
+# wait_for_event (claim key AND its by-event index) uses timeout + 60.
+#
+# subagent_spawn was a fourth producer until 2026-07-22-subagent-spawn-fail-fast
+# removed its park; TestSubagentSpawnExecutor now pins that it writes no claim key
+# at all.
 # ===========================================================================
 
 
@@ -822,41 +1109,3 @@ class TestWaitForEventClaimTtl:
         assert redis.sets[f"wf:wait:{ctx.run_id}:{node.id}"] == 600 + 60
         # The by-event index tracks the same window (second grace use, :78).
         assert redis.ttls["wf:wait:by_event:message_in_room"] == 600 + 60
-
-
-class TestSubagentSpawnClaimTtl:
-    @patch("contexts.workflow.application.executors.subagent_spawn.interpolate", return_value="task")
-    async def test_callback_ttl_is_timeout_plus_60(self, _interp) -> None:
-        from contexts.workflow.application.executors.subagent_spawn import execute
-
-        redis = _RecordingRedis()
-        root = MagicMock()
-        root.id = uuid.uuid4()
-        instance = MagicMock()
-        instance.id = uuid.uuid4()
-        facade_mock = AsyncMock()
-        facade_mock.ensure_subagent_root.return_value = root
-        facade_mock.spawn_subagent.return_value = instance
-
-        ctx = _make_ctx()
-        node = _make_node(
-            NodeType.SUBAGENT_SPAWN,
-            {
-                "parent_agent_id": str(uuid.uuid4()),
-                "task_template": "t",
-                "timeout_seconds": 1800,
-                "wait_for_all": True,
-            },
-        )
-
-        with (
-            patch(
-                "contexts.orchestration.interfaces.facade.OrchestrationFacade",
-                return_value=facade_mock,
-            ),
-            patch("shared_kernel.auth.clients.get_redis", return_value=redis),
-        ):
-            outcome = await execute(ctx, node, AsyncMock())
-
-        assert outcome.park is True
-        assert redis.sets[f"wf:subagent_callback:{instance.id}"] == 1800 + 60
