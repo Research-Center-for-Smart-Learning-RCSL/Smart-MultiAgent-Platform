@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-22
 approved: 2026-07-28
 requirements: []
@@ -318,23 +318,42 @@ its absence, since the 2h TTL means the mixed population self-clears within two 
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: `clears streaming when the socket reconnects mid-turn` (§8) fails against current
-      code and passes after the fix.
-- [ ] AC-2: a reply that arrives while the client is disconnected is present in the panel after
-      reconnect, exactly once.
-- [ ] AC-3: the Send button is never permanently disabled — after any reconnect, and after the
-      watchdog fires, it is usable again.
-- [ ] AC-4: the watchdog is re-armed on every token, so a long legitimate reply does not trip
-      it.
-- [ ] AC-5: a non-owner requesting a session receives 404, not 403; a platform admin receives
-      404 for another user's session.
-- [ ] AC-6: an expired session yields 404 and the client renders an expiry state rather than a
-      transient error.
-- [ ] AC-7: overlapping refetches cannot apply stale data — pinned by a generation-guard test.
-- [ ] AC-8: the response body contains only role/content pairs.
-- [ ] AC-9: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`;
-      `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm run check:openapi-drift` pass in
-      `frontend/`.
+- [x] AC-1: `clears streaming when the socket reconnects mid-turn` (§8) fails against current
+      code and passes after the fix. `usePromptAssistantSocket.test.ts` — "clears streaming when
+      the socket reconnects mid-turn".
+- [x] AC-2: a reply that arrives while the client is disconnected is present in the panel after
+      reconnect, exactly once. `usePromptAssistantSocket.test.ts` — "reconciles a reply that
+      arrived while disconnected", "keeps an optimistic turn the server has not caught up to
+      yet"; `PromptAssistantPanel.test.ts` — "re-enables the Send button after a mid-turn
+      reconnect, via a real getSession round-trip" (real composable + real generated client +
+      MSW, not the mocked `'../api'` module the composable test uses).
+- [x] AC-3: the Send button is never permanently disabled — after any reconnect, and after the
+      watchdog fires, it is usable again. `PromptAssistantPanel.test.ts` (button-level); composable
+      tests pin `streaming` clearing on both paths.
+- [x] AC-4: the watchdog is re-armed on every token, so a long legitimate reply does not trip
+      it. `usePromptAssistantSocket.test.ts` — "re-arms the watchdog on each token".
+- [x] AC-5: a non-owner requesting a session receives 404, not 403; a platform admin receives
+      404 for another user's session. `test_prompt_studio_session_read.py` —
+      "test_non_owner_is_not_found_not_forbidden" (no `is_admin` branch exists in the route at
+      all, confirmed by reading `get_session`; there is no admin bypass to test around).
+- [x] AC-6: an expired session yields 404 and the client renders an expiry state rather than a
+      transient error. `test_prompt_studio_session_read.py` — "test_expired_session_is_not_found";
+      `usePromptAssistantSocket.test.ts` — "tolerates a 404 from the session refetch";
+      `PromptAssistantPanel.vue`'s `sessionExpired` alert + `ensureSession()`'s expired-id bypass.
+- [x] AC-7: overlapping refetches cannot apply stale data — pinned by a generation-guard test.
+      `usePromptAssistantSocket.test.ts` — "discards a stale refetch that resolves after a newer
+      one (AC-7)": two out-of-order-resolving fetches, the older (stale) one is discarded.
+- [x] AC-8 (amended — see D-2): the response body contains only role/content/error, no key
+      material. `test_prompt_studio_session_read.py` — "test_response_carries_no_key_material"
+      asserts the exact field set on both `AssistantSessionOut` and `SessionMessageOut`.
+- [x] AC-9: `pytest -q` (6083 passed, 6 skipped — unit tier; wiring/integration/db/e2e tiers
+      require the compose data plane, not run locally), `ruff check .`, `ruff format --check .`,
+      `mypy .` all pass in `backend/`; `pnpm test` (884 passed), `pnpm lint`, `pnpm run
+      typecheck`, `pnpm build` all pass in `frontend/`. `pnpm run check:openapi-drift` could not
+      execute in this sandbox (its bash invocation resolves a bare `python` with no venv, not the
+      project's configured interpreter — see D-7); manually reproduced its check instead
+      (export openapi.json via the project's real interpreter + `pnpm run gen:api`) and confirmed
+      zero drift beyond the intended additions.
 
 ## 11. SRS Delta
 
@@ -343,7 +362,46 @@ delivery contract `shared_kernel/realtime/pubsub.py:3-6` already states. See FU-
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1** — The read endpoint's response model is `AssistantSessionOut`, not `SessionOut` as
+  §7's shape sketch implied. `app/api/v1/auth.py` already defines a `SessionOut`; the OpenAPI
+  codegen disambiguated the collision into fully-qualified names (`app__api__v1__auth__SessionOut`
+  / `app__api__v1__prompt_studio__SessionOut`) and rewrote the unrelated `AuthService.ts`. Renamed
+  to avoid that churn — purely a naming choice, the endpoint and shape are unchanged.
+- **D-2** — Q-5's failure marker is `SessionMessage.error: bool = False` (and
+  `SessionMessageOut.error` in the response), not a plain-content-only encoding. Presented as a
+  choice via `AskUserQuestion`; the user picked the richer option so the frontend can translate
+  the marker through the same `t()` error strings the live `prompt.error` banner already uses,
+  instead of one generic sentence for every failure code. This means AC-8 as originally worded
+  ("only role/content pairs") is superseded — amended in §10 to "role/content/error, no key
+  material," which is what the AC's own regression test (guarding R29.14) actually checks.
+- **D-3** — The regression plan's "unauthenticated → 401" case for
+  `test_prompt_studio_session_read.py` was not written. Following `test_chatroom_approvals_read.py`'s
+  documented convention: this project's `tests/unit/` route tests call the route function
+  directly, bypassing FastAPI's dependency injection — `current_principal` is the same shared
+  dependency on every authenticated route, so a per-route 401 test here would assert nothing this
+  route does differently from any other.
+- **D-4** — `PromptAssistantPanel.test.ts`'s button-reenable test mocks only `@shared/transport`'s
+  `wsManager` (via `importOriginal`, preserving `isProblemWithType`), not the whole composable the
+  way the sibling `PromptAssistantPanel.applyDraft.test.ts` does. Deliberate: this test drives a
+  real `getSession` round-trip through the real composable, the real generated API client, and
+  MSW — proving the wiring actually works end-to-end, not just the `:loading` template binding.
+- **D-5** — Self-audit found: the watchdog's `errorCode = 'prompt-studio/timeout'` was never
+  cleared by a later successful reconcile, so a wedge recovered via reconnect could still show a
+  stale "took too long" banner beside a correctly-recovered reply or error marker. Fixed by
+  clearing only that specific code (never a live `prompt.error` code or the POST's
+  `quota-exceeded` rejection, which have nothing to do with socket/turn lifecycle) on both the
+  success and 404 paths of `reconcile()`. Two regression tests added: "clears a stale watchdog
+  timeout once a reconnect recovers the real outcome" and "does not clear an unrelated
+  quota-exceeded error on reconnect".
+- **D-6** — `ASSISTANT_STREAM_TIMEOUT_MS` is `120_000` (2 minutes), matching
+  `useChatroomSocket.ts`'s `AGENT_THINKING_TIMEOUT_MS` exactly. §7 said to transliterate that
+  pattern but did not specify a duration; reused the existing value rather than picking a new one.
+- **D-7** — `pnpm run check:openapi-drift` could not run in this sandbox: its bash script invokes
+  a bare `python`, which in this environment's bash resolves to a different, dependency-less
+  Python install than the one `pytest`/`mypy` use (a PATH/environment quirk, not a code issue).
+  Reproduced its check manually — exported `openapi.json` via the project's real interpreter, ran
+  `pnpm run gen:api`, and confirmed the working tree carried no drift beyond this task's own
+  intended additions (`AssistantSessionOut`, `SessionMessageOut`, the new route entry).
 
 ## 13. Follow-ups
 

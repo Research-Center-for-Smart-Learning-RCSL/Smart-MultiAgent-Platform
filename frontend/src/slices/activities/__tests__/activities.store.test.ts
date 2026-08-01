@@ -4,7 +4,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useActivitiesStore } from '../stores/activities'
-import type { ActivitySubmission } from '../types'
+import type { ActivitySubmission, ActivityTypePublic } from '../types'
 
 function submission(over: Partial<ActivitySubmission> = {}): ActivitySubmission {
   return {
@@ -88,5 +88,51 @@ describe('activities store', () => {
     store.clearActivation('c1', 'activation_1')
     expect(store.getActivation('c1')).toBeNull()
     expect(store.getActivation('c2')).toMatchObject({ activityTypeId: 'at_2' })
+  })
+
+  it('carries activityType through both input shapes (Q-1)', () => {
+    const store = useActivitiesStore()
+    const publicType: ActivityTypePublic = {
+      id: 'at_1',
+      key: 'demo',
+      name: 'Demo',
+      payload_schema: { type: 'object' },
+    }
+
+    // HTTP shape (ActivityActivationOut): snake_case, `activity_type`.
+    store.setActivation('c1', {
+      id: 'act_1',
+      chatroom_id: 'c1',
+      activity_type_id: 'at_1',
+      started_by_user_id: 'u1',
+      status: 'active',
+      created_at: null,
+      ended_at: null,
+      activity_type: publicType,
+    })
+    expect(store.getActivation('c1')?.activityType).toEqual(publicType)
+
+    // WS ids-only view (ActivationView): already camelCase, `activityType`.
+    store.setActivation('c2', {
+      id: 'act_2',
+      activityTypeId: 'at_2',
+      startedByUserId: 'u2',
+      activityType: publicType,
+    })
+    expect(store.getActivation('c2')?.activityType).toEqual(publicType)
+  })
+
+  it('defaults activityType to null when the HTTP shape omits it', () => {
+    const store = useActivitiesStore()
+    store.setActivation('c1', {
+      id: 'act_1',
+      chatroom_id: 'c1',
+      activity_type_id: 'at_1',
+      started_by_user_id: 'u1',
+      status: 'active',
+      created_at: null,
+      ended_at: null,
+    })
+    expect(store.getActivation('c1')?.activityType).toBeNull()
   })
 })

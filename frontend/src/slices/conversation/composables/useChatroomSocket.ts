@@ -14,6 +14,7 @@ import { wsManager, type ChannelEvent } from '@shared/transport'
 import { ApiError } from '@shared/api-client'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
 import { getActiveActivation, useActivitiesStore } from '@slices/activities'
+import type { ActivityTypePublic } from '@slices/activities'
 import { getApproval } from '@slices/workflow'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
 import { getChatroomPresence, getMessage, listChatroomApprovals, listMessages } from '../api'
@@ -24,7 +25,11 @@ import type { Message } from '../types'
 
 // Client-side watchdog for a wedged turn: if the worker crashes mid-turn no
 // `agent.finished` ever arrives, so without this the thinking spinner sticks
-// forever. Re-armed on every `agent.token`, cleared on `agent.finished`.
+// forever. Re-armed by every frame that proves the turn is alive — `agent.token`
+// plus `agent.progress`/`agent.warning`, which are the only ones the engine
+// sends during the pre-stream assembly window — and cleared on `agent.finished`.
+// It must never be the sole reading of a silence the protocol can produce
+// legitimately, or a healthy turn gets reported as `timeout` (F-15).
 export const AGENT_THINKING_TIMEOUT_MS = 120_000
 
 export function useChatroomSocket(roomId: string) {
@@ -269,10 +274,19 @@ export function useChatroomSocket(roomId: string) {
     clearThinkingTimeout()
     thinkingTimer = setTimeout(() => {
       thinkingTimer = null
-      // Watchdog fires — clear ALL thinking agents in this room (we don't
-      // know which specific agent is stuck when the backend is silent).
+      // Watchdog fires. Every thinking agent is suspect — a silent backend
+      // does not say which one is stuck — but the drafts are dropped per
+      // agent, read from the set before it is cleared, so a wedged agent
+      // cannot take a neighbour's draft with it (F-15's aggravating factor).
+      const running = [...(store.agentThinking[roomId] ?? [])]
       store.clearAllAgentThinking(roomId)
-      store.clearAgentStream(roomId)
+      if (running.length > 0) {
+        for (const id of running) store.clearAgentStream(roomId, id)
+      } else {
+        // No per-agent set to scope to, but the turn has still been declared
+        // dead — a draft left here has no later event to clear it.
+        store.clearAgentStream(roomId)
+      }
       store.setAgentError(roomId, 'timeout')
     }, AGENT_THINKING_TIMEOUT_MS)
   }
@@ -286,8 +300,11 @@ export function useChatroomSocket(roomId: string) {
         // merge cache is never replaced with a smaller window.
         void replayDelta()
         // clearAgentError stays eager (synchronous, from the event's own
-        // payload) — only clearAgentStream defers to applyMessageCreated
-        // (post-append) to avoid the streamed-draft flicker.
+        // payload); the draft is left to applyMessageCreated so its clear
+        // lands after the row is appended. That ordering is a flicker
+        // preference, not a guarantee — `agent.finished` clears the draft
+        // unconditionally (see its case), so whichever frame arrives first
+        // decides, and only this path avoids the gap.
         if (ev.sender_type === 'agent' && agentId) {
           store.clearAgentError(roomId, agentId)
         }
@@ -359,6 +376,26 @@ export function useChatroomSocket(roomId: string) {
       case 'agent.token':
         if (typeof ev.text === 'string' && ev.text && agentId) {
           store.appendAgentToken(roomId, agentId, ev.text)
+        }
+        armThinkingTimeout()
+        break
+      // Non-terminal notice from a turn that is still running (R13.19) — the
+      // engine's only frame during the pre-stream assembly window. It carries
+      // no UI of its own yet, but it is proof of liveness, so it re-arms rather
+      // than falling to `default` and letting the watchdog count a healthy turn
+      // down to a false `timeout`.
+      case 'agent.warning':
+        armThinkingTimeout()
+        break
+      // The turn's liveness beacon through the assembly window (R13.19).
+      // One phase means more than "alive": at a tool-round boundary the text
+      // streamed during that round has been superseded — only the final round
+      // is persisted — so the draft resets to show the current round alone.
+      // Without it the rounds accumulate and are then replaced wholesale at
+      // `agent.finished`, which is the flash 07-conversation.md forbids (F-40).
+      case 'agent.progress':
+        if (ev.phase === 'tool_round' && agentId) {
+          store.clearAgentStream(roomId, agentId)
         }
         armThinkingTimeout()
         break
@@ -444,6 +481,7 @@ export function useChatroomSocket(roomId: string) {
             id: activationId,
             activityTypeId,
             startedByUserId: (ev.started_by as string) ?? null,
+            activityType: (ev.activity_type as ActivityTypePublic | undefined) ?? null,
           })
         }
         break

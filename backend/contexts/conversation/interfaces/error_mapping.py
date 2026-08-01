@@ -105,6 +105,16 @@ _MAP: ErrorMap = {
         400,
         "Upload metadata invalid",
     ),
+    errors.TusUploadCapacityExceeded: (
+        "conversation/tus-upload-capacity-exceeded",
+        429,
+        "Upload capacity exceeded",
+    ),
+    errors.TusStagingUnavailable: (
+        "conversation/tus-staging-unavailable",
+        503,
+        "Upload staging is temporarily unavailable",
+    ),
     errors.NotRoomCreator: (
         "conversation/not-room-creator",
         403,

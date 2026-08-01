@@ -11,7 +11,7 @@ Runs: trigger via POST /api/workflows/{id}/runs; cancel via POST /api/workflow-r
 from __future__ import annotations
 
 import uuid
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
@@ -125,29 +125,47 @@ async def _require_chat_create(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=decision.reason)
 
 
+class _LinterValidIds(NamedTuple):
+    agent_ids: frozenset[str]
+    chatroom_ids: frozenset[str]
+    can_instruct_ids: frozenset[str]
+    can_approve_ids: frozenset[str]
+    can_create_subagent_ids: frozenset[str]
+
+
 async def _linter_valid_ids(
     db: AsyncSession,
     project_id: uuid.UUID | None,
-) -> tuple[frozenset[str], frozenset[str]]:
-    """Build the (agent ids, chatroom ids) sets the linter scopes references
-    against (rules 6 & 8).
+) -> _LinterValidIds:
+    """Build the id sets the linter scopes references and capabilities against
+    (rules 6 & 8, and the advisory capability warning).
 
-    F1: without these the service defaulted both to empty, so the linter
-    rejected *every* workflow that referenced an agent or chatroom — i.e. any
-    non-trivial workflow failed to save. The ids are scoped to the workflow's
-    own project, so a reference to another tenant's agent/chatroom is still
-    rejected. `subagent_parent_ids` stays empty by design: sub-agents are
+    F1: without the agent/chatroom sets the service defaulted both to empty, so
+    the linter rejected *every* workflow that referenced an agent or chatroom —
+    i.e. any non-trivial workflow failed to save. The ids are scoped to the
+    workflow's own project, so a reference to another tenant's agent/chatroom is
+    still rejected. `subagent_parent_ids` stays empty by design: sub-agents are
     runtime AgentInstances (G.8), not agent definitions, so there is no
     save-time set — depth>1 is enforced at spawn time by the orchestration
     service, not here.
+
+    The three capability sets cost no extra query: `list_agents_for_project`
+    already loads the full `Agent` objects that the agent-id set discarded down
+    to bare ids.
     """
     if project_id is None:  # defensive — the resolvers always set it
-        return frozenset(), frozenset()
+        empty: frozenset[str] = frozenset()
+        return _LinterValidIds(empty, empty, empty, empty, empty)
     agents = await AgentsFacade(db).list_agents_for_project(project_id)
     chatroom_ids = await ConversationFacade(db).list_chatroom_ids_for_project(project_id)
-    return (
-        frozenset(str(a.id) for a in agents),
-        frozenset(str(cid) for cid in chatroom_ids),
+    return _LinterValidIds(
+        agent_ids=frozenset(str(a.id) for a in agents),
+        chatroom_ids=frozenset(str(cid) for cid in chatroom_ids),
+        can_instruct_ids=frozenset(str(a.id) for a in agents if a.workflow_capabilities.get("can_instruct")),
+        can_approve_ids=frozenset(str(a.id) for a in agents if a.workflow_capabilities.get("can_approve")),
+        can_create_subagent_ids=frozenset(
+            str(a.id) for a in agents if a.workflow_capabilities.get("can_create_subagent")
+        ),
     )
 
 
@@ -335,11 +353,14 @@ async def validate_workflow(
 ) -> ValidateOut:
     await _require_member(principal, scope, resolver)
     svc = WorkflowService(db)
-    valid_agent_ids, valid_chatroom_ids = await _linter_valid_ids(db, scope.project_id)
+    ids = await _linter_valid_ids(db, scope.project_id)
     result = svc.validate(
         payload.definition,
-        valid_agent_ids=valid_agent_ids,
-        valid_chatroom_ids=valid_chatroom_ids,
+        valid_agent_ids=ids.agent_ids,
+        valid_chatroom_ids=ids.chatroom_ids,
+        can_instruct_agent_ids=ids.can_instruct_ids,
+        can_approve_agent_ids=ids.can_approve_ids,
+        can_create_subagent_agent_ids=ids.can_create_subagent_ids,
     )
     return ValidateOut(
         valid=result.valid,
@@ -380,14 +401,17 @@ async def create_workflow(
 ) -> WorkflowOut:
     await _require_chat_create(principal, scope, resolver)
     svc = WorkflowService(db)
-    valid_agent_ids, valid_chatroom_ids = await _linter_valid_ids(db, scope.project_id)
+    ids = await _linter_valid_ids(db, scope.project_id)
     wf = await svc.create(
         workspace_id=wid,
         name=payload.name,
         definition=payload.definition,
         actor_user_id=principal.user_id,
-        valid_agent_ids=valid_agent_ids,
-        valid_chatroom_ids=valid_chatroom_ids,
+        valid_agent_ids=ids.agent_ids,
+        valid_chatroom_ids=ids.chatroom_ids,
+        can_instruct_agent_ids=ids.can_instruct_ids,
+        can_approve_agent_ids=ids.can_approve_ids,
+        can_create_subagent_agent_ids=ids.can_create_subagent_ids,
     )
     return _to_workflow_out(wf)
 
@@ -417,15 +441,18 @@ async def patch_workflow(
         ) from exc
 
     svc = WorkflowService(db)
-    valid_agent_ids, valid_chatroom_ids = await _linter_valid_ids(db, scope.project_id)
+    ids = await _linter_valid_ids(db, scope.project_id)
     wf = await svc.patch(
         workflow_id,
         expected_version=expected_version,
         name=payload.name,
         definition=payload.definition,
         actor_user_id=principal.user_id,
-        valid_agent_ids=valid_agent_ids,
-        valid_chatroom_ids=valid_chatroom_ids,
+        valid_agent_ids=ids.agent_ids,
+        valid_chatroom_ids=ids.chatroom_ids,
+        can_instruct_agent_ids=ids.can_instruct_ids,
+        can_approve_agent_ids=ids.can_approve_ids,
+        can_create_subagent_agent_ids=ids.can_create_subagent_ids,
     )
     return _to_workflow_out(wf)
 

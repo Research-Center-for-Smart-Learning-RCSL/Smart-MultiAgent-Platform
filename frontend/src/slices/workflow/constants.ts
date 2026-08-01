@@ -9,7 +9,7 @@ export const NODE_DEFAULTS: Record<NodeType, Record<string, unknown>> = {
   subagent_spawn: { parent_agent_id: '', task_template: '' },
   wait_for_event: { event_type: 'timer', timeout_seconds: 300, delay_seconds: 60 },
   parallel: {},
-  join: { mode: 'all', timeout_seconds: 600 },
+  join: { mode: 'all' },
   set_variable: { assignments: [{ variable: '', expression: '' }] },
   end: { status: 'success' },
 }
@@ -27,6 +27,13 @@ export const NODE_TYPE_LABELS: Record<NodeType, string> = {
   set_variable: 'workflow.nodeTypes.setVariable',
   end: 'workflow.nodeTypes.end',
 }
+
+// Node types the editor still offers but the engine cannot execute: the node fails
+// immediately on its `failure` port. Badged rather than removed — workflows.definition
+// is a JSONB blob validated on write, so dropping a type would make every saved
+// workflow containing it unloadable, and the node/config components key off the type
+// string. See docs/tasks/2026-07-22-subagent-spawn-fail-fast/spec.md.
+export const UNAVAILABLE_NODE_TYPES: readonly NodeType[] = ['subagent_spawn'] as const
 
 // Palette groups for the "Add Node" dropdown (trigger excluded — only one allowed)
 export const NODE_PALETTE_GROUPS = [
