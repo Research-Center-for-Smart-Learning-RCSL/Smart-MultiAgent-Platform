@@ -52,8 +52,16 @@ def _defn_with_join(*, wire_timeout: bool) -> dict:
         "nodes": [
             _TRIGGER,
             {"id": "p1", "type": "parallel", "config": {}},
-            {"id": "a1", "type": "set_variable", "config": {"assignments": [{"variable": "x", "value": "1"}]}},
-            {"id": "b1", "type": "set_variable", "config": {"assignments": [{"variable": "y", "value": "2"}]}},
+            {
+                "id": "a1",
+                "type": "set_variable",
+                "config": {"assignments": [{"variable": "x", "value": "1"}]},
+            },
+            {
+                "id": "b1",
+                "type": "set_variable",
+                "config": {"assignments": [{"variable": "y", "value": "2"}]},
+            },
             {"id": "j1", "type": "join", "config": {"mode": "all"}},
             {"id": "e1", "type": "end", "config": {"status": "success"}},
             {"id": "e2", "type": "end", "config": {"status": "failure"}},
