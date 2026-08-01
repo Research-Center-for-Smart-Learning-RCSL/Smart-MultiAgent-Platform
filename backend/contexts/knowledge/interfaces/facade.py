@@ -39,16 +39,26 @@ if TYPE_CHECKING:
     from contexts.knowledge.application.graphrag_graph_service import GraphView
     from contexts.knowledge.application.graphrag_triggers import GraphRagBuildTrigger
     from contexts.knowledge.application.knowmap_graph_service import KnowmapGraphView
+    from contexts.knowledge.application.knowmap_tus_finalizer import KnowmapTusFinalizer
+    from contexts.knowledge.application.rag_tus_finalizer import RagTusFinalizer
 
 _log = logging.getLogger(__name__)
 
 
 class KnowledgeFacade:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        rag_finalizer: RagTusFinalizer | None = None,
+        knowmap_finalizer: KnowmapTusFinalizer | None = None,
+    ) -> None:
         self._db = db
         self._configs = RagConfigRepository(db)
         self._graphrag = GraphRagConfigRepository(db)
         self._knowmap = KnowmapConfigRepository(db)
+        self._rag_finalizer = rag_finalizer
+        self._knowmap_finalizer = knowmap_finalizer
 
     def embedding_catalog(self) -> tuple[EmbedCatalogEntry, ...]:
         """Per-provider whitelisted embedding models + dimensions for the RAG UI."""
@@ -289,9 +299,9 @@ class KnowledgeFacade:
         scan workers. ``agent_ids`` is the per-agent allowlist for a newly created
         document (validated at tus-create); ignored on dedup of an existing doc.
         """
-        from contexts.knowledge.application.knowmap_tus_finalizer import KnowmapTusFinalizer
-
-        return await KnowmapTusFinalizer(self._db).finalize(
+        if self._knowmap_finalizer is None:
+            raise RuntimeError("knowledge upload finalizers were not wired")
+        return await self._knowmap_finalizer.finalize(
             knowmap_config_id=knowmap_config_id,
             filename=filename,
             mime=mime,
@@ -324,9 +334,9 @@ class KnowledgeFacade:
         (validated at the tus-create boundary); ignored on dedup of an existing
         document so a re-upload never silently rewrites another upload's scope.
         """
-        from contexts.knowledge.application.rag_tus_finalizer import RagTusFinalizer
-
-        return await RagTusFinalizer(self._db).finalize(
+        if self._rag_finalizer is None:
+            raise RuntimeError("knowledge upload finalizers were not wired")
+        return await self._rag_finalizer.finalize(
             rag_config_id=rag_config_id,
             filename=filename,
             mime=mime,

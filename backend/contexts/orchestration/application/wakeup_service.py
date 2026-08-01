@@ -384,6 +384,10 @@ class WakeupService:
                         "actor_agent_id": str(actor_agent_id) if actor_agent_id else None,
                     },
                 ),
+                # Reached from the `update_wakeup` tool on the turn's own
+                # session, whose reply commit this write depends on: a failed
+                # insert here would abort that transaction and lose the reply.
+                isolated=True,
             )
 
         return WakeupConfig.from_dict(updated.wakeup_config)

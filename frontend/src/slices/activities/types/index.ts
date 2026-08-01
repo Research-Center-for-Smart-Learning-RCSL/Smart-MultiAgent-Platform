@@ -5,11 +5,15 @@ import type {
   ActivitySessionOut,
   ActivitySubmissionOut,
   ActivityTypeOut,
+  ActivityTypePublicOut,
   ActivityActivationOut,
 } from '@shared/api-client'
 import type { ActivityValidationStatus } from '../sdk/types'
 
 export type ActivityType = ActivityTypeOut
+/** The participant rendering contract (R30.26): id/key/name/payload_schema
+ *  only, reachable through the room-access chain — never `validator_config`. */
+export type ActivityTypePublic = ActivityTypePublicOut
 export type ActivitySubmission = ActivitySubmissionOut
 export type ActivitySession = ActivitySessionOut
 export type ActivityActivation = ActivityActivationOut
@@ -19,6 +23,10 @@ export interface ActivationView {
   id: string
   activityTypeId: string
   startedByUserId: string | null
+  /** Embedded rendering contract (Q-1); `null` when the broadcast/read carried
+   *  none (missed event, cross-project type) — the panel falls back to a
+   *  room-scoped fetch in that case. */
+  activityType: ActivityTypePublic | null
 }
 
 export type { ActivityValidationStatus, ActivitySubmissionResult } from '../sdk/types'

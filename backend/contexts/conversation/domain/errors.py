@@ -107,6 +107,18 @@ class TusMetadataInvalid(ConversationError):
     code = "conversation/tus-metadata-invalid"
 
 
+class TusUploadCapacityExceeded(ConversationError):
+    """The upload would exceed an active/reserved/hourly TUS capacity limit."""
+
+    code = "conversation/tus-upload-capacity-exceeded"
+
+
+class TusStagingUnavailable(ConversationError):
+    """The staging filesystem cannot preserve the configured safety headroom."""
+
+    code = "conversation/tus-staging-unavailable"
+
+
 # ---- §28 observer errors -------------------------------------------------- #
 
 
@@ -166,6 +178,8 @@ __all__ = [
     "TusMetadataInvalid",
     "TusOffsetMismatch",
     "TusSizeMismatch",
+    "TusStagingUnavailable",
+    "TusUploadCapacityExceeded",
     "TusUploadNotFound",
     "VersionMismatch",
     "WorkspaceNotFound",

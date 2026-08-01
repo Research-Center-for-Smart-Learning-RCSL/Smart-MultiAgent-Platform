@@ -66,6 +66,10 @@ class KnowmapDocument:
     uploaded_at: datetime
     # Strict per-agent allowlist. Empty = no agent may see this document's evidence.
     agent_ids: tuple[uuid.UUID, ...] = ()
+    ingest_attempt: int = 0
+    ingest_claim_token: uuid.UUID | None = None
+    ingest_claim_until: datetime | None = None
+    failure_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

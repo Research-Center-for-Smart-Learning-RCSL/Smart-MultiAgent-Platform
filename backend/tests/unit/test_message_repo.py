@@ -1,9 +1,14 @@
-"""MessageRepository.list anchor scoping (B3).
+"""MessageRepository.list anchor scoping (B3) and `search` query shape (F-22 / V-6).
 
 Mirrors `test_observer_agents.py::test_observation_list_before_anchor_scoped_by_chatroom_id`:
 the `before`/`since` cursor anchor lookup must not resolve a message id from a
 different room the caller happens to belong to -- otherwise a member of rooms
 A and B could page room A using a cursor id borrowed from room B.
+
+The `search` classes pin two cross-layer contracts that nothing else enforces:
+the ordering is total (so a page is reproducible) and the snippet delimiters are
+`<mark>` (so the frontend allowlist and CSS have something to match). Spec:
+`docs/tasks/2026-07-22-search-determinism-and-highlighting/spec.md` §8 T-1/T-2.
 """
 
 from __future__ import annotations
@@ -28,6 +33,29 @@ def _empty_page_result() -> MagicMock:
     result = MagicMock()
     result.all.return_value = []
     return result
+
+
+async def _compiled_search_sql() -> str:
+    """Run `search` against a mock db and return its compiled statement."""
+    db = AsyncMock()
+    db.execute.side_effect = [_empty_page_result()]
+
+    repo = MessageRepository(db)
+    await repo.search(chatroom_id=uuid.uuid4(), query="x", limit=10)
+
+    stmt = db.execute.await_args_list[0].args[0]
+    return str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+
+
+def _order_by_clause(compiled: str) -> str:
+    """The ORDER BY clause alone.
+
+    Asserting on the whole statement would be satisfied by the SELECT list,
+    which already names every message column including `created_at` and `id`.
+    """
+    _, _, tail = compiled.partition("ORDER BY")
+    assert tail, "statement has no ORDER BY"
+    return tail.partition("LIMIT")[0]
 
 
 class TestMessageListAnchorScoping:
@@ -90,3 +118,56 @@ class TestMessageListAnchorScoping:
             anchor_stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
         )
         assert "deleted_at" in compiled
+
+
+class TestMessageSearchOrdering:
+    """V-6: `ORDER BY rank` alone is not a total order, so a page under LIMIT/OFFSET
+    is whatever the plan happened to yield first."""
+
+    async def test_search_order_is_total(self) -> None:
+        compiled = await _compiled_search_sql()
+        order_by = _order_by_clause(compiled)
+
+        assert "rank DESC" in order_by
+        assert "messages.created_at DESC" in order_by
+        assert "messages.id DESC" in order_by
+
+    async def test_search_orders_before_limiting(self) -> None:
+        compiled = await _compiled_search_sql()
+
+        assert compiled.index("ORDER BY") < compiled.index("LIMIT")
+
+
+class TestMessageSearchSnippet:
+    """F-22: the snippet delimiters are a cross-layer contract -- the frontend
+    sanitiser allowlist and the panel CSS are both written against `<mark>`
+    (`docs/UI/07-conversation.md:751`), and nothing else pins the producer."""
+
+    async def test_snippet_uses_mark_delimiters(self) -> None:
+        compiled = await _compiled_search_sql()
+
+        assert "StartSel=<mark>" in compiled
+        assert "StopSel=</mark>" in compiled
+
+    async def test_snippet_keeps_existing_headline_options(self) -> None:
+        compiled = await _compiled_search_sql()
+
+        assert "MaxWords=35" in compiled
+        assert "MinWords=15" in compiled
+        assert "ShortWord=3" in compiled
+
+
+class TestMessageSearchParameterTypes:
+    """The text-search config must stay cast to `regconfig`.
+
+    A bare literal is bound by asyncpg as VARCHAR, and PostgreSQL has no
+    plainto_tsquery(varchar, varchar) -- every search then fails to resolve the
+    function. The db-tier test in tests/integration proves the query runs, but it
+    is routed to a separate CI job, so this keeps the fast tier able to catch a
+    "simplify the cast away" edit on its own.
+    """
+
+    async def test_search_casts_the_text_search_config(self) -> None:
+        compiled = await _compiled_search_sql()
+
+        assert compiled.upper().count("AS REGCONFIG") >= 1

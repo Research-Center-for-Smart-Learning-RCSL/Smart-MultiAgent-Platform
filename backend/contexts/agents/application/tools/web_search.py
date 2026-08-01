@@ -259,6 +259,9 @@ class WebSearchTool:
                     "project_id": str(self.project_id),
                 },
             ),
+            # Shares the turn's session: a failed insert here would abort the
+            # transaction the reply is persisted in.
+            isolated=True,
         )
 
 

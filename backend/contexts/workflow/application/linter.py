@@ -1,4 +1,4 @@
-"""Semantic linter — 17 blocking rules + 6 advisory warnings (§5).
+"""Semantic linter — 17 blocking rules + 10 advisory warnings (§5).
 
 Rule 15 (SEC-L5) parses every SEL expression at save time so invalid or
 non-whitelisted expressions are rejected up front instead of failing silently
@@ -777,7 +777,13 @@ def rule_17_a2a_trigger_self_cycle(defn: dict[str, Any]) -> list[LintIssue]:
 # ---------------------------------------------------------------------------
 
 
-def advisory_warnings(defn: dict[str, Any]) -> list[LintIssue]:
+def advisory_warnings(
+    defn: dict[str, Any],
+    *,
+    can_instruct_agent_ids: frozenset[str] = frozenset(),
+    can_approve_agent_ids: frozenset[str] = frozenset(),
+    can_create_subagent_agent_ids: frozenset[str] = frozenset(),
+) -> list[LintIssue]:
     issues: list[LintIssue] = []
     declared_vars = set(defn.get("variables", {}).keys())
     outgoing, _ = _build_adjacency(defn)
@@ -811,12 +817,44 @@ def advisory_warnings(defn: dict[str, Any]) -> list[LintIssue]:
             if ts > 300:
                 issues.append(LintIssue(0, "warning", f"timeout_seconds={ts} > 300", node_id=n["id"]))
 
-        # W3: wait_for_event with no timeout path
-        if ntype == "wait_for_event":
+        # W3: wait_for_event with no timeout path. Timer waits have no
+        # producer for their timeout port at all (F-2) -- an absent timeout
+        # edge there is correct, not a gap, so W3 is scoped to every other
+        # event type and W9 below covers the timer case instead.
+        if ntype == "wait_for_event" and config.get("event_type", "timer") != "timer":
             edges = outgoing.get(n["id"], [])
             has_timeout = any(e.get("from_port") == "timeout" for e in edges)
             if not has_timeout:
                 issues.append(LintIssue(0, "warning", "wait_for_event has no timeout edge", node_id=n["id"]))
+
+        # W9: a timer wait's timeout port is never produced (F-2) -- a wired
+        # edge on it can never fire.
+        if ntype == "wait_for_event" and config.get("event_type", "timer") == "timer":
+            edges = outgoing.get(n["id"], [])
+            if any(e.get("from_port") == "timeout" for e in edges):
+                issues.append(
+                    LintIssue(
+                        0,
+                        "warning",
+                        "timer wait's timeout port is never produced; this edge is never taken",
+                        node_id=n["id"],
+                    )
+                )
+
+        # W10: join's timeout port has no producer (F-36) -- the port and its
+        # config field are kept for stored-definition compatibility but no
+        # runtime code arms a timeout for a join.
+        if ntype == "join":
+            edges = outgoing.get(n["id"], [])
+            if any(e.get("from_port") == "timeout" for e in edges):
+                issues.append(
+                    LintIssue(
+                        0,
+                        "warning",
+                        "join timeout is not implemented; this edge is never taken",
+                        node_id=n["id"],
+                    )
+                )
 
         # W4: approval_gate timeout > 3600
         if ntype == "approval_gate":
@@ -842,6 +880,69 @@ def advisory_warnings(defn: dict[str, Any]) -> list[LintIssue]:
                     ),
                 )
 
+        # W7: subagent_spawn is not implemented and always exits its 'failure' port.
+        # Advisory, never blocking: create and patch share one validator and
+        # WorkflowService raises on any error, so a blocking rule would lock authors
+        # out of every edit to a workflow containing the node — including the edit
+        # that removes it.
+        if ntype == "subagent_spawn":
+            issues.append(
+                LintIssue(
+                    0,
+                    "warning",
+                    "subagent_spawn is not implemented: the node fails immediately on its "
+                    "'failure' port. Sub-agent execution is deferred, not cancelled",
+                    node_id=n["id"],
+                )
+            )
+
+        # W8: an agent named in a role its workflow_capabilities does not grant
+        # (R15.10a / R15.18, G-orchestration.md:250). Advisory only — the runtime
+        # gate lives in ApprovalService.create_gate / InstructService.issue; a
+        # blocking rule here would lock an author out of unrelated edits to every
+        # workflow naming the agent the moment its capability is revoked (Q-5).
+        if ntype == "instruct":
+            issuer = config.get("issuer_agent_id")
+            if issuer and issuer not in can_instruct_agent_ids:
+                issues.append(
+                    LintIssue(
+                        0,
+                        "warning",
+                        f"issuer_agent_id '{issuer}' lacks workflow_capabilities.can_instruct",
+                        node_id=n["id"],
+                    )
+                )
+
+        if ntype == "approval_gate":
+            # Mirror the executor's own fold (approval_gate.py) so a leader named
+            # only via leader_agent_id, not repeated in approvers, still warns.
+            approver_ids = set(config.get("approvers", []))
+            leader = config.get("leader_agent_id")
+            if leader:
+                approver_ids.add(leader)
+            for agent_id in sorted(approver_ids - can_approve_agent_ids):
+                issues.append(
+                    LintIssue(
+                        0,
+                        "warning",
+                        f"agent '{agent_id}' is named as approver or leader but lacks "
+                        "workflow_capabilities.can_approve",
+                        node_id=n["id"],
+                    )
+                )
+
+        if ntype == "subagent_spawn":
+            parent = config.get("parent_agent_id")
+            if parent and parent not in can_create_subagent_agent_ids:
+                issues.append(
+                    LintIssue(
+                        0,
+                        "warning",
+                        f"parent_agent_id '{parent}' lacks workflow_capabilities.can_create_subagent",
+                        node_id=n["id"],
+                    )
+                )
+
     # W6: loop_guard > 1000
     lg = defn.get("loop_guard", {}).get("max_visits_per_node", 200)
     if lg > 1000:
@@ -861,6 +962,9 @@ def validate_definition(
     valid_agent_ids: frozenset[str] = frozenset(),
     valid_chatroom_ids: frozenset[str] = frozenset(),
     subagent_parent_ids: frozenset[str] = frozenset(),
+    can_instruct_agent_ids: frozenset[str] = frozenset(),
+    can_approve_agent_ids: frozenset[str] = frozenset(),
+    can_create_subagent_agent_ids: frozenset[str] = frozenset(),
 ) -> ValidationResult:
     """Run all 17 blocking rules + advisory warnings. Returns aggregate result."""
     all_issues: list[LintIssue] = []
@@ -885,7 +989,14 @@ def validate_definition(
     all_issues.extend(rule_17_a2a_trigger_self_cycle(defn))
 
     # Advisory
-    all_issues.extend(advisory_warnings(defn))
+    all_issues.extend(
+        advisory_warnings(
+            defn,
+            can_instruct_agent_ids=can_instruct_agent_ids,
+            can_approve_agent_ids=can_approve_agent_ids,
+            can_create_subagent_agent_ids=can_create_subagent_agent_ids,
+        )
+    )
 
     errors = [i for i in all_issues if i.level == "error"]
     warnings = [i for i in all_issues if i.level == "warning"]

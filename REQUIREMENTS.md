@@ -716,10 +716,17 @@ Four composable flags per chat room:
   - `agent.thinking`, `agent.token` (streaming), `agent.finished`
   - `agent.warning` — a non-terminal notice about a turn that is still running (the aggregated
     dropped-skill warning of [R31.08]); distinct from `agent.finished{error}`, which is terminal
+  - `agent.progress` — `{agent_id, phase}`, the turn's liveness beacon. Emitted at each named
+    boundary of the otherwise silent window between `agent.thinking` and the first `agent.token`
+    (`context`, `skills`, `workspace`, `history`, `compacting`), and at each tool-round boundary
+    (`tool_round`). Ids and phase only, never content — the room channel is readable by chatroom
+    guests who are not project members. Clients re-arm any wedged-turn watchdog on it, and on
+    `tool_round` also reset the streaming draft, whose text that round has superseded
   - `presence.joined`, `presence.left`
   - `approval.requested`, `approval.resolved`
   - `workflow.state_changed`
 - **[R13.20]** Server maintains per-room WebSocket hub. On backend restart, the client reconnects and requests a delta via REST (`GET /api/chatrooms/{id}/messages?since=<id>`).
+- **[R13.27]** A turn's reported outcome reflects its durable result, not its last failed step. A turn that has committed a reply reports `completed` and audits `agent.turn_finished`; publishing the WS events and dispatching downstream signals happen after that commit, are best-effort, and never alter the reported outcome or trigger failure-path cleanup. The same holds for a committed skip (`empty_reply`, `no_input`, `knowledge_starved`), which reports `skipped`. Each post-commit step fails independently and is logged with a stack trace.
 
 ### 13.8 Message edit and deletion rules
 
@@ -809,6 +816,7 @@ Per-agent JSON:
 - **[R15.12]** `majority`: > 50 % of listed approvers must approve. Ties are broken by the leader.
 - **[R15.13]** `consensus`: all approvers must propose, debate, and converge on the same verdict. If not converged by `timeout_seconds`, the leader's verdict wins.
 - **[R15.14]** Approver agents consume tokens from **their own** Key Group (Q52: "whoever owns the key"). The leader agent's Key Group covers the final decision announcement.
+- **[R15.10a]** Only an agent with `workflow_capabilities.can_approve = true` may be named as an approver or leader of an Approval Gate. A gate naming any agent without the capability is rejected in full; approvers are never silently dropped, since that would change the tally denominator defined by `[R15.12]` and `[R15.13]`.
 
 ### 15.5 Instruct (Q53)
 
@@ -882,7 +890,7 @@ The system records a structured event for every action in the following categori
 | Agents / RAG / GraphRAG / MCP | `agent.created`, `agent.edited`, `agent.deleted`, `rag.document_uploaded`, `rag.indexed`, `graphrag.build_started`, `graphrag.build_finished`, `mcp.tool_invoked` (with tool name + truncated args), `mcp.egress_blocked` |
 | Skills (§31) | `skill.created`, `skill.updated` (body hash before/after), `skill.deleted`, `skill.restored`, `skill.copied`, `skill.bundle_imported`, `skill.exported`, `skill.bound`, `skill.unbound`, `skill.file_created`, `skill.file_updated`, `skill.file_deleted`, `skill.resolution_failed` (turn-time containment or requirement failure) |
 | Chat | `chatroom.created`, `chatroom.deleted`, `message.sent`, `message.deleted`, `message.exported`, `attachment.uploaded`, `attachment.expired`, `guest.joined` |
-| Workflow | `workflow.created`, `workflow.edited`, `workflow.run_started`, `workflow.run_finished`, `workflow.step_started`, `workflow.step_finished`, `workflow.step_failed`, `approval.requested`, `approval.resolved`, `instruct.issued`, `instruct.rejected_loop`, `subagent.spawned`, `subagent.destroyed` |
+| Workflow | `workflow.created`, `workflow.edited`, `workflow.run_started`, `workflow.run_finished`, `workflow.step_started`, `workflow.step_finished`, `workflow.step_failed`, `approval.requested`, `approval.resolved`, `approval.forbidden`, `instruct.issued`, `instruct.rejected_loop`, `instruct.forbidden`, `subagent.spawned`, `subagent.destroyed`, `subagent.depth_exceeded` |
 | Admin | `admin.ban_user`, `admin.unban_user`, `admin.delete_user`, `admin.restore_resource`, `admin.view_as_started`, `admin.view_as_ended` |
 
 - **[R17.01]** Retention: **365 days**. After retention, rows are deleted nightly.
@@ -2173,6 +2181,8 @@ Added by the 2026-07-13 design session (task dossier: `docs/tasks/2026-07-13-act
 - **[R30.22]** A submission is accepted only while an active activation for that exact activity type exists in the room; otherwise the platform rejects it. This is enforced server-side and holds regardless of the client, so a facilitator ending an activity stops further submissions and out-of-window data cannot enter the authoritative record. Participants join an active activity, open their own per-subject session (explicit start), submit, and finish (close); ending the room activation does not force-close open participant sessions but blocks their further submissions.
 - **[R30.23]** A Project Owner may author, list, edit, and delete `ActivityType`s from a project-scoped management surface. Editing a type's safe metadata (`name`, `retention_days`) is permitted at any time. Editing its behavioral definition (`payload_schema`, `validator_kind`/`validator_config`) re-runs the same well-formedness and validator-scope checks as registration ([R30.02], [R30.24]), increments the type's `version`, and is rejected while any `active` `ActivityActivation` references the type. Editing never changes a type's `key`. Editing emits an `activity_type.updated` audit event and requires Project Owner capability. Deletion is a soft-delete (`deleted_at`) that also ends every `active` `ActivityActivation` referencing the type, and each affected room is notified (`activity.activation.ended`), so no room is left with an activation for a deleted type. Deletion emits an `activity_type.deleted` audit event and requires Project Owner capability. A soft-deleted type's `(project_id, key)` is freed for reuse (consistent with [R30.02]).
 - **[R30.24]** The authoring surface supports the `webhook`, `mcp`, and `in_process` validator kinds. The platform registers first-party in-process validators at startup from a code registration site outside the activities context; the surface offers `in_process` only while at least one such validator is registered, and an authenticated read endpoint (`GET /api/activity-validators`) lists the registered validator ids and their display titles as the single source the picker draws from. A `webhook` validator's URL is stored for proxy-only egress ([R30.07]); an `mcp` validator's `agent_id`/`binding_id` must reference agents/bindings within the same project; an `in_process` validator's config must name a registered `validator_id` plus that validator's required parameters (e.g. `exact_match` requires the payload `field` to compare and the `expected` value), validated at registration and edit time ([R30.02], [R30.23]).
+- **[R30.25]** An `ActivityType`'s `validator_config` is confidential to Project Owners. It may hold answer keys and, once sealed validator credentials exist, secrets. Project-scoped read surfaces omit it for non-owner callers, and it is never exposed on any room-scoped surface or realtime payload.
+- **[R30.26]** A room participant obtains the rendering contract of an activity type — identity, key, display name, and payload schema, and nothing else — through the room-access chain rather than through project membership. The active-activation read and the activation-started broadcast carry that same projection, and a room-scoped read of a single type serves the cases where the broadcast was missed. A guest who satisfies the room's access tier is a full activity participant.
 
 ## 31. Agent Skills
 

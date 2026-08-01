@@ -17,8 +17,17 @@ from fastapi import APIRouter, Depends, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import PaginationParams, assert_project_membership, assert_project_owner
-from contexts.activities.domain.errors import SessionNotFound, ValidatorConfigInvalid
+from app.api.v1.deps import (
+    PaginationParams,
+    assert_project_membership,
+    assert_project_owner,
+    is_project_owner_or_admin,
+)
+from contexts.activities.domain.errors import (
+    ActivityTypeNotFound,
+    SessionNotFound,
+    ValidatorConfigInvalid,
+)
 from contexts.activities.domain.models import (
     ActivityActivation,
     ActivityAggregate,
@@ -96,6 +105,18 @@ class ActivityTypeOut(BaseModel):
     created_at: str | None
 
 
+class ActivityTypePublicOut(BaseModel):
+    """The participant rendering contract (R30.26): identity, key, display
+    name, and payload schema, and nothing else. No `validator_config` — that
+    field is confidential to Project Owners (R30.25). Reachable through the
+    room-access chain, never through project membership."""
+
+    id: uuid.UUID
+    key: str
+    name: str
+    payload_schema: dict[str, Any]
+
+
 class ActivityValidatorOut(BaseModel):
     """A registered first-party in-process validator the authoring form may offer."""
 
@@ -120,6 +141,10 @@ class ActivityActivationOut(BaseModel):
     status: str
     created_at: str | None
     ended_at: str | None
+    # The rendering contract embedded so a participant needs no round trip
+    # (Q-1); `None` only when the type row is missing or cross-project, same
+    # as a null activation would be treated.
+    activity_type: ActivityTypePublicOut | None = None
 
 
 class ActivitySessionOut(BaseModel):
@@ -169,7 +194,7 @@ class ActivitySubmissionsPageOut(BaseModel):
     aggregate: ActivityAggregateOut
 
 
-def _type_out(t: ActivityType) -> ActivityTypeOut:
+def _type_out(t: ActivityType, *, include_validator_config: bool = True) -> ActivityTypeOut:
     return ActivityTypeOut(
         id=t.id,
         project_id=t.project_id,
@@ -177,12 +202,16 @@ def _type_out(t: ActivityType) -> ActivityTypeOut:
         name=t.name,
         payload_schema=t.payload_schema,
         validator_kind=t.validator_kind,
-        validator_config=t.validator_config,
+        validator_config=t.validator_config if include_validator_config else {},
         retention_days=t.retention_days,
         expose_payload_to_agent=t.expose_payload_to_agent,
         echo_includes_content=t.echo_includes_content,
         created_at=t.created_at.isoformat() if t.created_at else None,
     )
+
+
+def _type_public_out(t: ActivityType) -> ActivityTypePublicOut:
+    return ActivityTypePublicOut(id=t.id, key=t.key, name=t.name, payload_schema=t.payload_schema)
 
 
 def _session_out(s: ActivitySession) -> ActivitySessionOut:
@@ -197,7 +226,7 @@ def _session_out(s: ActivitySession) -> ActivitySessionOut:
     )
 
 
-def _activation_out(a: ActivityActivation) -> ActivityActivationOut:
+def _activation_out(a: ActivityActivation, activity_type: ActivityType | None) -> ActivityActivationOut:
     return ActivityActivationOut(
         id=a.id,
         chatroom_id=a.chatroom_id,
@@ -206,7 +235,28 @@ def _activation_out(a: ActivityActivation) -> ActivityActivationOut:
         status=a.status.value,
         created_at=a.created_at.isoformat() if a.created_at else None,
         ended_at=a.ended_at.isoformat() if a.ended_at else None,
+        activity_type=_type_public_out(activity_type) if activity_type is not None else None,
     )
+
+
+async def _resolve_activation_type(
+    facade: ActivitiesFacade, *, project_id: uuid.UUID, activation: ActivityActivation
+) -> ActivityType | None:
+    """Tenant-safe lookup for embedding in an activation read/broadcast: the
+    type is fetched fresh rather than trusted from the activation row, so a
+    type that went missing or was somehow cross-project never leaks through.
+
+    Called post-commit at two call sites (start/end): a transient failure here
+    must not turn an already-committed activation change into a 500 for the
+    facilitator, so it degrades to no embedded type rather than propagating —
+    the client's fallback room-scoped read (Q-1) recovers it.
+    """
+    try:
+        t = await facade.get_type(activation.activity_type_id)
+    except Exception:
+        _log.warning("activity type resolution failed for embed, activation %s", activation.id, exc_info=True)
+        return None
+    return t if t is not None and t.project_id == project_id else None
 
 
 def _submission_out(s: ActivitySubmission) -> ActivitySubmissionOut:
@@ -361,9 +411,34 @@ async def list_activity_types(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[ActivityTypeOut]:
+    """Membership gate is unchanged — a non-owner member still legitimately
+    lists types (that is how a facilitator picks one to activate). Only
+    `validator_config` is owner-gated (R30.25): it may hold answer keys and,
+    once sealed validator credentials exist, secrets."""
     await assert_project_membership(db=db, principal=principal, project_id=project_id)
+    is_owner = await is_project_owner_or_admin(db=db, principal=principal, project_id=project_id)
     types = await ActivitiesFacade(db).list_types(project_id)
-    return [_type_out(t) for t in types]
+    return [_type_out(t, include_validator_config=is_owner) for t in types]
+
+
+@chatroom_router.get("/{chatroom_id}/activity-types/{type_id}")
+async def get_room_activity_type(
+    chatroom_id: uuid.UUID = Path(...),
+    type_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ActivityTypePublicOut:
+    """Room-scoped rendering-contract read (R30.26, Q-1): the recovery path
+    when the activation-started broadcast was missed, the store was reset, or
+    a future flow needs a type that is not the currently active one. Gated by
+    the room-access chain, not project membership, so a chatroom guest is a
+    full activity participant."""
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    activity_type = await ActivitiesFacade(db).get_type(type_id)
+    if activity_type is None or activity_type.project_id != access.project_id:
+        raise ActivityTypeNotFound(str(type_id))
+    return _type_public_out(activity_type)
 
 
 # --------------------------------------------------------------------------- #
@@ -398,7 +473,8 @@ async def start_activity_activation(
 ) -> ActivityActivationOut:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_room_creator(access, principal=principal)
-    activation = await ActivitiesFacade(db).start_activation(
+    facade = ActivitiesFacade(db)
+    activation = await facade.start_activation(
         project_id=access.project_id,
         chatroom_id=chatroom_id,
         activity_type_id=body.activity_type_id,
@@ -407,8 +483,11 @@ async def start_activity_activation(
         request_id=ctx.request_id,
     )
     await db.commit()
-    await _dispatch_activation_started(activation)
-    return _activation_out(activation)
+    activity_type = await _resolve_activation_type(
+        facade, project_id=access.project_id, activation=activation
+    )
+    await _dispatch_activation_started(activation, activity_type)
+    return _activation_out(activation, activity_type)
 
 
 @chatroom_router.patch("/{chatroom_id}/activity-activations/{activation_id}/end")
@@ -421,7 +500,8 @@ async def end_activity_activation(
 ) -> ActivityActivationOut:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_room_creator(access, principal=principal)
-    result = await ActivitiesFacade(db).end_activation(
+    facade = ActivitiesFacade(db)
+    result = await facade.end_activation(
         chatroom_id=chatroom_id,
         activation_id=activation_id,
         actor_user_id=principal.user_id,
@@ -431,7 +511,10 @@ async def end_activity_activation(
     await db.commit()
     if result.transitioned:
         await _dispatch_activation_ended(chatroom_id, result.activation.id)
-    return _activation_out(result.activation)
+    activity_type = await _resolve_activation_type(
+        facade, project_id=access.project_id, activation=result.activation
+    )
+    return _activation_out(result.activation, activity_type)
 
 
 @chatroom_router.get("/{chatroom_id}/activity-activations/active")
@@ -442,8 +525,14 @@ async def get_active_activity_activation(
 ) -> ActivityActivationOut | None:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_read(access, is_admin=principal.is_admin)
-    activation = await ActivitiesFacade(db).get_active_activation(chatroom_id)
-    return _activation_out(activation) if activation is not None else None
+    facade = ActivitiesFacade(db)
+    activation = await facade.get_active_activation(chatroom_id)
+    if activation is None:
+        return None
+    activity_type = await _resolve_activation_type(
+        facade, project_id=access.project_id, activation=activation
+    )
+    return _activation_out(activation, activity_type)
 
 
 @chatroom_router.post("/{chatroom_id}/activity-sessions")
@@ -587,16 +676,20 @@ async def _dispatch_submission(
         _log.warning("activity workflow-signal dispatch failed for %s", submission.id, exc_info=True)
 
 
-async def _dispatch_activation_started(activation: ActivityActivation) -> None:
+async def _dispatch_activation_started(
+    activation: ActivityActivation, activity_type: ActivityType | None
+) -> None:
     try:
-        await Publisher(room_channel(activation.chatroom_id)).emit(
-            "activity.activation.started",
-            {
-                "activation_id": str(activation.id),
-                "activity_type_id": str(activation.activity_type_id),
-                "started_by": str(activation.started_by_user_id),
-            },
-        )
+        payload: dict[str, Any] = {
+            "activation_id": str(activation.id),
+            "activity_type_id": str(activation.activity_type_id),
+            "started_by": str(activation.started_by_user_id),
+        }
+        if activity_type is not None:
+            # Same participant projection as the HTTP reads (R30.26) — no
+            # validator_config on any realtime payload.
+            payload["activity_type"] = _type_public_out(activity_type).model_dump(mode="json")
+        await Publisher(room_channel(activation.chatroom_id)).emit("activity.activation.started", payload)
     except Exception:
         _log.error("realtime publish failed for activity activation %s", activation.id, exc_info=True)
 

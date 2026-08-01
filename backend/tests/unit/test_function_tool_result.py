@@ -21,6 +21,20 @@ _ALLOW = "contexts.agents.application.runtime.builtin_tools.function_egress_allo
 _REDIS = "shared_kernel.auth.clients.get_redis"
 
 
+def _session() -> AsyncMock:
+    """A stand-in turn session that supports ``begin_nested()``.
+
+    The tool audit write is savepointed (``audit.emit(isolated=True)``), and a bare
+    ``AsyncMock`` returns a coroutine there rather than an async context manager, so
+    every audit write would fail — and a call whose audit row was lost is now
+    reported to the model as an error.
+    """
+    db = AsyncMock()
+    db.begin_nested = MagicMock(return_value=AsyncMock())
+    db.info = {}
+    return db
+
+
 def _agent() -> SimpleNamespace:
     return SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
 
@@ -74,7 +88,7 @@ def _redis_returning(count: int) -> Any:
 async def _invoke_against(status: int, headers: dict[str, str] | None = None) -> Any:
     tool = _function()
     fn_tool = bt._build_function_tool(
-        AsyncMock(), agent=_agent(), tool=tool, deps=_deps(_FakeProxy(status, headers))
+        _session(), agent=_agent(), tool=tool, deps=_deps(_FakeProxy(status, headers))
     )
     with (
         patch(_ALLOW, new=AsyncMock(return_value=("api.partner.example", True))),

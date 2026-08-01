@@ -10,12 +10,25 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from contexts.agents.application.runtime import builtin_tools as bt
 from contexts.agents.domain.models import AgentTool, AgentToolType
 
 _NOW = datetime(2026, 6, 22, 12, 0, 0)
+
+
+def _session() -> AsyncMock:
+    """A stand-in turn session that supports ``begin_nested()``.
+
+    The tool audit write is savepointed, and a bare ``AsyncMock`` returns a
+    coroutine there rather than an async context manager — so the write would fail
+    and the call would be reported to the model as an error (AC-4).
+    """
+    db = AsyncMock()
+    db.begin_nested = MagicMock(return_value=AsyncMock())
+    db.info = {}
+    return db
 
 
 def _agent() -> SimpleNamespace:
@@ -63,7 +76,7 @@ async def test_mcp_fails_closed_when_unseal_raises(monkeypatch) -> None:
 
     runner = AsyncMock()
     tool = bt._build_mcp_tool_from_agent_tool(
-        AsyncMock(),
+        _session(),
         agent=_agent(),
         tool=_mcp_tool(with_auth=True),
         mcp_tool="alpha",
@@ -84,7 +97,7 @@ async def test_mcp_invokes_when_no_auth_configured(monkeypatch) -> None:
     runner = AsyncMock()
     runner.invoke_mcp_tool.return_value = SimpleNamespace(ok=True, stdout="ok", stderr="")
     tool = bt._build_mcp_tool_from_agent_tool(
-        AsyncMock(),
+        _session(),
         agent=_agent(),
         tool=_mcp_tool(with_auth=False),
         mcp_tool="alpha",

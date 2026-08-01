@@ -71,6 +71,25 @@ pytest -q --cov=app --cov=contexts --cov=shared_kernel
 
 ~4700 unit tests, ~65% coverage. Test files mirror source structure in `tests/unit/`.
 
+### PostgreSQL-specific SQL needs a `db`-tier test
+
+The unit tier compiles statements with `literal_binds`, which renders every
+parameter as an inline SQL literal. PostgreSQL coerces inline literals far more
+freely than it coerces bound parameters, so the unit tier **cannot** see a
+parameter-type error — it only sees SQL text that would work if pasted into psql.
+
+A query using a PostgreSQL-specific function or operator therefore needs at least
+one test that actually executes it (`pytest.mark.db`). Without one it can be
+fully green in CI and raise on every real request. `MessageRepository.search` shipped
+exactly that way: `sa.literal("english")` binds as VARCHAR, no
+`plainto_tsquery(varchar, varchar)` overload exists, and every chatroom search
+returned a 500 while the suite stayed green.
+
+When passing a constant into an argument whose PostgreSQL type is not `text`, cast
+it explicitly — `sa.cast(sa.literal("english"), REGCONFIG)` — or type the literal to
+the target column (`sa.literal(value, type_=table.c.col.type)`, as
+`workflow/infrastructure/repositories.py` does).
+
 ## Lint & Type Check
 
 ```bash
