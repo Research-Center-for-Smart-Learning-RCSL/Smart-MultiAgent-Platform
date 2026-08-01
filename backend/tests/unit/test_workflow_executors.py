@@ -590,6 +590,10 @@ class TestWaitForEventExecutor:
 
         assert outcome.timeout_ms == 60_000
         assert outcome.timeout_task == "workflow_event_resume"
+        # The recorded step output must show the deadline that actually governs
+        # the park, not just the inert timeout_seconds (debuggability, found in
+        # self-audit: WorkflowBackstageView renders this output verbatim).
+        assert outcome.output["delay_seconds"] == 60
 
     async def test_timer_claim_ttl_covers_the_delay(self) -> None:
         outcome, redis, ctx, node = await self._run(
@@ -618,6 +622,7 @@ class TestWaitForEventExecutor:
         assert outcome.timeout_ms == 300_000
         assert outcome.timeout_task == "workflow_event_timeout"
         assert redis.sets[f"wf:wait:{ctx.run_id}:{node.id}"] == 300 + 60
+        assert "delay_seconds" not in outcome.output
 
     async def test_timer_defaults_delay_when_absent(self) -> None:
         outcome, _, _, _ = await self._run({"event_type": "timer", "timeout_seconds": 300})
