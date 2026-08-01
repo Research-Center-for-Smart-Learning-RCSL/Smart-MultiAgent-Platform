@@ -215,6 +215,8 @@
       "waitForAll": "等待全部",
       "eventType": "事件類型",
       "delaySeconds": "延遲（秒）",
+      "timerTimeoutNotApplicableTitle": "計時器等待不適用逾時",
+      "timerTimeoutNotApplicableBody": "計時器沒有外部事件可供等待逾時，延遲時間一到就會自行恢復執行。請使用下方的「延遲」設定此節點的等待時間。",
       "expression": "表達式",
       "description": "說明",
       "count": "數量",

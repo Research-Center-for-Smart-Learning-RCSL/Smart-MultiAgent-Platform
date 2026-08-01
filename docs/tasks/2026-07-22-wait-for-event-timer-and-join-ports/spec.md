@@ -569,8 +569,10 @@ Redis independently of which version of the executor is deployed when it fires.
 - [x] AC-7: saving a definition that carries `join.timeout_seconds` or a join `timeout` edge
       still succeeds, and produces exactly one advisory warning per dead edge.
 - [x] AC-8: `docs/workflow.schema.md:29,45`, `docs/implement/H-workflow.md:82`, and
-      `docs/UI/08-workflow.md:250,518,1301` state that the join `timeout` port is not
-      implemented; `docs/workflow.schema.json:411` marks `timeout_seconds` deprecated.
+      `docs/UI/08-workflow.md:250,514-516,1307` state that the join `timeout` port is not
+      implemented; `docs/workflow.schema.json:411` marks `timeout_seconds` deprecated. (Line
+      numbers corrected post-review: the original `:518,1301` shifted to `:514-516,1307`
+      when this same diff's join-notice paragraph was inserted above them — see D-3.)
 - [x] AC-9: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
       `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass in
       `frontend/`.
@@ -605,6 +607,25 @@ must be redrafted with an `[R14.xx]` entry before approval.
   (pinned by `test_message_wait_unchanged`'s `"delay_seconds" not in outcome.output`
   assertion). Serves the same debuggability intent as AC-5/AC-6, not a scope change —
   `wait_for_event.py` was already the file being edited.
+- **D-2 — `WaitForEventConfigForm.vue`'s `timeout_seconds` field now hides for
+  `event_type: timer`, with a new info notice explaining why.** Not in AC-10's file list;
+  found by an independent `/code-review` pass after this dossier reached `implemented`.
+  Same defect class this task exists to fix (S-2: a config field the executor no longer
+  reads, exposed with no indication) — C-1 made `timeout_seconds` inert for timer waits,
+  but only `JoinConfigForm.vue` got the corresponding UI treatment; this file, seeded with
+  `event_type: 'timer'` by default (`constants.ts:10`), did not. Fixed by wrapping the
+  Timeout field in `v-if="event_type !== 'timer'"` (matching the file's existing
+  per-event-type conditional-field pattern) and adding an `SAlert` in the timer block, new
+  `workflow.schema.md` §2 footnote 2, and matching notes in `H-workflow.md:80` /
+  `08-workflow.md:249`. Covered by new `WaitForEventConfigForm.test.ts` (fails-first
+  confirmed). Unlike D-1, this does touch a file outside AC-10's list — flagged here rather
+  than silently folded into "in scope" because AC-10 exists specifically to catch scope
+  drift; this drift is toward the task's own stated intent (F-2/S-2), not away from it.
+- **D-3 — three documentation citations corrected post-review.** AC-8's own citation into
+  `docs/UI/08-workflow.md` (`:518,1301`) went stale within this same diff: inserting the
+  join-timeout notice paragraph (§7 C-3) shifted the `JoinConfigForm.vue` file-map row from
+  line 1301 to 1307 and the removed-field note from 518 to a table header. Corrected to
+  `:514-516,1307`. Caught by the same `/code-review` pass as D-2.
 
 ## 13. Follow-ups
 
@@ -632,4 +653,26 @@ must be redrafted with an `[R14.xx]` entry before approval.
   idleness rather than the incomplete fan-in. If the join timeout is ever built, this is the
   gap it closes, and per §6 it sequences behind
   `docs/tasks/2026-07-22-join-epoch-loop-reentry/`.
+- **FU-5 — `timeout_ms = park_seconds * 1_000` has no defensive floor.** Found by
+  `/code-review`: if `delay_seconds` or `timeout_seconds` were ever 0, `run_engine.py`'s
+  `if outcome.timeout_ms > 0 and outcome.timeout_task:` guard silently skips scheduling the
+  resume/timeout job while the run is already WAITING — a permanent park. Not introduced by
+  this dossier (the identical gap already existed for `timeout_seconds` alone); C-1 exposes
+  a second field to the same pre-existing shape. Not fixed here: the schema already enforces
+  `"minimum": 1` on both fields at save time (`workflow_service.py:429`), so 0 is reachable
+  only via a legacy row predating that constraint or a write path that bypasses
+  `_validate_schema` — CLAUDE.md's "don't validate scenarios that can't happen at the
+  boundary" applies. Worth a repo-wide defensive-floor pass across every executor that does
+  this multiplication (`approval_gate.py`, `instruct.py`, `subagent_spawn.py` too), not a
+  one-file patch.
+- **FU-6 — `validate_definition`'s create/patch signature cannot distinguish a brand-new
+  definition from a legacy one being revalidated.** Found by `/code-review`, against Q-5/Q-6's
+  "advisory, not blocking" decision: `WorkflowService.create()` and `.patch()` both call
+  `validate_definition()` identically, so a fresh workflow authoring a dead
+  `join --timeout-->` edge today gets the same warning-only treatment as an old stored
+  definition being grandfathered. Q-5/Q-6's rationale only argues the legacy-compatibility
+  side; it never evaluates escalating *new* authoring to a blocking rule, and the current
+  signatures have no plumbing (an is-new-definition flag) to support that later even if
+  wanted. Out of scope here — would need its own product decision and spec, not a bugfix
+  addition.
 </content>

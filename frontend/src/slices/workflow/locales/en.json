@@ -217,6 +217,8 @@
       "waitForAll": "Wait for all",
       "eventType": "Event Type",
       "delaySeconds": "Delay (seconds)",
+      "timerTimeoutNotApplicableTitle": "Timeout does not apply to timer waits",
+      "timerTimeoutNotApplicableBody": "A timer has no external event to time out waiting for — it resumes on its own once the delay below elapses. Use Delay to set how long this node waits.",
       "expression": "Expression",
       "description": "Description",
       "count": "Count",

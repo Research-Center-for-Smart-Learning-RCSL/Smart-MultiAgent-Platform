@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import { SCheckbox, SFormField, SInput, SSelect, STextarea } from '@shared/ui'
+import { SAlert, SCheckbox, SFormField, SInput, SSelect, STextarea } from '@shared/ui'
 
 const { t } = useI18n()
 
@@ -76,11 +76,14 @@ function toggleType(type: string) {
       />
     </SFormField>
 
-    <!-- Timeout -->
+    <!-- Timeout — not applicable to timer waits (F-2): a timer has no external
+         producer, so it resumes at `default` after delay_seconds instead of ever
+         reaching the timeout port. -->
     <!-- Native @input (bubbles through SInput's wrapper) so safeNumber sees the
          raw string; SInput's update:modelValue coerces a cleared field to 0,
          which would bypass the min=1 fallback. -->
     <SFormField
+      v-if="(local.event_type ?? 'message_in_room') !== 'timer'"
       :label="t('workflow.config.timeoutSeconds')"
       name="wait-timeout"
     >
@@ -166,6 +169,13 @@ function toggleType(type: string) {
 
     <!-- timer fields -->
     <template v-if="local.event_type === 'timer'">
+      <SAlert
+        variant="info"
+        :title="t('workflow.config.timerTimeoutNotApplicableTitle')"
+      >
+        {{ t('workflow.config.timerTimeoutNotApplicableBody') }}
+      </SAlert>
+
       <SFormField
         :label="t('workflow.config.delaySeconds')"
         name="wait-delay"

@@ -24,7 +24,7 @@ Reference: `REQUIREMENTS.md` §14 "Workflow Engine" and §15 "Wake-up, Approval,
 | `condition` | user-defined ports (`default_port` fallback) | Evaluate up to 20 boolean branches in order; dispatch to the first matching port. |
 | `instruct` | `success`, `failure` | Send an instruction to a target agent. Target cannot refuse (REQUIREMENTS §15.5). Loop detection is mandatory. |
 | `subagent_spawn` | `success`, `failure` | Create child agent(s) under a parent. Max recursion depth = 1 (REQUIREMENTS §15.6). |
-| `wait_for_event` | `default`, `timeout` | Pause the branch until a qualifying event arrives (room message, A2A message, timer, variable condition). |
+| `wait_for_event` | `default`, `timeout`² | Pause the branch until a qualifying event arrives (room message, A2A message, timer, variable condition). |
 | `parallel` | `default` | Fan-out marker. All outgoing edges are taken concurrently. |
 | `join` | `default`, `timeout`¹ | Fan-in marker. Waits for `all` / `any` / `count(N)` incoming branches. |
 | `set_variable` | `default` | Compute expressions and assign to workflow variables. |
@@ -42,7 +42,7 @@ Reserved ports by node type:
 | `agent_invocation`, `instruct`, `subagent_spawn` | `success`, `failure` |
 | `approval_gate` | `approved`, `rejected`, `timeout` |
 | `condition` | any user-declared `branches[].port` + `default_port` |
-| `wait_for_event`, `join`¹ | `default`, `timeout` |
+| `wait_for_event`², `join`¹ | `default`, `timeout` |
 | `end` | (no outgoing edges) |
 
 ¹ `join`'s `timeout` port is **not implemented**: no code arms a timeout for a join, so
@@ -52,6 +52,11 @@ rendering (see `join_config.timeout_seconds` in `workflow.schema.json`, deprecat
 same reason). A join whose fan-in never completes stalls until the run's `idle_max_seconds`
 watchdog force-fails the run — there is no join-level bound.
 See `docs/tasks/2026-07-22-wait-for-event-timer-and-join-ports/spec.md` §3 Q-2.
+
+² A `wait_for_event`'s `timeout` port is reachable for every `event_type` **except**
+`timer` — a timer wait resumes at `default` after `delay_seconds` (there is no external
+producer for a timer to time out waiting on; its own elapse *is* the event, Q-1). A
+`timeout` edge out of a timer wait is provably dead; the linter's W9 advisory flags it.
 
 ---
 
