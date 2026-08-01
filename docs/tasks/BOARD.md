@@ -16,11 +16,6 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-07-22-wait-for-event-timer-and-join-ports` (bugfix, draft) — `depends_on: []`. a2a F-2,
-  F-36: a `timer` wait — the editor's seeded default — parks until its timeout and exits the
-  failure port, and the join `timeout` port is documented, linted, rendered and produced by
-  nothing. **Q-2 open**: build the join timeout or record its absence. If the user chooses to
-  build it, `depends_on` becomes `[2026-07-22-join-epoch-loop-reentry]` (its Q-3).
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
@@ -34,6 +29,10 @@ parallel.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+- `2026-07-22-wait-for-event-timer-and-join-ports` (bugfix) — `depends_on: []`. a2a F-2, F-36:
+  a `timer` wait — the editor's seeded default — parks until its timeout and exits the failure
+  port; the join `timeout` port is documented, linted, rendered and produced by nothing. Q-2
+  decided 2026-08-01: record the absence (C-3), not build a real join timeout.
 Removed on 2026-08-01 after implementation: `2026-07-22-turn-outcome-reporting` (C2 and C3's
 frontend-only slices on 2026-07-31, then C1, C4 and C3's backend half once
 `turn-idempotency-and-locking` released `turn_engine.py`). Nothing lists it in `depends_on`, so no

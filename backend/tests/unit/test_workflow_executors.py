@@ -567,6 +567,65 @@ class TestJoinExecutor:
 
 
 # ===========================================================================
+# wait_for_event executor
+# ===========================================================================
+
+
+class TestWaitForEventExecutor:
+    async def _run(self, config: dict) -> tuple:
+        from contexts.workflow.application.executors.wait_for_event import execute
+
+        redis = _RecordingRedis()
+        ctx = _make_ctx()
+        node = _make_node(NodeType.WAIT_FOR_EVENT, config)
+
+        with patch("shared_kernel.auth.clients.get_redis", return_value=redis):
+            outcome = await execute(ctx, node, AsyncMock())
+        return outcome, redis, ctx, node
+
+    async def test_timer_wait_arms_delay_not_timeout(self) -> None:
+        outcome, _, _, _ = await self._run(
+            {"event_type": "timer", "timeout_seconds": 300, "delay_seconds": 60}
+        )
+
+        assert outcome.timeout_ms == 60_000
+        assert outcome.timeout_task == "workflow_event_resume"
+
+    async def test_timer_claim_ttl_covers_the_delay(self) -> None:
+        outcome, redis, ctx, node = await self._run(
+            {"event_type": "timer", "timeout_seconds": 300, "delay_seconds": 3600}
+        )
+
+        assert redis.sets[f"wf:wait:{ctx.run_id}:{node.id}"] == 3600 + 60
+        assert outcome.park is True
+
+    async def test_timer_index_ttl_covers_the_delay(self) -> None:
+        _, redis, _, _ = await self._run(
+            {"event_type": "timer", "timeout_seconds": 300, "delay_seconds": 3600}
+        )
+
+        assert redis.ttls["wf:wait:by_event:timer"] == 3600 + 60
+
+    async def test_message_wait_unchanged(self) -> None:
+        outcome, redis, ctx, node = await self._run(
+            {
+                "event_type": "message_in_room",
+                "timeout_seconds": 300,
+                "chatroom_id": str(uuid.uuid4()),
+            }
+        )
+
+        assert outcome.timeout_ms == 300_000
+        assert outcome.timeout_task == "workflow_event_timeout"
+        assert redis.sets[f"wf:wait:{ctx.run_id}:{node.id}"] == 300 + 60
+
+    async def test_timer_defaults_delay_when_absent(self) -> None:
+        outcome, _, _, _ = await self._run({"event_type": "timer", "timeout_seconds": 300})
+
+        assert outcome.timeout_ms == 60_000
+
+
+# ===========================================================================
 # instruct executor
 # ===========================================================================
 
