@@ -9,7 +9,7 @@ export const NODE_DEFAULTS: Record<NodeType, Record<string, unknown>> = {
   subagent_spawn: { parent_agent_id: '', task_template: '' },
   wait_for_event: { event_type: 'timer', timeout_seconds: 300, delay_seconds: 60 },
   parallel: {},
-  join: { mode: 'all', timeout_seconds: 600 },
+  join: { mode: 'all' },
   set_variable: { assignments: [{ variable: '', expression: '' }] },
   end: { status: 'success' },
 }

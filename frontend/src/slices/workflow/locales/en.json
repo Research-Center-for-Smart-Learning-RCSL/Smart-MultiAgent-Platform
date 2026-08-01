@@ -175,6 +175,8 @@
       "label": "Label",
       "subagentUnavailableTitle": "Sub-agent spawn is not available yet",
       "subagentUnavailableBody": "Sub-agent execution is not implemented yet, so this node always fails immediately. Make sure its failure path is wired, or its success path if you set on-error to continue. The capability is deferred, not cancelled.",
+      "joinTimeoutNotImplementedTitle": "Join has no timeout",
+      "joinTimeoutNotImplementedBody": "A join's fan-in never times out on its own. If a branch never arrives, the run stalls until the run-level idle timeout force-fails it. Wire the timeout port only if you understand it will never fire.",
       "deleteNode": "Delete Node",
       "deleteConfirm": "Delete this node and all its edges?",
       "deleteConfirmTitle": "Delete Node",
