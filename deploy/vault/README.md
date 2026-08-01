@@ -15,7 +15,8 @@ Files:
 
 ## 1. Prerequisites
 
-- Vault 1.15+ running in the `vault` Docker service.
+- Vault 1.18+ running in the `vault` Docker service (compose pins
+  `hashicorp/vault:1.18.3`).
 - Host-side working directory with the unseal keys stored **outside** the
   Postgres volume (losing both would still be catastrophic; keeping them
   separate limits single-volume-compromise blast radius).
@@ -95,12 +96,19 @@ vault write -f auth/approle/role/smap-backend/secret-id
 vault read  auth/approle/role/smap-rotation/role-id
 vault write -f auth/approle/role/smap-rotation/secret-id
 
-# 9. Seed initial KV config (example — operators adapt to their env).
+# 9. Seed initial KV config. `smap.bootstrap vault-init` already creates
+#    captcha / smtp / hmac-key / minio idempotently with empty placeholders —
+#    this step just fills in real values (or seeds by hand if you skip the
+#    CLI). These four paths are the ONLY KV config the backend reads at
+#    runtime (see shared_kernel/auth/captcha.py, smap/bootstrap/minio_init.py).
+#    Postgres / Redis / Neo4j / Qdrant credentials are NOT read from Vault —
+#    they come from SMAP_DB_PASSWORD / SMAP_REDIS_PASSWORD /
+#    SMAP_NEO4J_PASSWORD / SMAP_QDRANT_API_KEY env vars instead (.env.example).
+vault kv put secret/smap/config/captcha    mode=off provider=hcaptcha sitekey= secret=
 vault kv put secret/smap/config/smtp       host=mail.example.com user=smap password=…
-vault kv put secret/smap/config/search     provider=brave        key=brv-live-…
 vault kv put secret/smap/config/minio      access_key=…          secret_key=…
-vault kv put secret/smap/config/neo4j      password=…
-vault kv put secret/smap/config/qdrant     api_key=…
+# secret/smap/config/hmac-key is generated automatically by vault-init;
+# do not overwrite it by hand.
 
 # 10. Revoke the initial root token. From here on, only the AppRoles and
 #     human operators with quorum-generated tokens can interact with Vault.
@@ -115,16 +123,21 @@ After step 10, Vault is "production mode" for SMAP's purposes.
 
 ### 3.1 Environment
 
-Each `backend-web` / `backend-worker` container receives:
+Each `backend-web` / `backend-worker` container receives (see `.env.example`
+and the `prod`/`staging` compose overlays):
 
 ```
-VAULT_ADDR=https://vault.smap.internal
-VAULT_ROLE_ID=<role_id from step 8>
-VAULT_SECRET_ID_FILE=/run/secrets/smap-backend-secret-id
+SMAP_VAULT_ADDR=https://vault:8200   # internal DNS name outside compose
+SMAP_VAULT_ROLE_ID=<role_id from step 8>
+SMAP_VAULT_SECRET_ID=<secret_id from step 8>
+SMAP_VAULT_CA_CERT=/vault-tls/vault-internal-ca.pem   # prod/staging only (B2-2)
 ```
 
-The `secret_id` is rendered into the container via a Docker secret (not an
-env var) to keep it out of `docker inspect` output and process lists.
+These are plain environment variables sourced from `.env`; the compose files
+do not currently wire a Docker secret for `secret_id`, so it is readable via
+`docker inspect` / `docker compose config` on the host. Restrict `.env` file
+permissions accordingly — moving `secret_id` behind a Docker secret is a
+worthwhile hardening follow-up, not something already in place.
 
 ### 3.2 Login flow (on process start)
 
@@ -170,25 +183,25 @@ POST /v1/transit/decrypt/smap-provider-secret
 ## 4. Rotation procedure (quarterly or on suspected compromise)
 
 ```bash
-# 0. Log in with the rotation AppRole (from a hardened operator workstation).
-export VAULT_ADDR=…
-export VAULT_TOKEN=$(vault write -format=json auth/approle/login \
-    role_id=$ROT_ROLE_ID secret_id=$ROT_SECRET_ID | jq -r '.auth.client_token')
+# 0. Authenticate as the rotation AppRole (from a hardened operator
+#    workstation). `smap.rotation` resolves Vault credentials the same way
+#    the backend does — via SMAP_VAULT_ROLE_ID / SMAP_VAULT_SECRET_ID — so
+#    export those for the smap-rotation role rather than smap-backend.
+export SMAP_VAULT_ADDR=…
+export SMAP_VAULT_ROLE_ID=$ROT_ROLE_ID
+export SMAP_VAULT_SECRET_ID=$ROT_SECRET_ID
 
-# 1. Rotate the master key: creates version N+1; N remains valid for decrypt.
-vault write -f transit/keys/smap-provider-secret/rotate
+# 1+2. Rotate the master key AND rewrap every existing DEK, in one command.
+#    Rotate creates version N+1; N remains valid for decrypt until step 3.
+#    Rewrap walks the `api_keys` and `search_keys` tables in 200-row chunks,
+#    calling /transit/rewrap per row (plaintext never leaves Vault) and
+#    checkpointing progress in `rewrap_progress` — a killed run resumes
+#    instead of restarting. Runs under the smap-rotation policy, which can
+#    call /rewrap without needing /transit/decrypt.
+cd backend && python -m smap.rotation rotate-transit
 
-# 2. Rewrap all existing DEKs. This is done by the backend in a streaming
-#    migration: for each api_keys row, call /transit/rewrap with the old
-#    dek_wrapped and replace the column. Rewrap does NOT release plaintext.
-#
-#    In practice this is a Python management command:
-#      $ python -m smap.manage rewrap-keys --batch-size=200 --workers=4
-#    The command runs under the smap-rotation policy, not the smap-backend
-#    policy (so it can call /rewrap without needing decrypt).
-
-# 3. Once every row has been rewrapped, advance the minimum decryption
-#    version to deprecate N and all earlier versions.
+# 3. Once the command reports every row rewrapped, advance the minimum
+#    decryption version to deprecate N and all earlier versions.
 vault write transit/keys/smap-provider-secret/config \
     min_decryption_version=<N+1>
 
@@ -228,7 +241,7 @@ real providers so that accidental data leaks are harmless.
 | Vault pod is restarted | Operator with quorum of unseal keys re-unseals; backend re-logs-in via AppRole. No data loss. |
 | Postgres restored from backup that is older than the last key rotation | Backup still decryptable because old key versions remain valid unless min_decryption_version was advanced past them. If it was, the older ciphertexts are unrecoverable by design — the rotation operator must communicate this SLA. |
 | Vault volume is lost permanently | All provider secrets stored in Postgres become unrecoverable plaintext-less ciphertext. Operators must delete them and ask users to re-upload. This is the intended failure mode of envelope encryption — it trades recoverability for strong compromise containment. |
-| Backend container leaks its `secret_id` | Revoke via `vault write -f auth/approle/role/smap-backend/secret-id-accessor/destroy accessor=…`, re-issue, redeploy. The leaked `secret_id` can only mint `smap-backend` tokens which cannot exfiltrate key material. |
+| Backend container leaks its `secret_id` | Revoke via `vault write auth/approle/role/smap-backend/secret-id-accessor/destroy secret_id_accessor=<accessor>`, re-issue, redeploy. The leaked `secret_id` can only mint `smap-backend` tokens which cannot exfiltrate key material. |
 
 ---
 

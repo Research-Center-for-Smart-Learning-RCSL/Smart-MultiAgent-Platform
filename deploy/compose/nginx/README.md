@@ -27,8 +27,13 @@ The container mounts a named volume `nginx_certs` at `/etc/nginx/certs`.
 
 Nginx forwards `X-Forwarded-For` / `X-Forwarded-Proto`; the backend
 `TrustedProxyMiddleware` walks the list right-to-left, trusting only peers in
-`SMAP_TRUSTED_PROXIES` (default: `127.0.0.0/8`, Docker bridge subnet). Add the
-front-proxy's subnet there when Nginx sits behind a CDN / ALB.
+`SMAP_SEC_TRUSTED_PROXIES` (default: `127.0.0.1/32`, `::1/128`,
+`172.16.0.0/12` — the Docker bridge range). A front proxy such as Nginx Proxy
+Manager reaches this container over the Docker bridge, which the default
+already covers — no extra CIDR is needed for that topology. Widen the list
+only when a CDN / ALB attaches from a network outside `172.16.0.0/12`, and
+verify the result with `deploy/scripts/verify-actor-ip.py` before relying on
+it (over-trusting a range lets that range spoof `X-Forwarded-For`).
 
 ## Port 80
 
