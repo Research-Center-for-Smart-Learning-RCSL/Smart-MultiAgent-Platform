@@ -6,19 +6,28 @@ Self-hosted platform for composing, orchestrating, and chatting with multi-LLM a
 
 ```
 backend/          Python 3.12 — FastAPI + Arq workers + Alembic migrations
-  app/            API routes (app/api/v1/), middleware, config, bootstrap
+  app/            API routes (app/api/v1/), middleware, config, bootstrap, plugins, wiring
   contexts/       DDD bounded contexts (activities, agents, agent_groups, audit, conversation,
                   identity, keys, knowledge, notification, orchestration, prompt_studio, skills,
                   tenancy, workflow)
-  shared_kernel/  Cross-cutting: auth, db, errors, events, crypto
+  shared_kernel/  Cross-cutting: auth, db, errors, i18n, infra, logging, markdown,
+                  observability, realtime, security (incl. Vault envelope crypto), storage,
+                  text_extraction
   services/       Standalone microservices (egress_proxy, mcp_supervisor)
-  smap/           CLI tools (bootstrap, rotation)
+  smap/           CLI tools (bootstrap, maintenance, rotation)
+  tests/e2e/      Backend end-to-end tests
 frontend/         Vue 3.5 + Tailwind v4 + TypeScript 5.6
   src/app/        Router, layouts, App.vue
-  src/slices/     Feature slices (admin, agents, conversation, identity, keys, notifications, tenancy, workflow)
+  src/slices/     Feature slices (activities, admin, agent-groups, agents, conversation,
+                  identity, keys, notifications, prompt-studio, skills, tenancy, workflow)
   src/shared/     UI components, composables, styles, api-client (generated)
-deploy/           Docker Compose overlays, nginx, Vault, observability
+  e2e/            Playwright end-to-end specs
+deploy/           Docker Compose (base + staging/prod/override/test overlays), nginx, Vault,
+                  observability
 ```
+
+See `backend/CLAUDE.md` and `frontend/CLAUDE.md` for per-layer detail — both are kept current
+and take precedence over this file for their respective domains.
 
 ## Separation of Concerns (SoC)
 
