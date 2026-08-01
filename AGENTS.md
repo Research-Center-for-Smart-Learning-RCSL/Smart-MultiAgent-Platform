@@ -48,6 +48,7 @@ Scopes: `backend`, `frontend`, `deploy`, `nginx`, `ci`, `obs`, `e2e`, `review`, 
 - Before requesting integration, Codex must inspect the complete diff and leave a self-review comment that records the scope, verification evidence, and merge decision.
 - Codex must respect required independent approvals and branch protection; a self-review never substitutes for an approval that repository policy requires from another writer.
 - Prefer the pull request's clean remote CI environment for full test execution. Run local checks only when they are fast and representative, and document any local-environment limitation in the PR.
+- Unless necessary, keep all project memory in English and do not use emojis. Before recording new project memory, Codex must confirm the intended entry with the user.
 
 ## Security Constraints
 
