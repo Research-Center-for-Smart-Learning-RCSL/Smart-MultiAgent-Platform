@@ -2,15 +2,16 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import { SCheckbox, SFormField, SInput, SSelect, STextarea } from '@shared/ui'
+import { SAlert, SCheckbox, SFormField, SInput, SSelect, STextarea } from '@shared/ui'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
+import type { ProjectAgent } from '../../utils/projectAgents'
 
 const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: Record<string, unknown>
-  agents: Array<{ id: string; name: string }>
+  agents: ProjectAgent[]
   chatrooms: Array<{ id: string; name: string }>
   allNodeIds: string[]
 }>()
@@ -21,14 +22,32 @@ const emit = defineEmits<{
 
 const { local, update } = useConfigModel(props, emit)
 
+// Advisory only (spec §7.4/Q-2/Q-3): there is no runtime gate for
+// can_create_subagent (subagent_spawn already fails fast unconditionally), so
+// this is purely a save-time hint — an agent already saved as parent without
+// the capability must stay visible and selectable.
 const agentOptions = computed(() => [
   { value: '', label: t('workflow.config.none') },
-  ...props.agents.map((agent) => ({ value: agent.id, label: agent.name })),
+  ...props.agents.map((agent) => ({
+    value: agent.id,
+    label: agent.canCreateSubagent
+      ? agent.name
+      : `${agent.name} ${t('workflow.config.agentMissingCanCreateSubagent')}`,
+  })),
 ])
 </script>
 
 <template>
   <div class="space-y-4">
+    <!-- The engine cannot execute this node; it exits its failure port immediately.
+         The fields below stay editable so a saved workflow round-trips unchanged. -->
+    <SAlert
+      variant="warning"
+      :title="t('workflow.config.subagentUnavailableTitle')"
+    >
+      {{ t('workflow.config.subagentUnavailableBody') }}
+    </SAlert>
+
     <!-- Parent Agent -->
     <SFormField
       :label="t('workflow.config.parentAgentId')"

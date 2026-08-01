@@ -11,6 +11,7 @@ concrete clients (OpenAI, Cohere, MinIO) lets us:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 __all__ = [
@@ -36,6 +37,9 @@ class BlobStore(Protocol):
 
     async def get(self, *, bucket: str, key: str) -> bytes:
         """Read an object. Raises if missing."""
+
+    async def download_to_path(self, *, bucket: str, key: str, path: Path) -> None:
+        """Stream an object into ``path`` without materialising it in memory."""
 
 
 class Embedder(Protocol):

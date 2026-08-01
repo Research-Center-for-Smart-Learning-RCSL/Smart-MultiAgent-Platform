@@ -1,26 +1,22 @@
-"""subagent_spawn executor — create child agent(s) under a parent (§15.6).
+"""subagent_spawn executor — fails fast; sub-agent execution is not implemented.
 
-W10: when wait_for_all=True the run parks and a Redis callback key is registered so
-the orchestration context can resume the run when the subagent task completes.
-A configurable timeout (default 1 h) is also scheduled via the engine's
-pending-enqueue mechanism.
+Only the bookkeeping half of G.8 ([R15.18]-[R15.23]) was ever built: the node created
+an ``agent_instances`` row and armed a Redis callback nothing ever read, so every run
+parked until the idle watchdog killed it. Failing immediately on the ``failure`` port
+is the truthful outcome. The capability is deferred, NOT cancelled — [R15.18]-[R15.23]
+remain live requirements.
 
-Orchestration completion hook:
-  When the spawned agent instance finishes, OrchestrationFacade should look up
-  wf:subagent_callback:{instance_id} and call engine.resume_at_port with the
-  stored run_id/node_id/port.
+Rationale, deferral and inherited follow-ups:
+``docs/tasks/2026-07-22-subagent-spawn-fail-fast/spec.md``
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.workflow.application.executors.registry import register
-from contexts.workflow.domain.claim_ttl import WAIT_CLAIM_GRACE_S, initial_claim_ttl
 from contexts.workflow.domain.models import (
     NodeSpec,
     NodeType,
@@ -28,95 +24,41 @@ from contexts.workflow.domain.models import (
     StepOutcome,
     StepState,
 )
-from contexts.workflow.sel.template import interpolate
 
 logger = logging.getLogger(__name__)
 
-_TIMEOUT_TASK = "workflow_subagent_timeout"
+# Mirrors #/$defs/subagent_spawn_config/properties/timeout_seconds in
+# docs/workflow.schema.json. Unread while the node fails fast, but kept in one named
+# place because the two silently diverged before: the executor defaulted to 3600
+# against a schema maximum of 600, so an omitting config got 20x the declared budget
+# while the editor displayed 180. The feature dossier reads this instead of
+# re-deriving it.
+DEFAULT_TIMEOUT_SECONDS = 180
+
+_UNIMPLEMENTED_ERROR = (
+    "subagent_spawn is not implemented. Sub-agent execution ([R15.18]-[R15.23]) has no "
+    "runtime: spawning would create an agent instance whose task never runs, then park "
+    "this run until the idle watchdog killed it. The node fails immediately on its "
+    "'failure' port instead. With on_error.strategy='continue' the run proceeds past "
+    "this node on its 'success' port and output_variable is left unset. This capability "
+    "is deferred to a feature dossier, not cancelled — see "
+    "docs/tasks/2026-07-22-subagent-spawn-fail-fast/spec.md."
+)
 
 
 @register(NodeType.SUBAGENT_SPAWN)
 async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutcome:
-    from shared_kernel.auth.clients import get_redis
-
-    config = node.config
-    parent_agent_id = config.get("parent_agent_id", "")
-    task_template = config.get("task_template", "")
-    output_variable = config.get("output_variable")
-    max_alive = config.get("max_alive_simultaneously", 3)
-    # W10: make the timeout configurable; default 1 h matches the Arq job_timeout.
-    timeout_seconds = int(config.get("timeout_seconds", 3600))
-
-    variables = {
-        **ctx.variables,
-        "__trigger__": ctx.trigger_payload,
-        "__ctx__": {"run_id": str(ctx.run_id), "workflow_id": str(ctx.workflow_id)},
-    }
-    task_desc = interpolate(task_template, variables)
-
-    try:
-        from contexts.orchestration.interfaces.facade import OrchestrationFacade
-
-        facade = OrchestrationFacade(db)
-        # ASYNC-3: a workflow run has no parent agent *instance*, only a parent
-        # agent *definition*. Create (once per run) a synthetic depth-0 root
-        # instance so spawn()'s depth + concurrency invariants apply normally —
-        # passing ctx.run_id (a workflow_runs id) hit agent_instances and raised.
-        root = await facade.ensure_subagent_root(
-            parent_agent_id=uuid.UUID(parent_agent_id),
-            workflow_run_id=ctx.run_id,
-        )
-        instance = await facade.spawn_subagent(
-            parent_instance_id=root.id,
-            parent_agent_id=uuid.UUID(parent_agent_id),
-            task_description=task_desc,
-            max_concurrent=max_alive,
-        )
-
-        result = {"instance_id": str(instance.id)}
-        if output_variable:
-            ctx.variables[output_variable] = str(instance.id)
-
-        if config.get("wait_for_all", True):
-            # W10: register completion callback so orchestration can wake this run.
-            redis = get_redis()
-            callback_key = f"wf:subagent_callback:{instance.id}"
-            await redis.set(
-                callback_key,
-                json.dumps(
-                    {
-                        "run_id": str(ctx.run_id),
-                        "node_id": node.id,
-                        "port": "success",
-                    }
-                ),
-                ex=initial_claim_ttl(timeout_seconds, WAIT_CLAIM_GRACE_S),
-            )
-            logger.info(
-                "run %s: spawned subagent %s, waiting for completion (timeout=%ds)",
-                ctx.run_id,
-                instance.id,
-                timeout_seconds,
-            )
-            return StepOutcome(
-                state=StepState.RUNNING,
-                output=result,
-                port="success",
-                park=True,
-                timeout_ms=timeout_seconds * 1_000,
-                timeout_task=_TIMEOUT_TASK,
-            )
-
-        return StepOutcome(
-            state=StepState.SUCCEEDED,
-            output=result,
-            port="success",
-        )
-
-    except Exception as exc:
-        return StepOutcome(
-            state=StepState.FAILED,
-            output={},
-            port="failure",
-            error=str(exc),
-        )
+    # Returns before reaching the orchestration facade, so no agent_instances row is
+    # created and no Redis callback key is written — the orphan-row pressure on
+    # retention's _sweep_orphaned_subagent_roots stops at source.
+    logger.warning(
+        "run %s: subagent_spawn node %s failed fast — capability not implemented",
+        ctx.run_id,
+        node.id,
+    )
+    return StepOutcome(
+        state=StepState.FAILED,
+        output={},
+        port="failure",
+        error=_UNIMPLEMENTED_ERROR,
+    )

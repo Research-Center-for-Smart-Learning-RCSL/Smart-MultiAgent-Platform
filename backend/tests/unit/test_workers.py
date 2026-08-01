@@ -534,6 +534,20 @@ class TestWorkflowSteps:
         assert result == "resumed"
         engine.resume_at_port.assert_awaited_once()
 
+    def test_subagent_tasks_stay_registered(self) -> None:
+        # 2026-07-22-subagent-spawn-fail-fast Q-6: subagent_spawn no longer parks, so
+        # nothing enqueues these any more — but runs parked before that deploy still
+        # hold Arq jobs for them. Deregistering would turn those into job-not-found
+        # errors; their own run-state guards already no-op safely.
+        from app.workers.main import WorkerSettings
+        from app.workers.tasks.workflow_steps import (
+            workflow_subagent_complete,
+            workflow_subagent_timeout,
+        )
+
+        assert workflow_subagent_timeout in WorkerSettings.functions
+        assert workflow_subagent_complete in WorkerSettings.functions
+
 
 # ===========================================================================
 # workflow_watchdog — timeout detection

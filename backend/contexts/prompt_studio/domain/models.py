@@ -96,6 +96,11 @@ class PromptTemplate:
 class SessionMessage:
     role: str  # "user" | "assistant"
     content: str
+    # True for a worker-persisted failure marker (the error code as content),
+    # never a real reply. Defaults False so old Redis JSON without the field
+    # decodes as a normal message (session_store.py:96's 2h TTL self-clears
+    # the mixed population).
+    error: bool = False
 
 
 @dataclass(frozen=True, slots=True)

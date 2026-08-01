@@ -12,8 +12,10 @@ only on the retry-exhausted attempt.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -56,12 +58,27 @@ def _install(monkeypatch, *, doc: object, max_scan_bytes: int, scanner: object) 
         async def get(self, doc_id: uuid.UUID) -> object:
             return doc
 
-        async def mark_scan(self, *, document_id, scan_status, scan_at) -> None:
+        async def owns_claim(self, document_id, claim) -> bool:
+            return True
+
+        async def mark_scan_owned(
+            self,
+            *,
+            document_id,
+            claim,
+            scan_status,
+            scan_at,
+            terminal_status=None,
+            failure_code=None,
+        ) -> bool:
             captured["scans"].append(scan_status)
             # Persist the verdict onto the row like the DB does, so a subsequent
             # arq retry that re-reads the document observes the earlier write. This
             # is what makes the multi-attempt sequence faithful (F-27 durability).
             doc.scan_status = scan_status
+            if terminal_status is not None:
+                doc.status = terminal_status
+            return True
 
     class _CfgRepo:
         def __init__(self, db: object) -> None:
@@ -83,6 +100,7 @@ def _install(monkeypatch, *, doc: object, max_scan_bytes: int, scanner: object) 
     monkeypatch.setattr(km, "KnowmapDocumentRepository", _DocRepo)
     monkeypatch.setattr(km, "KnowmapConfigRepository", _CfgRepo)
     monkeypatch.setattr(km, "enqueue_knowmap_build", _enqueue)
+    monkeypatch.setattr(km, "enqueue", _afn(None))
     monkeypatch.setattr("app.config.settings.get_settings", lambda: settings)
     monkeypatch.setattr("shared_kernel.scanning.get_scanner", lambda: scanner)
     return captured
@@ -93,8 +111,11 @@ def _doc(*, size: int = 100, scan_status: ScanStatus = ScanStatus.PENDING) -> Si
         knowmap_config_id=_CFG.id,
         size_bytes=size,
         minio_path="bucket/key",
-        status=DocumentStatus.READY,
+        status=DocumentStatus.INGESTING,
         scan_status=scan_status,
+        ingest_attempt=0,
+        ingest_claim_token=uuid.uuid4(),
+        ingest_claim_until=datetime.max.replace(tzinfo=UTC),
     )
 
 
@@ -102,10 +123,28 @@ def _clamav_error_scanner() -> object:
     from shared_kernel.scanning import ScanError
 
     class _Scanner:
-        async def scan(self, data: object) -> object:
+        async def scan_file(self, path: object) -> object:
             raise ScanError("clamav down")
 
     return _Scanner()
+
+
+@pytest.mark.asyncio
+async def test_final_download_failure_terminally_fails_owned_claim(monkeypatch) -> None:
+    doc = _doc(size=5)
+    cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=SimpleNamespace())
+    monkeypatch.setattr(
+        "shared_kernel.storage.minio_client.get_minio_client",
+        lambda: SimpleNamespace(download_to_path=AsyncMock(side_effect=ConnectionError("object store down"))),
+    )
+
+    with pytest.raises(ConnectionError, match="object store down"):
+        await km.knowmap_scan_document(
+            {"job_try": km._SCAN_MAX_TRIES},
+            document_id=str(uuid.uuid4()),
+        )
+
+    assert cap["scans"] == [ScanStatus.SKIPPED]
 
 
 @pytest.mark.asyncio
@@ -154,22 +193,22 @@ async def test_clamav_error_evicts_once_on_transition_and_marks_skipped_every_at
     cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=_clamav_error_scanner())
     monkeypatch.setattr(
         "shared_kernel.storage.minio_client.get_minio_client",
-        lambda: SimpleNamespace(get_object=_afn(b"data")),
+        lambda: SimpleNamespace(download_to_path=_afn(None)),
     )
 
     # Attempt 1: the CLEAN->SKIPPED transition marks SKIPPED and evicts once.
     with pytest.raises(ScanError):
         await km.knowmap_scan_document({"job_try": 1}, document_id=str(uuid.uuid4()))
-    assert cap["scans"] == [ScanStatus.SKIPPED]
-    assert cap["enqueued"] == [{"config_id": _CFG.id, "target_revision": _BUMPED_REV}]
+    assert cap["scans"] == []
+    assert cap["enqueued"] == []
 
-    # Attempts 2..N: still marked SKIPPED (exclusion holds) but no duplicate evict.
+    # Attempts 2..N: only the exhausted attempt persists terminal SKIPPED.
     with pytest.raises(ScanError):
         await km.knowmap_scan_document({"job_try": 2}, document_id=str(uuid.uuid4()))
     with pytest.raises(ScanError):
         await km.knowmap_scan_document({"job_try": km._SCAN_MAX_TRIES}, document_id=str(uuid.uuid4()))
 
-    assert cap["scans"] == [ScanStatus.SKIPPED, ScanStatus.SKIPPED, ScanStatus.SKIPPED]
+    assert cap["scans"] == [ScanStatus.SKIPPED]
     assert cap["enqueued"] == [{"config_id": _CFG.id, "target_revision": _BUMPED_REV}]
 
 
@@ -185,18 +224,18 @@ async def test_clamav_error_then_clean_recovery_readds_document(monkeypatch) -> 
     cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=_error_then_clean_scanner())
     monkeypatch.setattr(
         "shared_kernel.storage.minio_client.get_minio_client",
-        lambda: SimpleNamespace(get_object=_afn(b"data")),
+        lambda: SimpleNamespace(download_to_path=_afn(None)),
     )
 
     # Attempt 1: ClamAV error -> SKIPPED + one eviction rebuild.
     with pytest.raises(ScanError):
         await km.knowmap_scan_document({"job_try": 1}, document_id=str(uuid.uuid4()))
-    assert cap["enqueued"] == [{"config_id": _CFG.id, "target_revision": _BUMPED_REV}]
+    assert cap["enqueued"] == []
 
     # Attempt 2: scan recovers CLEAN -> re-add (entered, since the row is SKIPPED).
     result = await km.knowmap_scan_document({"job_try": 2}, document_id=str(uuid.uuid4()))
     assert result == ScanStatus.CLEAN.value
-    assert len(cap["enqueued"]) == 2
+    assert len(cap["enqueued"]) == 0
 
 
 @pytest.mark.asyncio
@@ -209,19 +248,19 @@ async def test_clamav_error_skipped_no_rebuild_when_never_clean(monkeypatch) -> 
     cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=_clamav_error_scanner())
     monkeypatch.setattr(
         "shared_kernel.storage.minio_client.get_minio_client",
-        lambda: SimpleNamespace(get_object=_afn(b"data")),
+        lambda: SimpleNamespace(download_to_path=_afn(None)),
     )
 
     with pytest.raises(ScanError):
         await km.knowmap_scan_document({"job_try": 1}, document_id=str(uuid.uuid4()))
 
-    assert cap["scans"] == [ScanStatus.SKIPPED]
+    assert cap["scans"] == []
     assert cap["enqueued"] == []
 
 
 def _quarantine_scanner() -> object:
     class _Scanner:
-        async def scan(self, data: object) -> object:
+        async def scan_file(self, path: object) -> object:
             return SimpleNamespace(clean=False, threat_name="eicar")
 
     return _Scanner()
@@ -235,7 +274,7 @@ async def test_quarantine_rebuilds_when_previously_clean(monkeypatch) -> None:
     cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=_quarantine_scanner())
     monkeypatch.setattr(
         "shared_kernel.storage.minio_client.get_minio_client",
-        lambda: SimpleNamespace(get_object=_afn(b"data")),
+        lambda: SimpleNamespace(download_to_path=_afn(None)),
     )
     monkeypatch.setattr("shared_kernel.audit.emit", _afn(None))
 
@@ -254,7 +293,7 @@ async def test_quarantine_no_rebuild_when_never_clean(monkeypatch) -> None:
     cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=_quarantine_scanner())
     monkeypatch.setattr(
         "shared_kernel.storage.minio_client.get_minio_client",
-        lambda: SimpleNamespace(get_object=_afn(b"data")),
+        lambda: SimpleNamespace(download_to_path=_afn(None)),
     )
     monkeypatch.setattr("shared_kernel.audit.emit", _afn(None))
 
@@ -272,7 +311,7 @@ def _error_then_quarantine_scanner() -> object:
         def __init__(self) -> None:
             self._calls = 0
 
-        async def scan(self, data: object) -> object:
+        async def scan_file(self, path: object) -> object:
             self._calls += 1
             if self._calls == 1:
                 raise ScanError("clamav down")
@@ -288,7 +327,7 @@ def _error_then_clean_scanner() -> object:
         def __init__(self) -> None:
             self._calls = 0
 
-        async def scan(self, data: object) -> object:
+        async def scan_file(self, path: object) -> object:
             self._calls += 1
             if self._calls == 1:
                 raise ScanError("clamav down")
@@ -310,20 +349,20 @@ async def test_clamav_error_then_quarantine_recovery_evicts_exactly_once(monkeyp
     cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=_error_then_quarantine_scanner())
     monkeypatch.setattr(
         "shared_kernel.storage.minio_client.get_minio_client",
-        lambda: SimpleNamespace(get_object=_afn(b"data")),
+        lambda: SimpleNamespace(download_to_path=_afn(None)),
     )
     monkeypatch.setattr("shared_kernel.audit.emit", _afn(None))
 
     # Attempt 1: ClamAV error -> SKIPPED + one eviction rebuild (the transition).
     with pytest.raises(ScanError):
         await km.knowmap_scan_document({"job_try": 1}, document_id=str(uuid.uuid4()))
-    assert cap["enqueued"] == [{"config_id": _CFG.id, "target_revision": _BUMPED_REV}]
+    assert cap["enqueued"] == []
 
     # Attempt 2: QUARANTINED verdict recorded, but no duplicate eviction.
     result = await km.knowmap_scan_document({"job_try": 2}, document_id=str(uuid.uuid4()))
 
     assert result == ScanStatus.QUARANTINED.value
-    assert cap["scans"] == [ScanStatus.SKIPPED, ScanStatus.QUARANTINED]
+    assert cap["scans"] == [ScanStatus.QUARANTINED]
     assert len(cap["enqueued"]) == 1
 
 

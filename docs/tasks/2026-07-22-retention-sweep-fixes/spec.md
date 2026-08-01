@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-22
 requirements: [R15.21, R13.25, R13.15]
 depends_on: []
@@ -533,35 +533,36 @@ before it can act twice.
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1** Every regression test in §8 (T-1 through T-7) is written first, fails
+- [x] **AC-1** Every regression test in §8 (T-1 through T-7) is written first, fails
   against current code for the stated reason, and passes after the fix; T-8's existing
   tests pass unmodified.
-- [ ] **AC-2** `_sweep_orphaned_subagent_roots` applies its orphan predicate and its
+- [x] **AC-2** `_sweep_orphaned_subagent_roots` applies its orphan predicate and its
   `LIMIT` in one `WHERE`/`LIMIT` pair, with the predicate evaluated before truncation,
   ordered by `spawned_at`.
-- [ ] **AC-3** With 1000 live synthetic roots and 20 orphans present, one call to
+- [x] **AC-3** With 1000 live synthetic roots and 20 orphans present, one call to
   `_sweep_orphaned_subagent_roots` reaps all 20 and no live-run root (T-2).
-- [ ] **AC-4** Children are still deleted before roots; no `agent_instances` row is left
+- [x] **AC-4** Children are still deleted before roots; no `agent_instances` row is left
   with `parent_id` nulled by this sweep.
-- [ ] **AC-5** Migration `0062_retention_sweep_indexes.py` creates
-  `ix_agent_instances_synthetic_root`, applies cleanly with `alembic upgrade head` from
-  `0061_graphrag_owner_index_live_only`, and downgrades cleanly.
-- [ ] **AC-6** `SubagentService.cleanup_expired`, `OrchestrationFacade.cleanup_expired_instances`,
+- [x] **AC-5** Migration `0071_retention_sweep_indexes.py` (renumbered from the spec's
+  `0062` — see D-1) creates `ix_agent_instances_synthetic_root`, applies cleanly with
+  `alembic upgrade head`, and downgrades cleanly.
+- [x] **AC-6** `SubagentService.cleanup_expired`, `OrchestrationFacade.cleanup_expired_instances`,
   `AgentInstanceRepository.delete_older_than_days` and `test_cleanup_expired` no longer
-  exist; a repo-wide grep for all three names returns nothing.
-- [ ] **AC-7** `_purge_agent_instances` (`retention.py:471-485`) remains the sole
+  exist; a repo-wide grep for their `def` sites returns nothing (the guard test's
+  `hasattr` string literals are the intended exception).
+- [x] **AC-7** `_purge_agent_instances` (`retention.py:471-485`) remains the sole
   `agent_instances` 30-day retention path, and its existing test at
   `test_retention_deep.py:457-473` still passes.
-- [ ] **AC-8** `RetentionService.purge_once` selects victims ordered by
+- [x] **AC-8** `RetentionService.purge_once` selects victims ordered by
   `(created_at, id)` ascending.
-- [ ] **AC-9** On the purge path, `PurgeReport.oldest_kept_at` is the post-delete global
+- [x] **AC-9** On the purge path, `PurgeReport.oldest_kept_at` is the post-delete global
   `min(messages.created_at)` — the same quantity the no-op path at `:63-64` returns — and
   is never `horizon`.
-- [ ] **AC-10** Each `message.purged_by_retention` event carries that chatroom's own
+- [x] **AC-10** Each `message.purged_by_retention` event carries that chatroom's own
   post-delete `min(created_at)`, or `null` if the chunk emptied the room.
-- [ ] **AC-11** Q-4 is answered by the user and the answer is recorded in §12; if yes,
-  migration 0062 also creates `ix_messages_created_at`.
-- [ ] **AC-12** Definition of Done: `pytest -q`, `ruff check . && ruff format --check .`,
+- [x] **AC-11** Q-4 is answered by the user and the answer is recorded in §12; if yes,
+  migration 0071 also creates `ix_messages_created_at`.
+- [x] **AC-12** Definition of Done: `pytest -q`, `ruff check . && ruff format --check .`,
   `mypy .` all clean in `backend/`.
 
 ## 11. SRS Delta
@@ -582,6 +583,36 @@ showed to be under-specified rather than wrong.**
 ## 12. Deviation Log
 
 Appended by `/build`.
+
+**Q-4 confirmed by user (2026-07-29): add the index.** Migration also creates
+`ix_messages_created_at` alongside `ix_agent_instances_synthetic_root`, per AC-11.
+
+**D-1 — migration renumbered.** The spec proposed `0062_retention_sweep_indexes.py`
+against a `0061_graphrag_owner_index_live_only` head. By build time the real head had
+moved to `0070_knowledge_document_failure_code` (nine migrations landed since the spec's
+snapshot), and `0062` was already taken by `workflow_run_participants`. Shipped as
+`0071_retention_sweep_indexes.py` with `down_revision = "0070_knowledge_document_failure_code"`.
+No design change — same two indexes, same DDL.
+
+**D-2 — post-delete `oldest_kept_at` recompute placed after the summary purge, not
+immediately after the message delete.** `retention_service.py` gained
+`_delete_summaries_covering` (R13.26 compaction-summary purge) after this spec was
+written; the spec's §7.3/§8 design predates it and doesn't mention it. Summary rows live
+in the same `messages` table, so deleting them also moves the true surviving minimum —
+running the per-room/global `min(created_at)` queries before that delete would report a
+value the summary purge immediately falsifies. The recompute runs after both deletes.
+T-4 through T-7's mocked `db.execute` sequences, and seven pre-existing tests in
+`TestRetentionServicePurgeOnce`, were extended with the summary-scan call(s) that now sit
+between the message delete and the new min queries; their `await_count` assertions were
+updated to match.
+
+**D-3 — T-2 executed via the compose network, not the mapped host port.** Docker
+Desktop's host port-forwarding (`25432:5432`) was not functioning on this machine, even
+after a full engine restart. T-2 was written and verified with the same rigor the spec
+requires — including a pre-fix run confirmed failing for the documented reason — but
+executed from a throwaway container attached to `smap_data_net`, reaching Postgres via
+the compose service's internal hostname instead of `localhost:25432`. No change to the
+test's content or intent.
 
 ## 13. Follow-ups
 
@@ -609,7 +640,10 @@ Appended by `/build`.
   `frontend/src/slices/conversation/utils/mergeMessages.ts:10-11` documents that
   out-of-window deletions arrive via that event. Same function, adjacent concern,
   deliberately out of scope here — it is a contract gap, not a chunking defect.
-- **FU-6** — if Q-4 is declined, revisit `ix_messages_created_at` the first time a
-  deployment accumulates messages past the 5-year horizon; both the no-op `min` at
-  `retention_service.py:63` and the new `ORDER BY` become full scans at that point.
+- **FU-6** — moot: Q-4 was confirmed yes (§12 D-log), so `ix_messages_created_at` shipped
+  with this task and the full-scan risk it names does not apply.
+- **FU-7** — `PurgeReport.oldest_kept_at` is typed `object  # datetime | None`
+  (`retention_service.py:36`) rather than `datetime | None`, a loose type on a public
+  dataclass boundary. Predates this task (confirmed against the base commit); tightening
+  it is pure type hygiene, unrelated to F-17/F-42/V-5.
 </content>

@@ -97,6 +97,81 @@ describe('ChatroomView', () => {
     expect(wrapper.find('.msg-action--delete').exists()).toBe(true)
   })
 
+  it('shows edit/delete to a non-admin moderator on another user\'s aged message (V-4)', async () => {
+    // The affordances render through the real ChatroomView -> message bubble
+    // chain, driven only by ChatroomOut.is_moderator: the signed-in user is
+    // not an admin, does not own the message, and the five-minute author
+    // window closed long ago.
+    server.use(
+      http.get('/api/chatrooms/:chatroomId', () =>
+        HttpResponse.json({
+          id: 'cr_1', name: 'Test Room', workspace_id: 'ws_1',
+          allow_org_members: false, allow_project_members: true,
+          allow_project_owners_only: false, allow_guest_links: false,
+          version: 1, created_at: '2026-01-01T00:00:00Z', deleted_at: null,
+          created_by_user_id: 'u_other', disclose_observers: true,
+          observers_present: false, is_moderator: true,
+        }),
+      ),
+      http.get('/api/chatrooms/cr_1/messages', () =>
+        HttpResponse.json([
+          {
+            id: 'm_1',
+            chatroom_id: 'cr_1',
+            sender_type: 'user',
+            sender_id: 'u_other',
+            content_md: 'posted an hour ago',
+            metadata: {},
+            version: 1,
+            created_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+            edited_at: null,
+            deleted_at: null,
+          },
+        ]),
+      ),
+    )
+    const wrapper = await renderView(ChatroomView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1',
+    })
+    signInAs('u_1')
+    await settle()
+
+    expect(wrapper.find('.msg-action--edit').exists()).toBe(true)
+    expect(wrapper.find('.msg-action--delete').exists()).toBe(true)
+  })
+
+  it('hides edit/delete from a plain member on another user\'s aged message', async () => {
+    // Same fixture with the moderator bit off — the over-grant guard.
+    server.use(
+      http.get('/api/chatrooms/cr_1/messages', () =>
+        HttpResponse.json([
+          {
+            id: 'm_1',
+            chatroom_id: 'cr_1',
+            sender_type: 'user',
+            sender_id: 'u_other',
+            content_md: 'posted an hour ago',
+            metadata: {},
+            version: 1,
+            created_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+            edited_at: null,
+            deleted_at: null,
+          },
+        ]),
+      ),
+    )
+    const wrapper = await renderView(ChatroomView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1',
+    })
+    signInAs('u_1')
+    await settle()
+
+    expect(wrapper.find('.msg-action--edit').exists()).toBe(false)
+    expect(wrapper.find('.msg-action--delete').exists()).toBe(false)
+  })
+
   it('renders message attachments: download for active, placeholder for expired', async () => {
     server.use(
       http.get('/api/chatrooms/cr_1/messages', () =>
@@ -413,7 +488,12 @@ describe('ChatroomView', () => {
     })
     expect(wrapper.find('.load-earlier').exists()).toBe(false)
 
-    await settle()
-    expect(wrapper.find('.load-earlier').exists()).toBe(true)
+    // Wait for the condition, not for a fixed 100ms: rendering 100 messages
+    // (each through markdown) overruns that budget under full-suite load, and
+    // the control then reads as "still absent" for a reason the test is not
+    // about. The assertion above is the F-17 guard and stays synchronous.
+    await vi.waitFor(() => {
+      expect(wrapper.find('.load-earlier').exists()).toBe(true)
+    })
   })
 })

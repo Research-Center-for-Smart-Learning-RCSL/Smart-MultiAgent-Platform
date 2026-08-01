@@ -10,6 +10,7 @@
 // body is cast back at the boundary — the same unchecked assertion the previous
 // `http.get<T>()` calls made, safe because these are backend-closed enums.
 
+import type { AssistantSessionOut } from '@shared/api-client'
 import { PromptStudioService } from '@shared/api-client'
 import { asBinaryFormField } from '@shared/transport'
 
@@ -172,4 +173,7 @@ export const promptStudioApi = {
       sessionId,
       requestBody: payload,
     }),
+
+  getSession: (sessionId: string): Promise<AssistantSessionOut> =>
+    PromptStudioService.getSessionApiPromptAssistantSessionsSessionIdGet({ sessionId }),
 }

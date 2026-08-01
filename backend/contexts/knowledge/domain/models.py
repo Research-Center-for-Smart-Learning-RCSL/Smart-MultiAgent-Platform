@@ -100,6 +100,9 @@ DEFAULT_FIXED_CHUNK_PARAMS: dict[str, int] = {
     "chunk_size_tokens": 512,
     "chunk_overlap_tokens": 64,
 }
+MAX_CHUNK_SIZE_TOKENS = 8_192
+MAX_CHUNK_OVERLAP_TOKENS = 2_048
+MAX_CHUNK_OUTPUT_BYTES = 128 * 1024 * 1024
 # similarity_threshold is compared against the cosine of a sentence to the
 # running chunk centroid; for in-topic prose that cosine often sits well below
 # 0.6, so a high default over-fragments into ~1-sentence chunks. Default low —
@@ -126,6 +129,84 @@ def normalized_chunk_params(strategy: ChunkStrategy, params: dict[str, Any]) -> 
         DEFAULT_FIXED_CHUNK_PARAMS if strategy is ChunkStrategy.FIXED else DEFAULT_SEMANTIC_CHUNK_PARAMS
     )
     return {key: params.get(key, default) for key, default in defaults.items()}
+
+
+def validate_chunk_params(strategy: ChunkStrategy, params: dict[str, Any]) -> None:
+    from contexts.knowledge.domain.errors import ChunkParamsInvalid
+
+    merged = normalized_chunk_params(strategy, params)
+    try:
+        if strategy is ChunkStrategy.FIXED:
+            size = int(merged["chunk_size_tokens"])
+            overlap = int(merged["chunk_overlap_tokens"])
+            if not 1 <= size <= MAX_CHUNK_SIZE_TOKENS:
+                raise ChunkParamsInvalid(f"chunk_size_tokens must be in [1, {MAX_CHUNK_SIZE_TOKENS}]")
+            if overlap < 0 or overlap >= size:
+                raise ChunkParamsInvalid("chunk_overlap_tokens must be in [0, chunk_size)")
+            if overlap > MAX_CHUNK_OVERLAP_TOKENS or overlap * 2 > size:
+                raise ChunkParamsInvalid(
+                    "chunk_overlap_tokens must not exceed 2048 or half of chunk_size_tokens"
+                )
+            return
+
+        max_tokens = int(merged["max_tokens_per_chunk"])
+        threshold = float(merged["similarity_threshold"])
+        if not 1 <= max_tokens <= MAX_CHUNK_SIZE_TOKENS:
+            raise ChunkParamsInvalid(f"max_tokens_per_chunk must be in [1, {MAX_CHUNK_SIZE_TOKENS}]")
+        if not 0.0 < threshold <= 1.0:
+            raise ChunkParamsInvalid("similarity_threshold must be in (0, 1]")
+    except (TypeError, ValueError) as exc:
+        raise ChunkParamsInvalid(f"invalid chunk params: {exc}") from exc
+
+
+def clamp_chunk_params(strategy: ChunkStrategy, params: dict[str, Any]) -> dict[str, Any]:
+    """Coerce *stored* params into the currently valid envelope.
+
+    `validate_chunk_params` gained upper bounds (8192 / 2048 / overlap <= half of
+    size) after configs already existed under the looser `0 <= overlap < size`
+    rule. Those configs cannot be edited back into range: F-20 freezes
+    `chunk_params` once the config has any document. Raising at ingest would
+    therefore make such a config permanently unable to ingest, with no API
+    remedy -- so the ingest path clamps instead.
+
+    This is deliberately only for values read back from storage. Creation and
+    patch still reject out-of-range input outright, and `chunk_fixed` /
+    `chunk_semantic` still raise on bad explicit arguments, because those are
+    caller errors rather than historical data.
+    """
+    merged = normalized_chunk_params(strategy, params)
+
+    def _int(key: str) -> int:
+        try:
+            return int(merged[key])
+        except (TypeError, ValueError):
+            return int(
+                (
+                    DEFAULT_FIXED_CHUNK_PARAMS
+                    if strategy is ChunkStrategy.FIXED
+                    else DEFAULT_SEMANTIC_CHUNK_PARAMS
+                )[key]
+            )
+
+    if strategy is ChunkStrategy.FIXED:
+        size = min(max(_int("chunk_size_tokens"), 1), MAX_CHUNK_SIZE_TOKENS)
+        # size // 2 keeps both `overlap < size` and `overlap * 2 <= size` true,
+        # including at size == 1 where it pins overlap to 0.
+        overlap = min(max(_int("chunk_overlap_tokens"), 0), MAX_CHUNK_OVERLAP_TOKENS, size // 2)
+        return {"chunk_size_tokens": size, "chunk_overlap_tokens": overlap}
+
+    try:
+        threshold = float(merged["similarity_threshold"])
+    except (TypeError, ValueError):
+        threshold = float(DEFAULT_SEMANTIC_CHUNK_PARAMS["similarity_threshold"])
+    if not 0.0 < threshold <= 1.0:
+        threshold = min(threshold, 1.0)
+        if threshold <= 0.0:
+            threshold = float(DEFAULT_SEMANTIC_CHUNK_PARAMS["similarity_threshold"])
+    return {
+        "max_tokens_per_chunk": min(max(_int("max_tokens_per_chunk"), 1), MAX_CHUNK_SIZE_TOKENS),
+        "similarity_threshold": threshold,
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +244,17 @@ class RagDocument:
     uploaded_at: datetime
     # Strict per-agent allowlist. Empty = no agent may retrieve this document.
     agent_ids: tuple[uuid.UUID, ...] = ()
+    ingest_attempt: int = 0
+    ingest_claim_token: uuid.UUID | None = None
+    ingest_claim_until: datetime | None = None
+    failure_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class IngestClaim:
+    attempt: int
+    token: uuid.UUID
+    until: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +291,10 @@ __all__ = [
     "EMBED_MODEL_WHITELIST",
     "EmbedCatalogEntry",
     "EmbedModelOption",
+    "IngestClaim",
+    "MAX_CHUNK_OUTPUT_BYTES",
+    "MAX_CHUNK_OVERLAP_TOKENS",
+    "MAX_CHUNK_SIZE_TOKENS",
     "RagChunk",
     "RagConfig",
     "RagConfigDraft",
@@ -206,4 +302,7 @@ __all__ = [
     "ScanStatus",
     "embed_dimension",
     "embedding_catalog",
+    "clamp_chunk_params",
+    "normalized_chunk_params",
+    "validate_chunk_params",
 ]

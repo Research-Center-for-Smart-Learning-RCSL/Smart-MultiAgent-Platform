@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-22
 requirements: []
 depends_on: []
@@ -108,6 +108,8 @@ explicitly expects (the comment at `:598-604`) and against a concurrent `_mark_t
 | Q-6 | Must the lock fix precede the idempotency fix? | **No — the preference runs the other way.** | They are orthogonal: C4 narrows the window, C6 catches what escapes it. Landing the duplicate-turn *detector* before the *guards* leaves a net in place if C3 or C4 regresses. |
 | Q-7 | Where should the idempotency key live? | `messages.metadata` (already JSONB, `tables.py:148`) with a partial unique index — **not** `audit_logs.request_id`. | That column exists (`shared_kernel/audit.py:53`) but is **unindexed** on an append-only high-volume table; a per-turn lookup would be a seq scan. |
 | Q-8 | `depends_on` on either draft dossier? | **No. `depends_on: []`, plus a coordination note (§9).** | Regions are disjoint by ~230 lines from the compaction dossier and by two lines from the tool-dispatch dossier — see §9 for the two real adjacencies, which are named rather than left to a merge conflict. |
+| Q-9 | Must `WAKEUP_TURN_TIMEOUT_S` be **shorter** than the lock TTL, as AC-4 was first written? | **No — `DEFAULT_TURN_TTL_S * 2` (600s), and AC-4 is amended.** Decided at approval, 2026-07-31. | §1's invariant (a) is a disjunction: shorter-than-TTL **or** losing the lock aborts the turn. C4 delivers the second branch, which is also how `graphrag_build` justifies `LOCK_TTL_S * 3`. The literal reading is actively harmful: one provider stream read may take `STREAM_TIMEOUT = 300s` (`contexts/keys/infrastructure/adapters/base.py:68`), so any timeout under the 300s TTL kills healthy turns mid-stream. 600s also keeps today's effective ceiling, so C3 changes retry behaviour only. |
+| Q-10 | Where does R6 (real-Redis lock expiry) live, given `fakeredis` is not a dependency? | **The `wiring` tier**, not `integration`, and no new dependency. Decided at approval, 2026-07-31. | `pyproject.toml:399` already defines `wiring` as "real Postgres+Redis+MailHog from compose.test.yml", and `tests/wiring/conftest.py` already disposes the process-global Redis singleton per test. §7 wrote this as an open decision because it only surveyed the `integration` tier; the tier that fits already exists. |
 
 ## 4. Fix Design — six independently revertible commits
 
@@ -265,7 +267,36 @@ its docstring argues exactly why unit fakes cannot carry it.
 
 ## 9. Coordination
 
-**No `depends_on`; two named adjacencies instead**, so neither is discovered as a merge conflict.
+**Both named adjacencies landed first (2026-07-30 and 2026-07-31), so the sequencing below is now
+history.** Re-verified against `baf82a8` at approval; recorded here rather than deleted, because the
+couplings it predicted are what the re-verification had to check.
+
+- **`2026-07-22-compaction-scoping-and-durability` is `implemented`.** Coupling 1 stands as the only
+  live one: `_assemble_history` now takes the lock at `turn_engine.py:2879` under a **per-(room,
+  agent)** key `compact:lock:{chatroom_id}:{agent.id}`, not the room-wide key this dossier cited, and
+  `tests/unit/test_turn_context_budget.py:420-432` monkeypatches `distributed_lock` with a fake whose
+  `__aenter__` returns a bare `True`. C4 must keep the yielded value truthy and must update that fake.
+  Coupling 3 resolved in our favour: `_restore_compact_flag` (`:3021-3037`) is now a per-agent marker
+  delete that no-ops when the room is absent from `_compact_forced_rooms`, and the committed-fold
+  `pop` landed at `:2946` — C1 composes with it as predicted.
+- **`2026-07-22-tool-dispatch-failure-categories` is `implemented`.** Its restructure of
+  `_stream_with_tools` moved the whole function to `:3039-3220` and made the tool loop a bounded
+  `for _attempt in range(MAX_TOOL_ROUNDS + _MAX_ARG_REJECTIONS)`, but **C4's extension point survived
+  intact**: `cancel_check` is still called at the loop head (`:3060`) and before the final no-tools
+  call (`:3142`), still raising `_TurnCancelled`. The predicted textual adjacency is gone — that
+  dossier landed first. One citation is superseded: §2's "9 provider calls" is now up to
+  `MAX_TOOL_ROUNDS + _MAX_ARG_REJECTIONS + 1` = 11, which does not change C3's sizing (Q-9 sizes the
+  timeout against the TTL, not the call budget).
+
+**Line-number drift.** Every `path:line` in §1–§7 predates those two merges and `turn_engine.py` has
+grown from ~2760 to 3255 lines; citations there are off by roughly +68 near the top of the file and
++350 near the bottom. Every cited *behaviour* was re-verified as still present at approval — the four
+guards, both violated invariants and all seven findings reproduce exactly as written. The stale
+numbers are left in place rather than rewritten: they are the addresses the audit findings were
+recorded against, and this section is the correction of record.
+
+**Original note — no `depends_on`; two named adjacencies instead**, so neither is discovered as a
+merge conflict.
 
 **With `2026-07-22-compaction-scoping-and-durability/`** (draft). Its regions are `:2483-2585`,
 `:2104`, plus `summariser.py` and `transcript.py`; ours are `:243-324`, `:576-650`, `:1778-1790`,
@@ -291,21 +322,61 @@ either way — but it is named in both specs rather than left to a merge.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: `test_pop_queued_trigger_is_atomic` (§7) fails against current code and passes after.
-- [ ] AC-2: a cancelled turn emits `agent.finished`, audits `agent.turn_failed`, requeues drained
+- [x] AC-1: `test_pop_queued_trigger_is_atomic` (§7) fails against current code and passes after.
+      Shipped as `test_turn_lock_and_coalescing.py::TestThePopIsOneAtomicOperation` — one `eval`,
+      not two `getdel`, plus a companion asserting that single command covers both keys.
+- [x] AC-2: a cancelled turn emits `agent.finished`, audits `agent.turn_failed`, requeues drained
       notifications, restores the compact flag, and drains its queued trigger.
-- [ ] AC-3: a stranded turn with no matching finish is resolved by the reaper within its budget,
-      including after a SIGKILL.
-- [ ] AC-4: `wakeup_agent` is registered with `max_tries=1` and a scoped timeout shorter than the
-      lock TTL, with the relation stated in a comment.
-- [ ] AC-5: a turn that loses its lock aborts at the next round boundary rather than continuing;
+      `test_turn_cancellation_cleanup.py::TestCancelledTurnRunsItsCleanup` (four assertions, one
+      per step) plus `TestCancelledTurnDrainsItsQueuedTrigger`. All five fail against the pre-C1
+      tree, verified by stashing the fix.
+- [x] AC-3: a stranded turn with no matching finish is resolved by the reaper within its budget,
+      including after a SIGKILL. `test_stranded_turn_reaper.py` — pairing (six cases including the
+      stranded-then-healthy case a naive check gets wrong), the audit/notify/drain sequence, and
+      the cron wiring. **Scope note:** the SIGKILL clause is verified by construction, not by
+      staging a kill — the reaper's only input is the committed `agent.turn_started` row, which is
+      exactly what survives a `SIGKILL`, and nothing in its path depends on the dead process. No
+      test in this repo kills a worker; see the behavioural-verification note below.
+- [x] AC-4: `wakeup_agent` is registered with `max_tries=1` and a scoped timeout whose relation to
+      the lock TTL is stated in a comment. **Amended at approval per Q-9** — originally "a scoped
+      timeout shorter than the lock TTL"; C4 satisfies §1's invariant (a) by its second branch, and
+      the literal reading kills healthy turns mid-stream. `test_turn_cancellation_cleanup.py`'s two
+      registration tests; both fail against the bare coroutine entry.
+- [x] AC-5: a turn that loses its lock aborts at the next round boundary rather than continuing;
       a transient Redis failure does **not** abort a healthy turn.
-- [ ] AC-6: the coalesced-trigger pop is a single atomic Redis operation.
-- [ ] AC-7: a Redis failure on either the mark or the pop side produces an explicit drop reason,
-      never `reason="locked"`.
-- [ ] AC-8: a replayed turn job does not create a second reply row, and short-circuits before any
-      provider call.
-- [ ] AC-9: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`.
+      `test_distributed_lock_liveness.py` — both failure modes mark the handle lost, a single blip
+      does not, the retry lands inside the interval, and `_stream_with_tools` raises
+      `_TurnCancelled` before touching the provider. Real-Redis half in
+      `tests/wiring/test_turn_lock_expiry.py`: a lapsed lock is genuinely re-acquirable while the
+      first block is open, and a healthy heartbeat holds it past its TTL.
+- [x] AC-6: the coalesced-trigger pop is a single atomic Redis operation. Same tests as AC-1; the
+      mark is now one operation too (D-3).
+- [x] AC-7: a Redis failure on either the mark or the pop side produces an explicit drop reason,
+      never `reason="locked"`. `TestTheProtocolSaysWhatItKnows` and
+      `TestRunTurnStopsReportingLockedForADroppedMessage` — a failed mark reports `coalesce_failed`,
+      a failed pop on the retry runs the turn (D-4), and a durable mark still reports `locked`.
+- [x] AC-8: a replayed turn job does not create a second reply row, and short-circuits before any
+      provider call. `test_turn_idempotency.py` for the wiring and the short-circuit;
+      `tests/integration/test_turn_job_idempotency.py` for the guarantee itself — run against real
+      Postgres, four tests, including that rows without the key stay outside the index.
+- [x] AC-9: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass in `backend/`.
+      6334 passed / 6 skipped; ruff clean over 901 files; mypy clean over 901 files.
+
+### Verification actually performed
+
+Recorded because "the tests pass" and "the feature was seen working" are different claims.
+
+- **Real infrastructure.** Migration 0072 applied, inspected (`unique, btree`, predicate
+  `(metadata ->> 'turn_job_id') IS NOT NULL`), downgraded, and re-applied against the compose
+  Postgres. The four db-tier idempotency tests and the three wiring-tier lock-expiry tests were run
+  against that same Postgres and a real Redis.
+- **Not performed: an end-to-end run in the app.** Every behaviour here is a failure path — a job
+  timeout, a `SIGKILL`, a lapsed Redis lock, a replayed job — and none can be produced from the UI.
+  Reproducing them for real needs two worker processes and a kill signal (§5's R2), which this
+  repo has no tier for. What that leaves unproven: the new WS error kinds (`cancelled`, `stranded`,
+  `lock_lost`) and skip reasons (`coalesce_failed`, `duplicate_job`) have not been observed
+  rendering in the client. They travel the same `agent.finished{error}` channel as the existing
+  kinds, so the client path is unchanged — but that is an argument, not an observation.
 
 ## 11. SRS Delta
 
@@ -315,7 +386,53 @@ unstated and unmet. See FU-1.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — AC-4 inverted, at approval.** The timeout was to sit *below* the lock TTL; it is
+  `DEFAULT_TURN_TTL_S * 2` (600s) instead. Full reasoning in Q-9. In short: §1's invariant (a) is a
+  disjunction and C4 satisfies its second branch, while the literal reading kills healthy turns —
+  one provider stream read may take `STREAM_TIMEOUT = 300s`, the TTL itself. 600s also preserves
+  today's effective ceiling, so C3 is a pure retry-behaviour change.
+- **D-2 — R6 lives in the `wiring` tier** (`backend/tests/wiring/test_turn_lock_expiry.py`), not
+  `integration`, and no `fakeredis` dependency was added. Q-10. §7 wrote this as an open decision
+  because it surveyed only the `integration` tier; `wiring` already provisions real Redis and
+  already disposes the process-global client per test.
+- **D-3 — C5 made the *mark* atomic too, not only the pop.** C5 named only `:304-305`. But R7's
+  interleave is pop-versus-mark, and the mark was itself two unpipelined `SET`s, so making only the
+  pop atomic would have left the race open from the other side. Both are now one scripted
+  round-trip; the NX-first-wins / last-id-wins semantics are unchanged and pinned by test.
+- **D-4 — an `unknown` pop on the retry runs the turn rather than deferring.** C5 specified the
+  tri-state but not what the caller should do with `unknown`. Deferring would drop the user's
+  message on the strength of a read that failed, so the turn runs with the trigger it was called
+  for. Cost: if a mark really was parked, the post-release drain later enqueues one possibly
+  redundant follow-up. An extra turn beats a dropped message. See FU-11.
+- **D-5 — `_run_locked` gained an `except _TurnCancelled` arm.** Not in C4's text. Without it the
+  new abort falls into `except Exception`, and `_err_kind` returns the class name — so the private
+  identifier `_TurnCancelled` would reach the WS payload and the audit row. It reports the fixed
+  token `lock_lost` instead, like every other `_err_kind` output.
+- **D-6 — one new mypy override.** `Redis.eval` is untyped in the redis-py 5.2 stubs.
+  `pyproject.toml` gained a block disabling **only** `no-untyped-call` for `turn_engine`, kept
+  separate from the sibling redis blocks so this 3,400-line module keeps full `attr-defined` /
+  `union-attr` checking. It moves out with the Redis calls when FU-5 is taken up.
+- **D-7 — the drain helper is public.** `drain_queued_trigger`, not `_drain_queued_trigger`: C2's
+  reaper calls it, and a turn killed by `SIGKILL` never reaches the `finally` that otherwise owns it.
+- **D-8 — C2 pairs in Python instead of a correlated `NOT EXISTS`.** C2 described "rows with no
+  matching finish". Two reasons for the shape it took. `audit_logs` has no index on
+  `metadata->>'chatroom_id'`, so a correlated subquery per candidate would have needed a second
+  migration; and "is there *any* later finish" is wrong — an agent that strands one turn and then
+  completes the next would read as resolved. Two indexed range predicates plus an in-memory
+  start/finish pairing per `(agent, room)` avoids both. The cap is reported, not silently applied.
+- **D-9 — the reaper covers room turns only.** `run_input_turn` (headless A2A) audits its start with
+  no `chatroom_id`, so it is filtered out: no room channel to notify, no coalesced trigger to drain,
+  and its caller is a live request that observes the failure itself. Stated in the module docstring.
+- **D-10 — Q-5's mitigation is implemented; its stated mechanism was not sufficient.** Q-5
+  prescribed `asyncio.shield` plus individual `suppress`. `shield` alone does not survive a
+  *delivered* cancellation: `await shield(x)` on a cancelling task re-raises at once and abandons
+  `x` part-way through, which is the exact failure Q-5 was trying to prevent. `_run_uncancellable`
+  re-awaits the shielded task under a bounded iteration cap and wall-clock budget instead. Each
+  cleanup step is individually suppressed as Q-5 required.
+- **D-11 — one self-audit fix folded in.** `_run_uncancellable` could abandon a cleanup task whose
+  exception was never retrieved, surfacing later as a context-free `Task exception was never
+  retrieved`. A done-callback now consumes it with the turn's context. Today's two cleanup
+  coroutines guard every step and cannot raise; this stops that being a trap for the next one.
 
 ## 13. Follow-ups
 
@@ -337,4 +454,36 @@ Appended by /build.
   trigger helpers) are the smell.
 - **FU-6** — `audit_logs.request_id` is unindexed on an append-only table (Q-7). If it is ever
   wanted as a lookup key, it needs an index first.
+
+Added by /build:
+
+- **FU-7** — Three unit files now build near-identical `_run_locked` harnesses
+  (`test_turn_engine_observer_activity.py:105`, `test_turn_cancellation_cleanup.py:132`,
+  `test_turn_idempotency.py:103`); the first two overlap by ~90 lines. Extract one
+  `tests/unit/_turn_harness.py` builder with opt-in spies. Deferred, not fixed: it would touch a
+  test file outside this task's diff while a concurrent session is working in the same tree.
+  *(check-quality: Introduced-Warning, deferred with the user's knowledge.)*
+- **FU-8** — The `lock_lost` path emits `agent.finished{error: "lock_lost"}` to the room, but the
+  *other* holder is by definition still working and may deliver a real reply moments later, so the
+  user can see an error toast beside a good answer. Suppressing the room emit for this one kind
+  (keeping the audit row) is probably right, but it trades against the "never leave the room
+  thinking" invariant and deserves its own decision rather than a snap call here.
+- **FU-9** — The reaper drains the parked coalesced trigger but does **not** re-serve the stranded
+  turn's own trigger. Deliberate: a turn whose audit row lost its partner may still have committed
+  a reply, and re-running it would spend the user's BYO key twice. Revisit only if the reaper ever
+  gains a way to tell "never replied" from "replied, record lost".
+- **FU-10** — `run_turn` now nests six deep (`try` → `for` → `async with` → `if acquired` →
+  `if attempt > 0` → `if parked.state`). Extracting the retry body needs `held`/`marked` in a small
+  mutable state object, not a return tuple — the return-tuple version silently broke the
+  cancellation drain, which is how it was caught. *(check-quality: Introduced-Info.)*
+- **FU-11** — Per D-4, an `unknown` pop on the retry can cost one redundant follow-up turn once
+  Redis recovers. Bounded and rare; recorded so it is not mistaken for a coalescing bug.
+- **FU-12** — `turn_job_id` reaches JSONB and a unique index with no length bound. Safe today only
+  because no `wakeup_agent` enqueue anywhere passes `_job_id` (verified repo-wide), so every value
+  is arq's `uuid4().hex`. If a client-supplied id ever reaches it, a user could pre-poison the index
+  and suppress a legitimate reply. *(check-security: Hardening.)*
+- **FU-13** — `MessageService.send_agent` sets `meta["turn_job_id"]` only when the argument is
+  given, so a `turn_job_id` already present in a caller's `metadata` would pass through to the
+  indexed column. No caller does this. `meta.pop("turn_job_id", None)` before the conditional set
+  would make it structural. *(check-security: Hardening.)*
 </content>

@@ -43,10 +43,10 @@ CLAIM_CONSUMER_BUDGET_S = CLAIM_RESUME_MAX_ATTEMPTS * CLAIM_RESUME_DELAY_S  # 63
 # --- Producer creation grace (I1) -------------------------------------------
 # Added to the node's own timeout_seconds when the claim key is first written.
 GATE_CLAIM_GRACE_S = 300  # approval_gate, instruct
-WAIT_CLAIM_GRACE_S = 60  # wait_for_event (claim key + by-event index), subagent_spawn
-# NB: subagent_spawn uses WAIT_CLAIM_GRACE_S for shape parity only — it currently
-# has no claim/restore/retry consumer at all (FU-6), so it has no consumer budget
-# to reconcile against yet.
+WAIT_CLAIM_GRACE_S = 60  # wait_for_event (claim key + by-event index)
+# NB: subagent_spawn was a third user of this grace until
+# 2026-07-22-subagent-spawn-fail-fast removed its park. It never had a claim/restore/
+# retry consumer, which is why it used the value for shape parity only.
 
 
 def initial_claim_ttl(timeout_seconds: int, grace_s: int) -> int:

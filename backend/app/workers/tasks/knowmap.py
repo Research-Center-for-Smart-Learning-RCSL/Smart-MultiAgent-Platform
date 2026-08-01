@@ -13,13 +13,18 @@ Mirrors ``app/workers/tasks/rag.py`` over the ``knowmap_*`` repositories.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import tempfile
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
+from minio import Minio
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.wiring.knowledge_ingest import KnowledgeIngestWiring
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
 from contexts.knowledge.application.graphrag_builder import (
@@ -30,13 +35,12 @@ from contexts.knowledge.application.graphrag_builder import (
 )
 from contexts.knowledge.application.graphrag_ports import ConfigLike
 from contexts.knowledge.application.knowmap_config_service import build_knowmap_embedder
-from contexts.knowledge.application.knowmap_ingest_service import KnowmapIngestService
 from contexts.knowledge.application.knowmap_triggers import (
     EnqueueOutcome,
     enqueue_knowmap_build,
 )
 from contexts.knowledge.domain.graphrag import BuildState
-from contexts.knowledge.domain.models import DocumentStatus, ScanStatus
+from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, ScanStatus
 from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
 from contexts.knowledge.infrastructure.embedders import router_embedder_for
 from contexts.knowledge.infrastructure.knowmap_delta_loader import DocDeltaLoader
@@ -47,6 +51,8 @@ from contexts.knowledge.infrastructure.knowmap_repositories import (
 from contexts.knowledge.infrastructure.knowmap_triple_extractor import DocTripleExtractor
 from shared_kernel.auth.clients import now
 from shared_kernel.db.session import get_sessionmaker
+from shared_kernel.queue import enqueue
+from shared_kernel.queue_names import KNOWLEDGE_INGEST_QUEUE
 
 _log = logging.getLogger(__name__)
 
@@ -443,13 +449,19 @@ async def _enqueue_build_on_clean(sm: Any, doc_id: uuid.UUID, *, entered: bool) 
     await _bump_and_enqueue_build(sm, cfg_id)
 
 
-async def knowmap_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
+async def knowmap_ingest_document(
+    ctx: dict[str, Any],
+    *,
+    document_id: str,
+    ingest_attempt: int | None = None,
+    claim_token: str | None = None,
+) -> str:
     """Index one registered Knowledge Map document, then enqueue the build.
 
     Idempotent: re-runs on a document no longer in ``ingesting`` state are a no-op
     (``process_document`` guards)."""
     _ = ctx
-    from minio import Minio
+    from datetime import UTC, datetime
 
     from app.config.settings import get_settings
 
@@ -462,9 +474,35 @@ async def knowmap_ingest_document(ctx: dict[str, Any], *, document_id: str) -> s
         if doc is None:
             _log.warning("knowmap_ingest_document: document %s not found", document_id)
             return f"document {document_id} not found"
+        from contexts.knowledge.domain.models import IngestClaim
+
+        claim = (
+            IngestClaim(
+                attempt=ingest_attempt,
+                token=uuid.UUID(claim_token),
+                until=doc.ingest_claim_until or datetime.max.replace(tzinfo=UTC),
+            )
+            if ingest_attempt is not None and claim_token is not None
+            else None
+        )
+        if (ingest_attempt is None) is not (claim_token is None):
+            _log.warning("knowmap_ingest_document: incomplete claim for %s", document_id)
+            return "invalid ingest claim"
+        if doc.scan_status is not ScanStatus.CLEAN:
+            return f"scan_{doc.scan_status.value}"
         cfg = await KnowmapConfigRepository(db).get(doc.knowmap_config_id)
         if cfg is None:
-            await KnowmapDocumentRepository(db).set_status(document_id=doc_id, status=DocumentStatus.FAILED)
+            if claim is None:
+                await KnowmapDocumentRepository(db).set_status(
+                    document_id=doc_id,
+                    status=DocumentStatus.FAILED,
+                )
+            else:
+                await KnowmapDocumentRepository(db).finish_claim(
+                    document_id=doc_id,
+                    claim=claim,
+                    status=DocumentStatus.FAILED,
+                )
             await db.commit()
             _log.warning("knowmap_ingest_document: config missing for %s", document_id)
             return "config missing"
@@ -477,23 +515,30 @@ async def knowmap_ingest_document(ctx: dict[str, Any], *, document_id: str) -> s
             secure=settings.minio.use_tls,
             region=settings.minio.region,
         )
-        ingest = KnowmapIngestService(
-            db,
+        ingest = KnowledgeIngestWiring(db).knowmap_service(
             blob=MinioBlobStore(minio),
             embedder=embedder,
             bucket=settings.minio.bucket_knowmap_sources,
         )
         try:
-            result = await ingest.process_document(document_id=doc_id)
+            result = await ingest.process_document(document_id=doc_id, claim=claim)
             await db.commit()
         except Exception:
             await db.rollback()
             async with sm() as db2:
                 current = await KnowmapDocumentRepository(db2).get(doc_id)
                 if current is not None and current.status is not DocumentStatus.READY:
-                    await KnowmapDocumentRepository(db2).set_status(
-                        document_id=doc_id, status=DocumentStatus.FAILED
-                    )
+                    if claim is None:
+                        await KnowmapDocumentRepository(db2).set_status(
+                            document_id=doc_id,
+                            status=DocumentStatus.FAILED,
+                        )
+                    else:
+                        await KnowmapDocumentRepository(db2).finish_claim(
+                            document_id=doc_id,
+                            claim=claim,
+                            status=DocumentStatus.FAILED,
+                        )
                     await db2.commit()
             _log.exception("knowmap_ingest_document failed for %s", document_id)
             raise
@@ -514,11 +559,92 @@ async def knowmap_ingest_document(ctx: dict[str, Any], *, document_id: str) -> s
 knowmap_ingest_document.max_tries = 3  # type: ignore[attr-defined]
 
 
-async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str:
-    """AV scan for a Knowledge Map document. Mirrors ``rag_scan_document``; a
-    quarantine OR skipped verdict enqueues a rebuild so the un-scannable document
-    leaves the buildable corpus (F-27)."""
+async def _enqueue_knowmap_ingest_after_clean(document_id: uuid.UUID) -> None:
+    sm = get_sessionmaker()
+    async with sm() as db:
+        doc = await KnowmapDocumentRepository(db).get(document_id)
+    if (
+        doc is None
+        or doc.status is not DocumentStatus.INGESTING
+        or doc.scan_status is not ScanStatus.CLEAN
+        or doc.ingest_claim_token is None
+    ):
+        return
+    await enqueue(
+        "knowmap_ingest_document",
+        document_id=str(document_id),
+        ingest_attempt=doc.ingest_attempt,
+        claim_token=str(doc.ingest_claim_token),
+        _job_id=f"knowmap-ingest:{document_id}:{doc.ingest_attempt}",
+        _queue_name=KNOWLEDGE_INGEST_QUEUE,
+    )
+
+
+async def _finish_knowmap_scan_claim(
+    document_id: uuid.UUID,
+    claim: IngestClaim,
+    *,
+    scan_status: ScanStatus,
+    failure_code: str,
+) -> bool:
+    sm = get_sessionmaker()
+    async with sm() as db, db.begin():
+        return await KnowmapDocumentRepository(db).mark_scan_owned(
+            document_id=document_id,
+            claim=claim,
+            scan_status=scan_status,
+            scan_at=now(),
+            terminal_status=DocumentStatus.FAILED,
+            failure_code=failure_code,
+        )
+
+
+async def _enqueue_knowmap_ingest_guarded(
+    ctx: dict[str, Any],
+    document_id: uuid.UUID,
+    config_id: uuid.UUID,
+    claim: IngestClaim,
+    *,
+    prior_clean: bool,
+) -> None:
+    try:
+        await _enqueue_knowmap_ingest_after_clean(document_id)
+    except asyncio.CancelledError:
+        updated = await _finish_knowmap_scan_claim(
+            document_id,
+            claim,
+            scan_status=ScanStatus.CLEAN,
+            failure_code="ingest_failed",
+        )
+        if updated and prior_clean:
+            await _enqueue_rebuild_for_config(get_sessionmaker(), config_id)
+        raise
+    except Exception:
+        if int(ctx.get("job_try", 1)) >= _SCAN_MAX_TRIES:
+            updated = await _finish_knowmap_scan_claim(
+                document_id,
+                claim,
+                scan_status=ScanStatus.CLEAN,
+                failure_code="ingest_failed",
+            )
+            if updated and prior_clean:
+                await _enqueue_rebuild_for_config(get_sessionmaker(), config_id)
+        raise
+
+
+async def knowmap_scan_document(
+    ctx: dict[str, Any],
+    *,
+    document_id: str,
+    ingest_attempt: int | None = None,
+    claim_token: str | None = None,
+) -> str:
+    """Scan only the currently owned ingest attempt; stale verdicts are no-ops."""
     from app.config.settings import get_settings
+    from shared_kernel import audit
+    from shared_kernel.auth.clients import now
+    from shared_kernel.scanning import get_scanner
+    from shared_kernel.storage.minio_client import get_minio_client
 
     doc_id = uuid.UUID(document_id)
     sm = get_sessionmaker()
@@ -528,6 +654,19 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
     if doc is None:
         _log.warning("knowmap_scan_document: document %s not found", document_id)
         return "not_found"
+    if ingest_attempt is None and claim_token is None and doc.ingest_attempt == 0:
+        ingest_attempt = 0
+        claim_token = str(doc.ingest_claim_token) if doc.ingest_claim_token else None
+    if ingest_attempt is None or claim_token is None:
+        return "stale"
+    claim = IngestClaim(
+        attempt=ingest_attempt,
+        token=uuid.UUID(claim_token),
+        until=doc.ingest_claim_until or datetime.max.replace(tzinfo=UTC),
+    )
+    async with sm() as db:
+        if not await KnowmapDocumentRepository(db).owns_claim(doc_id, claim):
+            return "stale"
     # F-12 (W1/W6): the buildable ready∧clean set only *changes* when a verdict
     # crosses the CLEAN boundary. A reconfirming CLEAN->CLEAN (a reindex rescan)
     # does not add the document, and a QUARANTINED/SKIPPED verdict on a document
@@ -537,72 +676,85 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
 
     if not get_settings().security.file_scan_enabled:
         async with sm() as db, db.begin():
-            from shared_kernel.auth.clients import now
-
-            await KnowmapDocumentRepository(db).mark_scan(
-                document_id=doc_id, scan_status=ScanStatus.CLEAN, scan_at=now()
+            updated = await KnowmapDocumentRepository(db).mark_scan_owned(
+                document_id=doc_id,
+                claim=claim,
+                scan_status=ScanStatus.CLEAN,
+                scan_at=now(),
             )
         # F-5: scan disabled == an immediate clean verdict; route through the shared
         # clean-verdict enqueue so the deferred build still fires once READY.
-        await _enqueue_build_on_clean(sm, doc_id, entered=not prior_clean)
-        return "clean"
-
-    from shared_kernel.scanning import ScanError, get_scanner
-    from shared_kernel.storage.minio_client import get_minio_client
+        if updated:
+            await _enqueue_build_on_clean(sm, doc_id, entered=not prior_clean)
+            await _enqueue_knowmap_ingest_guarded(
+                ctx,
+                doc_id,
+                doc.knowmap_config_id,
+                claim,
+                prior_clean=prior_clean,
+            )
+        return "clean" if updated else "stale"
 
     scanner = get_scanner()
     if scanner is None:
-        raise RuntimeError("file_scan_enabled is True but SMAP_SEC_CLAMAV_HOST is not set")
+        async with sm() as db, db.begin():
+            await KnowmapDocumentRepository(db).mark_scan_owned(
+                document_id=doc_id,
+                claim=claim,
+                scan_status=ScanStatus.SKIPPED,
+                scan_at=now(),
+                terminal_status=DocumentStatus.FAILED,
+                failure_code="scan_failed",
+            )
+        return "failed:scanner_unavailable"
 
     settings = get_settings()
     if doc.size_bytes > settings.security.clamav_max_scan_bytes:
-        from shared_kernel.auth.clients import now as _now2
-
         async with sm() as db2, db2.begin():
-            await KnowmapDocumentRepository(db2).mark_scan(
-                document_id=doc_id, scan_status=ScanStatus.SKIPPED, scan_at=_now2()
+            updated = await KnowmapDocumentRepository(db2).mark_scan_owned(
+                document_id=doc_id,
+                claim=claim,
+                scan_status=ScanStatus.SKIPPED,
+                scan_at=now(),
+                terminal_status=DocumentStatus.FAILED,
+                failure_code="scan_too_large",
             )
         # F-27: over-size is immediately terminal (no retry). Rebuild only if the
         # document was already CLEAN (hence possibly built) — a fresh over-size
         # document was never in the buildable set, so no rebuild is needed (F-12 W6).
-        if prior_clean:
+        if updated and prior_clean:
             await _enqueue_rebuild_for_config(sm, doc.knowmap_config_id)
-        return "skipped:too_large"
+        return "skipped:too_large" if updated else "stale"
 
     bucket, _, key = doc.minio_path.partition("/")
-    minio = get_minio_client()
-    data = await minio.get_object(bucket=bucket, key=key)
-
-    try:
-        result = await scanner.scan(data)
-    except ScanError:
-        _log.exception("knowmap_scan_document: ClamAV error for document %s", document_id)
-        from shared_kernel.auth.clients import now as _now
-
-        # Mark SKIPPED immediately on every attempt, so an unscannable document is
-        # excluded from the buildable/retrieval set right away and is never left
-        # non-terminal by a retry that is interrupted before it completes. The task
-        # still re-raises so arq retries the scan; if a later attempt recovers a
-        # CLEAN verdict, the clean-verdict path below re-adds the document.
-        async with sm() as db2, db2.begin():
-            await KnowmapDocumentRepository(db2).mark_scan(
-                document_id=doc_id, scan_status=ScanStatus.SKIPPED, scan_at=_now()
+    with tempfile.TemporaryDirectory(prefix="smap-knowmap-scan-") as tmpdir:
+        source_path = Path(tmpdir) / "source"
+        try:
+            await get_minio_client().download_to_path(bucket=bucket, key=key, path=source_path)
+            result = await scanner.scan_file(source_path)
+        except asyncio.CancelledError:
+            updated = await _finish_knowmap_scan_claim(
+                doc_id,
+                claim,
+                scan_status=ScanStatus.SKIPPED,
+                failure_code="scan_failed",
             )
-        # F-27 (Q-2): evict on the CLEAN->SKIPPED transition, mirroring the
-        # QUARANTINED path. ``prior_clean`` is read fresh from ``scan_status`` at
-        # entry (before this write), so it is True only on the attempt that first
-        # removes a previously-CLEAN (hence possibly built) document from the
-        # buildable set — later retries read SKIPPED and never re-enqueue. A
-        # never-CLEAN document has no triples in the graph to evict (F-12 W6).
-        # (The earlier ``job_try >= _SCAN_MAX_TRIES`` guard could never fire: the
-        # first attempt's SKIPPED write made ``prior_clean`` read False by the
-        # final attempt, so the eviction never ran.)
-        if prior_clean:
-            await _enqueue_rebuild_for_config(sm, doc.knowmap_config_id)
-        raise
-
-    from shared_kernel import audit
-    from shared_kernel.auth.clients import now
+            if updated and prior_clean:
+                await _enqueue_rebuild_for_config(sm, doc.knowmap_config_id)
+            raise
+        except Exception:
+            _log.exception("knowmap_scan_document: scan pipeline error for document %s", document_id)
+            updated = False
+            if int(ctx.get("job_try", 1)) >= _SCAN_MAX_TRIES:
+                updated = await _finish_knowmap_scan_claim(
+                    doc_id,
+                    claim,
+                    scan_status=ScanStatus.SKIPPED,
+                    failure_code="scan_failed",
+                )
+            if updated and prior_clean:
+                await _enqueue_rebuild_for_config(sm, doc.knowmap_config_id)
+            raise
 
     scan_status = ScanStatus.CLEAN if result.clean else ScanStatus.QUARANTINED
     if not result.clean:
@@ -615,10 +767,16 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
     async with sm() as db:
         cfg = await KnowmapConfigRepository(db).get(doc.knowmap_config_id)
         async with db.begin():
-            await KnowmapDocumentRepository(db).mark_scan(
-                document_id=doc_id, scan_status=scan_status, scan_at=now()
+            updated = await KnowmapDocumentRepository(db).mark_scan_owned(
+                document_id=doc_id,
+                claim=claim,
+                scan_status=scan_status,
+                scan_at=now(),
+                terminal_status=(
+                    DocumentStatus.QUARANTINED if scan_status is ScanStatus.QUARANTINED else None
+                ),
             )
-            if scan_status is ScanStatus.QUARANTINED:
+            if updated and scan_status is ScanStatus.QUARANTINED:
                 await audit.emit(
                     db,
                     audit.AuditEvent(
@@ -636,6 +794,8 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
     # hides them via the allowed-doc gate). Advance the revision (F-12 W1) so the
     # removal build is never dropped. A never-CLEAN document has no triples in the
     # graph, so nothing to evict (F-12 W6).
+    if not updated:
+        return "stale"
     if scan_status is ScanStatus.QUARANTINED and cfg is not None and prior_clean:
         await _bump_and_enqueue_build(sm, cfg.id)
     elif scan_status is ScanStatus.CLEAN:
@@ -644,6 +804,13 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
         # Advance the revision only when the document is newly *entering* the
         # ready∧clean set; a CLEAN->CLEAN reconfirm is handled by the ingest side.
         await _enqueue_build_on_clean(sm, doc_id, entered=not prior_clean)
+        await _enqueue_knowmap_ingest_guarded(
+            ctx,
+            doc_id,
+            doc.knowmap_config_id,
+            claim,
+            prior_clean=prior_clean,
+        )
     return scan_status.value
 
 
