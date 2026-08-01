@@ -724,7 +724,7 @@ jobs:
           --ignore-vuln PYSEC-2025-183
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: pnpm install --frozen-lockfile
@@ -748,7 +748,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Get pnpm store path
@@ -792,7 +792,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Get pnpm store path
@@ -818,7 +818,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Get pnpm store path
@@ -849,7 +849,7 @@ jobs:
         run: pip install -e '.[dev]'
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Get pnpm store path
@@ -873,7 +873,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Get pnpm store path
@@ -898,7 +898,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Get pnpm store path
@@ -954,7 +954,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Get pnpm store path
