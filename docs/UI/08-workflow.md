@@ -246,8 +246,8 @@ The 12% mix ensures the left-border type color remains clearly visible.
 | `subagent_spawn` | `['success', 'failure']` | Two outcomes |
 | `approval_gate` | `['approved', 'rejected', 'timeout']` | Three outcomes |
 | `condition` | Dynamic from `config.branches[].port` + `config.default_port` | Variable count |
-| `wait_for_event` | `['default', 'timeout']` | Event received or timed out |
-| `join` | `['default', 'timeout']` | All joined or timed out |
+| `wait_for_event` | `['default', 'timeout']` | Event received or timed out; for `event_type: timer` the `timeout` port is **not reachable** — a timer resumes at `default` after `delay_seconds` |
+| `join` | `['default', 'timeout']` | All joined; `timeout` is **not implemented** (no code arms it) — kept for stored-definition compatibility only |
 | `parallel` | `['default']` | Single fan-out (edges connect to multiple targets) |
 | `set_variable` | `['default']` | Single output |
 | `end` | `[]` | No output handles |
@@ -511,11 +511,17 @@ Simplest form. The parallel node acts as a fan-out point; its behavior is define
 
 **File**: `components/config/JoinConfigForm.vue`
 
+A warning notice (`workflow.config.joinTimeoutNotImplementedTitle` / `...Body`) renders
+above the fields, since a join's `timeout` port is not implemented (see
+`workflow.schema.md` §2 footnote).
+
 | Field | Type | Constraints |
 |-------|------|-------------|
 | `mode` | `<select>` | `all`, `any`, `count` |
 | `count` | Number | 1-50, shown only when `mode === 'count'` |
-| `timeout_seconds` | Number | 1-86400, default 600 |
+
+`timeout_seconds` was removed from this form (it had no runtime reader); the schema
+property is deprecated but kept so stored definitions that carry it still validate.
 
 ##### SetVariableConfigForm
 
@@ -1298,7 +1304,7 @@ interface WorkflowDefinition {
 | `components/config/SubagentSpawnConfigForm.vue` | `subagent_spawn` | parent, task, max_alive, on-error |
 | `components/config/WaitForEventConfigForm.vue` | `wait_for_event` | event_type, conditional fields per type |
 | `components/config/ParallelConfigForm.vue` | `parallel` | description |
-| `components/config/JoinConfigForm.vue` | `join` | mode, count, timeout |
+| `components/config/JoinConfigForm.vue` | `join` | mode, count (timeout field removed — not implemented) |
 | `components/config/SetVariableConfigForm.vue` | `set_variable` | dynamic assignments[] |
 | `components/config/EndConfigForm.vue` | `end` | status, return_variables, failure_reason |
 | `components/config/OnErrorConfigForm.vue` | (nested) | strategy, retry_max, backoff, fallback_node_id |

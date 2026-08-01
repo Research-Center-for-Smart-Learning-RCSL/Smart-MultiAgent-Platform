@@ -154,7 +154,8 @@ class ApiKeyRepository:
                         t.api_keys.c.deleted_at.is_(None),
                     )
                 )
-                .order_by(t.api_keys.c.created_at.desc())
+                # Trailing id keeps the order total under LIMIT/OFFSET (V-6).
+                .order_by(t.api_keys.c.created_at.desc(), t.api_keys.c.id.desc())
                 .limit(limit)
                 .offset(offset)
             )

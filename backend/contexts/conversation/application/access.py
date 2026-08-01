@@ -45,6 +45,17 @@ from shared_kernel.auth.permissions import (
 )
 
 
+def is_moderator_roles(roles: frozenset[Role]) -> bool:
+    """Moderator predicate over a resolved role set (R13.23, R5.03).
+
+    Kept as a free function so the route that *serializes* the bit into
+    `ChatroomOut.is_moderator` and the gates that *enforce* it read the same
+    expression — a second, hand-inlined copy is how the two halves drift.
+    Admin is handled outside via `principal.is_admin`.
+    """
+    return Role.PROJECT_OWNER in roles or Role.ORG_OWNER in roles
+
+
 @dataclass(frozen=True, slots=True)
 class RoomAccess:
     chatroom: Chatroom
@@ -58,8 +69,7 @@ class RoomAccess:
 
     @property
     def is_moderator(self) -> bool:
-        # Admin is handled outside via `principal.is_admin`.
-        return Role.PROJECT_OWNER in self.roles or Role.ORG_OWNER in self.roles
+        return is_moderator_roles(self.roles)
 
 
 async def resolve_room_access(
@@ -226,6 +236,7 @@ __all__ = [
     "ensure_can_send",
     "ensure_room_creator",
     "export_sender_scope",
+    "is_moderator_roles",
     "is_room_creator",
     "resolve_room_access",
 ]

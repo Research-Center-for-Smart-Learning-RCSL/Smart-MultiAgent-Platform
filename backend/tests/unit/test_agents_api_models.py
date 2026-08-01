@@ -132,3 +132,77 @@ def test_patch_rejects_a_non_bool_enabled_flag(trigger_key: str) -> None:
 def test_patch_rejects_a_non_bool_allow_self_open() -> None:
     with pytest.raises(ValidationError, match="allow_self_open"):
         AgentPatchIn(wakeup_config={"allow_self_open": "false"})
+
+
+# -- T-10 (workflow-capability-enforcement spec §7.6, AC-9): `max_alive_subagents`
+# is validated 1..20 at the API and required when `can_create_subagent` is true.
+# `BoundedConfig` alone bounded size/depth, not shape, which is what let both
+# `{}` and `{"max_alive_subagents": 0}` round-trip unvalidated before this. -----
+
+
+def test_patch_rejects_max_alive_subagents_zero() -> None:
+    with pytest.raises(ValidationError, match="max_alive_subagents"):
+        AgentPatchIn(workflow_capabilities={"can_create_subagent": True, "max_alive_subagents": 0})
+
+
+@pytest.mark.parametrize("value", [1, 3, 20])
+def test_patch_accepts_max_alive_subagents_in_range(value: int) -> None:
+    patch = AgentPatchIn(workflow_capabilities={"can_create_subagent": True, "max_alive_subagents": value})
+    assert patch.workflow_capabilities is not None
+    assert patch.workflow_capabilities["max_alive_subagents"] == value
+
+
+def test_patch_rejects_max_alive_subagents_above_hard_cap() -> None:
+    with pytest.raises(ValidationError, match="max_alive_subagents"):
+        AgentPatchIn(workflow_capabilities={"can_create_subagent": True, "max_alive_subagents": 21})
+
+
+def test_patch_defers_the_cross_field_rule_to_the_merged_config() -> None:
+    """This model sees a PATCH *fragment*, and the column merges.
+
+    It used to reject this payload outright, which was wrong in both directions:
+    an agent already storing `max_alive_subagents: 3` could not be granted the
+    capability, while `{"max_alive_subagents": null}` alone sailed through and
+    deleted the bound from an agent whose `can_create_subagent` was true. The
+    rule is now decided on the merge, in `AgentService` — see
+    `test_agent_service.py`'s capability-invariant tests, which cover both.
+    """
+    patch = AgentPatchIn(workflow_capabilities={"can_create_subagent": True})
+    assert patch.workflow_capabilities == {"can_create_subagent": True}
+
+
+def test_create_rejects_can_create_subagent_true_without_max_alive_subagents() -> None:
+    """On create there is nothing to merge with, so the service rejects it — the
+    invariant did not move, only the layer that can decide it."""
+    from contexts.agents.application.agent_service import _assert_capability_invariants
+    from contexts.agents.domain.errors import WorkflowCapabilitiesInvalid
+
+    with pytest.raises(WorkflowCapabilitiesInvalid, match="max_alive_subagents"):
+        _assert_capability_invariants({"can_create_subagent": True}, field="workflow_capabilities")
+
+
+def test_patch_accepts_can_create_subagent_false_with_null_max_alive_subagents() -> None:
+    # The exact payload AgentDetailView.vue sends when the toggle is off — null
+    # clears the key under the additive PATCH merge (shared_kernel.json_merge),
+    # rather than erroring.
+    patch = AgentPatchIn(workflow_capabilities={"can_create_subagent": False, "max_alive_subagents": None})
+    assert patch.workflow_capabilities is not None
+    assert patch.workflow_capabilities["max_alive_subagents"] is None
+
+
+def test_create_accepts_capable_agent_with_max_alive_subagents() -> None:
+    agent = _create(
+        workflow_capabilities={
+            "can_instruct": True,
+            "can_approve": True,
+            "can_create_subagent": True,
+            "max_alive_subagents": 5,
+        }
+    )
+    assert agent.workflow_capabilities["max_alive_subagents"] == 5
+
+
+@pytest.mark.parametrize("cap_key", ["can_instruct", "can_approve", "can_create_subagent"])
+def test_patch_rejects_a_non_bool_capability_flag(cap_key: str) -> None:
+    with pytest.raises(ValidationError, match=cap_key):
+        AgentPatchIn(workflow_capabilities={cap_key: "true"})

@@ -164,6 +164,17 @@ class SessionCreatedOut(BaseModel):
     session_id: uuid.UUID
 
 
+class SessionMessageOut(BaseModel):
+    role: str
+    content: str
+    error: bool
+
+
+class AssistantSessionOut(BaseModel):
+    session_id: uuid.UUID
+    messages: list[SessionMessageOut]
+
+
 class MessageIn(BaseModel):
     model_config = {"extra": "forbid"}
 
@@ -749,6 +760,26 @@ async def create_session(
 ) -> SessionCreatedOut:
     session = await SessionService(db).create_session(user_id=principal.user_id, project_id=project_id)
     return SessionCreatedOut(session_id=session.session_id)
+
+
+# ---------------------------------------------------------------------------
+# /api/prompt-assistant/sessions/{session_id} — recovery read (§29, F-13 fix)
+# ---------------------------------------------------------------------------
+
+
+@session_router.get("/sessions/{session_id}")
+async def get_session(
+    session_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> AssistantSessionOut:
+    # Ownership-only (Q-4): require_owned_session collapses "no such session"
+    # and "wrong owner" into one 404 — no membership check, no admin bypass.
+    session = await SessionService(db).require_owned_session(session_id, principal.user_id)
+    return AssistantSessionOut(
+        session_id=session.session_id,
+        messages=[SessionMessageOut(role=m.role, content=m.content, error=m.error) for m in session.messages],
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -105,7 +105,9 @@ class WorkflowRepository:
         q = (
             sa.select(workflows)
             .where(workflows.c.workspace_id == workspace_id)
-            .order_by(workflows.c.created_at.desc())
+            # Trailing id keeps the order total under LIMIT/OFFSET (V-6): created_at
+            # is transaction time, so same-transaction rows tie. Do not drop it.
+            .order_by(workflows.c.created_at.desc(), workflows.c.id.desc())
         )
         if not include_deleted:
             q = q.where(workflows.c.deleted_at.is_(None))
@@ -260,7 +262,8 @@ class WorkflowRunRepository:
             await self._db.execute(
                 sa.select(workflow_runs)
                 .where(workflow_runs.c.workflow_id == workflow_id)
-                .order_by(workflow_runs.c.started_at.desc())
+                # Trailing id keeps the order total under LIMIT/OFFSET (V-6).
+                .order_by(workflow_runs.c.started_at.desc(), workflow_runs.c.id.desc())
                 .limit(limit)
                 .offset(offset),
             )
@@ -576,7 +579,11 @@ class WorkflowRunArchiveRepository:
             await self._db.execute(
                 sa.select(workflow_runs_archive)
                 .where(workflow_runs_archive.c.workflow_id == workflow_id)
-                .order_by(workflow_runs_archive.c.started_at.desc())
+                # Trailing id keeps the order total under LIMIT/OFFSET (V-6).
+                .order_by(
+                    workflow_runs_archive.c.started_at.desc(),
+                    workflow_runs_archive.c.id.desc(),
+                )
                 .limit(limit)
                 .offset(offset),
             )
@@ -614,7 +621,12 @@ class WorkflowRunArchiveRepository:
         union_q = sa.union_all(live, archived).subquery()
         rows = (
             await self._db.execute(
-                sa.select(union_q).order_by(union_q.c.started_at.desc()).limit(limit).offset(offset),
+                # Trailing id keeps the order total under LIMIT/OFFSET (V-6). Both
+                # legs of the union select `id`, and run ids are unique across them.
+                sa.select(union_q)
+                .order_by(union_q.c.started_at.desc(), union_q.c.id.desc())
+                .limit(limit)
+                .offset(offset),
             )
         ).all()
         return [dict(row._mapping) for row in rows]

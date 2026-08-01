@@ -24,6 +24,7 @@ import pytest
 import contexts.agents.application.runtime.turn_engine as te
 from contexts.agents.application.context import KnowledgeBudget
 from contexts.keys.domain.providers import ApiKeyProvider
+from tests.unit.turn_engine_fakes import PublisherSpy
 
 
 def _async_return(value):
@@ -410,6 +411,11 @@ def _compaction_harness(
     log: list[str] = []
     audits: list[tuple[str, dict]] = []
 
+    PublisherSpy.emitted = []
+    PublisherSpy.fail_on = None
+    PublisherSpy.error = None
+    monkeypatch.setattr(te, "Publisher", PublisherSpy)
+
     history = history or [
         SimpleNamespace(
             role="user", content="x", token_count=900, id=uuid.uuid4(), sender_id=uuid.uuid4(), metadata={}
@@ -478,8 +484,15 @@ def _compaction_harness(
     return engine, agent, log, audits
 
 
-async def _run_assemble(engine, agent, room):
-    return await engine._assemble_history(agent, room, 128_000, ApiKeyProvider.CLAUDE, "claude-opus-4-8")
+async def _run_assemble(engine, agent, chatroom_id, *, room=None):
+    # `room` (the liveness-beacon channel) is a keyword-only param on the real
+    # `_assemble_history`, distinct from `chatroom_id` -- code-review finding:
+    # this helper used to accept a single `room` param and pass it positionally
+    # into `chatroom_id`, so the beacon `room` kwarg silently defaulted to None
+    # for every test in this file.
+    return await engine._assemble_history(
+        agent, chatroom_id, 128_000, ApiKeyProvider.CLAUDE, "claude-opus-4-8", room=room
+    )
 
 
 @pytest.mark.asyncio
@@ -495,6 +508,22 @@ async def test_empty_summary_audits_compact_failed_and_keeps_history(monkeypatch
     assert out is history
     assert "create_message" not in log
     assert [a for a, _ in audits] == ["agent.compact_failed"]
+
+
+@pytest.mark.asyncio
+async def test_compacting_progress_beacon_fires_with_a_live_room(monkeypatch) -> None:
+    """code-review finding: no test threaded a live `room` through
+    `_assemble_history`'s real (non-stubbed) compaction pass -- a future
+    regression dropping `room=room` from either call site in `_run_locked`, or
+    misplacing/removing the `_emit_progress(_PROGRESS_COMPACTING)` call inside
+    the real in-lock branch, would ship with the whole suite green."""
+    engine, agent, _log, _audits = _compaction_harness(monkeypatch)
+    room = "room:test-channel"
+
+    await _run_assemble(engine, agent, uuid.uuid4(), room=room)
+
+    beacons = [p for c, e, p in PublisherSpy.emitted if c == room and e == "agent.progress"]
+    assert {"agent_id": str(agent.id), "phase": "compacting"} in beacons
 
 
 # --------------------------------------------------------------------------- #
