@@ -1,4 +1,4 @@
-"""Semantic linter — 17 blocking rules + 6 advisory warnings (§5).
+"""Semantic linter — 17 blocking rules + 10 advisory warnings (§5).
 
 Rule 15 (SEC-L5) parses every SEL expression at save time so invalid or
 non-whitelisted expressions are rejected up front instead of failing silently
@@ -817,12 +817,44 @@ def advisory_warnings(
             if ts > 300:
                 issues.append(LintIssue(0, "warning", f"timeout_seconds={ts} > 300", node_id=n["id"]))
 
-        # W3: wait_for_event with no timeout path
-        if ntype == "wait_for_event":
+        # W3: wait_for_event with no timeout path. Timer waits have no
+        # producer for their timeout port at all (F-2) -- an absent timeout
+        # edge there is correct, not a gap, so W3 is scoped to every other
+        # event type and W9 below covers the timer case instead.
+        if ntype == "wait_for_event" and config.get("event_type", "timer") != "timer":
             edges = outgoing.get(n["id"], [])
             has_timeout = any(e.get("from_port") == "timeout" for e in edges)
             if not has_timeout:
                 issues.append(LintIssue(0, "warning", "wait_for_event has no timeout edge", node_id=n["id"]))
+
+        # W9: a timer wait's timeout port is never produced (F-2) -- a wired
+        # edge on it can never fire.
+        if ntype == "wait_for_event" and config.get("event_type", "timer") == "timer":
+            edges = outgoing.get(n["id"], [])
+            if any(e.get("from_port") == "timeout" for e in edges):
+                issues.append(
+                    LintIssue(
+                        0,
+                        "warning",
+                        "timer wait's timeout port is never produced; this edge is never taken",
+                        node_id=n["id"],
+                    )
+                )
+
+        # W10: join's timeout port has no producer (F-36) -- the port and its
+        # config field are kept for stored-definition compatibility but no
+        # runtime code arms a timeout for a join.
+        if ntype == "join":
+            edges = outgoing.get(n["id"], [])
+            if any(e.get("from_port") == "timeout" for e in edges):
+                issues.append(
+                    LintIssue(
+                        0,
+                        "warning",
+                        "join timeout is not implemented; this edge is never taken",
+                        node_id=n["id"],
+                    )
+                )
 
         # W4: approval_gate timeout > 3600
         if ntype == "approval_gate":
