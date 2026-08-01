@@ -12,7 +12,7 @@ import uuid
 import pytest
 
 from contexts.prompt_studio.domain.models import SessionMessage
-from contexts.prompt_studio.infrastructure.session_store import SessionStore
+from contexts.prompt_studio.infrastructure.session_store import SessionStore, _session_key
 
 
 class _FakeRedis:
@@ -95,3 +95,41 @@ async def test_append_message_returns_none_for_expired_session() -> None:
     result = await store.append_message(missing_id, SessionMessage(role="user", content="hi"))
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_error_flag_round_trips_through_json() -> None:
+    """Q-5's failure marker: the `error` flag must survive a real JSON save/load, not just the dataclass default."""
+    redis = _FakeRedis()
+    store = SessionStore(redis)
+    user_id, project_id = uuid.uuid4(), uuid.uuid4()
+    session = await store.create(user_id=user_id, project_id=project_id)
+
+    await store.append_message(
+        session.session_id,
+        SessionMessage(role="assistant", content="prompt-studio/turn-failed", error=True),
+    )
+
+    fetched = await store.get(session.session_id)
+
+    assert fetched is not None
+    assert [(m.content, m.error) for m in fetched.messages] == [("prompt-studio/turn-failed", True)]
+
+
+@pytest.mark.asyncio
+async def test_get_tolerates_pre_existing_json_without_the_error_key() -> None:
+    """Back-compat: sessions saved before this fix have no "error" key at all."""
+    redis = _FakeRedis()
+    session_id = uuid.uuid4()
+    user_id, project_id = uuid.uuid4(), uuid.uuid4()
+    await redis.set(
+        _session_key(session_id),
+        f'{{"user_id": "{user_id}", "project_id": "{project_id}", '
+        f'"messages": [{{"role": "assistant", "content": "old reply"}}]}}',
+    )
+    store = SessionStore(redis)
+
+    fetched = await store.get(session_id)
+
+    assert fetched is not None
+    assert fetched.messages == (SessionMessage(role="assistant", content="old reply", error=False),)

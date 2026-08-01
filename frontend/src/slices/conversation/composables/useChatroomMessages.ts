@@ -39,6 +39,11 @@ export function useChatroomMessages(
   // Accessor for the room's bound agents, used to resolve @mentions in the
   // draft at send time. Optional so callers/tests without agents still work.
   mentionAgents: () => MentionableAgent[] = () => [],
+  // R13.23's non-admin arm: project and org owners moderate this room. Read
+  // from `ChatroomOut.is_moderator` rather than re-derived, because an org
+  // owner needs no `project_members` row (R5.03) and no client-side tenancy
+  // lookup can see that. Defaults closed for callers that have no room DTO.
+  isModerator: () => boolean = () => false,
 ) {
   const { t } = useI18n()
   const toast = useToast()
@@ -58,7 +63,7 @@ export function useChatroomMessages(
   function canEdit(m: Message): boolean {
     // An optimistic (not-yet-persisted) message has no server id to PATCH.
     if ((m as DisplayMessage)._status) return false
-    if (isAdmin.value) return true
+    if (isAdmin.value || isModerator()) return true
     return (
       isOwnUserMessage(m) &&
       Date.now() - new Date(m.created_at).getTime() < EDIT_WINDOW_MS
@@ -67,7 +72,7 @@ export function useChatroomMessages(
 
   function canDelete(m: Message): boolean {
     if ((m as DisplayMessage)._status) return false
-    return isAdmin.value || isOwnUserMessage(m)
+    return isAdmin.value || isModerator() || isOwnUserMessage(m)
   }
 
   // ---------- pagination ---------------------------------------------------
@@ -233,10 +238,23 @@ export function useChatroomMessages(
     if (!text && attachmentIds.length === 0) return false
 
     // /compact slash command (G.10): forces compaction on the active agent.
+    // Reports its own outcome rather than riding the send path's `try` below,
+    // which this early return never reaches — mirrors ChatroomSettingsView's
+    // compact button, down to the i18n keys (both surfaces say the same thing).
     if (text === '/compact') {
       draft.value = ''
-      await compactChatroom(chatroomId)
-      return true
+      try {
+        await compactChatroom(chatroomId)
+        toast.success(t('conversation.settings.compactRequested'))
+        return true
+      } catch {
+        // Restore the command so the user can retry it; `send` binds onSend as
+        // an event handler, so resolving false is what keeps a failure from
+        // becoming an unhandled rejection.
+        if (!draft.value) draft.value = text
+        toast.error(t('conversation.settings.compactFailed'))
+        return false
+      }
     }
 
     // Optimistic insert: show the message immediately in a "sending" state and

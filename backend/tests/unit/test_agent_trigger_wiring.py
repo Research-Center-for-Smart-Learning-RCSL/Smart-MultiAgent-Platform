@@ -215,7 +215,7 @@ def _patch_task_env(
     dict of recorders the test asserts on."""
     from contexts.conversation.domain.models import ChatroomAgentRole
 
-    rec: dict = {"run_turn": [], "on_agent_message_sent": [], "audit": []}
+    rec: dict = {"run_turn": [], "on_agent_message_sent": [], "audit": [], "turn_job_id": []}
     binding_role = role or ChatroomAgentRole.NORMAL
 
     class _BindingRepo:
@@ -269,8 +269,11 @@ def _patch_task_env(
         def __init__(self, db, *, qdrant_url=None, qdrant_api_key=None, bge_reranker_url=None) -> None:
             pass
 
-        async def run_turn(self, *, agent_id, chatroom_id, trigger, trigger_message_id=None):
+        async def run_turn(
+            self, *, agent_id, chatroom_id, trigger, trigger_message_id=None, turn_job_id=None
+        ):
             rec["run_turn"].append((agent_id, chatroom_id, trigger, trigger_message_id))
+            rec["turn_job_id"].append(turn_job_id)
             return SimpleNamespace(status=turn_status, reason=None)
 
     monkeypatch.setattr("contexts.agents.application.runtime.turn_engine.TurnEngine", _TurnEngine)
@@ -541,3 +544,26 @@ async def test_wakeup_agent_forwards_trigger_message_id(monkeypatch) -> None:
 
     assert out == "completed"
     assert rec["run_turn"] == [(aid, rid, "every_n_messages", mid)]
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_forwards_the_arq_job_id_as_the_idempotency_key(monkeypatch) -> None:
+    """AC-8's first link: without this the turn has no key to short-circuit on
+    and no key to write into the reply row."""
+    aid, rid = uuid.uuid4(), uuid.uuid4()
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(id=rid), agent=_agent(), turn_status="completed")
+
+    await orch_task.wakeup_agent({"job_id": "job-abc"}, str(aid), str(rid), "mention")
+
+    assert rec["turn_job_id"] == ["job-abc"]
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_tolerates_a_context_without_a_job_id(monkeypatch) -> None:
+    """A non-arq caller (only tests today) must not crash the turn."""
+    aid, rid = uuid.uuid4(), uuid.uuid4()
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(id=rid), agent=_agent(), turn_status="completed")
+
+    await orch_task.wakeup_agent({}, str(aid), str(rid), "mention")
+
+    assert rec["turn_job_id"] == [None]

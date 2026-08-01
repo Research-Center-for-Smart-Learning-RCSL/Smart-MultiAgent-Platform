@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import REGCONFIG
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.errors import VersionMismatch
@@ -62,6 +63,22 @@ class MessageRepository:
             )
         ).one()
         return _row_to_message(row)
+
+    async def id_for_turn_job(self, turn_job_id: str) -> uuid.UUID | None:
+        """The reply a given turn job already committed, if any.
+
+        Backs the replay short-circuit at the top of a turn, so a re-run costs a
+        single indexed lookup instead of a full provider turn. Reads the same
+        `metadata->>'turn_job_id'` expression the unique index is built on, so
+        the check and the constraint cannot disagree. Soft-deleted rows count:
+        a reply that was posted and then removed was still posted, and a replay
+        must not resurrect it.
+        """
+        return (
+            await self._db.execute(
+                sa.select(t.messages.c.id).where(t.messages.c.metadata["turn_job_id"].astext == turn_job_id)
+            )
+        ).scalar_one_or_none()
 
     async def get(self, message_id: uuid.UUID) -> Message | None:
         row = (
@@ -238,17 +255,41 @@ class MessageRepository:
         treated as literal text -- there is no QUERY DSL injection surface.
         The `english` configuration matches the trigger in 0017; any
         localisation overrides land in that migration (F.10 follow-up).
+
+        Hits are delimited with `<mark>`, not PostgreSQL's default `<b>`, per
+        `docs/UI/07-conversation.md`. The marker is a cross-layer contract: the
+        frontend sanitiser allowlists exactly this element and the search panel
+        styles it. Changing it here without changing `SNIPPET_CONFIG` in
+        `frontend/src/slices/conversation/utils/renderMarkdown.ts` makes the
+        highlight vanish, because DOMPurify keeps the text and drops the element.
+
+        The ordering carries two tiebreaks after `rank`, and neither is
+        decorative. `ts_rank_cd` ties whenever two messages mention the term
+        the same number of times at the same weight, which is the normal
+        condition of a chat room rather than an edge case; an ORDER BY on a
+        non-unique key under LIMIT/OFFSET leaves the returned *set* to the
+        plan, so the same request can yield a different page. `created_at`
+        makes the tied block read newest-first instead of arbitrarily, and the
+        trailing `id` -- the primary key -- is what makes the order total. Do
+        not drop the `id` key.
         """
-        tsq = sa.func.plainto_tsquery(sa.literal("english"), sa.literal(query))
+        # Cast to regconfig rather than passing a bare literal: asyncpg binds an
+        # untyped literal as VARCHAR, and PostgreSQL has no
+        # plainto_tsquery(varchar, varchar) -- both overloads take `regconfig` --
+        # so every real search failed to resolve the function. A `literal_binds`
+        # compile hides this, because an inline SQL literal coerces on its own;
+        # the db-tier test in tests/integration is what actually pins it.
+        config = sa.cast(sa.literal("english"), REGCONFIG)
+        tsq = sa.func.plainto_tsquery(config, sa.literal(query))
         stmt = (
             sa.select(
                 t.messages,
                 sa.func.ts_rank_cd(t.messages.c.content_tsv, tsq).label("rank"),
                 sa.func.ts_headline(
-                    sa.literal("english"),
+                    config,
                     t.messages.c.content_md,
                     tsq,
-                    sa.literal("MaxWords=35,MinWords=15,ShortWord=3"),
+                    sa.literal("StartSel=<mark>,StopSel=</mark>,MaxWords=35,MinWords=15,ShortWord=3"),
                 ).label("snippet"),
             )
             .where(
@@ -258,7 +299,11 @@ class MessageRepository:
                     t.messages.c.content_tsv.op("@@")(tsq),
                 )
             )
-            .order_by(sa.desc("rank"))
+            .order_by(
+                sa.desc("rank"),
+                t.messages.c.created_at.desc(),
+                t.messages.c.id.desc(),
+            )
             .limit(limit)
             .offset(offset)
         )

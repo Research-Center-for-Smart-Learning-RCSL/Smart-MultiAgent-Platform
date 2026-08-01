@@ -37,6 +37,7 @@ async def test_end_broadcasts_only_when_the_activation_transitions(
     facade.end_activation = AsyncMock(
         return_value=ActivityActivationEndResult(activation=activation, transitioned=transitioned)
     )
+    facade.get_type = AsyncMock(return_value=None)
     db = MagicMock()
     db.commit = AsyncMock()
     dispatch = AsyncMock()

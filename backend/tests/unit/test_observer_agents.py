@@ -39,6 +39,7 @@ from contexts.conversation.domain.models import (
 from contexts.conversation.infrastructure.repositories.observation_repo import ObservationRepository
 from contexts.skills.application.binding_service import BoundSet
 from shared_kernel.auth.permissions import Principal, Role
+from tests.unit.chatroom_fakes import chatroom_row
 from tests.unit.skill_fakes import make_skill
 
 # --------------------------------------------------------------------------- #
@@ -122,31 +123,13 @@ def test_ensure_room_creator_raises() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _room_row(*, created_by=None, disclose=True):
-    now = datetime.now(UTC)
-    return SimpleNamespace(
-        id=uuid.uuid4(),
-        workspace_id=uuid.uuid4(),
-        name="room",
-        allow_org_members=False,
-        allow_project_members=True,
-        allow_project_owners_only=False,
-        allow_guest_links=True,
-        version=1,
-        created_at=now,
-        deleted_at=None,
-        created_by_user_id=created_by,
-        disclose_observers=disclose,
-    )
-
-
 def test_to_out_hides_observer_fields_from_pure_guests() -> None:
     """O-8 (R28.02): a pure guest gets fail-closed neutral values for every
     observer-related DTO field; members keep the real values."""
     import app.api.v1.chatrooms as chatrooms_mod
 
     creator = uuid.uuid4()
-    room = _room_row(created_by=creator, disclose=True)
+    room = chatroom_row(created_by=creator, disclose=True)
 
     guest_view = chatrooms_mod._to_out(room, has_observers=True, viewer_is_pure_guest=True)
     assert guest_view.created_by_user_id is None
@@ -342,7 +325,7 @@ async def test_unbind_observer_leaves_observations_readable(monkeypatch) -> None
     assert obs_repo_calls == ["list"]
 
 
-def _wire_patch_handler(monkeypatch, *, access, cap_calls, patched):
+def _wire_patch_handler(monkeypatch, *, access, cap_calls, patched, roles=frozenset()):
     import app.api.v1.chatrooms as chatrooms_mod
 
     async def _pid(db, chatroom_id):
@@ -356,13 +339,24 @@ def _wire_patch_handler(monkeypatch, *, access, cap_calls, patched):
             raise AssertionError("resolve_room_access must not run without a disclosure field")
         return access
 
+    # V-4: a plain-flags patch resolves the caller's roles for the response
+    # DTO's `is_moderator` without paying for a full `resolve_room_access`.
+    class _Resolver:
+        async def roles_for(self, principal, scope):
+            return roles
+
+    async def _get_resolver(db):
+        return _Resolver()
+
+    monkeypatch.setattr(chatrooms_mod, "get_role_resolver", _get_resolver)
+
     class _Service:
         def __init__(self, db) -> None:
             pass
 
         async def patch(self, **kw):
             patched.append(kw)
-            return _room_row()
+            return chatroom_row()
 
         async def rooms_with_observers(self, ids):
             return set()
@@ -426,9 +420,15 @@ async def test_name_only_patch_keeps_moderator_semantics(monkeypatch) -> None:
 
     cap_calls: list = []
     patched: list = []
-    mod = _wire_patch_handler(monkeypatch, access=None, cap_calls=cap_calls, patched=patched)
+    mod = _wire_patch_handler(
+        monkeypatch,
+        access=None,
+        cap_calls=cap_calls,
+        patched=patched,
+        roles=frozenset({Role.PROJECT_OWNER}),
+    )
 
-    await mod.patch_chatroom(
+    out = await mod.patch_chatroom(
         chatrooms_mod.ChatroomPatchIn(name="renamed"),
         chatroom_id=uuid.uuid4(),
         if_match="1",
@@ -438,6 +438,9 @@ async def test_name_only_patch_keeps_moderator_semantics(monkeypatch) -> None:
     )
     assert len(cap_calls) == 1
     assert len(patched) == 1
+    # V-4: the patch response reports the caller's real moderator standing,
+    # resolved without the `resolve_room_access` the harness forbids here.
+    assert out.is_moderator is True
 
 
 # --------------------------------------------------------------------------- #
@@ -918,7 +921,9 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
     async def _true(*a, **k):
         return True
 
-    async def _history(agent_, chatroom_id, context_limit, provider, model, *, extra_projected_tokens=0):
+    async def _history(
+        agent_, chatroom_id, context_limit, provider, model, *, extra_projected_tokens=0, room=None
+    ):
         return [
             SimpleNamespace(
                 role="user", content="hello", sender_id=uuid.uuid4(), id=uuid.uuid4(), token_count=2
@@ -946,7 +951,7 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
 
     async def _stream(**kw):
         stream_seen.update(kw)
-        return ("private analysis", 1)
+        return te.ToolLoopOutcome(text="private analysis", rounds=1)
 
     async def _memory(agent_, chatroom_id):
         return "[Your previous observations]\n- earlier"
@@ -1079,7 +1084,7 @@ async def test_observer_turn_no_input_emits_observation_skipped(monkeypatch) -> 
     engine, _recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
 
     async def _empty_history(
-        agent_, chatroom_id, context_limit, provider, model, *, extra_projected_tokens=0
+        agent_, chatroom_id, context_limit, provider, model, *, extra_projected_tokens=0, room=None
     ):
         return []
 
@@ -1112,7 +1117,7 @@ async def test_observer_turn_empty_reply_emits_observation_skipped(monkeypatch) 
     engine, _recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
 
     async def _blank_stream(**kw):
-        return ("   ", 1)
+        return te.ToolLoopOutcome(text="   ", rounds=1)
 
     engine._stream_with_tools = _blank_stream  # type: ignore[attr-defined]
 
@@ -1133,6 +1138,73 @@ async def test_observer_turn_empty_reply_emits_observation_skipped(monkeypatch) 
     user_events = [e for e in _PublisherSpy.emitted if e[0] == f"ws:user:{creator}"]
     assert [e[1] for e in user_events] == ["observation.started", "observation.skipped"]
     assert user_events[-1][2]["kind"] == "empty_reply"
+
+
+@pytest.mark.asyncio
+async def test_an_empty_failed_synthesis_is_not_filed_as_a_benign_skip(monkeypatch) -> None:
+    """AC-7. A provider outage that leaves nothing to say is not the model
+    choosing silence: recorded as `empty_reply` it was indistinguishable from
+    one, and the creator's UI showed a clean skip."""
+    agent = _observer_agent()
+    creator = uuid.uuid4()
+    engine, _recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
+
+    async def _failed_stream(**kw):
+        return te.ToolLoopOutcome(
+            text="", rounds=8, synthesis_failed=True, error_kind="provider_exhausted:no_usable_key"
+        )
+
+    engine._stream_with_tools = _failed_stream  # type: ignore[attr-defined]
+
+    result = await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="every_n_messages",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert result.status == "skipped"
+    assert result.reason == "provider_exhausted:no_usable_key"
+    user_events = [e for e in _PublisherSpy.emitted if e[0] == f"ws:user:{creator}"]
+    assert [e[1] for e in user_events] == ["observation.started", "observation.failed"]
+    assert user_events[-1][2]["kind"] == "provider_exhausted:no_usable_key"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_synthesis_marks_the_observation_it_persists(monkeypatch) -> None:
+    """AC-7. The filler is kept — eight rounds of tool work stand behind it —
+    but the stored observation says so."""
+    agent = _observer_agent()
+    creator = uuid.uuid4()
+    engine, recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
+
+    async def _failed_stream(**kw):
+        return te.ToolLoopOutcome(
+            text="Let me check that for you.",
+            rounds=8,
+            synthesis_failed=True,
+            error_kind="provider_stream_failed",
+        )
+
+    engine._stream_with_tools = _failed_stream  # type: ignore[attr-defined]
+
+    result = await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="every_n_messages",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert result.status == "completed"
+    assert recorded["content_md"] == "Let me check that for you."
+    assert recorded["metadata"]["synthesis_failed"] is True
+    assert recorded["metadata"]["synthesis_error"] == "provider_stream_failed"
 
 
 @pytest.mark.asyncio
@@ -1160,7 +1232,7 @@ async def test_empty_reply_settles_pending_approvals(monkeypatch) -> None:
     engine._settle_pending_approvals = _settle  # type: ignore[attr-defined]
 
     async def _blank_stream(**kw):
-        return ("   ", 1)
+        return te.ToolLoopOutcome(text="   ", rounds=1)
 
     engine._stream_with_tools = _blank_stream  # type: ignore[attr-defined]
 

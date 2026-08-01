@@ -113,6 +113,9 @@ class FileTool:
                     "ok": ok,
                 },
             ),
+            # Shares the turn's session: a failed insert here would abort the
+            # transaction the reply is persisted in.
+            isolated=True,
         )
 
 

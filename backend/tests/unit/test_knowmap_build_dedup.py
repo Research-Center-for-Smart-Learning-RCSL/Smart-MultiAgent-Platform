@@ -272,10 +272,19 @@ async def test_index_document_bumps_corpus_revision_once() -> None:
     from contexts.knowledge.application.knowmap_ingest_service import KnowmapIngestService
     from contexts.knowledge.domain.models import ChunkStrategy
 
-    svc = KnowmapIngestService(AsyncMock(), blob=AsyncMock(), embedder=AsyncMock())
-    svc._chunks = AsyncMock()
-    svc._docs = AsyncMock()
-    svc._configs = AsyncMock()
+    chunks = AsyncMock()
+    documents = AsyncMock()
+    configs = AsyncMock()
+    svc = KnowmapIngestService(
+        AsyncMock(),
+        blob=AsyncMock(),
+        embedder=AsyncMock(),
+        configs=configs,
+        documents=documents,
+        chunks=chunks,
+        chunker=AsyncMock(),
+        scan_required=False,
+    )
     config_id = uuid.uuid4()
     doc = SimpleNamespace(id=uuid.uuid4(), mime="text/plain", knowmap_config_id=config_id)
     svc._docs.get.return_value = doc
@@ -284,9 +293,9 @@ async def test_index_document_bumps_corpus_revision_once() -> None:
     async def _fake_chunk(*_a: Any, **_k: Any) -> list[str]:
         return ["chunk-0"]
 
+    svc._chunker = _fake_chunk
     with (
         patch.dict(kis.MIME_TO_PARSER, {"text/plain": lambda _data: "text"}, clear=False),
-        patch.object(kis, "chunk_document", _fake_chunk),
         patch.object(kis.audit, "emit", new=AsyncMock()),
     ):
         await svc._index_document(

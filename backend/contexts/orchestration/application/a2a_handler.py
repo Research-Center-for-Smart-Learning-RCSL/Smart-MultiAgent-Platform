@@ -105,6 +105,13 @@ async def _handle_call(envelope: A2AEnvelope) -> None:
         "reply": result.text,
         "payload": {"reply": result.text, "output": result.text},
     }
+    if result.synthesis_failed:
+        # The turn completed on eight rounds of real tool work, so the reply is
+        # still worth delivering — but `text` here is the last tool round's filler,
+        # not a synthesised answer, and a caller that cannot tell the difference
+        # passes it on as one. Not `_deliver_error`: that would discard the work.
+        reply_env["synthesis_failed"] = True
+        reply_env["synthesis_error"] = result.error_kind or "synthesis_failed"
     await a2a_rendezvous.deliver_reply(envelope.correlation_id, reply_env)
 
 

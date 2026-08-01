@@ -389,8 +389,5 @@ class OrchestrationFacade:
         """Project owning a workflow run — API-2 authz scope for the backstage."""
         return await self._subagent.resolve_run_project(workflow_run_id)
 
-    async def cleanup_expired_instances(self, retention_days: int = 30) -> int:
-        return await self._subagent.cleanup_expired(retention_days)
-
 
 __all__ = ["OrchestrationFacade"]

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+from pathlib import Path
 from typing import Final
 
 from minio import Minio
@@ -53,3 +54,16 @@ class MinioBlobStore(BlobStore):
                 resp.release_conn()
 
         return await asyncio.to_thread(_op)
+
+    async def download_to_path(self, *, bucket: str, key: str, path: Path) -> None:
+        def _op() -> None:
+            resp = self._client.get_object(bucket, key)
+            try:
+                with path.open("wb") as target:
+                    for chunk in resp.stream(amt=1024 * 1024):
+                        target.write(chunk)
+            finally:
+                resp.close()
+                resp.release_conn()
+
+        await asyncio.to_thread(_op)

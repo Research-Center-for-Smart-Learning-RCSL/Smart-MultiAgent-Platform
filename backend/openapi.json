@@ -1,4 +1,4 @@
-﻿{
+{
   "components": {
     "schemas": {
       "AcceptByTokenIn": {
@@ -16,6 +16,16 @@
       },
       "ActivityActivationOut": {
         "properties": {
+          "activity_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActivityTypePublicOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "activity_type_id": {
             "format": "uuid",
             "title": "Activity Type Id",
@@ -539,6 +549,36 @@
           "created_at"
         ],
         "title": "ActivityTypeOut",
+        "type": "object"
+      },
+      "ActivityTypePublicOut": {
+        "description": "The participant rendering contract (R30.26): identity, key, display\nname, and payload schema, and nothing else. No `validator_config` \u2014 that\nfield is confidential to Project Owners (R30.25). Reachable through the\nroom-access chain, never through project membership.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "payload_schema": {
+            "title": "Payload Schema",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "name",
+          "payload_schema"
+        ],
+        "title": "ActivityTypePublicOut",
         "type": "object"
       },
       "ActivityTypeUpdateIn": {
@@ -2342,6 +2382,28 @@
         "title": "AssistantConfigPutIn",
         "type": "object"
       },
+      "AssistantSessionOut": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/SessionMessageOut"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "messages"
+        ],
+        "title": "AssistantSessionOut",
+        "type": "object"
+      },
       "AttachmentDownloadOut": {
         "properties": {
           "chatroom_id": {
@@ -3279,6 +3341,11 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "is_moderator": {
+            "default": false,
+            "title": "Is Moderator",
+            "type": "boolean"
           },
           "name": {
             "title": "Name",
@@ -5143,6 +5210,17 @@
             "title": "Agent Ids",
             "type": "array"
           },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
           "filename": {
             "title": "Filename",
             "type": "string"
@@ -5189,6 +5267,7 @@
           "sha256",
           "status",
           "scan_status",
+          "failure_code",
           "uploaded_at",
           "agent_ids"
         ],
@@ -6724,6 +6803,17 @@
             "title": "Agent Ids",
             "type": "array"
           },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
           "filename": {
             "title": "Filename",
             "type": "string"
@@ -6770,6 +6860,7 @@
           "sha256",
           "status",
           "scan_status",
+          "failure_code",
           "uploaded_at",
           "agent_ids"
         ],
@@ -7356,6 +7447,29 @@
           "session_id"
         ],
         "title": "SessionCreatedOut",
+        "type": "object"
+      },
+      "SessionMessageOut": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "error": {
+            "title": "Error",
+            "type": "boolean"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content",
+          "error"
+        ],
+        "title": "SessionMessageOut",
         "type": "object"
       },
       "SessionOut": {
@@ -15204,6 +15318,60 @@
         ]
       }
     },
+    "/api/chatrooms/{chatroom_id}/activity-types/{type_id}": {
+      "get": {
+        "description": "Room-scoped rendering-contract read (R30.26, Q-1): the recovery path\nwhen the activation-started broadcast was missed, the store was reset, or\na future flow needs a type that is not the currently active one. Gated by\nthe room-access chain, not project membership, so a chatroom guest is a\nfull activity participant.",
+        "operationId": "get_room_activity_type_api_chatrooms__chatroom_id__activity_types__type_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Type Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityTypePublicOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Room Activity Type",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
     "/api/chatrooms/{chatroom_id}/agents": {
       "get": {
         "operationId": "list_chatroom_agents_api_chatrooms__chatroom_id__agents_get",
@@ -21243,6 +21411,7 @@
     },
     "/api/projects/{project_id}/activity-types": {
       "get": {
+        "description": "Membership gate is unchanged \u2014 a non-owner member still legitimately\nlists types (that is how a facilitator picks one to activate). Only\n`validator_config` is owner-gated (R30.25): it may hold answer keys and,\nonce sealed validator credentials exist, secrets.",
         "operationId": "list_activity_types_api_projects__project_id__activity_types_get",
         "parameters": [
           {
@@ -24332,6 +24501,49 @@
         "summary": "Create Workspace",
         "tags": [
           "workspaces"
+        ]
+      }
+    },
+    "/api/prompt-assistant/sessions/{session_id}": {
+      "get": {
+        "operationId": "get_session_api_prompt_assistant_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session",
+        "tags": [
+          "prompt-studio"
         ]
       }
     },
