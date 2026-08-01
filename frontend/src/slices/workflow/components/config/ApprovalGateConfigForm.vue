@@ -5,12 +5,13 @@ import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
 import { SCheckbox, SFormField, SInput, SSelect, STextarea } from '@shared/ui'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
+import type { ProjectAgent } from '../../utils/projectAgents'
 
 const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: Record<string, unknown>
-  agents: Array<{ id: string; name: string }>
+  agents: ProjectAgent[]
   chatrooms: Array<{ id: string; name: string }>
   allNodeIds: string[]
 }>()
@@ -27,9 +28,16 @@ const modeOptions = computed(() =>
   MODE_OPTIONS.map((m) => ({ value: m, label: t('workflow.config.approvalMode_' + m) })),
 )
 
+// Advisory only (spec §7.4): the leader is folded into `approvers` at run time
+// and the runtime gate lives in ApprovalService.create_gate. An agent already
+// saved as leader without can_approve must stay visible and selectable.
+function approverLabel(agent: ProjectAgent): string {
+  return agent.canApprove ? agent.name : `${agent.name} ${t('workflow.config.agentMissingCanApprove')}`
+}
+
 const leaderAgentOptions = computed(() => [
   { value: '', label: t('workflow.config.none'), disabled: true },
-  ...props.agents.map((agent) => ({ value: agent.id, label: agent.name })),
+  ...props.agents.map((agent) => ({ value: agent.id, label: approverLabel(agent) })),
 ])
 
 function toggleApprover(agentId: string): void {
@@ -90,7 +98,7 @@ function isApprover(agentId: string): boolean {
           :model-value="isApprover(agent.id)"
           @update:model-value="toggleApprover(agent.id)"
         >
-          {{ agent.name }}
+          {{ approverLabel(agent) }}
         </SCheckbox>
       </div>
     </SFormField>

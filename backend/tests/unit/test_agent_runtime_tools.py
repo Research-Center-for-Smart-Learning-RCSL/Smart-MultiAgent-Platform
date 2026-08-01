@@ -7,6 +7,7 @@ import uuid
 from typing import ClassVar
 
 import pytest
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from contexts.agents.application.runtime import tool_registry as tr
 from contexts.agents.application.runtime.tool_registry import (
@@ -86,15 +87,318 @@ async def test_registry_dispatch_and_unknown() -> None:
 
 @pytest.mark.asyncio
 async def test_registry_swallows_tool_exception() -> None:
+    """A domain failure stays a tool result: the model can act on it."""
     from contexts.agents.application.runtime.tool_registry import Tool
 
     async def _boom(_args):
         raise RuntimeError("kaboom")
 
-    reg = ToolRegistry([Tool(name="x", description="d", input_schema={}, invoke=_boom)])
+    reg = ToolRegistry(
+        [Tool(name="x", description="d", input_schema={}, invoke=_boom)],
+        is_infra_error=_is_db_error,
+    )
     res = await reg.call("x", {})
     assert res.is_error
     assert "kaboom" in res.content
+
+
+def _is_db_error(exc: BaseException) -> bool:
+    return isinstance(exc, SQLAlchemyError)
+
+
+@pytest.mark.asyncio
+async def test_registry_reraises_infrastructure_errors() -> None:
+    """An infrastructure fault is not a tool outcome (AC-3).
+
+    Reported to the model, it would be a fact the model cannot act on, and the
+    turn would keep buying provider tokens against a transaction whose reply can
+    no longer be written.
+    """
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    async def _db_down(_args):
+        raise OperationalError("SELECT secret FROM keys WHERE id = 'k-123'", {}, Exception("down"))
+
+    reg = ToolRegistry(
+        [Tool(name="x", description="d", input_schema={}, invoke=_db_down)],
+        is_infra_error=_is_db_error,
+    )
+
+    with pytest.raises(OperationalError):
+        await reg.call("x", {})
+
+
+@pytest.mark.asyncio
+async def test_registry_without_a_classifier_degrades_everything() -> None:
+    """The seam is opt-in: a registry built without one behaves as before."""
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    async def _db_down(_args):
+        raise OperationalError("stmt", {}, Exception("down"))
+
+    reg = ToolRegistry([Tool(name="x", description="d", input_schema={}, invoke=_db_down)])
+    assert (await reg.call("x", {})).is_error
+
+
+@pytest.mark.asyncio
+async def test_registry_rejects_arguments_violating_input_schema() -> None:
+    """AC-6. Nothing stood between the model's arguments and the tool: every tool
+    coerced instead, so a missing required field became a default and the call
+    came back a success."""
+    from contexts.agents.application.runtime.builtin_tools import _CODE_EXEC_SCHEMA
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    invoked: list = []
+
+    async def _record(args):
+        invoked.append(args)
+        return tr.ToolResult(content="ran")
+
+    reg = ToolRegistry(
+        [Tool(name="code_exec", description="d", input_schema=_CODE_EXEC_SCHEMA, invoke=_record)]
+    )
+
+    res = await reg.call("code_exec", {})
+
+    assert res.is_error
+    assert "source" in res.content
+    assert invoked == []
+
+
+@pytest.mark.asyncio
+async def test_registry_dispatches_arguments_that_satisfy_the_schema() -> None:
+    from contexts.agents.application.runtime.builtin_tools import _CODE_EXEC_SCHEMA
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    invoked: list = []
+
+    async def _record(args):
+        invoked.append(args)
+        return tr.ToolResult(content="ran")
+
+    reg = ToolRegistry(
+        [Tool(name="code_exec", description="d", input_schema=_CODE_EXEC_SCHEMA, invoke=_record)]
+    )
+
+    res = await reg.call("code_exec", {"source": "print(1)"})
+
+    assert not res.is_error
+    assert invoked == [{"source": "print(1)"}]
+
+
+@pytest.mark.asyncio
+async def test_an_unusable_input_schema_costs_validation_not_the_turn() -> None:
+    """An MCP server's captured contract is written by someone else."""
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    async def _ran(_args):
+        return tr.ToolResult(content="ran")
+
+    reg = ToolRegistry([Tool(name="x", description="d", input_schema={"type": "not-a-type"}, invoke=_ran)])
+
+    assert (await reg.call("x", {})).content == "ran"
+
+
+def test_a_hostile_regex_in_an_untrusted_schema_cannot_stall_the_worker() -> None:
+    """A tool's `input_schema` is not ours: a LOCAL_FUNCTION carries whatever
+    `parameters` its author wrote and an MCP binding whatever its server returned.
+    Running an attacker-chosen regex against model-written arguments is
+    catastrophic backtracking on demand — and it blocks the event loop, so it
+    stalls every concurrent turn on the worker, not just this one.
+
+    Measured before the fix: 12s at 28 characters, 45s at 30.
+    """
+    import time
+
+    schema = {"type": "object", "properties": {"q": {"type": "string", "pattern": "^(a+)+$"}}}
+
+    start = time.monotonic()
+    violations = tr.schema_violations(schema, {"q": "a" * 34 + "!"})
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 1.0, f"regex keyword was evaluated ({elapsed:.1f}s)"
+    # The rest of the schema still applies — only the regex keywords are dropped.
+    assert violations == []
+    assert tr.schema_violations(schema, {"q": 5}) != []
+
+
+def test_regex_keywords_are_stripped_at_every_depth() -> None:
+    nested = {
+        "type": "object",
+        "properties": {"outer": {"items": [{"pattern": "x"}], "patternProperties": {"^a": {}}}},
+    }
+
+    assert tr._without_regex(nested) == {
+        "type": "object",
+        "properties": {"outer": {"items": [{}]}},
+    }
+
+
+def test_dropping_pattern_properties_also_relaxes_a_closed_object() -> None:
+    """The two keywords compose: `patternProperties` is what made those names
+    legal, so dropping it under a surviving `additionalProperties: false` turns
+    every one of them into a rejected additional property."""
+    schema = {
+        "type": "object",
+        "patternProperties": {"^x-": {"type": "string"}},
+        "additionalProperties": False,
+    }
+
+    assert tr._without_regex(schema) == {"type": "object"}
+
+
+def test_an_additional_properties_subschema_is_not_dropped() -> None:
+    """Only the `false` form is a closed-object rule. A subschema still
+    constrains exactly the values it always did, and must survive."""
+    schema = {
+        "type": "object",
+        "patternProperties": {"^x-": {"type": "string"}},
+        "additionalProperties": {"type": "string"},
+    }
+
+    assert tr._without_regex(schema) == {"type": "object", "additionalProperties": {"type": "string"}}
+
+
+def test_a_closed_object_without_pattern_properties_stays_closed() -> None:
+    """The relaxation is scoped to the node that lost its pattern rule — it must
+    not quietly open every closed object in the schema."""
+    schema = {
+        "type": "object",
+        "properties": {"a": {"type": "string"}},
+        "additionalProperties": False,
+    }
+
+    assert tr._without_regex(schema) == schema
+
+
+@pytest.mark.asyncio
+async def test_a_pattern_property_tool_stays_callable() -> None:
+    """End to end: before this, every call to such a tool came back as
+    "Additional properties are not allowed" — permanently, for every argument."""
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    schema = {
+        "type": "object",
+        "properties": {"name": {"type": "string"}},
+        "patternProperties": {"^x-": {"type": "string"}},
+        "additionalProperties": False,
+        "required": ["name"],
+    }
+    invoked: list = []
+
+    async def _record(args):
+        invoked.append(args)
+        return tr.ToolResult(content="ran")
+
+    reg = ToolRegistry([Tool(name="tagger", description="d", input_schema=schema, invoke=_record)])
+
+    res = await reg.call("tagger", {"name": "n", "x-team": "core"})
+
+    assert invoked == [{"name": "n", "x-team": "core"}]
+    assert res.is_error is False
+
+
+@pytest.mark.asyncio
+async def test_a_parameter_named_pattern_survives_the_strip() -> None:
+    """`pattern` is an ordinary parameter name for a search or glob tool, and MCP
+    servers built with the TypeScript SDK emit `additionalProperties: false`.
+
+    Stripping it as though it were the regex keyword dropped the property while
+    `required` still listed it, so the tool could not be called either way: supply
+    the argument and it is "not allowed", omit it and it is "required". The model
+    can satisfy neither.
+    """
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            # A regex keyword nested inside the property that is *named* `pattern`
+            # is still a keyword, and must still go.
+            "pattern": {"type": "string", "pattern": "^(a+)+$"},
+        },
+        "required": ["path", "pattern"],
+        "additionalProperties": False,
+    }
+    invoked: list = []
+
+    async def _record(args):
+        invoked.append(args)
+        return tr.ToolResult(content="ran")
+
+    reg = ToolRegistry([Tool(name="search_files", description="d", input_schema=schema, invoke=_record)])
+
+    res = await reg.call("search_files", {"path": "/a", "pattern": "a" * 34 + "!"})
+
+    assert not res.is_error, res.content
+    assert invoked == [{"path": "/a", "pattern": "a" * 34 + "!"}]
+    # And the property is still type-checked.
+    assert (await reg.call("search_files", {"path": "/a", "pattern": 5})).is_error
+
+
+def test_expects_arguments_reads_the_advertised_schema() -> None:
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    async def _ran(_args):
+        return tr.ToolResult(content="ran")
+
+    def _tool(name: str, schema: dict):
+        return Tool(name=name, description="d", input_schema=schema, invoke=_ran)
+
+    reg = ToolRegistry(
+        [
+            _tool("none", {"type": "object", "additionalProperties": False}),
+            _tool("some", {"type": "object", "properties": {"q": {"type": "string"}}}),
+            # The permissive fallback an unprobed MCP binding carries: it accepts
+            # arguments, so an empty object there is still ambiguous.
+            _tool("permissive", {"type": "object", "additionalProperties": True}),
+        ]
+    )
+
+    assert reg.expects_arguments("none") is False
+    assert reg.expects_arguments("some") is True
+    assert reg.expects_arguments("permissive") is True
+    # An unknown name falls through to the normal dispatch error, not a rejection.
+    assert reg.expects_arguments("nope") is True
+
+
+def test_instance_data_is_not_rewritten_by_the_strip() -> None:
+    """`default`/`enum` hold values, not subschemas; a key named `pattern` in one
+    is data the provider is shown, not a regex this validator would run."""
+    schema = {"type": "object", "default": {"pattern": "x"}, "enum": [{"pattern": "y"}]}
+
+    assert tr._without_regex(schema) == schema
+
+
+def test_the_violation_report_is_bounded() -> None:
+    """The messages quote the model's own arguments back at it, and a large
+    malformed payload would otherwise be echoed into the context window."""
+    schema = {
+        "type": "object",
+        "properties": {f"f{i}": {"type": "integer"} for i in range(50)},
+    }
+    violations = tr.schema_violations(schema, {f"f{i}": "x" * 400 for i in range(50)})
+
+    assert len(violations) == 50  # the helper reports everything...
+
+
+@pytest.mark.asyncio
+async def test_the_violation_report_sent_to_the_model_is_clipped() -> None:
+    # ...and `call` is what bounds what the model is shown.
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    async def _ran(_args):
+        return tr.ToolResult(content="ran")
+
+    schema = {"type": "object", "properties": {f"f{i}": {"type": "integer"} for i in range(50)}}
+    reg = ToolRegistry([Tool(name="x", description="d", input_schema=schema, invoke=_ran)])
+
+    res = await reg.call("x", {f"f{i}": "x" * 400 for i in range(50)})
+
+    assert res.is_error
+    assert len(res.content) <= _MAX_TOOL_OUTPUT
+    assert "and 40 more" in res.content
 
 
 @pytest.mark.asyncio

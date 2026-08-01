@@ -39,8 +39,40 @@ from contexts.agents.application.runtime.tool_registry import (
 )
 from contexts.agents.domain.mcp import SearchResult
 from contexts.agents.domain.models import Agent, AgentTool, AgentToolType
+from shared_kernel.db.faults import is_infrastructure_error
 
 logger = logging.getLogger(__name__)
+
+
+def _audit_losses(db: AsyncSession) -> int:
+    """Snapshot of this session's lost-audit-row count, for bracketing one call.
+
+    The three façade tools (`web_search`, `file`, `code_exec`) write their own
+    `mcp.tool_invoked` row several frames below the code that shapes the result the
+    model sees, and an isolated emit reports failure by return value. Bracketing the
+    counter is what lets those results carry the same notice the MCP and function
+    paths carry, without threading a flag through three tool façades — and it covers
+    the next tool added without it having to remember (AC-4).
+    """
+    from shared_kernel import audit
+
+    return audit.write_failures(db)
+
+
+def _reraise_if_infrastructure(exc: Exception, tool: str) -> None:
+    """Let a platform fault out of a tool's catch-all.
+
+    Each built-in wraps its work in ``except Exception`` so a tool failure cannot
+    abort the turn. That is right for a domain failure and wrong for a DB fault:
+    these tools read and write on the turn's own shared session, so swallowing one
+    hides it from ``ToolRegistry.call``'s classification, keeps the turn buying
+    provider tokens against a transaction whose reply can no longer be written, and
+    interpolates a SQLAlchemy message — which carries the failing SQL, table names
+    and parameter values — straight into the model's context.
+    """
+    if is_infrastructure_error(exc):
+        logger.error("%s hit an infrastructure fault; failing the turn", tool, exc_info=True)
+        raise exc
 
 
 class RagProviderProto(Protocol):
@@ -121,11 +153,19 @@ _FILE_SCHEMA: dict[str, Any] = {
             "description": "Path under /workspace. Bare names are resolved against /workspace, "
             "not against code_exec's working directory.",
         },
-        "content": {"type": "string", "description": "UTF-8 content for write."},
+        "content": {
+            "type": "string",
+            "description": "UTF-8 content for write. Required when op is write.",
+        },
     },
     "required": ["op", "path"],
     "additionalProperties": False,
 }
+# `content` is conditionally required, but that conditional is NOT expressed in the
+# schema above: Gemini receives `input_schema` verbatim as an OpenAPI-subset
+# `parameters` (adapters/gemini.py), which does not carry if/then, and a rejected
+# schema is a deterministic 400 that burns every key in the group via rotation. The
+# requirement is enforced in the tool instead, where it holds on every provider.
 
 
 # --------------------------------------------------------------------------- #
@@ -146,6 +186,7 @@ def _build_web_search_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolD
             rate_limiter=deps.rate_limiter,
             proxy=deps.proxy,
         )
+        losses = _audit_losses(db)
         try:
             results = await tool.search(
                 str(args.get("query", "")),
@@ -153,7 +194,10 @@ def _build_web_search_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolD
                 freshness=str(args.get("freshness", "any")),  # type: ignore[arg-type]
             )
         except Exception as exc:
+            _reraise_if_infrastructure(exc, "web_search")
             return ToolResult(content=f"web_search failed: {exc}", is_error=True)
+        if _audit_losses(db) > losses:
+            return _marked_unrecorded(_dump_results(results))
         return ToolResult(content=clip_tool_output(_dump_results(results)))
 
     return Tool(
@@ -191,9 +235,11 @@ def _build_code_exec_tool(
         if not source:
             return ToolResult(content="code_exec requires 'source'", is_error=True)
         tool = CodeExecTool(agent_id=agent.id, runner=deps.runner, db=db, chatroom_id=chatroom_id)
+        losses = _audit_losses(db)
         try:
             res = await tool.run(source, stdin=str(args.get("stdin", "")))
         except Exception as exc:
+            _reraise_if_infrastructure(exc, "code_exec")
             return ToolResult(content=f"code_exec failed: {exc}", is_error=True)
         meta = res.metadata if isinstance(res.metadata, dict) else {}
         # Collect any artifacts the kernel produced (charts/files) so the turn
@@ -220,6 +266,11 @@ def _build_code_exec_tool(
         # metadata flag rather than relying on a magic string in stdout.
         if meta.get("restarted"):
             body = "[kernel restarted: in-memory state was lost]\n" + body
+        if _audit_losses(db) > losses:
+            # `body` is already clipped; `_marked_unrecorded` re-clips, which is a
+            # no-op on a string already under the cap and correct if the notice
+            # pushes it over.
+            return _marked_unrecorded(body)
         return ToolResult(content=body, is_error=not res.ok)
 
     return Tool(
@@ -371,6 +422,7 @@ def _build_file_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps) -
         op = str(args.get("op", ""))
         path = str(args.get("path", ""))
         tool = FileTool(agent_id=agent.id, runner=deps.runner, db=db)
+        losses = _audit_losses(db)
         try:
             if op == "list":
                 # The path guard rejects "/" (only /workspace and below are
@@ -379,11 +431,22 @@ def _build_file_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps) -
             elif op == "read":
                 res = await tool.read(path)
             elif op == "write":
-                res = await tool.write(path, str(args.get("content", "")).encode("utf-8"))
+                if "content" not in args:
+                    # F-20: `str(args.get("content", ""))` made a missing field an
+                    # empty write, so a truncated call silently truncated the file
+                    # and came back as `written: 0` with no error.
+                    return ToolResult(
+                        content="file write requires 'content'; the file was not modified.",
+                        is_error=True,
+                    )
+                res = await tool.write(path, str(args["content"]).encode("utf-8"))
             else:
                 return ToolResult(content=f"unknown file op {op!r}", is_error=True)
         except Exception as exc:
+            _reraise_if_infrastructure(exc, "file")
             return ToolResult(content=f"file {op} failed: {exc}", is_error=True)
+        if _audit_losses(db) > losses:
+            return _marked_unrecorded(res.stdout or "(ok)")
         return ToolResult(content=clip_tool_output(res.stdout or "(ok)"), is_error=not res.ok)
 
     return Tool(
@@ -432,6 +495,7 @@ def _build_file_search_tool(
                 top_k=top_k,
             )
         except Exception as exc:
+            _reraise_if_infrastructure(exc, "file_search")
             return ToolResult(content=f"file_search failed: {exc}", is_error=True)
         if ctx is None or not ctx.sources or not getattr(ctx, "block", None):
             return ToolResult(content="No matching passages found in the agent's files.")
@@ -526,13 +590,50 @@ def _auth_pair(auth: dict[str, Any] | None) -> tuple[str, str] | None:
     return None
 
 
+# Prepended to a tool result whose invocation could not be recorded. Platform-
+# authored and placed *before* the tool's own output, so agent-controlled text
+# cannot precede it and forge one of these lines (see `_artifact_note`).
+#
+# It says the call ran, in as many words: the audit failure makes this an error
+# result, and a model reading a bare error on a side-effecting tool retries it.
+# Nothing here is the tool's own output, so no detail of the DB failure leaks.
+_AUDIT_NOT_RECORDED = (
+    "[platform: this call ran and its result below is valid, but the platform could not "
+    "record the invocation. Do not repeat the call. Report this to the user.]"
+)
+
+
+def _marked_unrecorded(content: str) -> ToolResult:
+    """The result shaping for a call whose `mcp.tool_invoked` row was lost.
+
+    Prepended before the clip, which only ever cuts the tail, so a chatty tool
+    cannot truncate the notice away.
+
+    **Always `is_error=True`, regardless of how the call itself went** — per
+    `_AUDIT_NOT_RECORDED`, the lost audit row *is* the error, and the notice
+    tells the model not to retry. It used to take an `is_error` argument that it
+    then ignored, which read as if the callers' `is_error=not res.ok` were being
+    honoured; they were not. Taking no argument is the honest signature.
+    """
+    return ToolResult(content=clip_tool_output(f"{_AUDIT_NOT_RECORDED}\n{content}"), is_error=True)
+
+
 async def _audit_tool_invoke(
     db: AsyncSession, agent: Agent, tool: AgentTool, mcp_tool: str, *, ok: bool
-) -> None:
+) -> bool:
+    """Record one tool invocation. Returns whether the row was written.
+
+    A caller that would otherwise report success MUST honour a False:
+    `mcp.tool_invoked` is the trail of what an agent did with the user's keys and
+    the sandbox, and the invariant is that a tool that ran is recorded. Reporting a
+    clean success on top of a lost record is the one behaviour this must not have
+    (AC-4). The fail-closed call sites ignore the result deliberately — they are
+    already returning `is_error`, so there is no success to qualify.
+    """
     try:
         from shared_kernel import audit
 
-        await audit.emit(
+        return await audit.emit(
             db,
             audit.AuditEvent(
                 action="mcp.tool_invoked",
@@ -545,9 +646,16 @@ async def _audit_tool_invoke(
                     "ok": ok,
                 },
             ),
+            # Shares the turn's session: a failed insert here would abort the
+            # transaction the reply is persisted in.
+            isolated=True,
         )
-    except Exception:  # pragma: no cover
-        logger.warning("Failed to write tool audit event", exc_info=True)
+    except Exception:
+        # `emit(isolated=True)` handles its own DB failure; reaching here means
+        # something above it broke. Error, not warning: on a BYO-key platform a
+        # lost invocation record is a hole in the trail, not a nuisance.
+        logger.error("Failed to write tool audit event", exc_info=True)
+        return False
 
 
 # Provider function-name limit both OpenAI and Anthropic enforce (F-12). MCP
@@ -620,11 +728,18 @@ def _build_mcp_tool_from_agent_tool(
                 auth=auth,
             )
         except Exception as exc:
+            # Before the audit write, as on the function path.
+            _reraise_if_infrastructure(exc, f"mcp tool {mcp_tool}")
             await _audit_tool_invoke(db, agent, tool, mcp_tool, ok=False)
             return ToolResult(content=f"mcp tool {mcp_tool} failed: {exc}", is_error=True)
-        await _audit_tool_invoke(db, agent, tool, mcp_tool, ok=res.ok)
+        recorded = await _audit_tool_invoke(db, agent, tool, mcp_tool, ok=res.ok)
         body = res.stdout if res.ok else f"{res.stdout}\n[stderr]\n{res.stderr}".strip()
-        return ToolResult(content=clip_tool_output(body or "(no output)"), is_error=not res.ok)
+        body = body or "(no output)"
+        if not recorded:
+            # Prepended before the clip, so a chatty tool cannot truncate the
+            # notice away — the clip only ever cuts the tail.
+            body = f"{_AUDIT_NOT_RECORDED}\n{body}"
+        return ToolResult(content=clip_tool_output(body), is_error=not res.ok or not recorded)
 
     # A captured contract (probed via "Test", 2026-07-22-mcp-tool-contract) gives
     # the model the server's real parameter schema and description instead of the
@@ -714,11 +829,15 @@ def _build_function_tool(
             await _audit_tool_invoke(db, agent, tool, fn_name, ok=False)
             return ToolResult(content="function blocked by egress policy.", is_error=True)
         except Exception as exc:
+            # Before the audit write: a re-raise fails the turn, and the row would
+            # be rolled back with it. `perform_egress_request` reads the egress
+            # allowlist from the turn's session, so a DB fault reaches here.
+            _reraise_if_infrastructure(exc, "function")
             await _audit_tool_invoke(db, agent, tool, fn_name, ok=False)
             return ToolResult(content=f"function call failed: {exc}", is_error=True)
 
         ok = outcome.ok
-        await _audit_tool_invoke(db, agent, tool, fn_name, ok=ok)
+        recorded = await _audit_tool_invoke(db, agent, tool, fn_name, ok=ok)
         if not ok and 300 <= outcome.status < 400:
             content = (
                 f"HTTP {outcome.status} — {outcome.redirect_detail}; "
@@ -727,7 +846,10 @@ def _build_function_tool(
         else:
             text = outcome.body.decode("utf-8", "replace")
             content = f"HTTP {outcome.status}\n{text}"
-        return ToolResult(content=clip_tool_output(content), is_error=not ok)
+        if not recorded:
+            # Before the clip: see the MCP path above.
+            content = f"{_AUDIT_NOT_RECORDED}\n{content}"
+        return ToolResult(content=clip_tool_output(content), is_error=not ok or not recorded)
 
     return Tool(name=fn_name, description=fn_desc, input_schema=fn_params, invoke=_invoke)
 

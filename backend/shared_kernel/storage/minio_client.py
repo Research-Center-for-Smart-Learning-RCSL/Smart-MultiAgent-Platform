@@ -15,6 +15,7 @@ import threading
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 from typing import Any, Final
 
 from minio import Minio
@@ -139,6 +140,25 @@ class MinioClient:
                     resp.release_conn()
 
         return await asyncio.to_thread(_get)
+
+    async def download_to_path(self, *, bucket: str, key: str, path: Path) -> None:
+        def _download() -> None:
+            resp = None
+            try:
+                resp = self._client.get_object(bucket, key)
+                with path.open("wb") as target:
+                    for chunk in resp.stream(amt=1024 * 1024):
+                        target.write(chunk)
+            except S3Error as exc:
+                raise StorageError(f"get_object failed: {exc}") from exc
+            except Exception as exc:
+                raise StorageError(f"get_object read failed: {exc}") from exc
+            finally:
+                if resp is not None:
+                    resp.close()
+                    resp.release_conn()
+
+        await asyncio.to_thread(_download)
 
     async def stat(self, *, bucket: str, key: str) -> ObjectStat | None:
         def _stat() -> ObjectStat | None:

@@ -344,7 +344,9 @@ class SessionRepository:
                         t.sessions.c.expires_at > now(),
                     )
                 )
-                .order_by(t.sessions.c.last_used_at.desc())
+                # Trailing id keeps the order total under LIMIT/OFFSET (V-6):
+                # last_used_at ties whenever two sessions are touched together.
+                .order_by(t.sessions.c.last_used_at.desc(), t.sessions.c.id.desc())
                 .limit(limit)
                 .offset(offset)
             )

@@ -130,6 +130,9 @@ class WorkflowService:
         valid_agent_ids: frozenset[str] = frozenset(),
         valid_chatroom_ids: frozenset[str] = frozenset(),
         subagent_parent_ids: frozenset[str] = frozenset(),
+        can_instruct_agent_ids: frozenset[str] = frozenset(),
+        can_approve_agent_ids: frozenset[str] = frozenset(),
+        can_create_subagent_agent_ids: frozenset[str] = frozenset(),
     ) -> Workflow:
         self._validate_schema(definition)
         result = validate_definition(
@@ -137,6 +140,9 @@ class WorkflowService:
             valid_agent_ids=valid_agent_ids,
             valid_chatroom_ids=valid_chatroom_ids,
             subagent_parent_ids=subagent_parent_ids,
+            can_instruct_agent_ids=can_instruct_agent_ids,
+            can_approve_agent_ids=can_approve_agent_ids,
+            can_create_subagent_agent_ids=can_create_subagent_agent_ids,
         )
         if not result.valid:
             raise WorkflowValidationFailed(
@@ -173,6 +179,9 @@ class WorkflowService:
         valid_agent_ids: frozenset[str] = frozenset(),
         valid_chatroom_ids: frozenset[str] = frozenset(),
         subagent_parent_ids: frozenset[str] = frozenset(),
+        can_instruct_agent_ids: frozenset[str] = frozenset(),
+        can_approve_agent_ids: frozenset[str] = frozenset(),
+        can_create_subagent_agent_ids: frozenset[str] = frozenset(),
     ) -> Workflow:
         if definition is not None:
             self._validate_schema(definition)
@@ -181,6 +190,9 @@ class WorkflowService:
                 valid_agent_ids=valid_agent_ids,
                 valid_chatroom_ids=valid_chatroom_ids,
                 subagent_parent_ids=subagent_parent_ids,
+                can_instruct_agent_ids=can_instruct_agent_ids,
+                can_approve_agent_ids=can_approve_agent_ids,
+                can_create_subagent_agent_ids=can_create_subagent_agent_ids,
             )
             if not result.valid:
                 raise WorkflowValidationFailed(
@@ -279,6 +291,9 @@ class WorkflowService:
         valid_agent_ids: frozenset[str] = frozenset(),
         valid_chatroom_ids: frozenset[str] = frozenset(),
         subagent_parent_ids: frozenset[str] = frozenset(),
+        can_instruct_agent_ids: frozenset[str] = frozenset(),
+        can_approve_agent_ids: frozenset[str] = frozenset(),
+        can_create_subagent_agent_ids: frozenset[str] = frozenset(),
     ) -> ValidationResult:
         schema_errors = self._validate_schema_collect(definition)
         if schema_errors:
@@ -292,6 +307,9 @@ class WorkflowService:
             valid_agent_ids=valid_agent_ids,
             valid_chatroom_ids=valid_chatroom_ids,
             subagent_parent_ids=subagent_parent_ids,
+            can_instruct_agent_ids=can_instruct_agent_ids,
+            can_approve_agent_ids=can_approve_agent_ids,
+            can_create_subagent_agent_ids=can_create_subagent_agent_ids,
         )
 
     # -- Runs --

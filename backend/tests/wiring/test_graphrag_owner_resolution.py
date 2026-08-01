@@ -579,6 +579,22 @@ async def test_message_trigger_configs_cover_agentless_room() -> None:
         assert [c.id for c in covered] == [room_cfg.id, ws_cfg.id]
 
 
+async def _silence_feed_ids(repo: GraphRagConfigRepository) -> set[uuid.UUID]:
+    """Every id the silence sweep would page through, across all pages.
+
+    The feed is deliberately global (the sweep is time-based and covers every
+    owner), so a test may only assert about the configs it seeded itself — and
+    must page past whatever else the database already holds, or a seeded config
+    that lands beyond the first page reads as absent.
+    """
+    seen: set[uuid.UUID] = set()
+    offset = 0
+    while page := await repo.list_silence_trigger_configs(limit=100, offset=offset):
+        seen.update(c.id for c in page)
+        offset += len(page)
+    return seen
+
+
 async def test_list_silence_trigger_configs_scopes_by_owner() -> None:
     # F-4 AC-4 / §8.4: the global silence feed returns configs carrying a
     # silence_minutes trigger, gated by owner just like retrieval — chatroom
@@ -629,7 +645,7 @@ async def test_list_silence_trigger_configs_scopes_by_owner() -> None:
             actor_ip=None,
         )
         # A silence-less config must never be enumerated by the sweep feed.
-        await svc.create(
+        quiet_cfg = await svc.create(
             project_id=env.project.id,
             draft=GraphRagConfigDraft(
                 owner_kind="chatroom",
@@ -643,10 +659,12 @@ async def test_list_silence_trigger_configs_scopes_by_owner() -> None:
         await db.commit()
 
         repo = GraphRagConfigRepository(db)
+        seeded = {room_cfg.id, group_cfg.id, ws_cfg.id, quiet_cfg.id}
 
-        # Wide owners disabled -> only the chatroom silence config feeds the sweep.
-        feed = await repo.list_silence_trigger_configs(limit=100, offset=0)
-        assert [c.id for c in feed] == [room_cfg.id]
+        # Wide owners disabled -> only the chatroom silence config feeds the sweep
+        # (and quiet_cfg never does, whatever the owner gate says).
+        feed = await _silence_feed_ids(repo)
+        assert feed & seeded == {room_cfg.id}
 
         await AgentGroupService(db).set_concept_map_enabled(
             group_id=gid, enabled=True, actor_user_id=env.user.id, actor_ip=None
@@ -656,8 +674,8 @@ async def test_list_silence_trigger_configs_scopes_by_owner() -> None:
         )
         await db.commit()
 
-        feed = await repo.list_silence_trigger_configs(limit=100, offset=0)
-        assert {c.id for c in feed} == {room_cfg.id, group_cfg.id, ws_cfg.id}
+        feed = await _silence_feed_ids(repo)
+        assert feed & seeded == {room_cfg.id, group_cfg.id, ws_cfg.id}
 
 
 async def test_create_rejects_owner_from_another_project() -> None:

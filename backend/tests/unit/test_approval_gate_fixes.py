@@ -16,6 +16,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 import pytest
@@ -91,11 +92,25 @@ def _record_effects(monkeypatch):
     return effects
 
 
+class _CapableAgent:
+    workflow_capabilities: ClassVar = {"can_approve": True, "can_instruct": True}
+
+
+class _CapableAgents:
+    """Fake AgentsFacade granting every id both capabilities — these tests pin
+    the F-18 post-commit-effect deferral, not R15.10a capability enforcement
+    (covered in test_orchestration_services.py)."""
+
+    async def get_agent(self, agent_id, *, include_deleted=False):
+        return _CapableAgent()
+
+
 def _bare_service(approvals):
     service = appr.ApprovalService.__new__(appr.ApprovalService)
     service._db = _FakeDB()
     service._approvals = approvals
     service._votes = MagicMock()
+    service._agents = _CapableAgents()
     return service
 
 

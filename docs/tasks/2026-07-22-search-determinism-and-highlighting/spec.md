@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-22
 requirements: [R13.18, R24.41, R24.42]
 depends_on: []
@@ -461,26 +461,40 @@ reverted alone.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: `MessageRepository.search` emits `StartSel=<mark>,StopSel=</mark>` in its
+- [x] AC-1: `MessageRepository.search` emits `StartSel=<mark>,StopSel=</mark>` in its
       `ts_headline` options (`message_repo.py:251`), with the other three options unchanged.
-- [ ] AC-2: `sanitizeSnippet` preserves `<mark>` and strips every element and attribute it
+      T-2 `test_snippet_uses_mark_delimiters` + `test_snippet_keeps_existing_headline_options`.
+- [x] AC-2: `sanitizeSnippet` preserves `<mark>` and strips every element and attribute it
       strips today; `renderMarkdown` still rejects `<mark>`. `PURIFY_CONFIG`'s
       `ALLOWED_ATTR`, `FORBID_ATTR` and `FORBID_TAGS` are byte-identical to their pre-fix
       values, and `SNIPPET_CONFIG` derives from `PURIFY_CONFIG` rather than restating it.
-- [ ] AC-3: `frontend/eslint.config.js:235-248` still lists exactly five files, and no new
-      `v-html` binding exists anywhere in the repo.
-- [ ] AC-4: A search result renders inside a `<mark>` element carrying
+      T-4/T-5; the diff shows `PURIFY_CONFIG` unmodified and `SNIPPET_CONFIG` built by spread.
+- [x] AC-3: `frontend/eslint.config.js:235-248` still lists exactly five files, and no new
+      `v-html` binding exists anywhere in the repo. `eslint.config.js` is not in the task
+      diff; a repo-wide `v-html=` grep returns the same 6 bindings in 4 components as before.
+- [x] AC-4: A search result renders inside a `<mark>` element carrying
       `--color-warning-tint`; `ChatroomSearchPanel.vue:165-169` is no longer dead CSS.
-- [ ] AC-5: `MessageRepository.search` orders by `(rank DESC, created_at DESC, id DESC)`, and
-      the reason for the trailing `id` is stated in the docstring.
-- [ ] AC-6: The same room + query + `limit` returns an identical id sequence across two runs
-      with different query plans (T-3).
-- [ ] AC-7: `offset=0` and `offset=50` over a 300-row all-tied result set return disjoint
+      T-6 asserts a `mark` element under `.result__snippet`; the compiled stylesheet emits
+      `.result__snippet[data-v-46efe0e3] mark{background:var(--color-warning-tint,#fef3c7)...}`,
+      which matches that exact DOM shape, and the token is defined light (`main.css:32`) and
+      dark (`:201`). **Not observed in a running browser** — see the note under §12.
+- [x] AC-5: `MessageRepository.search` orders by `(rank DESC, created_at DESC, id DESC)`, and
+      the reason for the trailing `id` is stated in the docstring. T-1 + docstring `:250-258`.
+- [x] AC-6: The same room + query + `limit` returns an identical id sequence across two runs
+      with different query plans (T-3). Achieved by a different mechanism than the spec
+      prescribed — see D-2.
+- [x] AC-7: `offset=0` and `offset=50` over a 300-row all-tied result set return disjoint
       pages whose union has 100 distinct members (T-3).
-- [ ] AC-8: T-1, T-2, T-4 and T-6 each fail before their corresponding fix and pass after.
-- [ ] AC-9: No Alembic migration is added and no index is created.
-- [ ] AC-10: `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`, `pnpm test`,
-      `pnpm lint`, `pnpm typecheck`, `pnpm build` all pass.
+- [x] AC-8: T-1, T-2, T-4 and T-6 each fail before their corresponding fix and pass after.
+      Each was run red first with the documented failure text recorded in the build log; T-3
+      additionally verified red by reverting the `order_by` with the rest of the fix in place.
+- [x] AC-9: No Alembic migration is added and no index is created. The task diff touches no
+      file under `backend/alembic/`.
+- [x] AC-10: `pytest -q` (6183 passed, 6 skipped), `ruff check . && ruff format --check .`
+      (886 files), `pnpm test` (913 passed, 169 files), `pnpm lint`, `pnpm typecheck`,
+      `pnpm build` all pass. db tier: 3 passed against real Postgres. **`mypy .` reports one
+      error, in `shared_kernel/text_extraction/parsers.py:338`** — pre-existing, untouched by
+      this task, byte-identical to base; recorded as FU-7. No mypy error in the task diff.
 
 ## 11. SRS Delta
 
@@ -497,7 +511,65 @@ feature that makes ordering a promise to users rather than an implementation inv
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — a third fix was necessary: `search` did not execute at all.** The first run of
+  T-3 against real Postgres raised
+  `UndefinedFunctionError: function plainto_tsquery(character varying, character varying)
+  does not exist`. `sa.literal("english")` (`message_repo.py:242` pre-fix) is bound by
+  asyncpg as VARCHAR, and both `plainto_tsquery` and `ts_headline` overloads take
+  `regconfig`. **Every chatroom search raised a 500 against any real database**; the
+  endpoint had never worked. Fixed here as `sa.cast(sa.literal("english"), REGCONFIG)`
+  rather than deferred, because it blocks AC-6 and AC-7 — T-3 cannot run at all until
+  `search` executes.
+
+  Two consequences for this dossier's own text. First, §2's F-22 "Observed" row — "a
+  search match renders in browser-default bold" — was **not** observable: the request
+  failed before any snippet reached the browser. The `<b>` default is real (proved
+  directly: `ts_headline` returned `quarterly <b>revenue</b> note number 239` once the
+  function resolved), but it was reachable only from a `literal_binds` compile, never
+  from the running product. Second, §7's claim that the fix is three edits in two files
+  is now four edits in two files.
+
+  Why no existing test caught it: `literal_binds` compilation renders an *inline* SQL
+  literal, which PostgreSQL coerces to `regconfig` on its own. Every unit-tier assertion
+  in this repo compiles that way, so the entire class of parameter-binding type errors is
+  invisible to them. This is why T-3 is db-tier and why it was worth writing.
+
+- **D-2 — T-3's plan-forcing mechanism does not work as the spec prescribed.** §4 step 2
+  and §8 T-3 propose toggling `enable_seqscan`/`enable_bitmapscan` or running
+  `VACUUM FULL` between two runs. Measured, that does not reproduce V-6:
+
+  1. Without statistics the planner estimates one matching row and picks the *same* plan
+     whatever the GUCs say, so the two runs compared a plan against itself. The fixture
+     now runs `ANALYZE messages`.
+  2. Even with two genuinely different plans (`Seq Scan` vs `Bitmap Heap Scan`), a bitmap
+     heap scan reads in **heap order**, exactly like a sequential scan — so both plans
+     feed the sort identical input and return the identical page. The plan toggle alone
+     leaves the test green against the unfixed code.
+  3. Rewriting *every* row appends the new tuple versions in the order they were read,
+     preserving relative order, so a full-table no-op UPDATE does not help either.
+
+  What does reproduce it: a no-op UPDATE over a **subset** (one third) of the rows, which
+  moves them to the heap tail and changes relative order. Verified red before the fix and
+  green after. `VACUUM FULL` was rejected — it cannot run inside a transaction and needs
+  table ownership. The spec's §8 warning that T-3 is "plan-dependent by construction" was
+  correct in spirit and understated in degree: the returned *set* is heap-order-dependent
+  rather than plan-dependent, which is the sharper statement.
+
+  `test_offset_pages_do_not_overlap` needed none of this — it fails against the unfixed
+  code directly, and is the stronger behavioural probe of the two.
+
+- **D-3 — test granularity.** T-1 and T-2 were each split into two test methods
+  (ordering totality / ORDER-BY-before-LIMIT, and delimiters / the three pre-existing
+  `ts_headline` options) so a failure names the broken property. T-3 gained
+  `test_snippet_marks_the_match`, which is F-22's backend end of the chain against real
+  Postgres — the spec assigned F-22 no db-tier coverage, and it is what produced the
+  direct evidence cited in D-1.
+
+- **D-4 — AC-4 was not verified in a running browser.** The evidence chain is complete and
+  deterministic (element present under the right ancestor, compiled selector matching that
+  shape, token defined in both themes), but bringing up the full stack for a visual check
+  needs unset deploy secrets and a Vault unseal, so it was not done unilaterally. The one
+  unobserved link is the paint itself.
 
 ## 13. Follow-ups
 
@@ -524,17 +596,89 @@ Appended by /build.
   not account for document length: a one-word message and a 2 000-word message with one
   occurrence rank identically. That is a relevance-quality question, deliberately separated
   from V-6's determinism question (Q-4).
-- **FU-5** — Sweep A left eight paginated sites sharing V-6's shape with a timestamp ordering
-  key: `workflow/infrastructure/repositories.py:104,504`, `keys/infrastructure/repositories.py:157`,
-  `identity/infrastructure/repositories.py:246`, `agents/infrastructure/repositories.py:213`,
-  `knowledge/infrastructure/repositories.py:353`. Each is deterministic **only while** no two
-  of its rows are written inside one transaction, since `created_at` defaults to `now()`
-  (transaction time). `knowledge/...:353` is the one that could not be cleared — it was not
-  verified whether any upload route inserts several `rag_documents` in one transaction. A
-  single sweep appending `.id` to all eight would close the class for the cost of eight lines.
+- **FU-5** — **Resolved 2026-07-30.** Sweep A left eight paginated sites sharing V-6's shape with
+  a timestamp ordering key, each deterministic **only while** no two of its rows are written
+  inside one transaction, since `created_at` defaults to `now()` (transaction time).
+  `knowledge/...` was the one that could not be cleared by inspection — it was never verified
+  whether an upload route inserts several `rag_documents` in one transaction.
+
+  All eight now carry a trailing `id DESC`, closing the class rather than re-auditing each
+  condition. Line numbers had drifted from the values recorded above; the sites were re-located
+  by pattern and each was re-confirmed to carry `LIMIT`/`OFFSET` before being edited:
+  `workflow/infrastructure/repositories.py` (workflows list, runs list, archive list, and the
+  live+archive union — both union legs select `id`, and run ids are unique across them),
+  `keys/infrastructure/repositories.py` (api keys), `identity/infrastructure/repositories.py`
+  (sessions, keyed on `last_used_at`), `agents/infrastructure/repositories.py` (agents), and
+  `knowledge/infrastructure/repositories.py` (rag documents).
+
+  The change is purely additive: an extra trailing key cannot alter the result when the leading
+  keys already discriminate, and makes the result deterministic when they do not. Verified by
+  `ruff`, `mypy` (887 files clean) and the full unit suite (6192 passed). No behavioural test was
+  added — proving non-determinism per site needs the heap-order manipulation that §8 T-3 required,
+  which is disproportionate for eight sites whose tie condition is rare by construction.
 - **FU-6** — New observation, outside both audits: `docs/UI/07-conversation.md:742` specifies
   "Debounced search: 300ms after last keystroke". No debounce exists. `SSearchInput` emits
   `search` only on Enter (`frontend/src/shared/ui/SSearchInput.vue:36-40`), and
   `useChatroomSearch.runSearch` (`:25-36`) has no timer. Search-as-you-type was specified and
   never built.
+- **FU-7** — **Resolved 2026-07-30.** `backend/shared_kernel/text_extraction/parsers.py:338`
+  failed `mypy .` (`Argument 1 to "Document" has incompatible type "Path"; expected
+  "str | IO[bytes] | None"`). Pre-existing and untouched by this task, so it did not block.
+  `_parse_docx_path` passed its `Path` straight to `docx.Document`; python-docx opens either,
+  but its stubs accept only `str | IO[bytes] | None`. Fixed by passing `str(path)` — a real
+  conformance fix rather than a `# type: ignore`, and no runtime behaviour change. `mypy .` is
+  now clean: 887 files, no issues. The sibling `parse_docx` at `:446` was already correct
+  (`io.BytesIO`).
+- **FU-8** — **Resolved 2026-07-30.** The coverage gap D-1 exposes is structural, not local.
+  `/api/chatrooms/{id}/search` returned a 500 on every call and nothing noticed, because no test
+  in any tier ever executed the endpoint's SQL against Postgres: the unit tier compiles with
+  `literal_binds` (which masks every parameter-binding type error, not just this one) and no
+  integration, wiring or e2e test covered search. The generalisable defect is that any repository
+  using a PostgreSQL-specific function with a non-`text` parameter type can ship broken with a
+  green suite.
+
+  **Sweep — no second instance exists.** Every `sa.func.*` call in non-test backend code was
+  enumerated: apart from the three text-search calls in `MessageRepository.search`, all of them
+  are `now`, `count`, `min`, `max`, `avg`, `sum`, `coalesce`, `lower`, `array_agg` and
+  `jsonb_object_agg` — polymorphic or aggregate functions that take their argument type from a
+  column, so no overload resolution can fail. Every `sa.literal(...)` was likewise checked: the
+  rest are `select(literal(1))` EXISTS probes, two boolean union tags at
+  `workflow/infrastructure/repositories.py:602,612`, and
+  `workflow/infrastructure/repositories.py:485-488`, which already uses the correct
+  `type_=column.type` form. A repo-wide grep for `tsquery|tsvector|ts_headline|regconfig`
+  confirms `MessageRepository.search` is the only PG-specific text-search query in the backend;
+  the only other hit is the `to_tsvector` trigger in `alembic/versions/0017_messages.py:91`,
+  which is DDL and inline, not driver-bound.
+
+  **Guards added.** The db-tier test executes the query against real Postgres, but
+  `pytest.mark.db` is routed to its own CI job, so a unit-tier assertion was added
+  (`TestMessageSearchParameterTypes`) that fails if the `regconfig` cast is simplified away —
+  verified red by removing the cast. The rule itself is recorded in `backend/CLAUDE.md` under
+  Testing, stating why the unit tier structurally cannot catch this class and what to do instead.
+
+  **Not done: a db-tier smoke test per API route.** Rejected as disproportionate. The sweep shows
+  the hazard is not "routes touching PG" but the far narrower "a constant bound into an argument
+  whose PostgreSQL type is not `text`", which today is one query with one db-tier test. The
+  documented rule is scoped to that condition rather than to every route.
+- **FU-9** — **Resolved 2026-07-30.** `sanitizeSnippet` widening was pinned behaviourally by
+  T-5, but nothing pinned the *producer* side above the repository: no test asserted that what
+  `/api/chatrooms/{id}/search` actually returns carries the marker the frontend allowlist is
+  written against. T-3 and T-6 each covered one half against a hand-written string in the middle
+  — which is precisely the seam F-22 lived in, since both halves were internally consistent.
+
+  `test_search_endpoint_returns_a_mark_delimited_snippet` (db tier) now asserts on the response
+  body, spanning route → `resolve_room_access` → service → repository → real Postgres →
+  `SearchHit` serialisation. Verified red by reverting the `StartSel`/`StopSel` options.
+
+  Two deliberate choices. It is driven through `httpx.ASGITransport` rather than `TestClient`, so
+  the request runs on the same event loop as the asyncpg engine — `TestClient` drives its own
+  portal loop and would cross loops with a live engine. And `is_admin` short-circuits only the
+  final read gate: `resolve_room_access` still resolves room, workspace, project and roles
+  against the real database, while room authorization keeps its own coverage in
+  `test_permission_matrix`.
+
+  What remains uncrossed is the language boundary: the backend asserts it *emits* `<mark>` and
+  the frontend asserts it *preserves* `<mark>`, but no single artifact forces the two literals to
+  be the same string. Closing that needs either an e2e scenario or a generated shared constant,
+  neither of which is justified by one element name.
 </content>

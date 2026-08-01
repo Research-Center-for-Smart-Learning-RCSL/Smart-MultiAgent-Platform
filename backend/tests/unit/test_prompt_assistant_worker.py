@@ -145,6 +145,21 @@ class _FakeRouter:
         return _gen()
 
 
+@dataclass
+class _RaisingRouter:
+    captured_request: object = None
+
+    def call_single_key_stream(self, *, key_id, request):
+        self.captured_request = request
+
+        async def _gen():
+            yield TokenDelta(text="partial")
+            raise RuntimeError("provider stream dropped")
+            yield  # pragma: no cover -- unreachable, satisfies generator shape
+
+        return _gen()
+
+
 def _patch_common(monkeypatch, *, config, key, store, router) -> None:
     monkeypatch.setattr(worker_mod, "get_sessionmaker", _fake_sessionmaker)
     monkeypatch.setattr(worker_mod, "get_redis", lambda: object())
@@ -207,6 +222,11 @@ async def test_pinned_key_revoked_refunds_quota(monkeypatch) -> None:
 
     assert result == "pinned key revoked"
     assert store.refunds == [(config.id, session.user_id, worker_mod.now().strftime("%Y%m%d"))]
+    # Q-5: a marker is persisted so a refetch after this failure sees why,
+    # instead of a history ending in the user's turn with no reply at all.
+    assert [(m.role, m.content, m.error) for m in store.appended] == [
+        ("assistant", "prompt-studio/unavailable", True)
+    ]
 
 
 @pytest.mark.asyncio
@@ -225,6 +245,9 @@ async def test_no_default_for_provider_refunds_quota(monkeypatch) -> None:
 
     assert result == "no model configured"
     assert store.refunds == [(config.id, session.user_id, worker_mod.now().strftime("%Y%m%d"))]
+    assert [(m.role, m.content, m.error) for m in store.appended] == [
+        ("assistant", "prompt-studio/no-model", True)
+    ]
 
 
 @pytest.mark.asyncio
@@ -239,3 +262,26 @@ async def test_no_resolvable_config_does_not_attempt_refund(monkeypatch) -> None
 
     assert result == "no resolvable config / key revoked"
     assert store.refunds == []
+    assert [(m.role, m.content, m.error) for m in store.appended] == [
+        ("assistant", "prompt-studio/unavailable", True)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_provider_stream_failure_persists_marker(monkeypatch) -> None:
+    key = SimpleNamespace(provider=SimpleNamespace(value="claude"))
+    config = _config(model_id="claude-sonnet-4-6", key_id=uuid.uuid4())
+    session = _session()
+    store = _FakeStore(session)
+    router = _RaisingRouter()
+
+    _patch_common(monkeypatch, config=config, key=key, store=store, router=router)
+
+    result = await worker_mod.prompt_assistant_turn({}, str(session.session_id), "")
+
+    assert result == "turn failed"
+    # A mid-stream provider failure never reaches the success-path append at
+    # the bottom of prompt_assistant_turn -- the marker is the only record.
+    assert [(m.role, m.content, m.error) for m in store.appended] == [
+        ("assistant", "prompt-studio/turn-failed", True)
+    ]

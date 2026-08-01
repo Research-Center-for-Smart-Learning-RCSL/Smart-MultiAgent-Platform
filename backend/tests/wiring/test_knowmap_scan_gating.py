@@ -8,15 +8,24 @@ never-scanned document. ``quarantined`` and ``skipped`` remain excluded as befor
 
 from __future__ import annotations
 
+import hashlib
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from contexts.identity.infrastructure.repositories import UserRepository
 from contexts.keys.infrastructure.group_repository import KeyGroupRepository
+from contexts.knowledge.application.knowmap_ingest_service import (
+    KnowmapIngestInput,
+    KnowmapIngestService,
+)
 from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus, ScanStatus
+from contexts.knowledge.infrastructure.chunkers import chunk_document
 from contexts.knowledge.infrastructure.knowmap_repositories import (
+    KnowmapChunkRepository,
     KnowmapConfigRepository,
     KnowmapDocumentRepository,
 )
@@ -31,6 +40,19 @@ from shared_kernel.auth.clients import now
 from shared_kernel.db.session import async_session
 
 pytestmark = pytest.mark.wiring
+
+_TEXT = b"Knowledge Map retry body. " * 40
+
+
+class _FakeBlob:
+    async def put(self, *, bucket: str, key: str, data: bytes, content_type: str) -> str:
+        return f"{bucket}/{key}"
+
+    async def get(self, *, bucket: str, key: str) -> bytes:
+        return _TEXT
+
+    async def download_to_path(self, *, bucket: str, key: str, path: Path) -> None:
+        path.write_bytes(_TEXT)
 
 
 async def _seed(db) -> SimpleNamespace:
@@ -100,3 +122,55 @@ async def test_selectors_require_clean_verdict() -> None:
 
         allowed = await repo.allowed_document_ids(config_id=cfg_id, agent_id=agent_id)
         assert allowed == [clean.id]
+
+
+async def test_failed_reupload_applies_submitted_allowlist() -> None:
+    async with async_session() as db:
+        env = await _seed(db)
+        agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+        sha = hashlib.sha256(_TEXT).hexdigest()
+        repo = KnowmapDocumentRepository(db)
+        existing = await repo.create(
+            knowmap_config_id=env.config.id,
+            filename="retry.txt",
+            mime="text/plain",
+            size_bytes=len(_TEXT),
+            sha256=sha,
+            minio_path=f"knowmap-sources/{env.project.id}/{env.config.id}/{sha}",
+            uploaded_by=env.user.id,
+            agent_ids=[agent_a],
+        )
+        await repo.set_status(document_id=existing.id, status=DocumentStatus.FAILED)
+        await db.commit()
+
+        service = KnowmapIngestService(
+            db,
+            blob=_FakeBlob(),
+            embedder=MagicMock(vector_size=1536),
+            configs=KnowmapConfigRepository(db),
+            documents=KnowmapDocumentRepository(db),
+            chunks=KnowmapChunkRepository(db),
+            chunker=chunk_document,
+            scan_required=False,
+        )
+        with patch(
+            "contexts.knowledge.application.knowmap_ingest_service.enqueue_knowmap_scan",
+            AsyncMock(),
+        ):
+            returned = await service.ingest(
+                ipt=KnowmapIngestInput(
+                    knowmap_config_id=env.config.id,
+                    filename="retry.txt",
+                    mime="text/plain",
+                    data=_TEXT,
+                    uploaded_by=env.user.id,
+                    agent_ids=(agent_a, agent_b),
+                ),
+                actor_user_id=env.user.id,
+                actor_ip=None,
+            )
+        await db.commit()
+
+        persisted = await repo.require(existing.id)
+        assert returned.agent_ids == (agent_a, agent_b)
+        assert persisted.agent_ids == (agent_a, agent_b)
