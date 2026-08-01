@@ -173,6 +173,8 @@
       "label": "標籤",
       "subagentUnavailableTitle": "子代理產生功能尚未提供",
       "subagentUnavailableBody": "子代理執行功能尚未實作，因此此節點一律立即失敗。請確認 failure 路徑已連線；若你將 on-error 設為 continue，則需連線 success 路徑。此功能是延後推出，並非取消。",
+      "joinTimeoutNotImplementedTitle": "Join 沒有逾時機制",
+      "joinTimeoutNotImplementedBody": "Join 的匯合不會自動逾時。若某分支始終未到達，該執行流程會停滯，直到流程層級的閒置逾時強制判定失敗為止。除非你清楚 timeout 埠永遠不會觸發，否則不建議連線。",
       "deleteNode": "刪除節點",
       "deleteConfirm": "確定刪除此節點及其所有連線？",
       "deleteConfirmTitle": "刪除節點",
