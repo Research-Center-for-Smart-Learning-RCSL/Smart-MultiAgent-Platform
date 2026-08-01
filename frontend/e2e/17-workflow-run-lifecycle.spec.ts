@@ -74,8 +74,17 @@ test.describe('Workflow engine: run lifecycle, archive, backstage, DLQ', () => {
     // earlier lifecycle test guarantees at least one run exists.
     const select = page.locator('.s-select__native').first()
     await expect(select).toBeVisible()
-    const optionCount = await select.locator('option').count()
-    test.skip(optionCount < 2, 'no runs to trace')
+    // The selector's options land when the runs query resolves — poll instead
+    // of sampling once, or a slow query turns this test into a silent skip.
+    let hasRuns = true
+    try {
+      await expect
+        .poll(() => select.locator('option').count(), { timeout: 15_000 })
+        .toBeGreaterThanOrEqual(2)
+    } catch {
+      hasRuns = false
+    }
+    test.skip(!hasRuns, 'no runs to trace')
     await select.selectOption({ index: 1 })
 
     await expect(page.getByRole('heading', { name: 'Execution Trace' })).toBeVisible()
