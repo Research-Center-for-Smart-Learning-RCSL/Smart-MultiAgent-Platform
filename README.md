@@ -15,23 +15,33 @@ Deployment target: single-host Docker Compose (16-core / 32 GB). There is no clo
 
 **Key and credential management.** Users upload provider API keys stored with envelope encryption (Vault Transit backend). Keys are organized into ordered Key Groups with automatic rotation, per-key sliding-window quota tracking, and failover. A background worker emits notifications when 80% of a key's quota is consumed.
 
-**Agent configuration.** An Agent is a named LLM persona with a system prompt, a Key Group, an optional RAG configuration, an optional Graph RAG configuration, and an optional set of MCP tool servers. Agents can exchange messages via the Agent-to-Agent (A2A) protocol and be composed into multi-agent workflows.
+**Agent configuration.** An Agent is a named LLM persona with a system prompt, a Key Group, an optional RAG configuration, an optional Knowledge Map binding, an optional set of Skills, and an optional set of MCP tool servers. Agents can exchange messages via the Agent-to-Agent (A2A) protocol and be composed into multi-agent workflows.
 
-**Retrieval-augmented generation.** Each agent can be bound to a per-agent-scoped RAG configuration backed by Qdrant (dense vector search) and a Graph RAG configuration backed by Neo4j (graph-enhanced retrieval). Both are populated by background ingestion workers, and retrieved chunks are surfaced as citations on the agent's reply. Graph RAG build progress streams to the UI over WebSocket.
+**Agent Groups.** Agents within a project can be organized into named Agent Groups with their own membership. A group can own a shared Concept Map (see below) that pools retrieval across every member agent.
+
+**Prompt Studio.** Reusable prompt templates and prompt-assistant configurations (personal or organization-scoped) help users draft and iterate on agent system prompts, with assistant responses streamed to the UI over WebSocket.
+
+**Skills.** Reusable Skill bundles can be authored and scoped to an agent, a project, an organization, or the whole platform, then bound to individual agents to extend their capabilities.
+
+**Retrieval-augmented generation.** Each agent can be bound to a per-agent RAG configuration for dense vector search over uploaded files (Qdrant) and, independently, to a Knowledge Map — a designer-authored knowledge graph built from uploaded documents (Neo4j + Qdrant) with a per-agent document allowlist. Both are populated by background ingestion workers with two-phase-commit consistency across the vector and graph stores, and retrieved chunks or graph entities are surfaced as citations on the agent's reply.
+
+**Concept Map.** A Chat Room, Agent Group, or Workspace can each own a Concept Map — a temporal knowledge graph (Neo4j + Qdrant) built incrementally from conversation history and shared by every agent present in that scope, with results weighted by recency. Unlike a Knowledge Map, a Concept Map has no document source and no single owning agent. Build progress for both graph types streams to the UI over WebSocket.
 
 **MCP tool servers.** Agents can call built-in tool servers — file access, web search (via Tavily, Brave, Serper, or Google CSE), and a Code Interpreter whose session-scoped kernel persists state across calls and renders inline chart artifacts — as well as user-provided external MCP servers. External servers run inside a gVisor-isolated Docker-in-Docker sandbox with an egress proxy.
 
 **Chat rooms and workspaces.** Projects contain Workspaces; Workspaces contain Chat Rooms. Chat Rooms support real-time messaging over WebSocket, file attachments (resumable upload via TUS), full-text search (PostgreSQL GIN index), summoning specific agents by `@mention`, optional per-user display names, and transcript export to Markdown, JSON, or PDF (optionally date-ranged) stored in MinIO. Permanent guest links allow external users to join a room without a platform account.
 
-**Workflow engine.** Workflows are directed graphs of agent steps supporting 11 executor types, 6 trigger kinds, and the SMAP Expression Language (SEL v1) for dynamic routing. Execution is tracked in a `workflow_runs` finite-state machine (running / waiting / succeeded / failed / cancelled) with a 90-day archive policy. A dry-run mode validates a definition and exercises its routing without invoking side-effecting steps.
+**Activities.** Chat Rooms can host scored, interactive Activities — self-contained plugins with their own validators, surfaced inline in the conversation.
 
-**Multi-tenant access control.** Accounts belong to Organizations; Organizations contain Projects. Each scope has a role hierarchy (Original Creator, Org Owner, Org Member, Project Owner, Project Member, Guest). Authorization is enforced through a 24-capability permission matrix evaluated per request.
+**Workflow engine.** Workflows are directed graphs of agent steps supporting 11 executor types, 7 trigger kinds, and the SMAP Expression Language (SEL v1) for dynamic routing. Execution is tracked in a `workflow_runs` finite-state machine (running / waiting / succeeded / failed / cancelled) with a 90-day archive policy. A dry-run mode validates a definition and exercises its routing without invoking side-effecting steps.
+
+**Multi-tenant access control.** Accounts belong to Organizations; Organizations contain Projects. Each scope has a role hierarchy (Original Creator, Org Owner, Org Member, Project Owner, Project Member, Guest). Authorization is enforced through a 26-capability permission matrix evaluated per request.
 
 **Admin and observability.** Admins can manage users (ban, unban, soft-delete, hard-delete), promote or demote admins with a last-admin guard, manage IP ban lists (CIDR), adjust per-bucket rate-limit policies, force-transfer Original Creator status, impersonate users in read-only mode, and query or export the append-only audit log. Prometheus metrics, OpenTelemetry tracing, and structured JSON logging are included.
 
 **Localization.** The web interface is fully internationalized (vue-i18n) and ships English and Traditional Chinese, switchable from the top bar.
 
-**Retention.** A background worker runs 16 retention policies on a configurable schedule covering messages, file attachments, exports, audit logs, workflow run archives, key usage events, soft-deleted tenancy entities, expired tokens, sessions, and more.
+**Retention.** A background worker runs 23 retention policies on a configurable schedule covering messages, file attachments, exports, audit logs, workflow run archives, key usage events, soft-deleted tenancy entities, expired tokens, sessions, and more.
 
 ---
 
@@ -53,13 +63,13 @@ FastAPI  (stateless API gateway)
     +---> PostgreSQL   (primary relational store, FTS GIN, append-only audit)
     +---> Redis        (session denylist, rate-limit counters, A2A streams, pub/sub)
     +---> Qdrant       (dense vector index for RAG)
-    +---> Neo4j        (knowledge graph for Graph RAG)
+    +---> Neo4j        (knowledge graph for Concept Map + Knowledge Map)
     +---> MinIO        (object storage: chat-uploads, rag-sources, exports)
     +---> Vault        (Transit encryption, JWT signing keys, KV secrets)
     +---> MCP sandbox  (Docker-in-Docker + gVisor + egress proxy)
 ```
 
-Six WebSocket endpoints provide real-time push: per-user notifications, per-chatroom messages, workflow run streaming, RAG config updates, Graph RAG build progress, and admin log tailing. All WebSocket connections authenticate via the `bearer.<token>` subprotocol.
+Eight WebSocket endpoints provide real-time push: per-user notifications, per-chatroom messages, workflow run streaming, file-RAG ingestion progress, Concept Map build progress, Knowledge Map build progress, Prompt Studio assistant token streaming, and admin log tailing. All WebSocket connections authenticate via the `bearer.<token>` subprotocol.
 
 ---
 
@@ -80,16 +90,16 @@ Six WebSocket endpoints provide real-time push: per-user notifications, per-chat
 | Serialization | ORJSON 3.11, Pydantic 2.9 |
 | Logging | Loguru 0.7 (structured JSON) |
 | Metrics | Prometheus-client 0.21 |
-| Tracing | OpenTelemetry SDK 1.27 |
+| Tracing | OpenTelemetry SDK 1.44 |
 | Frontend | Vue 3.5, TypeScript 5.6, Vite 6.4 |
-| State | Pinia 2.2, TanStack Vue Query 5.59 |
-| UI | Custom design-system component library, Tailwind CSS 4.3, Heroicons 2.2 |
+| State | Pinia 2.2, TanStack Vue Query 5.101 |
+| UI | Custom design-system component library (40+ components), Tailwind CSS 4.3, Heroicons 2.2 |
 | Forms | vee-validate 4.14, Zod 3.23 |
-| Workflow editor | Vue Flow 1.42 |
+| Workflow editor | Vue Flow 1.48 |
 | Content rendering | markdown-it 14, KaTeX, Mermaid, highlight.js (DOMPurify-sanitized) |
-| Localization | vue-i18n 11.2 (English, Traditional Chinese) |
+| Localization | vue-i18n 11.4 (English, Traditional Chinese) |
 | Linting | Ruff 0.7, MyPy 1.13, ESLint 9.28 |
-| Testing | Pytest 8.3, pytest-asyncio 0.24, Vitest 4.1, Playwright 1.56 |
+| Testing | Pytest 8.3, pytest-asyncio 0.24, Vitest 4.1, Playwright 1.61 |
 
 ---
 
@@ -103,15 +113,19 @@ backend/
     api/middleware/  Request-ID, trusted-proxy, IP-ban, auth, rate-limit, security-headers
     config/          Pydantic settings (all SMAP_ prefixed env vars)
     workers/         ARQ task definitions
-  contexts/          Ten DDD bounded contexts
+  contexts/          Fourteen DDD bounded contexts
     identity/        Users, sessions, email verification, password reset, admins, IP bans
-    tenancy/         Organizations, projects, membership, invites
+    tenancy/         Organizations, projects, membership, invites, Original Creator transfer
     keys/            API keys, key groups, key usage events
-    agents/          Agent configs, MCP tools
-    knowledge/       RAG configs, Graph RAG configs
+    agents/          Agent configs, MCP tool bindings, wake-up triggers
+    agent_groups/    Agent groups within a project, membership, group-owned Concept Map
+    knowledge/       RAG configs, Knowledge Map (file-graph) configs, Concept Map (conversation-graph) configs
     conversation/    Workspaces, chat rooms, messages, attachments, guests, exports
+    activities/      Chatroom-hosted scored interactive activities
     workflow/        Workflows, workflow runs, SEL v1 execution
     orchestration/   A2A streams, wakeup configs, instruct chains, approvals, sub-agent inheritance
+    prompt_studio/   Prompt-assistant configs, reusable prompt templates
+    skills/          Reusable Skill bundles (agent, project, org, platform scope)
     audit/           Append-only audit log
     notification/    In-app user notifications
   shared_kernel/
@@ -126,28 +140,33 @@ backend/
     realtime/        WebSocket connection management and pub/sub helpers
     security/        Envelope encryption (DEK + Vault Transit)
     storage/         MinIO client wrapper
-  alembic/           Database migrations (versions 0000 through 0035)
+  alembic/           Database migrations (versions 0000 through 0073)
   alembic.ini
 
 frontend/
   src/
     app/             Root component, router, entry point
     shared/          API client (generated from OpenAPI), composables, transport, i18n, UI, errors
-    slices/          Eight feature slices: identity, tenancy, keys, agents, conversation, workflow, notifications, admin
+    slices/          Twelve feature slices: identity, tenancy, keys, agents, agent-groups, conversation, activities, workflow, prompt-studio, skills, notifications, admin
   tests/             Vitest setup, MSW mocks, render helpers, factories
   e2e/               Playwright E2E specs (15 golden paths)
-  scripts/           CI gate scripts (global CSS, view tests, type coverage, bundle size, OpenAPI drift)
+  scripts/           CI gate scripts (global CSS, view tests, type coverage, bundle size, OpenAPI drift, typecheck gate)
   Dockerfile         Multi-stage production build (node → nginx)
 
 deploy/
-  compose/           Docker Compose files (base, prod overlay, test overlay, dev override)
+  compose/           Docker Compose files (base, staging overlay, prod overlay, test overlay, dev override)
   compose/nginx/     Nginx config (TLS, HSTS, CSP, WS upgrade, banner suppression)
   vault/             Vault policies (HCL) and bootstrap SOP
   observability/     Optional OTel + Prometheus + Alertmanager + Loki + Grafana stack (with Postgres/Redis/Vault exporters)
+  sandbox/           gVisor MCP + code-interpreter sandbox images and driver
+  reranker/          Standalone BGE reranker service (RAG re-ranking)
+  scripts/           Backup, restore, preflight, and TLS-expiry operator scripts
   README.md          Operator walk-through (< 60 min bring-up)
 
 docs/
-  implement/         Per-phase construction plans (A through O)
+  implement/         Per-phase construction plans (A through M, plus supplemental remediation docs)
+  audits/            /audit dossiers — functional bug-hunt findings, one folder per sweep
+  tasks/             /spec dossiers (spec.md per change) plus BOARD.md sequencing index
   operations.md      Operator manual
   release-checklist.md  Pre-release verification checklist
   frontend-exceptions.md  CI gate exception registry
@@ -165,7 +184,7 @@ Each bounded context follows a four-layer structure enforced by import-linter: `
 | Document | Purpose |
 |---|---|
 | `REQUIREMENTS.md` | Software Requirements Specification. Every requirement is tagged with an ID of the form `[Rxx.yy]`. If the implementation disagrees with this document, the SRS wins. |
-| `docs/implement/00-overview.md` | Fifteen-phase construction plan (A through O) with dependency graph and phase gate status. |
+| `docs/implement/00-overview.md` | Construction plan: ten original phases (A–J) plus remediation phases K–M, with dependency graph and phase-gate status. |
 | `docs/workflow.schema.json` + `docs/workflow.schema.md` | Normative workflow JSON Schema and SMAP Expression Language (SEL v1) specification. |
 | `docs/operations.md` | Operator manual: structured logging fields, health check behavior, resource limits, Alembic migration policy, bootstrap CLI, RFC 7807 error catalog, runbooks. |
 | `deploy/vault/README.md` | Vault bootstrap procedure, key rotation SOP, disaster recovery scenarios. |
@@ -215,7 +234,7 @@ make docker-down-test         # tear down (removes volumes)
 
 ## Configuration
 
-All settings are controlled through environment variables with the `SMAP_` prefix. The resolution order is: Vault KV (production), environment variable, `.env` file, hardcoded default.
+All settings are controlled through environment variables, most under the `SMAP_` prefix. The resolution order is: Vault KV (production), environment variable, `.env` file, hardcoded default.
 
 Section prefixes:
 
@@ -233,11 +252,12 @@ Section prefixes:
 | `SMAP_SEC_` | Trusted proxy CIDRs, CORS origins, CSP mode, file-scan toggle |
 | `SMAP_LOG_` | Log level, service name, JSON toggle |
 | `SMAP_EGRESS_` | Egress proxy controls for MCP sandbox traffic |
-| `SMAP_SANDBOX_` | gVisor MCP sandbox image and resource limits |
-| `SMAP_SMTP_` | SMTP transport for email verification |
+| `SMAP_WORKER_` | ARQ worker health-check port |
 | `SMAP_LIMIT_` | Per-bucket rate-limit counts (R19.02) |
+| `SANDBOX_*` (no `SMAP_` prefix) | gVisor MCP sandbox and code-interpreter image names |
+| `SMTP_*` (no `SMAP_` prefix) | SMTP transport for email verification |
 
-See `.env.example` for the full list with defaults.
+A handful of operational variables (`SANDBOX_*`, `SMTP_*`, `EGRESS_PROXY_SHARED_SECRET`, `RERANK_BGE_URL`, `GRAFANA_ADMIN_PASSWORD`) intentionally fall outside the `SMAP_` namespace. See `.env.example` for the full list with defaults.
 
 ---
 
