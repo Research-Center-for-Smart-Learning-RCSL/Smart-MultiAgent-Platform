@@ -103,9 +103,17 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
     # external producer, so its own delay elapsing IS the event — it resumes
     # via workflow_event_resume (the "default" port), not workflow_event_timeout
     # (the "timeout" port), which every other event type still uses (Q-1).
+    # timeout_seconds is inert for a timer wait (Q-1) but kept in the output for
+    # continuity with every other event type; delay_seconds is added alongside it
+    # so the step record shows the deadline that actually governs the park —
+    # without it, a run's history would show only the inert number.
+    output: dict[str, object] = {"event_type": event_type, "timeout_seconds": timeout_seconds}
+    if is_timer:
+        output["delay_seconds"] = delay_seconds
+
     return StepOutcome(
         state=StepState.RUNNING,
-        output={"event_type": event_type, "timeout_seconds": timeout_seconds},
+        output=output,
         port="default",
         park=True,
         timeout_ms=park_seconds * 1_000,
