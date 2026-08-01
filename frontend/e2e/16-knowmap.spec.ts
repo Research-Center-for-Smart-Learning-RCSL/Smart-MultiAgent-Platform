@@ -28,8 +28,14 @@ function stateBadge(page: import('@playwright/test').Page) {
 
 async function openDetail(page: import('@playwright/test').Page): Promise<boolean> {
   await page.goto(`/projects/${env('E2E_PROJECT_ID')}/knowmap-configs`)
+  // The list renders after its query resolves — wait for the row rather than
+  // sampling visibility instantly, or every follow-up test self-skips.
   const row = page.getByRole('cell', { name: MAP_NAME }).first()
-  if (!(await row.isVisible().catch(() => false))) return false
+  try {
+    await row.waitFor({ state: 'visible', timeout: 15_000 })
+  } catch {
+    return false
+  }
   await row.click()
   await expect(page).toHaveURL(/\/knowmap-configs\/[^/]+/)
   return true

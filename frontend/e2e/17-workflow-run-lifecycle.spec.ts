@@ -57,7 +57,10 @@ test.describe('Workflow engine: run lifecycle, archive, backstage, DLQ', () => {
         r.url().includes('include_archive=true'),
       { timeout: 15_000 },
     )
-    await page.locator('#runs-show-archive').check()
+    // SCheckbox visually hides the native input behind a styled box span that
+    // intercepts pointer events, so check() on #runs-show-archive can never
+    // click through — toggle via the label instead.
+    await page.locator('label.s-checkbox', { hasText: 'Include archived' }).click()
     expect((await archived).status()).toBe(200)
     await expect(page.locator('section.workflow-runs')).toBeVisible()
   })
@@ -89,8 +92,10 @@ test.describe('Workflow engine: run lifecycle, archive, backstage, DLQ', () => {
     await page.getByRole('button', { name: 'Save wake-up config', exact: true }).click()
     await expect(page.getByText('Wake-up configuration saved.')).toBeVisible({ timeout: 10_000 })
 
-    // The DLQ empty state only renders after a real GET on the A2A dead-letter
-    // endpoint resolves — a 5xx would surface the error branch instead.
+    // The DLQ viewer is collapsed by default and only fetches on expand; the
+    // empty state renders after a real GET on the A2A dead-letter endpoint
+    // resolves — an error would surface the danger branch instead.
+    await page.getByRole('button', { name: 'Dead Letter Queue' }).click()
     await expect(page.getByText('No failed messages.')).toBeVisible({ timeout: 10_000 })
   })
 })
