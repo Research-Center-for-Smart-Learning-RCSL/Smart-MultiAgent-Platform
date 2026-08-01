@@ -24,9 +24,9 @@ Reference: `REQUIREMENTS.md` §14 "Workflow Engine" and §15 "Wake-up, Approval,
 | `condition` | user-defined ports (`default_port` fallback) | Evaluate up to 20 boolean branches in order; dispatch to the first matching port. |
 | `instruct` | `success`, `failure` | Send an instruction to a target agent. Target cannot refuse (REQUIREMENTS §15.5). Loop detection is mandatory. |
 | `subagent_spawn` | `success`, `failure` | Create child agent(s) under a parent. Max recursion depth = 1 (REQUIREMENTS §15.6). |
-| `wait_for_event` | `default`, `timeout` | Pause the branch until a qualifying event arrives (room message, A2A message, timer, variable condition). |
+| `wait_for_event` | `default`, `timeout`² | Pause the branch until a qualifying event arrives (room message, A2A message, timer, variable condition). |
 | `parallel` | `default` | Fan-out marker. All outgoing edges are taken concurrently. |
-| `join` | `default`, `timeout` | Fan-in marker. Waits for `all` / `any` / `count(N)` incoming branches. |
+| `join` | `default`, `timeout`¹ | Fan-in marker. Waits for `all` / `any` / `count(N)` incoming branches. |
 | `set_variable` | `default` | Compute expressions and assign to workflow variables. |
 | `end` | — | Terminal. Marks the workflow run as `success` or `failure`. |
 
@@ -42,8 +42,21 @@ Reserved ports by node type:
 | `agent_invocation`, `instruct`, `subagent_spawn` | `success`, `failure` |
 | `approval_gate` | `approved`, `rejected`, `timeout` |
 | `condition` | any user-declared `branches[].port` + `default_port` |
-| `wait_for_event`, `join` | `default`, `timeout` |
+| `wait_for_event`², `join`¹ | `default`, `timeout` |
 | `end` | (no outgoing edges) |
+
+¹ `join`'s `timeout` port is **not implemented**: no code arms a timeout for a join, so
+a `timeout` edge out of a join is never taken. The port stays in the schema, the linter's
+allowed-port set, and the canvas so stored definitions that reference it keep saving and
+rendering (see `join_config.timeout_seconds` in `workflow.schema.json`, deprecated for the
+same reason). A join whose fan-in never completes stalls until the run's `idle_max_seconds`
+watchdog force-fails the run — there is no join-level bound.
+See `docs/tasks/2026-07-22-wait-for-event-timer-and-join-ports/spec.md` §3 Q-2.
+
+² A `wait_for_event`'s `timeout` port is reachable for every `event_type` **except**
+`timer` — a timer wait resumes at `default` after `delay_seconds` (there is no external
+producer for a timer to time out waiting on; its own elapse *is* the event, Q-1). A
+`timeout` edge out of a timer wait is provably dead; the linter's W9 advisory flags it.
 
 ---
 
@@ -151,6 +164,7 @@ The JSON Schema catches only structural errors. The following checks are enforce
 4. `approval_gate.timeout_seconds` > 1 hour.
 5. Cron expression with sub-minute frequency.
 6. `loop_guard.max_visits_per_node` > 1 000.
+7. `subagent_spawn` present: the node is not implemented and always exits its `failure` port. Advisory only — a blocking rule would reject the edit that removes the node, since create and patch share one validator.
 
 ---
 
@@ -160,7 +174,7 @@ The JSON Schema catches only structural errors. The following checks are enforce
 - The engine consumes one node at a time per branch from the event bus. Parallel branches run as independent consumers.
 - On-error strategies:
   - `fail`: mark the run failed. Sibling `parallel` branches observe the terminal run state at their next node boundary and stop; a branch already inside an agent turn completes its current provider request, while remaining tool rounds are cancelled when the call reaches its next cancellation boundary.
-  - `continue`: treat the node as succeeded with `output = null`; follow default port.
+  - `continue`: treat the node as succeeded with `output = null`; follow the node's normal-completion port. That is `default` for node types that can emit it, `success` for `agent_invocation` / `instruct` / `subagent_spawn`, the declared `default_port` for `condition`, and `rejected` for `approval_gate` (an error inside the approval machinery must never manufacture an approval). If the resolved port has no outgoing edge the run fails immediately naming that port, rather than stalling until the idle watchdog.
   - `retry`: retry up to `retry_max` times with `retry_backoff_ms` linear backoff.
   - `fallback`: follow an edge to `fallback_node_id` (must be a valid node id in the same workflow).
 - `instruct` nodes always carry `chain_id` and `path` per REQUIREMENTS §15.5. Max chain depth and wall-clock are project-scoped config, not in this schema.

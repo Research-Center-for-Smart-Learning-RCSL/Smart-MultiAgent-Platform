@@ -62,6 +62,7 @@ export interface RagDocument {
   size_bytes: number
   status: 'ingesting' | 'ready' | 'failed' | 'quarantined'
   scan_status: 'pending' | 'clean' | 'quarantined' | 'skipped'
+  failure_code: string | null
   uploaded_at: string
   agent_ids: string[]
 }
@@ -266,6 +267,7 @@ export interface KnowmapDocument {
   size_bytes: number
   status: 'ingesting' | 'ready' | 'failed' | 'quarantined'
   scan_status: 'pending' | 'clean' | 'quarantined' | 'skipped'
+  failure_code: string | null
   uploaded_at: string
   agent_ids: string[]
 }

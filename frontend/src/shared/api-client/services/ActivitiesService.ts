@@ -11,6 +11,7 @@ import type { ActivitySubmissionOut } from '../models/ActivitySubmissionOut';
 import type { ActivitySubmissionsPageOut } from '../models/ActivitySubmissionsPageOut';
 import type { ActivityTypeIn } from '../models/ActivityTypeIn';
 import type { ActivityTypeOut } from '../models/ActivityTypeOut';
+import type { ActivityTypePublicOut } from '../models/ActivityTypePublicOut';
 import type { ActivityTypeUpdateIn } from '../models/ActivityTypeUpdateIn';
 import type { ActivityValidatorOut } from '../models/ActivityValidatorOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -217,7 +218,40 @@ export class ActivitiesService {
         });
     }
     /**
+     * Get Room Activity Type
+     * Room-scoped rendering-contract read (R30.26, Q-1): the recovery path
+     * when the activation-started broadcast was missed, the store was reset, or
+     * a future flow needs a type that is not the currently active one. Gated by
+     * the room-access chain, not project membership, so a chatroom guest is a
+     * full activity participant.
+     * @returns ActivityTypePublicOut Successful Response
+     * @throws ApiError
+     */
+    public static getRoomActivityTypeApiChatroomsChatroomIdActivityTypesTypeIdGet({
+        chatroomId,
+        typeId,
+    }: {
+        chatroomId: string,
+        typeId: string,
+    }): CancelablePromise<ActivityTypePublicOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/activity-types/{type_id}',
+            path: {
+                'chatroom_id': chatroomId,
+                'type_id': typeId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * List Activity Types
+     * Membership gate is unchanged — a non-owner member still legitimately
+     * lists types (that is how a facilitator picks one to activate). Only
+     * `validator_config` is owner-gated (R30.25): it may hold answer keys and,
+     * once sealed validator credentials exist, secrets.
      * @returns ActivityTypeOut Successful Response
      * @throws ApiError
      */

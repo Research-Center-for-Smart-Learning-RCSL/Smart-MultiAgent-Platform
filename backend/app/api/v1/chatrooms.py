@@ -15,6 +15,7 @@ from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.access import (
     ensure_can_read,
     ensure_room_creator,
+    is_moderator_roles,
     is_room_creator,
     resolve_room_access,
 )
@@ -41,6 +42,7 @@ from shared_kernel.auth.dependencies import (
 from shared_kernel.auth.permissions import (
     Capability,
     Principal,
+    Role,
     Scope,
     decide,
 )
@@ -95,6 +97,11 @@ class ChatroomOut(BaseModel):
     # offer a control that 403s. A pure guest holds a guest link but no
     # org/project role; every enforcement is still server-side.
     viewer_is_guest: bool = False
+    # V-4 (R13.21/R13.23): may this viewer edit and delete other people's
+    # messages here? Serialized because the client cannot re-derive it —
+    # PROJECT_OWNER is granted to any org owner of the parent org with no
+    # `project_members` row (R5.03), which no members-list lookup can see.
+    is_moderator: bool = False
 
 
 class GuestLinkOut(BaseModel):
@@ -120,11 +127,19 @@ class ChatroomMemberOut(BaseModel):
     display_name: str | None
 
 
-def _to_out(r, *, has_observers: bool = False, viewer_is_pure_guest: bool = False) -> ChatroomOut:
+def _to_out(
+    r,
+    *,
+    has_observers: bool = False,
+    viewer_is_pure_guest: bool = False,
+    is_moderator: bool = False,
+) -> ChatroomOut:
     # O-8 (R28.02): guests are denied every observer surface — a pure guest
     # (guest link only, no project role) receives fail-closed neutral values,
     # indistinguishable from a room with disclosure off and no creator on
-    # record, so the DTO is not an observer-existence oracle.
+    # record, so the DTO is not an observer-existence oracle. `is_moderator`
+    # is neutralised on the same path and for the same reason: a guest is
+    # never a moderator, and the field must not become an oracle either.
     return ChatroomOut(
         id=r.id,
         workspace_id=r.workspace_id,
@@ -140,6 +155,7 @@ def _to_out(r, *, has_observers: bool = False, viewer_is_pure_guest: bool = Fals
         disclose_observers=False if viewer_is_pure_guest else r.disclose_observers,
         observers_present=bool(not viewer_is_pure_guest and r.disclose_observers and has_observers),
         viewer_is_guest=viewer_is_pure_guest,
+        is_moderator=bool(not viewer_is_pure_guest and is_moderator),
     )
 
 
@@ -199,6 +215,7 @@ async def list_chatrooms(
     project_id = await _project_id_for_workspace(db, workspace_id)
     # Any member of the parent project may enumerate the rooms. Admin bypass
     # lives in require_membership via principal.is_admin.
+    moderator = principal.is_admin
     if not principal.is_admin:
         resolver = await get_role_resolver(db)
         roles = await resolver.roles_for(
@@ -207,6 +224,7 @@ async def list_chatrooms(
         )
         if not roles:
             _raise_forbidden("caller is not a member of the project")
+        moderator = is_moderator_roles(roles)
     service = ChatroomService(db)
     rows = await service.list_for_workspace(
         workspace_id,
@@ -214,7 +232,7 @@ async def list_chatrooms(
         offset=pagination.offset,
     )
     with_observers = await service.rooms_with_observers([r.id for r in rows])
-    return [_to_out(r, has_observers=r.id in with_observers) for r in rows]
+    return [_to_out(r, has_observers=r.id in with_observers, is_moderator=moderator) for r in rows]
 
 
 @workspace_router.post(
@@ -242,7 +260,12 @@ async def create_chatroom(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    return _to_out(room)
+    # CHAT_CREATE is granted to exactly ORG_OWNER and PROJECT_OWNER
+    # (permissions.py `_MATRIX`), which is precisely `is_moderator_roles`'
+    # predicate — so clearing the gate above already proves the caller moderates
+    # this room, and no second role lookup is needed. Without this the 201 body
+    # said `is_moderator: false` while a GET one request later said true.
+    return _to_out(room, is_moderator=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -258,6 +281,7 @@ async def read_chatroom(
 ) -> ChatroomOut:
     project_id = await _project_id_for_chatroom(db, chatroom_id)
     pure_guest = False
+    moderator = principal.is_admin
     if not principal.is_admin:
         resolver = await get_role_resolver(db)
         roles = await resolver.roles_for(
@@ -271,6 +295,7 @@ async def read_chatroom(
         if not roles and not is_guest:
             _raise_forbidden("not a participant of this room")
         pure_guest = not roles and is_guest
+        moderator = is_moderator_roles(roles)
     service = ChatroomService(db)
     room = await service.get(chatroom_id)
     with_observers = await service.rooms_with_observers([chatroom_id])
@@ -278,6 +303,7 @@ async def read_chatroom(
         room,
         has_observers=chatroom_id in with_observers,
         viewer_is_pure_guest=pure_guest,
+        is_moderator=moderator,
     )
 
 
@@ -291,12 +317,17 @@ async def patch_chatroom(
     db: AsyncSession = Depends(db_session),
 ) -> ChatroomOut:
     fields = set(body.model_dump(exclude_unset=True))
+    # Collected for the response DTO as well as the gates: the caller's role
+    # set here is whatever the branch below already had to resolve, so only
+    # the plain-flags path pays for an extra lookup.
+    roles: frozenset[Role]
     if fields == {"disclose_observers"}:
         # O-6 (R28.09): a disclosure-only patch is the creator's call and must
         # not additionally demand RESOURCE_CREATE_EDIT — a creator demoted
         # below project owner keeps control of their observers' disclosure.
         access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
         ensure_room_creator(access, principal=principal)
+        roles = access.roles
     else:
         project_id = await _project_id_for_chatroom(db, chatroom_id)
         await _require_project_cap(
@@ -311,6 +342,16 @@ async def patch_chatroom(
             # capability check above.
             access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
             ensure_room_creator(access, principal=principal)
+            roles = access.roles
+        elif principal.is_admin:
+            # The bypass below decides the answer, and the settings form now
+            # sends one PATCH per toggle — no reason to pay for a resolution
+            # whose result cannot change it.
+            roles = frozenset()
+        else:
+            resolver = await get_role_resolver(db)
+            roles = await resolver.roles_for(principal, Scope(project_id=project_id))
+    moderator = principal.is_admin or is_moderator_roles(roles)
     expected = require_if_match(if_match)
     service = ChatroomService(db)
     room = await service.patch(
@@ -322,7 +363,11 @@ async def patch_chatroom(
         request_id=ctx.request_id,
     )
     with_observers = await service.rooms_with_observers([chatroom_id])
-    return _to_out(room, has_observers=chatroom_id in with_observers)
+    return _to_out(
+        room,
+        has_observers=chatroom_id in with_observers,
+        is_moderator=moderator,
+    )
 
 
 @chatroom_router.delete(

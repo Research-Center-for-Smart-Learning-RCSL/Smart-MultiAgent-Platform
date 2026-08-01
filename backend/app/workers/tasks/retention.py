@@ -525,24 +525,27 @@ async def _sweep_orphaned_subagent_roots(session: AsyncSession) -> int:
     archived by ``_archive_workflow_runs``, or hard-deleted — the whole
     synthetic subtree is dead weight.
 
+    Since ``2026-07-22-subagent-spawn-fail-fast`` the node fails before spawning,
+    so no new synthetic roots are created and this sweep only drains rows left by
+    runs from before that change. It stays until those are gone, and becomes live
+    again when sub-agent execution ships with a teardown path.
+
     Children are deleted before roots: ``agent_instances.parent_id`` is
     ``ON DELETE SET NULL``, so deleting a root first would merely orphan the
     children (``parent_id`` → NULL) and leak them as parentless rows.
     """
     root_rows = await session.execute(
         sa.text(
-            "WITH synth AS ("
-            "  SELECT id, run_context->>'workflow_run_id' AS wf_run_id "
-            "  FROM agent_instances "
-            "  WHERE parent_id IS NULL "
-            "    AND run_context->>'synthetic_root' = 'true' "
-            "  LIMIT 500"
-            ") "
-            "SELECT s.id FROM synth s "
-            "WHERE s.wf_run_id IS NOT NULL "
+            "SELECT id FROM agent_instances "
+            "WHERE parent_id IS NULL "
+            "  AND run_context->>'synthetic_root' = 'true' "
+            "  AND run_context->>'workflow_run_id' IS NOT NULL "
             "  AND NOT EXISTS ("
-            "    SELECT 1 FROM workflow_runs wr WHERE wr.id = s.wf_run_id::uuid"
-            "  )"
+            "    SELECT 1 FROM workflow_runs wr "
+            "    WHERE wr.id = (run_context->>'workflow_run_id')::uuid"
+            "  ) "
+            "ORDER BY spawned_at "
+            "LIMIT 500"
         )
     )
     root_ids = [r[0] for r in root_rows.all()]

@@ -177,6 +177,52 @@ services:
       retries: 5
       start_period: 20s
 
+  knowledge-scan-worker:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    command: arq app.workers.main.KnowledgeScanWorkerSettings
+    env_file:
+      - path: ../../.env
+        required: false
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    networks: [backend_net, data_net]
+    logging: *log-rotation
+    mem_limit: 1g
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/healthz').status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  knowledge-ingest-worker:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    command: arq app.workers.main.KnowledgeIngestWorkerSettings
+    env_file:
+      - path: ../../.env
+        required: false
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    networks: [backend_net, data_net]
+    logging: *log-rotation
+    mem_limit: 2g
+    tmpfs:
+      - /tmp:size=1536m,mode=1777
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/healthz').status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
   # ---------- Data services ----------
   postgres:
     image: pgvector/pgvector:0.8.0-pg16

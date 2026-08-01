@@ -21,6 +21,8 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from jsonschema import Draft202012Validator
+
 from contexts.skills.domain.errors import SkillUnreadable
 from contexts.skills.domain.models import Skill, SkillFile, SkillFileKind, SkillRead
 from contexts.skills.domain.readability import assert_readable
@@ -30,6 +32,12 @@ if TYPE_CHECKING:
     from contexts.skills.application.binding_service import BoundSet
 
 ToolInvoke = Callable[[dict[str, Any]], Awaitable["ToolResult"]]
+
+# Tells an infrastructure fault apart from a tool failure (see ``ToolRegistry.call``).
+# Injected rather than imported so this module keeps the no-infrastructure claim its
+# docstring makes: the classification needs ``sqlalchemy.exc``, and the turn engine —
+# which owns the session the tools write to — is the layer that knows that.
+InfraErrorCheck = Callable[[BaseException], bool]
 
 # Per-tool output cap so a chatty tool can't blow the context window. It lives here
 # rather than beside its callers in ``builtin_tools`` because it is the registry's
@@ -147,11 +155,90 @@ class Tool:
 
 logger = logging.getLogger(__name__)
 
+# How many schema violations are named back to the model. All of them can be one
+# message per array element of a large malformed payload, and the whole thing is
+# echoed into the context window.
+_MAX_REPORTED_VIOLATIONS = 10
+
+
+# Regex keywords, dropped before validating. A tool's `input_schema` is not ours:
+# a LOCAL_FUNCTION carries whatever `parameters` its author wrote, and an MCP
+# binding carries whatever its server returned from the capture probe. Executing an
+# attacker-chosen regex against model-written arguments is catastrophic
+# backtracking on demand — measured at 45s of un-preemptible CPU for `^(a+)+$`
+# against 30 characters, which blocks the worker's whole event loop, not just the
+# offending turn. No built-in schema uses them, and the provider still receives the
+# full schema for constrained decoding; only this local copy is stripped.
+_UNSAFE_SCHEMA_KEYWORDS = frozenset({"pattern", "patternProperties"})
+
+# Keywords whose value is a map of *property names* to subschemas. Their keys are
+# author-chosen names, not schema keywords, so the strip must not read them as such
+# — `pattern` is an ordinary parameter name for a search or glob tool, and dropping
+# it while `required` still lists it leaves a tool the model can never call.
+_NAME_KEYED_SUBSCHEMAS = frozenset({"properties", "$defs", "definitions", "dependentSchemas"})
+
+# Keywords whose value is instance data rather than a subschema. Recursing into them
+# would rewrite a default or an enum member that happens to contain these keys.
+_INSTANCE_VALUED_KEYWORDS = frozenset({"enum", "const", "default", "examples"})
+
+
+def _without_regex(node: Any) -> Any:
+    """``node`` with the regex keywords removed, in keyword position only.
+
+    Dropping ``patternProperties`` also drops a sibling ``additionalProperties:
+    false``. The two compose: the pattern is what made those property names
+    legal, so removing it while the closed-object rule stands turns every one of
+    them into a rejected "additional property" and the tool becomes permanently
+    uncallable — a hard fail, where this module's posture for a third-party
+    schema it cannot use is to fail open (see :func:`schema_violations`). Only
+    the ``false`` form is dropped; an ``additionalProperties`` subschema still
+    constrains the same values it always did.
+    """
+    if isinstance(node, dict):
+        drops_pattern_properties = "patternProperties" in node
+        out: dict[str, Any] = {}
+        for key, value in node.items():
+            if key in _UNSAFE_SCHEMA_KEYWORDS:
+                continue
+            if key == "additionalProperties" and value is False and drops_pattern_properties:
+                continue
+            if key in _INSTANCE_VALUED_KEYWORDS:
+                out[key] = value
+            elif key in _NAME_KEYED_SUBSCHEMAS and isinstance(value, dict):
+                out[key] = {name: _without_regex(sub) for name, sub in value.items()}
+            else:
+                out[key] = _without_regex(value)
+        return out
+    if isinstance(node, list):
+        return [_without_regex(v) for v in node]
+    return node
+
+
+def schema_violations(schema: dict[str, Any], args: dict[str, Any]) -> list[str]:
+    """Every way ``args`` breaks ``schema`` (empty = valid), regex keywords aside.
+
+    Deliberately a copy of `contexts/activities/.../validators/schema.py`'s
+    `payload_errors` rather than an import: that helper belongs to the activities
+    context, and a cross-context import for four lines would buy a coupling worth
+    more than the duplication.
+
+    Fails **open** on anything the validator cannot handle — a malformed schema, or
+    a `$ref` jsonschema refuses to resolve. Built-in schemas are held well-formed by
+    a drift test, but an MCP server's captured contract is written by someone else
+    and an unusable one must cost the agent its validation, not its turn.
+    """
+    try:
+        validator = Draft202012Validator(_without_regex(schema))
+        return [err.message for err in validator.iter_errors(args)]
+    except Exception:
+        logger.warning("tool input_schema is not usable; skipping validation", exc_info=True)
+        return []
+
 
 class ToolRegistry:
-    """Name → Tool table for one turn. Dispatch never raises into the loop."""
+    """Name → Tool table for one turn. Dispatch raises only on infrastructure."""
 
-    def __init__(self, tools: list[Tool]) -> None:
+    def __init__(self, tools: list[Tool], *, is_infra_error: InfraErrorCheck | None = None) -> None:
         # A duplicate name would silently shadow a built-in (last-wins dict),
         # so the first registration wins and any collision is dropped + logged.
         # Reserved-name validation upstream should make this unreachable; this is
@@ -162,6 +249,9 @@ class ToolRegistry:
                 logger.warning("duplicate tool name %r ignored (first registration kept)", t.name)
                 continue
             self._by_name[t.name] = t
+        # Absent a check, nothing is infrastructure and every failure degrades —
+        # the behaviour before this seam existed.
+        self._is_infra_error = is_infra_error
 
     def specs(self) -> list[dict[str, Any]]:
         return [t.spec() for t in self._by_name.values()]
@@ -169,13 +259,71 @@ class ToolRegistry:
     def get(self, name: str) -> Tool | None:
         return self._by_name.get(name)
 
+    def expects_arguments(self, name: str) -> bool:
+        """Does this tool declare any parameters at all?
+
+        The turn loop asks before refusing an empty argument object as truncated:
+        for a tool that takes none, `{}` is complete by contract and cannot have
+        been cut off, so refusing it would hand the model advice — "retry with a
+        smaller payload" — that it has no way to act on. Unknown names answer True
+        so an unknown tool still goes through the normal dispatch error.
+        """
+        tool = self._by_name.get(name)
+        if tool is None:
+            return True
+        schema = tool.input_schema or {}
+        # `additionalProperties: true` with no declared properties is the
+        # permissive fallback an unprobed MCP binding carries — it accepts
+        # arguments, so an empty object there is still ambiguous.
+        return bool(schema.get("properties")) or schema.get("additionalProperties") is not False
+
     async def call(self, name: str, args: dict[str, Any]) -> ToolResult:
+        """Dispatch one tool call, degrading *domain* failures into a result.
+
+        An unknown tool or a tool that raised on its own terms is something the
+        model can act on — a different tool, different arguments, or an apology —
+        so it comes back as ``is_error`` content and the turn continues.
+
+        An **infrastructure** fault is not. It is not a fact about the tool, the
+        model cannot route around it, and on a shared session it has already made
+        every later write fail — so continuing burns provider spend on a turn whose
+        reply can no longer be persisted. Those propagate and fail the turn now.
+        See docs/tasks/2026-07-22-tool-dispatch-failure-categories §3 Q-4.
+
+        The exception itself never reaches the model: a SQLAlchemy message can carry
+        the failing SQL, table names and parameter values.
+
+        A **protocol violation** — arguments that do not satisfy the schema the tool
+        advertised — is rejected here, before ``invoke``. Nothing downstream did
+        that: every tool coerced instead, so a missing required field became a
+        default and the model was told the call succeeded. `file` op=write with no
+        `content` truncated its target and reported `written: 0` without an error.
+        """
         tool = self._by_name.get(name)
         if tool is None:
             return ToolResult(content=f"Unknown tool {name!r}.", is_error=True)
+        violations = schema_violations(tool.input_schema, args)
+        if violations:
+            shown = violations[:_MAX_REPORTED_VIOLATIONS]
+            more = len(violations) - len(shown)
+            detail = "; ".join(shown) + (f"; and {more} more" if more else "")
+            # `_tool_error` clips: the messages quote the model's own arguments
+            # back at it, and a large malformed payload would otherwise be echoed
+            # into the context window in full.
+            return _tool_error(f"Tool {name!r} was not run — invalid arguments: {detail}")
         try:
             return await tool.invoke(args)
-        except Exception as exc:  # a tool failure must not abort the turn
+        except Exception as exc:
+            if self._is_infra_error is not None and self._is_infra_error(exc):
+                # Logged here, where the classification is made, so the resulting
+                # rise in failed turns is attributable to this decision.
+                logger.error(
+                    "tool %r hit an infrastructure fault (%s); failing the turn",
+                    name,
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+                raise
             return ToolResult(content=f"Tool {name!r} failed: {exc}", is_error=True)
 
     def __len__(self) -> int:
@@ -637,6 +785,7 @@ def build_registry(
     skills: BoundSet,
     reads: list[SkillRead] | None = None,
     extra: list[Tool] | None = None,
+    is_infra_error: InfraErrorCheck | None = None,
 ) -> ToolRegistry:
     """Assemble the per-turn tool table for ``agent_id``.
 
@@ -654,7 +803,7 @@ def build_registry(
         tools.append(build_read_skill_tool(skills, db=db, reads=reads))
     if extra:
         tools.extend(extra)
-    return ToolRegistry(tools)
+    return ToolRegistry(tools, is_infra_error=is_infra_error)
 
 
 def _opt_int(value: Any) -> int | None:
@@ -668,6 +817,7 @@ def _opt_int(value: Any) -> int | None:
 
 __all__ = [
     "BUILTIN_TOOL_NAMES",
+    "InfraErrorCheck",
     "Tool",
     "ToolRegistry",
     "ToolResult",
@@ -676,4 +826,5 @@ __all__ = [
     "build_registry",
     "build_update_wakeup_tool",
     "clip_tool_output",
+    "schema_violations",
 ]

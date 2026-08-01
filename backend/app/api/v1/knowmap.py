@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
 from fastapi import (
     APIRouter,
@@ -27,7 +27,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import (
@@ -36,6 +36,7 @@ from app.api.v1.deps import (
     assert_project_membership,
 )
 from app.api.v1.deps import validate_agent_allowlist as _validate_agent_allowlist_generic
+from app.wiring.knowledge_ingest import KnowledgeIngestWiring
 from contexts.knowledge.application.knowmap_config_service import (
     KnowmapConfigService,
     build_knowmap_embedder,
@@ -50,10 +51,19 @@ from contexts.knowledge.application.knowmap_ingest_service import (
 )
 from contexts.knowledge.application.knowmap_triggers import enqueue_knowmap_build
 from contexts.knowledge.domain.embedding_pin import TeardownOutcome
-from contexts.knowledge.domain.errors import DocumentTooLarge, KnowmapConfigNotFound
+from contexts.knowledge.domain.errors import (
+    ChunkParamsInvalid,
+    DocumentTooLarge,
+    KnowmapConfigNotFound,
+)
 from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.domain.knowmap import KnowmapConfigDraft
-from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus, ScanStatus
+from contexts.knowledge.domain.models import (
+    ChunkStrategy,
+    DocumentStatus,
+    ScanStatus,
+    validate_chunk_params,
+)
 from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapConfigRepository,
     KnowmapDocumentRepository,
@@ -84,6 +94,14 @@ class KnowmapConfigCreateIn(BaseModel):
     builder_key_group_id: uuid.UUID
     chunk_strategy: Literal["fixed", "semantic"] = "fixed"
     chunk_params: BoundedConfig = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_chunking(self) -> Self:
+        try:
+            validate_chunk_params(ChunkStrategy(self.chunk_strategy), self.chunk_params)
+        except ChunkParamsInvalid as exc:
+            raise ValueError(str(exc)) from exc
+        return self
 
 
 class KnowmapRebuildAck(BaseModel):
@@ -134,6 +152,7 @@ class KnowmapDocumentOut(BaseModel):
     sha256: str
     status: DocumentStatus
     scan_status: ScanStatus
+    failure_code: str | None
     uploaded_at: str
     agent_ids: list[uuid.UUID]
 
@@ -194,6 +213,7 @@ def _to_document_out(d: Any) -> KnowmapDocumentOut:
         sha256=d.sha256,
         status=d.status,
         scan_status=d.scan_status,
+        failure_code=d.failure_code,
         uploaded_at=d.uploaded_at.isoformat(),
         agent_ids=list(d.agent_ids),
     )
@@ -517,7 +537,7 @@ async def upload_knowmap_document(
         raise DocumentTooLarge(f"multipart upload exceeds {MAX_MULTIPART_BYTES} bytes; use tus")
 
     embedder = await build_knowmap_embedder(db, cfg)
-    ingest = KnowmapConfigService.build_ingest_service(db, embedder=embedder)
+    ingest = KnowledgeIngestWiring(db).knowmap_upload_service(embedder=embedder)
     doc = await ingest.ingest(
         ipt=KnowmapIngestInput(
             knowmap_config_id=config_id,
