@@ -20,8 +20,15 @@ test.describe('RAG config: create → appears in agent picker → attach (M.1)',
       .getByRole('button', { name: 'Create Config', exact: true })
     await expect(createBtn).toBeVisible()
     // Rendered disabled (inside a tooltip) when the project has no
-    // embedding-capable key.
-    test.skip(await createBtn.isDisabled(), 'no embed keys in project')
+    // embedding-capable key — but it also starts disabled while the key query
+    // is in flight, so wait for enablement instead of sampling once.
+    let canCreate = true
+    try {
+      await expect(createBtn).toBeEnabled({ timeout: 10_000 })
+    } catch {
+      canCreate = false
+    }
+    test.skip(!canCreate, 'no embed keys in project')
     await createBtn.click()
 
     const dialog = page.getByRole('dialog')
@@ -36,7 +43,13 @@ test.describe('RAG config: create → appears in agent picker → attach (M.1)',
     // disabled placeholder option, so index 1 is the first real key.
     const embedSelect = page.locator('#embed_key_id')
     const options = embedSelect.locator('option:not([value=""])')
-    test.skip((await options.count()) === 0, 'needs project keys with embed capability')
+    let hasKeys = true
+    try {
+      await expect.poll(() => options.count(), { timeout: 8_000 }).toBeGreaterThan(0)
+    } catch {
+      hasKeys = false
+    }
+    test.skip(!hasKeys, 'needs project keys with embed capability')
     await embedSelect.selectOption({ index: 1 })
 
     // embed_model is deliberately left alone: the view auto-selects the
@@ -61,8 +74,15 @@ test.describe('RAG config: create → appears in agent picker → attach (M.1)',
     await page.getByRole('tab', { name: 'Knowledge' }).click()
     const ragSelect = page.locator('#rag_config_id')
     await expect(ragSelect).toBeVisible()
-    // Option 0 is always the "no RAG config" entry.
+    // Option 0 is always the "no RAG config" entry; real configs land when the
+    // configs query resolves, so poll rather than sampling the count once.
     const options = ragSelect.locator('option')
-    test.skip((await options.count()) <= 1, 'needs seeded RAG config in project')
+    let hasConfig = true
+    try {
+      await expect.poll(() => options.count(), { timeout: 8_000 }).toBeGreaterThan(1)
+    } catch {
+      hasConfig = false
+    }
+    test.skip(!hasConfig, 'needs seeded RAG config in project')
   })
 })
