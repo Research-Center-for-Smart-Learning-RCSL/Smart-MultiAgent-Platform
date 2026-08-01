@@ -27,18 +27,18 @@ should be reviewed.
 
 ```bash
 git clone <repo-url> && cd smap
-cp .env.example .env          # edit: set real SMTP, domain, etc.
+cp .env.example .env          # edit: set real SMTP host, CORS origin, etc.
 ```
 
 Key `.env` variables:
 
 | Variable | Purpose |
 |---|---|
-| `SMAP_DOMAIN` | Public hostname (used in HSTS, CSP, CORS) |
+| `SMAP_SEC_CORS_ORIGINS` | Allowed CORS origins as a JSON list; prod refuses to start if empty |
 | `SMAP_DB_DSN` | Postgres async DSN (default: compose-internal) |
 | `SMAP_REDIS_DSN` | Redis DSN (default: compose-internal) |
-| `VAULT_ADDR` | Vault address (default: `http://vault:8200`) |
-| `SMAP_SMTP_*` | SMTP relay for email verification |
+| `SMAP_VAULT_ADDR` | Vault address (default: `http://vault:8200`) |
+| `SMTP_HOST` / `SMTP_*` | SMTP relay for email verification (credentials go in Vault KV, not here) |
 
 ---
 
@@ -127,16 +127,32 @@ From the repo root:
 make bootstrap
 ```
 
-This runs `python -m smap.bootstrap all`, which is idempotent:
+This runs `python -m smap.bootstrap all`, which is idempotent — replaying it
+against an already-bootstrapped stack only prints `already-present` entries:
 
-1. Loads Vault policies (`smap-backend`, `smap-rotation`)
-2. Creates AppRoles and provisions `secret_id` files
-3. Creates Postgres extensions (`pgvector`, `pg_cron`) via superuser init SQL
-4. Creates MinIO buckets (`chat-uploads`, `rag-sources`, `exports`) with lifecycle rules
-5. Creates Neo4j constraints and indexes
-6. Initializes Qdrant collections
-7. Runs `alembic upgrade head` (31 migration files, 0000–0030, phases A–M)
-8. Creates the first admin account (prints credentials once — save them)
+1. `vault-init` — enables the `transit` and `secret` (KV v2) engines, creates
+   the three Transit keys (`smap-provider-secret`, `smap-guest-link`,
+   `smap-jwt-sign`), writes the `smap-backend` / `smap-rotation` policies, and
+   seeds placeholder KV config (`captcha`, `smtp`, `hmac-key`, `minio`)
+2. `vault-approle` — creates the `smap-backend` / `smap-rotation` AppRoles and
+   prints their `role_id` / `secret_id` once (capture and add to `.env`)
+3. `db-init` — creates Postgres extensions (`pgcrypto`, `uuid-ossp`, `vector`,
+   `pg_cron`) and runs `alembic upgrade head` (idempotent; see
+   `backend/alembic/versions/` for the current migration count)
+4. `minio-init` — creates the 7 buckets (`chat-uploads`, `rag-sources`,
+   `knowmap-sources`, `exports`, `agent-workspace`, `prompt-assistant-files`,
+   `skill-bundles`) with lifecycle rules on `chat-uploads`/`exports`, plus a
+   scoped MinIO service account whose credentials land in Vault KV
+5. `qdrant-init` — initializes Qdrant collections
+6. `neo4j-init` — creates Neo4j constraints and indexes
+
+`bootstrap all` does **not** create an admin account unless you pass
+`--admin-email`. Create the first admin explicitly once the stack is healthy:
+
+```bash
+cd backend && python -m smap.bootstrap create-admin --email <admin-email>
+# Prints the generated password exactly once — save it before it scrolls away.
+```
 
 ---
 
@@ -199,21 +215,33 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 |---|---|---|
 | nginx | frontend_net, backend_net | 1 |
 | frontend | frontend_net | 1 |
-| backend-web | frontend_net, backend_net | 2 |
-| backend-worker | backend_net | 2 |
-| postgres | backend_net | 1 |
-| redis | backend_net | 1 |
-| qdrant | backend_net | 1 |
-| neo4j | backend_net | 1 |
-| minio | backend_net | 1 |
+| backend-web | frontend_net, backend_net, data_net | 3 |
+| backend-worker | backend_net, data_net | 3 |
+| knowledge-scan-worker | backend_net, data_net | 1 |
+| knowledge-ingest-worker | backend_net, data_net | 1 |
+| postgres | data_net | 1 |
+| redis | data_net | 1 |
+| qdrant | data_net | 1 |
+| neo4j | data_net | 1 |
+| minio | data_net | 1 |
+| bge-reranker | data_net | 1 |
 | vault | backend_net | 1 |
-| egress-proxy | backend_net, egress_net | 1 |
+| egress-proxy | backend_net, egress_net, data_net | 1 |
 | mcp-sandbox-supervisor | backend_net | 1 |
+| docker-socket-proxy | backend_net | 1 (prod/staging overlay only) |
+| clamav | backend_net | 1 (optional — `--profile scanning`) |
 
 ### Networks
 
 - **smap_frontend_net:** nginx ↔ backend-web ↔ frontend
-- **smap_backend_net:** backend ↔ all data stores + Vault
+- **smap_backend_net:** backend-web/backend-worker ↔ vault, egress-proxy,
+  mcp-sandbox-supervisor, docker-socket-proxy (prod/staging), clamav (optional)
+- **smap_data_net:** backend-web/backend-worker/knowledge-\*-worker/egress-proxy
+  ↔ postgres, redis, qdrant, neo4j, minio, bge-reranker. Declared
+  `internal: true` — it has no gateway, so a compromised data-plane service has
+  no direct route to the internet even without the egress-proxy chokepoint.
+  The data stores are **not** on `smap_backend_net`; only the backend
+  processes bridge both networks.
 - **smap_egress_net:** MCP sandbox containers ↔ egress-proxy only. Declared
   `internal: true` (SEC-C1) — it has **no** gateway, so a sandbox attached
   here cannot reach the data plane, cloud metadata, or the public internet
@@ -230,7 +258,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 curl -sk https://localhost:10443/healthz   # → {"status": "ok"}
 curl -sk https://localhost:10443/readyz    # → {"status": "ok", "dependencies": {...}}
 
-# 2. Admin login (use credentials from step 5)
+# 2. Admin login (use the credentials printed by `create-admin` in step 5)
 curl -sk https://localhost:10443/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email": "<admin-email>", "password": "<admin-password>"}'
@@ -318,10 +346,15 @@ bash deploy/scripts/restore.sh ./backups/2026-06-20_143000/
 ```
 
 **What is backed up:** Postgres (pg_dump), Vault (raft snapshot or file copy),
-MinIO (all 3 buckets), Neo4j (database dump), Redis (dump.rdb).
+3 of MinIO's 7 buckets — `chat-uploads`, `rag-sources`, `exports` (mirrored by
+`backup.sh`) — Neo4j (database dump), Redis (dump.rdb).
 
-**What is NOT backed up:** Vault unseal keys (operator responsibility — store
-offline per `deploy/vault/README.md` §2), Qdrant (re-indexed from RAG sources).
+**What is NOT backed up:** the other 4 MinIO buckets —
+`knowmap-sources`, `agent-workspace`, `prompt-assistant-files`,
+`skill-bundles` — are not yet mirrored by `backup.sh`; back them up manually
+(`mc mirror`) until the script covers them. Also not backed up: Vault unseal
+keys (operator responsibility — store offline per `deploy/vault/README.md`
+§2), Qdrant (re-indexed from RAG sources).
 
 Schedule backups via cron on the host — daily at minimum, hourly for
 production. Test restores quarterly.
