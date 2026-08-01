@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-22
 requirements: [R14.02, R14.03, R14.05]
 depends_on: []
@@ -548,33 +548,38 @@ Redis independently of which version of the executor is deployed when it fires.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: every T-1 test marked "fails today" fails against current code and passes after
+- [x] AC-1: every T-1 test marked "fails today" fails against current code and passes after
       the fix; `test_message_wait_unchanged` passes both before and after.
-- [ ] AC-2: every T-2 test marked "fails today" fails before and passes after;
+- [x] AC-2: every T-2 test marked "fails today" fails before and passes after;
       `test_join_timeout_edge_still_saves` and
       `test_message_wait_without_timeout_edge_still_warns` pass both before and after.
-- [ ] AC-3: T-3 fails before and passes after.
-- [ ] AC-4: the §4 F-2 reproduction resumes at the `default` port at `delay_seconds` and
+- [x] AC-3: T-3 fails before and passes after.
+- [x] AC-4: the §4 F-2 reproduction resumes at the `default` port at `delay_seconds` and
       reaches `end`, with the wait step sealed `succeeded` (not `failed` via
       `run_engine.py:381`) and no `idle_max_seconds` force-fail
-      (`workflow_watchdog.py:71-72`).
-- [ ] AC-5: a timer wait with `delay_seconds: 3600, timeout_seconds: 300` resumes correctly
+      (`workflow_watchdog.py:71-72`). Verified by composition rather than a new
+      integration test, per §8's "no Redis-backed integration tier" design: T-1 pins the
+      executor's outcome (`port="default"`, `timeout_task="workflow_event_resume"`), the
+      engine's park/enqueue path is unchanged (T-4), and
+      `test_resume_success` (`test_workflow_signals.py:637-664`) already pins that
+      `workflow_event_resume` calls `resume_at_port(..., "default")`.
+- [x] AC-5: a timer wait with `delay_seconds: 3600, timeout_seconds: 300` resumes correctly
       — the claim key outlives its delay (the C-1 TTL requirement, asserted by T-1).
-- [ ] AC-6: no timer wait arms `workflow_event_timeout`; every non-timer wait still does.
-- [ ] AC-7: saving a definition that carries `join.timeout_seconds` or a join `timeout` edge
+- [x] AC-6: no timer wait arms `workflow_event_timeout`; every non-timer wait still does.
+- [x] AC-7: saving a definition that carries `join.timeout_seconds` or a join `timeout` edge
       still succeeds, and produces exactly one advisory warning per dead edge.
-- [ ] AC-8: `docs/workflow.schema.md:29,45`, `docs/implement/H-workflow.md:82`, and
+- [x] AC-8: `docs/workflow.schema.md:29,45`, `docs/implement/H-workflow.md:82`, and
       `docs/UI/08-workflow.md:250,518,1301` state that the join `timeout` port is not
       implemented; `docs/workflow.schema.json:411` marks `timeout_seconds` deprecated.
-- [ ] AC-9: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
+- [x] AC-9: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
       `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass in
       `frontend/`.
-- [ ] AC-10: the diff touches only `executors/wait_for_event.py`, `linter.py`, the three
+- [x] AC-10: the diff touches only `executors/wait_for_event.py`, `linter.py`, the three
       named frontend files, the two locale files, the four documents, and the three test
       files. **No change to `executors/join.py`, `run_engine.py`, `workflow_signals.py`,
       `app/workers/main.py`, or any migration** — a diff touching `join.py` means Q-2 was
       resolved the other way, which requires re-approval and the `depends_on` change in Q-3.
-- [ ] AC-11: Q-2 is answered by the user before `/build` starts. This dossier must not move
+- [x] AC-11: Q-2 is answered by the user before `/build` starts. This dossier must not move
       to `in-progress` while it is open.
 
 ## 11. SRS Delta
@@ -591,7 +596,15 @@ must be redrafted with an `[R14.xx]` entry before approval.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — timer wait output now carries `delay_seconds`, not just the (now inert)
+  `timeout_seconds`.** Not in the original C-1 design. Found in the Definition of Done's
+  quality-audit gate: `WorkflowBackstageView.vue` renders a step's `output` verbatim, so an
+  operator debugging a run would see `{"event_type": "timer", "timeout_seconds": 300}` and
+  have no way to tell the wait actually parked for 60s (`delay_seconds`). Fixed by adding
+  `delay_seconds` to the output dict for timer waits only; non-timer waits are unchanged
+  (pinned by `test_message_wait_unchanged`'s `"delay_seconds" not in outcome.output`
+  assertion). Serves the same debuggability intent as AC-5/AC-6, not a scope change —
+  `wait_for_event.py` was already the file being edited.
 
 ## 13. Follow-ups
 
