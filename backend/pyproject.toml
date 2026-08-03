@@ -34,7 +34,7 @@ dependencies = [
   "python-multipart==0.0.32",  # SEC-DEP: 0.0.27+ fixes multipart DoS; 0.0.30+ fixes CVE-2026-53538/39/40
   "orjson==3.11.*",
   "cryptography==48.0.*",
-  "psycopg[binary]==3.2.*",
+  "psycopg[binary]>=3.2,<3.4",
   "minio==7.2.*",
   "weasyprint==69.*",  # chat export → PDF (HTML render); needs pango/cairo + fonts-noto-cjk in the image. SEC-DEP: <68 leaks the url_fetcher SSRF guard across redirects (PYSEC-2026-2034)
   "pypdf==6.*",  # PDF text extraction for RAG / Knowledge Map ingestion (shared_kernel/text_extraction/parsers.py). Accepted upload type; without it PDF ingest 500s with "pypdf not installed"
