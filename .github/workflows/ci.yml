@@ -722,7 +722,7 @@ jobs:
           python -m pip_audit --desc on --progress-spinner off
           --ignore-vuln PYSEC-2026-3412
           --ignore-vuln PYSEC-2025-183
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
         with:
@@ -746,7 +746,7 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
         with:
@@ -790,7 +790,7 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
         with:
@@ -816,7 +816,7 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
         with:
@@ -847,7 +847,7 @@ jobs:
       - name: Install backend deps (for OpenAPI export)
         working-directory: backend
         run: pip install -e '.[dev]'
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
         with:
@@ -871,7 +871,7 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
         with:
@@ -896,7 +896,7 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
         with:
@@ -952,7 +952,7 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
         with:
