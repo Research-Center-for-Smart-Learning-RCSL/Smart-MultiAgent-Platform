@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -44,7 +44,7 @@ jobs:
     timeout-minutes: 10
     defaults: { run: { working-directory: backend } }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -62,7 +62,7 @@ jobs:
     timeout-minutes: 10
     defaults: { run: { working-directory: backend } }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -76,7 +76,7 @@ jobs:
     timeout-minutes: 15
     defaults: { run: { working-directory: backend } }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -99,7 +99,7 @@ jobs:
     timeout-minutes: 15
     defaults: { run: { working-directory: backend } }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -120,7 +120,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Start data services
         run: |
           docker compose \
@@ -187,7 +187,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Start data services
         run: |
           docker compose \
@@ -273,7 +273,7 @@ jobs:
       SESSION_B_VOL: smap-ci-session-b-${{ github.run_id }}-${{ github.run_attempt }}
       SESSION_FRESH_VOL: smap-ci-session-fresh-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Compute sandbox build stamp
         id: stamp
         run: |
@@ -697,7 +697,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -745,7 +745,7 @@ jobs:
     timeout-minutes: 10
     defaults: { run: { working-directory: frontend } }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
@@ -769,7 +769,7 @@ jobs:
     timeout-minutes: 5
     defaults: { run: { working-directory: frontend } }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: "Gate #6: Global CSS check"
         run: bash scripts/check-global-css.sh
 
@@ -779,7 +779,7 @@ jobs:
     timeout-minutes: 5
     defaults: { run: { working-directory: frontend } }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: "Gate #8: View test coverage check"
         run: bash scripts/check-view-tests.sh
 
@@ -789,7 +789,7 @@ jobs:
     timeout-minutes: 10
     defaults: { run: { working-directory: frontend } }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
@@ -815,7 +815,7 @@ jobs:
     timeout-minutes: 10
     defaults: { run: { working-directory: frontend } }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
@@ -839,7 +839,7 @@ jobs:
     timeout-minutes: 10
     defaults: { run: { working-directory: frontend } }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -870,7 +870,7 @@ jobs:
     timeout-minutes: 10
     defaults: { run: { working-directory: frontend } }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
@@ -895,7 +895,7 @@ jobs:
     timeout-minutes: 15
     defaults: { run: { working-directory: frontend } }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
@@ -951,7 +951,7 @@ jobs:
     if: needs.e2e-scope.outputs.relevant == 'true'
     defaults: { run: { working-directory: frontend } }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
@@ -1101,7 +1101,7 @@ jobs:
       SMAP_MINIO_ROOT_PASSWORD: validate
       EGRESS_PROXY_SHARED_SECRET: validate
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Validate dev compose
         run: docker compose -f deploy/compose/docker-compose.yml config > /dev/null
       - name: Validate prod overlay
@@ -1143,7 +1143,7 @@ jobs:
       SMAP_MINIO_ROOT_PASSWORD: ci_minio_pwd
       EGRESS_PROXY_SHARED_SECRET: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Generate Vault internal TLS certs
         run: bash deploy/vault/gen-internal-tls.sh deploy/vault/certs
