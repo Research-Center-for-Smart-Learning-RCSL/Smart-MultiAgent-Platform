@@ -98,8 +98,17 @@ openapi-types: ## Regenerate frontend API types from backend OpenAPI.
 # ---------- Lock ----------
 .PHONY: lock lock-backend
 lock: lock-backend ## Regenerate pinned lock files.
-lock-backend: ## Regenerate backend/requirements.lock from pyproject.toml.
-	cd backend && pip-compile --output-file=requirements.lock --strip-extras --no-header --quiet pyproject.toml
+# Runs in a Linux container on purpose: pip-compile resolves for the platform it
+# runs on, so invoking it from Windows or macOS writes a lock the runtime image
+# cannot use - it drops uvloop and adds pywin32/colorama/win32-setctime.
+# --allow-unsafe keeps the setuptools pin the lock already carries; without it
+# every regeneration silently downgrades that pin to a bare comment.
+# No --upgrade: this target syncs the lock to pyproject, it does not bulk-bump.
+# Pass UPGRADE=1 to move pins that already satisfy pyproject.
+lock-backend: ## Regenerate backend/requirements.lock from pyproject.toml (Linux container).
+	docker run --rm -v "$(CURDIR)/backend:/w" -w /w python:3.12-slim sh -c \
+	  "pip install -q pip-tools==7.5.3 && pip-compile $(if $(UPGRADE),--upgrade,) --allow-unsafe \
+	   --output-file=requirements.lock --strip-extras --no-header --quiet pyproject.toml"
 
 # ---------- Install ----------
 .PHONY: install install-backend install-frontend
