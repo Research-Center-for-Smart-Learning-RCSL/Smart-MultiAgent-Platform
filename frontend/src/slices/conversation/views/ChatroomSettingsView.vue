@@ -19,8 +19,8 @@ import {
   SAlert,
   SSkeleton,
   SDivider,
-  SWakeupEditor,
 } from '@shared/ui'
+import SWakeupEditor from '@shared/ui/SWakeupEditor.vue'
 import { useToast, useConfirmDialog } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
 import { tenancyKeys, projectsApi } from '@slices/tenancy'
