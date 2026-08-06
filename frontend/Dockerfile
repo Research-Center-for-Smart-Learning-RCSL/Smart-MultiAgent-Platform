@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # Stage 1: build static assets
-FROM node:26.5.1-alpine AS build
+FROM node:24.18.0-alpine AS build
 
 ENV COREPACK_INTEGRITY_KEYS=0
 RUN corepack enable
