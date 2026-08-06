@@ -5414,6 +5414,9 @@
           },
           "status": {
             "const": "enqueued",
+            "enum": [
+              "enqueued"
+            ],
             "title": "Status",
             "type": "string"
           }
@@ -8375,6 +8378,9 @@
           },
           "token_type": {
             "const": "Bearer",
+            "enum": [
+              "Bearer"
+            ],
             "title": "Token Type",
             "type": "string"
           }
