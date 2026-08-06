@@ -49,7 +49,7 @@ dependencies = [
   # click is transitive and unpinned here, so this broke on a click release with
   # no change on our side -- pin the consumer, not the dependency, since typer
   # 0.15.x "fixes" it by holding click below 8.2 for everything that shares it.
-  "typer==0.19.*",
+  "typer>=0.19,<0.28",
   "docker>=7.1,<7.3",
 ]
 
