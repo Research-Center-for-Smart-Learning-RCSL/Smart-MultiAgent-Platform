@@ -31,8 +31,11 @@ test.describe('Upload LLM key → validate → carry into project → key group'
       .fill('sk-test-00000000000000000000000000000000')
     await page.locator('[data-testid="key-upload-submit"]').click()
 
-    // The new key should appear in the table.
-    await expect(page.getByRole('cell', { name: keyName })).toBeVisible({ timeout: 10_000 })
+    // The new key should appear in the table. The upload response only lands
+    // after the backend live-probes the secret against the fake provider, so
+    // this leg is bounded by that round trip rather than by the local render —
+    // 10s was tight enough to fail whenever the probe ran slow.
+    await expect(page.getByRole('cell', { name: keyName })).toBeVisible({ timeout: 20_000 })
   })
 
   test('retest uploaded key', async ({ authedPage: page }) => {
