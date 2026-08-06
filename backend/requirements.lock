@@ -148,13 +148,13 @@ pycparser==3.0
     # via cffi
 pycryptodome==3.23.0
     # via minio
-pydantic==2.9.2
+pydantic==2.13.4
     # via
     #   fastapi
     #   pydantic-settings
     #   qdrant-client
     #   smap-backend (pyproject.toml)
-pydantic-core==2.23.4
+pydantic-core==2.46.4
     # via pydantic
 pydantic-settings==2.6.1
     # via smap-backend (pyproject.toml)
@@ -240,7 +240,9 @@ typing-extensions==4.16.0
     #   starlette
     #   typing-inspection
 typing-inspection==0.4.2
-    # via fastapi
+    # via
+    #   fastapi
+    #   pydantic
 urllib3==2.7.0
     # via
     #   docker

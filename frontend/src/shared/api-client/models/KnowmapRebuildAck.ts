@@ -4,6 +4,6 @@
 /* eslint-disable */
 export type KnowmapRebuildAck = {
     config_id: string;
-    status: 'enqueued';
+    status: string;
 };
 
