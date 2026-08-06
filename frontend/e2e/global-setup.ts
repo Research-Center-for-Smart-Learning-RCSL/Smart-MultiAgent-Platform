@@ -86,6 +86,11 @@ async function globalSetup(): Promise<void> {
       headers: userAuth,
       data: { name: `e2e-org-${Date.now()}` },
     })
+    if (!orgResp.ok()) {
+      console.warn(
+        `[e2e-seed] ORG creation failed (status ${orgResp.status()}): ${await orgResp.text()}`,
+      )
+    }
     if (orgResp.ok()) {
       const org = await orgResp.json()
       seed.E2E_ORG_ID = org.id
@@ -96,6 +101,11 @@ async function globalSetup(): Promise<void> {
         headers: userAuth,
         data: { name: `e2e-proj-${Date.now()}`, owner_type: 'org', owner_id: org.id },
       })
+      if (!projResp.ok()) {
+        console.warn(
+          `[e2e-seed] PROJECT creation failed (status ${projResp.status()}): ${await projResp.text()}`,
+        )
+      }
       if (projResp.ok()) {
         const proj = await projResp.json()
         seed.E2E_PROJECT_ID = proj.id
@@ -223,6 +233,11 @@ async function globalSetup(): Promise<void> {
     const wsListResp = projectId
       ? await api.get(`/api/projects/${projectId}/workspaces`, { headers: userAuth })
       : null
+    if (wsListResp && !wsListResp.ok()) {
+      console.warn(
+        `[e2e-seed] WORKSPACE list failed (status ${wsListResp.status()}): ${await wsListResp.text()}`,
+      )
+    }
     if (wsListResp?.ok()) {
       const workspaces = await wsListResp.json()
       let ws = workspaces[0]
@@ -231,7 +246,13 @@ async function globalSetup(): Promise<void> {
           headers: userAuth,
           data: { name: `e2e-workspace-${Date.now()}` },
         })
-        if (wsResp.ok()) ws = await wsResp.json()
+        if (wsResp.ok()) {
+          ws = await wsResp.json()
+        } else {
+          console.warn(
+            `[e2e-seed] WORKSPACE creation failed (status ${wsResp.status()}): ${await wsResp.text()}`,
+          )
+        }
       }
       if (ws) {
         seed.E2E_WORKSPACE_ID = ws.id
@@ -244,6 +265,10 @@ async function globalSetup(): Promise<void> {
         if (crResp.ok()) {
           const cr = await crResp.json()
           seed.E2E_CHATROOM_ID = cr.id
+        } else {
+          console.warn(
+            `[e2e-seed] CHATROOM creation failed (status ${crResp.status()}): ${await crResp.text()}`,
+          )
         }
 
         // Create workflow in workspace
@@ -270,6 +295,10 @@ async function globalSetup(): Promise<void> {
         if (wfResp.ok()) {
           const wf = await wfResp.json()
           seed.E2E_WORKFLOW_ID = wf.id
+        } else {
+          console.warn(
+            `[e2e-seed] WORKFLOW creation failed (status ${wfResp.status()}): ${await wfResp.text()}`,
+          )
         }
       }
     }

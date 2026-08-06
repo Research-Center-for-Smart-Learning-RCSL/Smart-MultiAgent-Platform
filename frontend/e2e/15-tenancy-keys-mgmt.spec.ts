@@ -105,9 +105,14 @@ test.describe('Tenancy/keys mgmt: roles, rename, key-group, usage (M.4)', () => 
     await page.getByRole('button', { name: 'Confirm rename' }).click()
     await expect(heading).toHaveText(`${original}-r`, { timeout: 5000 })
 
-    // Restore original name.
+    // Restore original name. The same settle guard as the first rename is
+    // required: the input seeds itself from the current name, so filling
+    // before that seed lands lets the component overwrite the typed value and
+    // the restore silently re-commits "-r".
     await renameBtn.click()
-    await page.locator('.s-page-header input').fill(original)
+    const restoreInput = page.locator('.s-page-header input')
+    await expect(restoreInput).toHaveValue(`${original}-r`)
+    await restoreInput.fill(original)
     await page.getByRole('button', { name: 'Confirm rename' }).click()
     await expect(heading).toHaveText(original, { timeout: 5000 })
   })
