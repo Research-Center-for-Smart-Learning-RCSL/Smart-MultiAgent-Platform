@@ -53,7 +53,7 @@ describe('WorkflowEditorView', () => {
       initialRoute: '/workspaces/ws_1/workflows/wf_1/edit',
     })
 
-    await wrapper.find('.workflow-editor header button').trigger('click')
+    await wrapper.find('header button').trigger('click')
 
     const badges = wrapper.findAll('button span').filter((s) => s.text() === 'Unavailable')
     expect(badges).toHaveLength(UNAVAILABLE_NODE_TYPES.length)
