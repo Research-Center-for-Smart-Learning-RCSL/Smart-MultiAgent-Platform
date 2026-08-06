@@ -1,5 +1,11 @@
 import { afterAll, afterEach, beforeAll } from 'vitest'
+import { enableAutoUnmount } from '@vue/test-utils'
 import { server } from './mocks/server'
+
+// Mounting a view can start long-lived sockets and timers. Unmount every
+// wrapper at the test boundary so component cleanup runs before jsdom globals
+// are torn down and cannot leak reconnect callbacks into a later test file.
+enableAutoUnmount(afterEach)
 
 // The `/api/*` catch-all in handlers.ts already reports and absorbs unmocked
 // calls, so nothing reaches this. Left as 'warn' deliberately: msw 2.7's
