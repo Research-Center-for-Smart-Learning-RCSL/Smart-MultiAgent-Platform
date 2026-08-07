@@ -43,12 +43,20 @@ const SLICE_DEPS = {
   skills:        ['keys'],
 }
 
-function buildSliceBoundaryRules() {
+// eslint-plugin-boundaries v7 selector shape: an entity selector wraps an
+// element selector, and captured values live under `captured` instead of being
+// the second member of a ['type', {...}] tuple. v7 still accepts the v5 tuple
+// through a compatibility path, but only after warning "unrecognized selector
+// shape" — and that path goes away in the next major, which would silently
+// drop gate #1. See docs at https://www.jsboundaries.dev/docs/selectors/.
+const sliceElement = (slice) => ({ element: { type: 'slice', captured: { slice } } })
+
+function buildSliceBoundaryPolicies() {
   return SLICES.map((slice) => ({
-    from: [['slice', { slice }]],
+    from: [sliceElement(slice)],
     allow: [
-      'shared',
-      ...SLICE_DEPS[slice].map((dep) => ['slice', { slice: dep }]),
+      { element: { type: 'shared' } },
+      ...SLICE_DEPS[slice].map(sliceElement),
     ],
   }))
 }
@@ -137,7 +145,6 @@ export default [
         {
           type: 'slice',
           pattern: ['src/slices/*'],
-          mode: 'folder',
           capture: ['slice'],
         },
         { type: 'shared', pattern: ['src/shared/**'] },
@@ -148,12 +155,18 @@ export default [
       ...tseslint.configs.recommended.rules,
 
       // ---- Gate #1: Layer direction ----
-      'boundaries/element-types': ['error', {
+      'boundaries/dependencies': ['error', {
         default: 'disallow',
-        rules: [
-          { from: 'app', allow: ['slice', 'shared'] },
-          ...buildSliceBoundaryRules(),
-          { from: 'shared', allow: ['shared'] },
+        policies: [
+          {
+            from: [{ element: { type: 'app' } }],
+            allow: [{ element: { type: 'slice' } }, { element: { type: 'shared' } }],
+          },
+          ...buildSliceBoundaryPolicies(),
+          {
+            from: [{ element: { type: 'shared' } }],
+            allow: [{ element: { type: 'shared' } }],
+          },
         ],
       }],
 
