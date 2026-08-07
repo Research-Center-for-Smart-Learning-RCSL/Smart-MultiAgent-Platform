@@ -35,7 +35,10 @@ src/
 ## SoC Boundaries (eslint-plugin-boundaries)
 
 12 gates enforced in CI:
-1. **Layer direction**: app → slices/shared; shared → shared only
+1. **Layer direction**: app → slices/shared; shared → shared only. `boundaries/dependencies`
+   fails open — an unusable rule config is a warning, after which nothing is evaluated — so
+   `check:boundaries-enforced` (CI job `frontend-gate-boundaries`) asserts the rule still
+   rejects a forbidden slice dependency and still permits a declared one.
 2. **Slice isolation**: cross-slice imports only via `index.ts` re-exports
 3. **Transport isolation**: no bare `fetch`/`WebSocket`/`EventSource` — use api-client
 4. **v-html guard**: allowed only in the 5-file allowlist in `eslint.config.js` (`ChatroomView.vue` plus the message/search/observation components it was split into), each binding only `renderMarkdown()`/`sanitizeSnippet()` output — do not extend without a security review
@@ -70,6 +73,7 @@ pnpm run test:coverage    # coverage report
 pnpm lint                 # ESLint (all 12 gates)
 pnpm run typecheck        # vue-tsc
 pnpm run gen:api          # regenerate API client from openapi.json
+pnpm run check:boundaries-enforced  # verify gate #1 still enforces (fails open otherwise)
 pnpm run check:bundle-size    # verify bundle budget
 pnpm run check:type-coverage  # verify >= 95% type coverage
 pnpm run check:openapi-drift  # verify frontend types match backend
