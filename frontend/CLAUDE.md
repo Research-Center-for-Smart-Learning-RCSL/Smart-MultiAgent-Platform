@@ -61,6 +61,13 @@ silently stops enforcing. See `src/slices/README.md` for the full dependency tab
 
 Located in `src/shared/ui/`: SCard, SPageHeader, SFormField, SLoadingSpinner, SStatusBadge, SEmptyState, SConfirmDialog, ThemeToggle.
 
+## Dependency Holds
+
+`msw` and `jsdom` are deliberately pinned below their latest release; both break
+the test suite in ways that produce no assertion failure. Do not bump them
+without reading `docs/dependency-holds.md`, which carries the evidence, a
+one-paste reproduction, and the condition for releasing each hold.
+
 ## Commands
 
 ```bash
