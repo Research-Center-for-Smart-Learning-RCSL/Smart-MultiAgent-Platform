@@ -763,6 +763,33 @@ jobs:
       - name: "ESLint (gates #1-5, #7, #11, #12)"
         run: pnpm run lint
 
+  # Gate 1b: prove gate #1 still enforces. eslint-plugin-boundaries reports an
+  # unusable rule config as a warning and then evaluates nothing, so a broken
+  # selector shape or a renamed rule leaves frontend-lint green while cross-slice
+  # imports stop being checked. Asserts on behaviour, not on config.
+  frontend-gate-boundaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with: { version: "${{ env.PNPM_VERSION }}" }
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Get pnpm store path
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v6
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+      - run: pnpm install --frozen-lockfile
+      - name: "Gate #1b: SoC boundary enforcement is live"
+        run: pnpm run check:boundaries-enforced
+
   # Gate 6: No global CSS outside shared/styles/
   frontend-gate-global-css:
     runs-on: ubuntu-latest
@@ -1359,6 +1386,7 @@ jobs:
       - compose-validate
       - compose-boot-prod
       - frontend-lint
+      - frontend-gate-boundaries
       - frontend-gate-global-css
       - frontend-gate-view-tests
       - frontend-gate-bundle
@@ -1384,6 +1412,7 @@ jobs:
           echo "  compose-validate:           ${{ needs.compose-validate.result }}"
           echo "  compose-boot-prod:          ${{ needs.compose-boot-prod.result }}"
           echo "  frontend-lint:              ${{ needs.frontend-lint.result }}"
+          echo "  frontend-gate-boundaries:   ${{ needs.frontend-gate-boundaries.result }}"
           echo "  frontend-gate-global-css:   ${{ needs.frontend-gate-global-css.result }}"
           echo "  frontend-gate-view-tests:   ${{ needs.frontend-gate-view-tests.result }}"
           echo "  frontend-gate-bundle:       ${{ needs.frontend-gate-bundle.result }}"
@@ -1407,6 +1436,7 @@ jobs:
             "${{ needs.dependency-audit.result }}" \
             "${{ needs.compose-validate.result }}" \
             "${{ needs.frontend-lint.result }}" \
+            "${{ needs.frontend-gate-boundaries.result }}" \
             "${{ needs.frontend-gate-global-css.result }}" \
             "${{ needs.frontend-gate-view-tests.result }}" \
             "${{ needs.frontend-gate-bundle.result }}" \
