@@ -5,8 +5,9 @@ The runtime image installs from `requirements.lock` and nothing else
 (`backend/Dockerfile:19`), while `pyproject.toml` is what humans read and what
 Dependabot edits. Nothing tied the two together, so a dependency bump could go
 fully green while changing nothing that ships — which is exactly what happened
-on the weasyprint 68 -> 69 PR: it updated pyproject.toml and uv.lock, both of
-which the image ignores, and left the lock pinning 68.1.
+on the weasyprint 68 -> 69 PR: it updated pyproject.toml and the since-removed
+backend/uv.lock, both of which the image ignores, and left the lock pinning
+68.1.
 
 That failure mode is silent in both directions. A pin raised for a CVE looks
 applied while the vulnerable version keeps shipping.
