@@ -68,7 +68,7 @@
     "eslint-plugin-vuejs-accessibility": "2.5.0",
     "form-data": "4.0.6",
     "jsdom": "26.1.0",
-    "msw": "2.15.0",
+    "msw": "2.7.3",
     "openapi-typescript-codegen": "0.31.0",
     "tailwindcss": "^4.3.3",
     "type-coverage": "2.30.1",
