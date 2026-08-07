@@ -42,7 +42,7 @@ Declared in `frontend/eslint.config.js`'s `SLICE_DEPS` map — the executable so
 
 ### Enforcement note
 
-`boundaries/element-types` only sees an import edge if the import specifier resolves
+`boundaries/dependencies` only sees an import edge if the import specifier resolves
 to a file. `@slices/*` / `@shared/*` are TypeScript path aliases, so the config wires
 `eslint-import-resolver-typescript` in via the `import/resolver` setting — without it
 every aliased import is silently treated as external and the whole gate goes blind
@@ -85,7 +85,7 @@ Every slice has `index.ts`, `routes.ts`, `locales/`, `__tests__/`, `api/`, `quer
 
 ## Rules
 
-1. **One-way imports.** Declared via `eslint-plugin-boundaries` (`boundaries/element-types`, `error`, all 12 slices) per the dependency table above. Requires the TS-alias resolver — see "Enforcement note" above.
+1. **One-way imports.** Declared via `eslint-plugin-boundaries` (`boundaries/dependencies`, `error`, all 12 slices) per the dependency table above. Requires the TS-alias resolver — see "Enforcement note" above.
 2. **Public-surface only.** Cross-slice imports go through `@slices/<name>` (the slice `index.ts`), never deep paths — enforced by `no-restricted-imports` (Gate #2). No deep-path cross-slice import exists anywhere in the codebase today.
 3. **Store ↔ API boundary.** Stores never import `api/` (or `@shared/api-client`) directly — they subscribe to `queries/` or accept values from views. Machine-enforced by the Gate #7 `no-restricted-imports` override on `src/slices/*/stores/**` in `eslint.config.js`, with one allowlisted exception: `identity/stores/session.ts` owns the auth lifecycle (login, logout, silent refresh, boot hydrate) that must run outside component/query context, so it calls `authApi` directly. Do not extend the allowlist without the same justification.
 4. **v-html allowlist.** `vue/no-v-html` is `error` everywhere except the files explicitly listed in the Gate #4 override in `eslint.config.js`, all in `slices/conversation`: `ChatroomMessageBubble.vue`, `ChatroomStreamingBubble.vue`, `ChatroomSearchPanel.vue`, and `ObservationCard.vue` (plus a vestigial `ChatroomView.vue` entry that no longer contains a `v-html` directive but hasn't been pruned from the allowlist). Every active site pipes markup through `renderMarkdown()`/`sanitizeSnippet()` → DOMPurify before binding — do not add a file to this list without the same guarantee and a security review.
