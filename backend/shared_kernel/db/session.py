@@ -1,8 +1,8 @@
 """Async SQLAlchemy engine + session factory.
 
 One engine per process; sessions are per-request. FastAPI dependencies pull
-a session via `db_session()` which opens a transaction, yields, commits on
-success, rolls back on error.
+a session via `db_session()` which opens a transaction, yields, and commits
+before the response is sent (rolling back on error).
 
 SoC: no context imports. Importing this module is safe from the application
 layer or from tests.
@@ -11,7 +11,7 @@ layer or from tests.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any, Final
 
 from sqlalchemy import event
@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from starlette.requests import HTTPConnection
 
 from app.config.settings import get_settings
 from shared_kernel.observability.metrics import (
@@ -92,7 +93,22 @@ async def dispose() -> None:
         _sessionmaker = None
 
 
-async def db_session() -> AsyncIterator[AsyncSession]:
+@asynccontextmanager
+async def _request_transaction(session: AsyncSession) -> AsyncIterator[None]:
+    """Commit on success, roll back on error. Audit tail publishes after commit
+    so subscribers never see events for a rolled-back transaction."""
+    from shared_kernel.audit import flush_tail_events
+
+    try:
+        yield
+    except Exception:
+        await session.rollback()
+        raise
+    await session.commit()
+    await flush_tail_events(session)
+
+
+async def db_session(conn: HTTPConnection) -> AsyncIterator[AsyncSession]:
     """FastAPI dependency — yields a session; commits on success, rolls back on error.
 
     The dependency owns the transaction: endpoints normally do not call
@@ -101,14 +117,30 @@ async def db_session() -> AsyncIterator[AsyncSession]:
     reference a just-written row — may call ``await session.commit()`` itself;
     the trailing commit here is then a harmless no-op on an empty transaction.
 
-    This replaces the previous ``session.begin()`` block, whose context-exit
-    issued a second commit and raised on every request where the endpoint (or a
-    service it called) had already committed mid-request (DB-1).
+    The commit runs on FastAPI's *function* exit stack, not on the dependency's
+    own teardown. Dependency teardown is registered on ``fastapi_inner_astack``,
+    which FastAPI unwinds only after ``await response(scope, receive, send)`` —
+    so committing there returns 201 to the client while the rows are still
+    uncommitted, and any client that reads immediately can miss its own write.
+    That window is not theoretical: it made an e2e seed observe a key-group
+    membership it had just created as absent, and it is reachable by any API
+    consumer doing read-after-write. ``fastapi_function_astack`` unwinds
+    directly after the endpoint returns and before the response is sent, which
+    is where a request transaction belongs.
+
+    The trailing commit below is the safety net for the remaining window: other
+    yield-dependencies tear down on the request stack, i.e. after the early
+    commit, so anything they write would otherwise be dropped. It is a no-op on
+    a clean session, and ``flush_tail_events`` drains its queue, so the second
+    call publishes nothing.
     """
     from shared_kernel.audit import flush_tail_events
 
     sm = get_sessionmaker()
     async with sm() as session:
+        stack = conn.scope.get("fastapi_function_astack")
+        if isinstance(stack, AsyncExitStack):
+            await stack.enter_async_context(_request_transaction(session))
         try:
             yield session
             await session.commit()

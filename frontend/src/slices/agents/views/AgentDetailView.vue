@@ -29,9 +29,9 @@ import {
   SAlert,
   SSkeleton,
   SCharCount,
+  SWakeupEditor,
   SLoadingSpinner,
 } from '@shared/ui'
-import SWakeupEditor from '@shared/ui/SWakeupEditor.vue'
 import {
   defaultWakeupConfig,
   normalizeWakeupConfig,
