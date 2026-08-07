@@ -14,7 +14,7 @@
     "build": "pnpm -r run build"
   },
   "devDependencies": {
-    "prettier": "3.3.3"
+    "prettier": "3.9.6"
   },
   "pnpm": {
     "overrides": {
