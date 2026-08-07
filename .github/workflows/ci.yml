@@ -31,8 +31,7 @@ jobs:
       - name: no lazy-prompt residue
         run: python scripts/check_no_lazy_prompt.py
       # The runtime image installs from requirements.lock alone, so a bump that
-      # only touches pyproject.toml (or uv.lock, which nothing reads) ships
-      # nothing while looking green.
+      # only touches pyproject.toml ships nothing while looking green.
       - name: requirements.lock satisfies pyproject
         run: python scripts/check_lock_consistency.py
 
