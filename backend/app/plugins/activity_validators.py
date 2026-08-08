@@ -90,9 +90,17 @@ def filled_count_scorer(payload: dict[str, Any], activity_type: ActivityType, *,
     schema-valid submission is valid. ``sub_scores`` carries the count and nothing
     else: it is participant-visible, while ``validator_config`` is owner-confidential
     ([R30.25]), so no config value is ever copied into it.
+
+    Only properties the type *declares* are counted. JSON Schema allows additional
+    properties unless a schema forbids them, so counting ``payload.values()`` would
+    let a participant clear the threshold — and inflate the reported fluency count —
+    by padding the submission with keys the activity never asked for. Counting
+    declared properties also bounds the work by the owner-authored schema rather
+    than by submission width.
     """
     min_filled = int(activity_type.validator_config.get("min_filled", 0))
-    filled = sum(1 for value in payload.values() if _is_filled(value))
+    declared = activity_type.payload_schema.get("properties") or {}
+    filled = sum(1 for name in declared if _is_filled(payload.get(name)))
     sub_scores: dict[str, Any] = {"filled": filled}
 
     if filled >= min_filled:
