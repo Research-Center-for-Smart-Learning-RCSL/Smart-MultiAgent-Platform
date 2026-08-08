@@ -16,14 +16,6 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-08-08-activity-governance-policy` (feature, approved) — `depends_on: []`. Admin
-  governance for structured activities, in two independently shippable parts. Part B
-  (first): admin-only cross-project read of activity types + active activations, new
-  `app/api/v1/admin_activities.py` and an `AdminActivitiesView`. Part A: a platform-wide
-  policy over `expose_payload_to_agent` / `echo_includes_content` / `retention_days`,
-  enforced at authoring **and** at activation. Adds one table; follows the `prompt_studio`
-  ConfigService precedent, not `admin_rate_limits` (which breaks the facade rule). Absorbs
-  FU-8 of `2026-08-08-creative-thinking-course-example`.
 - `2026-08-08-activity-example-catalogue` (refactor, draft) — `depends_on: []`. Splits
   `backend/smap/examples/creative_thinking_course.py` into a course-agnostic seeding engine
   plus validated JSON course files, so adding an example is a data file and editing course
@@ -40,6 +32,15 @@ parallel.
 
 
 ## In progress
+
+- `2026-08-08-activity-governance-policy` (feature) — `depends_on: []`. **Part B shipped**
+  (AC-1..AC-6 checked): admin-only cross-project read of activity types and active
+  activations, `app/api/v1/admin_activities.py` + `AdminActivitiesView`, audit deep-linking.
+  **Part A remains** (AC-7..AC-14): the platform-wide policy over
+  `expose_payload_to_agent` / `echo_includes_content` / `retention_days`, enforced at
+  authoring and again at activation, following the `prompt_studio` ConfigService precedent.
+  Adds one table. Deliberately staged this way so an admin can see the installed base
+  before any policy can strand it.
 
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
