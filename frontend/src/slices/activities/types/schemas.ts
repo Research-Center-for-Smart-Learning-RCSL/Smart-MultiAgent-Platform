@@ -14,10 +14,13 @@ import type { JSONSchema } from '../sdk/types'
 export const VALIDATOR_KINDS = ['webhook', 'mcp', 'in_process'] as const
 export type ValidatorKindOption = (typeof VALIDATOR_KINDS)[number]
 
-// The only first-party validator shipped in v1. Its sub-form collects `field` +
-// `expected`; any other registered id folds to just `{validator_id}` (no
-// per-validator fields), which is correct until a second validator ships.
+// The first-party validators that have a per-validator sub-form. `exact_match`
+// collects `field` + `expected`; `filled_count` collects `min_filled`. Any other
+// registered id folds to just `{validator_id}`. `GET /api/activity-validators`
+// returns only `{id, title}` — no config schema — so each validator's sub-form is
+// necessarily hand-written here.
 export const EXACT_MATCH_VALIDATOR_ID = 'exact_match'
+export const FILLED_COUNT_VALIDATOR_ID = 'filled_count'
 
 // The flat scalar field types the guided builder can author. Nested objects and
 // arrays are the raw-JSON escape hatch's job (FU-5), not the builder's.
@@ -47,6 +50,11 @@ export function isFlatSchema(schema: JSONSchema | null | undefined): boolean {
 
 const emptyToNull = (v: unknown): unknown =>
   v === '' || v === 0 || v === null || v === undefined ? null : v
+
+// Deliberately NOT `emptyToNull`: that one folds 0 to null, which would destroy
+// `min_filled: 0` — the legal threshold that makes an activity collect-only.
+// `undefined` is left alone so the wrapped `.default(0)` still applies.
+const blankToNull = (v: unknown): unknown => (v === '' || v === null ? null : v)
 
 // The builder emits `{type:'object', properties, required?}`. Require at least
 // one property so a type is never registered with an empty schema.
@@ -83,6 +91,12 @@ export const activityTypeCreateSchema = z
     exact_match_field: z.string().trim().default(''),
     exact_match_expected: z.string().default(''),
     exact_match_case_sensitive: z.boolean().default(false),
+    // filled_count sub-form. 0 is a legal, meaningful value (collect-only), so it
+    // must survive preprocessing — see `blankToNull`.
+    filled_count_min: z.preprocess(
+      blankToNull,
+      z.coerce.number().int().min(0).nullable().default(0),
+    ),
   })
   .superRefine((val, ctx) => {
     if (val.validator_kind === 'webhook') {
@@ -113,6 +127,15 @@ export const activityTypeCreateSchema = z
             message: 'required',
           })
         }
+      } else if (val.in_process_validator_id === FILLED_COUNT_VALIDATOR_ID) {
+        const min = val.filled_count_min
+        if (min === null || !Number.isInteger(min) || min < 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['filled_count_min'],
+            message: 'required',
+          })
+        }
       }
     }
   })
@@ -134,6 +157,8 @@ export function assembleValidatorConfig(
         schemaFieldType(values.payload_schema, values.exact_match_field),
       )
       config.case_sensitive = values.exact_match_case_sensitive
+    } else if (values.in_process_validator_id === FILLED_COUNT_VALIDATOR_ID) {
+      config.min_filled = values.filled_count_min ?? 0
     }
     return config
   }

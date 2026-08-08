@@ -121,6 +121,76 @@ describe('ActivityTypeForm', () => {
     )
   })
 
+  it('assembles the filled_count validator_config from the sub-form (AC-6)', async () => {
+    listValidatorsMock.mockResolvedValue([
+      { id: 'exact_match', title: 'Exact match' },
+      { id: 'filled_count', title: 'Filled count' },
+    ])
+    registerMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await mountForm()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-key"]').setValue('mandala-9grid')
+    await wrapper.find('[data-testid="type-name"]').setValue('Mandala')
+    await wrapper.find('[data-testid="schema-field-name"]').setValue('center')
+    await wrapper.find('[data-testid="type-validator"]').setValue('in_process')
+    await wrapper.find('[data-testid="type-in-process-validator"]').setValue('filled_count')
+    await wrapper.find('[data-testid="type-filled-count-min"]').setValue('4')
+
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(registerMock).toHaveBeenCalled())
+    expect(registerMock).toHaveBeenCalledWith(
+      'p1',
+      expect.objectContaining({
+        validator_kind: 'in_process',
+        validator_config: { validator_id: 'filled_count', min_filled: 4 },
+      }),
+    )
+  })
+
+  it('keeps min_filled 0 rather than folding it to a blank (AC-4, AC-6)', async () => {
+    listValidatorsMock.mockResolvedValue([{ id: 'filled_count', title: 'Filled count' }])
+    registerMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await mountForm()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-key"]').setValue('open-ended')
+    await wrapper.find('[data-testid="type-name"]').setValue('Open ended')
+    await wrapper.find('[data-testid="schema-field-name"]').setValue('idea')
+    await wrapper.find('[data-testid="type-validator"]').setValue('in_process')
+    await wrapper.find('[data-testid="type-in-process-validator"]').setValue('filled_count')
+    await wrapper.find('[data-testid="type-filled-count-min"]').setValue('0')
+
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(registerMock).toHaveBeenCalled())
+    expect(registerMock).toHaveBeenCalledWith(
+      'p1',
+      expect.objectContaining({
+        validator_config: { validator_id: 'filled_count', min_filled: 0 },
+      }),
+    )
+  })
+
+  it('shows the min_filled input only for filled_count (AC-6)', async () => {
+    listValidatorsMock.mockResolvedValue([
+      { id: 'exact_match', title: 'Exact match' },
+      { id: 'filled_count', title: 'Filled count' },
+    ])
+    const wrapper = await mountForm()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-validator"]').setValue('in_process')
+    await wrapper.find('[data-testid="type-in-process-validator"]').setValue('exact_match')
+    expect(wrapper.find('[data-testid="type-filled-count-min"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="type-exact-match-field"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="type-in-process-validator"]').setValue('filled_count')
+    expect(wrapper.find('[data-testid="type-filled-count-min"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="type-exact-match-field"]').exists()).toBe(false)
+  })
+
   it('swaps the sub-form between webhook and mcp (AC-3, AC-4)', async () => {
     const wrapper = await mountForm()
     expect(wrapper.find('[data-testid="type-webhook-url"]').exists()).toBe(true)

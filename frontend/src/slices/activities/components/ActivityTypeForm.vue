@@ -21,6 +21,7 @@ import { listActivityValidators, registerActivityType, updateActivityType } from
 import { activityKeys } from '../queries'
 import {
   EXACT_MATCH_VALIDATOR_ID,
+  FILLED_COUNT_VALIDATOR_ID,
   VALIDATOR_KINDS,
   activityTypeCreateSchema,
   assembleValidatorConfig,
@@ -56,6 +57,7 @@ function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateIn
       exact_match_field: '',
       exact_match_expected: '',
       exact_match_case_sensitive: false,
+      filled_count_min: 0,
     }
   }
   const cfg = (row.validator_config ?? {}) as Record<string, unknown>
@@ -75,6 +77,7 @@ function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateIn
     exact_match_field: typeof cfg.field === 'string' ? cfg.field : '',
     exact_match_expected: cfg.expected === undefined || cfg.expected === null ? '' : String(cfg.expected),
     exact_match_case_sensitive: cfg.case_sensitive === true,
+    filled_count_min: typeof cfg.min_filled === 'number' ? cfg.min_filled : 0,
   }
 }
 
@@ -99,6 +102,7 @@ const [inProcessValidatorId] = defineField('in_process_validator_id')
 const [exactMatchField] = defineField('exact_match_field')
 const [exactMatchExpected] = defineField('exact_match_expected')
 const [exactMatchCaseSensitive] = defineField('exact_match_case_sensitive')
+const [filledCountMin] = defineField('filled_count_min')
 
 // i18n key of a raw-JSON parse error surfaced by PayloadSchemaField, or null.
 // When set, it takes precedence over the field's own `schemaEmpty` message so a
@@ -141,6 +145,19 @@ const validatorOptions = computed(() =>
 const isExactMatch = computed(
   () => validatorKind.value === 'in_process' && inProcessValidatorId.value === EXACT_MATCH_VALIDATOR_ID,
 )
+
+const isFilledCount = computed(
+  () => validatorKind.value === 'in_process' && inProcessValidatorId.value === FILLED_COUNT_VALIDATOR_ID,
+)
+
+// SInput's model is `string | number` (not null); the field itself stays
+// `number | null` so a cleared box is a validation error rather than a silent 0.
+const filledCountDisplay = computed<string | number>({
+  get: () => filledCountMin.value ?? '',
+  set: (v) => {
+    filledCountMin.value = v === '' || v === null ? null : Number(v)
+  },
+})
 
 // The payload schema's property names — the fields an exact_match validator can
 // compare against. Sourced from the same schema the builder is editing.
@@ -509,6 +526,23 @@ function onClose(): void {
             </SCheckbox>
           </SFormField>
         </template>
+
+        <SFormField
+          v-if="isFilledCount"
+          :label="t('activities.typeForm.filledCountMin')"
+          name="filled_count_min"
+          :error="errors.filled_count_min ? t('activities.typeForm.fieldRequired') : ''"
+          :help="t('activities.typeForm.filledCountMinHelp')"
+          required
+        >
+          <SInput
+            v-model="filledCountDisplay"
+            type="number"
+            min="0"
+            :error="!!errors.filled_count_min"
+            data-testid="type-filled-count-min"
+          />
+        </SFormField>
       </template>
     </form>
 
