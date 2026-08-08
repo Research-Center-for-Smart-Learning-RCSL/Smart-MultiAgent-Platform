@@ -33,6 +33,10 @@
       "invalidJson": "請輸入有效的 JSON。",
       "fieldInvalid": "此值無效。"
     },
+    "mandala": {
+      "submit": "提交",
+      "fieldRequired": "請填寫這一格。"
+    },
     "typesList": {
       "title": "活動類型",
       "subtitle": "主持人可在聊天室啟用的範本。每個類型定義參與者要提交的欄位，以及每次提交如何評分。",

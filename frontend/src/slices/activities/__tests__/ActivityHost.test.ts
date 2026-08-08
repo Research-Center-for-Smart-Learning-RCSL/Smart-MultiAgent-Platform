@@ -6,6 +6,7 @@ import { flushPromises } from '@vue/test-utils'
 import { renderView } from '../../../../tests/utils'
 import ActivityHost from '../components/ActivityHost.vue'
 import { clearActivityPlugins, registerActivityPlugin } from '../plugins/registry'
+import { MANDALA_9GRID_KEY, mandala9GridPlugin } from '../plugins/mandala9grid'
 import { defineActivityPlugin } from '../sdk/defineActivityPlugin'
 import type { ActivityRenderCtx } from '../sdk/types'
 import type { ActivitySubmission, ActivityType } from '../types'
@@ -167,5 +168,32 @@ describe('ActivityHost — bridge selection (AC-7)', () => {
     const options = mount.mock.calls[0]![1] as { submit: unknown; session: { activityTypeKey: string } }
     expect(typeof options.submit).toBe('function')
     expect(options.session.activityTypeKey).toBe('demo')
+  })
+
+  it('routes the mandala-9grid key to the bundled plugin, other keys to the form (AC-7)', async () => {
+    // The bundled registration is a module side effect that afterEach clears, so
+    // re-register explicitly rather than depending on import order.
+    registerActivityPlugin(mandala9GridPlugin)
+
+    const gridSchema: Record<string, unknown> = { center: { type: 'string' } }
+    for (let i = 1; i <= 8; i += 1) gridSchema[`cell_${i}`] = { type: 'string' }
+
+    const withPlugin = await renderView(ActivityHost, {
+      props: {
+        chatroomId: 'c1',
+        activityType: activityType({
+          key: MANDALA_9GRID_KEY,
+          payload_schema: { type: 'object', properties: gridSchema, required: ['center'] },
+        }),
+      },
+    })
+    expect(withPlugin.find('[data-testid="mandala-grid"]').exists()).toBe(true)
+    expect(withPlugin.find('form').exists()).toBe(false)
+
+    const withoutPlugin = await renderView(ActivityHost, {
+      props: { chatroomId: 'c1', activityType: activityType({ key: 'six-hats-emotion-desk' }) },
+    })
+    expect(withoutPlugin.find('[data-testid="mandala-grid"]').exists()).toBe(false)
+    expect(withoutPlugin.find('form').exists()).toBe(true)
   })
 })

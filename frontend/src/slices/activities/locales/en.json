@@ -33,6 +33,10 @@
       "invalidJson": "Enter valid JSON.",
       "fieldInvalid": "This value is not valid."
     },
+    "mandala": {
+      "submit": "Submit",
+      "fieldRequired": "Please fill this in."
+    },
     "typesList": {
       "title": "Activity types",
       "subtitle": "Templates a facilitator can start in a chatroom. Each type defines the fields participants submit and how each submission is scored.",
