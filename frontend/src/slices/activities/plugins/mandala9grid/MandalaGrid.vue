@@ -44,9 +44,11 @@ const cells = computed<SchemaField[]>(() => {
   return [...ring.slice(0, CENTER_INDEX), center, ...ring.slice(CENTER_INDEX)]
 })
 
+/** The cells actually rendered, in display order. */
+const displayFields = computed<SchemaField[]>(() => (isGrid.value ? cells.value : fields.value))
+
 // Every cell renders as a textarea regardless of the declared property type, so
-// the model is uniformly string-valued; `assemblePayload` converts back to the
-// schema's types at submit.
+// the model is uniformly string-valued.
 const values = ref<Record<string, string>>({})
 const fieldErrors = ref<Record<string, string>>({})
 const submitting = ref(false)
@@ -57,8 +59,21 @@ function isCenter(field: SchemaField): boolean {
 
 async function onSubmit(): Promise<void> {
   if (submitting.value) return
-  const { payload, fieldErrors: parseErrors } = assemblePayload(fields.value, values.value)
-  const errors = { ...parseErrors, ...validatePayload(props.schema, payload) }
+  // Assemble and check against what was rendered, not what the schema declares.
+  // Every cell is a textarea, so every value is a string. Taking `assemblePayload`'s
+  // per-kind branch would turn a typed-in boolean property into a submitted `false`
+  // — schema-valid, therefore silently persisted in place of the answer — while
+  // `validatePayload` against the declared types would reject the string and trap
+  // the participant behind an error they cannot clear. Narrowing both to strings
+  // keeps the useful client check (blank required cell) and leaves any genuine type
+  // mismatch to the server, which is authoritative anyway.
+  const asRendered = fields.value.map((f) => ({ ...f, kind: 'string' as const }))
+  const renderedSchema: JSONSchema = {
+    ...props.schema,
+    properties: Object.fromEntries(asRendered.map((f) => [f.name, { type: 'string' as const }])),
+  }
+  const { payload, fieldErrors: parseErrors } = assemblePayload(asRendered, values.value)
+  const errors = { ...parseErrors, ...validatePayload(renderedSchema, payload) }
   fieldErrors.value = errors
   if (Object.keys(errors).length > 0) return
 
@@ -77,54 +92,21 @@ async function onSubmit(): Promise<void> {
 <template>
   <div class="flex flex-col gap-4">
     <div
-      v-if="isGrid"
-      class="grid grid-cols-1 gap-3 sm:grid-cols-3"
-      data-testid="mandala-grid"
+      :class="isGrid ? 'grid grid-cols-1 gap-3 sm:grid-cols-3' : 'flex flex-col gap-3'"
+      :data-testid="isGrid ? 'mandala-grid' : 'mandala-list'"
     >
       <div
-        v-for="field in cells"
-        :key="field.name"
-        class="flex flex-col gap-1 rounded-lg border p-2"
-        :class="
-          isCenter(field)
-            ? 'border-[var(--color-accent)] bg-[var(--color-info-tint)]'
-            : 'border-[var(--color-border)]'
-        "
-        :data-testid="isCenter(field) ? 'mandala-cell-center' : 'mandala-cell'"
-      >
-        <label
-          :for="`mandala-${field.name}`"
-          class="text-xs font-medium text-[var(--color-muted)]"
-        >
-          {{ field.label }}
-        </label>
-        <textarea
-          :id="`mandala-${field.name}`"
-          v-model="values[field.name]"
-          rows="3"
-          class="w-full resize-y rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-sm"
-          :disabled="submitting"
-          :data-testid="`mandala-input-${field.name}`"
-        />
-        <p
-          v-if="fieldErrors[field.name]"
-          class="text-xs text-[var(--color-danger)]"
-          role="alert"
-        >
-          {{ props.t('activities.mandala.fieldRequired') }}
-        </p>
-      </div>
-    </div>
-
-    <div
-      v-else
-      class="flex flex-col gap-3"
-      data-testid="mandala-list"
-    >
-      <div
-        v-for="field in fields"
+        v-for="field in displayFields"
         :key="field.name"
         class="flex flex-col gap-1"
+        :class="
+          isGrid
+            ? isCenter(field)
+              ? 'rounded-lg border border-[var(--color-accent)] bg-[var(--color-info-tint)] p-2'
+              : 'rounded-lg border border-[var(--color-border)] p-2'
+            : ''
+        "
+        :data-testid="isGrid && isCenter(field) ? 'mandala-cell-center' : 'mandala-cell'"
       >
         <label
           :for="`mandala-${field.name}`"
@@ -138,8 +120,12 @@ async function onSubmit(): Promise<void> {
           rows="3"
           class="w-full resize-y rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-sm"
           :disabled="submitting"
+          :aria-invalid="!!fieldErrors[field.name]"
           :data-testid="`mandala-input-${field.name}`"
         />
+        <!-- Every field is narrowed to a string before checking, so the only
+             error reachable here is a blank required cell. Revisit this label if
+             a new error kind is ever introduced. -->
         <p
           v-if="fieldErrors[field.name]"
           class="text-xs text-[var(--color-danger)]"

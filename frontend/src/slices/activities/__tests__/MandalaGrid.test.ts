@@ -118,6 +118,38 @@ describe('mandala9GridPlugin', () => {
     teardown()
   })
 
+  it('submits a boolean-typed property as the typed text, not a silent false (AC-9)', async () => {
+    // Every cell is a textarea, so the payload is assembled as rendered. Routing a
+    // string through assemblePayload's boolean branch would yield `false`, which is
+    // schema-valid and would therefore be persisted in place of the answer.
+    const submit = vi.fn().mockResolvedValue(OK)
+    const { container, teardown } = mount(
+      {
+        type: 'object',
+        properties: { note: { type: 'string' }, agreed: { type: 'boolean' } },
+        required: ['note'],
+      },
+      submit,
+    )
+
+    const note = container.querySelector<HTMLTextAreaElement>('[data-testid="mandala-input-note"]')!
+    note.value = 'hello'
+    note.dispatchEvent(new Event('input'))
+    const agreed = container.querySelector<HTMLTextAreaElement>('[data-testid="mandala-input-agreed"]')!
+    agreed.value = 'yes'
+    agreed.dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    container.querySelector<HTMLButtonElement>('[data-testid="mandala-submit"]')!.click()
+    await flushPromises()
+
+    expect(submit).toHaveBeenCalledTimes(1)
+    const payload = submit.mock.calls[0]![0] as Record<string, unknown>
+    expect(payload.agreed).toBe('yes')
+    expect(payload.agreed).not.toBe(false)
+    teardown()
+  })
+
   it('blocks submit and flags the field when a required cell is blank (AC-9)', async () => {
     const submit = vi.fn().mockResolvedValue(OK)
     const { container, teardown } = mount(nineFieldSchema(), submit)
