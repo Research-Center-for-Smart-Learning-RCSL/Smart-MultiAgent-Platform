@@ -47,9 +47,10 @@ const cells = computed<SchemaField[]>(() => {
 /** The cells actually rendered, in display order. */
 const displayFields = computed<SchemaField[]>(() => (isGrid.value ? cells.value : fields.value))
 
-// Every cell renders as a textarea regardless of the declared property type, so
-// the model is uniformly string-valued.
-const values = ref<Record<string, string>>({})
+// Keyed by property name. A boolean cell holds a boolean (it renders as a
+// checkbox); every other kind holds the raw string its textarea produced, which
+// is what `assemblePayload` expects to convert.
+const values = ref<Record<string, string | boolean>>({})
 const fieldErrors = ref<Record<string, string>>({})
 const submitting = ref(false)
 
@@ -57,23 +58,51 @@ function isCenter(field: SchemaField): boolean {
   return !!centerField.value && field.name === centerField.value.name
 }
 
+// Explicit accessors rather than `v-model` on the union-typed record: a textarea's
+// model cannot accept a boolean, and the template's v-if/v-else does not narrow an
+// indexed access for the type checker.
+function textValue(name: string): string {
+  const v = values.value[name]
+  return typeof v === 'string' ? v : ''
+}
+
+function boolValue(name: string): boolean {
+  return values.value[name] === true
+}
+
+function onText(name: string, event: Event): void {
+  values.value[name] = (event.target as HTMLTextAreaElement).value
+}
+
+function onCheck(name: string, event: Event): void {
+  values.value[name] = (event.target as HTMLInputElement).checked
+}
+
+/** The i18n key for a cell's error, or null when it has none.
+ *
+ *  Since assembly uses the declared kinds, more than one error kind is reachable:
+ *  an unparseable JSON cell, and a value the schema rejects. A blank required cell
+ *  is the everyday case and gets the specific wording; the rest reuse the generic
+ *  form strings rather than mislabelling everything "required". */
+function errorKeyFor(field: SchemaField): string | null {
+  const err = fieldErrors.value[field.name]
+  if (!err) return null
+  if (err === 'invalidJson') return 'activities.form.invalidJson'
+  if (field.required && !textValue(field.name)) return 'activities.mandala.fieldRequired'
+  return 'activities.form.fieldInvalid'
+}
+
 async function onSubmit(): Promise<void> {
   if (submitting.value) return
-  // Assemble and check against what was rendered, not what the schema declares.
-  // Every cell is a textarea, so every value is a string. Taking `assemblePayload`'s
-  // per-kind branch would turn a typed-in boolean property into a submitted `false`
-  // — schema-valid, therefore silently persisted in place of the answer — while
-  // `validatePayload` against the declared types would reject the string and trap
-  // the participant behind an error they cannot clear. Narrowing both to strings
-  // keeps the useful client check (blank required cell) and leaves any genuine type
-  // mismatch to the server, which is authoritative anyway.
-  const asRendered = fields.value.map((f) => ({ ...f, kind: 'string' as const }))
-  const renderedSchema: JSONSchema = {
-    ...props.schema,
-    properties: Object.fromEntries(asRendered.map((f) => [f.name, { type: 'string' as const }])),
-  }
-  const { payload, fieldErrors: parseErrors } = assemblePayload(asRendered, values.value)
-  const errors = { ...parseErrors, ...validatePayload(renderedSchema, payload) }
+  // Assemble and check against the schema's *declared* kinds. An earlier revision
+  // narrowed everything to strings to stop `assemblePayload`'s boolean branch
+  // silently submitting `false`; that fixed the silent case but broke the honest
+  // ones — a number cell then sent "5" and earned a server 422 the participant
+  // could neither see per-field nor fix. Booleans render as a checkbox instead
+  // (see the template), so the declared kinds are safe to use and every other type
+  // keeps its proper client-side validation.
+  const { payload, fieldErrors: parseErrors } = assemblePayload(fields.value, values.value)
+  const errors = { ...parseErrors, ...validatePayload(props.schema, payload) }
   fieldErrors.value = errors
   if (Object.keys(errors).length > 0) return
 
@@ -114,24 +143,51 @@ async function onSubmit(): Promise<void> {
         >
           {{ field.label }}
         </label>
-        <textarea
+        <!-- The schema's `description` is the author's instruction to the
+             participant (the seeded mandala puts its whole prompt there). The
+             generic SchemaForm shows it via SFormField's help slot; dropping it
+             here would silently lose the one instruction this plugin exists to
+             present. -->
+        <p
+          v-if="field.description"
+          :id="`mandala-help-${field.name}`"
+          class="text-xs text-[var(--color-muted)]"
+        >
+          {{ field.description }}
+        </p>
+        <!-- A checkbox rather than a textarea for boolean properties: a textarea
+             cannot express a boolean, and routing typed text through
+             assemblePayload's boolean branch submits `false` for anything. -->
+        <input
+          v-if="field.kind === 'boolean'"
           :id="`mandala-${field.name}`"
-          v-model="values[field.name]"
+          type="checkbox"
+          class="h-4 w-4 self-start"
+          :checked="boolValue(field.name)"
+          :disabled="submitting"
+          :aria-invalid="!!fieldErrors[field.name]"
+          :aria-describedby="field.description ? `mandala-help-${field.name}` : undefined"
+          :data-testid="`mandala-input-${field.name}`"
+          @change="onCheck(field.name, $event)"
+        >
+        <textarea
+          v-else
+          :id="`mandala-${field.name}`"
+          :value="textValue(field.name)"
           rows="3"
           class="w-full resize-y rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-sm"
           :disabled="submitting"
           :aria-invalid="!!fieldErrors[field.name]"
+          :aria-describedby="field.description ? `mandala-help-${field.name}` : undefined"
           :data-testid="`mandala-input-${field.name}`"
+          @input="onText(field.name, $event)"
         />
-        <!-- Every field is narrowed to a string before checking, so the only
-             error reachable here is a blank required cell. Revisit this label if
-             a new error kind is ever introduced. -->
         <p
-          v-if="fieldErrors[field.name]"
+          v-if="errorKeyFor(field)"
           class="text-xs text-[var(--color-danger)]"
           role="alert"
         >
-          {{ props.t('activities.mandala.fieldRequired') }}
+          {{ props.t(errorKeyFor(field)!) }}
         </p>
       </div>
     </div>
