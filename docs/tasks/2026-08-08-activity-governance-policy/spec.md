@@ -502,6 +502,15 @@ Part B only; Part A is not yet built.
 - **D-5** — Two audit-view tests were added beyond §12's plan, covering that a crafted link
   cannot inject a non-filter param or drive `limit`/`cursor`. The route-query hydration is
   new attack surface, so it needed a negative test, not only a positive one.
+- **D-6** — §10 said Part B involves no migration. It now ships one:
+  `0074_activity_admin_listing_indexes`. Raised by code review — both `list_all` queries
+  order by `(created_at DESC, id DESC)` with no index behind them, so the keyset-over-offset
+  justification in their own docstrings did not hold, and the view's 200-row page meant a
+  full scan and sort of every activity type on the platform per mount. Two partial indexes,
+  built `CONCURRENTLY` following `0071_retention_sweep_indexes`.
+  **The migration has not been applied or downgrade-tested** — there is no Postgres on this
+  development host. The revision chain is verified offline (0074 is the single head, chained
+  to 0073). Applying it and exercising the downgrade is CI's, or a live stack's, job.
 
 ## 16. Follow-ups
 
@@ -529,6 +538,12 @@ Part B only; Part A is not yet built.
   plus review (verified: the sole production callers are the two admin handlers). Consider
   renaming them `*_unscoped`, or an import-linter contract restricting them to
   `app.api.v1.admin_activities`, so a future call site reads as a decision.
+- **FU-9** — An unresolvable `cursor` (a UUID naming no row) makes the correlated subquery
+  return NULL, so the page comes back empty — indistinguishable from "end of list" rather
+  than an error. Safe (no unbounded scan, `LIMIT` always applies) and it matches
+  `admin_projects.list_projects`, the cited precedent, so fixing it here alone would make
+  the admin surface inconsistent. A 422 on an unresolvable cursor is the right answer for
+  both, together.
 - **FU-8** — Minor quality items recorded and not fixed: the two governance-flag cells in
   `AdminActivitiesView.vue` duplicate a six-line `SBadge` block; the audit-link column uses
   an empty `label`, leaving that `<th>` without an accessible name; and
