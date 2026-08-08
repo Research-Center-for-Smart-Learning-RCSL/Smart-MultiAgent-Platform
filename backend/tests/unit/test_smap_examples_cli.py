@@ -14,10 +14,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from typer.testing import CliRunner
 
+from contexts.activities.application.type_service import ActivityTypeService
+from contexts.activities.application.validators import registry
 from contexts.activities.application.validators.schema import (
     payload_errors,
     validate_schema_wellformed,
 )
+from contexts.activities.domain.errors import ValidatorConfigInvalid
 from contexts.activities.domain.models import ValidatorKind
 from smap.examples import creative_thinking_course as seeder
 
@@ -99,6 +102,56 @@ class TestSeededDefinitions:
     ) -> None:
         payload = {name: "x" for name in course_type.payload_schema["properties"]}
         assert payload_errors(course_type.payload_schema, payload) == []
+
+
+class TestSeededConfigsPassTheRealRegistrationGate:
+    """The gate `register_type` actually applies, with the registry as the CLI leaves it.
+
+    The idempotency tests below replace `ActivitiesFacade` with a mock, so they
+    never exercise `_validate_validator_config` — which is how a seeder that failed
+    on every real run shipped green. These tests use the real service method and
+    start from an empty registry, exactly like a fresh CLI process.
+    """
+
+    def teardown_method(self) -> None:
+        registry.clear_registry()
+
+    @pytest.mark.parametrize("course_type", seeder.COURSE_TYPES, ids=lambda t: t.key)
+    def test_config_rejected_when_no_registration_site_has_run(
+        self, course_type: seeder.CourseActivityType
+    ) -> None:
+        """Pins *why* the seeder must register: a bare CLI process has an empty registry."""
+        registry.clear_registry()
+        with pytest.raises(ValidatorConfigInvalid):
+            ActivityTypeService._validate_validator_config(
+                course_type.validator_kind, course_type.validator_config
+            )
+
+    @pytest.mark.parametrize("course_type", seeder.COURSE_TYPES, ids=lambda t: t.key)
+    def test_config_accepted_after_the_seeder_registers(self, course_type: seeder.CourseActivityType) -> None:
+        registry.clear_registry()
+        seeder.register_first_party_validators()
+        ActivityTypeService._validate_validator_config(
+            course_type.validator_kind, course_type.validator_config
+        )
+
+    async def test_seed_registers_validators_before_touching_the_facade(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The registration must happen inside `_seed`, not merely at module import.
+
+        Importing the seeder module pulls in `app.plugins.activity_validators`, whose
+        module scope registers as a side effect — so an import-only guarantee would
+        pass this file while a `clear_registry()` anywhere upstream still broke the
+        real run.
+        """
+        registry.clear_registry()
+        facade = _facade(existing_keys=[])
+        _patch_infra(monkeypatch, facade)
+
+        await seeder._seed(uuid.uuid4(), uuid.uuid4())
+
+        assert registry.is_registered("filled_count")
 
 
 class TestSeederIdempotency:
