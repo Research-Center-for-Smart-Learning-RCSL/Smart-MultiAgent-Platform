@@ -18,6 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.plugins.activity_validators import register_first_party_validators
 from contexts.activities.domain.models import ValidatorKind
 from contexts.activities.interfaces.facade import ActivitiesFacade
 from shared_kernel.db.session import get_sessionmaker
@@ -131,6 +132,13 @@ class SeedReport:
 
 
 async def _seed(project_id: uuid.UUID, owner_user_id: uuid.UUID) -> SeedReport:
+    # The in-process validator registry is process-global and empty until a
+    # registration site runs. The API populates it from a startup step
+    # (app/bootstrap/startup.py::register_activity_validators_step); a CLI process
+    # runs no startup steps, so without this every register_type call below would
+    # be rejected by _validate_validator_config as an unknown validator_id.
+    register_first_party_validators()
+
     report = SeedReport()
     sessionmaker = get_sessionmaker()
     async with sessionmaker() as session:

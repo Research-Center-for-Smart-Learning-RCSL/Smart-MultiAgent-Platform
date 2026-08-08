@@ -135,7 +135,9 @@ describe('ActivityTypeForm', () => {
     await wrapper.find('[data-testid="schema-field-name"]').setValue('center')
     await wrapper.find('[data-testid="type-validator"]').setValue('in_process')
     await wrapper.find('[data-testid="type-in-process-validator"]').setValue('filled_count')
-    await wrapper.find('[data-testid="type-filled-count-min"]').setValue('4')
+    // One declared field here, so 1 is the highest threshold that can ever be met
+    // (a higher one is rejected by its own test below).
+    await wrapper.find('[data-testid="type-filled-count-min"]').setValue('1')
 
     await wrapper.find('form').trigger('submit')
 
@@ -144,7 +146,7 @@ describe('ActivityTypeForm', () => {
       'p1',
       expect.objectContaining({
         validator_kind: 'in_process',
-        validator_config: { validator_id: 'filled_count', min_filled: 4 },
+        validator_config: { validator_id: 'filled_count', min_filled: 1 },
       }),
     )
   })
@@ -171,6 +173,51 @@ describe('ActivityTypeForm', () => {
         validator_config: { validator_id: 'filled_count', min_filled: 0 },
       }),
     )
+  })
+
+  it('treats a cleared min_filled box as missing, not as 0', async () => {
+    // SInput coerces a type="number" value with Number(), and Number('') === 0,
+    // so a numeric input would silently submit min_filled: 0 — turning the
+    // activity collect-only when the author only meant to retype the value.
+    listValidatorsMock.mockResolvedValue([{ id: 'filled_count', title: 'Filled count' }])
+    registerMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await mountForm()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-key"]').setValue('open-ended')
+    await wrapper.find('[data-testid="type-name"]').setValue('Open ended')
+    await wrapper.find('[data-testid="schema-field-name"]').setValue('idea')
+    await wrapper.find('[data-testid="type-validator"]').setValue('in_process')
+    await wrapper.find('[data-testid="type-in-process-validator"]').setValue('filled_count')
+    await wrapper.find('[data-testid="type-filled-count-min"]').setValue('4')
+    await wrapper.find('[data-testid="type-filled-count-min"]').setValue('')
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(registerMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects a min_filled higher than the number of submission fields', async () => {
+    listValidatorsMock.mockResolvedValue([{ id: 'filled_count', title: 'Filled count' }])
+    registerMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await mountForm()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-key"]').setValue('impossible')
+    await wrapper.find('[data-testid="type-name"]').setValue('Impossible')
+    await wrapper.find('[data-testid="schema-field-name"]').setValue('only_field')
+    await wrapper.find('[data-testid="type-validator"]').setValue('in_process')
+    await wrapper.find('[data-testid="type-in-process-validator"]').setValue('filled_count')
+    // One declared field, threshold of 5: no submission could ever score valid.
+    await wrapper.find('[data-testid="type-filled-count-min"]').setValue('5')
+
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() =>
+      expect(wrapper.text()).toContain('activities.typeForm.filledCountExceeds'),
+    )
+    expect(registerMock).not.toHaveBeenCalled()
   })
 
   it('shows the min_filled input only for filled_count (AC-6)', async () => {

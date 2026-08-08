@@ -135,6 +135,17 @@ export const activityTypeCreateSchema = z
             path: ['filled_count_min'],
             message: 'required',
           })
+        } else if (min > Object.keys(val.payload_schema?.properties ?? {}).length) {
+          // The scorer counts declared properties only, so a threshold above the
+          // field count can never be met: every submission would come back
+          // invalid with nothing the participant could do about it. The backend
+          // config validator cannot catch this — it only receives the config, not
+          // the schema — so this check has to live here.
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['filled_count_min'],
+            message: 'exceedsFieldCount',
+          })
         }
       }
     }

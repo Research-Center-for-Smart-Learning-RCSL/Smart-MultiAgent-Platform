@@ -150,13 +150,27 @@ const isFilledCount = computed(
   () => validatorKind.value === 'in_process' && inProcessValidatorId.value === FILLED_COUNT_VALIDATOR_ID,
 )
 
-// SInput's model is `string | number` (not null); the field itself stays
-// `number | null` so a cleared box is a validation error rather than a silent 0.
+// Rendered as a text input, NOT type="number": SInput coerces a numeric input's
+// value with `Number(target.value)`, and `Number('') === 0`, so clearing the box
+// would emit 0 — silently turning the activity collect-only instead of raising a
+// required error. `retention_days` escapes this because `emptyToNull` folds 0 to
+// null, which is exactly what `min_filled` cannot do (0 is legal here).
+// Same reasoning and same fix as SchemaForm.vue's number field.
 const filledCountDisplay = computed<string | number>({
   get: () => filledCountMin.value ?? '',
   set: (v) => {
     filledCountMin.value = v === '' || v === null ? null : Number(v)
   },
+})
+
+// Two distinct failures reach this field; "required" would be wrong for the
+// threshold-too-high case, which is the one an author is most likely to hit.
+const filledCountError = computed(() => {
+  const err = errors.value.filled_count_min
+  if (!err) return ''
+  return err === 'exceedsFieldCount'
+    ? t('activities.typeForm.filledCountExceeds')
+    : t('activities.typeForm.fieldRequired')
 })
 
 // The payload schema's property names — the fields an exact_match validator can
@@ -531,14 +545,12 @@ function onClose(): void {
           v-if="isFilledCount"
           :label="t('activities.typeForm.filledCountMin')"
           name="filled_count_min"
-          :error="errors.filled_count_min ? t('activities.typeForm.fieldRequired') : ''"
+          :error="filledCountError"
           :help="t('activities.typeForm.filledCountMinHelp')"
           required
         >
           <SInput
             v-model="filledCountDisplay"
-            type="number"
-            min="0"
             :error="!!errors.filled_count_min"
             data-testid="type-filled-count-min"
           />
