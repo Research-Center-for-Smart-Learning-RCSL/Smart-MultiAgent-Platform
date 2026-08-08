@@ -175,8 +175,14 @@ second.
 
 ## What `filled_count` does and does not measure
 
-`filled_count` counts the payload fields that carry an answer and marks the submission
-valid once that count reaches `min_filled`. It reports the count as `sub_scores.filled`.
+`filled_count` counts how many of the type's **declared** schema properties carry an answer,
+and marks the submission valid once that count reaches `min_filled`. It reports the count as
+`sub_scores.filled`.
+
+Only declared properties count. JSON Schema permits extra properties unless a schema
+forbids them, so a participant calling the API directly could otherwise pad a submission
+with keys the activity never asked for and clear the threshold — and inflate the recorded
+fluency count — without answering.
 
 That count is a direct operational definition of **fluency (流暢力)** — one of the four
 creativity dimensions the source study measured. It says nothing whatsoever about

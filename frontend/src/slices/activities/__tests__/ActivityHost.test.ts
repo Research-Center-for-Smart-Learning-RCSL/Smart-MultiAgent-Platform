@@ -6,7 +6,7 @@ import { flushPromises } from '@vue/test-utils'
 import { renderView } from '../../../../tests/utils'
 import ActivityHost from '../components/ActivityHost.vue'
 import { clearActivityPlugins, registerActivityPlugin } from '../plugins/registry'
-import { MANDALA_9GRID_KEY, mandala9GridPlugin } from '../plugins/mandala9grid'
+import { MANDALA_9GRID_KEY, registerBundledPlugins } from '../plugins'
 import { defineActivityPlugin } from '../sdk/defineActivityPlugin'
 import type { ActivityRenderCtx } from '../sdk/types'
 import type { ActivitySubmission, ActivityType } from '../types'
@@ -171,9 +171,9 @@ describe('ActivityHost — bridge selection (AC-7)', () => {
   })
 
   it('routes the mandala-9grid key to the bundled plugin, other keys to the form (AC-7)', async () => {
-    // The bundled registration is a module side effect that afterEach clears, so
-    // re-register explicitly rather than depending on import order.
-    registerActivityPlugin(mandala9GridPlugin)
+    // The module-scope registration is cleared by afterEach and never re-runs
+    // (ES module cache), so restore it through the exported idempotent helper.
+    registerBundledPlugins()
 
     const gridSchema: Record<string, unknown> = { center: { type: 'string' } }
     for (let i = 1; i <= 8; i += 1) gridSchema[`cell_${i}`] = { type: 'string' }
