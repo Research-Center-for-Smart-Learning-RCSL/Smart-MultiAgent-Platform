@@ -118,10 +118,11 @@ describe('mandala9GridPlugin', () => {
     teardown()
   })
 
-  it('submits a boolean-typed property as the typed text, not a silent false (AC-9)', async () => {
-    // Every cell is a textarea, so the payload is assembled as rendered. Routing a
-    // string through assemblePayload's boolean branch would yield `false`, which is
-    // schema-valid and would therefore be persisted in place of the answer.
+  it('renders a boolean property as a checkbox and submits a real boolean (AC-9)', async () => {
+    // A textarea cannot express a boolean: typed text through assemblePayload's
+    // boolean branch submits `false` for anything, and narrowing the schema to
+    // strings instead sends "yes" for a declared boolean, which the server rejects
+    // with a 422 the participant cannot act on. A checkbox avoids both.
     const submit = vi.fn().mockResolvedValue(OK)
     const { container, teardown } = mount(
       {
@@ -132,12 +133,15 @@ describe('mandala9GridPlugin', () => {
       submit,
     )
 
+    const agreed = container.querySelector<HTMLInputElement>('[data-testid="mandala-input-agreed"]')!
+    expect(agreed.tagName).toBe('INPUT')
+    expect(agreed.type).toBe('checkbox')
+
     const note = container.querySelector<HTMLTextAreaElement>('[data-testid="mandala-input-note"]')!
     note.value = 'hello'
     note.dispatchEvent(new Event('input'))
-    const agreed = container.querySelector<HTMLTextAreaElement>('[data-testid="mandala-input-agreed"]')!
-    agreed.value = 'yes'
-    agreed.dispatchEvent(new Event('input'))
+    agreed.checked = true
+    agreed.dispatchEvent(new Event('change'))
     await flushPromises()
 
     container.querySelector<HTMLButtonElement>('[data-testid="mandala-submit"]')!.click()
@@ -145,8 +149,46 @@ describe('mandala9GridPlugin', () => {
 
     expect(submit).toHaveBeenCalledTimes(1)
     const payload = submit.mock.calls[0]![0] as Record<string, unknown>
-    expect(payload.agreed).toBe('yes')
-    expect(payload.agreed).not.toBe(false)
+    expect(payload.agreed).toBe(true)
+    teardown()
+  })
+
+  it('submits a number property as a number, not as the typed text (AC-9)', async () => {
+    const submit = vi.fn().mockResolvedValue(OK)
+    const { container, teardown } = mount(
+      { type: 'object', properties: { count: { type: 'number' } } },
+      submit,
+    )
+
+    const count = container.querySelector<HTMLTextAreaElement>('[data-testid="mandala-input-count"]')!
+    count.value = '5'
+    count.dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    container.querySelector<HTMLButtonElement>('[data-testid="mandala-submit"]')!.click()
+    await flushPromises()
+
+    const payload = submit.mock.calls[0]![0] as Record<string, unknown>
+    // "5" would be schema-invalid and earn an unfixable server 422.
+    expect(payload.count).toBe(5)
+    teardown()
+  })
+
+  it("renders each cell's description, which carries the author's instruction", async () => {
+    const { container, teardown } = mount({
+      type: 'object',
+      properties: {
+        center: {
+          type: 'string',
+          title: '中心主題',
+          description: '用一句話寫下你想像中 30 歲的自己。',
+        },
+      },
+    })
+
+    expect(container.textContent).toContain('用一句話寫下你想像中 30 歲的自己。')
+    const input = container.querySelector('[data-testid="mandala-input-center"]')!
+    expect(input.getAttribute('aria-describedby')).toBe('mandala-help-center')
     teardown()
   })
 
