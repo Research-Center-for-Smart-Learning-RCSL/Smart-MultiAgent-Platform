@@ -16,6 +16,13 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+- `2026-08-08-creative-thinking-course-example` (feature, draft) — `depends_on: []`. Adds a
+  first-party `filled_count` in-process validator (open-ended activities currently have no
+  correct validator kind), the first production activity plugin (a `mandala-9grid` renderer),
+  an idempotent `smap.examples` seeder, and `docs/examples/creative-thinking-course.md`. Touches
+  `backend/app/plugins/activity_validators.py`, `backend/smap/examples/` (new),
+  `frontend/src/slices/activities/{types,components,plugins,locales}`. No migration, no API
+  contract change. Verified no overlap with the other rows below.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
