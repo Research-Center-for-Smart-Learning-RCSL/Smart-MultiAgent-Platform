@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-08-08
 requirements: [R30.02, R30.09, R30.15, R30.20, R30.21, R30.22, R30.23, R30.25, R30.26]
 depends_on: []
@@ -406,17 +406,17 @@ risk, and gives the admin something to look at before the policy can strand anyo
 
 **Part B**
 
-- [ ] AC-1: `GET /api/admin/activity-types` returns types from more than one project in a
+- [x] AC-1: `GET /api/admin/activity-types` returns types from more than one project in a
   single response, is rejected with 403 for a non-admin, and paginates by cursor.
-- [ ] AC-2: Each row carries project id **and** project name, resolved by batch lookup — a
+- [x] AC-2: Each row carries project id **and** project name, resolved by batch lookup — a
   page of N rows issues a bounded number of queries, not N+1.
-- [ ] AC-3: `GET /api/admin/activity-activations` lists only `active` activations across
+- [x] AC-3: `GET /api/admin/activity-activations` lists only `active` activations across
   projects, each with its chatroom name and activity type name.
-- [ ] AC-4: No cross-context SQL join is introduced ([R30.09]) — verified by reading the
+- [x] AC-4: No cross-context SQL join is introduced ([R30.09]) — verified by reading the
   new repository methods; every cross-context field comes from a facade batch call.
-- [ ] AC-5: `AdminActivitiesView` renders both tables with loading, error, and empty
+- [x] AC-5: `AdminActivitiesView` renders both tables with loading, error, and empty
   states, is reachable from the admin nav, and is admin-gated by the route meta.
-- [ ] AC-6: A row links to `AdminAuditView` pre-filtered to that resource, and the audit
+- [x] AC-6: A row links to `AdminAuditView` pre-filtered to that resource, and the audit
   view hydrates its filters from `route.query`.
 
 **Part A**
@@ -478,7 +478,30 @@ Add **[R30.31]**:
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+Part B only; Part A is not yet built.
+
+- **D-1** — §6 said Part B would extend the two port protocols in
+  `contexts/activities/application/ports.py:13-33`. It does **not**. Those protocols exist
+  so *services* can receive an injected repository; the new reads are called by the facade
+  on its concrete repositories, so adding the methods to the protocols would only force
+  every test double to grow a method nothing consumes. Ports stay untouched.
+- **D-2** — §6 listed `list_all_types` and `list_all_active_activations`. A third facade
+  method, `get_types_by_ids` (with `ActivityTypeRepository.get_many`), was needed: the
+  activations listing must name its type, and doing that without a join or an N+1 requires
+  a batch read inside the activities context.
+- **D-3** — The keyset predicate is written as decomposed `OR`/`AND` rather than a
+  row-value tuple comparison. The tuple form failed mypy against `sa.tuple_` and, more
+  importantly, is exactly the class of construct `backend/CLAUDE.md` warns cannot be
+  verified by the unit tier (it compiles with `literal_binds`, so a parameter-type error
+  would surface only against a real database). The decomposed form is what
+  `admin_projects.list_projects:63-70` already runs in production.
+- **D-4** — The view requests the server maximum page (200) and renders an explicit notice
+  when the page comes back full, instead of the single default page §6 implied. Found in
+  self-audit: a governance view that showed the newest 50 of 300 with no indication would
+  actively mislead. True paging is FU-6.
+- **D-5** — Two audit-view tests were added beyond §12's plan, covering that a crafted link
+  cannot inject a non-filter param or drive `limit`/`cursor`. The route-query hydration is
+  new attack surface, so it needed a negative test, not only a positive one.
 
 ## 16. Follow-ups
 
@@ -491,3 +514,23 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - **FU-3** — The two admin pagination idioms (§4.4) remain unreconciled platform-wide.
 - **FU-4** — FU-7 of the course-example dossier (undeclared payload keys persisted and fed
   to the agent digest) is untouched here; it is a submission-shape fix, not governance.
+- **FU-5** — **Neither admin read is audited.** An admin can page through every tenant's
+  activity configuration, including `validator_config` answer keys, leaving no record of
+  who read what. Not a vulnerability (the admin is authorized and gains nothing they lack),
+  but inconsistent with a platform that audits a rate-limit write and impersonation. For a
+  governance feature, "who inspected which tenant" is arguably part of the record. Raised
+  by the security gate as Hardening; needs a product decision, not just an implementation.
+- **FU-6** — `AdminActivitiesView` fetches one page of 200 and says so when full (D-4).
+  Real paging (Load More via `useInfiniteQuery`, as `AdminAuditView.vue:196-208` does)
+  is the proper fix.
+- **FU-7** — `ActivityTypeRepository.list_all` and `ActivationRepository.list_all_active`
+  are the only unscoped queries in a context where everything else is project- or
+  room-scoped, and they sit next to `list_for_project`. Containment today is a docstring
+  plus review (verified: the sole production callers are the two admin handlers). Consider
+  renaming them `*_unscoped`, or an import-linter contract restricting them to
+  `app.api.v1.admin_activities`, so a future call site reads as a decision.
+- **FU-8** — Minor quality items recorded and not fixed: the two governance-flag cells in
+  `AdminActivitiesView.vue` duplicate a six-line `SBadge` block; the audit-link column uses
+  an empty `label`, leaving that `<th>` without an accessible name; and
+  `test_activity_repos.py`'s `_run` helper carries a `# type: ignore[operator]` that a
+  `Callable` annotation would remove.
