@@ -103,6 +103,8 @@
       "exactMatchExpectedHelp": "當此欄位等於此值時，提交即為有效。",
       "exactMatchCaseSensitivity": "大小寫敏感",
       "exactMatchCaseSensitive": "文字須完全符合大小寫",
+      "filledCountMin": "最少作答欄位數",
+      "filledCountMinHelp": "至少這麼多欄位有作答時，提交即為有效。設為 0 表示只收集回應、不判定對錯。",
       "webhookUrl": "Webhook 網址",
       "webhookUrlPlaceholder": "https://example.com/score",
       "webhookUrlHelp": "接收每次提交並回傳 JSON 判定結果的端點。",

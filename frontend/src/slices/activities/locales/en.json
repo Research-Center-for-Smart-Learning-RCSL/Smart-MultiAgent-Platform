@@ -103,6 +103,8 @@
       "exactMatchExpectedHelp": "A submission is valid when this field equals this value.",
       "exactMatchCaseSensitivity": "Case sensitivity",
       "exactMatchCaseSensitive": "Match text case exactly",
+      "filledCountMin": "Minimum fields answered",
+      "filledCountMinHelp": "A submission is valid once at least this many fields carry an answer. Set 0 to collect responses without judging them.",
       "webhookUrl": "Webhook URL",
       "webhookUrlPlaceholder": "https://example.com/score",
       "webhookUrlHelp": "The endpoint that receives each submission and returns a JSON verdict.",
