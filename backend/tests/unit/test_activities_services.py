@@ -411,10 +411,22 @@ class TestFilledCountValidator:
     def teardown_method(self) -> None:
         registry.clear_registry()
 
-    def _score(self, config: dict[str, Any], payload: dict[str, Any]) -> ValidationResult:
+    def _score(
+        self,
+        config: dict[str, Any],
+        payload: dict[str, Any],
+        *,
+        declared: list[str] | None = None,
+    ) -> ValidationResult:
+        """Score ``payload`` against a type declaring ``declared`` (default: the
+        payload's own keys, i.e. a submission that stayed inside the schema)."""
         from app.plugins.activity_validators import filled_count_scorer
 
-        at = _make_type(validator_config={"validator_id": "filled_count", **config})
+        names = declared if declared is not None else list(payload)
+        at = _make_type(
+            payload_schema={"type": "object", "properties": {n: {"type": "string"} for n in names}},
+            validator_config={"validator_id": "filled_count", **config},
+        )
         return filled_count_scorer(payload, at, db=MagicMock())
 
     def test_meets_threshold_is_valid(self) -> None:
@@ -453,6 +465,27 @@ class TestFilledCountValidator:
         """``sub_scores`` is participant-visible; ``validator_config`` is owner-only (R30.25)."""
         r = self._score({"min_filled": 5}, {"a": "x"})
         assert set(r.sub_scores) == {"filled"}
+
+    def test_undeclared_payload_keys_are_not_counted(self) -> None:
+        """A participant must not clear the threshold by padding the submission.
+
+        JSON Schema permits additional properties unless a schema forbids them, so
+        the payload can legally carry keys the type never declared. Counting those
+        would let a room member pass ``min_filled`` — and inflate the reported
+        fluency count — with one real answer plus filler.
+        """
+        r = self._score(
+            {"min_filled": 4},
+            {"center": "x", "zz1": "a", "zz2": "a", "zz3": "a", "zz4": "a"},
+            declared=["center", "cell_1", "cell_2", "cell_3"],
+        )
+        assert r.is_valid is False
+        assert r.error_class == "too_few_filled"
+        assert r.sub_scores == {"filled": 1}
+
+    def test_declared_but_absent_fields_count_as_unfilled(self) -> None:
+        r = self._score({"min_filled": 0}, {"a": "x"}, declared=["a", "b", "c"])
+        assert r.sub_scores == {"filled": 1}
 
     def test_config_validator_accepts_zero(self) -> None:
         from app.plugins.activity_validators import validate_filled_count_config
