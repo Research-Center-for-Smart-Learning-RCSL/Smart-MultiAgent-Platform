@@ -261,6 +261,93 @@ class TestTypeServiceValidatorConfig:
             )
         svc._repo.create.assert_not_awaited()
 
+    async def test_in_process_valid_filled_count_config_passes(self) -> None:
+        from app.plugins.activity_validators import register_first_party_validators
+
+        register_first_party_validators()
+        svc = ActivityTypeService(MagicMock())
+        svc._repo = MagicMock()
+        type_id = uuid.uuid4()
+        svc._repo.create = AsyncMock(return_value=type_id)
+        svc._repo.get = AsyncMock(return_value=_make_type(id=type_id))
+        with patch("contexts.activities.application.type_service.audit.emit", new=AsyncMock()):
+            await svc.register(
+                project_id=uuid.uuid4(),
+                key="k",
+                name="n",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config={"validator_id": "filled_count", "min_filled": 0},
+                retention_days=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+        svc._repo.create.assert_awaited_once()
+
+    @pytest.mark.parametrize(
+        "bad_config",
+        [
+            {"validator_id": "filled_count"},
+            {"validator_id": "filled_count", "min_filled": -1},
+            {"validator_id": "filled_count", "min_filled": True},
+            {"validator_id": "filled_count", "min_filled": "3"},
+        ],
+        ids=["missing", "negative", "bool", "string"],
+    )
+    async def test_in_process_filled_count_bad_config_rejected(self, bad_config: dict[str, Any]) -> None:
+        from app.plugins.activity_validators import register_first_party_validators
+
+        register_first_party_validators()
+        svc = ActivityTypeService(MagicMock())
+        svc._repo = MagicMock()
+        svc._repo.create = AsyncMock()
+        with pytest.raises(ValidatorConfigInvalid):
+            await svc.register(
+                project_id=uuid.uuid4(),
+                key="k",
+                name="n",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config=bad_config,
+                retention_days=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+        svc._repo.create.assert_not_awaited()
+
+    async def test_edit_to_bad_filled_count_config_rejected(self) -> None:
+        """The same config gate runs on the edit path, not only registration (R30.23)."""
+        from app.plugins.activity_validators import register_first_party_validators
+
+        register_first_party_validators()
+        project_id = uuid.uuid4()
+        type_id = uuid.uuid4()
+        svc = ActivityTypeService(MagicMock())
+        svc._repo = MagicMock()
+        svc._repo.update = AsyncMock()
+        svc._repo.get = AsyncMock(
+            return_value=_make_type(
+                id=type_id,
+                project_id=project_id,
+                validator_config={"validator_id": "filled_count", "min_filled": 2},
+            )
+        )
+        svc._activation_repo = MagicMock()
+        svc._activation_repo.list_active_for_type = AsyncMock(return_value=[])
+        with pytest.raises(ValidatorConfigInvalid):
+            await svc.update(
+                project_id=project_id,
+                type_id=type_id,
+                name="n",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config={"validator_id": "filled_count", "min_filled": -3},
+                retention_days=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+        svc._repo.update.assert_not_awaited()
+
 
 class TestExactMatchValidator:
     """The first-party ``exact_match`` scorer + its config validator (AC-2, AC-3)."""
@@ -318,6 +405,72 @@ class TestExactMatchValidator:
             validate_exact_match_config({"field": "answer"})
 
 
+class TestFilledCountValidator:
+    """The first-party ``filled_count`` scorer + its config validator (AC-2..AC-5)."""
+
+    def teardown_method(self) -> None:
+        registry.clear_registry()
+
+    def _score(self, config: dict[str, Any], payload: dict[str, Any]) -> ValidationResult:
+        from app.plugins.activity_validators import filled_count_scorer
+
+        at = _make_type(validator_config={"validator_id": "filled_count", **config})
+        return filled_count_scorer(payload, at, db=MagicMock())
+
+    def test_meets_threshold_is_valid(self) -> None:
+        r = self._score({"min_filled": 2}, {"a": "x", "b": "y", "c": ""})
+        assert r.is_valid is True
+        assert r.error_class is None
+        assert r.sub_scores == {"filled": 2}
+
+    def test_below_threshold_is_invalid(self) -> None:
+        r = self._score({"min_filled": 3}, {"a": "x", "b": "", "c": None})
+        assert r.is_valid is False
+        assert r.error_class == "too_few_filled"
+        assert r.sub_scores == {"filled": 1}
+
+    def test_whitespace_only_string_is_not_filled(self) -> None:
+        assert self._score({"min_filled": 0}, {"a": "   ", "b": "\n\t"}).sub_scores == {"filled": 0}
+
+    def test_empty_collections_are_not_filled(self) -> None:
+        r = self._score({"min_filled": 0}, {"a": [], "b": {}, "c": ["x"], "d": {"k": 1}})
+        assert r.sub_scores == {"filled": 2}
+
+    def test_numbers_and_booleans_count_as_filled(self) -> None:
+        # 0 and False are answers, not blanks — see the _is_filled docstring on why
+        # this makes the validator text-oriented.
+        assert self._score({"min_filled": 0}, {"a": 0, "b": False}).sub_scores == {"filled": 2}
+
+    def test_min_filled_zero_is_collect_only(self) -> None:
+        r = self._score({"min_filled": 0}, {"a": "", "b": None})
+        assert r.is_valid is True
+        assert r.sub_scores == {"filled": 0}
+
+    def test_absent_min_filled_defaults_to_collect_only(self) -> None:
+        assert self._score({}, {"a": ""}).is_valid is True
+
+    def test_sub_scores_never_leak_validator_config(self) -> None:
+        """``sub_scores`` is participant-visible; ``validator_config`` is owner-only (R30.25)."""
+        r = self._score({"min_filled": 5}, {"a": "x"})
+        assert set(r.sub_scores) == {"filled"}
+
+    def test_config_validator_accepts_zero(self) -> None:
+        from app.plugins.activity_validators import validate_filled_count_config
+
+        validate_filled_count_config({"validator_id": "filled_count", "min_filled": 0})
+
+    @pytest.mark.parametrize(
+        "bad",
+        [{}, {"min_filled": -1}, {"min_filled": True}, {"min_filled": "3"}, {"min_filled": 1.5}],
+        ids=["missing", "negative", "bool", "string", "float"],
+    )
+    def test_config_validator_rejects(self, bad: dict[str, Any]) -> None:
+        from app.plugins.activity_validators import validate_filled_count_config
+
+        with pytest.raises(ValidatorConfigInvalid):
+            validate_filled_count_config(bad)
+
+
 class TestActivityValidatorRegistrationWiring:
     """The bootstrap step registers the shipped set (AC-1)."""
 
@@ -332,6 +485,16 @@ class TestActivityValidatorRegistrationWiring:
         await register_activity_validators_step(MagicMock())
         assert registry.is_registered("exact_match")
         assert any(v.validator_id == "exact_match" for v in registry.list_registered())
+
+    async def test_startup_step_registers_filled_count(self) -> None:
+        from app.bootstrap.startup import register_activity_validators_step
+
+        registry.clear_registry()
+        assert not registry.is_registered("filled_count")
+        await register_activity_validators_step(MagicMock())
+        assert registry.is_registered("filled_count")
+        listed = {v.validator_id: v.title for v in registry.list_registered()}
+        assert listed["filled_count"] == "Filled count"
 
 
 def _wire_submission_service(
