@@ -1,4 +1,4 @@
-{
+﻿{
   "components": {
     "schemas": {
       "AcceptByTokenIn": {
@@ -266,7 +266,6 @@
             "type": "string"
           },
           "payload": {
-            "additionalProperties": true,
             "title": "Payload",
             "type": "object"
           },
@@ -373,7 +372,6 @@
             "type": "string"
           },
           "sub_scores": {
-            "additionalProperties": true,
             "title": "Sub Scores",
             "type": "object"
           },
@@ -443,7 +441,6 @@
             "type": "string"
           },
           "payload_schema": {
-            "additionalProperties": true,
             "title": "Payload Schema",
             "type": "object"
           },
@@ -460,7 +457,6 @@
             "title": "Retention Days"
           },
           "validator_config": {
-            "additionalProperties": true,
             "title": "Validator Config",
             "type": "object"
           },
@@ -512,7 +508,6 @@
             "type": "string"
           },
           "payload_schema": {
-            "additionalProperties": true,
             "title": "Payload Schema",
             "type": "object"
           },
@@ -533,7 +528,6 @@
             "title": "Retention Days"
           },
           "validator_config": {
-            "additionalProperties": true,
             "title": "Validator Config",
             "type": "object"
           },
@@ -574,7 +568,6 @@
             "type": "string"
           },
           "payload_schema": {
-            "additionalProperties": true,
             "title": "Payload Schema",
             "type": "object"
           }
@@ -608,7 +601,6 @@
             "type": "string"
           },
           "payload_schema": {
-            "additionalProperties": true,
             "title": "Payload Schema",
             "type": "object"
           },
@@ -625,7 +617,6 @@
             "title": "Retention Days"
           },
           "validator_config": {
-            "additionalProperties": true,
             "title": "Validator Config",
             "type": "object"
           },
@@ -672,6 +663,164 @@
           "key_id"
         ],
         "title": "AddMemberIn",
+        "type": "object"
+      },
+      "AdminActivityActivationOut": {
+        "properties": {
+          "activity_type_id": {
+            "format": "uuid",
+            "title": "Activity Type Id",
+            "type": "string"
+          },
+          "activity_type_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activity Type Key"
+          },
+          "activity_type_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activity Type Name"
+          },
+          "chatroom_id": {
+            "format": "uuid",
+            "title": "Chatroom Id",
+            "type": "string"
+          },
+          "chatroom_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chatroom Name"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "started_by_user_id": {
+            "format": "uuid",
+            "title": "Started By User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "chatroom_id",
+          "chatroom_name",
+          "activity_type_id",
+          "activity_type_key",
+          "activity_type_name",
+          "started_by_user_id",
+          "created_at"
+        ],
+        "title": "AdminActivityActivationOut",
+        "type": "object"
+      },
+      "AdminActivityTypeOut": {
+        "description": "One activity type, platform-wide.\n\nCarries `validator_config` deliberately (Q-3 of the dossier): an admin already\nreads it through the project API by bypass, so withholding it here buys no\nconfidentiality and costs a screen switch during triage. It may hold answer\nkeys, so this model stays admin-only \u2014 it must not be reused by a\nnon-admin surface ([R30.25]).",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "echo_includes_content": {
+            "title": "Echo Includes Content",
+            "type": "boolean"
+          },
+          "expose_payload_to_agent": {
+            "title": "Expose Payload To Agent",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days"
+          },
+          "validator_config": {
+            "title": "Validator Config",
+            "type": "object"
+          },
+          "validator_kind": {
+            "title": "Validator Kind",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "project_name",
+          "key",
+          "name",
+          "validator_kind",
+          "validator_config",
+          "expose_payload_to_agent",
+          "echo_includes_content",
+          "retention_days",
+          "version",
+          "created_at"
+        ],
+        "title": "AdminActivityTypeOut",
         "type": "object"
       },
       "AdminEntryOut": {
@@ -971,12 +1120,10 @@
             "title": "Top P"
           },
           "wakeup_config": {
-            "additionalProperties": true,
             "title": "Wakeup Config",
             "type": "object"
           },
           "workflow_capabilities": {
-            "additionalProperties": true,
             "title": "Workflow Capabilities",
             "type": "object"
           }
@@ -1139,7 +1286,6 @@
             "title": "Parent Id"
           },
           "run_context": {
-            "additionalProperties": true,
             "title": "Run Context",
             "type": "object"
           },
@@ -1341,12 +1487,10 @@
             "type": "integer"
           },
           "wakeup_config": {
-            "additionalProperties": true,
             "title": "Wakeup Config",
             "type": "object"
           },
           "workflow_capabilities": {
-            "additionalProperties": true,
             "title": "Workflow Capabilities",
             "type": "object"
           }
@@ -1580,7 +1724,6 @@
           "wakeup_config": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1592,7 +1735,6 @@
           "workflow_capabilities": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1657,7 +1799,6 @@
           "auth": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1667,7 +1808,6 @@
             "title": "Auth"
           },
           "config": {
-            "additionalProperties": true,
             "title": "Config",
             "type": "object"
           },
@@ -1706,7 +1846,6 @@
             "type": "string"
           },
           "config": {
-            "additionalProperties": true,
             "title": "Config",
             "type": "object"
           },
@@ -1764,7 +1903,6 @@
           "auth": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1781,7 +1919,6 @@
           "config": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2603,7 +2740,6 @@
             "type": "integer"
           },
           "metadata": {
-            "additionalProperties": true,
             "title": "Metadata",
             "type": "object"
           },
@@ -4157,7 +4293,6 @@
             "title": "Recency Half Life Days"
           },
           "trigger_config": {
-            "additionalProperties": true,
             "title": "Trigger Config",
             "type": "object"
           }
@@ -4529,7 +4664,6 @@
             "type": "array"
           },
           "payload": {
-            "additionalProperties": true,
             "title": "Payload",
             "type": "object"
           },
@@ -4887,7 +5021,6 @@
             "type": "string"
           },
           "chunk_params": {
-            "additionalProperties": true,
             "title": "Chunk Params",
             "type": "object"
           },
@@ -4922,7 +5055,6 @@
             "type": "string"
           },
           "chunk_params": {
-            "additionalProperties": true,
             "title": "Chunk Params",
             "type": "object"
           },
@@ -5053,7 +5185,6 @@
           "chunk_params": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -5088,7 +5219,6 @@
             "type": "string"
           },
           "chunk_params": {
-            "additionalProperties": true,
             "title": "Chunk Params",
             "type": "object"
           },
@@ -5653,7 +5783,6 @@
             "type": "string"
           },
           "metadata": {
-            "additionalProperties": true,
             "title": "Metadata",
             "type": "object"
           },
@@ -5827,7 +5956,6 @@
             "$ref": "#/components/schemas/NotificationKind"
           },
           "metadata": {
-            "additionalProperties": true,
             "title": "Metadata",
             "type": "object"
           },
@@ -5904,14 +6032,12 @@
             "type": "string"
           },
           "metadata": {
-            "additionalProperties": true,
             "title": "Metadata",
             "type": "object"
           },
           "release_target": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -6492,7 +6618,6 @@
       "RagConfigCreateIn": {
         "properties": {
           "chunk_params": {
-            "additionalProperties": true,
             "title": "Chunk Params",
             "type": "object"
           },
@@ -6595,7 +6720,6 @@
       "RagConfigOut": {
         "properties": {
           "chunk_params": {
-            "additionalProperties": true,
             "title": "Chunk Params",
             "type": "object"
           },
@@ -6720,7 +6844,6 @@
           "chunk_params": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -7083,9 +7206,6 @@
               "type": "integer"
             },
             "maxProperties": 1000,
-            "propertyNames": {
-              "format": "uuid"
-            },
             "title": "Priorities",
             "type": "object"
           }
@@ -7239,7 +7359,6 @@
             "type": "string"
           },
           "variables": {
-            "additionalProperties": true,
             "title": "Variables",
             "type": "object"
           },
@@ -7276,7 +7395,6 @@
       "RunTriggerIn": {
         "properties": {
           "trigger_payload": {
-            "additionalProperties": true,
             "title": "Trigger Payload",
             "type": "object"
           }
@@ -7343,7 +7461,6 @@
       "SearchKeyIn": {
         "properties": {
           "config": {
-            "additionalProperties": true,
             "title": "Config",
             "type": "object"
           },
@@ -7367,7 +7484,6 @@
       "SearchKeyOut": {
         "properties": {
           "config": {
-            "additionalProperties": true,
             "title": "Config",
             "type": "object"
           },
@@ -8172,7 +8288,6 @@
             "type": "string"
           },
           "input": {
-            "additionalProperties": true,
             "title": "Input",
             "type": "object"
           },
@@ -8181,7 +8296,6 @@
             "type": "string"
           },
           "output": {
-            "additionalProperties": true,
             "title": "Output",
             "type": "object"
           },
@@ -8736,7 +8850,6 @@
       "ValidateIn": {
         "properties": {
           "definition": {
-            "additionalProperties": true,
             "title": "Definition",
             "type": "object"
           }
@@ -8751,7 +8864,6 @@
         "properties": {
           "errors": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Errors",
@@ -8763,7 +8875,6 @@
           },
           "warnings": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Warnings",
@@ -8843,7 +8954,6 @@
       "WorkflowCreateIn": {
         "properties": {
           "definition": {
-            "additionalProperties": true,
             "title": "Definition",
             "type": "object"
           },
@@ -8868,7 +8978,6 @@
             "type": "string"
           },
           "definition": {
-            "additionalProperties": true,
             "title": "Definition",
             "type": "object"
           },
@@ -8920,7 +9029,6 @@
           "definition": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -9511,6 +9619,142 @@
         ]
       }
     },
+    "/api/admin/activity-activations": {
+      "get": {
+        "description": "Every currently-active activation across every room, newest first.\n\nAnswers \"which classrooms are running what right now\", which is why the room\nand type names are hydrated rather than left as bare ids.",
+        "operationId": "list_all_active_activations_api_admin_activity_activations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AdminActivityActivationOut"
+                  },
+                  "title": "Response List All Active Activations Api Admin Activity Activations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List All Active Activations",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/activity-types": {
+      "get": {
+        "description": "Every live activity type across every project, newest first.",
+        "operationId": "list_all_activity_types_api_admin_activity_types_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AdminActivityTypeOut"
+                  },
+                  "title": "Response List All Activity Types Api Admin Activity Types Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List All Activity Types",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      }
+    },
     "/api/admin/admins": {
       "get": {
         "operationId": "list_admins_api_admin_admins_get",
@@ -9987,7 +10231,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Export Audit Api Admin Audit Export Post",
                   "type": "object"
                 }
@@ -10380,7 +10623,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Force Transfer Oc Api Admin Orgs  Org Id  Force Transfer Original Creator Post",
                   "type": "object"
                 }

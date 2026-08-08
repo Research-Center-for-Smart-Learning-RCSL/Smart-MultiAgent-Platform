@@ -19,4 +19,8 @@ export const adminKeys = {
     ['admin', 'rate-limits'] as const,
   ipBans: () =>
     ['admin', 'ip-bans'] as const,
+  activityTypes: () =>
+    ['admin', 'activity-types'] as const,
+  activityActivations: () =>
+    ['admin', 'activity-activations'] as const,
 }

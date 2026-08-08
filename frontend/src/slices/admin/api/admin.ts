@@ -9,6 +9,8 @@
 
 import { AdminService, GraphragAdminService } from '@shared/api-client'
 import type {
+  AdminActivityActivationRow,
+  AdminActivityTypeRow,
   AdminEntry,
   AuditFilter,
   AuditPage,
@@ -125,6 +127,18 @@ export const adminApi = {
     patch: { window_sec?: number; max_count?: number; scope?: string },
   ): Promise<RateLimitPolicy> =>
     AdminService.patchRateLimitApiAdminRateLimitsKeyPatch({ key, requestBody: patch }),
+
+  listAllActivityTypes: (params?: {
+    cursor?: string
+    limit?: number
+  }): Promise<AdminActivityTypeRow[]> =>
+    AdminService.listAllActivityTypesApiAdminActivityTypesGet(params ?? {}),
+
+  listAllActiveActivations: (params?: {
+    cursor?: string
+    limit?: number
+  }): Promise<AdminActivityActivationRow[]> =>
+    AdminService.listAllActiveActivationsApiAdminActivityActivationsGet(params ?? {}),
 
   resetGraphrag: (configId: string) =>
     GraphragAdminService.adminResetApiAdminGraphragConfigIdResetPost({ configId }),

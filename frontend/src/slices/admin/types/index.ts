@@ -78,6 +78,39 @@ export interface ProjectSummary {
   created_at: string
 }
 
+/** One activity type, platform-wide, for the admin governance view (R30.31).
+ *
+ *  `validator_config` may hold answer keys and is admin-confidential (R30.25).
+ *  This type is deliberately scoped to the admin slice: do not re-export it for a
+ *  non-admin surface to reuse. */
+export interface AdminActivityTypeRow {
+  id: string
+  project_id: string
+  project_name: string | null
+  key: string
+  name: string
+  validator_kind: string
+  validator_config: Record<string, unknown>
+  expose_payload_to_agent: boolean
+  echo_includes_content: boolean
+  retention_days: number | null
+  version: number
+  created_at: string
+}
+
+/** One currently-active activation, platform-wide. Names are null when the room
+ *  or type has since been removed; the ids are always present. */
+export interface AdminActivityActivationRow {
+  id: string
+  chatroom_id: string
+  chatroom_name: string | null
+  activity_type_id: string
+  activity_type_key: string | null
+  activity_type_name: string | null
+  started_by_user_id: string
+  created_at: string
+}
+
 export interface RateLimitPolicy {
   key: string
   window_sec: number

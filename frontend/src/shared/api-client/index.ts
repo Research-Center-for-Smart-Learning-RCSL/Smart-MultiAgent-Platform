@@ -22,6 +22,8 @@ export type { ActivityTypePublicOut } from './models/ActivityTypePublicOut';
 export type { ActivityTypeUpdateIn } from './models/ActivityTypeUpdateIn';
 export type { ActivityValidatorOut } from './models/ActivityValidatorOut';
 export type { AddMemberIn } from './models/AddMemberIn';
+export type { AdminActivityActivationOut } from './models/AdminActivityActivationOut';
+export type { AdminActivityTypeOut } from './models/AdminActivityTypeOut';
 export type { AdminEntryOut } from './models/AdminEntryOut';
 export type { AdminPromoteIn } from './models/AdminPromoteIn';
 export type { AgentConceptMapCoverageEntryOut } from './models/AgentConceptMapCoverageEntryOut';

@@ -129,6 +129,7 @@
 
 <script setup lang="ts">
 import { reactive, ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { useInfiniteQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 import { ClipboardDocumentListIcon } from '@heroicons/vue/24/outline'
@@ -169,6 +170,26 @@ const filters = reactive<AuditFiltersForm>({
 })
 const appliedFilters = ref<AuditFilter>({})
 
+// Deep-link support: another admin view can link here pre-filtered
+// (`?resource_type=activity_type&resource_id=<uuid>`). Only the filter keys this
+// form owns are read, so an unrelated query param cannot inject a filter. Runs
+// once at setup rather than on a watcher — the query string is an entry point,
+// not a live binding, and re-applying it would fight manual edits.
+const route = useRoute()
+
+function hydrateFromQuery(): void {
+  let seeded = false
+  for (const key of Object.keys(filters) as Array<keyof AuditFiltersForm>) {
+    const raw = route.query[key]
+    const value = Array.isArray(raw) ? raw[0] : raw
+    if (typeof value === 'string' && value) {
+      filters[key] = value
+      seeded = true
+    }
+  }
+  if (seeded) applyFilters()
+}
+
 const columns = computed<Column[]>(() => [
   { key: 'id', label: t('admin.audit.id'), width: '80px' },
   { key: 'action', label: t('admin.audit.action') },
@@ -192,6 +213,8 @@ function applyFilters(): void {
   // New query key resets the infinite query's pages automatically.
   appliedFilters.value = clean
 }
+
+hydrateFromQuery()
 
 const query = useInfiniteQuery({
   queryKey: computed(() => adminKeys.audit(appliedFilters.value)),
