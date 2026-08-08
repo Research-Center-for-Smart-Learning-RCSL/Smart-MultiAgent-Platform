@@ -448,10 +448,26 @@ class TestFilledCountValidator:
         r = self._score({"min_filled": 0}, {"a": [], "b": {}, "c": ["x"], "d": {"k": 1}})
         assert r.sub_scores == {"filled": 2}
 
-    def test_numbers_and_booleans_count_as_filled(self) -> None:
-        # 0 and False are answers, not blanks — see the _is_filled docstring on why
-        # this makes the validator text-oriented.
-        assert self._score({"min_filled": 0}, {"a": 0, "b": False}).sub_scores == {"filled": 2}
+    def test_zero_counts_but_false_does_not(self) -> None:
+        # A numeric field is only present when something was typed, so 0 is an
+        # answer. A boolean is submitted whether or not it was touched, so False
+        # is indistinguishable from untouched and must not count.
+        assert self._score({"min_filled": 0}, {"a": 0, "b": False}).sub_scores == {"filled": 1}
+
+    def test_an_untouched_checkbox_schema_scores_zero(self) -> None:
+        """Counting False would make the metric report the schema's size.
+
+        Three declared booleans, nothing filled in: the generic form still submits
+        `false` for each, so counting them would score filled=3 and clear any
+        threshold up to 3 on an empty submission.
+        """
+        r = self._score({"min_filled": 3}, {"a": False, "b": False, "c": False})
+        assert r.sub_scores == {"filled": 0}
+        assert r.is_valid is False
+        assert r.error_class == "too_few_filled"
+
+    def test_a_ticked_checkbox_counts(self) -> None:
+        assert self._score({"min_filled": 1}, {"a": True, "b": False}).sub_scores == {"filled": 1}
 
     def test_min_filled_zero_is_collect_only(self) -> None:
         r = self._score({"min_filled": 0}, {"a": "", "b": None})
