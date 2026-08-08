@@ -112,6 +112,25 @@ describe('AdminActivitiesView', () => {
     expect(wrapper.text()).toContain('room_1')
   })
 
+  it('says so when the page is full rather than silently truncating', async () => {
+    // A governance view showing the newest N of many, with no indication, would
+    // let an admin believe they had seen everything.
+    const many = Array.from({ length: 200 }, (_, i) => ({ ...TYPE_ROW, id: `at_${i}` }))
+    stub(many, [])
+    const wrapper = await renderView(AdminActivitiesView)
+    await settled()
+
+    expect(wrapper.text()).toContain('admin.activities.truncated')
+  })
+
+  it('does not claim truncation on a partial page', async () => {
+    stub([TYPE_ROW], [ACTIVATION_ROW])
+    const wrapper = await renderView(AdminActivitiesView)
+    await settled()
+
+    expect(wrapper.text()).not.toContain('admin.activities.truncated')
+  })
+
   it('links each row into the audit view pre-filtered to that resource (AC-6)', async () => {
     stub([TYPE_ROW], [ACTIVATION_ROW])
     const wrapper = await renderView(AdminActivitiesView)

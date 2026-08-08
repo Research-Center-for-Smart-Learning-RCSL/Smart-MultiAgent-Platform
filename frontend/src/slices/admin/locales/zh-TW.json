@@ -248,7 +248,8 @@
       "retentionUnset": "同討論室",
       "on": "開",
       "off": "關",
-      "viewAudit": "稽核紀錄"
+      "viewAudit": "稽核紀錄",
+      "truncated": "僅顯示最近的 {count} 筆，實際數量多於此清單。"
     }
   }
 }

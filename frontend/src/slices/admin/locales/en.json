@@ -248,7 +248,8 @@
       "retentionUnset": "Room default",
       "on": "On",
       "off": "Off",
-      "viewAudit": "Audit trail"
+      "viewAudit": "Audit trail",
+      "truncated": "Showing the most recent {count}. More exist than are listed here."
     }
   }
 }
