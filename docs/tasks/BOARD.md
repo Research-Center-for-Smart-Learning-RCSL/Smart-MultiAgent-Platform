@@ -16,6 +16,19 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+- `2026-08-08-activity-governance-policy` (feature, draft) — `depends_on: []`. Admin
+  governance for structured activities, in two independently shippable parts. Part B
+  (first): admin-only cross-project read of activity types + active activations, new
+  `app/api/v1/admin_activities.py` and an `AdminActivitiesView`. Part A: a platform-wide
+  policy over `expose_payload_to_agent` / `echo_includes_content` / `retention_days`,
+  enforced at authoring **and** at activation. Adds one table; follows the `prompt_studio`
+  ConfigService precedent, not `admin_rate_limits` (which breaks the facade rule). Absorbs
+  FU-8 of `2026-08-08-creative-thinking-course-example`.
+- `2026-08-08-activity-example-catalogue` (refactor, draft) — `depends_on: []`. Splits
+  `backend/smap/examples/creative_thinking_course.py` into a course-agnostic seeding engine
+  plus validated JSON course files, so adding an example is a data file and editing course
+  text needs no code change. No behavior change. Zero file overlap with the governance
+  dossier. Absorbs FU-5 of `2026-08-08-creative-thinking-course-example`.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
