@@ -16,7 +16,7 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-08-08-activity-governance-policy` (feature, draft) — `depends_on: []`. Admin
+- `2026-08-08-activity-governance-policy` (feature, approved) — `depends_on: []`. Admin
   governance for structured activities, in two independently shippable parts. Part B
   (first): admin-only cross-project read of activity types + active activations, new
   `app/api/v1/admin_activities.py` and an `AdminActivitiesView`. Part A: a platform-wide
