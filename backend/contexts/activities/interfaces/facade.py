@@ -56,10 +56,11 @@ class ActivitiesFacade:
         self._types = ActivityTypeService(db)
         activation_repo = ActivationRepository(db)
         self._activation_repo = activation_repo
+        self._type_repo = ActivityTypeRepository(db)
         self._activation = ActivationService(
             db,
             activation_repo=activation_repo,
-            type_repo=ActivityTypeRepository(db),
+            type_repo=self._type_repo,
         )
         self._sessions = ActivitySessionService(db)
         self._submissions = SubmissionService(db, activation_repo=activation_repo)
@@ -144,7 +145,7 @@ class ActivitiesFacade:
         returns domain models, so the caller resolves project names through the
         tenancy facade rather than joining ([R30.09]).
         """
-        return await ActivityTypeRepository(self._db).list_all(cursor=cursor, limit=limit)
+        return await self._type_repo.list_all(cursor=cursor, limit=limit)
 
     async def list_all_active_activations(
         self, *, cursor: uuid.UUID | None = None, limit: int = 50
@@ -155,7 +156,7 @@ class ActivitiesFacade:
     async def get_types_by_ids(self, type_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, ActivityType]:
         """Batch-resolve types by id, keyed by id, so an activation listing can name
         its type without a per-row query or a cross-table join."""
-        return await ActivityTypeRepository(self._db).get_many(type_ids)
+        return await self._type_repo.get_many(type_ids)
 
     async def list_types(self, project_id: uuid.UUID) -> Sequence[ActivityType]:
         return await self._types.list_types(project_id)

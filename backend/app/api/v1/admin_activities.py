@@ -17,12 +17,14 @@ raw SQL of its own — it goes through the context facades, per `backend/CLAUDE.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
+from contexts.activities.domain.models import ActivityActivation
 from contexts.activities.interfaces.facade import ActivitiesFacade
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
@@ -53,7 +55,10 @@ class AdminActivityTypeOut(BaseModel):
     key: str
     name: str
     validator_kind: str
-    validator_config: dict
+    # `dict[str, Any]` rather than a bare `dict`: the codegen widens an
+    # unparameterised dict to `Record<string, any>`, and `any` on the one field
+    # that may carry answer keys is the wrong default.
+    validator_config: dict[str, Any]
     expose_payload_to_agent: bool
     echo_includes_content: bool
     retention_days: int | None
@@ -85,11 +90,22 @@ async def list_all_activity_types(
     # One batch lookup for the whole page, not one per row.
     projects = await TenancyFacade(db).get_projects([at.project_id for at in types])
 
+    def _project_name(project_id: uuid.UUID) -> str | None:
+        """None when the project is gone, so one stale row cannot 500 the page.
+
+        Written as an explicit branch rather than ``getattr(..., "name", None)``:
+        the dict is precisely typed, and the getattr form would also swallow a
+        rename of ``Project.name`` — leaving a silently blank column behind a
+        green typecheck.
+        """
+        project = projects.get(project_id)
+        return project.name if project is not None else None
+
     return [
         AdminActivityTypeOut(
             id=at.id,
             project_id=at.project_id,
-            project_name=getattr(projects.get(at.project_id), "name", None),
+            project_name=_project_name(at.project_id),
             key=at.key,
             name=at.name,
             validator_kind=at.validator_kind.value,
@@ -125,19 +141,25 @@ async def list_all_active_activations(
     types = await activities.get_types_by_ids([a.activity_type_id for a in activations])
     rooms = await ConversationFacade(db).get_chatrooms([a.chatroom_id for a in activations])
 
-    return [
-        AdminActivityActivationOut(
+    # Explicit branches rather than getattr defaults: the dicts are precisely
+    # typed, so a rename upstream should break the typecheck instead of quietly
+    # blanking a column. None still means "the room or type is gone", which the
+    # ids below keep from making a row useless.
+    def _row(a: ActivityActivation) -> AdminActivityActivationOut:
+        room = rooms.get(a.chatroom_id)
+        at = types.get(a.activity_type_id)
+        return AdminActivityActivationOut(
             id=a.id,
             chatroom_id=a.chatroom_id,
-            chatroom_name=getattr(rooms.get(a.chatroom_id), "name", None),
+            chatroom_name=room.name if room is not None else None,
             activity_type_id=a.activity_type_id,
-            activity_type_key=getattr(types.get(a.activity_type_id), "key", None),
-            activity_type_name=getattr(types.get(a.activity_type_id), "name", None),
+            activity_type_key=at.key if at is not None else None,
+            activity_type_name=at.name if at is not None else None,
             started_by_user_id=a.started_by_user_id,
             created_at=a.created_at.isoformat(),
         )
-        for a in activations
-    ]
+
+    return [_row(a) for a in activations]
 
 
 __all__ = ["router"]
