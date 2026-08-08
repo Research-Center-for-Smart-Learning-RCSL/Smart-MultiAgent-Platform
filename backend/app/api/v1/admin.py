@@ -13,6 +13,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    admin_activities,
     admin_audit,
     admin_impersonation,
     admin_metrics,
@@ -31,5 +32,6 @@ router.include_router(admin_projects.router)
 router.include_router(admin_audit.router)
 router.include_router(admin_metrics.router)
 router.include_router(admin_rate_limits.router)
+router.include_router(admin_activities.router)
 
 __all__ = ["router"]
