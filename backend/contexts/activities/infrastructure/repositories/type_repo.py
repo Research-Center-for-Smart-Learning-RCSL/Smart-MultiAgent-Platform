@@ -118,6 +118,59 @@ class ActivityTypeRepository:
         ).first()
         return _row_to_type(row) if row is not None else None
 
+    async def get_many(self, type_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, ActivityType]:
+        """Batch-resolve live types by id, keyed by id (N+1-free name lookups)."""
+        ids = list(type_ids)
+        if not ids:
+            return {}
+        rows = (
+            await self._db.execute(
+                sa.select(*_TYPE_COLS).where(
+                    sa.and_(
+                        t.activity_types.c.id.in_(ids),
+                        t.activity_types.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).all()
+        types = [_row_to_type(r) for r in rows]
+        return {at.id: at for at in types}
+
+    async def list_all(self, *, cursor: uuid.UUID | None = None, limit: int = 50) -> Sequence[ActivityType]:
+        """Live types across every project, newest first, keyset-paginated ([R30.31]).
+
+        Unscoped by design and reachable only from the admin surface. Keyset rather
+        than offset because this table grows with the whole platform, and a deep
+        offset scan is what keyset pagination exists to avoid. The cursor is the
+        last row's id; ``created_at`` alone is not unique, so a correlated subquery
+        supplies the anchor and ``id`` breaks the tie.
+
+        The comparison is decomposed into OR/AND rather than written as a row-value
+        tuple: that is the shape already proven in ``admin_projects.list_projects``,
+        and a tuple comparison would be a construct the unit tier cannot verify
+        (it compiles with ``literal_binds``, so a parameter-type error surfaces only
+        against a real database).
+        """
+        stmt = sa.select(*_TYPE_COLS).where(t.activity_types.c.deleted_at.is_(None))
+        if cursor is not None:
+            anchor = (
+                sa.select(t.activity_types.c.created_at)
+                .where(t.activity_types.c.id == cursor)
+                .scalar_subquery()
+            )
+            stmt = stmt.where(
+                sa.or_(
+                    t.activity_types.c.created_at < anchor,
+                    sa.and_(
+                        t.activity_types.c.created_at == anchor,
+                        t.activity_types.c.id < cursor,
+                    ),
+                )
+            )
+        stmt = stmt.order_by(t.activity_types.c.created_at.desc(), t.activity_types.c.id.desc()).limit(limit)
+        rows = (await self._db.execute(stmt)).all()
+        return [_row_to_type(r) for r in rows]
+
     async def list_for_project(self, project_id: uuid.UUID) -> Sequence[ActivityType]:
         """Live types in a project, newest first (id tiebreak for stable paging)."""
         rows = (

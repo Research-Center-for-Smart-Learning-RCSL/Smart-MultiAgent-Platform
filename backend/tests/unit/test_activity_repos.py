@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from sqlalchemy.dialects import postgresql
 
+from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
 from contexts.activities.infrastructure.repositories.submission_repo import (
     ActivitySubmissionRepository,
 )
@@ -25,6 +26,78 @@ def _compiled(stmt: object) -> str:
     return str(
         stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})  # type: ignore[attr-defined]
     )
+
+
+class TestAdminUnscopedListings:
+    """The cross-project reads behind the admin governance view ([R30.31]).
+
+    These are the only unscoped queries in the context, so what matters is that
+    they still filter soft-deletes / non-active rows, order deterministically, and
+    bound the page — an unbounded unscoped scan over every tenant is the failure
+    mode worth pinning.
+    """
+
+    async def _run(self, repo_call: object) -> str:
+        db = AsyncMock()
+        page = MagicMock()
+        page.all.return_value = []
+        db.execute.return_value = page
+        await repo_call(db)  # type: ignore[operator]
+        return _compiled(db.execute.await_args_list[0].args[0])
+
+    async def test_types_list_all_filters_soft_deleted_and_bounds_the_page(self) -> None:
+        compiled = await self._run(lambda db: ActivityTypeRepository(db).list_all(limit=25))
+
+        assert "deleted_at IS NULL" in compiled
+        assert "ORDER BY activity_types.created_at DESC, activity_types.id DESC" in compiled
+        assert "LIMIT 25" in compiled
+        # Unscoped by design: no project predicate may creep in.
+        assert "project_id =" not in compiled
+
+    async def test_types_list_all_cursor_uses_a_created_at_anchor_plus_id_tiebreak(self) -> None:
+        cursor = uuid.uuid4()
+        compiled = await self._run(lambda db: ActivityTypeRepository(db).list_all(cursor=cursor, limit=10))
+
+        # Keyset, not offset — and the tiebreak must be present, or rows sharing a
+        # created_at would be skipped or repeated across pages.
+        assert "OFFSET" not in compiled.upper()
+        assert str(cursor) in compiled
+        assert "created_at <" in compiled
+        assert "created_at =" in compiled
+        assert "id <" in compiled
+
+    async def test_activations_list_all_active_filters_to_active_only(self) -> None:
+        compiled = await self._run(lambda db: ActivationRepository(db).list_all_active(limit=25))
+
+        assert "status = 'active'" in compiled
+        assert "ORDER BY activity_activations.created_at DESC, activity_activations.id DESC" in compiled
+        assert "LIMIT 25" in compiled
+        assert "chatroom_id =" not in compiled
+
+    async def test_activations_list_all_active_cursor_is_keyset(self) -> None:
+        cursor = uuid.uuid4()
+        compiled = await self._run(
+            lambda db: ActivationRepository(db).list_all_active(cursor=cursor, limit=10)
+        )
+
+        assert "OFFSET" not in compiled.upper()
+        assert str(cursor) in compiled
+        assert "created_at <" in compiled
+        assert "id <" in compiled
+
+    async def test_get_many_short_circuits_without_a_query(self) -> None:
+        db = AsyncMock()
+        result = await ActivityTypeRepository(db).get_many([])
+        assert result == {}
+        db.execute.assert_not_awaited()
+
+    async def test_get_many_filters_soft_deleted(self) -> None:
+        ids = [uuid.uuid4(), uuid.uuid4()]
+        compiled = await self._run(lambda db: ActivityTypeRepository(db).get_many(ids))
+
+        assert "deleted_at IS NULL" in compiled
+        for i in ids:
+            assert str(i) in compiled
 
 
 class TestSubmissionRepoScoping:
