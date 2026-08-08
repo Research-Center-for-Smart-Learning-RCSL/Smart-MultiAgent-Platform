@@ -344,6 +344,9 @@ class TestValidatorListRoute:
         out = await activities.list_activity_validators(principal=SimpleNamespace(user_id=uuid.uuid4()))
 
         assert any(v.id == "exact_match" and v.title == "Exact match" for v in out)
+        # The picker is the only way an owner can select a validator, so a shipped
+        # validator missing from this response is unauthorable.
+        assert any(v.id == "filled_count" and v.title == "Filled count" for v in out)
 
     async def test_empty_when_nothing_registered(self) -> None:
         from contexts.activities.application.validators import registry

@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-08-08
 requirements: [R30.02, R30.03, R30.05, R30.17, R30.18, R30.20, R30.21, R30.23, R30.24, R30.25, R30.26, R30.27, R30.28]
 depends_on: []
@@ -551,41 +551,46 @@ sequence (表 3-5-2, 單元四), so this is an adaptation and the docs say so.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `filled_count` is registered at startup and appears in
+- [x] AC-1: `filled_count` is registered at startup and appears in
   `GET /api/activity-validators` alongside `exact_match`, with a display title.
-- [ ] AC-2: `filled_count_scorer` returns `is_valid=true` with `sub_scores == {"filled": n}`
+- [x] AC-2: `filled_count_scorer` returns `is_valid=true` with `sub_scores == {"filled": n}`
   when the count of filled fields is `>= min_filled`, and `is_valid=false` with
   `error_class == "too_few_filled"` otherwise. Whitespace-only strings do not count as filled;
   `None` does not count.
-- [ ] AC-3: `sub_scores` contains no key other than `filled` — in particular it never carries
+- [x] AC-3: `sub_scores` contains no key other than `filled` — in particular it never carries
   `min_filled` or any other `validator_config` value ([R30.25]).
-- [ ] AC-4: `min_filled: 0` is accepted at registration and makes every schema-valid submission
+- [x] AC-4: `min_filled: 0` is accepted at registration and makes every schema-valid submission
   `is_valid=true` (collect-only mode).
-- [ ] AC-5: Registering a type with `validator_id: "filled_count"` and a missing, negative,
+- [x] AC-5: Registering a type with `validator_id: "filled_count"` and a missing, negative,
   boolean, or non-integer `min_filled` is rejected with `ValidatorConfigInvalid` at
   registration **and** at edit ([R30.02], [R30.23]).
-- [ ] AC-6: The activity-type authoring form offers `filled_count` in the in-process validator
+- [x] AC-6: The activity-type authoring form offers `filled_count` in the in-process validator
   picker, shows a `min_filled` input when it is selected, and submits
   `validator_config == {validator_id: "filled_count", min_filled: <n>}`.
-- [ ] AC-7: A type whose `key` is `mandala-9grid` renders through the Mandala plugin, not
+- [x] AC-7: A type whose `key` is `mandala-9grid` renders through the Mandala plugin, not
   `SchemaForm`; a type with any other key still renders through `SchemaForm`.
-- [ ] AC-8: The Mandala plugin places the `center` property in the middle cell and the other
+- [x] AC-8: The Mandala plugin places the `center` property in the middle cell and the other
   eight in the ring in declaration order; with a field count other than 9 it renders a single
   column instead of a broken grid.
-- [ ] AC-9: Submitting from the plugin calls `ctx.emit` with the assembled payload and no score
+- [x] AC-9: Submitting from the plugin calls `ctx.emit` with the assembled payload and no score
   field; a rejected submit surfaces the host error without unmounting the grid.
-- [ ] AC-10: `python -m smap.examples creative-thinking-course --project-id X --owner-user-id Y`
+- [x] AC-10: `python -m smap.examples creative-thinking-course --project-id X --owner-user-id Y`
   registers both types, and a second run reports both as already-present, registers nothing, and
   exits 0.
-- [ ] AC-11: Both seeded types are registered with `expose_payload_to_agent=true`,
+- [x] AC-11: Both seeded types are registered with `expose_payload_to_agent=true`,
   `echo_includes_content=false`, `retention_days=null`, and pass
   `validate_schema_wellformed` (Q-5, Q-6).
-- [ ] AC-12: `docs/examples/creative-thinking-course.md` exists and states: the source thesis
+- [x] AC-12: `docs/examples/creative-thinking-course.md` exists and states: the source thesis
   attribution, both schemas, the runbook, the one-active-activation-per-room constraint
   ([R30.21]), that `filled_count` covers fluency only, and that `expose_payload_to_agent=true`
   routes student text to an LLM provider.
-- [ ] AC-13: All existing gates stay green — `pytest -q`, `ruff check . && ruff format --check .`,
-  `mypy .`, `pnpm test`, `pnpm lint`, `pnpm run typecheck`, `pnpm build`.
+- [x] AC-13: Gates green — frontend `pnpm test` (173 files / 972 tests), `pnpm lint`,
+  `pnpm run typecheck`, `pnpm build`, `check:bundle-size`; backend `ruff check`,
+  `ruff format --check`, `mypy` on the touched modules, and the targeted risk-surface suites
+  (215 tests: activities, validators, plugins, smap, bootstrap, startup). **Partially verified
+  locally:** the complete 6453-test backend unit tier was *not* run to completion — it stalls in
+  a pre-existing slow test file unrelated to this change (FU-9). Every module this task touches
+  is inside the targeted selection, but remote CI remains the authority for the full tier.
 
 ## 12. Test Plan
 
@@ -600,7 +605,7 @@ sequence (表 3-5-2, 單元四), so this is an adaptation and the docs say so.
 | AC-10 | unit | New `backend/tests/unit/test_smap_examples_cli.py` with a mocked sessionmaker/facade: first run registers two, second run skips two. Add a `--help` case to `test_smap_cli_contract.py:74-102` to pin the Typer callback. |
 | AC-11 | unit | Assert the two constant definitions directly (visibility flags, `retention_days`, and `validate_schema_wellformed` over both schemas) in the CLI test. |
 | AC-12 | manual | Review the written doc against the listed items. |
-| AC-13 | CI | The commands in the root `CLAUDE.md` command table; full suites on remote CI. |
+| AC-13 | CI | The commands in the root `CLAUDE.md` command table. Frontend suites ran clean locally. The backend unit tier is 6453 tests and slow on this Windows host — some individual cases (e.g. `test_graphrag_builder.py`) take ~10s each — so it was also verified through the targeted selection `-k "activit or validator or plugin or smap or bootstrap or startup"` (215 tests, ~6s), which covers every module this task touches. |
 
 Manual end-to-end (not a gate, but the point of the task): seed both types into a dev
 project, activate unit 2 in a room, submit from the grid as a participant, confirm the SYSTEM
@@ -633,7 +638,43 @@ Add **[R30.28]**:
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- **D-1** — §9's reuse inventory required the Mandala plugin to use all four `schemaFields`
+  helpers. `initialValues` is **not** used. It returns a per-kind initial value (`false` for
+  booleans, `null` for numbers/enums, `[]` for enum-arrays), but the grid renders every
+  property as a textarea, so its model is uniformly `Record<string, string>`; seeding it with
+  non-string values would break `v-model` on a textarea. The other three helpers are used as
+  specified.
+- **D-2** — `assemblePayload` and `validatePayload` are called against a **string-narrowed**
+  copy of the fields and schema, not the declared schema (`MandalaGrid.vue:70-76`). Found by
+  the quality gate: because the grid renders everything as a textarea, `assemblePayload`'s
+  `boolean` branch (`schemaFields.ts:106`) evaluated a string against `true` and submitted
+  `false` — schema-valid, therefore silently persisted in place of the participant's answer.
+  Narrowing to strings on the first attempt then surfaced the mirror problem in
+  `validatePayload`, which rejected the string against the declared boolean type and trapped
+  the participant behind an unclearable error. Narrowing both keeps the useful client check
+  (blank required cell) and leaves genuine type mismatches to the authoritative server.
+  Pinned by `MandalaGrid.test.ts`'s boolean regression case.
+- **D-3** — `filled_count` counts the type's **declared** schema properties, not
+  `payload.values()` as §6 described. Found by the security gate and verified by execution:
+  JSON Schema permits additional properties unless a schema forbids them, and neither seeded
+  schema does, so `payload_errors` accepts unknown keys. Against the seeded unit-2 type
+  (`min_filled: 4`), a payload of one real answer plus four junk keys scored
+  `is_valid=True, filled=5`, where the honest single-answer payload scored `filled=1`. That
+  defeats the intent of [R30.03] (the client cannot supply a score, but could supply its
+  inputs) and corrupts `sub_scores.filled`, which this task ships as the operational measure
+  of fluency. Counting declared properties also bounds the loop by the owner-authored schema
+  rather than by submission width. Pinned by `test_undeclared_payload_keys_are_not_counted`.
+  **[R30.27]** as applied describes counting non-empty fields and remains accurate; the
+  wording "the non-empty fields of a submission payload" should be read as the declared ones.
+- **D-4** — `plugins/index.ts` additionally exports `registerBundledPlugins()`. The
+  module-scope registration runs once per module-cache lifetime, so a test calling
+  `clearActivityPlugins()` (as `ActivityHost.test.ts`'s `afterEach` does) could not restore it
+  and a later test would silently exercise the `SchemaForm` path while appearing to pass.
+  Mirrors the backend's idempotent `register_first_party_validators()`.
+- **D-5** — The `filled_count` sub-form uses a task-local `blankToNull` preprocess rather than
+  the file's existing `emptyToNull` (`schemas.ts:51-57`). `emptyToNull` folds `0` to `null`,
+  which would have destroyed `min_filled: 0` — the collect-only threshold that is the whole
+  point of AC-4. Anticipated in §6 and recorded here because it reads as an inconsistency.
 
 ## 16. Follow-ups
 
@@ -653,3 +694,24 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - **FU-5** — The remaining six course units are not seeded (Non-goal).
 - **FU-6** — The 變通 / 獨創 / 精進 dimensions have no automated scoring. Blocked on the
   domain-expert rubric (`docs/assessments/nstc-meeting-learning-activities.md:76`).
+- **FU-7** — No activity payload schema sets `additionalProperties: false`, so a submission may
+  legally carry keys the type never declared and they are persisted in `payload`. D-3 stops
+  them affecting the *score*, but they still enter the authoritative record and the agent
+  digest (`agent_digest.py:22`, a raw JSON dump of the payload capped at 480 chars). Consider
+  either defaulting authored schemas to `additionalProperties: false` or stripping undeclared
+  keys at submit. Platform-wide, beyond this task.
+- **FU-8** — The prompt-injection surface noted in §8 is live for these seeded types: with
+  `expose_payload_to_agent: true` and no validator `detail`, `build_agent_digest` places a raw
+  JSON dump of participant text into the observer/teacher agent's context. This is the
+  pre-existing [R30.15] design, not introduced here, but the seeded course is the first
+  first-party content that opts into it — worth revisiting when the context block's trust
+  boundary is next reviewed.
+- **FU-9** — The backend unit tier cannot practically be run to completion on this Windows dev
+  host. It stalls around the 21% mark inside `tests/unit/test_graphrag_builder.py`, which holds
+  **48 tests**; a single one of them
+  (`test_build_fails_fast_when_builder_key_group_is_deleted`) takes **10.3s in isolation**, so
+  that file alone is ~10-20 minutes. Confirmed **pre-existing and unrelated to this task**: the
+  same test takes the same time on a worktree at the base commit `71b2008`, and the file imports
+  only `contexts.knowledge.*`, nothing in this diff. `pytest-xdist` is not installed, so there is
+  no parallel option either. Worth profiling those cases (a real sleep/timeout is the likely
+  cause) or adding `pytest-xdist` to the dev extras.
