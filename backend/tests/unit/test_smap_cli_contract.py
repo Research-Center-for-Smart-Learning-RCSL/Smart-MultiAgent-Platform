@@ -72,6 +72,7 @@ def test_help_renders_for_every_smap_cli() -> None:
     arming, so a crash here is a safety problem, not a cosmetic one.
     """
     from smap.bootstrap.__main__ import app as bootstrap_app
+    from smap.examples.__main__ import app as examples_app
     from smap.maintenance.__main__ import app as maintenance_app
     from smap.rotation.__main__ import app as rotation_app
 
@@ -79,6 +80,7 @@ def test_help_renders_for_every_smap_cli() -> None:
         ("bootstrap", bootstrap_app),
         ("rotation", rotation_app),
         ("maintenance", maintenance_app),
+        ("examples", examples_app),
     ):
         result = CliRunner().invoke(app, ["--help"])
         assert result.exit_code == 0, f"{name} --help failed: {result.output}"
@@ -91,12 +93,14 @@ def test_single_command_apps_still_require_their_subcommand_name() -> None:
     unexpected extra argument". Both single-command apps carry a callback to
     stay in group mode; this pins that, since the collapse returns silently the
     moment someone removes it."""
+    from smap.examples.__main__ import app as examples_app
     from smap.maintenance.__main__ import app as maintenance_app
     from smap.rotation.__main__ import app as rotation_app
 
     for name, app, command in (
         ("rotation", rotation_app, "rotate-transit"),
         ("maintenance", maintenance_app, "purge-session-dirs"),
+        ("examples", examples_app, "creative-thinking-course"),
     ):
         result = CliRunner().invoke(app, ["--help"])
         assert command in result.output, f"{name} does not expose {command} as a subcommand"
