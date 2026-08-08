@@ -135,6 +135,28 @@ class ActivitiesFacade:
         access: the registry is populated at startup (R30.05/R30.24)."""
         return list_registered()
 
+    async def list_all_types(
+        self, *, cursor: uuid.UUID | None = None, limit: int = 50
+    ) -> Sequence[ActivityType]:
+        """Live types across every project, for the admin governance view ([R30.31]).
+
+        Deliberately tenant-unscoped: the only caller is the admin-gated route. It
+        returns domain models, so the caller resolves project names through the
+        tenancy facade rather than joining ([R30.09]).
+        """
+        return await ActivityTypeRepository(self._db).list_all(cursor=cursor, limit=limit)
+
+    async def list_all_active_activations(
+        self, *, cursor: uuid.UUID | None = None, limit: int = 50
+    ) -> Sequence[ActivityActivation]:
+        """Every ACTIVE activation across every room, for the admin view ([R30.31])."""
+        return await self._activation_repo.list_all_active(cursor=cursor, limit=limit)
+
+    async def get_types_by_ids(self, type_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, ActivityType]:
+        """Batch-resolve types by id, keyed by id, so an activation listing can name
+        its type without a per-row query or a cross-table join."""
+        return await ActivityTypeRepository(self._db).get_many(type_ids)
+
     async def list_types(self, project_id: uuid.UUID) -> Sequence[ActivityType]:
         return await self._types.list_types(project_id)
 

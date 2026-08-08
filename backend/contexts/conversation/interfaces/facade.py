@@ -83,6 +83,14 @@ class ConversationFacade:
     ) -> Chatroom | None:
         return await self._rooms.get(chatroom_id, include_deleted=include_deleted)
 
+    async def get_chatrooms(self, chatroom_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, Chatroom]:
+        """Batch-resolve live rooms by id, keyed by id, for N+1-free name lookups.
+
+        The cross-context counterpart to ``TenancyFacade.get_projects``: a caller in
+        another context names rooms through this instead of joining ``chatrooms``.
+        """
+        return await self._rooms.get_many(chatroom_ids)
+
     async def lock_live_chatroom_scope(self, chatroom_id: uuid.UUID) -> uuid.UUID | None:
         """Lock a live room and workspace while resolving its project scope.
 

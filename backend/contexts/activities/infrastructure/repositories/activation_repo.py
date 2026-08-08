@@ -103,6 +103,38 @@ class ActivationRepository:
         ).all()
         return [_row_to_activation(r) for r in rows]
 
+    async def list_all_active(
+        self, *, cursor: uuid.UUID | None = None, limit: int = 50
+    ) -> Sequence[ActivityActivation]:
+        """Every ACTIVE activation across every room, newest first ([R30.31]).
+
+        Unscoped by design and reachable only from the admin surface. Keyset
+        pagination on ``(created_at, id)``, matching ``ActivityTypeRepository.list_all``.
+        """
+        stmt = sa.select(*_ACTIVATION_COLS).where(
+            t.activity_activations.c.status == ActivationStatus.ACTIVE.value
+        )
+        if cursor is not None:
+            anchor = (
+                sa.select(t.activity_activations.c.created_at)
+                .where(t.activity_activations.c.id == cursor)
+                .scalar_subquery()
+            )
+            stmt = stmt.where(
+                sa.or_(
+                    t.activity_activations.c.created_at < anchor,
+                    sa.and_(
+                        t.activity_activations.c.created_at == anchor,
+                        t.activity_activations.c.id < cursor,
+                    ),
+                )
+            )
+        stmt = stmt.order_by(
+            t.activity_activations.c.created_at.desc(), t.activity_activations.c.id.desc()
+        ).limit(limit)
+        rows = (await self._db.execute(stmt)).all()
+        return [_row_to_activation(r) for r in rows]
+
     async def end(self, activation_id: uuid.UUID) -> bool:
         result = await self._db.execute(
             t.activity_activations.update()

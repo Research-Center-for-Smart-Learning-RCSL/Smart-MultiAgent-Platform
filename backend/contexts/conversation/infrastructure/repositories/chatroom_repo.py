@@ -100,6 +100,25 @@ class ChatroomRepository:
         row = (await self._db.execute(t.chatrooms.select().where(predicate))).first()
         return _row_to_chatroom(row) if row else None
 
+    async def get_many(self, chatroom_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, Chatroom]:
+        """Batch-resolve live rooms by id, keyed by id, for N+1-free name lookups.
+
+        Mirrors ``TenancyFacade.get_projects``. Exists so a cross-context caller can
+        name rooms without joining this context's tables.
+        """
+        ids = list(chatroom_ids)
+        if not ids:
+            return {}
+        rows = (
+            await self._db.execute(
+                t.chatrooms.select().where(
+                    sa.and_(t.chatrooms.c.id.in_(ids), t.chatrooms.c.deleted_at.is_(None))
+                )
+            )
+        ).all()
+        rooms = [_row_to_chatroom(r) for r in rows]
+        return {room.id: room for room in rooms}
+
     async def get_by_guest_token(self, token: str) -> Chatroom | None:
         row = (
             await self._db.execute(
