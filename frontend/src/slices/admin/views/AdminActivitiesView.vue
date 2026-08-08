@@ -58,6 +58,14 @@
       </template>
     </STable>
 
+    <p
+      v-if="activationsTruncated"
+      class="mt-2 text-xs text-[var(--color-warning)]"
+      role="status"
+    >
+      {{ $t('admin.activities.truncated', { count: PAGE_LIMIT }) }}
+    </p>
+
     <h2 class="mt-8 text-sm font-semibold text-[var(--color-fg)]">
       {{ $t('admin.activities.typesHeading') }}
     </h2>
@@ -124,6 +132,14 @@
         />
       </template>
     </STable>
+
+    <p
+      v-if="typesTruncated"
+      class="mt-2 text-xs text-[var(--color-warning)]"
+      role="status"
+    >
+      {{ $t('admin.activities.truncated', { count: PAGE_LIMIT }) }}
+    </p>
   </section>
 </template>
 
@@ -163,15 +179,25 @@ const typeColumns = computed<Column[]>(() => [
   { key: 'audit', label: '', width: '110px' },
 ])
 
+// The endpoints are keyset-paginated but this view fetches a single page, so it
+// asks for the server maximum and says so when the page comes back full. A
+// governance view that silently showed the newest 50 of 300 types would be worse
+// than no view at all — the admin would believe they had seen everything.
+// Paging through (Load More, as AdminAuditView does) is the follow-up.
+const PAGE_LIMIT = 200
+
 const typesQuery = useQuery({
   queryKey: adminKeys.activityTypes(),
-  queryFn: () => adminApi.listAllActivityTypes(),
+  queryFn: () => adminApi.listAllActivityTypes({ limit: PAGE_LIMIT }),
 })
 
 const activationsQuery = useQuery({
   queryKey: adminKeys.activityActivations(),
-  queryFn: () => adminApi.listAllActiveActivations(),
+  queryFn: () => adminApi.listAllActiveActivations({ limit: PAGE_LIMIT }),
 })
+
+const typesTruncated = computed(() => typeRows.value.length >= PAGE_LIMIT)
+const activationsTruncated = computed(() => activationRows.value.length >= PAGE_LIMIT)
 
 /** Deep-link into the audit view pre-filtered to one resource. The audit view
  *  reads these off `route.query`. */
