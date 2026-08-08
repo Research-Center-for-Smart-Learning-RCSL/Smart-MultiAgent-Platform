@@ -16,7 +16,7 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-08-08-creative-thinking-course-example` (feature, draft) — `depends_on: []`. Adds a
+- `2026-08-08-creative-thinking-course-example` (feature, approved) — `depends_on: []`. Adds a
   first-party `filled_count` in-process validator (open-ended activities currently have no
   correct validator kind), the first production activity plugin (a `mandala-9grid` renderer),
   an idempotent `smap.examples` seeder, and `docs/examples/creative-thinking-course.md`. Touches
