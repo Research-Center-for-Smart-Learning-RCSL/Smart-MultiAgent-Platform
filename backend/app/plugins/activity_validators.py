@@ -66,15 +66,23 @@ def validate_exact_match_config(config: dict[str, Any]) -> None:
 
 
 def _is_filled(value: Any) -> bool:
-    """Whether one payload value counts as answered.
+    """Whether one payload value counts as answered ([R30.27]: non-empty fields).
 
-    A whitespace-only string is blank, not an answer. Numbers and booleans always
-    count: the generic schema form submits a boolean for every declared boolean
-    property whether or not the participant touched it (``schemaFields.ts``
-    ``assemblePayload``), so ``filled_count`` is meant for text-response schemas —
-    on a schema carrying booleans the count is inflated by construction.
+    ``False`` does **not** count. The generic schema form submits a boolean for
+    every declared boolean property whether or not the participant touched it
+    (``schemaFields.ts`` ``assemblePayload`` writes ``v === true`` unconditionally),
+    so an unticked box is indistinguishable from an untouched one. Counting it
+    would let a submission with nothing filled in at all score
+    ``filled == len(properties)`` and pass any threshold — the metric would report
+    the schema's size rather than the participant's effort.
+
+    The cost is that a deliberate "no" is not counted as an answer. That is the
+    right trade for a *completeness* measure, which is what this validator is.
+
+    Numbers still count, including ``0``: a numeric field is only present when the
+    participant typed something.
     """
-    if value is None:
+    if value is None or value is False:
         return False
     if isinstance(value, str):
         return bool(value.strip())
