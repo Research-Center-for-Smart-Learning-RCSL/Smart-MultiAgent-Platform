@@ -2,6 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { AdminActivityActivationOut } from '../models/AdminActivityActivationOut';
+import type { AdminActivityTypeOut } from '../models/AdminActivityTypeOut';
 import type { AdminEntryOut } from '../models/AdminEntryOut';
 import type { AdminPromoteIn } from '../models/AdminPromoteIn';
 import type { AuditPageOut } from '../models/AuditPageOut';
@@ -22,6 +24,59 @@ import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class AdminService {
+    /**
+     * List All Active Activations
+     * Every currently-active activation across every room, newest first.
+     *
+     * Answers "which classrooms are running what right now", which is why the room
+     * and type names are hydrated rather than left as bare ids.
+     * @returns AdminActivityActivationOut Successful Response
+     * @throws ApiError
+     */
+    public static listAllActiveActivationsApiAdminActivityActivationsGet({
+        cursor,
+        limit = 50,
+    }: {
+        cursor?: (string | null),
+        limit?: number,
+    }): CancelablePromise<Array<AdminActivityActivationOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/activity-activations',
+            query: {
+                'cursor': cursor,
+                'limit': limit,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List All Activity Types
+     * Every live activity type across every project, newest first.
+     * @returns AdminActivityTypeOut Successful Response
+     * @throws ApiError
+     */
+    public static listAllActivityTypesApiAdminActivityTypesGet({
+        cursor,
+        limit = 50,
+    }: {
+        cursor?: (string | null),
+        limit?: number,
+    }): CancelablePromise<Array<AdminActivityTypeOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/activity-types',
+            query: {
+                'cursor': cursor,
+                'limit': limit,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
     /**
      * List Admins
      * @returns AdminEntryOut Successful Response

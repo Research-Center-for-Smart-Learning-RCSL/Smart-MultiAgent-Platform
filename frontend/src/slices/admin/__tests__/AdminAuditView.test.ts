@@ -32,4 +32,51 @@ describe('AdminAuditView', () => {
     await new Promise(r => setTimeout(r, 50))
     expect(wrapper.text()).toContain('user.ban')
   })
+
+  // AC-6: the activities view deep-links here pre-filtered. Before this, the view
+  // ignored the query string entirely and such a link silently showed everything.
+  it('hydrates its filters from the route query', async () => {
+    let seen: URL | null = null
+    server.use(
+      http.get('/api/admin/audit', ({ request }) => {
+        seen = new URL(request.url)
+        return HttpResponse.json({ items: [], next_cursor: null })
+      }),
+    )
+
+    const wrapper = await renderView(AdminAuditView, {
+      initialRoute: '/admin/audit?resource_type=activity_type&resource_id=at_42',
+    })
+    await new Promise(r => setTimeout(r, 50))
+
+    // The form reflects the link...
+    const values = wrapper.findAll('form input').map(i => (i.element as HTMLInputElement).value)
+    expect(values).toContain('activity_type')
+    expect(values).toContain('at_42')
+
+    // ...and the filter is actually applied to the request, not just displayed.
+    expect(seen).not.toBeNull()
+    expect(seen!.searchParams.get('resource_type')).toBe('activity_type')
+    expect(seen!.searchParams.get('resource_id')).toBe('at_42')
+  })
+
+  it('ignores query params that are not filter fields', async () => {
+    let seen: URL | null = null
+    server.use(
+      http.get('/api/admin/audit', ({ request }) => {
+        seen = new URL(request.url)
+        return HttpResponse.json({ items: [], next_cursor: null })
+      }),
+    )
+
+    await renderView(AdminAuditView, {
+      initialRoute: '/admin/audit?limit=9999&cursor=evil&not_a_filter=x',
+    })
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(seen).not.toBeNull()
+    expect(seen!.searchParams.get('not_a_filter')).toBeNull()
+    // `limit`/`cursor` are the query's own concern; a link must not drive them.
+    expect(seen!.searchParams.get('limit')).not.toBe('9999')
+  })
 })

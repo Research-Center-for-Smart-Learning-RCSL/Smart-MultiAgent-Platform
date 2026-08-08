@@ -25,7 +25,8 @@
       "rateLimits": "Rate Limits",
       "metrics": "Metrics",
       "promptStudio": "Prompt Assistant",
-      "skills": "Skills"
+      "skills": "Skills",
+      "activities": "Activities"
     },
     "users": {
       "title": "Users",
@@ -224,6 +225,30 @@
       "rateLimitFailed": "Failed to update rate limit.",
       "restoreFailed": "Failed to restore resource.",
       "resetGraphragFailed": "Failed to reset GraphRAG index."
+    },
+    "activities": {
+      "title": "Activities",
+      "subtitle": "Every activity type registered across the platform, and which rooms are running one right now. Read-only: changes are made by the owning project.",
+      "activeHeading": "Running now",
+      "activeHelp": "Activities currently active in a chatroom.",
+      "activeEmpty": "No activity is running anywhere right now.",
+      "typesHeading": "Registered types",
+      "typesHelp": "Agent visibility governs whether participant answers reach an AI agent, and therefore an LLM provider. Room visibility governs whether they appear in the shared transcript.",
+      "typesEmpty": "No activity types have been registered yet.",
+      "room": "Room",
+      "activity": "Activity",
+      "startedAt": "Started",
+      "project": "Project",
+      "name": "Name",
+      "key": "Key",
+      "validator": "Validator",
+      "agentVisibility": "Agent visibility",
+      "roomVisibility": "Room visibility",
+      "retention": "Retention",
+      "retentionUnset": "Room default",
+      "on": "On",
+      "off": "Off",
+      "viewAudit": "Audit trail"
     }
   }
 }
