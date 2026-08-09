@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-08-09
 requirements: [R20.08, R24.30, R24.31, R24.32, R24.34, R30.17, R30.18, R30.19]
 depends_on: []
@@ -347,6 +347,14 @@ read back through a clamp, so a hand-edited value cannot push the layout outside
 
 ## 11. Acceptance Criteria
 
+> **Four boxes below are deliberately left unchecked in an `implemented` dossier.**
+> AC-1, AC-3, AC-5 and AC-12 are layout outcomes; jsdom performs no layout, so no test in
+> this repository can assert them (§12 said so before implementation started). They were
+> accepted without the manual browser check on the user's explicit instruction on
+> 2026-08-09 — see D-5. Everything short of pixels is verified: the structural chain, the
+> emitted production CSS, and the width arithmetic. Anyone reading this later should treat
+> those four as *unconfirmed*, not as passed.
+
 - [ ] **AC-1** — On a desktop viewport, with an activity active whose rendered height
   exceeds the rail, the rail scrolls and every field plus the submit button is reachable.
   Nothing is clipped without a scrollbar. **Pending the manual check (§12); jsdom performs
@@ -476,6 +484,17 @@ contract is undocumented, which is why it was implementable without a scroll reg
   also suppresses click-focus — without it a mouse user could not grab the handle and then
   fine-tune with the arrow keys. `:focus-visible` does not match pointer-initiated focus, so
   no ring appears on the mouse path.
+
+- **D-5 — closed with AC-1, AC-3, AC-5 and AC-12 unverified.** §5 gate 4 and §12 both
+  require a manual browser check for the four layout outcomes, since the unit tier has no
+  layout engine. The build reported them as outstanding and offered three ways to close
+  them (deploy to staging and drive Chrome, stand up the local compose stack, or hand the
+  check to the user); the user elected to flip the dossier to `implemented` without the
+  check on 2026-08-09. Recorded rather than quietly checked off: the reported symptom —
+  an activity panel clipped with no scrollbar — has **not** been observed to be fixed in a
+  running browser, only reasoned to be fixed from the CSS. The first person to open a
+  chatroom on a deployed build should confirm the four items listed in §11 and, if any
+  fails, reopen rather than assume a regression elsewhere.
 
 - **D-4 — the handle occupies its own grid track rather than sitting inside the rail.**
   `grid-template-columns` gains a fourth track and `.chatroom__presence` moves from column 3
