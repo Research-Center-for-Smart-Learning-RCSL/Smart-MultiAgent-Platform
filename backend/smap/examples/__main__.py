@@ -62,6 +62,12 @@ def seed_course_cmd(
     except CourseFileInvalid as exc:
         logger.error("creative-thinking-course cannot read the course: {}", exc)
         raise typer.Exit(code=1) from None
+    except Exception:
+        # A course file is hand-edited data, so anything the loader did not
+        # anticipate is still an operator error rather than a crash: exit the
+        # same way, and keep the traceback in the log instead of on the terminal.
+        logger.exception("creative-thinking-course could not load course {}", course)
+        raise typer.Exit(code=1) from None
 
     try:
         report = run_seed(
