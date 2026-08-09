@@ -7,6 +7,11 @@ is most likely to introduce: a prompt string altered in transit. They are
 spelled out literally rather than derived from a loop, so they stay independent
 of however the production side happens to build the schema. Edit them only when
 the course content is deliberately changing.
+
+Imports still go through ``smap.examples._catalogue``: the parser moved into the
+activities context, and that module is now a re-export. Reading these tests
+through the shim is deliberate -- it is the import path the seeder CLI and every
+operator script use, so a break in the re-export shows up here.
 """
 
 from __future__ import annotations
@@ -19,12 +24,27 @@ from typing import Any
 
 import pytest
 
+from app.plugins.activity_validators import register_first_party_validators
 from contexts.activities.domain.models import ValidatorKind
 from smap.examples._catalogue import (
     CourseFileInvalid,
     available_courses,
     load_course,
 )
+
+# At import as well as per test: the module-level SHIPPED_TYPES below parses a real
+# course during collection, before any fixture runs.
+register_first_party_validators()
+
+
+@pytest.fixture(autouse=True)
+def _registered_validators() -> None:
+    """The loader checks a course's validator_config against the in-process
+    registry, which a first-party site populates (app startup, or the CLI's own
+    call). Re-registering per test keeps this file independent of whichever other
+    module last called ``clear_registry()`` in a teardown."""
+    register_first_party_validators()
+
 
 MANDALA: dict[str, Any] = {
     "key": "mandala-9grid",
@@ -316,6 +336,42 @@ class TestLoaderRejectsAMalformedCourse:
 
         message = self._load_broken(tmp_path, negative)
         assert "min_filled" in message
+
+    def test_an_unregistered_validator_id(self, tmp_path: Path) -> None:
+        """Since the move, the config is checked against the context's registry.
+
+        An unknown validator is an error rather than a skip: accepting it would
+        defer the same refusal to install time, or -- worse -- to a per-submission
+        error verdict in front of a class.
+        """
+
+        def unknown(doc: dict[str, Any]) -> None:
+            doc["activity_types"][0]["validator_config"] = {"validator_id": "no-such-validator"}
+
+        message = self._load_broken(tmp_path, unknown)
+        assert "no-such-validator" in message
+        assert "registered" in message
+
+    def test_a_missing_validator_id(self, tmp_path: Path) -> None:
+        def blank(doc: dict[str, Any]) -> None:
+            doc["activity_types"][0]["validator_config"] = {}
+
+        message = self._load_broken(tmp_path, blank)
+        assert "validator_id" in message
+
+    def test_an_exact_match_config_is_checked_by_its_own_validator(self, tmp_path: Path) -> None:
+        """Not just filled_count: going through the registry means every
+        registered validator's config rules reach a course file, where before only
+        one validator's did."""
+
+        def exact_match_without_expected(doc: dict[str, Any]) -> None:
+            doc["activity_types"][0]["validator_config"] = {
+                "validator_id": "exact_match",
+                "field": "one",
+            }
+
+        message = self._load_broken(tmp_path, exact_match_without_expected)
+        assert "expected" in message
 
     def test_a_course_key_that_disagrees_with_the_filename(self, tmp_path: Path) -> None:
         def renamed(doc: dict[str, Any]) -> None:

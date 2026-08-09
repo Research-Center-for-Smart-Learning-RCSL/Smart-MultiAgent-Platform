@@ -9,7 +9,8 @@
       "no": "否",
       "loading": "載入中…",
       "retry": "重試",
-      "loadError": "載入資料失敗。"
+      "loadError": "載入資料失敗。",
+      "cancel": "取消"
     },
     "nav": {
       "home": "儀表板",
@@ -228,7 +229,8 @@
     },
     "activities": {
       "title": "活動",
-      "subtitle": "全平台已註冊的活動類型，以及目前有哪些討論室正在進行活動。唯讀：要修改請至所屬專案。",
+      "subtitle": "全平台已註冊的活動類型，以及目前有哪些討論室正在進行活動。專案自己的類型請至該專案修改；內建範例則在此安裝與調整。",
+      "platformScope": "平台",
       "activeHeading": "進行中",
       "activeHelp": "目前在討論室中啟用的活動。",
       "activeEmpty": "目前沒有任何活動正在進行。",
@@ -250,6 +252,32 @@
       "off": "關",
       "viewAudit": "稽核紀錄",
       "truncated": "僅顯示最近的 {count} 筆，實際數量多於此清單。",
+      "examples": {
+        "heading": "內建範例",
+        "help": "平台隨附的示範課程。安裝後會建立由平台擁有的活動類型，再由專案擁有者自行決定是否啟用。系統不會自動安裝任何範例。",
+        "install": "安裝",
+        "installed": "已安裝",
+        "notInstalled": "未安裝",
+        "exposesToAgent": "將作答內容送給 AI",
+        "empty": "此版本沒有可用的範例課程。",
+        "installed_n": "已安裝 {count} 個活動類型。",
+        "alreadyInstalled": "此課程的內容先前皆已安裝。",
+        "installFailed": "無法安裝課程，請再試一次。",
+        "edit": "編輯",
+        "editTitle": "編輯已安裝的範例",
+        "editHelp": "僅這四個欄位可以修改。識別碼、作答結構與驗證器設定來自內建課程檔案，無法在此變更。",
+        "fieldName": "顯示名稱",
+        "fieldRetention": "保留天數",
+        "fieldRetentionHint": "留空表示依照討論室的一般清除規則。",
+        "fieldExpose": "將作答內容送給 AI",
+        "fieldEcho": "在討論室紀錄中顯示作答內容",
+        "retentionInvalid": "保留天數必須是正整數，或留空。",
+        "save": "儲存",
+        "saved": "已更新範例。",
+        "saveFailed": "無法儲存範例，請再試一次。",
+        "policyRefused": "平台活動政策不允許這樣的設定。",
+        "policyRefusedField": "平台活動政策不允許「{field}」設為這個值。請調整此欄位，或放寬上方的政策。"
+      },
       "policy": {
         "heading": "平台政策",
         "help": "所有專案建立活動時必須遵守的預設值與上限。鎖定某個開關會強制所有活動類型與其一致，並在主持人啟用活動時再檢查一次，因此收緊政策也會作用於既有的活動類型。將「AI 代理可見性」鎖定為關閉時，進行中的活動也會立即停止把提交內容送給代理；但活動本身會持續到主持人結束為止。",

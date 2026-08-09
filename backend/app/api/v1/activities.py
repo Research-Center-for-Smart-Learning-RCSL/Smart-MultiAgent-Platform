@@ -24,7 +24,6 @@ from app.api.v1.deps import (
     is_project_owner_or_admin,
 )
 from contexts.activities.domain.errors import (
-    ActivityTypeNotFound,
     SessionNotFound,
     ValidatorConfigInvalid,
 )
@@ -34,6 +33,7 @@ from contexts.activities.domain.models import (
     ActivitySession,
     ActivitySubmission,
     ActivityType,
+    ActivityTypeScope,
     ValidatorKind,
 )
 from contexts.activities.interfaces.facade import ActivitiesFacade
@@ -93,7 +93,10 @@ class ActivityTypeUpdateIn(BaseModel):
 
 class ActivityTypeOut(BaseModel):
     id: uuid.UUID
-    project_id: uuid.UUID
+    # None exactly when `scope` is `platform`: a shipped example installed by a
+    # platform admin has no owning project ([R30.02]).
+    project_id: uuid.UUID | None
+    scope: ActivityTypeScope
     key: str
     name: str
     payload_schema: dict[str, Any]
@@ -198,6 +201,7 @@ def _type_out(t: ActivityType, *, include_validator_config: bool = True) -> Acti
     return ActivityTypeOut(
         id=t.id,
         project_id=t.project_id,
+        scope=t.scope,
         key=t.key,
         name=t.name,
         payload_schema=t.payload_schema,
@@ -244,19 +248,28 @@ async def _resolve_activation_type(
 ) -> ActivityType | None:
     """Tenant-safe lookup for embedding in an activation read/broadcast: the
     type is fetched fresh rather than trusted from the activation row, so a
-    type that went missing or was somehow cross-project never leaks through.
+    type that went missing or became unreachable from this project never leaks
+    through.
+
+    Goes through the reachability resolver rather than comparing ``project_id``:
+    a platform-scoped type has none, so the old comparison would embed
+    ``activity_type: null`` for every installed example and leave participants
+    with no rendering contract ([R30.26], [R30.33]).
 
     Called post-commit at two call sites (start/end): a transient failure here
     must not turn an already-committed activation change into a 500 for the
     facilitator, so it degrades to no embedded type rather than propagating —
-    the client's fallback room-scoped read (Q-1) recovers it.
+    the client's fallback room-scoped read (Q-1) recovers it. ``ActivityTypeNotFound``
+    lands in the same arm by design: the correct response to "not reachable" is
+    an absent embed, which is what a null already meant.
     """
     try:
-        t = await facade.get_type(activation.activity_type_id)
+        return await facade.resolve_type_for_project(
+            project_id=project_id, activity_type_id=activation.activity_type_id
+        )
     except Exception:
         _log.warning("activity type resolution failed for embed, activation %s", activation.id, exc_info=True)
         return None
-    return t if t is not None and t.project_id == project_id else None
 
 
 def _submission_out(s: ActivitySubmission) -> ActivitySubmissionOut:
@@ -402,7 +415,7 @@ async def delete_activity_type(
     # must be persisted before any room is told its activation ended.
     await db.commit()
     for chatroom_id, activation_id in ended:
-        await _dispatch_activation_ended(chatroom_id, activation_id)
+        await dispatch_activation_ended(chatroom_id, activation_id)
 
 
 @project_router.get("/{project_id}/activity-types")
@@ -421,6 +434,108 @@ async def list_activity_types(
     return [_type_out(t, include_validator_config=is_owner) for t in types]
 
 
+class PlatformExampleOut(BaseModel):
+    """An installed platform example as a Project Owner sees it ([R30.32]).
+
+    Carries the two governance flags because enabling one is a consent decision:
+    ``expose_payload_to_agent`` means participant text reaches the project's
+    configured LLM provider, and the owner making that choice has to be told so at
+    the moment they make it.
+
+    No ``validator_config`` — it may hold answer keys and is owner-confidential
+    ([R30.25]). Its absence here is not a redaction to re-add later: this listing
+    exists to choose a type, not to inspect one.
+    """
+
+    id: uuid.UUID
+    key: str
+    name: str
+    expose_payload_to_agent: bool
+    echo_includes_content: bool
+    retention_days: int | None
+    enabled: bool
+
+
+class ActivityTypeOptInIn(BaseModel):
+    activity_type_id: uuid.UUID
+
+
+@project_router.get("/{project_id}/activity-examples")
+async def list_platform_activity_examples(
+    project_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[PlatformExampleOut]:
+    """The installed platform examples, with this project's enabled state.
+
+    Project Owner rather than plain membership: the only thing this listing is for
+    is deciding what to enable, which is the owner's call ([R30.23]). It is also
+    why the catalogue being visible to every owner is acceptable — installed
+    examples are platform metadata, not another tenant's data (OQ-2).
+    """
+    await assert_project_owner(db=db, principal=principal, project_id=project_id)
+    examples = await ActivitiesFacade(db).list_platform_examples_for_project(project_id)
+    return [
+        PlatformExampleOut(
+            id=e.activity_type.id,
+            key=e.activity_type.key,
+            name=e.activity_type.name,
+            expose_payload_to_agent=e.activity_type.expose_payload_to_agent,
+            echo_includes_content=e.activity_type.echo_includes_content,
+            retention_days=e.activity_type.retention_days,
+            enabled=e.enabled,
+        )
+        for e in examples
+    ]
+
+
+@project_router.post("/{project_id}/activity-type-optins", status_code=204, response_model=None)
+async def opt_project_into_activity_type(
+    body: ActivityTypeOptInIn,
+    project_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """Enable a platform example for this project ([R30.33])."""
+    await assert_project_owner(db=db, principal=principal, project_id=project_id)
+    await ActivitiesFacade(db).opt_project_in(
+        project_id=project_id,
+        activity_type_id=body.activity_type_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+
+
+@project_router.delete("/{project_id}/activity-type-optins/{type_id}", status_code=204, response_model=None)
+async def opt_project_out_of_activity_type(
+    project_id: uuid.UUID = Path(...),
+    type_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """Disable a platform example for this project, ending only its activations.
+
+    Same post-commit ordering as ``delete_activity_type``: the opt-in removal and
+    every activation-end must be durable before any room is told its activation
+    ended.
+    """
+    await assert_project_owner(db=db, principal=principal, project_id=project_id)
+    ended = await ActivitiesFacade(db).opt_project_out(
+        project_id=project_id,
+        activity_type_id=type_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    for chatroom_id, activation_id in ended:
+        await dispatch_activation_ended(chatroom_id, activation_id)
+
+
 @chatroom_router.get("/{chatroom_id}/activity-types/{type_id}")
 async def get_room_activity_type(
     chatroom_id: uuid.UUID = Path(...),
@@ -435,9 +550,11 @@ async def get_room_activity_type(
     full activity participant."""
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_read(access, is_admin=principal.is_admin)
-    activity_type = await ActivitiesFacade(db).get_type(type_id)
-    if activity_type is None or activity_type.project_id != access.project_id:
-        raise ActivityTypeNotFound(str(type_id))
+    # Same gate as the write paths ([R30.33]): the id comes from the client, and a
+    # platform type has no project_id to compare against.
+    activity_type = await ActivitiesFacade(db).resolve_type_for_project(
+        project_id=access.project_id, activity_type_id=type_id
+    )
     return _type_public_out(activity_type)
 
 
@@ -548,7 +665,7 @@ async def end_activity_activation(
     )
     await db.commit()
     if result.transitioned:
-        await _dispatch_activation_ended(chatroom_id, result.activation.id)
+        await dispatch_activation_ended(chatroom_id, result.activation.id)
     activity_type = await _resolve_activation_type(
         facade, project_id=access.project_id, activation=result.activation
     )
@@ -732,7 +849,11 @@ async def _dispatch_activation_started(
         _log.error("realtime publish failed for activity activation %s", activation.id, exc_info=True)
 
 
-async def _dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid.UUID) -> None:
+async def dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid.UUID) -> None:
+    """Tell one room its activation ended. Public because three routes across two
+    modules end activations — the owner delete and the project opt-out here, and
+    the admin delete in ``admin_activities`` — and each must broadcast the same
+    event after its own commit."""
     try:
         await Publisher(room_channel(chatroom_id)).emit(
             "activity.activation.ended", {"activation_id": str(activation_id)}
@@ -741,4 +862,9 @@ async def _dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid
         _log.error("realtime publish failed for ended activity activation %s", activation_id, exc_info=True)
 
 
-__all__ = ["chatroom_router", "project_router", "validator_router"]
+__all__ = [
+    "chatroom_router",
+    "dispatch_activation_ended",
+    "project_router",
+    "validator_router",
+]

@@ -85,6 +85,16 @@ _MAP: ErrorMap = {
         422,
         "The activity policy contradicts itself",
     ),
+    errors.PlatformActivityTypeReadOnly: (
+        "activities/platform-type-read-only",
+        403,
+        "This activity type is owned by the platform and cannot be changed from a project",
+    ),
+    errors.ActivityTypeNotOptedIn: (
+        "activities/type-not-opted-in",
+        404,
+        "This project has not enabled that platform activity type",
+    ),
 }
 
 

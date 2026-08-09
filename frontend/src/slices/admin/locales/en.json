@@ -9,7 +9,8 @@
       "no": "No",
       "loading": "Loading…",
       "retry": "Retry",
-      "loadError": "Failed to load data."
+      "loadError": "Failed to load data.",
+      "cancel": "Cancel"
     },
     "nav": {
       "home": "Dashboard",
@@ -228,7 +229,8 @@
     },
     "activities": {
       "title": "Activities",
-      "subtitle": "Every activity type registered across the platform, and which rooms are running one right now. Read-only: changes are made by the owning project.",
+      "subtitle": "Every activity type registered across the platform, and which rooms are running one right now. A project's own types are changed by that project; shipped examples are installed and adjusted here.",
+      "platformScope": "Platform",
       "activeHeading": "Running now",
       "activeHelp": "Activities currently active in a chatroom.",
       "activeEmpty": "No activity is running anywhere right now.",
@@ -250,6 +252,32 @@
       "off": "Off",
       "viewAudit": "Audit trail",
       "truncated": "Showing the most recent {count}. More exist than are listed here.",
+      "examples": {
+        "heading": "Shipped examples",
+        "help": "Worked example courses that ship with the platform. Installing one creates platform-owned activity types; a project owner then enables the ones they want. Nothing is installed automatically.",
+        "install": "Install",
+        "installed": "Installed",
+        "notInstalled": "Not installed",
+        "exposesToAgent": "Sends answers to the AI",
+        "empty": "No example courses are available in this build.",
+        "installed_n": "Installed {count} activity type(s).",
+        "alreadyInstalled": "Everything in this course was already installed.",
+        "installFailed": "Could not install the course. Please try again.",
+        "edit": "Edit",
+        "editTitle": "Edit installed example",
+        "editHelp": "Only these four fields are editable. The key, payload schema and validator configuration come from the shipped course file and cannot be changed here.",
+        "fieldName": "Display name",
+        "fieldRetention": "Retention (days)",
+        "fieldRetentionHint": "Leave empty to follow the room's normal purge.",
+        "fieldExpose": "Send answers to the AI",
+        "fieldEcho": "Show answers in the room transcript",
+        "retentionInvalid": "Retention must be a whole number of days, or empty.",
+        "save": "Save",
+        "saved": "Example updated.",
+        "saveFailed": "Could not save the example. Please try again.",
+        "policyRefused": "The platform activity policy does not allow these settings.",
+        "policyRefusedField": "The platform activity policy does not allow this value for \"{field}\". Change it, or relax the policy above."
+      },
       "policy": {
         "heading": "Platform policy",
         "help": "Defaults and limits every project must author within. Locking a switch forces every activity type to match it, and is re-checked when a facilitator starts an activity, so tightening reaches activity types that already exist. Locking agent visibility off also stops submitted content reaching agents in rooms that are already mid-activity; the activity itself keeps running until a facilitator ends it.",

@@ -24,13 +24,18 @@ from contexts.activities.application.type_service import ActivityTypeService
 from contexts.activities.domain.errors import (
     ActivityTypeActive,
     ActivityTypeNotFound,
+    ActivityTypeViolatesPolicy,
     PayloadSchemaInvalid,
+    PlatformActivityTypeReadOnly,
     ValidatorConfigInvalid,
 )
 from contexts.activities.domain.models import (
+    PLATFORM_SCOPE,
     ActivationStatus,
     ActivityActivation,
+    ActivityPolicy,
     ActivityType,
+    ActivityTypeScope,
     ValidatorKind,
 )
 
@@ -105,6 +110,168 @@ async def _update(svc: ActivityTypeService, existing: ActivityType, **over: Any)
         )
     svc._emit = emit  # type: ignore[attr-defined]  # exposed for assertions
     return result
+
+
+class TestPlatformTypeEditAuthority:
+    """AC-7/AC-8: a platform type is the platform's to edit, nobody else's."""
+
+    def _platform(self, **over: Any) -> ActivityType:
+        return _make_type(
+            project_id=None,
+            scope=ActivityTypeScope.PLATFORM,
+            key="mandala-9grid",
+            validator_kind=ValidatorKind.IN_PROCESS,
+            validator_config={"validator_id": "filled_count", "min_filled": 1},
+            **over,
+        )
+
+    async def test_a_project_owner_edit_is_forbidden_not_merely_not_found(self) -> None:
+        """403, distinctly.
+
+        The type is legitimately in this owner's list once opted in, so a 404
+        would be a lie and would leave the UI unable to say who *can* fix it. The
+        scope check must also precede the project comparison — a platform row's
+        ``project_id`` is NULL, which would otherwise fall through to "not found".
+        """
+        platform = self._platform()
+        svc = _wire_service(platform)
+
+        with pytest.raises(PlatformActivityTypeReadOnly):
+            await svc.update(
+                project_id=uuid.uuid4(),
+                type_id=platform.id,
+                name="renamed by an owner",
+                payload_schema=platform.payload_schema,
+                validator_kind=platform.validator_kind,
+                validator_config=platform.validator_config,
+                retention_days=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        svc._repo.update.assert_not_awaited()
+
+    async def test_an_admin_edits_the_four_governance_and_safe_fields(self) -> None:
+        platform = self._platform(expose_payload_to_agent=True, echo_includes_content=False)
+        svc = _wire_service(platform)
+
+        with patch("contexts.activities.application.type_service.audit.emit", new=AsyncMock()):
+            await svc.update_platform_type(
+                type_id=platform.id,
+                name="Mandala (no agent exposure)",
+                retention_days=30,
+                expose_payload_to_agent=False,
+                echo_includes_content=True,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        written = svc._repo.update.await_args.kwargs
+        assert written["name"] == "Mandala (no agent exposure)"
+        assert written["retention_days"] == 30
+        assert written["expose_payload_to_agent"] is False
+        assert written["echo_includes_content"] is True
+
+    async def test_an_admin_edit_cannot_touch_key_schema_or_validator_config(self) -> None:
+        """AC-8's negative half, enforced by the signature rather than by a check.
+
+        ``update_platform_type`` takes no ``payload_schema``/``validator_config``
+        parameter at all, so what reaches the repository is whatever was stored.
+        The moment those become editable this stops being an install surface and
+        becomes a course-authoring CMS (§10 of the dossier rules that out).
+        """
+        platform = self._platform()
+        svc = _wire_service(platform)
+
+        with patch("contexts.activities.application.type_service.audit.emit", new=AsyncMock()):
+            await svc.update_platform_type(
+                type_id=platform.id,
+                name="renamed",
+                retention_days=None,
+                expose_payload_to_agent=platform.expose_payload_to_agent,
+                echo_includes_content=platform.echo_includes_content,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        written = svc._repo.update.await_args.kwargs
+        assert written["payload_schema"] == platform.payload_schema
+        assert written["validator_config"] == platform.validator_config
+        assert written["validator_kind"] == platform.validator_kind
+        # No behavioral field moved, so the version must not either.
+        assert written["bump_version"] is False
+        assert "key" not in written
+
+    async def test_an_admin_edit_is_allowed_while_the_type_is_active(self) -> None:
+        """The active-activation guard exists to stop an in-flight desync from a
+        *behavioral* edit. None of these four fields is behavioral, and a
+        governance flag that could not be changed during a running class would
+        defeat the purpose of Q-4."""
+        platform = self._platform()
+        svc = _wire_service(platform, active=[_active(platform.id)])
+
+        with patch("contexts.activities.application.type_service.audit.emit", new=AsyncMock()):
+            await svc.update_platform_type(
+                type_id=platform.id,
+                name=platform.name,
+                retention_days=None,
+                expose_payload_to_agent=False,
+                echo_includes_content=False,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        svc._repo.update.assert_awaited_once()
+
+    async def test_an_admin_edit_still_obeys_the_governance_policy(self) -> None:
+        """AC-9: the admin edits an example *into* compliance; the check is never
+        skipped for a platform row ([R30.30])."""
+        platform = self._platform()
+        svc = _wire_service(platform)
+        svc._policy._repo.get_platform = AsyncMock(
+            return_value=ActivityPolicy(
+                id=uuid.uuid4(),
+                scope=PLATFORM_SCOPE,
+                expose_payload_to_agent_default=False,
+                expose_payload_to_agent_locked=True,
+                echo_includes_content_default=False,
+                echo_includes_content_locked=False,
+                retention_days_default=None,
+                retention_days_max=None,
+                version=1,
+            )
+        )
+
+        with pytest.raises(ActivityTypeViolatesPolicy) as exc:
+            await svc.update_platform_type(
+                type_id=platform.id,
+                name=platform.name,
+                retention_days=None,
+                expose_payload_to_agent=True,
+                echo_includes_content=False,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        assert exc.value.field == "expose_payload_to_agent"
+        svc._repo.update.assert_not_awaited()
+
+    async def test_the_admin_edit_refuses_a_project_scoped_type(self) -> None:
+        project_type = _make_type()
+        svc = _wire_service(project_type)
+
+        with pytest.raises(ActivityTypeNotFound):
+            await svc.update_platform_type(
+                type_id=project_type.id,
+                name="admin overreach",
+                retention_days=None,
+                expose_payload_to_agent=True,
+                echo_includes_content=False,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        svc._repo.update.assert_not_awaited()
 
 
 class TestUpdateService:

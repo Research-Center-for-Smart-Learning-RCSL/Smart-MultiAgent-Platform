@@ -3,8 +3,9 @@
 Transport- and framework-agnostic read models mirroring the DB rows, so the
 service/facade never leak ORM types to the web/worker layers. Three nouns:
 
-- :class:`ActivityType`       — a project-scoped registered type (payload schema +
-                                validator config).
+- :class:`ActivityType`       — a registered type (payload schema + validator
+                                config), owned by a project or by the platform
+                                (:class:`ActivityTypeScope`).
 - :class:`ActivitySession`    — a subject's run of a type in a room; carries the
                                 server-assigned monotonic ``attempt_no`` counter.
 - :class:`ActivitySubmission` — the authoritative record of one scored submission.
@@ -44,10 +45,28 @@ class ValidationStatus(str, enum.Enum):
     ERROR = "error"
 
 
+class ActivityTypeScope(str, enum.Enum):
+    """Who owns an ``ActivityType`` ([R30.02]).
+
+    ``PROJECT`` is the original and only pre-0076 case: the row belongs to one
+    project and ``project_id`` is set. ``PLATFORM`` is a shipped example a
+    platform admin installed: no owning project, reachable from a project only
+    through a ``ProjectActivityTypeOptIn`` row ([R30.33]).
+
+    Deliberately two values, mirroring ``ActivityPolicy.scope`` — a per-org layer
+    would be a third value, which is a row-level concern rather than a rewrite.
+    """
+
+    PROJECT = "project"
+    PLATFORM = "platform"
+
+
 @dataclass(frozen=True, slots=True)
 class ActivityType:
     id: uuid.UUID
-    project_id: uuid.UUID
+    # None exactly when ``scope`` is PLATFORM; the pairing is enforced by the
+    # ck_activity_types_project_scope CHECK, not only by this class.
+    project_id: uuid.UUID | None
     key: str
     name: str
     payload_schema: dict[str, Any]
@@ -68,6 +87,40 @@ class ActivityType:
     expose_payload_to_agent: bool = True
     echo_includes_content: bool = False
     deleted_at: dt.datetime | None = None
+    # Defaulted rather than positional so the ~150 existing construction sites
+    # (tests included) keep describing the case they always described.
+    scope: ActivityTypeScope = ActivityTypeScope.PROJECT
+
+    def is_visible_to(self, project_id: uuid.UUID, *, opted_in: bool) -> bool:
+        """Whether this type may be used from ``project_id`` ([R30.09], [R30.33]).
+
+        The single expression of the tenancy rule that activation, session
+        opening, and submission each used to re-type as ``project_id`` equality.
+        Pure on purpose: ``opted_in`` is supplied by the caller, which is what
+        keeps the rule in the domain while the opt-in lookup stays in the
+        application layer (see ``application/reachability.py``).
+
+        A platform type is never visible on ``project_id`` alone — the opt-in row
+        is the authorization record, so a caller that cannot answer ``opted_in``
+        cannot accidentally get a permissive answer out of this.
+        """
+        if self.scope is ActivityTypeScope.PLATFORM:
+            return opted_in
+        return self.project_id == project_id
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectActivityTypeOptIn:
+    """One project's opt-in to one platform-scoped type ([R30.33]).
+
+    The row *is* the authorization: it is checked server-side on every room-level
+    path, not merely used to filter the picker.
+    """
+
+    project_id: uuid.UUID
+    activity_type_id: uuid.UUID
+    enabled_by_user_id: uuid.UUID | None
+    created_at: dt.datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,8 +296,10 @@ __all__ = [
     "ActivitySession",
     "ActivitySubmission",
     "ActivityType",
+    "ActivityTypeScope",
     "ActivationStatus",
     "PolicyImpact",
+    "ProjectActivityTypeOptIn",
     "RecentActivityRow",
     "SessionStatus",
     "ValidationResult",

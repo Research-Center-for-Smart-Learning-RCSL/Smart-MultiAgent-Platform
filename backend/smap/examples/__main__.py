@@ -7,6 +7,8 @@ import uuid
 import typer
 from loguru import logger
 
+from app.plugins.activity_validators import register_first_party_validators
+
 from ._catalogue import CourseFileInvalid, load_course
 from ._seeding import run as run_seed
 
@@ -41,7 +43,8 @@ def seed_course_cmd(
     Defaults to the two-unit creative-thinking course: `mandala-9grid` (unit 2,
     rendered by the bundled nine-grid plugin) and `six-hats-emotion-desk` (unit 4,
     rendered by the generic schema form). Both score with the `filled_count`
-    validator. --course names any file in smap/examples/courses/.
+    validator. --course names any file in
+    contexts/activities/infrastructure/examples/courses/.
 
     Idempotent -- a type whose key already exists is left untouched, so re-running
     after a partial failure is safe.
@@ -56,6 +59,13 @@ def seed_course_cmd(
     except ValueError as exc:
         logger.error("creative-thinking-course needs valid UUIDs: {}", exc)
         raise typer.Exit(code=1) from None
+
+    # Before load_course, not just before seeding: the catalogue now checks a
+    # course's validator_config against the in-process registry, and a CLI process
+    # runs no app startup steps, so an unpopulated registry would read every
+    # shipped course as naming an unregistered validator. Idempotent, and
+    # `_seeding` calls it again for the case where seeding is driven directly.
+    register_first_party_validators()
 
     try:
         definition = load_course(course)

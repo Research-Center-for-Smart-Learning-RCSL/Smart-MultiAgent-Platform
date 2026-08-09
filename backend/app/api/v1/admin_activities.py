@@ -20,12 +20,20 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Query
+from fastapi import Path as FPath
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.activities import dispatch_activation_ended
 from app.api.v1.admin_deps import require_admin
 from contexts.activities.domain.errors import ActivityPolicyVersionMismatch
-from contexts.activities.domain.models import PLATFORM_SCOPE, ActivityActivation, ActivityPolicy
+from contexts.activities.domain.models import (
+    PLATFORM_SCOPE,
+    ActivityActivation,
+    ActivityPolicy,
+    ActivityType,
+    ActivityTypeScope,
+)
 from contexts.activities.interfaces.facade import ActivitiesFacade
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
@@ -41,6 +49,14 @@ router = APIRouter(tags=["admin"])
 _DEFAULT_LIMIT = 50
 _MAX_LIMIT = 200
 
+# Matches `ActivityTypeIn.name` on the project surface — one type's name has one
+# bound, whoever is editing it.
+_MAX_NAME = 256
+# The loader's `_COURSE_KEY_RE` already rejects anything that is not lowercase
+# words joined by hyphens; this bounds the request before it gets that far, since
+# the segment now arrives over HTTP.
+_MAX_COURSE_KEY = 128
+
 
 class AdminActivityTypeOut(BaseModel):
     """One activity type, platform-wide.
@@ -53,8 +69,10 @@ class AdminActivityTypeOut(BaseModel):
     """
 
     id: uuid.UUID
-    project_id: uuid.UUID
+    # Both None for a platform-scoped type — it has no owning project ([R30.02]).
+    project_id: uuid.UUID | None
     project_name: str | None
+    scope: ActivityTypeScope
     key: str
     name: str
     validator_kind: str
@@ -125,6 +143,24 @@ class AdminPolicyImpactOut(BaseModel):
     violating_types: int
     violating_activations: int
     approximate: bool
+
+
+def _type_out(at: ActivityType, *, project_name: str | None) -> AdminActivityTypeOut:
+    return AdminActivityTypeOut(
+        id=at.id,
+        project_id=at.project_id,
+        project_name=project_name,
+        scope=at.scope,
+        key=at.key,
+        name=at.name,
+        validator_kind=at.validator_kind.value,
+        validator_config=at.validator_config,
+        expose_payload_to_agent=at.expose_payload_to_agent,
+        echo_includes_content=at.echo_includes_content,
+        retention_days=at.retention_days,
+        version=at.version,
+        created_at=at.created_at.isoformat(),
+    )
 
 
 def _policy_out(policy: ActivityPolicy) -> AdminActivityPolicyOut:
@@ -229,37 +265,184 @@ async def list_all_activity_types(
     """Every live activity type across every project, newest first."""
     types = await ActivitiesFacade(db).list_all_types(cursor=cursor, limit=limit)
 
-    # One batch lookup for the whole page, not one per row.
-    projects = await TenancyFacade(db).get_projects([at.project_id for at in types])
+    # One batch lookup for the whole page, not one per row. Platform-scoped rows
+    # are filtered out rather than passed through as None: `get_projects` would
+    # have to grow a None arm for a lookup that has no answer by construction.
+    projects = await TenancyFacade(db).get_projects(
+        [at.project_id for at in types if at.project_id is not None]
+    )
 
-    def _project_name(project_id: uuid.UUID) -> str | None:
-        """None when the project is gone, so one stale row cannot 500 the page.
+    def _project_name(project_id: uuid.UUID | None) -> str | None:
+        """None when the type is platform-scoped or its project is gone, so
+        neither can 500 the page.
 
         Written as an explicit branch rather than ``getattr(..., "name", None)``:
         the dict is precisely typed, and the getattr form would also swallow a
         rename of ``Project.name`` — leaving a silently blank column behind a
         green typecheck.
         """
+        if project_id is None:
+            return None
         project = projects.get(project_id)
         return project.name if project is not None else None
 
+    return [_type_out(at, project_name=_project_name(at.project_id)) for at in types]
+
+
+class AdminCatalogueTypeOut(BaseModel):
+    key: str
+    name: str
+    expose_payload_to_agent: bool
+    echo_includes_content: bool
+    retention_days: int | None
+    # None until installed; the id afterwards, so the UI can link straight to the
+    # row it would edit rather than searching the types table by key.
+    installed_type_id: uuid.UUID | None
+
+
+class AdminActivityExampleOut(BaseModel):
+    """One shipped course, annotated with what is already installed ([R30.32])."""
+
+    course_key: str
+    title: str
+    source: str
+    activity_types: list[AdminCatalogueTypeOut]
+    fully_installed: bool
+
+
+class AdminInstallReportOut(BaseModel):
+    """Which keys the install created and which were already there.
+
+    Both lists rather than a count: an install is idempotent, so "nothing created"
+    is a normal, successful outcome and the admin needs to see why.
+    """
+
+    course_key: str
+    created: list[str]
+    already_present: list[str]
+
+
+class AdminPlatformActivityTypeIn(BaseModel):
+    """The four fields a platform admin may edit ([R30.23], Q-4).
+
+    `key`, `payload_schema` and `validator_config` are absent by design, not
+    validated away: the moment a schema is editable from here this stops being an
+    install surface and becomes a course-authoring CMS.
+    """
+
+    name: str = Field(min_length=1, max_length=_MAX_NAME)
+    retention_days: int | None = Field(default=None, ge=1)
+    expose_payload_to_agent: bool
+    echo_includes_content: bool
+
+
+@router.get("/activity-examples")
+async def list_activity_examples(
+    _: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(db_session),
+) -> list[AdminActivityExampleOut]:
+    """The shipped example catalogue and its install state ([R30.32])."""
+    catalogue = await ActivitiesFacade(db).list_example_catalogue()
     return [
-        AdminActivityTypeOut(
-            id=at.id,
-            project_id=at.project_id,
-            project_name=_project_name(at.project_id),
-            key=at.key,
-            name=at.name,
-            validator_kind=at.validator_kind.value,
-            validator_config=at.validator_config,
-            expose_payload_to_agent=at.expose_payload_to_agent,
-            echo_includes_content=at.echo_includes_content,
-            retention_days=at.retention_days,
-            version=at.version,
-            created_at=at.created_at.isoformat(),
+        AdminActivityExampleOut(
+            course_key=entry.course_key,
+            title=entry.title,
+            source=entry.source,
+            activity_types=[
+                AdminCatalogueTypeOut(
+                    key=t.key,
+                    name=t.name,
+                    expose_payload_to_agent=t.expose_payload_to_agent,
+                    echo_includes_content=t.echo_includes_content,
+                    retention_days=t.retention_days,
+                    installed_type_id=t.installed_type_id,
+                )
+                for t in entry.activity_types
+            ],
+            fully_installed=entry.fully_installed,
         )
-        for at in types
+        for entry in catalogue
     ]
+
+
+@router.post("/activity-examples/{course_key}/install")
+async def install_activity_example(
+    course_key: str = FPath(..., max_length=_MAX_COURSE_KEY),
+    admin: Principal = Depends(require_admin),
+    ctx: RequestContext = Depends(current_context),
+    db: AsyncSession = Depends(db_session),
+) -> AdminInstallReportOut:
+    """Install a shipped course as platform-scoped types ([R30.32]).
+
+    Idempotent by key, so a re-run after a partial failure is safe. `course_key`
+    is a client-supplied path segment, which is what makes the loader's anchored
+    traversal guard load-bearing here rather than merely tidy — it now bounds a
+    network-reachable path.
+    """
+    report = await ActivitiesFacade(db).install_example_course(
+        course_key=course_key,
+        actor_user_id=admin.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    return AdminInstallReportOut(
+        course_key=report.course_key,
+        created=list(report.created),
+        already_present=list(report.already_present),
+    )
+
+
+@router.patch("/activity-types/{type_id}")
+async def update_platform_activity_type(
+    body: AdminPlatformActivityTypeIn,
+    type_id: uuid.UUID,
+    admin: Principal = Depends(require_admin),
+    ctx: RequestContext = Depends(current_context),
+    db: AsyncSession = Depends(db_session),
+) -> AdminActivityTypeOut:
+    """Edit an installed example's safe and governance fields ([R30.23]).
+
+    Platform-scoped rows only: a project's own type stays the project owner's, and
+    a project-scoped target 404s rather than being edited from here ([R30.31]).
+    """
+    activity_type = await ActivitiesFacade(db).update_platform_type(
+        type_id=type_id,
+        name=body.name,
+        retention_days=body.retention_days,
+        expose_payload_to_agent=body.expose_payload_to_agent,
+        echo_includes_content=body.echo_includes_content,
+        actor_user_id=admin.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    return _type_out(activity_type, project_name=None)
+
+
+@router.delete("/activity-types/{type_id}", status_code=204, response_model=None)
+async def delete_platform_activity_type(
+    type_id: uuid.UUID,
+    admin: Principal = Depends(require_admin),
+    ctx: RequestContext = Depends(current_context),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """Remove an installed example ([R30.32]).
+
+    The cascade legitimately spans every tenant: the type is going away for
+    everyone, so every active activation ends and every open session closes, and
+    the opt-in rows go with it through the FK cascade. Durable-commit before the
+    fan-out, so no room is told its activation ended before it is.
+    """
+    ended = await ActivitiesFacade(db).delete_platform_type(
+        type_id=type_id,
+        actor_user_id=admin.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    for chatroom_id, activation_id in ended:
+        await dispatch_activation_ended(chatroom_id, activation_id)
 
 
 @router.get("/activity-activations")

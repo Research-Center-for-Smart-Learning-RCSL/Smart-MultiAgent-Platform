@@ -8,6 +8,7 @@ session row serializes ``attempt_no`` assignment.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -123,12 +124,48 @@ class ActivitySessionRepository:
 
     async def close_open_for_type(self, activity_type_id: uuid.UUID) -> int:
         """Close every open session for a type, returning the count. Used by
-        type deletion's cascade so no in-flight session outlives its type."""
+        type deletion's cascade so no in-flight session outlives its type.
+
+        Unbounded across rooms, which is correct only when the type is going away
+        for everyone: a project-scoped delete, or a platform-scoped admin delete.
+        A project opting out of a platform type must use
+        :meth:`close_open_for_type_in_rooms` instead — see [R30.33].
+        """
         result = await self._db.execute(
             t.activity_sessions.update()
             .where(
                 sa.and_(
                     t.activity_sessions.c.activity_type_id == activity_type_id,
+                    t.activity_sessions.c.status == SessionStatus.OPEN.value,
+                )
+            )
+            .values(status=SessionStatus.CLOSED.value, closed_at=now())
+        )
+        return rowcount(result)
+
+    async def close_open_for_type_in_rooms(
+        self, activity_type_id: uuid.UUID, chatroom_ids: Sequence[uuid.UUID]
+    ) -> int:
+        """Close open sessions for a type, but only in the given rooms ([R30.33]).
+
+        The opt-out counterpart of :meth:`close_open_for_type`. A platform type is
+        live in every project that enabled it, so one project revoking its own
+        access must not close another project's sessions — these are different
+        operations and deliberately do not share a code path.
+
+        An empty room list closes nothing rather than everything: the degenerate
+        case of a project with no rooms must not widen into "all rooms", which is
+        what an unguarded ``IN ()`` would invite.
+        """
+        rooms = list(chatroom_ids)
+        if not rooms:
+            return 0
+        result = await self._db.execute(
+            t.activity_sessions.update()
+            .where(
+                sa.and_(
+                    t.activity_sessions.c.activity_type_id == activity_type_id,
+                    t.activity_sessions.c.chatroom_id.in_(rooms),
                     t.activity_sessions.c.status == SessionStatus.OPEN.value,
                 )
             )
