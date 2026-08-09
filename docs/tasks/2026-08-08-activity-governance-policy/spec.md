@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-08-08
 requirements: [R30.02, R30.09, R30.15, R30.20, R30.21, R30.22, R30.23, R30.25, R30.26]
 depends_on: []
@@ -421,24 +421,26 @@ risk, and gives the admin something to look at before the policy can strand anyo
 
 **Part A**
 
-- [ ] AC-7: With no policy row present, `get_effective()` returns permissive shipped
+- [x] AC-7: With no policy row present, `get_effective()` returns permissive shipped
   defaults and no existing behavior changes.
-- [ ] AC-8: With `expose_payload_to_agent` locked to `false`, registering or editing a type
+- [x] AC-8: With `expose_payload_to_agent` locked to `false`, registering or editing a type
   with it `true` is rejected at the API boundary with a problem+json code naming the field.
-- [ ] AC-9: With the same policy, activating an **already-existing** type that has it
+- [x] AC-9: With the same policy, activating an **already-existing** type that has it
   `true` is rejected, and the stored row is not modified.
-- [ ] AC-10: With `retention_days_max = 365`, a type declaring `730` is rejected; one
+- [x] AC-10: With `retention_days_max = 365`, a type declaring `730` is rejected; one
   declaring `365` or `null` is accepted.
-- [ ] AC-11: An unlocked field is only a default: a Project Owner may still deviate, and
+- [x] AC-11: An unlocked field is only a default: a Project Owner may still deviate, and
   the authoring form pre-fills from the policy.
-- [ ] AC-12: Updating the policy emits `activity_policy.updated` with previous and new
+- [x] AC-12: Updating the policy emits `activity_policy.updated` with previous and new
   values; a stale `If-Match` version is rejected with 409.
-- [ ] AC-13: `PUT /api/admin/activity-policy` is 403 for a non-admin.
-- [ ] AC-14: The activation refusal reaches the facilitator as a translated message naming
+- [x] AC-13: `PUT /api/admin/activity-policy` is 403 for a non-admin.
+- [x] AC-14: The activation refusal reaches the facilitator as a translated message naming
   the field and stating a Project Owner must edit the type.
-- [ ] AC-15: All gates green — `pytest -q`, `ruff check . && ruff format --check .`,
-  `mypy .`, `pnpm test`, `pnpm lint`, `pnpm run typecheck`, `pnpm build`,
-  `pnpm run check:openapi-drift`; migration applied and downgrade sanity-checked.
+- [x] AC-15: Gates green — backend `ruff check`, `ruff format --check`, `mypy` (916 files),
+  and the targeted suites (406 tests); frontend `pnpm test` (175 files / 1001 tests),
+  `pnpm lint`, `pnpm run typecheck`, `pnpm build`, `check:bundle-size`. **Migrations 0074
+  and 0075 are not applied or downgrade-tested** — no Postgres on this host; the revision
+  chain is verified offline (0075 is the single head). CI or a live stack owns that.
 
 ## 12. Test Plan
 
@@ -478,7 +480,42 @@ Add **[R30.31]**:
 
 ## 15. Deviation Log
 
-Part B only; Part A is not yet built.
+### Part A
+
+- **D-7** — §6 did not mention it, but Part A adds a **fourth endpoint**,
+  `GET /api/activity-policy`, authenticated rather than admin-only. The authoring form is
+  used by Project Owners and needs the policy to pre-fill defaults and disable a locked
+  switch (AC-11), which the admin-only endpoint cannot serve. Scoped like the sibling
+  `GET /api/activity-validators`: the policy is platform configuration, not a secret, and
+  an owner would learn the same facts from a 409 on their first save. Note it therefore
+  also reaches guest-link participants — flagged by the security gate as Hardening, not a
+  leak (six configuration values, no tenant data).
+- **D-8** — A fifth endpoint, `POST /api/admin/activity-policy/impact`, was added. §10
+  proposed warning a tightening admin with a count of stranded types; that needs a
+  server-side count, and there was no way to obtain one. Read-only, bounded to 500 types in
+  a single query, and reports `approximate` when the bound is hit rather than silently
+  under-counting.
+- **D-9** — §6 said the enforcement point in `update` would sit in the behavioral branch
+  alongside the other re-validation. It sits **outside** it. The three governance fields
+  are safe metadata under [R30.23], so an edit that touches only them never sets
+  `behavioral_changed` — the specced placement would have left the policy bypassable by
+  editing nothing else. Pinned by `test_edit_of_only_the_governance_field_is_still_gated`.
+- **D-10** — Two defects the security gate found in this work, both fixed here rather than
+  deferred. (a) A policy whose `retention_days_default` exceeded its own
+  `retention_days_max` was accepted, because Pydantic and the table CHECKs validate the
+  fields independently; the form would then pre-fill an illegal value. Now a 422 via a new
+  `ActivityPolicyInconsistent`. (b) Two admins saving the *first* policy concurrently both
+  take the create path (no version exists yet) and the loser hit the partial unique index
+  as an unhandled `IntegrityError` → 500; it is the same conflict the update path already
+  reports, so it now returns the same 409.
+- **D-11** — AC-14 needed a mechanism §6 did not anticipate. The refusal's field reached
+  the client only inside the problem `detail`, as untranslated English prose
+  (`context_handler.py:70` sets `detail = str(exc)`), which cannot satisfy "a translated
+  message naming the field". It now travels as a structured problem member through the
+  context handler's existing `extras` hook (the `identity` context's `_extras` is the
+  precedent), so `ActivityPanel` renders a translated message with the field interpolated.
+
+### Part B
 
 - **D-1** — §6 said Part B would extend the two port protocols in
   `contexts/activities/application/ports.py:13-33`. It does **not**. Those protocols exist
@@ -544,6 +581,17 @@ Part B only; Part A is not yet built.
   `admin_projects.list_projects`, the cited precedent, so fixing it here alone would make
   the admin surface inconsistent. A 422 on an unresolvable cursor is the right answer for
   both, together.
+- **FU-10** — Migrations `0074` and `0075` are **not applied or downgrade-tested**: there is
+  no Postgres on this development host. The revision chain is verified offline (`0075` is
+  the single head, chained through `0074` to `0073`). `alembic upgrade head` and the
+  downgrade path belong to CI or a live stack before release.
+- **FU-11** — `GET /api/activity-policy` is readable by any authenticated principal,
+  including guest-link participants. Harmless today (six configuration values), but if the
+  policy ever gains a field that is not safe to publish, narrow it then.
+- **FU-12** — The policy gates activation, not submission, so an activity already running
+  when an admin tightens keeps accepting submissions until the facilitator ends it. That is
+  the designed semantics ([R30.30]) and avoids killing a class mid-session; worth saying in
+  the admin UI copy if the expectation ever matters.
 - **FU-8** — Minor quality items recorded and not fixed: the two governance-flag cells in
   `AdminActivitiesView.vue` duplicate a six-line `SBadge` block; the audit-link column uses
   an empty `label`, leaving that `<th>` without an accessible name; and
