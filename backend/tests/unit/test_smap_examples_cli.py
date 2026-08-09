@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from typer.testing import CliRunner
 
+from app.plugins.activity_validators import register_first_party_validators
 from contexts.activities.application.type_service import ActivityTypeService
 from contexts.activities.application.validators import registry
 from contexts.activities.application.validators.schema import (
@@ -22,6 +23,7 @@ from contexts.activities.application.validators.schema import (
 )
 from contexts.activities.domain.errors import ValidatorConfigInvalid
 from contexts.activities.domain.models import ValidatorKind
+from smap.examples import _seeding
 from smap.examples import creative_thinking_course as seeder
 
 
@@ -38,9 +40,17 @@ def _patch_infra(monkeypatch: pytest.MonkeyPatch, facade: MagicMock) -> _FakeSes
     async def _sessionmaker_call() -> Any:
         yield session
 
-    monkeypatch.setattr(seeder, "get_sessionmaker", lambda: _sessionmaker_call)
-    monkeypatch.setattr(seeder, "ActivitiesFacade", lambda _s: facade)
+    monkeypatch.setattr(_seeding, "get_sessionmaker", lambda: _sessionmaker_call)
+    monkeypatch.setattr(_seeding, "ActivitiesFacade", lambda _s: facade)
     return session
+
+
+async def _seed_the_course(project_id: uuid.UUID, owner_user_id: uuid.UUID) -> _seeding.SeedReport:
+    return await _seeding.seed_course(
+        project_id=project_id,
+        owner_user_id=owner_user_id,
+        activity_types=seeder.COURSE_TYPES,
+    )
 
 
 def _facade(existing_keys: list[str]) -> MagicMock:
@@ -130,7 +140,7 @@ class TestSeededConfigsPassTheRealRegistrationGate:
     @pytest.mark.parametrize("course_type", seeder.COURSE_TYPES, ids=lambda t: t.key)
     def test_config_accepted_after_the_seeder_registers(self, course_type: seeder.CourseActivityType) -> None:
         registry.clear_registry()
-        seeder.register_first_party_validators()
+        register_first_party_validators()
         ActivityTypeService._validate_validator_config(
             course_type.validator_kind, course_type.validator_config
         )
@@ -138,7 +148,7 @@ class TestSeededConfigsPassTheRealRegistrationGate:
     async def test_seed_registers_validators_before_touching_the_facade(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The registration must happen inside `_seed`, not merely at module import.
+        """The registration must happen inside `seed_course`, not merely at module import.
 
         Importing the seeder module pulls in `app.plugins.activity_validators`, whose
         module scope registers as a side effect — so an import-only guarantee would
@@ -149,7 +159,7 @@ class TestSeededConfigsPassTheRealRegistrationGate:
         facade = _facade(existing_keys=[])
         _patch_infra(monkeypatch, facade)
 
-        await seeder._seed(uuid.uuid4(), uuid.uuid4())
+        await _seed_the_course(uuid.uuid4(), uuid.uuid4())
 
         assert registry.is_registered("filled_count")
 
@@ -159,7 +169,7 @@ class TestSeederIdempotency:
         facade = _facade(existing_keys=[])
         session = _patch_infra(monkeypatch, facade)
 
-        report = await seeder._seed(uuid.uuid4(), uuid.uuid4())
+        report = await _seed_the_course(uuid.uuid4(), uuid.uuid4())
 
         assert report.created == ["mandala-9grid", "six-hats-emotion-desk"]
         assert report.already_present == []
@@ -170,7 +180,7 @@ class TestSeederIdempotency:
         facade = _facade(existing_keys=["mandala-9grid", "six-hats-emotion-desk"])
         _patch_infra(monkeypatch, facade)
 
-        report = await seeder._seed(uuid.uuid4(), uuid.uuid4())
+        report = await _seed_the_course(uuid.uuid4(), uuid.uuid4())
 
         assert report.created == []
         assert report.already_present == ["mandala-9grid", "six-hats-emotion-desk"]
@@ -180,7 +190,7 @@ class TestSeederIdempotency:
         facade = _facade(existing_keys=["mandala-9grid"])
         _patch_infra(monkeypatch, facade)
 
-        report = await seeder._seed(uuid.uuid4(), uuid.uuid4())
+        report = await _seed_the_course(uuid.uuid4(), uuid.uuid4())
 
         assert report.created == ["six-hats-emotion-desk"]
         assert report.already_present == ["mandala-9grid"]
@@ -192,7 +202,7 @@ class TestSeederIdempotency:
         _patch_infra(monkeypatch, facade)
         project_id, owner_id = uuid.uuid4(), uuid.uuid4()
 
-        await seeder._seed(project_id, owner_id)
+        await _seed_the_course(project_id, owner_id)
 
         kwargs = facade.register_type.await_args_list[0].kwargs
         assert kwargs["project_id"] == project_id
