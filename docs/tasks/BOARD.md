@@ -33,14 +33,6 @@ parallel.
 
 ## In progress
 
-- `2026-08-08-activity-governance-policy` (feature) — `depends_on: []`. **Part B shipped**
-  (AC-1..AC-6 checked): admin-only cross-project read of activity types and active
-  activations, `app/api/v1/admin_activities.py` + `AdminActivitiesView`, audit deep-linking.
-  **Part A remains** (AC-7..AC-14): the platform-wide policy over
-  `expose_payload_to_agent` / `echo_includes_content` / `retention_days`, enforced at
-  authoring and again at activation, following the `prompt_studio` ConfigService precedent.
-  Adds one table. Deliberately staged this way so an admin can see the installed base
-  before any policy can strand it.
 
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
