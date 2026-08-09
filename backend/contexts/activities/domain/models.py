@@ -199,6 +199,19 @@ class RecentActivityRow:
 
 
 @dataclass(frozen=True, slots=True)
+class PolicyImpact:
+    """How many live types a candidate policy would refuse to activate.
+
+    ``approximate`` is true when the scan hit its bound, so the count is a floor
+    rather than a silently truncated total — a governance preview that quietly
+    under-reported would be worse than none.
+    """
+
+    violating_types: int
+    approximate: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ActivityAggregate:
     """Per subject/session/room read model (R30.10): counts, error-class
     distribution, and latency statistics from a single grouped query."""
@@ -224,6 +237,7 @@ __all__ = [
     "ActivitySubmission",
     "ActivityType",
     "ActivationStatus",
+    "PolicyImpact",
     "RecentActivityRow",
     "SessionStatus",
     "ValidationResult",

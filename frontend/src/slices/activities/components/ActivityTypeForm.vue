@@ -17,7 +17,12 @@ import type {
 } from '@shared/api-client'
 
 import PayloadSchemaField from './PayloadSchemaField.vue'
-import { listActivityValidators, registerActivityType, updateActivityType } from '../api'
+import {
+  getActivityPolicy,
+  listActivityValidators,
+  registerActivityType,
+  updateActivityType,
+} from '../api'
 import { activityKeys } from '../queries'
 import {
   EXACT_MATCH_VALIDATOR_ID,
@@ -131,6 +136,42 @@ const validatorsQuery = useQuery({
 
 const hasInProcessValidators = computed(() => (validatorsQuery.data.value ?? []).length > 0)
 
+// Platform governance policy (R30.29): pre-fills the three governance fields and
+// disables a locked one. The server re-checks on write and is authoritative —
+// this exists so an owner is not asked to fill in a form that cannot be accepted.
+const policyQuery = useQuery({
+  queryKey: activityKeys.policy(),
+  queryFn: () => getActivityPolicy(),
+})
+
+const policy = computed(() => policyQuery.data.value ?? null)
+
+// The policy usually resolves *after* the modal's open-watch has already reset
+// the form, so seeding has to happen in both places. `policyApplied` keeps it to
+// once per open, so a late-arriving policy cannot overwrite what an owner has
+// already typed.
+const policyApplied = ref(false)
+
+/** Seed the three governance fields for a *new* type. Editing never overwrites
+ *  what the type already stores: a locked field is disabled instead, and a stored
+ *  value that now violates the policy must stay visible so the owner can see what
+ *  needs fixing. */
+function applyPolicyDefaults(
+  values: Partial<ActivityTypeCreateInput>,
+): Partial<ActivityTypeCreateInput> {
+  if (props.editType || !policy.value) return values
+  policyApplied.value = true
+  return {
+    ...values,
+    expose_payload_to_agent: policy.value.expose_payload_to_agent_default,
+    echo_includes_content: policy.value.echo_includes_content_default,
+    retention_days: policy.value.retention_days_default,
+  }
+}
+const exposeLocked = computed(() => policy.value?.expose_payload_to_agent_locked === true)
+const echoLocked = computed(() => policy.value?.echo_includes_content_locked === true)
+const retentionMax = computed(() => policy.value?.retention_days_max ?? null)
+
 const validatorKindOptions = computed(() =>
   VALIDATOR_KINDS.filter((k) => k !== 'in_process' || hasInProcessValidators.value).map((k) => ({
     value: k,
@@ -219,12 +260,28 @@ watch(
     if (!open) return
     hydrating.value = true
     schemaParseError.value = null
-    resetForm({ values: toFormValues(props.editType ?? null) })
+    policyApplied.value = false
+    resetForm({ values: applyPolicyDefaults(toFormValues(props.editType ?? null)) })
     void nextTick(() => {
       hydrating.value = false
     })
   },
   { immediate: true },
+)
+
+// The policy usually resolves after the modal's open-watch has already reset the
+// form. Seed the three governance fields directly rather than re-running
+// resetForm: a late reset would wipe the key, name, and schema an owner has
+// already typed. Once per open, so it cannot fight a manual edit either.
+watch(
+  () => policy.value,
+  (p) => {
+    if (!p || !props.open || props.editType || policyApplied.value) return
+    policyApplied.value = true
+    exposePayloadToAgent.value = p.expose_payload_to_agent_default
+    echoIncludesContent.value = p.echo_includes_content_default
+    retentionDays.value = p.retention_days_default
+  },
 )
 
 const { applyServerErrors } = useServerErrors(setErrors)
@@ -357,22 +414,28 @@ function onClose(): void {
         :label="t('activities.typeForm.retentionDays')"
         name="retention_days"
         :error="errors.retention_days ?? ''"
-        :help="t('activities.typeForm.retentionHelp')"
+        :help="retentionMax !== null
+          ? t('activities.typeForm.retentionCapped', { max: retentionMax })
+          : t('activities.typeForm.retentionHelp')"
       >
         <SInput
           v-model="retentionDisplay"
           type="number"
           min="1"
+          :max="retentionMax ?? undefined"
         />
       </SFormField>
 
       <SFormField
         :label="t('activities.typeForm.exposePayloadToAgent')"
         name="expose_payload_to_agent"
-        :help="t('activities.typeForm.exposePayloadToAgentHelp')"
+        :help="exposeLocked
+          ? t('activities.typeForm.lockedByPolicy')
+          : t('activities.typeForm.exposePayloadToAgentHelp')"
       >
         <SCheckbox
           v-model="exposePayloadToAgent"
+          :disabled="exposeLocked"
           data-testid="type-expose-payload-to-agent"
         >
           {{ t('activities.typeForm.exposePayloadToAgentLabel') }}
@@ -382,10 +445,13 @@ function onClose(): void {
       <SFormField
         :label="t('activities.typeForm.echoIncludesContent')"
         name="echo_includes_content"
-        :help="t('activities.typeForm.echoIncludesContentHelp')"
+        :help="echoLocked
+          ? t('activities.typeForm.lockedByPolicy')
+          : t('activities.typeForm.echoIncludesContentHelp')"
       >
         <SCheckbox
           v-model="echoIncludesContent"
+          :disabled="echoLocked"
           data-testid="type-echo-includes-content"
         >
           {{ t('activities.typeForm.echoIncludesContentLabel') }}

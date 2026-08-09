@@ -3,8 +3,11 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AdminActivityActivationOut } from '../models/AdminActivityActivationOut';
+import type { AdminActivityPolicyIn } from '../models/AdminActivityPolicyIn';
+import type { AdminActivityPolicyOut } from '../models/AdminActivityPolicyOut';
 import type { AdminActivityTypeOut } from '../models/AdminActivityTypeOut';
 import type { AdminEntryOut } from '../models/AdminEntryOut';
+import type { AdminPolicyImpactOut } from '../models/AdminPolicyImpactOut';
 import type { AdminPromoteIn } from '../models/AdminPromoteIn';
 import type { AuditPageOut } from '../models/AuditPageOut';
 import type { BanIn } from '../models/BanIn';
@@ -47,6 +50,74 @@ export class AdminService {
                 'cursor': cursor,
                 'limit': limit,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Activity Policy
+     * The policy in force, or the permissive default when none is saved.
+     * @returns AdminActivityPolicyOut Successful Response
+     * @throws ApiError
+     */
+    public static getActivityPolicyApiAdminActivityPolicyGet(): CancelablePromise<AdminActivityPolicyOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/activity-policy',
+        });
+    }
+    /**
+     * Put Activity Policy
+     * Create or replace the platform policy.
+     *
+     * ``If-Match`` carries the version the admin's form was built against and is
+     * required once a policy exists; without it a concurrent edit would be silently
+     * overwritten. A non-integer header is rejected as a mismatch rather than
+     * ignored — treating an unparseable precondition as "no precondition" would
+     * defeat the point.
+     * @returns AdminActivityPolicyOut Successful Response
+     * @throws ApiError
+     */
+    public static putActivityPolicyApiAdminActivityPolicyPut({
+        requestBody,
+        ifMatch,
+    }: {
+        requestBody: AdminActivityPolicyIn,
+        ifMatch?: (string | null),
+    }): CancelablePromise<AdminActivityPolicyOut> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/admin/activity-policy',
+            headers: {
+                'If-Match': ifMatch,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Preview Activity Policy Impact
+     * Count the live types a candidate policy would block, without saving it.
+     *
+     * POST rather than GET because the candidate policy is a body, not an identity;
+     * it writes nothing.
+     * @returns AdminPolicyImpactOut Successful Response
+     * @throws ApiError
+     */
+    public static previewActivityPolicyImpactApiAdminActivityPolicyImpactPost({
+        requestBody,
+    }: {
+        requestBody: AdminActivityPolicyIn,
+    }): CancelablePromise<AdminPolicyImpactOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/activity-policy/impact',
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },

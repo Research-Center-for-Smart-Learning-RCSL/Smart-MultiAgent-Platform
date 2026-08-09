@@ -249,7 +249,28 @@
       "on": "On",
       "off": "Off",
       "viewAudit": "Audit trail",
-      "truncated": "Showing the most recent {count}. More exist than are listed here."
+      "truncated": "Showing the most recent {count}. More exist than are listed here.",
+      "policy": {
+        "heading": "Platform policy",
+        "help": "Defaults and limits every project must author within. Locking a switch forces every activity type to match it, and is re-checked when a facilitator starts an activity, so tightening reaches activities that already exist.",
+        "neverSaved": "No policy has been saved yet, so the platform is running permissively.",
+        "exposeHelp": "Whether participant answers reach an AI agent, and therefore an LLM provider. This is a consent and ethics decision, not a preference.",
+        "echoHelp": "Whether participant answers appear in the shared room transcript.",
+        "retentionHelp": "The default retention a project starts from, and the longest it may set. Leave either blank for no value.",
+        "retentionDefault": "Default (days)",
+        "retentionMax": "Maximum (days)",
+        "defaultOn": "Default to on",
+        "lock": "Lock: projects cannot change it",
+        "preview": "Check impact",
+        "save": "Save policy",
+        "saved": "Policy saved.",
+        "saveFailed": "Could not save the policy. Please try again.",
+        "previewFailed": "Could not check the impact. Please try again.",
+        "conflict": "Someone else changed the policy while this form was open. It has been reloaded; review and save again.",
+        "impact": "This policy would stop {count} existing activity types from being started until a project owner edits them.",
+        "impactApprox": "This policy would stop at least {count} existing activity types from being started until a project owner edits them.",
+        "impactNone": "No existing activity type would be blocked."
+      }
     }
   }
 }

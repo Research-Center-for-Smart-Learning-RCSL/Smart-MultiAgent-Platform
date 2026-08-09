@@ -13,10 +13,12 @@ import ActivityTypeForm from '../components/ActivityTypeForm.vue'
 const registerMock = vi.hoisted(() => vi.fn())
 const updateMock = vi.hoisted(() => vi.fn())
 const listValidatorsMock = vi.hoisted(() => vi.fn())
+const policyMock = vi.hoisted(() => vi.fn())
 vi.mock('../api', () => ({
   registerActivityType: registerMock,
   updateActivityType: updateMock,
   listActivityValidators: listValidatorsMock,
+  getActivityPolicy: policyMock,
 }))
 
 vi.mock('@slices/agents', async (importOriginal) => ({
@@ -64,6 +66,17 @@ beforeEach(() => {
   updateMock.mockReset()
   listValidatorsMock.mockReset()
   listValidatorsMock.mockResolvedValue([{ id: 'exact_match', title: 'Exact match' }])
+  policyMock.mockReset()
+  // Default: no platform policy saved, so nothing is locked or pre-filled — the
+  // behavior every pre-existing test here was written against.
+  policyMock.mockResolvedValue({
+    expose_payload_to_agent_default: true,
+    expose_payload_to_agent_locked: false,
+    echo_includes_content_default: false,
+    echo_includes_content_locked: false,
+    retention_days_default: null,
+    retention_days_max: null,
+  })
 })
 
 describe('ActivityTypeForm', () => {
@@ -218,6 +231,61 @@ describe('ActivityTypeForm', () => {
       expect(wrapper.text()).toContain('activities.typeForm.filledCountExceeds'),
     )
     expect(registerMock).not.toHaveBeenCalled()
+  })
+
+  it('disables a governance field the platform policy locks (AC-11)', async () => {
+    policyMock.mockResolvedValue({
+      expose_payload_to_agent_default: false,
+      expose_payload_to_agent_locked: true,
+      echo_includes_content_default: false,
+      echo_includes_content_locked: false,
+      retention_days_default: null,
+      retention_days_max: null,
+    })
+    const wrapper = await mountForm()
+    await flushPromises()
+
+    // SCheckbox puts the testid on its <label> root; the control is inside.
+    const expose = wrapper.find('[data-testid="type-expose-payload-to-agent"] input')
+      .element as HTMLInputElement
+    const echo = wrapper.find('[data-testid="type-echo-includes-content"] input')
+      .element as HTMLInputElement
+    expect(expose.disabled).toBe(true)
+    // Only the locked one is disabled.
+    expect(echo.disabled).toBe(false)
+    expect(wrapper.text()).toContain('activities.typeForm.lockedByPolicy')
+  })
+
+  it('pre-fills a new type from the policy defaults, unlocked (AC-11)', async () => {
+    policyMock.mockResolvedValue({
+      expose_payload_to_agent_default: false,
+      expose_payload_to_agent_locked: false,
+      echo_includes_content_default: true,
+      echo_includes_content_locked: false,
+      retention_days_default: 30,
+      retention_days_max: null,
+    })
+    const wrapper = await mountForm()
+    await flushPromises()
+
+    // SCheckbox puts the testid on its <label> root; the control is inside.
+    const expose = wrapper.find('[data-testid="type-expose-payload-to-agent"] input')
+      .element as HTMLInputElement
+    // Pre-filled from the default, but still editable: an unlocked field is a
+    // suggestion, not a constraint.
+    expect(expose.checked).toBe(false)
+    expect(expose.disabled).toBe(false)
+  })
+
+  it('leaves a permissive policy alone (AC-7)', async () => {
+    const wrapper = await mountForm()
+    await flushPromises()
+
+    // SCheckbox puts the testid on its <label> root; the control is inside.
+    const expose = wrapper.find('[data-testid="type-expose-payload-to-agent"] input')
+      .element as HTMLInputElement
+    expect(expose.disabled).toBe(false)
+    expect(wrapper.text()).not.toContain('activities.typeForm.lockedByPolicy')
   })
 
   it('shows the min_filled input only for filled_count (AC-6)', async () => {

@@ -171,6 +171,59 @@
         "title": "ActivityAggregateOut",
         "type": "object"
       },
+      "ActivityPolicyPublicOut": {
+        "description": "The platform governance policy as an author needs to see it ([R30.29]).\n\nAny authenticated caller, like the validator listing above: the policy is\nplatform configuration, not a secret, and an owner would learn the same facts\nfrom a 409 on their first save. Reading it up front is what lets the authoring\nform pre-fill a default and disable a locked switch instead of letting the\nowner fill in a form that cannot be accepted.\n\nDeliberately omits ``updated_by_user_id`` \u2014 who set the policy is an admin\nconcern and is on the admin surface.",
+        "properties": {
+          "echo_includes_content_default": {
+            "title": "Echo Includes Content Default",
+            "type": "boolean"
+          },
+          "echo_includes_content_locked": {
+            "title": "Echo Includes Content Locked",
+            "type": "boolean"
+          },
+          "expose_payload_to_agent_default": {
+            "title": "Expose Payload To Agent Default",
+            "type": "boolean"
+          },
+          "expose_payload_to_agent_locked": {
+            "title": "Expose Payload To Agent Locked",
+            "type": "boolean"
+          },
+          "retention_days_default": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days Default"
+          },
+          "retention_days_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days Max"
+          }
+        },
+        "required": [
+          "expose_payload_to_agent_default",
+          "expose_payload_to_agent_locked",
+          "echo_includes_content_default",
+          "echo_includes_content_locked",
+          "retention_days_default",
+          "retention_days_max"
+        ],
+        "title": "ActivityPolicyPublicOut",
+        "type": "object"
+      },
       "ActivitySessionOpenIn": {
         "properties": {
           "activity_type_id": {
@@ -738,6 +791,141 @@
         "title": "AdminActivityActivationOut",
         "type": "object"
       },
+      "AdminActivityPolicyIn": {
+        "properties": {
+          "echo_includes_content_default": {
+            "title": "Echo Includes Content Default",
+            "type": "boolean"
+          },
+          "echo_includes_content_locked": {
+            "title": "Echo Includes Content Locked",
+            "type": "boolean"
+          },
+          "expose_payload_to_agent_default": {
+            "title": "Expose Payload To Agent Default",
+            "type": "boolean"
+          },
+          "expose_payload_to_agent_locked": {
+            "title": "Expose Payload To Agent Locked",
+            "type": "boolean"
+          },
+          "retention_days_default": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days Default"
+          },
+          "retention_days_max": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days Max"
+          }
+        },
+        "required": [
+          "expose_payload_to_agent_default",
+          "expose_payload_to_agent_locked",
+          "echo_includes_content_default",
+          "echo_includes_content_locked"
+        ],
+        "title": "AdminActivityPolicyIn",
+        "type": "object"
+      },
+      "AdminActivityPolicyOut": {
+        "description": "The platform governance policy ([R30.29]).\n\n``version`` is 0 when no policy has ever been saved \u2014 the client uses that to\nknow it is creating rather than replacing, and must not send ``If-Match``.",
+        "properties": {
+          "echo_includes_content_default": {
+            "title": "Echo Includes Content Default",
+            "type": "boolean"
+          },
+          "echo_includes_content_locked": {
+            "title": "Echo Includes Content Locked",
+            "type": "boolean"
+          },
+          "expose_payload_to_agent_default": {
+            "title": "Expose Payload To Agent Default",
+            "type": "boolean"
+          },
+          "expose_payload_to_agent_locked": {
+            "title": "Expose Payload To Agent Locked",
+            "type": "boolean"
+          },
+          "retention_days_default": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days Default"
+          },
+          "retention_days_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days Max"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By User Id"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expose_payload_to_agent_default",
+          "expose_payload_to_agent_locked",
+          "echo_includes_content_default",
+          "echo_includes_content_locked",
+          "retention_days_default",
+          "retention_days_max",
+          "version",
+          "updated_at",
+          "updated_by_user_id"
+        ],
+        "title": "AdminActivityPolicyOut",
+        "type": "object"
+      },
       "AdminActivityTypeOut": {
         "description": "One activity type, platform-wide.\n\nCarries `validator_config` deliberately (Q-3 of the dossier): an admin already\nreads it through the project API by bypass, so withholding it here buys no\nconfidentiality and costs a screen switch during triage. It may hold answer\nkeys, so this model stays admin-only \u2014 it must not be reused by a\nnon-admin surface ([R30.25]).",
         "properties": {
@@ -853,6 +1041,25 @@
           "promoted_at"
         ],
         "title": "AdminEntryOut",
+        "type": "object"
+      },
+      "AdminPolicyImpactOut": {
+        "description": "How many live types a candidate policy would refuse to activate.\n\nLets the admin form warn before a tightening strands a class ([R30.30]).\n``approximate`` is true when the scan hit its bound, so the count is a floor\nrather than a silent truncation.",
+        "properties": {
+          "approximate": {
+            "title": "Approximate",
+            "type": "boolean"
+          },
+          "violating_types": {
+            "title": "Violating Types",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "violating_types",
+          "approximate"
+        ],
+        "title": "AdminPolicyImpactOut",
         "type": "object"
       },
       "AdminPromoteIn": {
@@ -9593,6 +9800,28 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/activity-policy": {
+      "get": {
+        "description": "The policy in force, for the authoring form. Permissive when none is saved.",
+        "operationId": "get_activity_policy_public_api_activity_policy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityPolicyPublicOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Activity Policy Public",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
     "/api/activity-validators": {
       "get": {
         "description": "List the registered first-party in-process validators (R30.24). Global and\nprocess-scoped \u2014 availability never varies per project \u2014 so any authenticated\ncaller reads the same set the picker draws from. Exposes ids/titles only.",
@@ -9681,6 +9910,131 @@
           }
         },
         "summary": "List All Active Activations",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/activity-policy": {
+      "get": {
+        "description": "The policy in force, or the permissive default when none is saved.",
+        "operationId": "get_activity_policy_api_admin_activity_policy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminActivityPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Activity Policy",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "Create or replace the platform policy.\n\n``If-Match`` carries the version the admin's form was built against and is\nrequired once a policy exists; without it a concurrent edit would be silently\noverwritten. A non-integer header is rejected as a mismatch rather than\nignored \u2014 treating an unparseable precondition as \"no precondition\" would\ndefeat the point.",
+        "operationId": "put_activity_policy_api_admin_activity_policy_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminActivityPolicyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminActivityPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Activity Policy",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/activity-policy/impact": {
+      "post": {
+        "description": "Count the live types a candidate policy would block, without saving it.\n\nPOST rather than GET because the candidate policy is a body, not an identity;\nit writes nothing.",
+        "operationId": "preview_activity_policy_impact_api_admin_activity_policy_impact_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminActivityPolicyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPolicyImpactOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Activity Policy Impact",
         "tags": [
           "admin",
           "admin"

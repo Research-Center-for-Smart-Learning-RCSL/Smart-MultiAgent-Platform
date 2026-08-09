@@ -20,10 +20,14 @@ from fastapi import HTTPException
 
 from app.api.v1 import admin_activities
 from app.api.v1.admin_deps import require_admin
+from contexts.activities.domain.errors import ActivityPolicyVersionMismatch
 from contexts.activities.domain.models import (
+    PLATFORM_SCOPE,
     ActivationStatus,
     ActivityActivation,
+    ActivityPolicy,
     ActivityType,
+    PolicyImpact,
     ValidatorKind,
 )
 from contexts.activities.interfaces.facade import ActivitiesFacade
@@ -50,6 +54,46 @@ def _make_type(*, project_id: uuid.UUID, key: str = "k", **over: object) -> Acti
     }
     base.update(over)
     return ActivityType(**base)
+
+
+_CTX = SimpleNamespace(actor_ip=None, request_id=None)
+
+
+def _committing_db() -> MagicMock:
+    db = MagicMock()
+    db.commit = AsyncMock()
+    return db
+
+
+def _policy(**over: object) -> ActivityPolicy:
+    base: dict = {
+        "id": uuid.uuid4(),
+        "scope": PLATFORM_SCOPE,
+        "expose_payload_to_agent_default": True,
+        "expose_payload_to_agent_locked": False,
+        "echo_includes_content_default": False,
+        "echo_includes_content_locked": False,
+        "retention_days_default": None,
+        "retention_days_max": None,
+        "version": 1,
+        "updated_at": None,
+        "updated_by_user_id": None,
+    }
+    base.update(over)
+    return ActivityPolicy(**base)
+
+
+def _policy_in(**over: object) -> admin_activities.AdminActivityPolicyIn:
+    base: dict = {
+        "expose_payload_to_agent_default": True,
+        "expose_payload_to_agent_locked": False,
+        "echo_includes_content_default": False,
+        "echo_includes_content_locked": False,
+        "retention_days_default": None,
+        "retention_days_max": None,
+    }
+    base.update(over)
+    return admin_activities.AdminActivityPolicyIn(**base)
 
 
 def _make_activation(*, chatroom_id: uuid.UUID, activity_type_id: uuid.UUID) -> ActivityActivation:
@@ -242,6 +286,87 @@ class TestListAllActiveActivations:
         assert gc.await_args.args[0] == []
 
 
+class TestPolicyRoutes:
+    """AC-12/AC-13 at the HTTP boundary: the If-Match handling and the gate."""
+
+    async def test_get_returns_the_effective_policy(self) -> None:
+        policy = _policy(version=0)
+        with patch.object(ActivitiesFacade, "get_activity_policy", AsyncMock(return_value=policy)):
+            out = await admin_activities.get_activity_policy(_=_ADMIN, db=MagicMock())
+
+        # version 0 tells the client it is creating, not replacing.
+        assert out.version == 0
+        assert out.updated_at is None
+
+    async def test_put_without_if_match_passes_no_expected_version(self) -> None:
+        with patch.object(
+            ActivitiesFacade, "update_activity_policy", AsyncMock(return_value=_policy(version=1))
+        ) as upd:
+            await admin_activities.put_activity_policy(
+                body=_policy_in(), admin=_ADMIN, ctx=_CTX, db=_committing_db(), if_match=None
+            )
+
+        assert upd.await_args.kwargs["expected_version"] is None
+
+    @pytest.mark.parametrize("header", ["7", '"7"', " 7 "], ids=["bare", "quoted", "padded"])
+    async def test_put_parses_the_if_match_version(self, header: str) -> None:
+        with patch.object(
+            ActivitiesFacade, "update_activity_policy", AsyncMock(return_value=_policy(version=8))
+        ) as upd:
+            await admin_activities.put_activity_policy(
+                body=_policy_in(), admin=_ADMIN, ctx=_CTX, db=_committing_db(), if_match=header
+            )
+
+        assert upd.await_args.kwargs["expected_version"] == 7
+
+    async def test_an_unparseable_if_match_is_a_mismatch_not_a_missing_precondition(self) -> None:
+        """Ignoring a malformed precondition would silently disable the guard."""
+        with (
+            patch.object(ActivitiesFacade, "update_activity_policy", AsyncMock()) as upd,
+            pytest.raises(ActivityPolicyVersionMismatch),
+        ):
+            await admin_activities.put_activity_policy(
+                body=_policy_in(), admin=_ADMIN, ctx=_CTX, db=_committing_db(), if_match="not-a-version"
+            )
+
+        upd.assert_not_awaited()
+
+    async def test_impact_preview_reports_violations_without_saving(self) -> None:
+        with (
+            patch.object(
+                ActivitiesFacade,
+                "preview_policy_impact",
+                AsyncMock(return_value=PolicyImpact(violating_types=3, approximate=False)),
+            ) as prev,
+            patch.object(ActivitiesFacade, "update_activity_policy", AsyncMock()) as upd,
+        ):
+            out = await admin_activities.preview_activity_policy_impact(
+                body=_policy_in(expose_payload_to_agent_locked=True), _=_ADMIN, db=MagicMock()
+            )
+
+        assert out.violating_types == 3
+        assert out.approximate is False
+        # A preview must not write.
+        upd.assert_not_awaited()
+        # The candidate policy, not the stored one, is what gets measured.
+        assert prev.await_args.args[0].expose_payload_to_agent_locked is True
+
+    @pytest.mark.parametrize(
+        "route",
+        [
+            admin_activities.get_activity_policy,
+            admin_activities.put_activity_policy,
+            admin_activities.preview_activity_policy_impact,
+        ],
+        ids=["get", "put", "impact"],
+    )
+    def test_policy_routes_are_admin_gated(self, route: object) -> None:
+        """AC-13. The policy can force agent exposure platform-wide."""
+        params = inspect.signature(route).parameters  # type: ignore[arg-type]
+        deps = [p.default.dependency for p in params.values() if hasattr(p.default, "dependency")]
+        assert require_admin in deps
+
+
 class TestRouterRegistration:
     def test_router_is_mounted_under_the_admin_aggregate(self) -> None:
         """A router that exists but is never included is invisible in production.
@@ -263,3 +388,5 @@ class TestRouterRegistration:
         assert "/api/admin/activity-activations" in paths
         assert "get" in paths["/api/admin/activity-types"]
         assert "get" in paths["/api/admin/activity-activations"]
+        assert {"get", "put"} <= set(paths["/api/admin/activity-policy"])
+        assert "post" in paths["/api/admin/activity-policy/impact"]

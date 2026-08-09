@@ -132,7 +132,9 @@
       "configRejected": "驗證器設定或結構被拒絕，請檢查後再試。",
       "activeConflict": "此活動類型正在某個聊天室進行中。請先結束後再修改欄位或驗證器。",
       "createFailed": "無法建立活動類型，請再試一次。",
-      "updateFailed": "無法更新活動類型，請再試一次。"
+      "updateFailed": "無法更新活動類型，請再試一次。",
+      "lockedByPolicy": "由平台政策設定，此處無法變更。",
+      "retentionCapped": "提交紀錄的保留時間。平台政策上限為 {max} 天。留空表示不設限。"
     },
     "schemaBuilder": {
       "intro": "新增參與者要提交的每個欄位。給定名稱與型別，並標記是否必填。",
