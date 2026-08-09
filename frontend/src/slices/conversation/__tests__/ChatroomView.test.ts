@@ -496,4 +496,83 @@ describe('ChatroomView', () => {
       expect(wrapper.find('.load-earlier').exists()).toBe(true)
     })
   })
+
+  // jsdom performs no layout, so these assert the structural contract that makes
+  // the rail scrollable and resizable — which element owns the width, and which
+  // opts into the fill height — rather than that clipping stopped. The visual
+  // outcome is verified by hand (spec §12).
+  describe('desktop right rail', () => {
+    const originalWidth = window.innerWidth
+
+    function setViewport(width: number): void {
+      Object.defineProperty(window, 'innerWidth', {
+        value: width, configurable: true, writable: true,
+      })
+    }
+
+    afterEach(() => {
+      setViewport(originalWidth)
+      localStorage.clear()
+    })
+
+    it('drives the rail track from the persisted width', async () => {
+      setViewport(1400)
+      localStorage.setItem('smap-chatroom-rail-w', '420')
+      const wrapper = await renderView(ChatroomView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1',
+      })
+      expect(wrapper.find('.chatroom').attributes('style')).toContain('--chatroom-rail-w: 420px')
+    })
+
+    it('exposes the rail handle as a separator on desktop', async () => {
+      setViewport(1400)
+      const wrapper = await renderView(ChatroomView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1',
+      })
+      const handle = wrapper.find('.chatroom__rail-handle')
+      expect(handle.exists()).toBe(true)
+      expect(handle.attributes('role')).toBe('separator')
+    })
+
+    // AC-10 — below lg the rail is a drawer, which scrolls on its own.
+    it('offers no resize handle below the desktop breakpoint', async () => {
+      setViewport(800)
+      const wrapper = await renderView(ChatroomView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1',
+      })
+      expect(wrapper.find('.chatroom__rail-handle').exists()).toBe(false)
+      expect(wrapper.find('.chatroom').attributes('style') ?? '')
+        .not.toContain('--chatroom-rail-w')
+    })
+
+    // AC-2 / AC-3 — the tab strip stays put and the panel below it is what
+    // scrolls, which only holds if the rail's STabs is in fill mode.
+    it('opts the tabbed rail into filling its height', async () => {
+      setViewport(1400)
+      server.use(
+        http.get('/api/chatrooms/:chatroomId', () =>
+          HttpResponse.json({
+            id: 'cr_1', name: 'Test Room', project_id: 'proj_1',
+            workspace_id: 'ws_1',
+            allow_org_members: false, allow_project_members: true,
+            allow_project_owners_only: false, allow_guest_links: false,
+            created_by_user_id: 'u_1',
+            agents: [],
+          }),
+        ),
+      )
+      const wrapper = await renderView(ChatroomView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1',
+      })
+      signInAs('u_1')
+      await settle()
+
+      expect(wrapper.find('[role="tablist"]').exists()).toBe(true)
+      expect(wrapper.find('.s-tabs--fill').exists()).toBe(true)
+    })
+  })
 })
