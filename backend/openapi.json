@@ -530,6 +530,20 @@
         "title": "ActivityTypeIn",
         "type": "object"
       },
+      "ActivityTypeOptInIn": {
+        "properties": {
+          "activity_type_id": {
+            "format": "uuid",
+            "title": "Activity Type Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "activity_type_id"
+        ],
+        "title": "ActivityTypeOptInIn",
+        "type": "object"
+      },
       "ActivityTypeOut": {
         "properties": {
           "created_at": {
@@ -570,9 +584,16 @@
             "type": "object"
           },
           "project_id": {
-            "format": "uuid",
-            "title": "Project Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
           },
           "retention_days": {
             "anyOf": [
@@ -584,6 +605,9 @@
               }
             ],
             "title": "Retention Days"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ActivityTypeScope"
           },
           "validator_config": {
             "additionalProperties": true,
@@ -597,6 +621,7 @@
         "required": [
           "id",
           "project_id",
+          "scope",
           "key",
           "name",
           "payload_schema",
@@ -640,6 +665,15 @@
         ],
         "title": "ActivityTypePublicOut",
         "type": "object"
+      },
+      "ActivityTypeScope": {
+        "description": "Who owns an ``ActivityType`` ([R30.02]).\n\n``PROJECT`` is the original and only pre-0076 case: the row belongs to one\nproject and ``project_id`` is set. ``PLATFORM`` is a shipped example a\nplatform admin installed: no owning project, reachable from a project only\nthrough a ``ProjectActivityTypeOptIn`` row ([R30.33]).\n\nDeliberately two values, mirroring ``ActivityPolicy.scope`` \u2014 a per-org layer\nwould be a third value, which is a row-level concern rather than a rewrite.",
+        "enum": [
+          "project",
+          "platform"
+        ],
+        "title": "ActivityTypeScope",
+        "type": "string"
       },
       "ActivityTypeUpdateIn": {
         "description": "Full editable representation for an edit; ``key`` is intentionally absent\n(never editable, R30.23). The edit form pre-fills and resubmits every field,\nso the service diffs this against the stored row to decide the version bump.",
@@ -798,6 +832,43 @@
           "created_at"
         ],
         "title": "AdminActivityActivationOut",
+        "type": "object"
+      },
+      "AdminActivityExampleOut": {
+        "description": "One shipped course, annotated with what is already installed ([R30.32]).",
+        "properties": {
+          "activity_types": {
+            "items": {
+              "$ref": "#/components/schemas/AdminCatalogueTypeOut"
+            },
+            "title": "Activity Types",
+            "type": "array"
+          },
+          "course_key": {
+            "title": "Course Key",
+            "type": "string"
+          },
+          "fully_installed": {
+            "title": "Fully Installed",
+            "type": "boolean"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "course_key",
+          "title",
+          "source",
+          "activity_types",
+          "fully_installed"
+        ],
+        "title": "AdminActivityExampleOut",
         "type": "object"
       },
       "AdminActivityPolicyIn": {
@@ -964,9 +1035,16 @@
             "type": "string"
           },
           "project_id": {
-            "format": "uuid",
-            "title": "Project Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
           },
           "project_name": {
             "anyOf": [
@@ -990,6 +1068,9 @@
             ],
             "title": "Retention Days"
           },
+          "scope": {
+            "$ref": "#/components/schemas/ActivityTypeScope"
+          },
           "validator_config": {
             "additionalProperties": true,
             "title": "Validator Config",
@@ -1008,6 +1089,7 @@
           "id",
           "project_id",
           "project_name",
+          "scope",
           "key",
           "name",
           "validator_kind",
@@ -1019,6 +1101,59 @@
           "created_at"
         ],
         "title": "AdminActivityTypeOut",
+        "type": "object"
+      },
+      "AdminCatalogueTypeOut": {
+        "properties": {
+          "echo_includes_content": {
+            "title": "Echo Includes Content",
+            "type": "boolean"
+          },
+          "expose_payload_to_agent": {
+            "title": "Expose Payload To Agent",
+            "type": "boolean"
+          },
+          "installed_type_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installed Type Id"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "expose_payload_to_agent",
+          "echo_includes_content",
+          "retention_days",
+          "installed_type_id"
+        ],
+        "title": "AdminCatalogueTypeOut",
         "type": "object"
       },
       "AdminEntryOut": {
@@ -1051,6 +1186,74 @@
           "promoted_at"
         ],
         "title": "AdminEntryOut",
+        "type": "object"
+      },
+      "AdminInstallReportOut": {
+        "description": "Which keys the install created and which were already there.\n\nBoth lists rather than a count: an install is idempotent, so \"nothing created\"\nis a normal, successful outcome and the admin needs to see why.",
+        "properties": {
+          "already_present": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Already Present",
+            "type": "array"
+          },
+          "course_key": {
+            "title": "Course Key",
+            "type": "string"
+          },
+          "created": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Created",
+            "type": "array"
+          }
+        },
+        "required": [
+          "course_key",
+          "created",
+          "already_present"
+        ],
+        "title": "AdminInstallReportOut",
+        "type": "object"
+      },
+      "AdminPlatformActivityTypeIn": {
+        "description": "The four fields a platform admin may edit ([R30.23], Q-4).\n\n`key`, `payload_schema` and `validator_config` are absent by design, not\nvalidated away: the moment a schema is editable from here this stops being an\ninstall surface and becomes a course-authoring CMS.",
+        "properties": {
+          "echo_includes_content": {
+            "title": "Echo Includes Content",
+            "type": "boolean"
+          },
+          "expose_payload_to_agent": {
+            "title": "Expose Payload To Agent",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "retention_days": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days"
+          }
+        },
+        "required": [
+          "name",
+          "expose_payload_to_agent",
+          "echo_includes_content"
+        ],
+        "title": "AdminPlatformActivityTypeIn",
         "type": "object"
       },
       "AdminPolicyImpactOut": {
@@ -6610,6 +6813,58 @@
         "title": "PasswordResetRequestIn",
         "type": "object"
       },
+      "PlatformExampleOut": {
+        "description": "An installed platform example as a Project Owner sees it ([R30.32]).\n\nCarries the two governance flags because enabling one is a consent decision:\n``expose_payload_to_agent`` means participant text reaches the project's\nconfigured LLM provider, and the owner making that choice has to be told so at\nthe moment they make it.\n\nNo ``validator_config`` \u2014 it may hold answer keys and is owner-confidential\n([R30.25]). Its absence here is not a redaction to re-add later: this listing\nexists to choose a type, not to inspect one.",
+        "properties": {
+          "echo_includes_content": {
+            "title": "Echo Includes Content",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "expose_payload_to_agent": {
+            "title": "Expose Payload To Agent",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "name",
+          "expose_payload_to_agent",
+          "echo_includes_content",
+          "retention_days",
+          "enabled"
+        ],
+        "title": "PlatformExampleOut",
+        "type": "object"
+      },
       "PresenceOut": {
         "properties": {
           "user_ids": {
@@ -9972,6 +10227,78 @@
         ]
       }
     },
+    "/api/admin/activity-examples": {
+      "get": {
+        "description": "The shipped example catalogue and its install state ([R30.32]).",
+        "operationId": "list_activity_examples_api_admin_activity_examples_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AdminActivityExampleOut"
+                  },
+                  "title": "Response List Activity Examples Api Admin Activity Examples Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Activity Examples",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/activity-examples/{course_key}/install": {
+      "post": {
+        "description": "Install a shipped course as platform-scoped types ([R30.32]).\n\nIdempotent by key, so a re-run after a partial failure is safe. `course_key`\nis a client-supplied path segment, which is what makes the loader's anchored\ntraversal guard load-bearing here rather than merely tidy \u2014 it now bounds a\nnetwork-reachable path.",
+        "operationId": "install_activity_example_api_admin_activity_examples__course_key__install_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "course_key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "Course Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminInstallReportOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Install Activity Example",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      }
+    },
     "/api/admin/activity-policy": {
       "get": {
         "description": "The policy in force, or the permissive default when none is saved.",
@@ -10159,6 +10486,97 @@
           }
         },
         "summary": "List All Activity Types",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/activity-types/{type_id}": {
+      "delete": {
+        "description": "Remove an installed example ([R30.32]).\n\nThe cascade legitimately spans every tenant: the type is going away for\neveryone, so every active activation ends and every open session closes, and\nthe opt-in rows go with it through the FK cascade. Durable-commit before the\nfan-out, so no room is told its activation ended before it is.",
+        "operationId": "delete_platform_activity_type_api_admin_activity_types__type_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Type Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Platform Activity Type",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      },
+      "patch": {
+        "description": "Edit an installed example's safe and governance fields ([R30.23]).\n\nPlatform-scoped rows only: a project's own type stays the project owner's, and\na project-scoped target 404s rather than being edited from here ([R30.31]).",
+        "operationId": "update_platform_activity_type_api_admin_activity_types__type_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Type Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminPlatformActivityTypeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminActivityTypeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Platform Activity Type",
         "tags": [
           "admin",
           "admin"
@@ -22112,6 +22530,148 @@
         "summary": "Rename Project",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/activity-examples": {
+      "get": {
+        "description": "The installed platform examples, with this project's enabled state.\n\nProject Owner rather than plain membership: the only thing this listing is for\nis deciding what to enable, which is the owner's call ([R30.23]). It is also\nwhy the catalogue being visible to every owner is acceptable \u2014 installed\nexamples are platform metadata, not another tenant's data (OQ-2).",
+        "operationId": "list_platform_activity_examples_api_projects__project_id__activity_examples_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlatformExampleOut"
+                  },
+                  "title": "Response List Platform Activity Examples Api Projects  Project Id  Activity Examples Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Platform Activity Examples",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/activity-type-optins": {
+      "post": {
+        "description": "Enable a platform example for this project ([R30.33]).",
+        "operationId": "opt_project_into_activity_type_api_projects__project_id__activity_type_optins_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivityTypeOptInIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Opt Project Into Activity Type",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/activity-type-optins/{type_id}": {
+      "delete": {
+        "description": "Disable a platform example for this project, ending only its activations.\n\nSame post-commit ordering as ``delete_activity_type``: the opt-in removal and\nevery activation-end must be durable before any room is told its activation\nended.",
+        "operationId": "opt_project_out_of_activity_type_api_projects__project_id__activity_type_optins__type_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "type_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Type Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Opt Project Out Of Activity Type",
+        "tags": [
+          "activities"
         ]
       }
     },

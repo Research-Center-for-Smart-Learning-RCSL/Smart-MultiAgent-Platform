@@ -19,6 +19,7 @@ import type {
   ActivityTypePublicOut,
   ActivityTypeUpdateIn,
   ActivityValidatorOut,
+  PlatformExampleOut,
 } from '@shared/api-client'
 
 export async function listActivityTypes(projectId: string): Promise<ActivityTypeOut[]> {
@@ -75,6 +76,30 @@ export async function deleteActivityType(projectId: string, typeId: string): Pro
     projectId,
     typeId,
   })
+}
+
+/** The installed platform examples plus this project's enabled state ([R30.32]).
+ *  Project Owner only — the server gates it, this is just the call. */
+export async function listPlatformExamples(projectId: string): Promise<PlatformExampleOut[]> {
+  return ActivitiesService.listPlatformActivityExamplesApiProjectsProjectIdActivityExamplesGet({
+    projectId,
+  })
+}
+
+/** Enable a platform example for this project ([R30.33]). */
+export async function optIntoActivityType(projectId: string, activityTypeId: string): Promise<void> {
+  return ActivitiesService.optProjectIntoActivityTypeApiProjectsProjectIdActivityTypeOptinsPost({
+    projectId,
+    requestBody: { activity_type_id: activityTypeId },
+  })
+}
+
+/** Disable it again. Ends this project's activations for the type and closes its
+ *  open sessions — no other project is affected. */
+export async function optOutOfActivityType(projectId: string, typeId: string): Promise<void> {
+  return ActivitiesService.optProjectOutOfActivityTypeApiProjectsProjectIdActivityTypeOptinsTypeIdDelete(
+    { projectId, typeId },
+  )
 }
 
 export async function startActivation(

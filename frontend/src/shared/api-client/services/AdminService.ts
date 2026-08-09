@@ -3,10 +3,13 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AdminActivityActivationOut } from '../models/AdminActivityActivationOut';
+import type { AdminActivityExampleOut } from '../models/AdminActivityExampleOut';
 import type { AdminActivityPolicyIn } from '../models/AdminActivityPolicyIn';
 import type { AdminActivityPolicyOut } from '../models/AdminActivityPolicyOut';
 import type { AdminActivityTypeOut } from '../models/AdminActivityTypeOut';
 import type { AdminEntryOut } from '../models/AdminEntryOut';
+import type { AdminInstallReportOut } from '../models/AdminInstallReportOut';
+import type { AdminPlatformActivityTypeIn } from '../models/AdminPlatformActivityTypeIn';
 import type { AdminPolicyImpactOut } from '../models/AdminPolicyImpactOut';
 import type { AdminPromoteIn } from '../models/AdminPromoteIn';
 import type { AuditPageOut } from '../models/AuditPageOut';
@@ -49,6 +52,45 @@ export class AdminService {
             query: {
                 'cursor': cursor,
                 'limit': limit,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List Activity Examples
+     * The shipped example catalogue and its install state ([R30.32]).
+     * @returns AdminActivityExampleOut Successful Response
+     * @throws ApiError
+     */
+    public static listActivityExamplesApiAdminActivityExamplesGet(): CancelablePromise<Array<AdminActivityExampleOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/activity-examples',
+        });
+    }
+    /**
+     * Install Activity Example
+     * Install a shipped course as platform-scoped types ([R30.32]).
+     *
+     * Idempotent by key, so a re-run after a partial failure is safe. `course_key`
+     * is a client-supplied path segment, which is what makes the loader's anchored
+     * traversal guard load-bearing here rather than merely tidy — it now bounds a
+     * network-reachable path.
+     * @returns AdminInstallReportOut Successful Response
+     * @throws ApiError
+     */
+    public static installActivityExampleApiAdminActivityExamplesCourseKeyInstallPost({
+        courseKey,
+    }: {
+        courseKey: string,
+    }): CancelablePromise<AdminInstallReportOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/activity-examples/{course_key}/install',
+            path: {
+                'course_key': courseKey,
             },
             errors: {
                 422: `Validation Error`,
@@ -143,6 +185,62 @@ export class AdminService {
                 'cursor': cursor,
                 'limit': limit,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Delete Platform Activity Type
+     * Remove an installed example ([R30.32]).
+     *
+     * The cascade legitimately spans every tenant: the type is going away for
+     * everyone, so every active activation ends and every open session closes, and
+     * the opt-in rows go with it through the FK cascade. Durable-commit before the
+     * fan-out, so no room is told its activation ended before it is.
+     * @returns void
+     * @throws ApiError
+     */
+    public static deletePlatformActivityTypeApiAdminActivityTypesTypeIdDelete({
+        typeId,
+    }: {
+        typeId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/admin/activity-types/{type_id}',
+            path: {
+                'type_id': typeId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Update Platform Activity Type
+     * Edit an installed example's safe and governance fields ([R30.23]).
+     *
+     * Platform-scoped rows only: a project's own type stays the project owner's, and
+     * a project-scoped target 404s rather than being edited from here ([R30.31]).
+     * @returns AdminActivityTypeOut Successful Response
+     * @throws ApiError
+     */
+    public static updatePlatformActivityTypeApiAdminActivityTypesTypeIdPatch({
+        typeId,
+        requestBody,
+    }: {
+        typeId: string,
+        requestBody: AdminPlatformActivityTypeIn,
+    }): CancelablePromise<AdminActivityTypeOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/admin/activity-types/{type_id}',
+            path: {
+                'type_id': typeId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },

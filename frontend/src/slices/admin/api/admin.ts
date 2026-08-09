@@ -13,8 +13,11 @@ import type {
   ActivityPolicyImpact,
   ActivityPolicyInput,
   AdminActivityActivationRow,
+  AdminActivityExample,
   AdminActivityTypeRow,
   AdminEntry,
+  AdminInstallReport,
+  AdminPlatformActivityTypeInput,
   AuditFilter,
   AuditPage,
   ImpersonateResult,
@@ -157,6 +160,28 @@ export const adminApi = {
     AdminService.previewActivityPolicyImpactApiAdminActivityPolicyImpactPost({
       requestBody: body,
     }),
+
+  /** The shipped example catalogue with its install state ([R30.32]). */
+  listActivityExamples: (): Promise<AdminActivityExample[]> =>
+    AdminService.listActivityExamplesApiAdminActivityExamplesGet(),
+
+  /** Install a course as platform-scoped types. Idempotent by key. */
+  installActivityExample: (courseKey: string): Promise<AdminInstallReport> =>
+    AdminService.installActivityExampleApiAdminActivityExamplesCourseKeyInstallPost({ courseKey }),
+
+  /** Edit an installed example's safe and governance fields ([R30.23]). */
+  updatePlatformActivityType: (
+    typeId: string,
+    body: AdminPlatformActivityTypeInput,
+  ): Promise<AdminActivityTypeRow> =>
+    AdminService.updatePlatformActivityTypeApiAdminActivityTypesTypeIdPatch({
+      typeId,
+      requestBody: body,
+    }),
+
+  /** Remove an installed example. The cascade spans every tenant that opted in. */
+  deletePlatformActivityType: (typeId: string): Promise<void> =>
+    AdminService.deletePlatformActivityTypeApiAdminActivityTypesTypeIdDelete({ typeId }),
 
   resetGraphrag: (configId: string) =>
     GraphragAdminService.adminResetApiAdminGraphragConfigIdResetPost({ configId }),
