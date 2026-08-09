@@ -329,6 +329,33 @@ class TestLoaderRejectsAMalformedCourse:
         with pytest.raises(CourseFileInvalid, match="fixture-course.json"):
             load_course("fixture-course", root=tmp_path)
 
+    def test_a_file_that_is_not_utf8(self, tmp_path: Path) -> None:
+        """A Chinese course saved as Big5 is a realistic mistake for the person
+        this file format exists to serve, so it must not surface as a traceback."""
+        document = json.dumps(_course_document(), ensure_ascii=False)
+        (tmp_path / "fixture-course.json").write_bytes(document.encode("big5"))
+
+        with pytest.raises(CourseFileInvalid, match="not UTF-8"):
+            load_course("fixture-course", root=tmp_path)
+
+    def test_a_utf8_file_with_a_byte_order_mark(self, tmp_path: Path) -> None:
+        """Windows editors commonly add a BOM; it must not read as broken JSON."""
+        document = json.dumps(_course_document(), ensure_ascii=False)
+        (tmp_path / "fixture-course.json").write_bytes(b"\xef\xbb\xbf" + document.encode("utf-8"))
+
+        course = load_course("fixture-course", root=tmp_path)
+
+        assert course.activity_types[0].name == "單元一 測試"
+
+    def test_an_absent_catalogue_directory(self, tmp_path: Path) -> None:
+        """The shape of the packaging failure: a wheel built without the course
+        files. It has to read as an empty catalogue, not a FileNotFoundError."""
+        missing = tmp_path / "no-such-directory"
+
+        assert available_courses(root=missing) == ()
+        with pytest.raises(CourseFileInvalid, match="available: none"):
+            load_course("fixture-course", root=missing)
+
     def test_an_absent_course_names_what_is_available(self, tmp_path: Path) -> None:
         _write_course(tmp_path, _course_document())
         with pytest.raises(CourseFileInvalid) as excinfo:
