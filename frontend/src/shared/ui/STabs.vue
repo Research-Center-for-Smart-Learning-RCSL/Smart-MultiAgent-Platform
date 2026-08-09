@@ -13,10 +13,21 @@ interface TabItem {
   badgeLive?: boolean
 }
 
-const props = defineProps<{
-  modelValue: string
-  tabs: TabItem[]
-}>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: string
+    tabs: TabItem[]
+    /** Fill the parent's height, keeping the tab strip fixed while the active
+     *  panel scrolls.
+     *
+     *  Opt-in rather than the default: five of the six call sites sit in normal
+     *  document flow inside a scrolling page, where a height of 100% and an
+     *  internal scroll region would be wrong. Only a pane that is itself a sized
+     *  box (the chatroom rail) wants this. */
+    fill?: boolean
+  }>(),
+  { fill: false },
+)
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
@@ -75,7 +86,10 @@ function onKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="s-tabs">
+  <div
+    class="s-tabs"
+    :class="{ 's-tabs--fill': fill }"
+  >
     <div
       class="s-tabs__list"
       role="tablist"
@@ -230,5 +244,31 @@ function onKeydown(e: KeyboardEvent) {
 
 .s-tabs__panels {
   margin-top: 0;
+}
+
+/* Fill mode. `min-height: 0` on both the root and the panel area is the
+   load-bearing part: without it a flex item refuses to shrink below its content
+   size, so tall panel content pushes the whole component past its parent instead
+   of scrolling inside it. */
+.s-tabs--fill {
+  height: 100%;
+  min-height: 0;
+}
+
+.s-tabs--fill .s-tabs__list {
+  flex-shrink: 0;
+}
+
+.s-tabs--fill .s-tabs__panels {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Deliberately no `overflow` here. Each panel owns its own scroll region
+   (ChatroomPresence and ObserverPanel already declare one); adding a second
+   around them would nest scrollbars. This rule exists so those declarations
+   have a definite height to resolve `height: 100%` against. */
+.s-tabs--fill .s-tabs__panels > [role='tabpanel'] {
+  height: 100%;
 }
 </style>

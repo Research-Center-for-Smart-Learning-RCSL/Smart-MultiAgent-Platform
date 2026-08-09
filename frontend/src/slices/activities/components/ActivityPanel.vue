@@ -265,6 +265,10 @@ onMounted(() => {
   flex-direction: column;
   gap: 0.75rem;
   padding: 0.75rem;
+  /* Owns its scroll region, like its two rail siblings (ChatroomPresence,
+     ObserverPanel). A worksheet is routinely taller than the rail. */
+  height: 100%;
+  overflow-y: auto;
 }
 .activity-panel__name {
   margin: 0;
