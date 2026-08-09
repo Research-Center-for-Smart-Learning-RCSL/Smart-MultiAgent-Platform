@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ActivityTypeScope } from './ActivityTypeScope';
 import type { ValidatorKind } from './ValidatorKind';
 export type ActivityTypeOut = {
     created_at: (string | null);
@@ -11,8 +12,9 @@ export type ActivityTypeOut = {
     key: string;
     name: string;
     payload_schema: Record<string, any>;
-    project_id: string;
+    project_id: (string | null);
     retention_days: (number | null);
+    scope: ActivityTypeScope;
     validator_config: Record<string, any>;
     validator_kind: ValidatorKind;
 };

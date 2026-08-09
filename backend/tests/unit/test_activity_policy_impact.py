@@ -23,6 +23,7 @@ from contexts.activities.domain.models import (
     ActivityActivation,
     ActivityPolicy,
     ActivityType,
+    ActivityTypeScope,
     ValidatorKind,
 )
 from contexts.activities.interfaces.facade import ActivitiesFacade
@@ -114,6 +115,49 @@ class TestSelfConsistency:
 
         assert impact.violating_types == 0
         assert impact.violating_activations == 0
+
+
+class TestPlatformScopedTypesAreCounted:
+    """AC-9: an admin tightening a policy must be told it breaks the examples.
+
+    `list_all` is deliberately scope-blind, so platform rows are in the scan
+    already — but that is exactly the kind of property a later "only count a
+    project's own types" filter would quietly remove, stranding the shipped
+    examples with the admin having been told nothing would break.
+    """
+
+    async def test_a_platform_type_counts_among_the_violations(self) -> None:
+        facade = _facade(
+            types=[
+                _type(
+                    key="mandala-9grid",
+                    project_id=None,
+                    scope=ActivityTypeScope.PLATFORM,
+                    expose_payload_to_agent=True,
+                )
+            ]
+        )
+
+        impact = await facade.preview_policy_impact(
+            _policy(expose_payload_to_agent_default=False, expose_payload_to_agent_locked=True)
+        )
+
+        assert impact.violating_types == 1
+
+    async def test_a_running_platform_activation_counts_too(self) -> None:
+        platform = _type(
+            key="mandala-9grid",
+            project_id=None,
+            scope=ActivityTypeScope.PLATFORM,
+            expose_payload_to_agent=True,
+        )
+        facade = _facade(types=[platform], activations=[_activation(platform.id)])
+
+        impact = await facade.preview_policy_impact(
+            _policy(expose_payload_to_agent_default=False, expose_payload_to_agent_locked=True)
+        )
+
+        assert impact.violating_activations == 1
 
 
 class TestCountsViolatingTypes:

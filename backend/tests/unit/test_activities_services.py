@@ -533,6 +533,57 @@ class TestFilledCountValidator:
             validate_filled_count_config(bad)
 
 
+class TestFilledCountSchemaConfigValidator:
+    """The cross-field rule the config-only validator structurally cannot state.
+
+    ``min_filled`` above the declared property count is an activity nobody can
+    pass. The scorer counts declared properties, so the threshold has to be
+    checked against the schema — which a ``ConfigValidator`` never sees. It lives
+    on the same side of the boundary as the validator it belongs to, reached
+    through the registry's ``schema_config_validator`` hook.
+    """
+
+    @staticmethod
+    def _schema(*names: str) -> dict[str, Any]:
+        return {"type": "object", "properties": {n: {"type": "string"} for n in names}}
+
+    def test_a_threshold_at_the_property_count_is_allowed(self) -> None:
+        from app.plugins.activity_validators import validate_filled_count_against_schema
+
+        validate_filled_count_against_schema({"min_filled": 2}, self._schema("a", "b"))
+
+    def test_a_threshold_above_the_property_count_is_rejected(self) -> None:
+        from app.plugins.activity_validators import validate_filled_count_against_schema
+
+        with pytest.raises(ValidatorConfigInvalid, match="min_filled"):
+            validate_filled_count_against_schema({"min_filled": 3}, self._schema("a", "b"))
+
+    def test_it_defers_the_type_error_to_the_config_validator(self) -> None:
+        """A non-integer threshold is ``validate_filled_count_config``'s to report;
+        raising here too would surface whichever ran first, which is not a stable
+        message for a client to render."""
+        from app.plugins.activity_validators import validate_filled_count_against_schema
+
+        validate_filled_count_against_schema({"min_filled": "3"}, self._schema("a"))
+
+    def test_a_schema_without_properties_is_left_to_the_wellformedness_check(self) -> None:
+        from app.plugins.activity_validators import validate_filled_count_against_schema
+
+        validate_filled_count_against_schema({"min_filled": 5}, {"type": "object"})
+
+    def test_the_hook_is_reachable_through_the_registry(self) -> None:
+        """The wiring, not just the function: an unregistered hook would leave the
+        catalogue silently accepting an unreachable threshold."""
+        from app.plugins.activity_validators import FILLED_COUNT_ID, register_first_party_validators
+
+        register_first_party_validators()
+        hook = registry.get_schema_config_validator(FILLED_COUNT_ID)
+
+        assert hook is not None
+        with pytest.raises(ValidatorConfigInvalid):
+            hook({"min_filled": 9}, self._schema("a"))
+
+
 class TestActivityValidatorRegistrationWiring:
     """The bootstrap step registers the shipped set (AC-1)."""
 

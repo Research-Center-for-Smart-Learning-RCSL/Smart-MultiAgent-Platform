@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-08-09
 requirements: [R30.02, R30.09, R30.23, R30.28, R30.29, R30.30, R30.31]
 depends_on: []
@@ -498,53 +498,83 @@ This touches the tenant boundary, so it is the section to read twice.
 
 ## 11. Acceptance Criteria
 
-- [ ] **AC-1** — Migration `0076` applies to a database holding existing project-scoped
+- [x] **AC-1** — Migration `0076` applies to a database holding existing project-scoped
   types with no backfill and no data change; `alembic downgrade -1` succeeds on a database
   with no platform rows and fails with a clear message on one that has them.
-- [ ] **AC-2** — Two platform types cannot share a `key`: a second install of the same
+  *Verified by hand against the compose Postgres (upgrade → inspect → downgrade → inspect →
+  upgrade → insert a platform row → downgrade refuses, schema untouched, version still
+  `0076`). The refusal guard is `assert_no_platform_types`, covered at the `db` tier by
+  `tests/integration/test_platform_activity_type_schema.py`.*
+- [x] **AC-2** — Two platform types cannot share a `key`: a second install of the same
   course reports both types already-present (idempotent, as `_seeding.py:49-51` does), and a
   direct duplicate insert raises `ActivityTypeKeyConflict`, not `IntegrityError`.
-- [ ] **AC-3** — A platform admin lists the shipped catalogue and installs
+  *`test_activity_examples_service.py::test_a_second_install_reports_already_present…`,
+  `test_platform_activity_type_schema.py::test_two_live_platform_types_cannot_share_a_key`.*
+- [x] **AC-3** — A platform admin lists the shipped catalogue and installs
   `creative-thinking` from `/admin/activities`, producing two platform-scoped types with the
   JSON's exact field values, and one `activity_type.created` audit event each carrying the
-  admin as actor.
-- [ ] **AC-4** — A Project Owner sees both platform examples from
+  admin as actor. *`test_activity_examples_service.py::TestInstallCourse` (asserted against
+  the real shipped course, field for field), `test_admin_activities_routes.py::TestExampleCatalogueRoutes`.*
+- [x] **AC-4** — A Project Owner sees both platform examples from
   `/projects/:projectId/activity-types`, enables one, and it appears in that project's type
   list marked as a platform example with no edit or delete action offered.
-- [ ] **AC-5** — Before opt-in, a facilitator in that project **cannot** start the platform
+  *`test_activities_authz.py::TestPlatformExampleRoutes`, `ExampleImportDialog.test.ts`,
+  `ActivityTypesView.test.ts::marks a platform example and offers it no row actions`.*
+- [x] **AC-5** — Before opt-in, a facilitator in that project **cannot** start the platform
   type: `POST /api/chatrooms/{id}/activity-activations` with its id returns 404, and the
   same holds for `activity-sessions` and `activity-submissions`. After opt-in, all three
-  succeed.
-- [ ] **AC-6** — A facilitator in a **different, non-opted-in** project is refused at all
+  succeed. *`test_platform_type_reachability.py`, parametrized over all three services.*
+- [x] **AC-6** — A facilitator in a **different, non-opted-in** project is refused at all
   three endpoints even though the type exists and is installed platform-wide.
-- [ ] **AC-7** — A Project Owner cannot edit or delete a platform type through the
-  project-scoped `PATCH`/`DELETE` routes: both return 403 with a distinct RFC 7807 code.
-- [ ] **AC-8** — A platform admin edits an installed platform type's `expose_payload_to_agent`,
+  *Same file; each negative case also asserts the refusal happened before any side effect.*
+- [x] **AC-7** — A Project Owner cannot edit or delete a platform type through the
+  project-scoped `PATCH`/`DELETE` routes: both return 403 with a distinct RFC 7807 code
+  (`activities/platform-type-read-only`). *`test_activity_type_edit.py::TestPlatformTypeEditAuthority`,
+  `test_activity_type_delete.py::TestPlatformTypeDeleteAuthority`.*
+- [x] **AC-8** — A platform admin edits an installed platform type's `expose_payload_to_agent`,
   `echo_includes_content`, `retention_days`, and `name`, and cannot edit its `key`,
-  `payload_schema`, or `validator_config`.
-- [ ] **AC-9** — Governance policy applies unchanged: with
+  `payload_schema`, or `validator_config`. *Enforced by the signature rather than a check:
+  `update_platform_type` and `AdminPlatformActivityTypeIn` have no parameter for the other
+  three. `test_activity_type_edit.py`, `test_admin_activities_routes.py`, `ActivityExamplesSection.test.ts`.*
+- [x] **AC-9** — Governance policy applies unchanged: with
   `expose_payload_to_agent_locked = true, default = false`, activating an unedited platform
   example is refused with `activities/type-violates-policy` naming the field; after the
   admin edits the type to `false`, activation succeeds. `preview_policy_impact` counts the
-  platform types among the violations.
-- [ ] **AC-10** — Deleting a platform type as an admin ends its active activations across
+  platform types among the violations. *`test_activity_policy_enforcement.py::TestActivationGate`
+  (both halves) and `test_activity_policy_impact.py::TestPlatformScopedTypesAreCounted`.*
+- [x] **AC-10** — Deleting a platform type as an admin ends its active activations across
   every tenant; opting a single project out ends only that project's activations and closes
-  only its open sessions.
-- [ ] **AC-11** — `app/` contains no import of `smap.*`: the catalogue is reachable from the
+  only its open sessions. *`test_activity_type_delete.py::TestPlatformTypeDeleteAuthority`,
+  `test_activity_examples_service.py::TestOptOut` (asserts the other project's activation is
+  untouched and that the project-bounded session close is the one used).*
+- [x] **AC-11** — `app/` contains no import of `smap.*`: the catalogue is reachable from the
   API through `contexts/activities/infrastructure/examples/`, and
   `contexts/activities/**` contains no `from app.` import.
-- [ ] **AC-12** — The `smap.examples` CLI still works verbatim:
+  *`test_activities_examples_layering.py` — two AST tripwires, since no CI tool covers
+  either direction.*
+- [x] **AC-12** — The `smap.examples` CLI still works verbatim:
   `python -m smap.examples creative-thinking-course --project-id X --owner-user-id Y` seeds
   project-scoped types as before, and `test_smap_cli_contract.py` passes unmodified.
-- [ ] **AC-13** — `courses/*.json` still ships as package data from its new location,
-  verified against a built wheel as the catalogue dossier's AC-6 did.
-- [ ] **AC-14** — All user-facing strings in both slices exist in `en.json` and `zh-TW.json`;
+  *Passed unmodified, including its import paths — `smap/examples/_catalogue.py` is now a
+  re-export. See D-2 for the one behavioural change to `__main__.py`.*
+- [x] **AC-13** — `courses/*.json` still ships as package data from its new location,
+  verified against a built wheel as the catalogue dossier's AC-6 did. *Built a wheel and
+  inspected it: `contexts/activities/infrastructure/examples/courses/creative-thinking.json`
+  is present. `test_smap_examples_packaging.py` now derives the expected package-data key
+  from the catalogue module's own `__package__`, so a future move cannot leave a stale
+  declaration passing the test.*
+- [x] **AC-14** — All user-facing strings in both slices exist in `en.json` and `zh-TW.json`;
   the import dialog states that an example with `expose_payload_to_agent` sends participant
-  text to the project's LLM provider.
-- [ ] **AC-15** — Gates green: `ruff check . && ruff format --check .`, `mypy .`,
+  text to the project's LLM provider. *`ExampleImportDialog.test.ts` asserts the notice is
+  present on load, before anything is enabled, and absent when no example carries the flag.*
+- [x] **AC-15** — Gates green: `ruff check . && ruff format --check .`, `mypy .`,
   `pytest -q` (unit tier locally, full tiers on CI), `pnpm lint`, `pnpm typecheck`,
   `pnpm test`, `pnpm build`, `pnpm run check:openapi-drift`, `pnpm run check:bundle-size`,
   `pnpm run check:type-coverage`, `pnpm run check:boundaries-enforced`.
+  *All run locally and green. `check:openapi-drift` could not run through its script on this
+  Windows host (`python` is not on the git-bash PATH); its two steps were run by hand
+  instead — re-export the spec, regenerate the client, `git status` clean — and CI runs the
+  script itself. The `db`, `integration` and `wiring` tiers run on CI only.*
 
 ## 12. Test Plan
 
@@ -640,7 +670,45 @@ is kept, the "no runtime code path depends on it" clause is narrowed):
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- **D-1** — **A platform-scoped type must declare an `in_process` validator.** The spec
+  did not consider what an `mcp` or `webhook` validator means for a row with no project.
+  Both are project-scoped by definition: an mcp validator's `agent_id`/`binding_id` must
+  live in one project ([R30.24]), and a webhook's egress carries one project's allowlist
+  and rate limit ([R30.07]). `ActivityType.project_id` becoming optional made this a type
+  error at `app/workers/tasks/activities.py:57,72`, which is how it surfaced. Resolved by
+  refusing such a course at install (`example_service.install_course`) rather than shipping
+  a type that installs cleanly and fails every submission, with a second guard in the
+  worker that maps it to one error verdict rather than a request against an arbitrary
+  project. Both shipped examples use `filled_count`, so nothing is excluded today.
+- **D-2** — **`smap/examples/__main__.py` registers the first-party validators before
+  loading a course**, where it previously relied on `_seeding.run` to do it later. The
+  catalogue now validates a course's `validator_config` through the context's registry
+  instead of importing `app.plugins` directly (§5's requirement), and a CLI process runs no
+  startup steps — so without this every shipped course would read as naming an unregistered
+  validator. The CLI's observable behaviour is unchanged; AC-12's contract test passes
+  unmodified.
+- **D-3** — **Going through the registry made the catalogue stricter than the spec
+  described.** §5 asked only that the `min_filled`-vs-property-count rule move to a
+  `schema_config_validator` hook. Reaching the hook through `get_config_validator` /
+  `get_schema_config_validator` also means a course naming an unregistered validator is now
+  rejected at parse time, and every registered validator's config rules reach a course file
+  where before only `filled_count`'s did. Both are strictly better and are covered by new
+  tests; recorded because it is more than the spec asked for.
+- **D-4** — **The frontend landed as one commit rather than the planned two.** Widening
+  `ActivityTypeOut.project_id`/`AdminActivityTypeOut.project_id` breaks `vue-tsc` in both
+  slices at once, so an activities-only commit would not have typechecked. Splitting would
+  have meant a knowingly red intermediate commit; the two slices' work is otherwise
+  independent and is separated within the commit message.
+- **D-5** — **`_dispatch_activation_ended` became public `dispatch_activation_ended`.**
+  Three routes across two modules now end activations — the owner delete and the project
+  opt-out in `activities.py`, the admin delete in `admin_activities.py` — and each must
+  broadcast the same event after its own commit. Importing a private name across route
+  modules was the alternative.
+- **D-6** — **Two test modules register the first-party validators per test rather than at
+  import.** `test_activities_services.py` clears the process-global registry in a teardown,
+  so an import-time registration in `test_smap_examples_catalogue.py` /
+  `test_activity_examples_service.py` passed in isolation and failed in the full run. Found
+  by the full-tier run, not by the targeted one.
 
 ## 16. Follow-ups
 
@@ -672,3 +740,30 @@ Appended by /build. Empty means the implementation matches this spec exactly.
   the owner-only management page". Both statements need updating once this ships; the
   Limitations note about one plugin per type key (`:220-223`) becomes *less* severe, since a
   single platform `mandala-9grid` now backs every project that opts in.
+  *Partly done here: the four `backend/smap/examples/courses/` path references were
+  corrected, because this change made them wrong. The prose about installation paths is
+  untouched and remains this follow-up.*
+- **FU-8** — `type_repo.list_platform()` and `optin_repo.list_for_project()` are unbounded.
+  Both are bounded in practice by deliberate admin installs rather than by tenant traffic,
+  which is why they carry no `LIMIT` today, but `GET /projects/{id}/activity-examples` is
+  reachable by every Project Owner and returns the whole platform catalogue. If the
+  installed set ever grows past a screenful, both want the keyset pagination `list_all`
+  already has.
+- **FU-9** — `example_service.opt_out` bounds its cascade with
+  `ConversationFacade.list_chatroom_ids_for_project`, which returns every live room in the
+  project and feeds it to an `IN` clause. Correct, and the same shape the workflow linter
+  already uses, but it is linear in the project's room count for an operation that only
+  needs the rooms with an active activation of one type. A room-scoped activation query
+  would invert it.
+- **FU-10** — `ActivityExamplesSection` runs its own `useQuery(adminKeys.activityTypes())`
+  so the edit dialog can seed from the stored row. It shares `AdminActivitiesView`'s cache
+  entry (same key, same `limit`), so there is no second request — but the shared `limit`
+  is now a coupling between a view and a component that is only documented by a comment in
+  each. Lifting the page size into `adminKeys` (or the api wrapper) would make it one fact.
+- **FU-11** — The catalogue's `CHECK` constraints land in Postgres double-prefixed
+  (`ck_activity_types_ck_activity_types_scope`), because the metadata naming convention is
+  `ck_%(table_name)s_%(constraint_name)s` and every migration in this repo passes a name
+  that already carries the prefix. `0075` has the same shape, so `0076` follows it for
+  consistency rather than introducing a second convention. Worth one sweep to decide which
+  form is intended; alembic applies the convention on `drop_constraint` too, so a rename
+  would have to move both directions together.

@@ -88,6 +88,31 @@ class SubmissionPayloadInvalid(ActivitiesError):
     code = "activities/submission-payload-invalid"
 
 
+class PlatformActivityTypeReadOnly(ActivitiesError):
+    """A Project Owner tried to edit or delete a platform-scoped type ([R30.23]).
+
+    403 rather than the 404 the cross-project guards return: the type is
+    legitimately visible to this owner (it is in their list once opted in), so
+    hiding it would be a lie. What they lack is the capability, and only a
+    platform admin has it — which the client needs to be able to say.
+    """
+
+    code = "activities/platform-type-read-only"
+
+
+class ActivityTypeNotOptedIn(ActivitiesError):
+    """A project acted on a platform type it has not opted into ([R30.33]).
+
+    Raised only on the project-scoped opt-out route, where the caller is already
+    an authenticated Project Owner and the type's existence is not a secret from
+    them. The room-level gates deliberately do NOT use this — they raise
+    ``ActivityTypeNotFound`` so a probe from a non-opted-in project cannot
+    distinguish "exists but not enabled" from "does not exist".
+    """
+
+    code = "activities/type-not-opted-in"
+
+
 __all__ = [
     "ActivitiesError",
     "ActivityActivationNotFound",
@@ -96,7 +121,9 @@ __all__ = [
     "ActivityTypeActive",
     "ActivityTypeKeyConflict",
     "ActivityTypeNotFound",
+    "ActivityTypeNotOptedIn",
     "PayloadSchemaInvalid",
+    "PlatformActivityTypeReadOnly",
     "SessionNotFound",
     "SubmissionNotFound",
     "SubmissionPayloadInvalid",

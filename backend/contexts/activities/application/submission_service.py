@@ -22,12 +22,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.application.agent_digest import build_agent_digest
 from contexts.activities.application.ports import ActivityActivationRepository
+from contexts.activities.application.reachability import resolve_reachable_type
 from contexts.activities.application.session_service import _ensure_subject_is_caller
 from contexts.activities.application.validators.in_process import InProcessValidator
 from contexts.activities.application.validators.schema import payload_errors
 from contexts.activities.domain.errors import (
     ActivityNotActive,
-    ActivityTypeNotFound,
     SessionNotFound,
     SubmissionNotFound,
     SubmissionPayloadInvalid,
@@ -39,6 +39,9 @@ from contexts.activities.domain.models import (
     ValidationResult,
     ValidationStatus,
     ValidatorKind,
+)
+from contexts.activities.infrastructure.repositories.optin_repo import (
+    ProjectActivityTypeOptInRepository,
 )
 from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
 from contexts.activities.infrastructure.repositories.submission_repo import (
@@ -58,6 +61,7 @@ class SubmissionService:
     def __init__(self, db: AsyncSession, *, activation_repo: ActivityActivationRepository) -> None:
         self._db = db
         self._type_repo = ActivityTypeRepository(db)
+        self._optin_repo = ProjectActivityTypeOptInRepository(db)
         self._activation_repo = activation_repo
         self._session_repo = ActivitySessionRepository(db)
         self._sub_repo = ActivitySubmissionRepository(db)
@@ -77,11 +81,16 @@ class SubmissionService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> tuple[ActivitySubmission, dict[str, Any]]:
-        activity_type = await self._type_repo.get(activity_type_id)
-        # Tenant isolation: the type must live in the room's project. Missing or
-        # cross-project → NotFound (never leak another tenant's type).
-        if activity_type is None or activity_type.project_id != project_id:
-            raise ActivityTypeNotFound(str(activity_type_id))
+        # Tenant isolation: the type must be reachable from the room's project —
+        # its own, or a platform type the project opted into ([R30.33]). Missing,
+        # cross-project, or not-opted-in all → NotFound (never leak another
+        # tenant's type, and never confirm an example the project has not enabled).
+        activity_type = await resolve_reachable_type(
+            type_reader=self._type_repo,
+            optin_reader=self._optin_repo,
+            activity_type_id=activity_type_id,
+            project_id=project_id,
+        )
         # A submission writes into a per-subject attempt history, so a member may
         # only submit as themselves (caller_user_id=None is the admin arm). Ordered
         # AFTER the type isolation so a cross-tenant probe still 404s on the type.

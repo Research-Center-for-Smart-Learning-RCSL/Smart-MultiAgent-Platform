@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ActivityTypeScope } from './ActivityTypeScope';
 /**
  * One activity type, platform-wide.
  *
@@ -18,9 +19,10 @@ export type AdminActivityTypeOut = {
     id: string;
     key: string;
     name: string;
-    project_id: string;
+    project_id: (string | null);
     project_name: (string | null);
     retention_days: (number | null);
+    scope: ActivityTypeScope;
     validator_config: Record<string, any>;
     validator_kind: string;
     version: number;

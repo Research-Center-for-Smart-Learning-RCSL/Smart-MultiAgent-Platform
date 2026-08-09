@@ -11,6 +11,7 @@ import {
   EllipsisVerticalIcon,
   ExclamationTriangleIcon,
   InformationCircleIcon,
+  SparklesIcon,
 } from '@heroicons/vue/24/outline'
 
 import {
@@ -27,6 +28,7 @@ import type { Column } from '@shared/ui/STable.vue'
 
 import ActivityHelpPanel from '../components/ActivityHelpPanel.vue'
 import ActivityTypeForm from '../components/ActivityTypeForm.vue'
+import ExampleImportDialog from '../components/ExampleImportDialog.vue'
 import { listActivityTypes, deleteActivityType } from '../api'
 import { activityKeys } from '../queries'
 import type { ActivityType } from '../types'
@@ -43,6 +45,14 @@ const { decided, isAuthorized } = useProjectRole(projectId)
 const showModal = ref(false)
 const editType = ref<ActivityType | null>(null)
 const showHelp = ref(false)
+const showExamples = ref(false)
+
+/** A platform-scoped type is owned by the platform and read-only here ([R30.23]):
+ *  the server refuses an owner's edit or delete with 403, so offering the action
+ *  would only produce a refusal the user could not act on. */
+function isPlatform(row: ActivityType): boolean {
+  return row.scope === 'platform'
+}
 
 const typesQuery = useQuery({
   queryKey: activityKeys.types(projectId),
@@ -122,6 +132,10 @@ const columns = computed<Column[]>(() => [
   { key: 'actions', label: '', width: '48px', align: 'right' },
 ])
 
+function onExamplesChanged(): void {
+  qc.invalidateQueries({ queryKey: activityKeys.types(projectId) })
+}
+
 const ActivityTypeTable = typedTable<ActivityType>()
 </script>
 
@@ -143,6 +157,15 @@ const ActivityTypeTable = typedTable<ActivityType>()
             <InformationCircleIcon class="w-4 h-4" />
           </template>
           {{ t('activities.typesList.help') }}
+        </SButton>
+        <SButton
+          variant="secondary"
+          @click="showExamples = true"
+        >
+          <template #icon-left>
+            <SparklesIcon class="w-4 h-4" />
+          </template>
+          {{ t('activities.typesList.browseExamples') }}
         </SButton>
         <SButton
           variant="primary"
@@ -197,6 +220,14 @@ const ActivityTypeTable = typedTable<ActivityType>()
       >
         <template #cell-name="{ row }">
           <span class="font-medium">{{ row.name }}</span>
+          <SBadge
+            v-if="isPlatform(row)"
+            size="sm"
+            variant="info"
+            class="ml-2"
+          >
+            {{ t('activities.typesList.platformExample') }}
+          </SBadge>
         </template>
 
         <template #cell-key="{ row }">
@@ -211,6 +242,7 @@ const ActivityTypeTable = typedTable<ActivityType>()
 
         <template #actions="{ row }">
           <SDropdown
+            v-if="!isPlatform(row)"
             :items="actionItems"
             placement="bottom-end"
             @select="onAction($event, row)"
@@ -254,6 +286,13 @@ const ActivityTypeTable = typedTable<ActivityType>()
       @close="closeModal"
       @created="onCreated"
       @updated="onUpdated"
+    />
+
+    <ExampleImportDialog
+      :project-id="projectId"
+      :open="showExamples"
+      @close="showExamples = false"
+      @changed="onExamplesChanged"
     />
 
     <ActivityHelpPanel

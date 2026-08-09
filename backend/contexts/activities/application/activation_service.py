@@ -7,13 +7,20 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.application.policy_service import ActivityPolicyService
-from contexts.activities.application.ports import ActivityActivationRepository, ActivityTypeReader
+from contexts.activities.application.ports import (
+    ActivityActivationRepository,
+    ActivityTypeOptInReader,
+    ActivityTypeReader,
+)
+from contexts.activities.application.reachability import resolve_reachable_type
 from contexts.activities.domain.errors import (
     ActivityActivationNotFound,
     ActivityAlreadyActive,
-    ActivityTypeNotFound,
 )
 from contexts.activities.domain.models import ActivityActivation, ActivityActivationEndResult
+from contexts.activities.infrastructure.repositories.optin_repo import (
+    ProjectActivityTypeOptInRepository,
+)
 from shared_kernel import audit
 
 
@@ -24,10 +31,15 @@ class ActivationService:
         *,
         activation_repo: ActivityActivationRepository,
         type_repo: ActivityTypeReader,
+        optin_repo: ActivityTypeOptInReader | None = None,
     ) -> None:
         self._db = db
         self._repo = activation_repo
         self._type_repo = type_repo
+        # Defaulted from the session so the facade's construction stays a one-liner
+        # and a test double supplying only the two repos it exercises keeps working;
+        # the opt-in table is read only for platform-scoped types.
+        self._optin_repo = optin_repo or ProjectActivityTypeOptInRepository(db)
         self._policy = ActivityPolicyService(db)
 
     async def start(
@@ -40,9 +52,14 @@ class ActivationService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> ActivityActivation:
-        activity_type = await self._type_repo.get(activity_type_id)
-        if activity_type is None or activity_type.project_id != project_id:
-            raise ActivityTypeNotFound(str(activity_type_id))
+        # Tenant isolation ([R30.09], [R30.33]): the caller supplies the type id,
+        # so this is the gate — not the picker the facilitator chose it from.
+        activity_type = await resolve_reachable_type(
+            type_reader=self._type_repo,
+            optin_reader=self._optin_repo,
+            activity_type_id=activity_type_id,
+            project_id=project_id,
+        )
 
         # [R30.30] second gate, and the one that gives a tightened policy any
         # reach over the installed base: the type is checked as *stored*, so a

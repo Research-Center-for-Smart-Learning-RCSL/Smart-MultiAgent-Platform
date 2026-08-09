@@ -12,6 +12,7 @@ const TYPE_ROW = {
   id: 'at_1',
   project_id: 'proj_1',
   project_name: 'Creativity Study',
+  scope: 'project',
   key: 'mandala-9grid',
   name: '單元二 時空旅人',
   validator_kind: 'in_process',
@@ -34,10 +35,13 @@ const ACTIVATION_ROW = {
   created_at: '2026-08-08T01:00:00Z',
 }
 
-function stub(types: unknown[] = [], activations: unknown[] = []): void {
+function stub(types: unknown[] = [], activations: unknown[] = [], examples: unknown[] = []): void {
   server.use(
     http.get('/api/admin/activity-types', () => HttpResponse.json(types)),
     http.get('/api/admin/activity-activations', () => HttpResponse.json(activations)),
+    // The view now also hosts the shipped-example install section; without this
+    // every test here would emit an unhandled-request warning for it.
+    http.get('/api/admin/activity-examples', () => HttpResponse.json(examples)),
   )
 }
 

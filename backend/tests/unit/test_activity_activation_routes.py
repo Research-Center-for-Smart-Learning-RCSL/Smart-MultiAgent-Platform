@@ -45,7 +45,7 @@ async def test_end_broadcasts_only_when_the_activation_transitions(
     monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
     monkeypatch.setattr(activities, "resolve_room_access", AsyncMock(return_value=MagicMock()))
     monkeypatch.setattr(activities, "ensure_room_creator", MagicMock())
-    monkeypatch.setattr(activities, "_dispatch_activation_ended", dispatch)
+    monkeypatch.setattr(activities, "dispatch_activation_ended", dispatch)
 
     result = await activities.end_activity_activation(
         chatroom_id=chatroom_id,

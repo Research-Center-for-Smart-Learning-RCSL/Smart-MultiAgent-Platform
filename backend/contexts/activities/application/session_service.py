@@ -11,8 +11,12 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.activities.domain.errors import ActivityTypeNotFound, SessionNotFound
+from contexts.activities.application.reachability import resolve_reachable_type
+from contexts.activities.domain.errors import SessionNotFound
 from contexts.activities.domain.models import ActivitySession
+from contexts.activities.infrastructure.repositories.optin_repo import (
+    ProjectActivityTypeOptInRepository,
+)
 from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
 from shared_kernel import audit
@@ -33,6 +37,7 @@ class ActivitySessionService:
         self._db = db
         self._repo = ActivitySessionRepository(db)
         self._type_repo = ActivityTypeRepository(db)
+        self._optin_repo = ProjectActivityTypeOptInRepository(db)
 
     async def open_session(
         self,
@@ -47,14 +52,18 @@ class ActivitySessionService:
         exists. At most one open session can exist per the partial-unique, so a
         concurrent open resolves to the same row. ``caller_user_id`` is ``None`` for
         the admin arm; otherwise it must equal ``subject_user_id``."""
-        # Tenant isolation (mirrors SubmissionService.submit): the type must live
-        # in the room's project. Missing or cross-project -> NotFound, so a room
+        # Tenant isolation (mirrors SubmissionService.submit): the type must be
+        # reachable from the room's project — its own, or a platform type the
+        # project opted into ([R30.33]). Anything else -> NotFound, so a room
         # member can never open a session against another tenant's type. Ordered
         # before the subject check so a cross-tenant probe still gets 404 on the
         # type rather than a subject-mismatch answer that confirms it exists.
-        activity_type = await self._type_repo.get(activity_type_id)
-        if activity_type is None or activity_type.project_id != project_id:
-            raise ActivityTypeNotFound(str(activity_type_id))
+        await resolve_reachable_type(
+            type_reader=self._type_repo,
+            optin_reader=self._optin_repo,
+            activity_type_id=activity_type_id,
+            project_id=project_id,
+        )
         _ensure_subject_is_caller(subject_user_id, caller_user_id)
 
         existing = await self._repo.get_open(

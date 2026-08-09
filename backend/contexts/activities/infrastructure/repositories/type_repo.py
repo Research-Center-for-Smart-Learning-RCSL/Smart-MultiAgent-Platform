@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.domain.errors import ActivityTypeKeyConflict
-from contexts.activities.domain.models import ActivityType, ValidatorKind
+from contexts.activities.domain.models import ActivityType, ActivityTypeScope, ValidatorKind
 from contexts.activities.infrastructure import tables as t
 from shared_kernel.auth.clients import now
 from shared_kernel.db.rowcount import rowcount
@@ -23,6 +23,7 @@ from shared_kernel.db.rowcount import rowcount
 _TYPE_COLS = (
     t.activity_types.c.id,
     t.activity_types.c.project_id,
+    t.activity_types.c.scope,
     t.activity_types.c.key,
     t.activity_types.c.name,
     t.activity_types.c.payload_schema,
@@ -52,6 +53,7 @@ def _row_to_type(row: object) -> ActivityType:
         expose_payload_to_agent=row.expose_payload_to_agent,  # type: ignore[attr-defined]
         echo_includes_content=row.echo_includes_content,  # type: ignore[attr-defined]
         deleted_at=row.deleted_at,  # type: ignore[attr-defined]
+        scope=ActivityTypeScope(row.scope),  # type: ignore[attr-defined]
     )
 
 
@@ -62,7 +64,7 @@ class ActivityTypeRepository:
     async def create(
         self,
         *,
-        project_id: uuid.UUID,
+        project_id: uuid.UUID | None,
         key: str,
         name: str,
         payload_schema: dict[str, Any],
@@ -71,19 +73,28 @@ class ActivityTypeRepository:
         retention_days: int | None,
         expose_payload_to_agent: bool,
         echo_includes_content: bool,
+        scope: ActivityTypeScope = ActivityTypeScope.PROJECT,
     ) -> uuid.UUID:
         """Insert a type and return its id (caller owns commit).
 
-        The ``uq_activity_types_project_key_active`` partial-unique maps a
-        duplicate live key in the project to a domain 409; any *other*
-        IntegrityError (e.g. a stale ``project_id`` FK) is re-raised as its true
-        cause rather than mismapped to a key conflict.
+        Two partial-uniques guard the key, one per scope, and each maps to the
+        same domain 409: ``uq_activity_types_project_key_active`` for a duplicate
+        live key within a project, ``uq_activity_types_platform_key_active`` for a
+        duplicate live platform key. Both names are matched because a NULL
+        ``project_id`` makes the first index stop constraining platform rows
+        (PostgreSQL treats every NULL as distinct), so the second is the only
+        thing standing between a double install and two types sharing a key.
+
+        Any *other* IntegrityError (e.g. a stale ``project_id`` FK, or the
+        scope/project CHECK) is re-raised as its true cause rather than mismapped
+        to a key conflict.
         """
         try:
             row = await self._db.execute(
                 t.activity_types.insert()
                 .values(
                     project_id=project_id,
+                    scope=scope.value,
                     key=key,
                     name=name,
                     payload_schema=payload_schema,
@@ -101,6 +112,8 @@ class ActivityTypeRepository:
                 raise ActivityTypeKeyConflict(
                     f"activity type key {key!r} already exists in project {project_id}"
                 ) from exc
+            if "uq_activity_types_platform_key_active" in msg:
+                raise ActivityTypeKeyConflict(f"platform activity type key {key!r} already exists") from exc
             raise
         return uuid.UUID(str(row.scalar_one()))
 
@@ -172,17 +185,74 @@ class ActivityTypeRepository:
         return [_row_to_type(r) for r in rows]
 
     async def list_for_project(self, project_id: uuid.UUID) -> Sequence[ActivityType]:
-        """Live types in a project, newest first (id tiebreak for stable paging)."""
+        """Live types usable by a project, newest first (id tiebreak for stable paging).
+
+        Two populations in one query ([R30.33]): the project's own types, and the
+        platform types this project has opted into. The opt-in subquery rather
+        than an OUTER JOIN keeps the row shape identical to the project-only case,
+        so no de-duplication is needed and ``_row_to_type`` is unchanged.
+
+        This is a *presentation* filter. It is not the tenancy gate — the room
+        paths cannot rely on a listing, since they take an ``activity_type_id``
+        straight from the client body. See ``application/reachability.py``.
+        """
+        opted_in = sa.select(t.project_activity_type_optins.c.activity_type_id).where(
+            t.project_activity_type_optins.c.project_id == project_id
+        )
         rows = (
             await self._db.execute(
                 sa.select(*_TYPE_COLS)
                 .where(
                     sa.and_(
-                        t.activity_types.c.project_id == project_id,
+                        t.activity_types.c.deleted_at.is_(None),
+                        sa.or_(
+                            t.activity_types.c.project_id == project_id,
+                            t.activity_types.c.id.in_(opted_in),
+                        ),
+                    )
+                )
+                .order_by(t.activity_types.c.created_at.desc(), t.activity_types.c.id.desc())
+            )
+        ).all()
+        return [_row_to_type(r) for r in rows]
+
+    async def list_platform(self) -> Sequence[ActivityType]:
+        """Every live platform-scoped type, newest first ([R30.32]).
+
+        Unbounded on purpose: platform types are installed one course at a time by
+        an admin, so the population is bounded by deliberate acts rather than by
+        tenant traffic. The admin listing's keyset pagination exists because
+        ``list_all`` grows with the whole platform; this does not.
+        """
+        rows = (
+            await self._db.execute(
+                sa.select(*_TYPE_COLS)
+                .where(
+                    sa.and_(
+                        t.activity_types.c.project_id.is_(None),
                         t.activity_types.c.deleted_at.is_(None),
                     )
                 )
                 .order_by(t.activity_types.c.created_at.desc(), t.activity_types.c.id.desc())
+            )
+        ).all()
+        return [_row_to_type(r) for r in rows]
+
+    async def list_platform_by_keys(self, keys: Sequence[str]) -> Sequence[ActivityType]:
+        """Live platform types matching any of ``keys`` — the install idempotency
+        read, so a re-install reports already-present instead of conflicting."""
+        wanted = list(keys)
+        if not wanted:
+            return []
+        rows = (
+            await self._db.execute(
+                sa.select(*_TYPE_COLS).where(
+                    sa.and_(
+                        t.activity_types.c.project_id.is_(None),
+                        t.activity_types.c.key.in_(wanted),
+                        t.activity_types.c.deleted_at.is_(None),
+                    )
+                )
             )
         ).all()
         return [_row_to_type(r) for r in rows]

@@ -40,6 +40,19 @@ async def _run_remote_validator(
     validator could not produce a verdict (→ ``error``)."""
     from contexts.agents.interfaces.facade import AgentsFacade
 
+    # Both remote kinds are project-scoped by definition: an mcp validator's
+    # agent/binding must live in one project ([R30.24]) and a webhook's egress
+    # carries that project's allowlist and rate limit ([R30.07]). A platform-scoped
+    # type has no project to supply, which is why `example_service` refuses to
+    # install one with a remote validator. This is the second line of that defence,
+    # reached only if a row got in some other way — an error verdict on one
+    # submission, never a request dispatched against an arbitrary project.
+    if activity_type.project_id is None:
+        raise ValidatorUnavailable(
+            f"platform-scoped activity type {activity_type.key!r} declares a "
+            f"{activity_type.validator_kind.value} validator, which has no project to run in"
+        )
+
     agents = AgentsFacade(db)
     cfg = activity_type.validator_config
     envelope = {"payload": submission.payload, "activity_type_key": activity_type.key}
