@@ -62,6 +62,22 @@ class ValidatorConfigInvalid(ActivitiesError):
     code = "activities/validator-config-invalid"
 
 
+class ActivityTypeViolatesPolicy(ActivitiesError):
+    """A type's governance fields conflict with the platform policy ([R30.30]).
+
+    Carries the offending field so a facilitator who hits this at activation time
+    is told what is wrong and who can fix it, rather than a bare forbidden.
+    """
+
+    def __init__(self, field: str, detail: str) -> None:
+        super().__init__(detail)
+        self.field = field
+
+
+class ActivityPolicyVersionMismatch(ActivitiesError):
+    """The policy changed under an admin's edit (optimistic concurrency)."""
+
+
 class SubmissionPayloadInvalid(ActivitiesError):
     """A submission payload violates its type's ``payload_schema`` (422)."""
 

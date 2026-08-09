@@ -66,6 +66,18 @@ _MAP: ErrorMap = {
         422,
         "The submission payload violates the activity type schema",
     ),
+    # 409 rather than 422: the request is well-formed and was legal when the type
+    # was authored — what conflicts is the platform policy's current state.
+    errors.ActivityTypeViolatesPolicy: (
+        "activities/type-violates-policy",
+        409,
+        "This activity type conflicts with the platform activity policy",
+    ),
+    errors.ActivityPolicyVersionMismatch: (
+        "activities/policy-version-mismatch",
+        409,
+        "The activity policy changed since this form was loaded",
+    ),
 }
 
 

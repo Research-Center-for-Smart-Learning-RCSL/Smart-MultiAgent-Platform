@@ -6,6 +6,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.activities.application.policy_service import ActivityPolicyService
 from contexts.activities.application.ports import ActivityActivationRepository, ActivityTypeReader
 from contexts.activities.domain.errors import (
     ActivityActivationNotFound,
@@ -27,6 +28,7 @@ class ActivationService:
         self._db = db
         self._repo = activation_repo
         self._type_repo = type_repo
+        self._policy = ActivityPolicyService(db)
 
     async def start(
         self,
@@ -41,6 +43,13 @@ class ActivationService:
         activity_type = await self._type_repo.get(activity_type_id)
         if activity_type is None or activity_type.project_id != project_id:
             raise ActivityTypeNotFound(str(activity_type_id))
+
+        # [R30.30] second gate, and the one that gives a tightened policy any
+        # reach over the installed base: the type is checked as *stored*, so a
+        # policy change applies without the platform rewriting anyone's row.
+        # Ordered before create_active so a violating type never produces an
+        # activation, an audit event, or a room broadcast.
+        await self._policy.assert_type_allowed(activity_type)
 
         activation_id = await self._repo.create_active(
             chatroom_id=chatroom_id,
