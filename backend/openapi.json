@@ -1044,11 +1044,15 @@
         "type": "object"
       },
       "AdminPolicyImpactOut": {
-        "description": "How many live types a candidate policy would refuse to activate.\n\nLets the admin form warn before a tightening strands a class ([R30.30]).\n``approximate`` is true when the scan hit its bound, so the count is a floor\nrather than a silent truncation.",
+        "description": "What a candidate policy would block.\n\nLets the admin form warn before a tightening strands a class ([R30.30]).\n``violating_activations`` counts activities running at this moment whose type\nthe candidate would refuse \u2014 they keep running, because enforcement is at\nauthoring and activation start, so this is the number an admin tightening for\na consent reason has to see before saving.\n\n``approximate`` is true when either scan hit its bound, so the counts are\nfloors rather than a silent truncation.",
         "properties": {
           "approximate": {
             "title": "Approximate",
             "type": "boolean"
+          },
+          "violating_activations": {
+            "title": "Violating Activations",
+            "type": "integer"
           },
           "violating_types": {
             "title": "Violating Types",
@@ -1057,6 +1061,7 @@
         },
         "required": [
           "violating_types",
+          "violating_activations",
           "approximate"
         ],
         "title": "AdminPolicyImpactOut",

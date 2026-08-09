@@ -200,14 +200,21 @@ class RecentActivityRow:
 
 @dataclass(frozen=True, slots=True)
 class PolicyImpact:
-    """How many live types a candidate policy would refuse to activate.
+    """What a candidate policy would block.
 
-    ``approximate`` is true when the scan hit its bound, so the count is a floor
-    rather than a silently truncated total — a governance preview that quietly
-    under-reported would be worse than none.
+    ``violating_types`` counts live types it would refuse to activate.
+    ``violating_activations`` counts activities running *right now* whose type
+    it would refuse: enforcement happens at authoring and at activation start,
+    so tightening a policy does not stop a class already under way, and an admin
+    tightening for a consent reason needs to see that before saving.
+
+    ``approximate`` is true when either scan hit its bound, so the counts are
+    floors rather than silently truncated totals — a governance preview that
+    quietly under-reported would be worse than none.
     """
 
     violating_types: int
+    violating_activations: int
     approximate: bool
 
 

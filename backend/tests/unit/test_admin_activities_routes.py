@@ -336,7 +336,9 @@ class TestPolicyRoutes:
             patch.object(
                 ActivitiesFacade,
                 "preview_policy_impact",
-                AsyncMock(return_value=PolicyImpact(violating_types=3, approximate=False)),
+                AsyncMock(
+                    return_value=PolicyImpact(violating_types=3, violating_activations=1, approximate=False)
+                ),
             ) as prev,
             patch.object(ActivitiesFacade, "update_activity_policy", AsyncMock()) as upd,
         ):
@@ -345,6 +347,9 @@ class TestPolicyRoutes:
             )
 
         assert out.violating_types == 3
+        # Activities running right now are reported separately: enforcement is at
+        # authoring and activation start, so a tightening does not stop them.
+        assert out.violating_activations == 1
         assert out.approximate is False
         # A preview must not write.
         upd.assert_not_awaited()
