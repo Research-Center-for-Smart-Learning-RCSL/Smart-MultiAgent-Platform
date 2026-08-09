@@ -28,14 +28,15 @@ parallel.
 
 ## In progress
 
-- `2026-08-08-activity-example-catalogue` (refactor) — `depends_on: []`. Splits
-  `backend/smap/examples/creative_thinking_course.py` into a course-agnostic seeding engine
-  plus validated JSON course files, so adding an example is a data file and editing course
-  text needs no code change. No behavior change. Zero file overlap with the governance
-  dossier. Absorbs FU-5 of `2026-08-08-creative-thinking-course-example`.
-
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-09 after implementation: `2026-08-08-activity-example-catalogue`
+(`smap/examples/` is now `courses/*.json` + a validating `_catalogue.py` loader + a
+course-agnostic `_seeding.py`; `creative_thinking_course.py` deleted, course JSON shipped as
+package data). Nothing lists it in `depends_on`, so no row moved out of Blocked. It does
+retire FU-5 of `2026-08-08-creative-thinking-course-example` as a code task: seeding the
+other six units is now one JSON file and no Python, pending the collaborating educator's
+confirmation of the unit designs (carried forward as this dossier's FU-1).
 Removed on 2026-08-01 after implementation: `2026-07-22-wait-for-event-timer-and-join-ports`
 (timer waits now arm their own `delay_seconds` via `workflow_event_resume`; the join
 `timeout` port's absence is recorded via linter advisory + docs rather than built, per Q-2).
