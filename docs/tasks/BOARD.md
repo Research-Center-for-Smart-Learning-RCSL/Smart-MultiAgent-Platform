@@ -16,6 +16,14 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+- `2026-08-09-chatroom-rail-scroll-and-resize` (feature, draft) — `depends_on: []`. Fixes
+  three defects behind one reported symptom: the desktop right rail clips overflowing
+  content with no scroll region (a shared `STabs` + `ChatroomView` grid defect affecting all
+  three tabs, not just activities), the rail is a fixed 200px, and the Mandala plugin lays
+  out against the viewport instead of its container. Adds an opt-in `fill` on `STabs`, a
+  resizable persisted rail width, and container-relative plugin layout. Frontend only — no
+  backend, no API, no migration. Carries an SRS delta (amends [R24.32]; adds [R30.34]).
+
 - `2026-08-09-platform-example-activity-types` (feature, draft) — `depends_on: []`. Promotes
   the shipped example catalogue out of the `smap` CLI package into `contexts/activities`,
   adds a `scope` column to `activity_types` (migration 0076) so an example can be a
