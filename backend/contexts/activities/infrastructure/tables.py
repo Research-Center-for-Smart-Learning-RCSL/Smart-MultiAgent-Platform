@@ -152,4 +152,34 @@ activity_submissions = sa.Table(
 )
 
 
-__all__ = ["activity_activations", "activity_sessions", "activity_submissions", "activity_types"]
+activity_policies = sa.Table(
+    "activity_policies",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    # Only 'platform' is legal in v1; the column exists so a per-org row is an
+    # insert rather than a migration (0075).
+    sa.Column("scope", sa.Text, nullable=False, server_default=sa.text("'platform'")),
+    sa.Column("expose_payload_to_agent_default", sa.Boolean, nullable=False, server_default=sa.text("true")),
+    sa.Column("expose_payload_to_agent_locked", sa.Boolean, nullable=False, server_default=sa.text("false")),
+    sa.Column("echo_includes_content_default", sa.Boolean, nullable=False, server_default=sa.text("false")),
+    sa.Column("echo_includes_content_locked", sa.Boolean, nullable=False, server_default=sa.text("false")),
+    sa.Column("retention_days_default", sa.Integer, nullable=True),
+    sa.Column("retention_days_max", sa.Integer, nullable=True),
+    sa.Column("version", sa.Integer, nullable=False, server_default=sa.text("1")),
+    sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column(
+        "updated_by_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+)
+
+
+__all__ = [
+    "activity_activations",
+    "activity_policies",
+    "activity_sessions",
+    "activity_submissions",
+    "activity_types",
+]

@@ -16,15 +16,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.application.activation_service import ActivationService
 from contexts.activities.application.aggregation_service import AggregationService
+from contexts.activities.application.policy_service import ActivityPolicyService
 from contexts.activities.application.session_service import ActivitySessionService
 from contexts.activities.application.submission_service import SubmissionService
 from contexts.activities.application.type_service import ActivityTypeService
 from contexts.activities.application.validators.registry import ValidatorInfo, list_registered
-from contexts.activities.domain.errors import ActivityTypeNotFound
+from contexts.activities.domain.errors import ActivityTypeNotFound, ActivityTypeViolatesPolicy
 from contexts.activities.domain.models import (
     ActivityActivation,
     ActivityActivationEndResult,
     ActivityAggregate,
+    ActivityPolicy,
     ActivitySession,
     ActivitySubmission,
     ActivityType,
@@ -34,6 +36,11 @@ from contexts.activities.domain.models import (
 )
 from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
+
+# Upper bound on the admin form's "how many types would this break" preview. A
+# platform with more live types than this gets an undercount, which the API
+# reports as approximate rather than silently truncating.
+_POLICY_PREVIEW_SCAN = 500
 
 __all__ = [
     "ActivitiesFacade",
@@ -57,6 +64,7 @@ class ActivitiesFacade:
         activation_repo = ActivationRepository(db)
         self._activation_repo = activation_repo
         self._type_repo = ActivityTypeRepository(db)
+        self._policy = ActivityPolicyService(db)
         self._activation = ActivationService(
             db,
             activation_repo=activation_repo,
@@ -135,6 +143,59 @@ class ActivitiesFacade:
         """The process-global first-party in-process validators (id + title). No DB
         access: the registry is populated at startup (R30.05/R30.24)."""
         return list_registered()
+
+    # -- Governance policy ([R30.29]) ---------------------------------------
+
+    async def get_activity_policy(self) -> ActivityPolicy:
+        """The policy in force; permissive when no admin has saved one."""
+        return await self._policy.get_effective()
+
+    async def update_activity_policy(
+        self,
+        *,
+        expose_payload_to_agent_default: bool,
+        expose_payload_to_agent_locked: bool,
+        echo_includes_content_default: bool,
+        echo_includes_content_locked: bool,
+        retention_days_default: int | None,
+        retention_days_max: int | None,
+        expected_version: int | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> ActivityPolicy:
+        return await self._policy.update(
+            expose_payload_to_agent_default=expose_payload_to_agent_default,
+            expose_payload_to_agent_locked=expose_payload_to_agent_locked,
+            echo_includes_content_default=echo_includes_content_default,
+            echo_includes_content_locked=echo_includes_content_locked,
+            retention_days_default=retention_days_default,
+            retention_days_max=retention_days_max,
+            expected_version=expected_version,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def count_types_violating_policy(self, policy: ActivityPolicy) -> int:
+        """How many live types a candidate policy would refuse to activate.
+
+        Read-only preview for the admin form: tightening a policy is otherwise a
+        blind action whose cost only shows up when a facilitator cannot start a
+        class ([R30.30] risk note in §10 of the dossier).
+        """
+        violations = 0
+        for at in await self._type_repo.list_all(limit=_POLICY_PREVIEW_SCAN):
+            try:
+                await self._policy.assert_allows(
+                    expose_payload_to_agent=at.expose_payload_to_agent,
+                    echo_includes_content=at.echo_includes_content,
+                    retention_days=at.retention_days,
+                    policy=policy,
+                )
+            except ActivityTypeViolatesPolicy:
+                violations += 1
+        return violations
 
     async def list_all_types(
         self, *, cursor: uuid.UUID | None = None, limit: int = 50

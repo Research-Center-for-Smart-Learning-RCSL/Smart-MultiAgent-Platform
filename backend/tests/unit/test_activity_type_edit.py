@@ -78,6 +78,11 @@ def _wire_service(
     svc._repo.update = AsyncMock(return_value=True)
     svc._activation_repo = MagicMock()
     svc._activation_repo.list_active_for_type = AsyncMock(return_value=active or [])
+    # No platform policy row: the service falls back to permissive, which is the
+    # behavior every test in this file was written against. Policy enforcement has
+    # its own file (test_activity_policy_enforcement.py).
+    svc._policy._repo = MagicMock()
+    svc._policy._repo.get_platform = AsyncMock(return_value=None)
     return svc
 
 

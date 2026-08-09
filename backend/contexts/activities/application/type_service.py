@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.activities.application.policy_service import ActivityPolicyService
 from contexts.activities.application.validators.registry import get_config_validator, is_registered
 from contexts.activities.application.validators.schema import validate_schema_wellformed
 from contexts.activities.domain.errors import (
@@ -31,6 +32,7 @@ class ActivityTypeService:
         self._db = db
         self._repo = ActivityTypeRepository(db)
         self._activation_repo = ActivationRepository(db)
+        self._policy = ActivityPolicyService(db)
 
     async def register(
         self,
@@ -50,6 +52,13 @@ class ActivityTypeService:
     ) -> ActivityType:
         validate_schema_wellformed(payload_schema)
         self._validate_validator_config(validator_kind, validator_config)
+        # [R30.30] first gate: reject a violating type at authoring time so the
+        # activation-time gate seldom has to fire in front of a class.
+        await self._policy.assert_allows(
+            expose_payload_to_agent=expose_payload_to_agent,
+            echo_includes_content=echo_includes_content,
+            retention_days=retention_days,
+        )
         type_id = await self._repo.create(
             project_id=project_id,
             key=key,
@@ -118,6 +127,17 @@ class ActivityTypeService:
             self._validate_validator_config(validator_kind, validator_config)
             if await self._activation_repo.list_active_for_type(type_id):
                 raise ActivityTypeActive(str(type_id))
+
+        # Outside the `behavioral_changed` branch on purpose: the three governance
+        # fields are "safe metadata" under [R30.23] and may be edited at any time,
+        # so an owner could flip expose_payload_to_agent without touching the
+        # schema or validator. Checking only behavioral edits would leave the
+        # policy trivially bypassable ([R30.30]).
+        await self._policy.assert_allows(
+            expose_payload_to_agent=expose_payload_to_agent,
+            echo_includes_content=echo_includes_content,
+            retention_days=retention_days,
+        )
 
         await self._repo.update(
             type_id,

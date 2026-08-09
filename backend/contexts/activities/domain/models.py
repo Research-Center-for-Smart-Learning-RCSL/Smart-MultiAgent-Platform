@@ -71,6 +71,53 @@ class ActivityType:
 
 
 @dataclass(frozen=True, slots=True)
+class ActivityPolicy:
+    """Platform-wide governance over an ActivityType's three privacy- and
+    retention-grade fields ([R30.29]).
+
+    For each boolean: a ``default`` that pre-fills the authoring form, and a
+    ``locked`` flag that additionally forces a type to match it. For retention a
+    lock would be meaninglessly rigid, so it carries an upper bound instead;
+    ``retention_days_max`` of ``None`` means unbounded.
+
+    ``scope`` exists with only one legal value in v1. The column is here so a
+    per-org layer is a later row rather than a migration rewrite — the shape
+    follows ``prompt_assistant_configs``, which resolves user -> org -> platform.
+    """
+
+    id: uuid.UUID | None
+    scope: str
+    expose_payload_to_agent_default: bool
+    expose_payload_to_agent_locked: bool
+    echo_includes_content_default: bool
+    echo_includes_content_locked: bool
+    retention_days_default: int | None
+    retention_days_max: int | None
+    version: int
+    updated_at: dt.datetime | None = None
+    updated_by_user_id: uuid.UUID | None = None
+
+
+PLATFORM_SCOPE = "platform"
+
+# What the platform behaves as before an admin has ever saved a policy ([R30.29]):
+# nothing locked, no retention ceiling, and defaults matching the ActivityType
+# column defaults. Installing the capability must change no existing behavior, so
+# these are permissive by construction — an admin has to choose to tighten.
+PERMISSIVE_POLICY = ActivityPolicy(
+    id=None,
+    scope=PLATFORM_SCOPE,
+    expose_payload_to_agent_default=True,
+    expose_payload_to_agent_locked=False,
+    echo_includes_content_default=False,
+    echo_includes_content_locked=False,
+    retention_days_default=None,
+    retention_days_max=None,
+    version=0,
+)
+
+
+@dataclass(frozen=True, slots=True)
 class ActivitySession:
     id: uuid.UUID
     activity_type_id: uuid.UUID
@@ -167,9 +214,12 @@ class ActivityAggregate:
 
 
 __all__ = [
+    "PERMISSIVE_POLICY",
+    "PLATFORM_SCOPE",
     "ActivityAggregate",
     "ActivityActivation",
     "ActivityActivationEndResult",
+    "ActivityPolicy",
     "ActivitySession",
     "ActivitySubmission",
     "ActivityType",

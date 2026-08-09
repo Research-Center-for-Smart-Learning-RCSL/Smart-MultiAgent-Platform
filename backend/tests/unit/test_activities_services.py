@@ -48,6 +48,19 @@ _NOW = dt.datetime(2026, 7, 13, tzinfo=dt.UTC)
 _SCHEMA = {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}
 
 
+def _no_policy(svc: ActivityTypeService) -> ActivityTypeService:
+    """Point the service's policy reader at "no platform policy row".
+
+    That is the permissive fallback, and the behavior every test here was written
+    against. Policy enforcement has its own file
+    (``test_activity_policy_enforcement.py``); leaving this unstubbed would only
+    mean the mocked session cannot serve the policy read.
+    """
+    svc._policy._repo = MagicMock()
+    svc._policy._repo.get_platform = AsyncMock(return_value=None)
+    return svc
+
+
 def _make_type(**over: Any) -> ActivityType:
     base: dict[str, Any] = {
         "id": uuid.uuid4(),
@@ -127,7 +140,7 @@ class TestTypeServiceValidatorConfig:
         registry.clear_registry()
 
     async def test_unknown_in_process_validator_id_rejected(self) -> None:
-        svc = ActivityTypeService(MagicMock())
+        svc = _no_policy(ActivityTypeService(MagicMock()))
         with pytest.raises(ValidatorConfigInvalid):
             await svc.register(
                 project_id=uuid.uuid4(),
@@ -142,7 +155,7 @@ class TestTypeServiceValidatorConfig:
             )
 
     async def test_webhook_requires_url(self) -> None:
-        svc = ActivityTypeService(MagicMock())
+        svc = _no_policy(ActivityTypeService(MagicMock()))
         with pytest.raises(ValidatorConfigInvalid):
             await svc.register(
                 project_id=uuid.uuid4(),
@@ -157,7 +170,7 @@ class TestTypeServiceValidatorConfig:
             )
 
     async def test_mcp_non_uuid_agent_id_rejected(self) -> None:
-        svc = ActivityTypeService(MagicMock())
+        svc = _no_policy(ActivityTypeService(MagicMock()))
         with pytest.raises(ValidatorConfigInvalid):
             await svc.register(
                 project_id=uuid.uuid4(),
@@ -176,7 +189,7 @@ class TestTypeServiceValidatorConfig:
             )
 
     async def test_mcp_valid_uuids_pass_config_validation(self) -> None:
-        svc = ActivityTypeService(MagicMock())
+        svc = _no_policy(ActivityTypeService(MagicMock()))
         svc._repo = MagicMock()
         type_id = uuid.uuid4()
         svc._repo.create = AsyncMock(return_value=type_id)
@@ -200,7 +213,7 @@ class TestTypeServiceValidatorConfig:
         svc._repo.create.assert_awaited_once()
 
     async def test_malformed_schema_rejected_before_persist(self) -> None:
-        svc = ActivityTypeService(MagicMock())
+        svc = _no_policy(ActivityTypeService(MagicMock()))
         svc._repo = MagicMock()
         svc._repo.create = AsyncMock()
         with pytest.raises(PayloadSchemaInvalid):
@@ -221,7 +234,7 @@ class TestTypeServiceValidatorConfig:
         from app.plugins.activity_validators import register_first_party_validators
 
         register_first_party_validators()
-        svc = ActivityTypeService(MagicMock())
+        svc = _no_policy(ActivityTypeService(MagicMock()))
         svc._repo = MagicMock()
         type_id = uuid.uuid4()
         svc._repo.create = AsyncMock(return_value=type_id)
@@ -244,7 +257,7 @@ class TestTypeServiceValidatorConfig:
         from app.plugins.activity_validators import register_first_party_validators
 
         register_first_party_validators()
-        svc = ActivityTypeService(MagicMock())
+        svc = _no_policy(ActivityTypeService(MagicMock()))
         svc._repo = MagicMock()
         svc._repo.create = AsyncMock()
         with pytest.raises(ValidatorConfigInvalid):
@@ -265,7 +278,7 @@ class TestTypeServiceValidatorConfig:
         from app.plugins.activity_validators import register_first_party_validators
 
         register_first_party_validators()
-        svc = ActivityTypeService(MagicMock())
+        svc = _no_policy(ActivityTypeService(MagicMock()))
         svc._repo = MagicMock()
         type_id = uuid.uuid4()
         svc._repo.create = AsyncMock(return_value=type_id)
@@ -298,7 +311,7 @@ class TestTypeServiceValidatorConfig:
         from app.plugins.activity_validators import register_first_party_validators
 
         register_first_party_validators()
-        svc = ActivityTypeService(MagicMock())
+        svc = _no_policy(ActivityTypeService(MagicMock()))
         svc._repo = MagicMock()
         svc._repo.create = AsyncMock()
         with pytest.raises(ValidatorConfigInvalid):
@@ -322,7 +335,7 @@ class TestTypeServiceValidatorConfig:
         register_first_party_validators()
         project_id = uuid.uuid4()
         type_id = uuid.uuid4()
-        svc = ActivityTypeService(MagicMock())
+        svc = _no_policy(ActivityTypeService(MagicMock()))
         svc._repo = MagicMock()
         svc._repo.update = AsyncMock()
         svc._repo.get = AsyncMock(

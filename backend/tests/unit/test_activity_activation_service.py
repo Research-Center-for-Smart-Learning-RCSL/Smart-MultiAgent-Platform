@@ -47,6 +47,17 @@ def _activation(room_id: uuid.UUID, type_id: uuid.UUID) -> ActivityActivation:
     )
 
 
+def _no_policy(svc: ActivationService) -> ActivationService:
+    """No platform policy row, so the activation gate falls back to permissive.
+
+    That is the behavior every test here was written against; the gate itself is
+    covered in ``test_activity_policy_enforcement.py``.
+    """
+    svc._policy._repo = MagicMock()
+    svc._policy._repo.get_platform = AsyncMock(return_value=None)
+    return svc
+
+
 class TestActivationService:
     async def test_start_is_idempotent_for_the_same_type_and_audits_once(self) -> None:
         project_id, room_id, type_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
@@ -54,10 +65,12 @@ class TestActivationService:
         repo = MagicMock(
             create_active=AsyncMock(return_value=None), get_active=AsyncMock(return_value=active)
         )
-        svc = ActivationService(
-            MagicMock(),
-            activation_repo=repo,
-            type_repo=MagicMock(get=AsyncMock(return_value=_type(project_id, type_id))),
+        svc = _no_policy(
+            ActivationService(
+                MagicMock(),
+                activation_repo=repo,
+                type_repo=MagicMock(get=AsyncMock(return_value=_type(project_id, type_id))),
+            )
         )
 
         result = await svc.start(
@@ -76,10 +89,12 @@ class TestActivationService:
             create_active=AsyncMock(return_value=None),
             get_active=AsyncMock(return_value=_activation(room_id, uuid.uuid4())),
         )
-        svc = ActivationService(
-            MagicMock(),
-            activation_repo=repo,
-            type_repo=MagicMock(get=AsyncMock(return_value=_type(project_id, type_id))),
+        svc = _no_policy(
+            ActivationService(
+                MagicMock(),
+                activation_repo=repo,
+                type_repo=MagicMock(get=AsyncMock(return_value=_type(project_id, type_id))),
+            )
         )
 
         with pytest.raises(ActivityAlreadyActive):
@@ -94,10 +109,12 @@ class TestActivationService:
     async def test_start_rejects_a_cross_project_type_before_persisting(self) -> None:
         project_id, room_id, type_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         repo = MagicMock(create_active=AsyncMock())
-        svc = ActivationService(
-            MagicMock(),
-            activation_repo=repo,
-            type_repo=MagicMock(get=AsyncMock(return_value=_type(uuid.uuid4(), type_id))),
+        svc = _no_policy(
+            ActivationService(
+                MagicMock(),
+                activation_repo=repo,
+                type_repo=MagicMock(get=AsyncMock(return_value=_type(uuid.uuid4(), type_id))),
+            )
         )
 
         with pytest.raises(ActivityTypeNotFound):
@@ -115,10 +132,12 @@ class TestActivationService:
         room_id, type_id = uuid.uuid4(), uuid.uuid4()
         activation = _activation(room_id, type_id)
         repo = MagicMock(get=AsyncMock(return_value=activation), end=AsyncMock(return_value=False))
-        svc = ActivationService(
-            MagicMock(),
-            activation_repo=repo,
-            type_repo=MagicMock(),
+        svc = _no_policy(
+            ActivationService(
+                MagicMock(),
+                activation_repo=repo,
+                type_repo=MagicMock(),
+            )
         )
 
         result = await svc.end(
