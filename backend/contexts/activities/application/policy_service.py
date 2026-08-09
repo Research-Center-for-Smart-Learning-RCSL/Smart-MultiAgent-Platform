@@ -95,6 +95,29 @@ class ActivityPolicyService:
                 f"platform policy caps {_RETENTION} at {effective.retention_days_max}",
             )
 
+    @staticmethod
+    def assert_self_consistent(*, retention_days_default: int | None, retention_days_max: int | None) -> None:
+        """Raise ``ActivityPolicyInconsistent`` if a policy contradicts itself.
+
+        A policy must not contradict itself. Pydantic and the table CHECKs each
+        validate the two retention fields independently, so `default=500,
+        max=100` passes both — and then the authoring form pre-fills 500 and the
+        owner's first save is rejected by the very policy that supplied it.
+
+        Static and public because both writers of a candidate policy need it: the
+        `update` path, and the impact preview. A preview that reports on a policy
+        the writer will reject is worse than no preview, since it reads as
+        approval.
+        """
+        if (
+            retention_days_default is not None
+            and retention_days_max is not None
+            and retention_days_default > retention_days_max
+        ):
+            raise ActivityPolicyInconsistent(
+                f"retention default {retention_days_default} exceeds the maximum {retention_days_max}"
+            )
+
     async def assert_type_allowed(self, activity_type: ActivityType) -> None:
         """The activation-time gate ([R30.30]).
 
@@ -127,18 +150,10 @@ class ActivityPolicyService:
         already exists and ignored on first write, mirroring
         ``prompt_studio``'s ``put_config``.
         """
-        # A policy must not contradict itself. Pydantic and the table CHECKs each
-        # validate the two retention fields independently, so `default=500,
-        # max=100` passes both — and then the authoring form pre-fills 500 and the
-        # owner's first save is rejected by the very policy that supplied it.
-        if (
-            retention_days_default is not None
-            and retention_days_max is not None
-            and retention_days_default > retention_days_max
-        ):
-            raise ActivityPolicyInconsistent(
-                f"retention default {retention_days_default} exceeds the maximum {retention_days_max}"
-            )
+        self.assert_self_consistent(
+            retention_days_default=retention_days_default,
+            retention_days_max=retention_days_max,
+        )
 
         values = {
             "expose_payload_to_agent_default": expose_payload_to_agent_default,

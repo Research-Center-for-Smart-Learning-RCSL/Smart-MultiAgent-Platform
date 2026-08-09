@@ -179,18 +179,27 @@ class ActivitiesFacade:
         )
 
     async def preview_policy_impact(self, policy: ActivityPolicy) -> PolicyImpact:
-        """How many live types a candidate policy would refuse to activate.
+        """What a candidate policy would block: live types, and rooms running now.
 
         Read-only preview for the admin form: tightening a policy is otherwise a
         blind action whose cost only surfaces when a facilitator cannot start a
         class ([R30.30] risk note in §10 of the dossier).
 
-        One scan, bounded — the bound stays inside the context so callers cannot
-        drift from it, and `approximate` reports when it was hit.
+        Two scans, each bounded — the bound stays inside the context so callers
+        cannot drift from it, and `approximate` reports when either was hit.
+
+        Rejects a self-contradictory candidate for the same reason `update` does.
+        Reporting "nothing would break" on a policy the writer will refuse reads
+        as approval of it.
         """
-        types = await self._type_repo.list_all(limit=_POLICY_PREVIEW_SCAN)
-        violations = 0
-        for at in types:
+        ActivityPolicyService.assert_self_consistent(
+            retention_days_default=policy.retention_days_default,
+            retention_days_max=policy.retention_days_max,
+        )
+
+        async def _breaches(at: ActivityType | None) -> bool:
+            if at is None:
+                return False
             try:
                 await self._policy.assert_allows(
                     expose_payload_to_agent=at.expose_payload_to_agent,
@@ -199,8 +208,29 @@ class ActivitiesFacade:
                     policy=policy,
                 )
             except ActivityTypeViolatesPolicy:
-                violations += 1
-        return PolicyImpact(violating_types=violations, approximate=len(types) >= _POLICY_PREVIEW_SCAN)
+                return True
+            return False
+
+        types = await self._type_repo.list_all(limit=_POLICY_PREVIEW_SCAN)
+        violating_types = sum([1 for at in types if await _breaches(at)])
+
+        # Counted separately from types, and from each activation's own type
+        # rather than from the bounded type scan above, which may have truncated
+        # before reaching it. An activity already running is the case an admin
+        # most needs to see before saving: the two enforcement gates are
+        # authoring and activation start, so a tightening does not end a class
+        # that is already under way — it only stops the next one.
+        activations = await self._activation_repo.list_all_active(limit=_POLICY_PREVIEW_SCAN)
+        running_types = await self._type_repo.get_many([a.activity_type_id for a in activations])
+        violating_activations = sum(
+            [1 for a in activations if await _breaches(running_types.get(a.activity_type_id))]
+        )
+
+        return PolicyImpact(
+            violating_types=violating_types,
+            violating_activations=violating_activations,
+            approximate=len(types) >= _POLICY_PREVIEW_SCAN or len(activations) >= _POLICY_PREVIEW_SCAN,
+        )
 
     async def list_all_types(
         self, *, cursor: uuid.UUID | None = None, limit: int = 50

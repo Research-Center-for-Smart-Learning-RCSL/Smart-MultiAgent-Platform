@@ -11,10 +11,16 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from contexts.activities.application.activity_context_provider import ActivityContextProvider
-from contexts.activities.domain.models import RecentActivityRow, ValidationStatus
+from contexts.activities.domain.models import (
+    PERMISSIVE_POLICY,
+    ActivityPolicy,
+    RecentActivityRow,
+    ValidationStatus,
+)
 
 _FACADE = "contexts.activities.interfaces.facade.ActivitiesFacade"
 _NOW = dt.datetime(2026, 7, 13, 10, 30, tzinfo=dt.UTC)
@@ -34,10 +40,20 @@ def _row(**over: object) -> RecentActivityRow:
     return RecentActivityRow(**base)  # type: ignore[arg-type]
 
 
-def _facade_returning(rows: list[RecentActivityRow]) -> MagicMock:
+def _facade_returning(rows: list[RecentActivityRow], policy: ActivityPolicy = PERMISSIVE_POLICY) -> MagicMock:
     facade = MagicMock()
     facade.list_recent_activity = AsyncMock(return_value=rows)
+    facade.get_activity_policy = AsyncMock(return_value=policy)
     return facade
+
+
+def _locked_off_policy() -> ActivityPolicy:
+    """A platform policy that forbids submission content reaching an agent."""
+    return replace(
+        PERMISSIVE_POLICY,
+        expose_payload_to_agent_default=False,
+        expose_payload_to_agent_locked=True,
+    )
 
 
 class TestFormatting:
@@ -103,6 +119,58 @@ class TestFormatting:
         assert block is not None
         assert "visible content" in block
         assert "hidden content" not in block
+
+
+class TestPlatformPolicyGate:
+    """A tightened policy has to reach an activity that is already running.
+
+    Both enforcement gates ([R30.30]) run before a room goes live — authoring and
+    activation start — so without a check here an admin who locks
+    `expose_payload_to_agent=false` mid-class keeps feeding that room's answers
+    to every agent until someone ends the activity. The switch exists for
+    consent, and consent withdrawn has to take effect now.
+    """
+
+    async def test_a_locked_off_policy_suppresses_a_running_activitys_digests(self) -> None:
+        rows = [_row(agent_digest="a student's answer", expose_payload_to_agent=True)]
+        with patch(_FACADE, return_value=_facade_returning(rows, _locked_off_policy())):
+            block = await ActivityContextProvider(MagicMock()).query(chatroom_id=uuid.uuid4())
+
+        assert block is not None
+        assert "a student's answer" not in block
+        # The outcome facts stay: they are server-computed and carry no answer text.
+        assert "creativity_probe: valid" in block
+
+    async def test_a_locked_on_policy_leaves_the_types_own_choice_alone(self) -> None:
+        """Locking the switch *on* does not force content out of a type that
+        opted out — the platform sets a ceiling here, not a floor."""
+        policy = replace(
+            PERMISSIVE_POLICY,
+            expose_payload_to_agent_default=True,
+            expose_payload_to_agent_locked=True,
+        )
+        rows = [
+            _row(attempt_no=1, agent_digest="opted in", expose_payload_to_agent=True),
+            _row(attempt_no=2, agent_digest="opted out", expose_payload_to_agent=False),
+        ]
+        with patch(_FACADE, return_value=_facade_returning(rows, policy)):
+            block = await ActivityContextProvider(MagicMock()).query(chatroom_id=uuid.uuid4())
+
+        assert block is not None
+        assert "opted in" in block
+        assert "opted out" not in block
+
+    async def test_an_unreadable_policy_withholds_content(self) -> None:
+        """Fails closed. A consent control that defaults to permitting on error
+        is not a consent control."""
+        facade = _facade_returning([_row(agent_digest="answer text", expose_payload_to_agent=True)])
+        facade.get_activity_policy = AsyncMock(side_effect=RuntimeError("db down"))
+        with patch(_FACADE, return_value=facade):
+            block = await ActivityContextProvider(MagicMock()).query(chatroom_id=uuid.uuid4())
+
+        assert block is not None
+        assert "answer text" not in block
+        assert "creativity_probe" in block
 
 
 class TestCoverageGateAndFailure:

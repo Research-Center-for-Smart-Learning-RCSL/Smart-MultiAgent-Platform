@@ -110,14 +110,20 @@ class AdminActivityPolicyIn(BaseModel):
 
 
 class AdminPolicyImpactOut(BaseModel):
-    """How many live types a candidate policy would refuse to activate.
+    """What a candidate policy would block.
 
     Lets the admin form warn before a tightening strands a class ([R30.30]).
-    ``approximate`` is true when the scan hit its bound, so the count is a floor
-    rather than a silent truncation.
+    ``violating_activations`` counts activities running at this moment whose type
+    the candidate would refuse — they keep running, because enforcement is at
+    authoring and activation start, so this is the number an admin tightening for
+    a consent reason has to see before saving.
+
+    ``approximate`` is true when either scan hit its bound, so the counts are
+    floors rather than a silent truncation.
     """
 
     violating_types: int
+    violating_activations: int
     approximate: bool
 
 
@@ -167,7 +173,11 @@ async def preview_activity_policy_impact(
         version=0,
     )
     impact = await ActivitiesFacade(db).preview_policy_impact(candidate)
-    return AdminPolicyImpactOut(violating_types=impact.violating_types, approximate=impact.approximate)
+    return AdminPolicyImpactOut(
+        violating_types=impact.violating_types,
+        violating_activations=impact.violating_activations,
+        approximate=impact.approximate,
+    )
 
 
 @router.put("/activity-policy")
