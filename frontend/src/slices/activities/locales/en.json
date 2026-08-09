@@ -72,6 +72,8 @@
       "nameHelp": "The label facilitators see when they start this activity.",
       "retentionDays": "Retention (days)",
       "retentionHelp": "How long submissions are kept. Leave blank for no limit.",
+      "policyRefused": "The platform activity policy does not allow these settings. Adjust them and save again.",
+      "policyRefusedField": "The platform activity policy does not allow the '{field}' setting you chose. Adjust it and save again.",
       "exposePayloadToAgent": "Agent visibility",
       "exposePayloadToAgentLabel": "Agents can see submitted content",
       "exposePayloadToAgentHelp": "When on, every agent in the room (and observers) can read a summary of what was submitted, not just whether it was valid. Turn this off for sensitive or research activities where submissions must stay outside the AI's context.",

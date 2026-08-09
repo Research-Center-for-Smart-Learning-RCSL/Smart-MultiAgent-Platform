@@ -13,6 +13,7 @@ import {
   openActivitySession,
   startActivation,
 } from '../api'
+import { usePolicyRefusal } from '../composables/usePolicyRefusal'
 import { useActivitiesStore } from '../stores/activities'
 import type { ActivitySession, ActivityType, ActivityTypePublic } from '../types'
 import ActivityHost from './ActivityHost.vue'
@@ -24,6 +25,7 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
+const { isPolicyRefusal, refusedFieldLabel } = usePolicyRefusal()
 const session = useSessionStore()
 const store = useActivitiesStore()
 const types = ref<ActivityType[]>([])
@@ -101,10 +103,12 @@ async function ensureActiveTypeLoaded(): Promise<void> {
  *  English prose and without saying who can fix it. A facilitator hits this at
  *  class time, so the message has to be actionable: which switch, and that only a
  *  Project Owner can change it ([R30.30]). The field arrives as a structured
- *  problem member so the copy can be translated rather than echoed. */
+ *  problem member so the copy can be translated rather than echoed — including
+ *  the field name itself, which `refusedFieldLabel` maps to the label this UI
+ *  already shows for that switch. */
 function policyRefusalMessage(err: unknown): string | null {
-  if (!(err instanceof ApiError) || !err.type.includes('type-violates-policy')) return null
-  const field = typeof err.extra.field === 'string' ? err.extra.field : null
+  if (!isPolicyRefusal(err)) return null
+  const field = refusedFieldLabel(err)
   return field
     ? t('activities.panel.policyRefusedField', { field })
     : t('activities.panel.policyRefused')

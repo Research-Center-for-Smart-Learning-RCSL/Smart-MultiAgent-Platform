@@ -72,6 +72,8 @@
       "nameHelp": "主持人啟用此活動時看到的名稱。",
       "retentionDays": "保留天數",
       "retentionHelp": "提交資料保留的天數。留空則不限制。",
+      "policyRefused": "平台活動政策不允許這樣的設定，請調整後再儲存。",
+      "policyRefusedField": "平台活動政策不允許你選擇的「{field}」設定，請調整後再儲存。",
       "exposePayloadToAgent": "AI 代理可見性",
       "exposePayloadToAgentLabel": "允許代理看到提交內容",
       "exposePayloadToAgentHelp": "開啟後，房間內所有代理（含 observer）都能讀到提交內容的摘要，不只是「是否通過」。若是敏感或研究性質的活動，需要讓提交內容完全不進入 AI 的 context，請關閉此項。",

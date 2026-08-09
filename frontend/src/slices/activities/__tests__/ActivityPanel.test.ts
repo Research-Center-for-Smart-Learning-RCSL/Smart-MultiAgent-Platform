@@ -79,6 +79,22 @@ describe('ActivityPanel — platform policy refusal (AC-14)', () => {
     expect(wrapper.text()).toContain('activities.panel.policyRefused')
   })
 
+  it('never shows the raw backend field name to a facilitator', async () => {
+    // `expose_payload_to_agent` inside a zh-TW sentence is the one word the
+    // reader most needs and the only one left untranslated.
+    const wrapper = await refuseWith({ field: 'expose_payload_to_agent' })
+
+    expect(wrapper.text()).not.toContain('expose_payload_to_agent')
+  })
+
+  it('falls back to the field-less message for a field it cannot translate', async () => {
+    const wrapper = await refuseWith({ field: 'some_future_field' })
+
+    expect(wrapper.text()).not.toContain('some_future_field')
+    expect(wrapper.text()).not.toContain('activities.panel.policyRefusedField')
+    expect(wrapper.text()).toContain('activities.panel.policyRefused')
+  })
+
   it('leaves an unrelated failure on the generic message', async () => {
     const { ApiError } = await import('@shared/errors')
     getActiveActivationMock.mockResolvedValue(null)
