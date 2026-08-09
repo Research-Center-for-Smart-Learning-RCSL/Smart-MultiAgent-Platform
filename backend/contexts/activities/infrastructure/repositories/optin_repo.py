@@ -104,16 +104,5 @@ class ProjectActivityTypeOptInRepository:
         )
         return bool(rowcount(result))
 
-    async def list_project_ids_for_type(self, activity_type_id: uuid.UUID) -> Sequence[uuid.UUID]:
-        """Which projects hold an opt-in for a type — the admin-delete blast radius."""
-        rows = (
-            await self._db.execute(
-                sa.select(t.project_activity_type_optins.c.project_id).where(
-                    t.project_activity_type_optins.c.activity_type_id == activity_type_id
-                )
-            )
-        ).all()
-        return [r.project_id for r in rows]
-
 
 __all__ = ["ProjectActivityTypeOptInRepository"]

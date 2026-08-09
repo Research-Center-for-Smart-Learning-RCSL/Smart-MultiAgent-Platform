@@ -358,12 +358,13 @@ class TestOptOut:
             "ConversationFacade",
             lambda _db: MagicMock(list_chatroom_ids_for_project=AsyncMock(return_value=[my_room])),
         )
+        # Patched where they are *used*, not where they are defined: the service
+        # binds both names at import, so patching the defining module would leave
+        # the already-bound references untouched and silently test nothing.
+        monkeypatch.setattr(example_service, "ActivationRepository", lambda _db: activation_repo)
         monkeypatch.setattr(
-            "contexts.activities.infrastructure.repositories.activation_repo.ActivationRepository",
-            lambda _db: activation_repo,
-        )
-        monkeypatch.setattr(
-            "contexts.activities.application.activation_service.ActivationService",
+            example_service,
+            "ActivationService",
             lambda *_a, **_kw: MagicMock(end=AsyncMock(side_effect=_end)),
         )
 

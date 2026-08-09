@@ -18,8 +18,10 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.activities.application.activation_service import ActivationService
 from contexts.activities.application.type_service import ActivityTypeService
 from contexts.activities.domain.errors import (
     ActivityTypeNotFound,
@@ -33,6 +35,7 @@ from contexts.activities.infrastructure.examples.catalogue import (
     available_courses,
     load_course,
 )
+from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
 from contexts.activities.infrastructure.repositories.optin_repo import (
     ProjectActivityTypeOptInRepository,
 )
@@ -118,14 +121,16 @@ class ActivityExampleService:
 
         A course file that fails to parse is skipped rather than failing the whole
         listing: one malformed file must not hide the courses an admin could still
-        install. The parse error is already the loader's diagnosis, and the file is
-        repository content, so a reviewer sees it before an operator does.
+        install. It is logged rather than swallowed — the course would otherwise be
+        simply absent from the catalogue, which looks identical to a course that
+        was never shipped, and an operator has nothing to go on.
         """
         courses: list[CourseDefinition] = []
         for course_key in available_courses():
             try:
                 courses.append(_load_cached(course_key))
             except CourseFileInvalid:
+                logger.warning("shipped course {} is not loadable; omitted from the catalogue", course_key)
                 continue
 
         wanted = {t.key for course in courses for t in course.activity_types}
@@ -301,14 +306,9 @@ class ActivityExampleService:
         if not removed:
             raise ActivityTypeNotOptedIn(str(activity_type_id))
 
-        # Imported here rather than at module scope: this is the context's only
-        # cross-context read, and keeping it local documents that the rest of the
-        # service needs nothing from conversation.
-        from contexts.activities.application.activation_service import ActivationService
-        from contexts.activities.infrastructure.repositories.activation_repo import (
-            ActivationRepository,
-        )
-
+        # The project's live rooms, resolved through the conversation facade rather
+        # than a join ([R30.09]). This is the bound that keeps the cascade below
+        # from reaching another tenant.
         room_ids = set(await ConversationFacade(self._db).list_chatroom_ids_for_project(project_id))
         activation_repo = ActivationRepository(self._db)
         activations = ActivationService(self._db, activation_repo=activation_repo, type_repo=self._type_repo)

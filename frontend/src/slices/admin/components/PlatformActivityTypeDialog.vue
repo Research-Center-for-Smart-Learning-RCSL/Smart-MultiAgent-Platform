@@ -139,8 +139,13 @@ const retentionInvalid = computed(() => {
   return !Number.isInteger(n) || n < 1
 })
 
+// Keyed on the row's *id*, not the row object. `refetchOnWindowFocus` is left at
+// its default, so alt-tabbing away and back re-runs the types query and hands
+// this a new object with identical contents — watching identity would reseed the
+// form there and silently discard whatever the admin had typed. The id changes
+// only when a different type is opened, which is exactly when reseeding is right.
 watch(
-  () => [props.open, props.row] as const,
+  () => [props.open, props.row?.id ?? null] as const,
   () => {
     if (!props.open) return
     refusal.value = null

@@ -15,8 +15,16 @@
       @retry="query.refetch()"
     />
 
+    <p
+      v-else-if="query.isPending.value"
+      class="mt-3 text-xs text-[var(--color-muted)]"
+      role="status"
+    >
+      {{ $t('admin.common.loading') }}
+    </p>
+
     <SEmptyState
-      v-else-if="!query.isPending.value && examples.length === 0"
+      v-else-if="examples.length === 0"
       class="mt-3"
       :icon="SparklesIcon"
       :text="$t('admin.activities.examples.empty')"
