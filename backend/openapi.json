@@ -319,6 +319,7 @@
             "type": "string"
           },
           "payload": {
+            "additionalProperties": true,
             "title": "Payload",
             "type": "object"
           },
@@ -425,6 +426,7 @@
             "type": "string"
           },
           "sub_scores": {
+            "additionalProperties": true,
             "title": "Sub Scores",
             "type": "object"
           },
@@ -494,6 +496,7 @@
             "type": "string"
           },
           "payload_schema": {
+            "additionalProperties": true,
             "title": "Payload Schema",
             "type": "object"
           },
@@ -510,6 +513,7 @@
             "title": "Retention Days"
           },
           "validator_config": {
+            "additionalProperties": true,
             "title": "Validator Config",
             "type": "object"
           },
@@ -561,6 +565,7 @@
             "type": "string"
           },
           "payload_schema": {
+            "additionalProperties": true,
             "title": "Payload Schema",
             "type": "object"
           },
@@ -581,6 +586,7 @@
             "title": "Retention Days"
           },
           "validator_config": {
+            "additionalProperties": true,
             "title": "Validator Config",
             "type": "object"
           },
@@ -621,6 +627,7 @@
             "type": "string"
           },
           "payload_schema": {
+            "additionalProperties": true,
             "title": "Payload Schema",
             "type": "object"
           }
@@ -654,6 +661,7 @@
             "type": "string"
           },
           "payload_schema": {
+            "additionalProperties": true,
             "title": "Payload Schema",
             "type": "object"
           },
@@ -670,6 +678,7 @@
             "title": "Retention Days"
           },
           "validator_config": {
+            "additionalProperties": true,
             "title": "Validator Config",
             "type": "object"
           },
@@ -982,6 +991,7 @@
             "title": "Retention Days"
           },
           "validator_config": {
+            "additionalProperties": true,
             "title": "Validator Config",
             "type": "object"
           },
@@ -1332,10 +1342,12 @@
             "title": "Top P"
           },
           "wakeup_config": {
+            "additionalProperties": true,
             "title": "Wakeup Config",
             "type": "object"
           },
           "workflow_capabilities": {
+            "additionalProperties": true,
             "title": "Workflow Capabilities",
             "type": "object"
           }
@@ -1498,6 +1510,7 @@
             "title": "Parent Id"
           },
           "run_context": {
+            "additionalProperties": true,
             "title": "Run Context",
             "type": "object"
           },
@@ -1699,10 +1712,12 @@
             "type": "integer"
           },
           "wakeup_config": {
+            "additionalProperties": true,
             "title": "Wakeup Config",
             "type": "object"
           },
           "workflow_capabilities": {
+            "additionalProperties": true,
             "title": "Workflow Capabilities",
             "type": "object"
           }
@@ -1936,6 +1951,7 @@
           "wakeup_config": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1947,6 +1963,7 @@
           "workflow_capabilities": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2011,6 +2028,7 @@
           "auth": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2020,6 +2038,7 @@
             "title": "Auth"
           },
           "config": {
+            "additionalProperties": true,
             "title": "Config",
             "type": "object"
           },
@@ -2058,6 +2077,7 @@
             "type": "string"
           },
           "config": {
+            "additionalProperties": true,
             "title": "Config",
             "type": "object"
           },
@@ -2115,6 +2135,7 @@
           "auth": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2131,6 +2152,7 @@
           "config": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2952,6 +2974,7 @@
             "type": "integer"
           },
           "metadata": {
+            "additionalProperties": true,
             "title": "Metadata",
             "type": "object"
           },
@@ -4505,6 +4528,7 @@
             "title": "Recency Half Life Days"
           },
           "trigger_config": {
+            "additionalProperties": true,
             "title": "Trigger Config",
             "type": "object"
           }
@@ -4876,6 +4900,7 @@
             "type": "array"
           },
           "payload": {
+            "additionalProperties": true,
             "title": "Payload",
             "type": "object"
           },
@@ -5233,6 +5258,7 @@
             "type": "string"
           },
           "chunk_params": {
+            "additionalProperties": true,
             "title": "Chunk Params",
             "type": "object"
           },
@@ -5267,6 +5293,7 @@
             "type": "string"
           },
           "chunk_params": {
+            "additionalProperties": true,
             "title": "Chunk Params",
             "type": "object"
           },
@@ -5397,6 +5424,7 @@
           "chunk_params": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -5431,6 +5459,7 @@
             "type": "string"
           },
           "chunk_params": {
+            "additionalProperties": true,
             "title": "Chunk Params",
             "type": "object"
           },
@@ -5995,6 +6024,7 @@
             "type": "string"
           },
           "metadata": {
+            "additionalProperties": true,
             "title": "Metadata",
             "type": "object"
           },
@@ -6168,6 +6198,7 @@
             "$ref": "#/components/schemas/NotificationKind"
           },
           "metadata": {
+            "additionalProperties": true,
             "title": "Metadata",
             "type": "object"
           },
@@ -6244,12 +6275,14 @@
             "type": "string"
           },
           "metadata": {
+            "additionalProperties": true,
             "title": "Metadata",
             "type": "object"
           },
           "release_target": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -6830,6 +6863,7 @@
       "RagConfigCreateIn": {
         "properties": {
           "chunk_params": {
+            "additionalProperties": true,
             "title": "Chunk Params",
             "type": "object"
           },
@@ -6932,6 +6966,7 @@
       "RagConfigOut": {
         "properties": {
           "chunk_params": {
+            "additionalProperties": true,
             "title": "Chunk Params",
             "type": "object"
           },
@@ -7056,6 +7091,7 @@
           "chunk_params": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -7418,6 +7454,9 @@
               "type": "integer"
             },
             "maxProperties": 1000,
+            "propertyNames": {
+              "format": "uuid"
+            },
             "title": "Priorities",
             "type": "object"
           }
@@ -7571,6 +7610,7 @@
             "type": "string"
           },
           "variables": {
+            "additionalProperties": true,
             "title": "Variables",
             "type": "object"
           },
@@ -7607,6 +7647,7 @@
       "RunTriggerIn": {
         "properties": {
           "trigger_payload": {
+            "additionalProperties": true,
             "title": "Trigger Payload",
             "type": "object"
           }
@@ -7673,6 +7714,7 @@
       "SearchKeyIn": {
         "properties": {
           "config": {
+            "additionalProperties": true,
             "title": "Config",
             "type": "object"
           },
@@ -7696,6 +7738,7 @@
       "SearchKeyOut": {
         "properties": {
           "config": {
+            "additionalProperties": true,
             "title": "Config",
             "type": "object"
           },
@@ -8500,6 +8543,7 @@
             "type": "string"
           },
           "input": {
+            "additionalProperties": true,
             "title": "Input",
             "type": "object"
           },
@@ -8508,6 +8552,7 @@
             "type": "string"
           },
           "output": {
+            "additionalProperties": true,
             "title": "Output",
             "type": "object"
           },
@@ -9062,6 +9107,7 @@
       "ValidateIn": {
         "properties": {
           "definition": {
+            "additionalProperties": true,
             "title": "Definition",
             "type": "object"
           }
@@ -9076,6 +9122,7 @@
         "properties": {
           "errors": {
             "items": {
+              "additionalProperties": true,
               "type": "object"
             },
             "title": "Errors",
@@ -9087,6 +9134,7 @@
           },
           "warnings": {
             "items": {
+              "additionalProperties": true,
               "type": "object"
             },
             "title": "Warnings",
@@ -9166,6 +9214,7 @@
       "WorkflowCreateIn": {
         "properties": {
           "definition": {
+            "additionalProperties": true,
             "title": "Definition",
             "type": "object"
           },
@@ -9190,6 +9239,7 @@
             "type": "string"
           },
           "definition": {
+            "additionalProperties": true,
             "title": "Definition",
             "type": "object"
           },
@@ -9241,6 +9291,7 @@
           "definition": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -10590,6 +10641,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "title": "Response Export Audit Api Admin Audit Export Post",
                   "type": "object"
                 }
@@ -10982,6 +11034,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "title": "Response Force Transfer Oc Api Admin Orgs  Org Id  Force Transfer Original Creator Post",
                   "type": "object"
                 }
