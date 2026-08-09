@@ -7,6 +7,8 @@
 
     <ActivityPolicyForm class="mt-6" />
 
+    <ActivityExamplesSection />
+
     <h2 class="mt-8 text-sm font-semibold text-[var(--color-fg)]">
       {{ $t('admin.activities.activeHeading') }}
     </h2>
@@ -93,7 +95,16 @@
       row-key="id"
     >
       <template #cell-project_name="{ row }">
-        {{ row.project_name ?? row.project_id }}
+        <SBadge
+          v-if="row.scope === 'platform'"
+          size="sm"
+          variant="info"
+        >
+          {{ $t('admin.activities.platformScope') }}
+        </SBadge>
+        <template v-else>
+          {{ row.project_name ?? row.project_id }}
+        </template>
       </template>
 
       <template #cell-expose_payload_to_agent="{ row }">
@@ -146,9 +157,14 @@
 </template>
 
 <script setup lang="ts">
-// Read-only platform-wide activity governance view (R30.31). It grants no
-// create/edit/deactivate capability by design — an admin who needs to change a
-// type does it through the owning project.
+// Platform-wide activity governance view (R30.31).
+//
+// Read-only over *project-scoped* types: an admin who needs to change one of
+// those still does it through the owning project. What it does grant, since
+// 0076, is authority over platform-scoped types -- installing a shipped example
+// and editing or removing an installed one ([R30.32], Q-3/Q-4 of the dossier).
+// Those two capabilities live in `ActivityExamplesSection`; the tables below
+// remain reads.
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ClipboardDocumentListIcon, PlayCircleIcon } from '@heroicons/vue/24/outline'
@@ -160,6 +176,7 @@ import type { RouteLocationRaw } from 'vue-router'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import ActivityPolicyForm from '../components/ActivityPolicyForm.vue'
+import ActivityExamplesSection from '../components/ActivityExamplesSection.vue'
 import type { AdminActivityActivationRow, AdminActivityTypeRow } from '../types'
 
 const { t } = useI18n()

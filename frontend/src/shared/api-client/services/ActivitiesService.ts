@@ -11,10 +11,12 @@ import type { ActivitySubmissionIn } from '../models/ActivitySubmissionIn';
 import type { ActivitySubmissionOut } from '../models/ActivitySubmissionOut';
 import type { ActivitySubmissionsPageOut } from '../models/ActivitySubmissionsPageOut';
 import type { ActivityTypeIn } from '../models/ActivityTypeIn';
+import type { ActivityTypeOptInIn } from '../models/ActivityTypeOptInIn';
 import type { ActivityTypeOut } from '../models/ActivityTypeOut';
 import type { ActivityTypePublicOut } from '../models/ActivityTypePublicOut';
 import type { ActivityTypeUpdateIn } from '../models/ActivityTypeUpdateIn';
 import type { ActivityValidatorOut } from '../models/ActivityValidatorOut';
+import type { PlatformExampleOut } from '../models/PlatformExampleOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -252,6 +254,88 @@ export class ActivitiesService {
             url: '/api/chatrooms/{chatroom_id}/activity-types/{type_id}',
             path: {
                 'chatroom_id': chatroomId,
+                'type_id': typeId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List Platform Activity Examples
+     * The installed platform examples, with this project's enabled state.
+     *
+     * Project Owner rather than plain membership: the only thing this listing is for
+     * is deciding what to enable, which is the owner's call ([R30.23]). It is also
+     * why the catalogue being visible to every owner is acceptable — installed
+     * examples are platform metadata, not another tenant's data (OQ-2).
+     * @returns PlatformExampleOut Successful Response
+     * @throws ApiError
+     */
+    public static listPlatformActivityExamplesApiProjectsProjectIdActivityExamplesGet({
+        projectId,
+    }: {
+        projectId: string,
+    }): CancelablePromise<Array<PlatformExampleOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/activity-examples',
+            path: {
+                'project_id': projectId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Opt Project Into Activity Type
+     * Enable a platform example for this project ([R30.33]).
+     * @returns void
+     * @throws ApiError
+     */
+    public static optProjectIntoActivityTypeApiProjectsProjectIdActivityTypeOptinsPost({
+        projectId,
+        requestBody,
+    }: {
+        projectId: string,
+        requestBody: ActivityTypeOptInIn,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/activity-type-optins',
+            path: {
+                'project_id': projectId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Opt Project Out Of Activity Type
+     * Disable a platform example for this project, ending only its activations.
+     *
+     * Same post-commit ordering as ``delete_activity_type``: the opt-in removal and
+     * every activation-end must be durable before any room is told its activation
+     * ended.
+     * @returns void
+     * @throws ApiError
+     */
+    public static optProjectOutOfActivityTypeApiProjectsProjectIdActivityTypeOptinsTypeIdDelete({
+        projectId,
+        typeId,
+    }: {
+        projectId: string,
+        typeId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/projects/{project_id}/activity-type-optins/{type_id}',
+            path: {
+                'project_id': projectId,
                 'type_id': typeId,
             },
             errors: {

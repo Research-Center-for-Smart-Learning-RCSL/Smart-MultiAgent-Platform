@@ -85,8 +85,11 @@ export interface ProjectSummary {
  *  non-admin surface to reuse. */
 export interface AdminActivityTypeRow {
   id: string
-  project_id: string
+  /** Both null for a platform-scoped type: an installed example has no owning
+   *  project ([R30.02]). */
+  project_id: string | null
   project_name: string | null
+  scope: ActivityTypeScope
   key: string
   name: string
   validator_kind: string
@@ -96,6 +99,46 @@ export interface AdminActivityTypeRow {
   retention_days: number | null
   version: number
   created_at: string
+}
+
+/** Who owns an activity type ([R30.02]). A `platform` row is a shipped example an
+ *  admin installed; it has no project and is read-only to Project Owners. */
+export type ActivityTypeScope = 'project' | 'platform'
+
+/** One activity type a shipped course would install, and whether it already is. */
+export interface AdminCatalogueTypeRow {
+  key: string
+  name: string
+  expose_payload_to_agent: boolean
+  echo_includes_content: boolean
+  retention_days: number | null
+  installed_type_id: string | null
+}
+
+/** One shipped course in the example catalogue ([R30.32]). */
+export interface AdminActivityExample {
+  course_key: string
+  title: string
+  source: string
+  activity_types: AdminCatalogueTypeRow[]
+  fully_installed: boolean
+}
+
+/** What one install changed. Both lists rather than a count: an install is
+ *  idempotent, so "nothing created" is a normal outcome the admin needs explained. */
+export interface AdminInstallReport {
+  course_key: string
+  created: string[]
+  already_present: string[]
+}
+
+/** The four fields a platform admin may edit on an installed example ([R30.23]).
+ *  `key`, `payload_schema` and `validator_config` are absent by design. */
+export interface AdminPlatformActivityTypeInput {
+  name: string
+  retention_days: number | null
+  expose_payload_to_agent: boolean
+  echo_includes_content: boolean
 }
 
 /** One currently-active activation, platform-wide. Names are null when the room
