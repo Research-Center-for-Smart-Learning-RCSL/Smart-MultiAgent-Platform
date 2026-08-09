@@ -55,7 +55,13 @@ function onPointerDown(event: PointerEvent): void {
   // Optional-called: pointer capture is not universally implemented, and losing
   // it degrades the drag to "until the pointer leaves the element" rather than
   // breaking it.
-  ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
+  const target = event.currentTarget as HTMLElement
+  target.setPointerCapture?.(event.pointerId)
+  // preventDefault below suppresses the click-focus along with the text
+  // selection, so focus explicitly: otherwise a mouse user cannot grab the
+  // handle and then fine-tune with the arrow keys. `:focus-visible` does not
+  // match pointer-initiated focus, so this shows no ring.
+  target.focus()
   event.preventDefault()
 }
 
