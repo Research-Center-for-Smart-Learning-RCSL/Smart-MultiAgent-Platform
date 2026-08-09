@@ -13,12 +13,21 @@ rewritten, which is the whole reason it exists.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+from contexts.activities.domain.models import ValidatorKind
 from smap.examples import creative_thinking_course as seeder
+from smap.examples._catalogue import (
+    CourseFileInvalid,
+    available_courses,
+    load_course,
+)
 
 MANDALA: dict[str, Any] = {
     "key": "mandala-9grid",
@@ -126,3 +135,186 @@ class TestShippedCourseContent:
         """Property order drives render order in the generic form, so it is behavior."""
         for actual, expected in zip(seeder.COURSE_TYPES, CREATIVE_THINKING_TYPES, strict=True):
             assert list(actual.payload_schema["properties"]) == list(expected["payload_schema"]["properties"])
+
+
+def _course_document() -> dict[str, Any]:
+    """A minimal course that loads cleanly; each test breaks one thing in it."""
+    return {
+        "course_key": "fixture-course",
+        "title": "Fixture course",
+        "source": "test fixture",
+        "activity_types": [
+            {
+                "key": "unit-one",
+                "name": "單元一 測試",
+                "validator_kind": "in_process",
+                "validator_config": {"validator_id": "filled_count", "min_filled": 1},
+                "retention_days": None,
+                "expose_payload_to_agent": True,
+                "echo_includes_content": False,
+                "payload_schema": {
+                    "type": "object",
+                    "properties": {
+                        "answer": {"type": "string", "title": "答案", "description": "寫下你的想法。"},
+                        "reason": {"type": "string", "title": "理由"},
+                    },
+                    "required": ["answer"],
+                },
+            }
+        ],
+    }
+
+
+def _write_course(root: Path, document: dict[str, Any], *, name: str | None = None) -> Path:
+    """Write a course file as UTF-8 bytes, independent of the platform default."""
+    path = root / (name or f"{document['course_key']}.json")
+    path.write_bytes(json.dumps(document, ensure_ascii=False, indent=2).encode("utf-8"))
+    return path
+
+
+class TestLoaderAcceptsAWellFormedCourse:
+    def test_loads_a_course_from_any_directory(self, tmp_path: Path) -> None:
+        """AC-7: a course is a data file, so an arbitrary directory loads the same."""
+        _write_course(tmp_path, _course_document())
+
+        course = load_course("fixture-course", root=tmp_path)
+
+        assert course.course_key == "fixture-course"
+        assert course.title == "Fixture course"
+        assert [t.key for t in course.activity_types] == ["unit-one"]
+        assert course.activity_types[0].validator_kind is ValidatorKind.IN_PROCESS
+        assert course.activity_types[0].retention_days is None
+
+    def test_non_ascii_text_round_trips(self, tmp_path: Path) -> None:
+        """AC-5: UTF-8 is pinned in the loader, not inherited from the host locale.
+
+        The file is written as UTF-8 bytes while the platform default on a Windows
+        host is not UTF-8, so a loader that omitted `encoding=` fails here rather
+        than mojibaking a prompt in front of a class.
+        """
+        _write_course(tmp_path, _course_document())
+
+        activity_type = load_course("fixture-course", root=tmp_path).activity_types[0]
+
+        assert activity_type.name == "單元一 測試"
+        assert activity_type.payload_schema["properties"]["answer"]["title"] == "答案"
+        assert activity_type.payload_schema["properties"]["answer"]["description"] == "寫下你的想法。"
+
+    def test_available_courses_lists_the_json_files(self, tmp_path: Path) -> None:
+        _write_course(tmp_path, _course_document())
+        _write_course(tmp_path, {**_course_document(), "course_key": "another-course"})
+        (tmp_path / "notes.txt").write_text("ignored", encoding="utf-8")
+
+        assert available_courses(root=tmp_path) == ("another-course", "fixture-course")
+
+
+class TestLoaderRejectsAMalformedCourse:
+    """AC-4. Every message names the file and the offending key: the operator
+    seeing it is hand-editing JSON and needs to know where to look."""
+
+    def _load_broken(self, tmp_path: Path, mutate: Any) -> str:
+        document = _course_document()
+        mutate(document)
+        _write_course(tmp_path, document, name="fixture-course.json")
+        with pytest.raises(CourseFileInvalid) as excinfo:
+            load_course("fixture-course", root=tmp_path)
+        message = str(excinfo.value)
+        assert "fixture-course.json" in message, message
+        return message
+
+    def test_a_missing_required_field(self, tmp_path: Path) -> None:
+        def drop_name(doc: dict[str, Any]) -> None:
+            del doc["activity_types"][0]["name"]
+
+        message = self._load_broken(tmp_path, drop_name)
+        assert "name" in message
+        assert "activity_types[0]" in message
+
+    def test_a_missing_top_level_field(self, tmp_path: Path) -> None:
+        message = self._load_broken(tmp_path, lambda doc: doc.pop("source"))
+        assert "source" in message
+
+    def test_an_unknown_field(self, tmp_path: Path) -> None:
+        """A typo'd flag name must not fall through to a default.
+
+        `expose_payload_to_agents` defaulting to true would silently send
+        participant text to an LLM provider.
+        """
+
+        def typo(doc: dict[str, Any]) -> None:
+            doc["activity_types"][0]["expose_payload_to_agents"] = False
+
+        message = self._load_broken(tmp_path, typo)
+        assert "expose_payload_to_agents" in message
+
+    def test_an_unknown_validator_kind(self, tmp_path: Path) -> None:
+        def bad_kind(doc: dict[str, Any]) -> None:
+            doc["activity_types"][0]["validator_kind"] = "in-process"
+
+        message = self._load_broken(tmp_path, bad_kind)
+        assert "validator_kind" in message
+        assert "in_process" in message
+
+    def test_a_malformed_payload_schema(self, tmp_path: Path) -> None:
+        def bad_schema(doc: dict[str, Any]) -> None:
+            doc["activity_types"][0]["payload_schema"] = {
+                "type": "object",
+                "properties": {"answer": {"type": "not-a-json-schema-type"}},
+            }
+
+        message = self._load_broken(tmp_path, bad_schema)
+        assert "payload_schema" in message
+
+    def test_an_empty_payload_schema(self, tmp_path: Path) -> None:
+        def no_properties(doc: dict[str, Any]) -> None:
+            doc["activity_types"][0]["payload_schema"] = {"type": "object", "properties": {}}
+
+        message = self._load_broken(tmp_path, no_properties)
+        assert "at least one property" in message
+
+    def test_a_duplicate_key_within_a_course(self, tmp_path: Path) -> None:
+        def duplicate(doc: dict[str, Any]) -> None:
+            doc["activity_types"].append(copy.deepcopy(doc["activity_types"][0]))
+
+        message = self._load_broken(tmp_path, duplicate)
+        assert "unit-one" in message
+        assert "twice" in message
+
+    def test_a_min_filled_above_the_property_count(self, tmp_path: Path) -> None:
+        """Otherwise the shipped example is an activity nobody can pass."""
+
+        def unreachable(doc: dict[str, Any]) -> None:
+            doc["activity_types"][0]["validator_config"]["min_filled"] = 3
+
+        message = self._load_broken(tmp_path, unreachable)
+        assert "min_filled" in message
+
+    def test_a_negative_min_filled(self, tmp_path: Path) -> None:
+        def negative(doc: dict[str, Any]) -> None:
+            doc["activity_types"][0]["validator_config"]["min_filled"] = -1
+
+        message = self._load_broken(tmp_path, negative)
+        assert "min_filled" in message
+
+    def test_a_course_key_that_disagrees_with_the_filename(self, tmp_path: Path) -> None:
+        def renamed(doc: dict[str, Any]) -> None:
+            doc["course_key"] = "some-other-course"
+
+        message = self._load_broken(tmp_path, renamed)
+        assert "course_key" in message
+
+    def test_invalid_json(self, tmp_path: Path) -> None:
+        (tmp_path / "fixture-course.json").write_bytes(b'{"course_key": ')
+        with pytest.raises(CourseFileInvalid, match="fixture-course.json"):
+            load_course("fixture-course", root=tmp_path)
+
+    def test_an_absent_course_names_what_is_available(self, tmp_path: Path) -> None:
+        _write_course(tmp_path, _course_document())
+        with pytest.raises(CourseFileInvalid) as excinfo:
+            load_course("missing-course", root=tmp_path)
+        assert "fixture-course" in str(excinfo.value)
+
+    @pytest.mark.parametrize("course_key", ["../secrets", "a/b", "Course", "with_underscore", ""])
+    def test_a_key_that_could_escape_the_catalogue_directory(self, tmp_path: Path, course_key: str) -> None:
+        with pytest.raises(CourseFileInvalid, match="not a valid course key"):
+            load_course(course_key, root=tmp_path)
