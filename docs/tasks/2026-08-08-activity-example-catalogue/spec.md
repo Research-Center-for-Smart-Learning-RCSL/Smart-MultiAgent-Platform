@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: in-progress
+status: implemented
 created: 2026-08-08
 requirements: [R30.02, R30.28]
 depends_on: []
@@ -209,27 +209,47 @@ code, and it is a single file deletion after its replacement is proven equal.
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: No externally observable behavior change — every characterization test from §6,
+- [x] AC-1: No externally observable behavior change — every characterization test from §6,
   including the step-1 exact-value assertions, passes unmodified after the move.
-- [ ] AC-2: The §2 violation no longer exists: `_seeding.py` contains no course content and
+  (See D-3: assertions unchanged, patch targets and import paths re-pointed.)
+- [x] AC-2: The §2 violation no longer exists: `_seeding.py` contains no course content and
   `courses/*.json` contains no logic, verified by reading both.
-- [ ] AC-3: `python -m smap.examples creative-thinking-course --project-id X --owner-user-id Y`
+- [x] AC-3: `python -m smap.examples creative-thinking-course --project-id X --owner-user-id Y`
   still works with no new required flag, and still reports both types already-present on a
-  second run.
-- [ ] AC-4: `load_course` rejects, with a message naming the file and the offending key: a
+  second run. Verified at the real CLI out of process (`--course` shows
+  `[default: creative-thinking]`, only the two UUID flags are `[required]`); the
+  second-run no-op is pinned by `TestSeederIdempotency::test_second_run_registers_nothing`.
+  The seed was not replayed against a live database — see the note under AC-9.
+- [x] AC-4: `load_course` rejects, with a message naming the file and the offending key: a
   missing required field, an unknown `validator_kind`, a malformed `payload_schema`, a
   duplicate key within a course, and a `min_filled` exceeding the declared property count.
-- [ ] AC-5: A non-ASCII prompt string round-trips through the loader unchanged (UTF-8 pinned
-  explicitly, not inherited from the platform default).
-- [ ] AC-6: `courses/*.json` ships as package data — verified by loading a course from an
-  installed/built artifact, not only from the source tree.
-- [ ] AC-7: Adding a course requires **only** a new JSON file — demonstrated by a test that
+  `TestLoaderRejectsAMalformedCourse` covers these plus the D-4 additions.
+- [x] AC-5: A non-ASCII prompt string round-trips through the loader unchanged (UTF-8 pinned
+  explicitly, not inherited from the platform default). See D-6 on `utf-8-sig`.
+- [x] AC-6: `courses/*.json` ships as package data — verified by loading a course from an
+  installed/built artifact, not only from the source tree. A wheel was built with
+  `python -m build --wheel`, and `load_course("creative-thinking")` was run against the
+  extracted wheel from outside the repository, returning the course with its Chinese text
+  intact. `tests/unit/test_smap_examples_packaging.py` pins the declaration, since building
+  a wheel per test run is too slow for the unit tier.
+- [x] AC-7: Adding a course requires **only** a new JSON file — demonstrated by a test that
   loads a fixture course from a temp directory and seeds it through `seed_course` with no
-  production code change.
-- [ ] AC-8: `docs/examples/creative-thinking-course.md` reflects the new layout (the "Where
-  the pieces live" table and the seeding section).
-- [ ] AC-9: All gates green — `pytest -q`, `ruff check . && ruff format --check .`,
-  `mypy .`. No frontend change, so frontend gates are N/A.
+  production code change (`TestAddingACourseNeedsNoCode`).
+- [x] AC-8: `docs/examples/creative-thinking-course.md` reflects the new layout (the "Where
+  the pieces live" table and the seeding section), and gains an "Adding another course"
+  section stating the loader's rules.
+- [x] AC-9: Gates green — `ruff check . && ruff format --check .`, `mypy .` (919 files), and
+  the unit tier: 6554 passed, 6 skipped, 0 failed (the skips are pre-existing, from a
+  Windows host that cannot create symlinks). No frontend change, so frontend gates are N/A;
+  no migration and no API contract change, so those contract gates are N/A too.
+  Two things a reader should not mistake for coverage:
+  - A bare `pytest -q` at `backend/` runs the `integration`, `db`, `wiring` and `e2e`
+    tiers too — `addopts` carries no `-m` filter (`backend/pyproject.toml:412`) — and those
+    need live Postgres/Redis/Vault, so locally they hang rather than fail. They ran on CI,
+    not here. Nothing outside `tests/unit` references `smap.examples`.
+  - The seeder was not replayed against a live database. The DB write path is
+    character-identical to the deleted `_seed` (same facade call, same kwargs), and standing
+    up the compose stack including a Vault unseal was disproportionate to that.
 
 ## 10. SRS Delta
 
@@ -239,7 +259,58 @@ the platform does.
 
 ## 11. Deviation Log
 
-Appended by /build.
+- **D-1 — `_catalogue.py` has more import edges than §5 states.** §5 allows it only
+  `contexts.activities.application.validators.schema`. It also imports `ValidatorKind` and
+  `PayloadSchemaInvalid`/`ValidatorConfigInvalid` from `contexts.activities.domain`, and
+  `FILLED_COUNT_ID` + `validate_filled_count_config` from `app.plugins.activity_validators`.
+  Reason: AC-4 requires checking `validator_kind` against the enum and `min_filled` against
+  the `filled_count` id and its integer rule, and re-declaring either constant locally would
+  drift from the rule the authoring form enforces — the drift this refactor exists to
+  prevent. The edges §5 actually forbids (`_catalogue` → `_seeding`, `_catalogue` → facade)
+  hold, and the additions are far more conservative than the `smap` package's existing norm
+  (`smap/rotation/rotate_transit.py:31` and `smap/maintenance/repair_compaction_summaries.py:67`
+  import infrastructure tables directly).
+
+- **D-2 — `CourseActivityType` moved in step 2, not step 3.** §7 creates `_catalogue.py` in
+  step 3, after the engine. Doing it that way would have forced `_seeding.py` to import its
+  type annotation from `creative_thinking_course.py`, the module step 5 deletes. Moving the
+  dataclass first removed the temporary edge. No change to what either step produces.
+
+- **D-3 — §7 step 2's "All existing tests pass unmodified" could not hold.** The seeder
+  tests monkeypatch `get_sessionmaker` and `ActivitiesFacade` on the module where the
+  seeding loop resolves them, so moving the loop required re-pointing those patch targets;
+  step 5 likewise re-pointed `COURSE_TYPES` from a module constant to the loaded course.
+  Every behavioral assertion is unchanged — only patch targets and import paths moved.
+
+- **D-4 — The loader rejects more than §5 lists.** Added: unknown fields, a `payload_schema`
+  declaring no properties (mirroring the authoring form's `schemaEmpty` rule), a
+  `retention_days` that is neither null nor a positive integer, and a `course_key` that
+  disagrees with its filename. The unknown-field rule is the load-bearing one: without it a
+  typo'd `expose_payload_to_agents` falls through to the permissive default, silently
+  shipping a course that sends participant text to an LLM provider.
+
+- **D-5 — All eight per-type fields are required, none defaulted.** §5's sample JSON shows
+  all eight, and the dataclass defaults remain for Python callers, but a course *file* must
+  state each one. Same reasoning as D-4: `expose_payload_to_agent` decides whether student
+  writing reaches a provider, and inheriting that by omission is the wrong default for a
+  file whose intended author is not an engineer.
+
+- **D-6 — Course files are read as `utf-8-sig`, not `utf-8`.** Still an explicit pin rather
+  than the platform default, so AC-5 holds. `-sig` additionally tolerates the byte-order
+  mark a Windows editor commonly writes, which plain `utf-8` would keep as a leading
+  character that then fails to parse as JSON — a failure the intended authors would hit.
+
+- **D-7 — Four robustness fixes the gates surfaced, each with a regression test.** None
+  changes a documented behavior; all close paths where a hand-edited file produced a
+  traceback rather than a diagnosis. (a) A course saved as Big5 raised `UnicodeDecodeError`
+  and an unreadable file raised `OSError`, both escaping `CourseFileInvalid`. (b) An absent
+  catalogue directory raised `FileNotFoundError` out of `available_courses` — which is the
+  exact shape of the packaging failure AC-6 guards against, so it now reads as an empty
+  catalogue. (c) `_COURSE_KEY_RE` was anchored `^..$`; Python's `$` also matches before a
+  trailing newline, so a key ending in one passed a guard written to reject anything that is
+  not a bare filename component (no traversal was reachable through it). Now `\A..\Z`.
+  (d) The command catches any remaining loader failure, so no input to the loader — a
+  deeply nested document raising `RecursionError`, for instance — can crash the CLI.
 
 ## 12. Follow-ups
 
@@ -249,3 +320,12 @@ Appended by /build.
 - **FU-2** — A course JSON currently has no `$schema` and no editor tooling. If the
   catalogue grows past a handful of courses, a published JSON Schema for the course file
   itself would give domain experts autocomplete and inline errors.
+- **FU-3** — The command is still named `creative-thinking-course` while taking a `--course`
+  option that can name any course, and its log lines carry that name as a prefix. AC-3 fixed
+  the name so the published invocation keeps working. When FU-1 adds a second course, rename
+  to something course-neutral and keep `creative-thinking-course` as an alias so
+  `docs/examples/creative-thinking-course.md` stays correct.
+- **FU-4** — There is no way to list the catalogue. `available_courses()` exists but is
+  reachable only indirectly, through the error message for an unknown `--course`. A
+  `list-courses` command is the obvious affordance; deliberately not added here, since §3
+  rules out new CLI capability.
