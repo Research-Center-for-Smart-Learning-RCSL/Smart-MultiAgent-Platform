@@ -349,35 +349,58 @@ read back through a clamp, so a hand-edited value cannot push the layout outside
 
 - [ ] **AC-1** — On a desktop viewport, with an activity active whose rendered height
   exceeds the rail, the rail scrolls and every field plus the submit button is reachable.
-  Nothing is clipped without a scrollbar.
-- [ ] **AC-2** — The tab strip stays fixed while the panel below it scrolls; the tabs do not
-  scroll out of view.
+  Nothing is clipped without a scrollbar. **Pending the manual check (§12); jsdom performs
+  no layout.** The structural chain is complete and pinned: `.chatroom__presence` has
+  `min-height: 0; overflow: hidden`, `.s-tabs--fill .s-tabs__panels` has `flex: 1 1 auto;
+  min-height: 0`, and `.activity-panel` owns `height: 100%; overflow-y: auto`.
+- [x] **AC-2** — The tab strip stays fixed while the panel below it scrolls; the tabs do not
+  scroll out of view. Structural half verified: `.s-tabs--fill .s-tabs__list` is
+  `flex-shrink: 0`, and `ChatroomView.test.ts::opts the tabbed rail into filling its height`
+  pins that the rail actually requests fill mode. Visual confirmation rides with AC-1.
 - [ ] **AC-3** — The same holds for the People and Observer tabs with overflowing content,
-  and exactly one scrollbar appears in the rail (no nested scroll regions).
-- [ ] **AC-4** — The five non-chatroom `STabs` call sites render byte-identical markup and
-  classes to before the change.
+  and exactly one scrollbar appears in the rail (no nested scroll regions). **Pending the
+  manual check.** Structural half verified by reading: `.s-tabs--fill .s-tabs__panels`
+  declares no `overflow`, so the single scroll region is each panel's own.
+- [x] **AC-4** — The five non-chatroom `STabs` call sites render byte-identical markup and
+  classes to before the change. `STabs.test.ts::does not fill its parent height unless
+  asked` pins the default; no other call site passes `fill`.
 - [ ] **AC-5** — Dragging the handle widens and narrows the rail; the message feed reflows
-  and never collapses below its share.
-- [ ] **AC-6** — The rail cannot be dragged below 200px or above `min(720px, 45vw)`.
-- [ ] **AC-7** — The chosen width survives a page reload, and a `localStorage` value outside
+  and never collapses below its share. **Pending the manual check for the reflow.** The
+  width math is pinned by `SResizeHandle.test.ts::reports widths measured from where the
+  drag started` and the rail wiring by `ChatroomView.test.ts::drives the rail track from the
+  persisted width`.
+- [x] **AC-6** — The rail cannot be dragged below 200px or above `min(720px, 45vw)`.
+  `useResizablePanel.test.ts` — `refuses a width below the minimum`, `refuses a width above
+  the hard ceiling`, `caps at the viewport fraction on a narrow window`.
+- [x] **AC-7** — The chosen width survives a page reload, and a `localStorage` value outside
   the bounds (hand-edited or persisted on a wider screen) is clamped on read rather than
-  applied.
-- [ ] **AC-8** — Shrinking the browser window re-clamps the rail so the feed keeps its
-  minimum; widening it again restores the user's chosen width.
-- [ ] **AC-9** — The handle is reachable by Tab, exposes `role="separator"` with
+  applied. `persists an explicit choice`, `clamps an out-of-range stored value on read`,
+  `ignores a corrupt stored value`.
+- [x] **AC-8** — Shrinking the browser window re-clamps the rail so the feed keeps its
+  minimum; widening it again restores the user's chosen width. `re-clamps when the window
+  shrinks and restores the choice when it grows back`.
+- [x] **AC-9** — The handle is reachable by Tab, exposes `role="separator"` with
   `aria-orientation="vertical"` and live `aria-valuenow`/`aria-valuemin`/`aria-valuemax`,
   and resizes with Left/Right, Shift+Left/Right, Home, and End; Enter resets to 200px.
-  Its pointer target is at least 44px wide ([R24.34]).
-- [ ] **AC-10** — No drag handle renders below 1024px; the drawer path is unchanged.
-- [ ] **AC-11** — An interrupted drag (pointer cancelled, window blurred) releases pointer
-  capture and restores text selection.
+  Its pointer target is at least 44px wide ([R24.34]). ARIA and every key pinned by
+  `SResizeHandle.test.ts`; Tab reachability comes from the root being a real `<button>`
+  (D-2), asserted directly. The 44px target is `::before { inset: 0 -20px }` over a 4px
+  handle, verified by reading — jsdom cannot measure it.
+- [x] **AC-10** — No drag handle renders below 1024px; the drawer path is unchanged.
+  `ChatroomView.test.ts::offers no resize handle below the desktop breakpoint`. The drawer's
+  `STabs` deliberately does not opt into fill (D-1), so its scroll behaviour is untouched.
+- [x] **AC-11** — An interrupted drag (pointer cancelled, window blurred) releases pointer
+  capture and restores text selection. Three cases pinned: `pointercancel`,
+  `lostpointercapture` (D-3), and unmount mid-drag.
 - [ ] **AC-12** — With the rail at its default 200px the Mandala renders as a single
   column; widened past 480px it renders as a 3x3 grid. Verified visually, not only by class
-  assertion.
-- [ ] **AC-13** — Gates green: `pnpm lint` (all 12, notably #6 global CSS, #11
-  accessibility, #12 i18n), `pnpm typecheck`, `pnpm test`, `pnpm build`,
-  `pnpm run check:bundle-size`, `pnpm run check:type-coverage`,
-  `pnpm run check:boundaries-enforced`. Backend gates N/A — no backend file changes.
+  assertion. **Pending the manual check.** Both halves of the mechanism are confirmed
+  present in the production CSS: `@container (width>=30rem){.\@min-\[30rem\]\:grid-cols-3{…}}`
+  and `.activity-host__plugin[data-v-…]{container-type:inline-size}`.
+- [x] **AC-13** — Gates green: `pnpm lint` (all 12, notably #6 global CSS, #11
+  accessibility, #12 i18n), `pnpm typecheck`, `pnpm test` (178 files, 1066 tests),
+  `pnpm build`, `pnpm run check:bundle-size`, `pnpm run check:type-coverage`,
+  `pnpm run check:boundaries-enforced`. Backend gates N/A — the task diff is frontend-only.
 
 ## 12. Test Plan
 
@@ -429,7 +452,36 @@ contract is undocumented, which is why it was implementable without a scroll reg
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- **D-1 — the drawer's `STabs` does not opt into fill mode.** §6 said to set `fill` on both
+  instances "for consistency of the panel height contract". Only the desktop one has it.
+  `.s-drawer__body` already declares `overflow-y: auto`
+  (`frontend/src/shared/ui/SDrawer.vue:224`), so filling the drawer's tabs would place
+  `ActivityPanel`'s new scroll region inside the drawer's existing one — the nested
+  scrollbars §5 explicitly rules out. The drawer path is therefore untouched: with an
+  indefinite-height parent, `ActivityPanel`'s `height: 100%` resolves to `auto` and its
+  `overflow-y: auto` never engages, exactly as before.
+
+- **D-2 — `SResizeHandle`'s root is a `<button role="separator">`, not a `div`.** §5
+  described a "focusable element" without naming the tag. A `div` with `tabindex="0"` failed
+  lint gate #11 (`vuejs-accessibility/no-static-element-interactions`). Re-roling a natively
+  interactive element satisfies the gate at its cause rather than suppressing it, and it
+  removes the hand-rolled `tabindex`.
+
+- **D-3 — two robustness additions beyond §5, each with a regression test.** (a) The drag
+  also ends on `lostpointercapture`: a browser can revoke capture with no `pointerup` or
+  `pointercancel` (context menu, an overlay taking the pointer), which left the page
+  `user-select: none` under a resize cursor until the chatroom unmounted, and let a
+  button-less pointer move keep resizing. Found by the gate-5 quality audit. (b) The handle
+  focuses itself on `pointerdown`, because the `preventDefault` that stops text selection
+  also suppresses click-focus — without it a mouse user could not grab the handle and then
+  fine-tune with the arrow keys. `:focus-visible` does not match pointer-initiated focus, so
+  no ring appears on the mouse path.
+
+- **D-4 — the handle occupies its own grid track rather than sitting inside the rail.**
+  `grid-template-columns` gains a fourth track and `.chatroom__presence` moves from column 3
+  to column 4. Positioning the handle inside the rail was the smaller diff, but the rail now
+  sets `overflow: hidden`, which would clip the handle's 44px hit area (it extends 20px each
+  side of a 4px seam) and defeat [R24.34].
 
 ## 16. Follow-ups
 
@@ -443,6 +495,17 @@ Appended by /build. Empty means the implementation matches this spec exactly.
   (`AgentDetailView`, `RagConfigDetailView`, `KnowledgeMapConfigDetailView`,
   `ProjectKeysView`, `ProjectListView`). If any of them later needs a fixed tab strip with
   a scrolling panel, `fill` is now available rather than needing a second mechanism.
+- **FU-5** — `useResizablePanel` holds per-instance state, while the codebase's other
+  persisted-preference composables (`useTheme.ts:34`, `useLocale.ts`) are module-level
+  singletons. Two components passing the same `storageKey` would diverge until reload.
+  Latent — there is one consumer today — but the naming invites the wrong assumption.
+  Raised by the gate-5 quality audit and accepted as Info rather than fixed.
+
+- **FU-6** — Three independent clamp implementations now exist (`SWakeupEditor.vue:83`,
+  `SProgressBar.vue:22`, `useResizablePanel.ts:31`), each 1-3 lines with different input
+  handling. Below the DRY threshold and pre-existing; worth a shared helper only if a fourth
+  appears.
+
 - **FU-4** — `MandalaGrid` mounts as a standalone Vue island via `createApp`
   (`plugins/mandala9grid/index.ts:27-33`), so it cannot use `@shared/ui` components or
   `useI18n`. Every plugin will re-hand-roll form markup for the same reason. A plugin-safe
