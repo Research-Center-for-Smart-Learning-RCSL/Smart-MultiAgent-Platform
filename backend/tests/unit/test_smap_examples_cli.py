@@ -200,7 +200,46 @@ class TestSeederIdempotency:
         assert kwargs["actor_ip"] is None
 
 
+class TestRunReturnsTheReport:
+    """G-2: `run()`'s return shape, which the command formats its output from."""
+
+    def test_run_returns_the_seed_report(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        facade = _facade(existing_keys=["mandala-9grid"])
+        _patch_infra(monkeypatch, facade)
+
+        report = seeder.run(uuid.uuid4(), uuid.uuid4())
+
+        assert isinstance(report, seeder.SeedReport)
+        assert report.created == ["six-hats-emotion-desk"]
+        assert report.already_present == ["mandala-9grid"]
+
+
 class TestSeederCli:
+    def test_reports_created_and_already_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The operator's only feedback that a re-run was a no-op rather than a failure."""
+        from smap.examples import __main__ as cli
+
+        report = seeder.SeedReport(created=["six-hats-emotion-desk"], already_present=["mandala-9grid"])
+        monkeypatch.setattr(cli._creative_thinking_course, "run", MagicMock(return_value=report))
+        recorded = MagicMock()
+        monkeypatch.setattr(cli, "logger", recorded)
+
+        result = CliRunner().invoke(
+            cli.app,
+            [
+                "creative-thinking-course",
+                "--project-id",
+                str(uuid.uuid4()),
+                "--owner-user-id",
+                str(uuid.uuid4()),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        args = recorded.info.call_args.args
+        assert args[1] == ["six-hats-emotion-desk"]
+        assert args[2] == ["mandala-9grid"]
+
     def test_help_renders_and_exposes_the_subcommand(self) -> None:
         from smap.examples.__main__ import app
 
