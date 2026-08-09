@@ -1,14 +1,12 @@
-"""The shipped course content, pinned field-for-field.
+"""The course catalogue: the shipped content, pinned field-for-field, plus the
+loader's rejection rules.
 
-Written *before* the Python-constants -> JSON transcription so it can catch the
-one defect that transcription is most likely to introduce: a prompt string
-altered in transit. The expected values below are spelled out literally rather
-than derived from a loop, so they stay independent of however the production
-side happens to build the schema.
-
-Keep this fixture in terms of plain dicts. It has to survive the course
-definitions changing class (module constants -> loader output) without being
-rewritten, which is the whole reason it exists.
+The expected values below were written *before* the Python-constants -> JSON
+transcription, precisely so they could catch the one defect that transcription
+is most likely to introduce: a prompt string altered in transit. They are
+spelled out literally rather than derived from a loop, so they stay independent
+of however the production side happens to build the schema. Edit them only when
+the course content is deliberately changing.
 """
 
 from __future__ import annotations
@@ -22,7 +20,6 @@ from typing import Any
 import pytest
 
 from contexts.activities.domain.models import ValidatorKind
-from smap.examples import creative_thinking_course as seeder
 from smap.examples._catalogue import (
     CourseFileInvalid,
     available_courses,
@@ -106,6 +103,8 @@ SIX_HATS: dict[str, Any] = {
 
 CREATIVE_THINKING_TYPES: tuple[dict[str, Any], ...] = (MANDALA, SIX_HATS)
 
+SHIPPED_TYPES = load_course("creative-thinking").activity_types
+
 
 def as_dicts(activity_types: Any) -> list[dict[str, Any]]:
     """Course types as plain dicts, so the pin does not depend on their class."""
@@ -120,7 +119,7 @@ class TestShippedCourseContent:
     """
 
     def test_the_course_is_exactly_the_two_pinned_units(self) -> None:
-        assert as_dicts(seeder.COURSE_TYPES) == list(CREATIVE_THINKING_TYPES)
+        assert as_dicts(SHIPPED_TYPES) == list(CREATIVE_THINKING_TYPES)
 
     @pytest.mark.parametrize(
         ("index", "expected"),
@@ -129,31 +128,23 @@ class TestShippedCourseContent:
     )
     def test_each_unit_matches_field_for_field(self, index: int, expected: dict[str, Any]) -> None:
         """Same assertion split per unit, so a failure names the unit that drifted."""
-        assert dataclasses.asdict(seeder.COURSE_TYPES[index]) == expected
+        assert dataclasses.asdict(SHIPPED_TYPES[index]) == expected
 
     def test_property_order_is_preserved(self) -> None:
-        """Property order drives render order in the generic form, so it is behavior."""
-        for actual, expected in zip(seeder.COURSE_TYPES, CREATIVE_THINKING_TYPES, strict=True):
+        """Property order drives render order in the generic form, so it is behavior.
+
+        JSON object order is preserved by `json.loads`, but nothing in the format
+        promises it, so a future loader change that normalised key order would
+        silently reshuffle a worksheet.
+        """
+        for actual, expected in zip(SHIPPED_TYPES, CREATIVE_THINKING_TYPES, strict=True):
             assert list(actual.payload_schema["properties"]) == list(expected["payload_schema"]["properties"])
 
-
-class TestTheTranscription:
-    """The safety net for the Python-constants -> JSON move.
-
-    Both sources of truth exist at this point on purpose: the JSON is only
-    allowed to replace the constants once it is proven equal to them. This class
-    goes away with the constants.
-    """
-
-    def test_the_shipped_json_equals_the_python_constants(self) -> None:
+    def test_the_course_carries_its_provenance(self) -> None:
         course = load_course("creative-thinking")
 
-        assert as_dicts(course.activity_types) == as_dicts(seeder.COURSE_TYPES)
-
-    def test_the_shipped_json_equals_the_pin(self) -> None:
-        course = load_course("creative-thinking")
-
-        assert as_dicts(course.activity_types) == list(CREATIVE_THINKING_TYPES)
+        assert course.title
+        assert "Ke Pei-jung" in course.source
 
 
 class TestEveryShippedCourse:
