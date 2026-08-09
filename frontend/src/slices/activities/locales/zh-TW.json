@@ -17,7 +17,9 @@
       "loadFailed": "無法載入活動，請再試一次。",
       "startFailed": "無法開始活動，請再試一次。",
       "endFailed": "無法結束活動，請再試一次。",
-      "finishFailed": "無法完成活動，請再試一次。"
+      "finishFailed": "無法完成活動，請再試一次。",
+      "policyRefused": "平台活動政策不允許啟用這個活動。需要由專案擁有者修改該活動類型後才能使用。",
+      "policyRefusedField": "平台活動政策不允許啟用這個活動，原因是它的「{field}」設定。需要由專案擁有者修改該活動類型後才能使用。"
     },
     "outcome": {
       "pending": "驗證中…",

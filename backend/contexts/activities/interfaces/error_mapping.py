@@ -5,6 +5,8 @@ Dispatch + 500 fallback live in ``shared_kernel.errors.context_handler``.
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import FastAPI
 
 from contexts.activities.domain import errors
@@ -86,8 +88,21 @@ _MAP: ErrorMap = {
 }
 
 
+def _extras(exc: Exception) -> dict[str, Any]:
+    """Structured problem members beyond title/detail.
+
+    ``field`` is what lets the client render a translated refusal naming the
+    offending switch; ``detail`` alone carries it only as untranslated English
+    prose ([R30.30] requires the facilitator be told what is wrong).
+    """
+    extras: dict[str, Any] = {}
+    if isinstance(exc, errors.ActivityTypeViolatesPolicy):
+        extras["field"] = exc.field
+    return extras
+
+
 def register(app: FastAPI) -> None:
-    register_context_handler(app, errors.ActivitiesError, _MAP)
+    register_context_handler(app, errors.ActivitiesError, _MAP, _extras)
 
 
 __all__ = ["register"]
