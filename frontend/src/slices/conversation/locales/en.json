@@ -116,6 +116,7 @@
       "agents": "Agents",
       "people": "People",
       "messageList": "Message list",
+      "railResize": "Resize the side panel. Use the arrow keys to adjust, Home and End for the limits, Enter to reset.",
       "search": "Search",
       "more": "More",
       "close": "Close",
