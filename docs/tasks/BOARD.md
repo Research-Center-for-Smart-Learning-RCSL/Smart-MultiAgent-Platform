@@ -40,7 +40,11 @@ parallel.
 - `2026-08-09-chatroom-rail-scroll-and-resize` (feature, in-progress) — `depends_on: []`.
   Rail height contract (opt-in `fill` on `STabs`, the missing `min-height`/overflow on
   `.chatroom__presence`, `ActivityPanel`'s own scroll), a resizable persisted rail width,
-  and container-relative layout for activity plugins. Frontend only.
+  and container-relative layout for activity plugins. Frontend only. **Code complete and
+  committed; all automated gates green (1066 tests, lint, typecheck, build, bundle, type
+  coverage, boundaries).** Blocked only on the visual confirmation of AC-1, AC-3, AC-5 and
+  AC-12 — jsdom performs no layout, so those four cannot be asserted by any test in this
+  repo. Needs a deploy to staging before they can be checked in a browser.
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-08-09 after implementation: `2026-08-08-activity-example-catalogue`
