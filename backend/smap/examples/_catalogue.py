@@ -32,8 +32,11 @@ from contexts.activities.domain.models import ValidatorKind
 COURSES_DIRNAME = "courses"
 
 # A course key is also a filename component, so it may not contain a separator
-# or a dot: `load_course("../../etc/passwd")` must not resolve.
-_COURSE_KEY_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+# or a dot: `load_course("../../etc/passwd")` must not resolve. Anchored with
+# \A..\Z, not ^..$: `$` also matches before a trailing newline, which would let
+# a key through this guard carrying a character that has no business in a
+# filename.
+_COURSE_KEY_RE = re.compile(r"\A[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 
 _COURSE_FIELDS = frozenset({"course_key", "title", "source", "activity_types"})
 _TYPE_FIELDS = frozenset(

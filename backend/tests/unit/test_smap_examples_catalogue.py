@@ -362,7 +362,22 @@ class TestLoaderRejectsAMalformedCourse:
             load_course("missing-course", root=tmp_path)
         assert "fixture-course" in str(excinfo.value)
 
-    @pytest.mark.parametrize("course_key", ["../secrets", "a/b", "Course", "with_underscore", ""])
+    @pytest.mark.parametrize(
+        "course_key",
+        [
+            "../secrets",
+            "..",
+            "a/b",
+            "a\\b",
+            "Course",
+            "with_underscore",
+            "",
+            "creative-thinking.json",
+            # `$` would accept this; the guard is anchored with \Z so it does not.
+            "creative-thinking\n",
+            "nul\x00byte",
+        ],
+    )
     def test_a_key_that_could_escape_the_catalogue_directory(self, tmp_path: Path, course_key: str) -> None:
         with pytest.raises(CourseFileInvalid, match="not a valid course key"):
             load_course(course_key, root=tmp_path)
