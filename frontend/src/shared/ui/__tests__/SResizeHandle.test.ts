@@ -91,6 +91,14 @@ describe('SResizeHandle', () => {
     expect(emitted(wrapper)).toEqual([320, 350])
   })
 
+  // preventDefault on pointerdown suppresses click-focus, so grabbing the handle
+  // and then fine-tuning with the arrow keys would otherwise be impossible.
+  it('takes focus when grabbed so the keyboard can take over', async () => {
+    const wrapper = mountHandle()
+    await wrapper.trigger('pointerdown', { button: 0, clientX: 500, pointerId: 1 })
+    expect(document.activeElement).toBe(wrapper.element)
+  })
+
   it('ignores pointer movement that is not part of a drag', async () => {
     const wrapper = mountHandle()
     await wrapper.trigger('pointermove', { clientX: 480, pointerId: 1 })
