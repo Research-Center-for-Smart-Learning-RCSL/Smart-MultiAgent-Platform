@@ -26,3 +26,8 @@ export { useListStagger } from './useListStagger'
 export { safeRedirect } from './safeRedirect'
 export { useCloneModel } from './useCloneModel'
 export { useModelCatalog, MODEL_CATALOG_KEY, type ModelCatalog } from './useModelCatalog'
+export {
+  useResizablePanel,
+  type ResizablePanel,
+  type ResizablePanelOptions,
+} from './useResizablePanel'
