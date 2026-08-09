@@ -360,6 +360,29 @@ class TestSeederCli:
         # Nothing may reach the database once the course failed to load.
         seeded.assert_not_called()
 
+    def test_exits_1_when_loading_fails_unexpectedly(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The loader is fed hand-edited data; no input to it may crash the CLI."""
+        from smap.examples import __main__ as cli
+
+        seeded = MagicMock()
+        monkeypatch.setattr(cli, "run_seed", seeded)
+        monkeypatch.setattr(cli, "load_course", MagicMock(side_effect=RecursionError("too deep")))
+
+        result = CliRunner().invoke(
+            cli.app,
+            [
+                "creative-thinking-course",
+                "--project-id",
+                str(uuid.uuid4()),
+                "--owner-user-id",
+                str(uuid.uuid4()),
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        seeded.assert_not_called()
+
     def test_help_renders_and_exposes_the_subcommand(self) -> None:
         from smap.examples.__main__ import app
 
