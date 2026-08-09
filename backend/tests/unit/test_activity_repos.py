@@ -13,8 +13,12 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import IntegrityError
 
+from contexts.activities.domain.errors import ActivityTypeKeyConflict
+from contexts.activities.domain.models import ActivityTypeScope, ValidatorKind
 from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
 from contexts.activities.infrastructure.repositories.submission_repo import (
     ActivitySubmissionRepository,
@@ -241,6 +245,156 @@ class TestSubmissionRepoScoping:
         compiled = _compiled(db.execute.await_args_list[0].args[0])
         assert "max(activity_submissions.attempt_no)" in compiled
         assert "deleted_at" not in compiled
+
+
+class TestPlatformScopedTypeQueries:
+    """AC-4/AC-11: the reads that make a platform type reachable from a project.
+
+    ``list_for_project`` is the only query whose shape changed, and the way it
+    could go wrong silently is by widening: dropping the opt-in predicate would
+    show every tenant every installed example.
+    """
+
+    async def _run(self, repo_call: object) -> str:
+        db = AsyncMock()
+        page = MagicMock()
+        page.all.return_value = []
+        db.execute.return_value = page
+        await repo_call(db)  # type: ignore[operator]
+        return _compiled(db.execute.await_args_list[0].args[0])
+
+    async def test_list_for_project_admits_platform_types_only_through_an_optin(self) -> None:
+        project_id = uuid.uuid4()
+        compiled = await self._run(lambda db: ActivityTypeRepository(db).list_for_project(project_id))
+
+        assert "deleted_at IS NULL" in compiled
+        # The project's own rows, OR rows this project holds an opt-in for. The
+        # project id must bound BOTH arms — an opt-in subquery without it would
+        # return every project's opt-ins.
+        assert "project_activity_type_optins" in compiled
+        assert compiled.count(str(project_id)) == 2
+        assert "ORDER BY activity_types.created_at DESC, activity_types.id DESC" in compiled
+
+    async def test_list_platform_returns_only_ownerless_live_rows(self) -> None:
+        compiled = await self._run(lambda db: ActivityTypeRepository(db).list_platform())
+
+        assert "activity_types.project_id IS NULL" in compiled
+        assert "deleted_at IS NULL" in compiled
+
+    async def test_list_platform_by_keys_short_circuits_without_a_query(self) -> None:
+        db = AsyncMock()
+        assert await ActivityTypeRepository(db).list_platform_by_keys([]) == []
+        db.execute.assert_not_awaited()
+
+    async def test_list_platform_by_keys_is_scoped_to_platform_rows(self) -> None:
+        compiled = await self._run(
+            lambda db: ActivityTypeRepository(db).list_platform_by_keys(["mandala-9grid", "scamper"])
+        )
+
+        # Without the NULL project guard the install idempotency check would see
+        # another tenant's identically-keyed project type and skip the install.
+        assert "activity_types.project_id IS NULL" in compiled
+        assert "mandala-9grid" in compiled
+        assert "scamper" in compiled
+        assert "deleted_at IS NULL" in compiled
+
+    async def test_create_writes_the_scope_it_was_given(self) -> None:
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalar_one.return_value = uuid.uuid4()
+        db.execute.return_value = result
+
+        await ActivityTypeRepository(db).create(
+            project_id=None,
+            key="mandala-9grid",
+            name="Mandala",
+            payload_schema={},
+            validator_kind=ValidatorKind.IN_PROCESS,
+            validator_config={},
+            retention_days=None,
+            expose_payload_to_agent=True,
+            echo_includes_content=False,
+            scope=ActivityTypeScope.PLATFORM,
+        )
+
+        # JSONB blocks literal_binds, so read the bound params.
+        stmt = db.execute.await_args_list[0].args[0]
+        params = stmt.compile(dialect=postgresql.dialect()).params
+        assert params["scope"] == "platform"
+        assert params["project_id"] is None
+
+    async def test_create_defaults_to_project_scope(self) -> None:
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalar_one.return_value = uuid.uuid4()
+        db.execute.return_value = result
+
+        await ActivityTypeRepository(db).create(
+            project_id=uuid.uuid4(),
+            key="k",
+            name="n",
+            payload_schema={},
+            validator_kind=ValidatorKind.IN_PROCESS,
+            validator_config={},
+            retention_days=None,
+            expose_payload_to_agent=True,
+            echo_includes_content=False,
+        )
+
+        stmt = db.execute.await_args_list[0].args[0]
+        assert stmt.compile(dialect=postgresql.dialect()).params["scope"] == "project"
+
+    async def test_create_maps_the_platform_key_index_to_a_domain_conflict(self) -> None:
+        """AC-2: without this arm a duplicate install is a raw IntegrityError 500.
+
+        The project index name cannot cover it — a NULL ``project_id`` makes that
+        partial-unique stop constraining platform rows entirely.
+        """
+        db = AsyncMock()
+        db.execute.side_effect = IntegrityError(
+            "INSERT ...",
+            {},
+            Exception(
+                'duplicate key value violates unique constraint "uq_activity_types_platform_key_active"'
+            ),
+        )
+
+        with pytest.raises(ActivityTypeKeyConflict):
+            await ActivityTypeRepository(db).create(
+                project_id=None,
+                key="mandala-9grid",
+                name="Mandala",
+                payload_schema={},
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config={},
+                retention_days=None,
+                expose_payload_to_agent=True,
+                echo_includes_content=False,
+                scope=ActivityTypeScope.PLATFORM,
+            )
+
+    async def test_create_reraises_an_unrelated_integrity_error(self) -> None:
+        db = AsyncMock()
+        db.execute.side_effect = IntegrityError(
+            "INSERT ...",
+            {},
+            Exception('new row violates check constraint "ck_activity_types_project_scope"'),
+        )
+
+        # A half-converted row is a bug in the caller, not a key conflict; mapping
+        # it to 409 would tell the client to change the key and try again.
+        with pytest.raises(IntegrityError):
+            await ActivityTypeRepository(db).create(
+                project_id=None,
+                key="k",
+                name="n",
+                payload_schema={},
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config={},
+                retention_days=None,
+                expose_payload_to_agent=True,
+                echo_includes_content=False,
+            )
 
 
 class TestTypeRepoScoping:

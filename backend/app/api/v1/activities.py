@@ -34,6 +34,7 @@ from contexts.activities.domain.models import (
     ActivitySession,
     ActivitySubmission,
     ActivityType,
+    ActivityTypeScope,
     ValidatorKind,
 )
 from contexts.activities.interfaces.facade import ActivitiesFacade
@@ -93,7 +94,10 @@ class ActivityTypeUpdateIn(BaseModel):
 
 class ActivityTypeOut(BaseModel):
     id: uuid.UUID
-    project_id: uuid.UUID
+    # None exactly when `scope` is `platform`: a shipped example installed by a
+    # platform admin has no owning project ([R30.02]).
+    project_id: uuid.UUID | None
+    scope: ActivityTypeScope
     key: str
     name: str
     payload_schema: dict[str, Any]
@@ -198,6 +202,7 @@ def _type_out(t: ActivityType, *, include_validator_config: bool = True) -> Acti
     return ActivityTypeOut(
         id=t.id,
         project_id=t.project_id,
+        scope=t.scope,
         key=t.key,
         name=t.name,
         payload_schema=t.payload_schema,
