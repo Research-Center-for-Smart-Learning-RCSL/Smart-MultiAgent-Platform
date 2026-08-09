@@ -115,6 +115,15 @@
       </SFormField>
 
       <p
+        v-if="hasRejectedEntry"
+        class="text-xs text-[var(--color-danger)]"
+        role="alert"
+        data-testid="policy-retention-invalid"
+      >
+        {{ $t('admin.activities.policy.retentionInvalid') }}
+      </p>
+
+      <p
         v-if="impact && impact.violating_types > 0"
         class="text-xs text-[var(--color-warning)]"
         role="status"
@@ -130,11 +139,23 @@
         }}
       </p>
 
+      <p
+        v-if="impact && impact.violating_activations > 0"
+        class="text-xs text-[var(--color-warning)]"
+        role="status"
+        data-testid="policy-impact-running"
+      >
+        {{
+          $t('admin.activities.policy.impactRunning', { count: impact.violating_activations })
+        }}
+      </p>
+
       <div class="flex items-center gap-3">
         <SButton
           variant="secondary"
           type="button"
           :loading="previewMutation.isPending.value"
+          :disabled="hasRejectedEntry"
           data-testid="policy-preview"
           @click="onPreview"
         >
@@ -144,6 +165,7 @@
           variant="primary"
           type="submit"
           :loading="saveMutation.isPending.value"
+          :disabled="hasRejectedEntry"
           data-testid="policy-save"
         >
           {{ $t('admin.activities.policy.save') }}
@@ -194,6 +216,16 @@ const impact = ref<ActivityPolicyImpact | null>(null)
 // If-Match is sent at all.
 const isSaved = computed(() => (query.data.value?.version ?? 0) > 0)
 
+type RetentionKey = 'retention_days_default' | 'retention_days_max'
+
+// What the admin typed, held only while it is NOT a usable number. The box has
+// to keep showing the rejected text — reverting it to the last good value would
+// hide the mistake being reported.
+const rejectedEntry = reactive<Record<RetentionKey, string | null>>({
+  retention_days_default: null,
+  retention_days_max: null,
+})
+
 watch(
   () => query.data.value,
   (policy: ActivityPolicy | undefined) => {
@@ -204,6 +236,8 @@ watch(
     form.echo_includes_content_locked = policy.echo_includes_content_locked
     form.retention_days_default = policy.retention_days_default
     form.retention_days_max = policy.retention_days_max
+    rejectedEntry.retention_days_default = null
+    rejectedEntry.retention_days_max = null
   },
   { immediate: true },
 )
@@ -211,18 +245,38 @@ watch(
 // Text inputs, not type="number": SInput coerces an emptied numeric input to 0
 // via Number(''), and 0 is not a legal retention bound — the field must be able
 // to go back to "unset". Same reasoning as SchemaForm's number field.
-function numberField(key: 'retention_days_default' | 'retention_days_max') {
+function numberField(key: RetentionKey) {
   return computed<string>({
-    get: () => (form[key] === null ? '' : String(form[key])),
+    get: () => rejectedEntry[key] ?? (form[key] === null ? '' : String(form[key])),
     set: (raw) => {
       const trimmed = raw.trim()
-      form[key] = trimmed === '' ? null : Number(trimmed)
+      if (trimmed === '') {
+        rejectedEntry[key] = null
+        form[key] = null
+        return
+      }
+      // Tested against a digits-only pattern rather than handed to `Number`.
+      // `Number('30 days')` is NaN, `JSON.stringify` writes NaN as `null`, and
+      // the API reads `null` as "no bound" — so a typo would silently REMOVE
+      // the ceiling the admin was setting, and still report "Policy saved."
+      // `Number` would also quietly accept '1e3', '0x1e' and '1.5'.
+      if (!/^\d+$/.test(trimmed) || Number(trimmed) < 1) {
+        rejectedEntry[key] = raw
+        return
+      }
+      rejectedEntry[key] = null
+      form[key] = Number(trimmed)
     },
   })
 }
 
 const retentionDefault = numberField('retention_days_default')
 const retentionMax = numberField('retention_days_max')
+
+/** A governance form must not submit a value it could not read. */
+const hasRejectedEntry = computed(
+  () => rejectedEntry.retention_days_default !== null || rejectedEntry.retention_days_max !== null,
+)
 
 function snapshot(): ActivityPolicyInput {
   return { ...form }
@@ -232,7 +286,11 @@ const previewMutation = useMutation({
   mutationFn: () => adminApi.previewActivityPolicyImpact(snapshot()),
   onSuccess: (result) => {
     impact.value = result
-    if (result.violating_types === 0) toast.success(t('admin.activities.policy.impactNone'))
+    // "Nothing would break" has to account for rooms mid-activity too, or the
+    // reassurance is wrong exactly when it matters most.
+    if (result.violating_types === 0 && result.violating_activations === 0) {
+      toast.success(t('admin.activities.policy.impactNone'))
+    }
   },
   onError: () => toast.error(t('admin.activities.policy.previewFailed')),
 })
@@ -257,11 +315,16 @@ const saveMutation = useMutation({
   },
 })
 
+// Both guards repeat the buttons' `:disabled`: pressing Enter inside a text
+// input still submits the form in some browsers, and a governance policy is the
+// wrong place to rely on the button being the only way in.
 function onPreview(): void {
+  if (hasRejectedEntry.value) return
   previewMutation.mutate()
 }
 
 function onSubmit(): void {
+  if (hasRejectedEntry.value) return
   saveMutation.mutate()
 }
 </script>
