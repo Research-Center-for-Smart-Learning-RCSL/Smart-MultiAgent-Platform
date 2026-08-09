@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: draft
+status: in-progress
 created: 2026-08-08
 requirements: [R30.02, R30.28]
 depends_on: []
