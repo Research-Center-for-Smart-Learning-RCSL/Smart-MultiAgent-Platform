@@ -415,7 +415,7 @@ async def delete_activity_type(
     # must be persisted before any room is told its activation ended.
     await db.commit()
     for chatroom_id, activation_id in ended:
-        await _dispatch_activation_ended(chatroom_id, activation_id)
+        await dispatch_activation_ended(chatroom_id, activation_id)
 
 
 @project_router.get("/{project_id}/activity-types")
@@ -432,6 +432,108 @@ async def list_activity_types(
     is_owner = await is_project_owner_or_admin(db=db, principal=principal, project_id=project_id)
     types = await ActivitiesFacade(db).list_types(project_id)
     return [_type_out(t, include_validator_config=is_owner) for t in types]
+
+
+class PlatformExampleOut(BaseModel):
+    """An installed platform example as a Project Owner sees it ([R30.32]).
+
+    Carries the two governance flags because enabling one is a consent decision:
+    ``expose_payload_to_agent`` means participant text reaches the project's
+    configured LLM provider, and the owner making that choice has to be told so at
+    the moment they make it.
+
+    No ``validator_config`` — it may hold answer keys and is owner-confidential
+    ([R30.25]). Its absence here is not a redaction to re-add later: this listing
+    exists to choose a type, not to inspect one.
+    """
+
+    id: uuid.UUID
+    key: str
+    name: str
+    expose_payload_to_agent: bool
+    echo_includes_content: bool
+    retention_days: int | None
+    enabled: bool
+
+
+class ActivityTypeOptInIn(BaseModel):
+    activity_type_id: uuid.UUID
+
+
+@project_router.get("/{project_id}/activity-examples")
+async def list_platform_activity_examples(
+    project_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[PlatformExampleOut]:
+    """The installed platform examples, with this project's enabled state.
+
+    Project Owner rather than plain membership: the only thing this listing is for
+    is deciding what to enable, which is the owner's call ([R30.23]). It is also
+    why the catalogue being visible to every owner is acceptable — installed
+    examples are platform metadata, not another tenant's data (OQ-2).
+    """
+    await assert_project_owner(db=db, principal=principal, project_id=project_id)
+    examples = await ActivitiesFacade(db).list_platform_examples_for_project(project_id)
+    return [
+        PlatformExampleOut(
+            id=e.activity_type.id,
+            key=e.activity_type.key,
+            name=e.activity_type.name,
+            expose_payload_to_agent=e.activity_type.expose_payload_to_agent,
+            echo_includes_content=e.activity_type.echo_includes_content,
+            retention_days=e.activity_type.retention_days,
+            enabled=e.enabled,
+        )
+        for e in examples
+    ]
+
+
+@project_router.post("/{project_id}/activity-type-optins", status_code=204, response_model=None)
+async def opt_project_into_activity_type(
+    body: ActivityTypeOptInIn,
+    project_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """Enable a platform example for this project ([R30.33])."""
+    await assert_project_owner(db=db, principal=principal, project_id=project_id)
+    await ActivitiesFacade(db).opt_project_in(
+        project_id=project_id,
+        activity_type_id=body.activity_type_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+
+
+@project_router.delete("/{project_id}/activity-type-optins/{type_id}", status_code=204, response_model=None)
+async def opt_project_out_of_activity_type(
+    project_id: uuid.UUID = Path(...),
+    type_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """Disable a platform example for this project, ending only its activations.
+
+    Same post-commit ordering as ``delete_activity_type``: the opt-in removal and
+    every activation-end must be durable before any room is told its activation
+    ended.
+    """
+    await assert_project_owner(db=db, principal=principal, project_id=project_id)
+    ended = await ActivitiesFacade(db).opt_project_out(
+        project_id=project_id,
+        activity_type_id=type_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    for chatroom_id, activation_id in ended:
+        await dispatch_activation_ended(chatroom_id, activation_id)
 
 
 @chatroom_router.get("/{chatroom_id}/activity-types/{type_id}")
@@ -563,7 +665,7 @@ async def end_activity_activation(
     )
     await db.commit()
     if result.transitioned:
-        await _dispatch_activation_ended(chatroom_id, result.activation.id)
+        await dispatch_activation_ended(chatroom_id, result.activation.id)
     activity_type = await _resolve_activation_type(
         facade, project_id=access.project_id, activation=result.activation
     )
@@ -747,7 +849,11 @@ async def _dispatch_activation_started(
         _log.error("realtime publish failed for activity activation %s", activation.id, exc_info=True)
 
 
-async def _dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid.UUID) -> None:
+async def dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid.UUID) -> None:
+    """Tell one room its activation ended. Public because three routes across two
+    modules end activations — the owner delete and the project opt-out here, and
+    the admin delete in ``admin_activities`` — and each must broadcast the same
+    event after its own commit."""
     try:
         await Publisher(room_channel(chatroom_id)).emit(
             "activity.activation.ended", {"activation_id": str(activation_id)}
@@ -756,4 +862,9 @@ async def _dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid
         _log.error("realtime publish failed for ended activity activation %s", activation_id, exc_info=True)
 
 
-__all__ = ["chatroom_router", "project_router", "validator_router"]
+__all__ = [
+    "chatroom_router",
+    "dispatch_activation_ended",
+    "project_router",
+    "validator_router",
+]

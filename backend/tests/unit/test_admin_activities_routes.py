@@ -20,6 +20,11 @@ from fastapi import HTTPException
 
 from app.api.v1 import admin_activities
 from app.api.v1.admin_deps import require_admin
+from contexts.activities.application.example_service import (
+    CatalogueEntry,
+    CatalogueTypeEntry,
+    InstallReport,
+)
 from contexts.activities.domain.errors import ActivityPolicyVersionMismatch
 from contexts.activities.domain.models import (
     PLATFORM_SCOPE,
@@ -27,6 +32,7 @@ from contexts.activities.domain.models import (
     ActivityActivation,
     ActivityPolicy,
     ActivityType,
+    ActivityTypeScope,
     PolicyImpact,
     ValidatorKind,
 )
@@ -372,6 +378,113 @@ class TestPolicyRoutes:
         assert require_admin in deps
 
 
+class TestExampleCatalogueRoutes:
+    """AC-3/AC-8: the admin install and edit surface ([R30.32], [R30.23])."""
+
+    async def test_the_catalogue_listing_carries_install_state_and_consent_fields(self) -> None:
+        entry = CatalogueEntry(
+            course_key="creative-thinking",
+            title="Creative thinking",
+            source="a school",
+            activity_types=(
+                CatalogueTypeEntry(
+                    key="mandala-9grid",
+                    name="Mandala",
+                    expose_payload_to_agent=True,
+                    echo_includes_content=False,
+                    retention_days=None,
+                    installed_type_id=None,
+                ),
+            ),
+        )
+
+        with patch.object(ActivitiesFacade, "list_example_catalogue", new=AsyncMock(return_value=(entry,))):
+            out = await admin_activities.list_activity_examples(_=_ADMIN, db=MagicMock())
+
+        assert [e.course_key for e in out] == ["creative-thinking"]
+        assert out[0].fully_installed is False
+        assert out[0].activity_types[0].expose_payload_to_agent is True
+        assert out[0].activity_types[0].installed_type_id is None
+
+    async def test_install_commits_and_reports_both_lists(self) -> None:
+        db = _committing_db()
+        report = InstallReport(
+            course_key="creative-thinking",
+            created=("mandala-9grid",),
+            already_present=("six-hats-emotion-desk",),
+        )
+
+        with patch.object(
+            ActivitiesFacade, "install_example_course", new=AsyncMock(return_value=report)
+        ) as install:
+            out = await admin_activities.install_activity_example(
+                course_key="creative-thinking", admin=_ADMIN, ctx=_CTX, db=db
+            )
+
+        assert install.await_args.kwargs["course_key"] == "creative-thinking"
+        assert install.await_args.kwargs["actor_user_id"] == _ADMIN.user_id
+        db.commit.assert_awaited_once()
+        assert out.created == ["mandala-9grid"]
+        assert out.already_present == ["six-hats-emotion-desk"]
+
+    async def test_the_platform_edit_passes_only_the_four_permitted_fields(self) -> None:
+        """AC-8: `key`, `payload_schema` and `validator_config` are not parameters
+        of this route at all, so there is nothing for a client to send."""
+        db = _committing_db()
+        edited = _make_type(project_id=None, key="mandala-9grid", scope=ActivityTypeScope.PLATFORM)
+        body = admin_activities.AdminPlatformActivityTypeIn(
+            name="Mandala (no agent exposure)",
+            retention_days=30,
+            expose_payload_to_agent=False,
+            echo_includes_content=True,
+        )
+
+        with patch.object(
+            ActivitiesFacade, "update_platform_type", new=AsyncMock(return_value=edited)
+        ) as update:
+            out = await admin_activities.update_platform_activity_type(
+                body=body, type_id=edited.id, admin=_ADMIN, ctx=_CTX, db=db
+            )
+
+        assert set(body.model_fields) == {
+            "name",
+            "retention_days",
+            "expose_payload_to_agent",
+            "echo_includes_content",
+        }
+        passed = update.await_args.kwargs
+        assert passed["name"] == "Mandala (no agent exposure)"
+        assert passed["retention_days"] == 30
+        assert passed["expose_payload_to_agent"] is False
+        assert passed["echo_includes_content"] is True
+        db.commit.assert_awaited_once()
+        # A platform row has no owning project, so the hydrated name is absent
+        # rather than a lookup that has no answer.
+        assert out.project_id is None
+        assert out.project_name is None
+
+    async def test_the_platform_delete_commits_before_broadcasting_each_room(self) -> None:
+        db = _committing_db()
+        room_a, room_b = uuid.uuid4(), uuid.uuid4()
+        act_a, act_b = uuid.uuid4(), uuid.uuid4()
+        dispatch = AsyncMock()
+
+        with (
+            patch.object(
+                ActivitiesFacade,
+                "delete_platform_type",
+                new=AsyncMock(return_value=[(room_a, act_a), (room_b, act_b)]),
+            ),
+            patch.object(admin_activities, "dispatch_activation_ended", new=dispatch),
+        ):
+            await admin_activities.delete_platform_activity_type(
+                type_id=uuid.uuid4(), admin=_ADMIN, ctx=_CTX, db=db
+            )
+
+        db.commit.assert_awaited_once()
+        assert [c.args for c in dispatch.await_args_list] == [(room_a, act_a), (room_b, act_b)]
+
+
 class TestRouterRegistration:
     def test_router_is_mounted_under_the_admin_aggregate(self) -> None:
         """A router that exists but is never included is invisible in production.
@@ -395,3 +508,6 @@ class TestRouterRegistration:
         assert "get" in paths["/api/admin/activity-activations"]
         assert {"get", "put"} <= set(paths["/api/admin/activity-policy"])
         assert "post" in paths["/api/admin/activity-policy/impact"]
+        assert "get" in paths["/api/admin/activity-examples"]
+        assert "post" in paths["/api/admin/activity-examples/{course_key}/install"]
+        assert {"patch", "delete"} <= set(paths["/api/admin/activity-types/{type_id}"])

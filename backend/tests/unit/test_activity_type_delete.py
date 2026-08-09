@@ -2,7 +2,7 @@
 referencing the type and notifying each affected room.
 
 DB is mocked (facade internals replaced): pins the orchestration ordering, the
-tenant guard, and the per-room notification fan-out — no Postgres required.
+tenant guard, and the per-room notification fan-out - no Postgres required.
 Mirrors the mocked-repo style of ``test_activities_services.py``.
 """
 
@@ -166,7 +166,7 @@ class TestDeleteTypeCascade:
 class TestPlatformTypeDeleteAuthority:
     """AC-7/AC-10: who may delete a platform type, and how far the cascade goes.
 
-    The refusal on the project path is not a nicety — the cascade below it is
+    The refusal on the project path is not a nicety: the cascade below it is
     unbounded across rooms, which is only correct when the type is going away for
     everyone. Letting one project owner through would end every other tenant's
     running class.
@@ -236,7 +236,7 @@ class TestDeleteRoute:
 
         monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
         monkeypatch.setattr(activities, "assert_project_owner", AsyncMock())
-        monkeypatch.setattr(activities, "_dispatch_activation_ended", dispatch)
+        monkeypatch.setattr(activities, "dispatch_activation_ended", dispatch)
 
         # 204 No Content: the route returns None.
         await activities.delete_activity_type(
@@ -264,7 +264,7 @@ class TestDeleteRoute:
             "assert_project_owner",
             AsyncMock(side_effect=HTTPException(status_code=403)),
         )
-        monkeypatch.setattr(activities, "_dispatch_activation_ended", AsyncMock())
+        monkeypatch.setattr(activities, "dispatch_activation_ended", AsyncMock())
 
         with pytest.raises(HTTPException) as exc:
             await activities.delete_activity_type(
@@ -288,7 +288,7 @@ class TestDeleteRoute:
 
         monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
         monkeypatch.setattr(activities, "assert_project_owner", AsyncMock())
-        monkeypatch.setattr(activities, "_dispatch_activation_ended", dispatch)
+        monkeypatch.setattr(activities, "dispatch_activation_ended", dispatch)
 
         with pytest.raises(ActivityTypeNotFound):
             await activities.delete_activity_type(
