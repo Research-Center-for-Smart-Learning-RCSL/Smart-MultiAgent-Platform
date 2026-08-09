@@ -17,11 +17,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.activities.application.activation_service import ActivationService
 from contexts.activities.application.aggregation_service import AggregationService
 from contexts.activities.application.policy_service import ActivityPolicyService
+from contexts.activities.application.reachability import resolve_reachable_type
 from contexts.activities.application.session_service import ActivitySessionService
 from contexts.activities.application.submission_service import SubmissionService
 from contexts.activities.application.type_service import ActivityTypeService
 from contexts.activities.application.validators.registry import ValidatorInfo, list_registered
-from contexts.activities.domain.errors import ActivityTypeNotFound, ActivityTypeViolatesPolicy
+from contexts.activities.domain.errors import (
+    ActivityTypeNotFound,
+    ActivityTypeViolatesPolicy,
+    PlatformActivityTypeReadOnly,
+)
 from contexts.activities.domain.models import (
     ActivityActivation,
     ActivityActivationEndResult,
@@ -30,12 +35,16 @@ from contexts.activities.domain.models import (
     ActivitySession,
     ActivitySubmission,
     ActivityType,
+    ActivityTypeScope,
     PolicyImpact,
     RecentActivityRow,
     ValidationResult,
     ValidatorKind,
 )
 from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
+from contexts.activities.infrastructure.repositories.optin_repo import (
+    ProjectActivityTypeOptInRepository,
+)
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
 
 # Upper bound on the admin form's "how many types would this break" preview. A
@@ -65,11 +74,13 @@ class ActivitiesFacade:
         activation_repo = ActivationRepository(db)
         self._activation_repo = activation_repo
         self._type_repo = ActivityTypeRepository(db)
+        self._optin_repo = ProjectActivityTypeOptInRepository(db)
         self._policy = ActivityPolicyService(db)
         self._activation = ActivationService(
             db,
             activation_repo=activation_repo,
             type_repo=self._type_repo,
+            optin_repo=self._optin_repo,
         )
         self._sessions = ActivitySessionService(db)
         self._submissions = SubmissionService(db, activation_repo=activation_repo)
@@ -138,6 +149,34 @@ class ActivitiesFacade:
             actor_ip=actor_ip,
             request_id=request_id,
         )
+
+    async def update_platform_type(
+        self,
+        *,
+        type_id: uuid.UUID,
+        name: str,
+        retention_days: int | None,
+        expose_payload_to_agent: bool,
+        echo_includes_content: bool,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> ActivityType:
+        """Admin edit of an installed example's safe + governance fields ([R30.23])."""
+        return await self._types.update_platform_type(
+            type_id=type_id,
+            name=name,
+            retention_days=retention_days,
+            expose_payload_to_agent=expose_payload_to_agent,
+            echo_includes_content=echo_includes_content,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def list_platform_types(self) -> Sequence[ActivityType]:
+        """Every installed platform-scoped type ([R30.32])."""
+        return await self._types.list_platform_types()
 
     @staticmethod
     def list_validators() -> list[ValidatorInfo]:
@@ -258,7 +297,27 @@ class ActivitiesFacade:
         return await self._types.list_types(project_id)
 
     async def get_type(self, type_id: uuid.UUID) -> ActivityType | None:
+        """An unscoped read by id. Callers holding a project context must use
+        :meth:`resolve_type_for_project` instead — this one answers "does the row
+        exist", not "may this project see it"."""
         return await self._types.get_type(type_id)
+
+    async def resolve_type_for_project(
+        self, *, project_id: uuid.UUID, activity_type_id: uuid.UUID
+    ) -> ActivityType:
+        """The type a project may use, or ``ActivityTypeNotFound`` ([R30.33]).
+
+        The route-facing face of ``application.reachability``: room-scoped reads
+        take a type id from the client just as the write paths do, so they need the
+        same gate rather than a ``project_id`` comparison that a platform row (with
+        no project) can never satisfy.
+        """
+        return await resolve_reachable_type(
+            type_reader=self._type_repo,
+            optin_reader=self._optin_repo,
+            activity_type_id=activity_type_id,
+            project_id=project_id,
+        )
 
     # -- Activations --------------------------------------------------------
 
@@ -310,18 +369,72 @@ class ActivitiesFacade:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> list[tuple[uuid.UUID, uuid.UUID]]:
-        """Cascade-delete a type: end every active activation referencing it, then
-        soft-delete the type, all on the caller's transaction (R30.23).
+        """Cascade-delete a *project's* type: end every active activation
+        referencing it, then soft-delete the type, all on the caller's transaction
+        (R30.23).
 
         Returns the ``(chatroom_id, activation_id)`` pairs actually transitioned so
         the route can emit ``activity.activation.ended`` per room post-commit. The
         ``project_id`` guard makes this tenant-safe: an owner of one project cannot
         delete another project's type via a mismatched path.
+
+        A platform-scoped type is refused with 403 ([R30.23]) — and the refusal is
+        what keeps the unbounded cascade below correct. For a project-scoped type
+        the id alone bounds the activation set to one project; for a platform type
+        it would span every tenant that opted in, which is an admin's act
+        (:meth:`delete_platform_type`), not a project owner's.
         """
         existing = await self._types.get_type(type_id)
-        if existing is None or existing.project_id != project_id:
+        if existing is None:
+            raise ActivityTypeNotFound(str(type_id))
+        if existing.scope is ActivityTypeScope.PLATFORM:
+            raise PlatformActivityTypeReadOnly(str(type_id))
+        if existing.project_id != project_id:
             raise ActivityTypeNotFound(str(type_id))
 
+        return await self._cascade_delete(
+            type_id=type_id, actor_user_id=actor_user_id, actor_ip=actor_ip, request_id=request_id
+        )
+
+    async def delete_platform_type(
+        self,
+        *,
+        type_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+        """Admin-only removal of an installed example ([R30.31], [R30.32]).
+
+        The cascade legitimately spans every tenant here: the type is going away
+        for everyone, so every active activation ends and every open session
+        closes. Opting one project out is a *different* operation with a
+        project-bounded cascade (:meth:`opt_out_project`) — they deliberately do
+        not share a code path, because sharing one is exactly how a single
+        project's revocation would end another project's class.
+
+        The opt-in rows disappear with the type through the FK cascade, so no
+        project is left holding an authorization for a row that no longer exists.
+        """
+        existing = await self._types.get_type(type_id)
+        if existing is None or existing.scope is not ActivityTypeScope.PLATFORM:
+            raise ActivityTypeNotFound(str(type_id))
+
+        return await self._cascade_delete(
+            type_id=type_id, actor_user_id=actor_user_id, actor_ip=actor_ip, request_id=request_id
+        )
+
+    async def _cascade_delete(
+        self,
+        *,
+        type_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+        """End every activation and close every open session for a type, then
+        tombstone it. Unbounded across rooms — every caller must have established
+        that the type is going away platform-wide or project-wide first."""
         ended: list[tuple[uuid.UUID, uuid.UUID]] = []
         for activation in await self._activation_repo.list_active_for_type(type_id):
             result = await self._activation.end(

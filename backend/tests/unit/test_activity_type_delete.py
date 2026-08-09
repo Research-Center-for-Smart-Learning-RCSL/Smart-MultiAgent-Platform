@@ -17,12 +17,13 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.v1 import activities
-from contexts.activities.domain.errors import ActivityTypeNotFound
+from contexts.activities.domain.errors import ActivityTypeNotFound, PlatformActivityTypeReadOnly
 from contexts.activities.domain.models import (
     ActivationStatus,
     ActivityActivation,
     ActivityActivationEndResult,
     ActivityType,
+    ActivityTypeScope,
     ValidatorKind,
 )
 from contexts.activities.interfaces.facade import ActivitiesFacade
@@ -39,6 +40,22 @@ def _type(project_id: uuid.UUID, type_id: uuid.UUID) -> ActivityType:
         payload_schema={},
         validator_kind=ValidatorKind.WEBHOOK,
         validator_config={"url": "https://example.test/score"},
+        retention_days=None,
+        version=1,
+        created_at=_NOW,
+    )
+
+
+def _platform_type(type_id: uuid.UUID) -> ActivityType:
+    return ActivityType(
+        id=type_id,
+        project_id=None,
+        scope=ActivityTypeScope.PLATFORM,
+        key="mandala-9grid",
+        name="Mandala",
+        payload_schema={},
+        validator_kind=ValidatorKind.IN_PROCESS,
+        validator_config={"validator_id": "filled_count", "min_filled": 1},
         retention_days=None,
         version=1,
         created_at=_NOW,
@@ -137,6 +154,64 @@ class TestDeleteTypeCascade:
         with pytest.raises(ActivityTypeNotFound):
             await facade.delete_type(
                 project_id=uuid.uuid4(),  # not the type's project
+                type_id=type_id,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        facade._activation_repo.list_active_for_type.assert_not_awaited()
+        facade._types.soft_delete.assert_not_awaited()
+
+
+class TestPlatformTypeDeleteAuthority:
+    """AC-7/AC-10: who may delete a platform type, and how far the cascade goes.
+
+    The refusal on the project path is not a nicety — the cascade below it is
+    unbounded across rooms, which is only correct when the type is going away for
+    everyone. Letting one project owner through would end every other tenant's
+    running class.
+    """
+
+    async def test_a_project_owner_cannot_delete_a_platform_type(self) -> None:
+        type_id = uuid.uuid4()
+        facade = _facade_with([], _platform_type(type_id))
+
+        with pytest.raises(PlatformActivityTypeReadOnly):
+            await facade.delete_type(
+                project_id=uuid.uuid4(),
+                type_id=type_id,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        facade._activation_repo.list_active_for_type.assert_not_awaited()
+        facade._sessions.close_open_for_type.assert_not_awaited()
+        facade._types.soft_delete.assert_not_awaited()
+
+    async def test_an_admin_delete_ends_activations_in_every_tenant(self) -> None:
+        """The admin path legitimately spans tenants: the type is going away."""
+        type_id = uuid.uuid4()
+        room_a, room_b = uuid.uuid4(), uuid.uuid4()
+        act_a, act_b = _activation(room_a, type_id), _activation(room_b, type_id)
+        facade = _facade_with([act_a, act_b], _platform_type(type_id))
+
+        ended = await facade.delete_platform_type(
+            type_id=type_id,
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
+        )
+
+        assert set(ended) == {(room_a, act_a.id), (room_b, act_b.id)}
+        facade._sessions.close_open_for_type.assert_awaited_once_with(type_id)
+        facade._types.soft_delete.assert_awaited_once()
+
+    async def test_the_admin_delete_refuses_a_project_scoped_type(self) -> None:
+        """[R30.31]: the admin surface grants no delete over a project's own types."""
+        project_id, type_id = uuid.uuid4(), uuid.uuid4()
+        facade = _facade_with([], _type(project_id, type_id))
+
+        with pytest.raises(ActivityTypeNotFound):
+            await facade.delete_platform_type(
                 type_id=type_id,
                 actor_user_id=uuid.uuid4(),
                 actor_ip=None,

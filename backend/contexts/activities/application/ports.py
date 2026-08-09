@@ -13,6 +13,17 @@ class ActivityTypeReader(Protocol):
     async def get(self, type_id: uuid.UUID) -> ActivityType | None: ...
 
 
+class ActivityTypeOptInReader(Protocol):
+    """The authorization read behind ``resolve_reachable_type`` ([R30.33]).
+
+    Narrower than the repository on purpose: the reachability check must not be
+    able to reach a query that answers anything more permissive than "does this
+    exact opt-in row exist".
+    """
+
+    async def exists(self, *, project_id: uuid.UUID, activity_type_id: uuid.UUID) -> bool: ...
+
+
 class ActivityActivationRepository(Protocol):
     async def get(self, activation_id: uuid.UUID) -> ActivityActivation | None: ...
 
@@ -33,4 +44,4 @@ class ActivityActivationRepository(Protocol):
     async def end(self, activation_id: uuid.UUID) -> bool: ...
 
 
-__all__ = ["ActivityActivationRepository", "ActivityTypeReader"]
+__all__ = ["ActivityActivationRepository", "ActivityTypeOptInReader", "ActivityTypeReader"]
