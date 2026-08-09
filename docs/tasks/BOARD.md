@@ -37,16 +37,15 @@ parallel.
 
 ## In progress
 
-- `2026-08-09-chatroom-rail-scroll-and-resize` (feature, in-progress) — `depends_on: []`.
-  Rail height contract (opt-in `fill` on `STabs`, the missing `min-height`/overflow on
-  `.chatroom__presence`, `ActivityPanel`'s own scroll), a resizable persisted rail width,
-  and container-relative layout for activity plugins. Frontend only. **Code complete and
-  committed; all automated gates green (1066 tests, lint, typecheck, build, bundle, type
-  coverage, boundaries).** Blocked only on the visual confirmation of AC-1, AC-3, AC-5 and
-  AC-12 — jsdom performs no layout, so those four cannot be asserted by any test in this
-  repo. Needs a deploy to staging before they can be checked in a browser.
-
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-09 after implementation: `2026-08-09-chatroom-rail-scroll-and-resize`
+(opt-in `fill` on `STabs`, the missing `min-height`/overflow on `.chatroom__presence`,
+`ActivityPanel`'s own scroll region, a resizable persisted rail width, and
+container-relative layout for activity plugins). Nothing lists it in `depends_on`, so no
+row moved out of Blocked. **Carries an unusual caveat for a closed dossier:** AC-1, AC-3,
+AC-5 and AC-12 are layout outcomes that jsdom cannot assert, and the dossier was closed
+without the manual browser check (D-5). The reported symptom has been reasoned to be fixed
+from the CSS, not observed fixed in a browser. Confirm on the first deployed build.
 Removed on 2026-08-09 after implementation: `2026-08-08-activity-example-catalogue`
 (`smap/examples/` is now `courses/*.json` + a validating `_catalogue.py` loader + a
 course-agnostic `_seeding.py`; `creative_thinking_course.py` deleted, course JSON shipped as
