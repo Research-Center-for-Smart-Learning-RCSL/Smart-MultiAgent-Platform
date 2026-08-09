@@ -114,6 +114,16 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 0.75rem;
 }
+
+/* The containment context a plugin lays out against (R30.34). Declared by the
+   host rather than inside a plugin, so "fit the surface you were given" is a
+   property of the host contract — which is what the isolating iframe host of
+   R30.19 needs, where a viewport breakpoint would measure the iframe. A plugin
+   whose host declares no container simply never matches its container queries
+   and degrades to its narrow layout, which is the safe direction. */
+.activity-host__plugin {
+  container-type: inline-size;
+}
 .activity-host__error {
   margin: 0;
   font-size: 0.8125rem;

@@ -28,7 +28,10 @@ const CENTER_INDEX = 4
 const fields = computed<SchemaField[]>(() => fieldsFromSchema(props.schema))
 
 // A nine-field schema lays out as the classic grid; anything else renders as a
-// single column rather than a broken 3x3 — degrade, never drop (R30.18).
+// single column rather than a broken 3x3 — degrade, never drop (R30.18). Width
+// is the second, independent condition: the 3x3 is a container query, so a nine-
+// field schema in a container too narrow for three legible columns also falls
+// back to one (R30.34).
 const isGrid = computed(() => fields.value.length === GRID_SIZE)
 
 const centerField = computed<SchemaField | null>(() => {
@@ -121,7 +124,7 @@ async function onSubmit(): Promise<void> {
 <template>
   <div class="flex flex-col gap-4">
     <div
-      :class="isGrid ? 'grid grid-cols-1 gap-3 sm:grid-cols-3' : 'flex flex-col gap-3'"
+      :class="isGrid ? 'grid grid-cols-1 gap-3 @min-[30rem]:grid-cols-3' : 'flex flex-col gap-3'"
       :data-testid="isGrid ? 'mandala-grid' : 'mandala-list'"
     >
       <div
