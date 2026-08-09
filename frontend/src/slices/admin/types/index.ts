@@ -132,10 +132,15 @@ export type ActivityPolicyInput = Omit<
   'version' | 'updated_at' | 'updated_by_user_id'
 >
 
-/** How many live types a candidate policy would refuse to activate.
- *  `approximate` means the server's scan hit its bound, so this is a floor. */
+/** What a candidate policy would block.
+ *
+ *  `violating_activations` counts activities running right now whose type the
+ *  candidate would refuse. They keep running: enforcement is at authoring and at
+ *  activation start, so tightening does not stop a class already under way.
+ *  `approximate` means a server scan hit its bound, so these are floors. */
 export interface ActivityPolicyImpact {
   violating_types: number
+  violating_activations: number
   approximate: boolean
 }
 
