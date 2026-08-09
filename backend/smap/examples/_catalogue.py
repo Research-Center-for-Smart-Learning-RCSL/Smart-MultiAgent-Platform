@@ -228,9 +228,19 @@ def courses_root() -> Traversable:
 
 
 def available_courses(*, root: Traversable | Path | None = None) -> tuple[str, ...]:
-    """Course keys the catalogue ships, sorted."""
+    """Course keys the catalogue ships, sorted.
+
+    An absent or unreadable catalogue directory reads as an empty catalogue
+    rather than raising. That is the shape of the packaging failure this module
+    guards against (a wheel built without the course files), and it is reported
+    by :func:`load_course` as "available: none" — a diagnosis, not a traceback.
+    """
     base = root if root is not None else courses_root()
-    return tuple(sorted(e.name[: -len(".json")] for e in base.iterdir() if e.name.endswith(".json")))
+    try:
+        entries = list(base.iterdir())
+    except OSError:
+        return ()
+    return tuple(sorted(e.name[: -len(".json")] for e in entries if e.name.endswith(".json")))
 
 
 def load_course(course_key: str, *, root: Traversable | Path | None = None) -> CourseDefinition:
@@ -253,9 +263,20 @@ def load_course(course_key: str, *, root: Traversable | Path | None = None) -> C
         raise CourseFileInvalid(f"{filename}: no such course in the catalogue (available: {known})")
 
     # Explicit UTF-8: course text is Chinese, and the platform default would
-    # mojibake it on a Windows host.
+    # mojibake it on a Windows host. `-sig` because these files are edited by the
+    # educators who author them, and a Windows editor commonly writes a BOM,
+    # which plain utf-8 keeps as a leading ﻿ that then fails as JSON.
     try:
-        data = json.loads(course_file.read_text(encoding="utf-8"))
+        raw = course_file.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError as exc:
+        # A course of Chinese text saved as Big5 is a realistic mistake for this
+        # file's intended author, so it gets a diagnosis rather than a traceback.
+        raise _fail(filename, "encoding", "is not UTF-8; re-save the file as UTF-8") from exc
+    except OSError as exc:
+        raise _fail(filename, "file", f"could not be read: {exc}") from exc
+
+    try:
+        data = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise _fail(filename, f"line {exc.lineno}", f"is not valid JSON: {exc.msg}") from exc
 
