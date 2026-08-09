@@ -118,6 +118,19 @@ describe('SResizeHandle', () => {
     expect(wrapper.emitted('update:value')).toBeUndefined()
   })
 
+  // The browser can revoke capture without a pointerup or pointercancel, which
+  // would otherwise strand the whole page unselectable under a resize cursor.
+  it('ends the drag when the browser revokes pointer capture', async () => {
+    const wrapper = mountHandle()
+    await wrapper.trigger('pointerdown', { button: 0, clientX: 500, pointerId: 1 })
+    await wrapper.trigger('lostpointercapture', { pointerId: 1 })
+
+    expect(document.body.style.userSelect).toBe('')
+    expect(document.body.style.cursor).toBe('')
+    await wrapper.trigger('pointermove', { clientX: 400, pointerId: 1 })
+    expect(wrapper.emitted('update:value')).toBeUndefined()
+  })
+
   it('restores text selection when unmounted mid-drag', async () => {
     const wrapper = mountHandle()
     await wrapper.trigger('pointerdown', { button: 0, clientX: 500, pointerId: 1 })
