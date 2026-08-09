@@ -1,4 +1,4 @@
-"""Seed the two-unit creative-thinking course example ([R30.28]).
+"""Content of the two-unit creative-thinking course example ([R30.28]).
 
 Source: Ke Pei-jung (2019), "Effect of Creative Thinking Skills Integrated into
 Guidance Activity Curriculum Self-Development Theme Axis on Creativity and
@@ -7,39 +7,18 @@ Normal University (advisor: Chen Hsueh-chih). Two of its eight units are modelle
 here; see docs/examples/creative-thinking-course.md for the full mapping and the
 limits of what this demonstrates.
 
-Idempotent: a type whose key already exists in the project is skipped, so a re-run
-after a partial failure is safe.
+Transitional: these constants are being replaced by courses/creative-thinking.json.
+Seeding mechanics live in _seeding.py.
 """
 
 from __future__ import annotations
 
-import asyncio
 import uuid
-from dataclasses import dataclass, field
 from typing import Any
 
-from app.plugins.activity_validators import register_first_party_validators
-from contexts.activities.domain.models import ValidatorKind
-from contexts.activities.interfaces.facade import ActivitiesFacade
-from shared_kernel.db.session import get_sessionmaker
-
-
-@dataclass(frozen=True, slots=True)
-class CourseActivityType:
-    """One seedable activity type, mirroring the facade's registration inputs."""
-
-    key: str
-    name: str
-    payload_schema: dict[str, Any]
-    validator_config: dict[str, Any]
-    validator_kind: ValidatorKind = ValidatorKind.IN_PROCESS
-    # Retention is an IRB decision, not a platform recommendation: seeded
-    # submissions follow the room's normal purge until a study sets a horizon.
-    retention_days: int | None = None
-    # Room agents read the digest so they can respond; the room transcript does
-    # not echo answer content back to everyone.
-    expose_payload_to_agent: bool = True
-    echo_includes_content: bool = False
+from ._catalogue import CourseActivityType
+from ._seeding import SeedReport
+from ._seeding import run as _run
 
 
 def _mandala_schema() -> dict[str, Any]:
@@ -125,50 +104,8 @@ COURSE_TYPES: tuple[CourseActivityType, ...] = (
 )
 
 
-@dataclass
-class SeedReport:
-    created: list[str] = field(default_factory=list)
-    already_present: list[str] = field(default_factory=list)
-
-
-async def _seed(project_id: uuid.UUID, owner_user_id: uuid.UUID) -> SeedReport:
-    # The in-process validator registry is process-global and empty until a
-    # registration site runs. The API populates it from a startup step
-    # (app/bootstrap/startup.py::register_activity_validators_step); a CLI process
-    # runs no startup steps, so without this every register_type call below would
-    # be rejected by _validate_validator_config as an unknown validator_id.
-    register_first_party_validators()
-
-    report = SeedReport()
-    sessionmaker = get_sessionmaker()
-    async with sessionmaker() as session:
-        facade = ActivitiesFacade(session)
-        existing = {t.key for t in await facade.list_types(project_id)}
-        for course_type in COURSE_TYPES:
-            if course_type.key in existing:
-                report.already_present.append(course_type.key)
-                continue
-            await facade.register_type(
-                project_id=project_id,
-                key=course_type.key,
-                name=course_type.name,
-                payload_schema=course_type.payload_schema,
-                validator_kind=course_type.validator_kind,
-                validator_config=course_type.validator_config,
-                retention_days=course_type.retention_days,
-                expose_payload_to_agent=course_type.expose_payload_to_agent,
-                echo_includes_content=course_type.echo_includes_content,
-                actor_user_id=owner_user_id,
-                actor_ip=None,
-            )
-            report.created.append(course_type.key)
-        # The facade never commits; the caller owns the transaction boundary.
-        await session.commit()
-    return report
-
-
 def run(project_id: uuid.UUID, owner_user_id: uuid.UUID) -> SeedReport:
-    return asyncio.run(_seed(project_id, owner_user_id))
+    return _run(project_id=project_id, owner_user_id=owner_user_id, activity_types=COURSE_TYPES)
 
 
 __all__ = ["COURSE_TYPES", "CourseActivityType", "SeedReport", "run"]
