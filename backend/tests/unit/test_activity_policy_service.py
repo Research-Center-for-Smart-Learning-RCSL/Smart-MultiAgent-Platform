@@ -17,6 +17,7 @@ import pytest
 
 from contexts.activities.application.policy_service import ActivityPolicyService
 from contexts.activities.domain.errors import (
+    ActivityPolicyInconsistent,
     ActivityPolicyVersionMismatch,
     ActivityTypeViolatesPolicy,
 )
@@ -222,6 +223,57 @@ class TestUpdate:
                 actor_user_id=uuid.uuid4(),
                 actor_ip=None,
             )
+
+    async def test_a_default_above_its_own_maximum_is_rejected(self) -> None:
+        """A policy must not contradict itself.
+
+        Pydantic and the table CHECKs validate the two retention fields
+        independently, so this pair passes both — and the authoring form would then
+        pre-fill 500 while the same policy rejects it, failing an owner's first
+        save on a value the platform supplied.
+        """
+        svc = _service(None)
+
+        with pytest.raises(ActivityPolicyInconsistent):
+            await svc.update(
+                expose_payload_to_agent_default=True,
+                expose_payload_to_agent_locked=False,
+                echo_includes_content_default=False,
+                echo_includes_content_locked=False,
+                retention_days_default=500,
+                retention_days_max=100,
+                expected_version=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        svc._repo.create_platform.assert_not_awaited()  # type: ignore[attr-defined]
+
+    @pytest.mark.parametrize(
+        ("default", "maximum"),
+        [(100, 100), (50, 100), (None, 100), (500, None), (None, None)],
+        ids=["equal", "under", "no-default", "no-max", "neither"],
+    )
+    async def test_consistent_retention_pairs_are_accepted(
+        self, default: int | None, maximum: int | None
+    ) -> None:
+        svc = _service(None)
+        svc._repo.create_platform = AsyncMock(return_value=_policy())  # type: ignore[attr-defined]
+
+        with patch("contexts.activities.application.policy_service.audit.emit", new=AsyncMock()):
+            await svc.update(
+                expose_payload_to_agent_default=True,
+                expose_payload_to_agent_locked=False,
+                echo_includes_content_default=False,
+                echo_includes_content_locked=False,
+                retention_days_default=default,
+                retention_days_max=maximum,
+                expected_version=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        svc._repo.create_platform.assert_awaited_once()  # type: ignore[attr-defined]
 
     async def test_audit_carries_previous_and_new_values(self) -> None:
         """AC-12. A policy change can push every project's participant text into

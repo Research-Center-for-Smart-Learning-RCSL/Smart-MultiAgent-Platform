@@ -78,6 +78,10 @@ class ActivityPolicyVersionMismatch(ActivitiesError):
     """The policy changed under an admin's edit (optimistic concurrency)."""
 
 
+class ActivityPolicyInconsistent(ActivitiesError):
+    """The submitted policy contradicts itself (e.g. a default above its own cap)."""
+
+
 class SubmissionPayloadInvalid(ActivitiesError):
     """A submission payload violates its type's ``payload_schema`` (422)."""
 

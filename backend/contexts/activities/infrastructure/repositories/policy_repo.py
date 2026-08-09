@@ -9,8 +9,10 @@ import uuid
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.activities.domain.errors import ActivityPolicyVersionMismatch
 from contexts.activities.domain.models import PLATFORM_SCOPE, ActivityPolicy
 from contexts.activities.infrastructure import tables as t
 from shared_kernel.auth.clients import now
@@ -70,17 +72,32 @@ class ActivityPolicyRepository:
         return _row_to_policy(row) if row is not None else None
 
     async def create_platform(self, *, values: dict[str, Any], actor_user_id: uuid.UUID) -> ActivityPolicy:
-        row = (
-            await self._db.execute(
-                t.activity_policies.insert()
-                .values(
-                    scope=PLATFORM_SCOPE,
-                    updated_by_user_id=actor_user_id,
-                    **{k: values[k] for k in _SETTABLE},
+        """Insert the first platform policy.
+
+        Two admins saving the first policy concurrently both take this path (there
+        is no version to match against yet), and the second loses to
+        ``uq_activity_policies_platform``. That is the same conflict the update
+        path reports as a 409, so it is translated rather than allowed to escape as
+        an unhandled IntegrityError and a 500.
+        """
+        try:
+            row = (
+                await self._db.execute(
+                    t.activity_policies.insert()
+                    .values(
+                        scope=PLATFORM_SCOPE,
+                        updated_by_user_id=actor_user_id,
+                        **{k: values[k] for k in _SETTABLE},
+                    )
+                    .returning(*_POLICY_COLS)
                 )
-                .returning(*_POLICY_COLS)
-            )
-        ).first()
+            ).first()
+        except IntegrityError as exc:
+            if "uq_activity_policies_platform" in str(exc.orig or exc).lower():
+                raise ActivityPolicyVersionMismatch(
+                    "another administrator created the policy first; reload and retry"
+                ) from exc
+            raise
         if row is None:  # pragma: no cover - RETURNING on a successful insert
             raise RuntimeError("insert returned no row")
         return _row_to_policy(row)
