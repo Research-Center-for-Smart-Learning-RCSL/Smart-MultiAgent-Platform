@@ -1,0 +1,114 @@
+{
+  "course_key": "creative-thinking",
+  "title": "Creative thinking skills integrated into guidance activities",
+  "source": "Ke Pei-jung (2019), MA thesis, National Taiwan Normal University",
+  "activity_types": [
+    {
+      "key": "mandala-9grid",
+      "name": "單元二 時空旅人",
+      "validator_kind": "in_process",
+      "validator_config": {
+        "validator_id": "filled_count",
+        "min_filled": 4
+      },
+      "retention_days": null,
+      "expose_payload_to_agent": true,
+      "echo_includes_content": false,
+      "payload_schema": {
+        "type": "object",
+        "properties": {
+          "center": {
+            "type": "string",
+            "title": "中心主題：30 歲的我",
+            "description": "用一句話寫下你想像中 30 歲的自己。"
+          },
+          "cell_1": {
+            "type": "string",
+            "title": "格 1"
+          },
+          "cell_2": {
+            "type": "string",
+            "title": "格 2"
+          },
+          "cell_3": {
+            "type": "string",
+            "title": "格 3"
+          },
+          "cell_4": {
+            "type": "string",
+            "title": "格 4"
+          },
+          "cell_5": {
+            "type": "string",
+            "title": "格 5"
+          },
+          "cell_6": {
+            "type": "string",
+            "title": "格 6"
+          },
+          "cell_7": {
+            "type": "string",
+            "title": "格 7"
+          },
+          "cell_8": {
+            "type": "string",
+            "title": "格 8"
+          }
+        },
+        "required": [
+          "center"
+        ]
+      }
+    },
+    {
+      "key": "six-hats-emotion-desk",
+      "name": "單元四 情緒播報台",
+      "validator_kind": "in_process",
+      "validator_config": {
+        "validator_id": "filled_count",
+        "min_filled": 3
+      },
+      "retention_days": null,
+      "expose_payload_to_agent": true,
+      "echo_includes_content": false,
+      "payload_schema": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "string",
+            "title": "困擾我的事件",
+            "description": "最近或曾經讓自己困擾的一件事。"
+          },
+          "hat_white": {
+            "type": "string",
+            "title": "白帽：事實",
+            "description": "只寫客觀發生了什麼，不加評價。"
+          },
+          "hat_red": {
+            "type": "string",
+            "title": "紅帽：感受",
+            "description": "當下的情緒，不需要說明理由。"
+          },
+          "hat_yellow": {
+            "type": "string",
+            "title": "黃帽：好處",
+            "description": "這件事有沒有任何好的一面？"
+          },
+          "hat_black": {
+            "type": "string",
+            "title": "黑帽：風險",
+            "description": "可能的壞處或風險是什麼？"
+          },
+          "hat_blue": {
+            "type": "string",
+            "title": "藍帽：總結",
+            "description": "整理以上，你現在的想法是什麼？"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      }
+    }
+  ]
+}
