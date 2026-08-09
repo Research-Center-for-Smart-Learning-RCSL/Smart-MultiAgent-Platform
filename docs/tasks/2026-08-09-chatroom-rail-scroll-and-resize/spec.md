@@ -390,10 +390,11 @@ read back through a clamp, so a hand-edited value cannot push the layout outside
 - [x] **AC-9** — The handle is reachable by Tab, exposes `role="separator"` with
   `aria-orientation="vertical"` and live `aria-valuenow`/`aria-valuemin`/`aria-valuemax`,
   and resizes with Left/Right, Shift+Left/Right, Home, and End; Enter resets to 200px.
-  Its pointer target is at least 44px wide ([R24.34]). ARIA and every key pinned by
-  `SResizeHandle.test.ts`; Tab reachability comes from the root being a real `<button>`
-  (D-2), asserted directly. The 44px target is `::before { inset: 0 -20px }` over a 4px
-  handle, verified by reading — jsdom cannot measure it.
+  ARIA and every key pinned by `SResizeHandle.test.ts`; Tab reachability comes from the
+  root being a real `<button>` (D-2), asserted directly. **The 44px clause of this AC is
+  not met and was withdrawn — see D-6.** The pointer target is 10px, because a 44px strip
+  around a splitter necessarily overlays the columns on either side, and the first
+  implementation of it made the message list's scrollbar ungrabbable.
 - [x] **AC-10** — No drag handle renders below 1024px; the drawer path is unchanged.
   `ChatroomView.test.ts::offers no resize handle below the desktop breakpoint`. The drawer's
   `STabs` deliberately does not opt into fill (D-1), so its scroll behaviour is untouched.
@@ -484,6 +485,46 @@ contract is undocumented, which is why it was implementable without a scroll reg
   also suppresses click-focus — without it a mouse user could not grab the handle and then
   fine-tune with the arrow keys. `:focus-visible` does not match pointer-initiated focus, so
   no ring appears on the mouse path.
+
+### Post-review fixes (2026-08-09)
+
+`/code-review` over the branch found three defects that both the gate-5 quality audit and
+the gate-7 self-audit had missed. All three were real; all three are fixed with tests.
+
+- **D-6 — the 44px hit area was stealing pointer events from both neighbours; the target
+  is now 10px and R24.34 is deviated from deliberately.** `::before { inset: 0 -20px }` on
+  a `position: relative` handle extended the target 20px into each adjacent column, and the
+  handle paints above `.chatroom__feed` and `.chatroom__composer` (both positioned, both
+  earlier in DOM order) and above `.chatroom__presence` (not positioned at all). The
+  message list's scrollbar sits in the rightmost ~15px of the feed, entirely inside that
+  strip, so **a mouse user could no longer grab the message-list scrollbar** — the press
+  started a rail resize. D-4 had moved the handle into its own track so the hit area would
+  not be *clipped*, and nothing was done about what it then *overlaid*. The handle is now a
+  10px track whose whole width is the target, with the visible 2px seam drawn inside it
+  (`inset: 0 4px`). [R24.34]'s 44px floor cannot be honoured here: any 44px target around a
+  splitter overlays the columns it separates. The control renders only at >= 1024px with a
+  pointer, and 10px matches the platform convention for a splitter.
+
+- **D-7 — the ceiling measured the viewport, not the box the panel is a track of.**
+  `maxViewportFraction: 0.45` applied to `window.innerWidth` ignored that `.app-shell`
+  spends `--sidebar-width` (260px, `frontend/src/shared/styles/main.css:64`) before
+  `.chatroom` sees any width (`frontend/src/app/layouts/AppShell.vue:139`). At a 1280px
+  window with the sidebar expanded the rail could take 576px while the message column got
+  220px — the rail wider than the conversation, and a direct contradiction of the [R24.32]
+  wording this dossier itself added ("re-clamped so the message column always retains its
+  minimum share"). Worse, collapsing the sidebar fires no window `resize`, so no re-clamp
+  happened at all. `useResizablePanel` now takes a `container` element measured with a
+  `ResizeObserver` and a `reserve` for the sibling tracks plus the neighbour's floor, so
+  the ceiling is `min(hardMax, containerWidth - reserve)`. `MIN_FEED_WIDTH` is 360px and is
+  now actually guaranteed. The viewport remains the fallback when no container is given or
+  `ResizeObserver` is unavailable.
+
+- **D-8 — `localStorage` was written on every `pointermove`.** `setWidth` persisted
+  unconditionally and the handle emits a value per move, so a one-second drag issued 60-120
+  synchronous storage writes on the main thread while the whole grid reflowed. `useTheme`,
+  the cited precedent, writes only on a discrete toggle. Persistence is now debounced
+  (150ms) and flushed on scope disposal, so a drag followed immediately by navigating away
+  still saves. Pinned by `writes once for a burst of changes, not once per change`.
 
 - **D-5 — closed with AC-1, AC-3, AC-5 and AC-12 unverified.** §5 gate 4 and §12 both
   require a manual browser check for the four layout outcomes, since the unit tier has no
