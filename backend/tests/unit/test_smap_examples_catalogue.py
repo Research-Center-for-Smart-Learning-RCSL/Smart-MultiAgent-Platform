@@ -32,11 +32,19 @@ from smap.examples._catalogue import (
     load_course,
 )
 
-# The loader checks a course's validator_config against the in-process registry,
-# which a first-party site populates (app startup, or the CLI's own call). Doing it
-# here rather than relying on an import side effect keeps this file independent of
-# whichever other test last called `clear_registry()`, and of import ordering.
+# At import as well as per test: the module-level SHIPPED_TYPES below parses a real
+# course during collection, before any fixture runs.
 register_first_party_validators()
+
+
+@pytest.fixture(autouse=True)
+def _registered_validators() -> None:
+    """The loader checks a course's validator_config against the in-process
+    registry, which a first-party site populates (app startup, or the CLI's own
+    call). Re-registering per test keeps this file independent of whichever other
+    module last called ``clear_registry()`` in a teardown."""
+    register_first_party_validators()
+
 
 MANDALA: dict[str, Any] = {
     "key": "mandala-9grid",

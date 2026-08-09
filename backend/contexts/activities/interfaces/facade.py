@@ -16,6 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.application.activation_service import ActivationService
 from contexts.activities.application.aggregation_service import AggregationService
+from contexts.activities.application.example_service import (
+    ActivityExampleService,
+    CatalogueEntry,
+    InstallReport,
+    PlatformExample,
+)
 from contexts.activities.application.policy_service import ActivityPolicyService
 from contexts.activities.application.reachability import resolve_reachable_type
 from contexts.activities.application.session_service import ActivitySessionService
@@ -60,6 +66,10 @@ __all__ = [
     "ActivitySession",
     "ActivitySubmission",
     "ActivityType",
+    "ActivityTypeScope",
+    "CatalogueEntry",
+    "InstallReport",
+    "PlatformExample",
     "RecentActivityRow",
     "ValidationResult",
     "ValidatorInfo",
@@ -85,6 +95,7 @@ class ActivitiesFacade:
         self._sessions = ActivitySessionService(db)
         self._submissions = SubmissionService(db, activation_repo=activation_repo)
         self._aggregation = AggregationService(db)
+        self._examples = ActivityExampleService(db)
 
     # -- Types --------------------------------------------------------------
 
@@ -317,6 +328,66 @@ class ActivitiesFacade:
             optin_reader=self._optin_repo,
             activity_type_id=activity_type_id,
             project_id=project_id,
+        )
+
+    # -- Shipped examples ([R30.32], [R30.33]) ------------------------------
+
+    async def list_example_catalogue(self) -> tuple[CatalogueEntry, ...]:
+        """Every shipped course with its install state (admin surface)."""
+        return await self._examples.list_catalogue()
+
+    async def install_example_course(
+        self,
+        *,
+        course_key: str,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> InstallReport:
+        return await self._examples.install_course(
+            course_key=course_key,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def list_platform_examples_for_project(self, project_id: uuid.UUID) -> tuple[PlatformExample, ...]:
+        """Installed platform types plus this project's enabled state."""
+        return await self._examples.list_for_project(project_id)
+
+    async def opt_project_in(
+        self,
+        *,
+        project_id: uuid.UUID,
+        activity_type_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        await self._examples.opt_in(
+            project_id=project_id,
+            activity_type_id=activity_type_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def opt_project_out(
+        self,
+        *,
+        project_id: uuid.UUID,
+        activity_type_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+        """Revoke access, ending only this project's activations ([R30.33])."""
+        return await self._examples.opt_out(
+            project_id=project_id,
+            activity_type_id=activity_type_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
         )
 
     # -- Activations --------------------------------------------------------
