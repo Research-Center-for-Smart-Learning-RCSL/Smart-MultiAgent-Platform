@@ -135,27 +135,34 @@ onBeforeUnmount(() => setDocumentDragState(false))
 <style scoped>
 .s-resize-handle {
   position: relative;
-  width: 4px;
+  /* The whole element is the pointer target, so it must not be thinner than a
+     mouse can comfortably hit. */
+  width: 10px;
   flex-shrink: 0;
   appearance: none;
   border: none;
   padding: 0;
+  background: none;
   cursor: col-resize;
-  background: var(--color-border);
   touch-action: none;
 }
 
-/* The visible seam stays 4px while the pointer/touch target reaches the 44px
-   floor (R24.34). Negative insets rather than padding so the hit area does not
-   displace the grid track. */
+/* The visible seam, drawn *inside* the target rather than the target being grown
+   around it. An earlier revision kept a 4px element and extended the hit area
+   20px past each side to reach the 44px touch floor; because the handle sits
+   between two populated columns, that strip covered the message list's
+   scrollbar and the composer's trailing edge and made them ungrabbable. A
+   splitter cannot own 44px without overlaying its neighbours, and this control
+   renders only at >= 1024px with a pointer, so the target is 10px. */
 .s-resize-handle::before {
   content: '';
   position: absolute;
-  inset: 0 -20px;
+  inset: 0 4px;
+  background: var(--color-border);
 }
 
-.s-resize-handle:hover,
-.s-resize-handle--dragging {
+.s-resize-handle:hover::before,
+.s-resize-handle--dragging::before {
   background: var(--color-accent);
 }
 
@@ -165,7 +172,7 @@ onBeforeUnmount(() => setDocumentDragState(false))
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .s-resize-handle {
+  .s-resize-handle::before {
     transition: background var(--transition-fast);
   }
 }

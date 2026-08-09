@@ -1,5 +1,6 @@
 <template>
   <section
+    ref="chatroomRef"
     class="chatroom"
     :class="{ 'chatroom--mobile': isMobile, 'chatroom--tablet': isTablet }"
     :style="[
@@ -367,8 +368,19 @@ const { keyboardInset } = useVisualViewport(() => isMobile.value)
 
 // Desktop right-rail width (R24.32). 200px was the historical fixed width, so it
 // stays both the default and the floor: nothing regresses for a user who never
-// drags. The ceiling keeps the message column the larger share on a laptop.
+// drags.
+//
+// The ceiling is derived from the grid's own box, not the viewport: the app
+// shell spends up to --sidebar-width (260px) before .chatroom sees any width,
+// and collapsing that sidebar fires no window `resize`. Measuring the element
+// is what makes "the message column always retains its minimum share" true
+// rather than approximately true.
 const RAIL_MIN_WIDTH = 200
+// Keep in step with .chatroom's grid-template-columns below.
+const AGENTS_RAIL_WIDTH = 220
+const RAIL_HANDLE_WIDTH = 10
+const MIN_FEED_WIDTH = 360
+const chatroomRef = useTemplateRef<HTMLElement>('chatroomRef')
 const {
   width: railWidth,
   maxWidth: railMaxWidth,
@@ -379,7 +391,8 @@ const {
   defaultWidth: RAIL_MIN_WIDTH,
   min: RAIL_MIN_WIDTH,
   max: 720,
-  maxViewportFraction: 0.45,
+  container: chatroomRef,
+  reserve: AGENTS_RAIL_WIDTH + RAIL_HANDLE_WIDTH + MIN_FEED_WIDTH,
 })
 store.setActive(chatroomId)
 
@@ -884,8 +897,10 @@ function onExportSubmit(opts: ExportOptions): void {
   display: grid;
   /* Track 3 is the resize handle; the rail track reads its width from the
      custom property the view binds, falling back to the historical 200px when
-     no width has been chosen (or when storage is unavailable). */
-  grid-template-columns: 220px 1fr auto var(--chatroom-rail-w, 200px);
+     no width has been chosen (or when storage is unavailable). The 220px and
+     10px literals are mirrored by AGENTS_RAIL_WIDTH / RAIL_HANDLE_WIDTH in the
+     script, which is where the rail's ceiling is derived from. */
+  grid-template-columns: 220px 1fr 10px var(--chatroom-rail-w, 200px);
   grid-template-rows: 48px 1fr auto auto;
   height: 100%;
   overflow: hidden;
