@@ -88,7 +88,7 @@ code.
 (放射型曼陀羅) are free-association layouts; pre-theming the cells would constrain exactly
 the divergent thinking the unit sets out to elicit. If the collaborating educator prefers
 themed cells, it is a one-file data edit in
-`backend/smap/examples/creative_thinking_course.py` — no code change.
+`backend/smap/examples/courses/creative-thinking.json` — no code change, no Python.
 
 ## Unit 4 — 情緒播報台 (Six Thinking Hats)
 
@@ -137,6 +137,9 @@ python -m smap.examples creative-thinking-course \
 
 Idempotent: a type whose `key` already exists in the project is reported as
 already-present and left untouched, so re-running after a partial failure is safe.
+
+`--course` selects which file under `backend/smap/examples/courses/` to seed. It
+defaults to `creative-thinking`, so the command above needs no extra flag.
 
 Two things to be clear about:
 
@@ -239,8 +242,26 @@ authoritatively for later analysis; agents simply cannot read them.
 | Piece | Path |
 |---|---|
 | `filled_count` validator | `backend/app/plugins/activity_validators.py` |
-| Seeder CLI | `backend/smap/examples/` |
+| Seeder CLI | `backend/smap/examples/__main__.py` |
+| **This course's content** | `backend/smap/examples/courses/creative-thinking.json` |
+| Course loader + validation | `backend/smap/examples/_catalogue.py` |
+| Seeding engine (course-agnostic) | `backend/smap/examples/_seeding.py` |
 | Mandala grid plugin | `frontend/src/slices/activities/plugins/mandala9grid/` |
 | Generic schema form | `frontend/src/slices/activities/components/SchemaForm.vue` |
 | Type management page | `frontend/src/slices/activities/views/ActivityTypesView.vue` |
 | Task dossier | `docs/tasks/2026-08-08-creative-thinking-course-example/spec.md` |
+| Catalogue refactor dossier | `docs/tasks/2026-08-08-activity-example-catalogue/spec.md` |
+
+## Adding another course
+
+A course is a data file. Drop a JSON document into
+`backend/smap/examples/courses/`, named for its `course_key`, and seed it with
+`--course <key>`. No Python changes, and the loader validates it on read: every
+field is required (including the visibility flags — defaulting
+`expose_payload_to_agent` would be the wrong way to decide whether student text
+reaches an LLM provider), the `payload_schema` must be a valid JSON Schema
+declaring at least one property, and a `filled_count` `min_filled` may not exceed
+the number of declared properties, since the scorer counts declared properties
+and a higher threshold would ship an activity nobody can pass.
+
+Use `creative-thinking.json` as the template.

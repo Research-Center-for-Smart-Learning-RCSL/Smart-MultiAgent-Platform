@@ -86,6 +86,13 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 include = ["app*", "contexts*", "shared_kernel*", "smap*"]
 
+# `packages.find` collects .py files only. The worked-example courses are JSON
+# data, so without this a non-editable install ships a seeder CLI whose
+# catalogue directory is empty -- it works from a source checkout and fails from
+# a wheel. Pinned by tests/unit/test_smap_examples_packaging.py.
+[tool.setuptools.package-data]
+"smap.examples" = ["courses/*.json"]
+
 # ---------- Ruff ----------
 [tool.ruff]
 line-length = 110
