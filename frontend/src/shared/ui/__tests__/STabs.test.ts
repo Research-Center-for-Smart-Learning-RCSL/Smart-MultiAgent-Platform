@@ -39,4 +39,21 @@ describe('STabs', () => {
     expect(tabB.attributes('aria-label')).toBeUndefined()
     expect(wrapper.find('.s-tabs__badge-live').exists()).toBe(false)
   })
+
+  // AC-4: five of the six call sites sit in a scrolling page and must keep their
+  // current auto-height behaviour. The modifier class is the whole difference, so
+  // asserting its absence by default is what protects them.
+  it('does not fill its parent height unless asked', () => {
+    const wrapper = mount(STabs, {
+      props: { modelValue: 'a', tabs: [{ key: 'a', label: 'A' }] },
+    })
+    expect(wrapper.find('.s-tabs').classes()).not.toContain('s-tabs--fill')
+  })
+
+  it('opts into filling its parent height', () => {
+    const wrapper = mount(STabs, {
+      props: { modelValue: 'a', tabs: [{ key: 'a', label: 'A' }], fill: true },
+    })
+    expect(wrapper.find('.s-tabs').classes()).toContain('s-tabs--fill')
+  })
 })
