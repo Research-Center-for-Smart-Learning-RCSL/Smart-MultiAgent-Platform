@@ -2,7 +2,10 @@
   <section
     class="chatroom"
     :class="{ 'chatroom--mobile': isMobile, 'chatroom--tablet': isTablet }"
-    :style="isMobile ? { '--kb-inset': `${keyboardInset}px` } : undefined"
+    :style="[
+      isMobile ? { '--kb-inset': `${keyboardInset}px` } : {},
+      isDesktop ? { '--chatroom-rail-w': `${railWidth}px` } : {},
+    ]"
   >
     <ChatroomHeader
       class="chatroom__header"
@@ -168,6 +171,17 @@
     <!-- Desktop right rail: tabbed People/Observer once the creator has an
          observer surface to show (a live binding or leftover observations);
          plain presence panel otherwise. -->
+    <SResizeHandle
+      v-if="isDesktop"
+      class="chatroom__rail-handle"
+      :value="railWidth"
+      :min="RAIL_MIN_WIDTH"
+      :max="railMaxWidth"
+      :label="t('conversation.chatroom.railResize')"
+      invert
+      @update:value="setRailWidth"
+      @reset="resetRailWidth"
+    />
     <div
       v-if="isDesktop"
       class="chatroom__presence"
@@ -176,6 +190,7 @@
         v-if="showRailTabs"
         v-model="railTab"
         :tabs="railTabs"
+        fill
       >
         <template #tab-people>
           <ChatroomPresence
@@ -293,8 +308,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 
-import { useToast, useBreakpoint, useVisualViewport, useConfirmDialog } from '@shared/composables'
-import { SAlert, SButton, SDrawer, SEmptyState, SSkeleton, STabs } from '@shared/ui'
+import { useToast, useBreakpoint, useVisualViewport, useConfirmDialog, useResizablePanel } from '@shared/composables'
+import { SAlert, SButton, SDrawer, SEmptyState, SResizeHandle, SSkeleton, STabs } from '@shared/ui'
 import { ChatBubbleLeftRightIcon, EyeIcon, PlayCircleIcon, UsersIcon } from '@heroicons/vue/24/outline'
 import { ApiError, ValidationError } from '@shared/errors'
 import { isProblemWithType } from '@shared/transport'
@@ -349,6 +364,23 @@ const projectId = (route.params.projectId as string) || ''
 const myId = computed(() => session.me?.id ?? null)
 const { isMobile, isTablet, isDesktop } = useBreakpoint()
 const { keyboardInset } = useVisualViewport(() => isMobile.value)
+
+// Desktop right-rail width (R24.32). 200px was the historical fixed width, so it
+// stays both the default and the floor: nothing regresses for a user who never
+// drags. The ceiling keeps the message column the larger share on a laptop.
+const RAIL_MIN_WIDTH = 200
+const {
+  width: railWidth,
+  maxWidth: railMaxWidth,
+  setWidth: setRailWidth,
+  reset: resetRailWidth,
+} = useResizablePanel({
+  storageKey: 'smap-chatroom-rail-w',
+  defaultWidth: RAIL_MIN_WIDTH,
+  min: RAIL_MIN_WIDTH,
+  max: 720,
+  maxViewportFraction: 0.45,
+})
 store.setActive(chatroomId)
 
 const listRef = useTemplateRef<HTMLElement>('listRef')
@@ -850,7 +882,10 @@ function onExportSubmit(opts: ExportOptions): void {
 <style scoped>
 .chatroom {
   display: grid;
-  grid-template-columns: 220px 1fr 200px;
+  /* Track 3 is the resize handle; the rail track reads its width from the
+     custom property the view binds, falling back to the historical 200px when
+     no width has been chosen (or when storage is unavailable). */
+  grid-template-columns: 220px 1fr auto var(--chatroom-rail-w, 200px);
   grid-template-rows: 48px 1fr auto auto;
   height: 100%;
   overflow: hidden;
@@ -932,9 +967,20 @@ function onExportSubmit(opts: ExportOptions): void {
   grid-row: 4;
 }
 
-.chatroom__presence {
+.chatroom__rail-handle {
   grid-column: 3;
   grid-row: 2 / -1;
+}
+
+.chatroom__presence {
+  grid-column: 4;
+  grid-row: 2 / -1;
+  /* The same contract .chatroom__feed already has. A grid item defaults to
+     `min-height: auto`, which refuses to shrink below its content: tall rail
+     content therefore overflowed the grid and was clipped by .chatroom's
+     `overflow: hidden`, with no scrollbar anywhere in the ancestry to reach it. */
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chatroom__pill {
