@@ -68,6 +68,11 @@ function onPointerMove(event: PointerEvent): void {
   emit('update:value', startValue + (props.invert ? -delta : delta))
 }
 
+// Also the `lostpointercapture` handler: the browser can revoke capture without
+// a pointerup or pointercancel (a context menu, an overlay stealing the pointer),
+// which would otherwise leave the drag live -- the page unselectable, the resize
+// cursor stuck, and a button-less pointer move still resizing. Re-entrant by
+// design, since releasing capture below fires the event again.
 function endDrag(event: PointerEvent): void {
   if (!dragging.value) return
   dragging.value = false
@@ -116,6 +121,7 @@ onBeforeUnmount(() => setDocumentDragState(false))
     @pointermove="onPointerMove"
     @pointerup="endDrag"
     @pointercancel="endDrag"
+    @lostpointercapture="endDrag"
     @keydown="onKeydown"
   />
 </template>
