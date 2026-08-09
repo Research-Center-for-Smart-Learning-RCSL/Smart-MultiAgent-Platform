@@ -137,6 +137,36 @@ class TestShippedCourseContent:
             assert list(actual.payload_schema["properties"]) == list(expected["payload_schema"]["properties"])
 
 
+class TestTheTranscription:
+    """The safety net for the Python-constants -> JSON move.
+
+    Both sources of truth exist at this point on purpose: the JSON is only
+    allowed to replace the constants once it is proven equal to them. This class
+    goes away with the constants.
+    """
+
+    def test_the_shipped_json_equals_the_python_constants(self) -> None:
+        course = load_course("creative-thinking")
+
+        assert as_dicts(course.activity_types) == as_dicts(seeder.COURSE_TYPES)
+
+    def test_the_shipped_json_equals_the_pin(self) -> None:
+        course = load_course("creative-thinking")
+
+        assert as_dicts(course.activity_types) == list(CREATIVE_THINKING_TYPES)
+
+
+class TestEveryShippedCourse:
+    @pytest.mark.parametrize("course_key", available_courses())
+    def test_loads_and_validates(self, course_key: str) -> None:
+        """Runs over the whole catalogue, so a new course file is covered by
+        adding the file — no test edit."""
+        course = load_course(course_key)
+
+        assert course.course_key == course_key
+        assert course.activity_types
+
+
 def _course_document() -> dict[str, Any]:
     """A minimal course that loads cleanly; each test breaks one thing in it."""
     return {
