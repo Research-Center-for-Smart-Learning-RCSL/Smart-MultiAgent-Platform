@@ -5,7 +5,9 @@
       :subtitle="$t('admin.activities.subtitle')"
     />
 
-    <h2 class="mt-6 text-sm font-semibold text-[var(--color-fg)]">
+    <ActivityPolicyForm class="mt-6" />
+
+    <h2 class="mt-8 text-sm font-semibold text-[var(--color-fg)]">
       {{ $t('admin.activities.activeHeading') }}
     </h2>
     <p class="mt-1 text-xs text-[var(--color-muted)]">
@@ -157,6 +159,7 @@ import { useQuery } from '@tanstack/vue-query'
 import type { RouteLocationRaw } from 'vue-router'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
+import ActivityPolicyForm from '../components/ActivityPolicyForm.vue'
 import type { AdminActivityActivationRow, AdminActivityTypeRow } from '../types'
 
 const { t } = useI18n()

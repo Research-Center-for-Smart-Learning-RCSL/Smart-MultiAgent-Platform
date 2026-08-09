@@ -132,7 +132,9 @@
       "configRejected": "The validator configuration or schema was rejected. Please review it.",
       "activeConflict": "This activity type is active in a room. End it before changing its fields or validator.",
       "createFailed": "Could not create the activity type. Please try again.",
-      "updateFailed": "Could not update the activity type. Please try again."
+      "updateFailed": "Could not update the activity type. Please try again.",
+      "lockedByPolicy": "Set by the platform policy and cannot be changed here.",
+      "retentionCapped": "How long submissions are kept. The platform policy caps this at {max} days. Leave blank for no limit."
     },
     "schemaBuilder": {
       "intro": "Add each field a participant submits. Give it a name and type, and mark whether it is required.",

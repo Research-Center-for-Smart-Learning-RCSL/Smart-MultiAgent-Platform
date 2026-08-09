@@ -458,6 +458,44 @@ async def list_activity_validators(
     ]
 
 
+class ActivityPolicyPublicOut(BaseModel):
+    """The platform governance policy as an author needs to see it ([R30.29]).
+
+    Any authenticated caller, like the validator listing above: the policy is
+    platform configuration, not a secret, and an owner would learn the same facts
+    from a 409 on their first save. Reading it up front is what lets the authoring
+    form pre-fill a default and disable a locked switch instead of letting the
+    owner fill in a form that cannot be accepted.
+
+    Deliberately omits ``updated_by_user_id`` — who set the policy is an admin
+    concern and is on the admin surface.
+    """
+
+    expose_payload_to_agent_default: bool
+    expose_payload_to_agent_locked: bool
+    echo_includes_content_default: bool
+    echo_includes_content_locked: bool
+    retention_days_default: int | None
+    retention_days_max: int | None
+
+
+@validator_router.get("/activity-policy")
+async def get_activity_policy_public(
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ActivityPolicyPublicOut:
+    """The policy in force, for the authoring form. Permissive when none is saved."""
+    policy = await ActivitiesFacade(db).get_activity_policy()
+    return ActivityPolicyPublicOut(
+        expose_payload_to_agent_default=policy.expose_payload_to_agent_default,
+        expose_payload_to_agent_locked=policy.expose_payload_to_agent_locked,
+        echo_includes_content_default=policy.echo_includes_content_default,
+        echo_includes_content_locked=policy.echo_includes_content_locked,
+        retention_days_default=policy.retention_days_default,
+        retention_days_max=policy.retention_days_max,
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Sessions (room-scoped)                                                       #
 # --------------------------------------------------------------------------- #

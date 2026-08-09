@@ -9,6 +9,9 @@
 
 import { AdminService, GraphragAdminService } from '@shared/api-client'
 import type {
+  ActivityPolicy,
+  ActivityPolicyImpact,
+  ActivityPolicyInput,
   AdminActivityActivationRow,
   AdminActivityTypeRow,
   AdminEntry,
@@ -139,6 +142,21 @@ export const adminApi = {
     limit?: number
   }): Promise<AdminActivityActivationRow[]> =>
     AdminService.listAllActiveActivationsApiAdminActivityActivationsGet(params ?? {}),
+
+  getActivityPolicy: (): Promise<ActivityPolicy> =>
+    AdminService.getActivityPolicyApiAdminActivityPolicyGet(),
+
+  putActivityPolicy: (body: ActivityPolicyInput, expectedVersion: number | null) =>
+    AdminService.putActivityPolicyApiAdminActivityPolicyPut({
+      requestBody: body,
+      // Omitted on first write (version 0): there is nothing to match against.
+      ...(expectedVersion !== null ? { ifMatch: String(expectedVersion) } : {}),
+    }) as Promise<ActivityPolicy>,
+
+  previewActivityPolicyImpact: (body: ActivityPolicyInput): Promise<ActivityPolicyImpact> =>
+    AdminService.previewActivityPolicyImpactApiAdminActivityPolicyImpactPost({
+      requestBody: body,
+    }),
 
   resetGraphrag: (configId: string) =>
     GraphragAdminService.adminResetApiAdminGraphragConfigIdResetPost({ configId }),

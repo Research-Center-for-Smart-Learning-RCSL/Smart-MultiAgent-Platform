@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { ActivityActivationOut } from '../models/ActivityActivationOut';
 import type { ActivityActivationStartIn } from '../models/ActivityActivationStartIn';
+import type { ActivityPolicyPublicOut } from '../models/ActivityPolicyPublicOut';
 import type { ActivitySessionOpenIn } from '../models/ActivitySessionOpenIn';
 import type { ActivitySessionOut } from '../models/ActivitySessionOut';
 import type { ActivitySubmissionIn } from '../models/ActivitySubmissionIn';
@@ -18,6 +19,18 @@ import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class ActivitiesService {
+    /**
+     * Get Activity Policy Public
+     * The policy in force, for the authoring form. Permissive when none is saved.
+     * @returns ActivityPolicyPublicOut Successful Response
+     * @throws ApiError
+     */
+    public static getActivityPolicyPublicApiActivityPolicyGet(): CancelablePromise<ActivityPolicyPublicOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/activity-policy',
+        });
+    }
     /**
      * List Activity Validators
      * List the registered first-party in-process validators (R30.24). Global and

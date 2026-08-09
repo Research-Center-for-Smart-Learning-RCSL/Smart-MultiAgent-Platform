@@ -23,4 +23,6 @@ export const adminKeys = {
     ['admin', 'activity-types'] as const,
   activityActivations: () =>
     ['admin', 'activity-activations'] as const,
+  activityPolicy: () =>
+    ['admin', 'activity-policy'] as const,
 }

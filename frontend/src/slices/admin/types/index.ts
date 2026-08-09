@@ -111,6 +111,34 @@ export interface AdminActivityActivationRow {
   created_at: string
 }
 
+/** Platform activity governance policy (R30.29).
+ *
+ *  `version` 0 means no policy has ever been saved: the client is creating, and
+ *  must not send If-Match. */
+export interface ActivityPolicy {
+  expose_payload_to_agent_default: boolean
+  expose_payload_to_agent_locked: boolean
+  echo_includes_content_default: boolean
+  echo_includes_content_locked: boolean
+  retention_days_default: number | null
+  retention_days_max: number | null
+  version: number
+  updated_at: string | null
+  updated_by_user_id: string | null
+}
+
+export type ActivityPolicyInput = Omit<
+  ActivityPolicy,
+  'version' | 'updated_at' | 'updated_by_user_id'
+>
+
+/** How many live types a candidate policy would refuse to activate.
+ *  `approximate` means the server's scan hit its bound, so this is a floor. */
+export interface ActivityPolicyImpact {
+  violating_types: number
+  approximate: boolean
+}
+
 export interface RateLimitPolicy {
   key: string
   window_sec: number

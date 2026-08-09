@@ -30,6 +30,7 @@ from contexts.activities.domain.models import (
     ActivitySession,
     ActivitySubmission,
     ActivityType,
+    PolicyImpact,
     RecentActivityRow,
     ValidationResult,
     ValidatorKind,
@@ -177,15 +178,19 @@ class ActivitiesFacade:
             request_id=request_id,
         )
 
-    async def count_types_violating_policy(self, policy: ActivityPolicy) -> int:
+    async def preview_policy_impact(self, policy: ActivityPolicy) -> PolicyImpact:
         """How many live types a candidate policy would refuse to activate.
 
         Read-only preview for the admin form: tightening a policy is otherwise a
-        blind action whose cost only shows up when a facilitator cannot start a
+        blind action whose cost only surfaces when a facilitator cannot start a
         class ([R30.30] risk note in §10 of the dossier).
+
+        One scan, bounded — the bound stays inside the context so callers cannot
+        drift from it, and `approximate` reports when it was hit.
         """
+        types = await self._type_repo.list_all(limit=_POLICY_PREVIEW_SCAN)
         violations = 0
-        for at in await self._type_repo.list_all(limit=_POLICY_PREVIEW_SCAN):
+        for at in types:
             try:
                 await self._policy.assert_allows(
                     expose_payload_to_agent=at.expose_payload_to_agent,
@@ -195,7 +200,7 @@ class ActivitiesFacade:
                 )
             except ActivityTypeViolatesPolicy:
                 violations += 1
-        return violations
+        return PolicyImpact(violating_types=violations, approximate=len(types) >= _POLICY_PREVIEW_SCAN)
 
     async def list_all_types(
         self, *, cursor: uuid.UUID | None = None, limit: int = 50

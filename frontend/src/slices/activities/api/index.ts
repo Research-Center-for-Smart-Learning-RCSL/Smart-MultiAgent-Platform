@@ -6,6 +6,7 @@
 
 import { ActivitiesService } from '@shared/api-client'
 import type {
+  ActivityPolicyPublicOut,
   ActivitySessionOpenIn,
   ActivitySessionOut,
   ActivityActivationOut,
@@ -38,6 +39,13 @@ export async function getRoomActivityType(
 
 export async function listActivityValidators(): Promise<ActivityValidatorOut[]> {
   return ActivitiesService.listActivityValidatorsApiActivityValidatorsGet()
+}
+
+/** The platform governance policy, so the authoring form can pre-fill defaults
+ *  and disable a locked switch (R30.29). The server re-checks on write; this only
+ *  spares an owner from filling in a form that would be rejected. */
+export async function getActivityPolicy(): Promise<ActivityPolicyPublicOut> {
+  return ActivitiesService.getActivityPolicyPublicApiActivityPolicyGet()
 }
 
 export async function registerActivityType(

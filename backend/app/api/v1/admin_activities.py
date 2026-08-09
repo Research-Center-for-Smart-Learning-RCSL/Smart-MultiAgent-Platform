@@ -19,15 +19,18 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Header, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
-from contexts.activities.domain.models import ActivityActivation
+from contexts.activities.domain.errors import ActivityPolicyVersionMismatch
+from contexts.activities.domain.models import PLATFORM_SCOPE, ActivityActivation, ActivityPolicy
 from contexts.activities.interfaces.facade import ActivitiesFacade
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
+from shared_kernel.auth.context import RequestContext
+from shared_kernel.auth.dependencies import current_context
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
 
@@ -75,6 +78,135 @@ class AdminActivityActivationOut(BaseModel):
     activity_type_name: str | None
     started_by_user_id: uuid.UUID
     created_at: str
+
+
+class AdminActivityPolicyOut(BaseModel):
+    """The platform governance policy ([R30.29]).
+
+    ``version`` is 0 when no policy has ever been saved — the client uses that to
+    know it is creating rather than replacing, and must not send ``If-Match``.
+    """
+
+    expose_payload_to_agent_default: bool
+    expose_payload_to_agent_locked: bool
+    echo_includes_content_default: bool
+    echo_includes_content_locked: bool
+    retention_days_default: int | None
+    retention_days_max: int | None
+    version: int
+    updated_at: str | None
+    updated_by_user_id: uuid.UUID | None
+
+
+class AdminActivityPolicyIn(BaseModel):
+    expose_payload_to_agent_default: bool
+    expose_payload_to_agent_locked: bool
+    echo_includes_content_default: bool
+    echo_includes_content_locked: bool
+    # `gt=0` mirrors the table's CHECK constraints: a zero or negative retention
+    # is not a shorter horizon, it is nonsense.
+    retention_days_default: int | None = Field(default=None, gt=0)
+    retention_days_max: int | None = Field(default=None, gt=0)
+
+
+class AdminPolicyImpactOut(BaseModel):
+    """How many live types a candidate policy would refuse to activate.
+
+    Lets the admin form warn before a tightening strands a class ([R30.30]).
+    ``approximate`` is true when the scan hit its bound, so the count is a floor
+    rather than a silent truncation.
+    """
+
+    violating_types: int
+    approximate: bool
+
+
+def _policy_out(policy: ActivityPolicy) -> AdminActivityPolicyOut:
+    return AdminActivityPolicyOut(
+        expose_payload_to_agent_default=policy.expose_payload_to_agent_default,
+        expose_payload_to_agent_locked=policy.expose_payload_to_agent_locked,
+        echo_includes_content_default=policy.echo_includes_content_default,
+        echo_includes_content_locked=policy.echo_includes_content_locked,
+        retention_days_default=policy.retention_days_default,
+        retention_days_max=policy.retention_days_max,
+        version=policy.version,
+        updated_at=policy.updated_at.isoformat() if policy.updated_at else None,
+        updated_by_user_id=policy.updated_by_user_id,
+    )
+
+
+@router.get("/activity-policy")
+async def get_activity_policy(
+    _: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(db_session),
+) -> AdminActivityPolicyOut:
+    """The policy in force, or the permissive default when none is saved."""
+    return _policy_out(await ActivitiesFacade(db).get_activity_policy())
+
+
+@router.post("/activity-policy/impact")
+async def preview_activity_policy_impact(
+    body: AdminActivityPolicyIn,
+    _: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(db_session),
+) -> AdminPolicyImpactOut:
+    """Count the live types a candidate policy would block, without saving it.
+
+    POST rather than GET because the candidate policy is a body, not an identity;
+    it writes nothing.
+    """
+    candidate = ActivityPolicy(
+        id=None,
+        scope=PLATFORM_SCOPE,
+        expose_payload_to_agent_default=body.expose_payload_to_agent_default,
+        expose_payload_to_agent_locked=body.expose_payload_to_agent_locked,
+        echo_includes_content_default=body.echo_includes_content_default,
+        echo_includes_content_locked=body.echo_includes_content_locked,
+        retention_days_default=body.retention_days_default,
+        retention_days_max=body.retention_days_max,
+        version=0,
+    )
+    impact = await ActivitiesFacade(db).preview_policy_impact(candidate)
+    return AdminPolicyImpactOut(violating_types=impact.violating_types, approximate=impact.approximate)
+
+
+@router.put("/activity-policy")
+async def put_activity_policy(
+    body: AdminActivityPolicyIn,
+    admin: Principal = Depends(require_admin),
+    ctx: RequestContext = Depends(current_context),
+    db: AsyncSession = Depends(db_session),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+) -> AdminActivityPolicyOut:
+    """Create or replace the platform policy.
+
+    ``If-Match`` carries the version the admin's form was built against and is
+    required once a policy exists; without it a concurrent edit would be silently
+    overwritten. A non-integer header is rejected as a mismatch rather than
+    ignored — treating an unparseable precondition as "no precondition" would
+    defeat the point.
+    """
+    expected_version: int | None = None
+    if if_match is not None:
+        try:
+            expected_version = int(if_match.strip().strip('"'))
+        except ValueError:
+            raise ActivityPolicyVersionMismatch(f"If-Match is not a version: {if_match!r}") from None
+
+    policy = await ActivitiesFacade(db).update_activity_policy(
+        expose_payload_to_agent_default=body.expose_payload_to_agent_default,
+        expose_payload_to_agent_locked=body.expose_payload_to_agent_locked,
+        echo_includes_content_default=body.echo_includes_content_default,
+        echo_includes_content_locked=body.echo_includes_content_locked,
+        retention_days_default=body.retention_days_default,
+        retention_days_max=body.retention_days_max,
+        expected_version=expected_version,
+        actor_user_id=admin.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    return _policy_out(policy)
 
 
 @router.get("/activity-types")
