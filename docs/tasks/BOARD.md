@@ -16,6 +16,15 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+- `2026-08-09-platform-example-activity-types` (feature, draft) — `depends_on: []`. Promotes
+  the shipped example catalogue out of the `smap` CLI package into `contexts/activities`,
+  adds a `scope` column to `activity_types` (migration 0076) so an example can be a
+  platform-owned row, and gives platform admins an install/edit surface plus Project Owners
+  a per-project opt-in from the existing Activity Types page. Touches the multi-tenant
+  boundary: the seven duplicated `type.project_id != project_id` gates collapse into one
+  shared reachability check. Carries an SRS delta (amends [R30.02], [R30.23], [R30.28],
+  [R30.31]; adds [R30.32], [R30.33]).
+
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
