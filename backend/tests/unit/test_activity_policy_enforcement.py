@@ -18,7 +18,15 @@ import pytest
 from contexts.activities.application.activation_service import ActivationService
 from contexts.activities.application.type_service import ActivityTypeService
 from contexts.activities.domain.errors import ActivityTypeViolatesPolicy
-from contexts.activities.domain.models import PLATFORM_SCOPE, ActivityPolicy, ActivityType, ValidatorKind
+from contexts.activities.domain.models import (
+    PLATFORM_SCOPE,
+    ActivationStatus,
+    ActivityActivation,
+    ActivityPolicy,
+    ActivityType,
+    ActivityTypeScope,
+    ValidatorKind,
+)
 
 _NOW = dt.datetime(2026, 8, 9, tzinfo=dt.UTC)
 _SCHEMA = {"type": "object", "properties": {"answer": {"type": "string"}}}
@@ -158,12 +166,23 @@ class TestAuthoringGate:
 
 
 class TestActivationGate:
-    def _service(self, policy: ActivityPolicy, activity_type: ActivityType) -> ActivationService:
+    def _service(
+        self,
+        policy: ActivityPolicy,
+        activity_type: ActivityType,
+        *,
+        opted_in: bool = False,
+    ) -> ActivationService:
         activation_repo = MagicMock()
         activation_repo.create_active = AsyncMock()
         type_repo = MagicMock()
         type_repo.get = AsyncMock(return_value=activity_type)
-        svc = ActivationService(MagicMock(), activation_repo=activation_repo, type_repo=type_repo)
+        svc = ActivationService(
+            MagicMock(),
+            activation_repo=activation_repo,
+            type_repo=type_repo,
+            optin_repo=MagicMock(exists=AsyncMock(return_value=opted_in)),
+        )
         svc._policy._repo = MagicMock()
         svc._policy._repo.get_platform = AsyncMock(return_value=policy)
         return svc
@@ -186,6 +205,58 @@ class TestActivationGate:
         assert exc.value.field == "expose_payload_to_agent"
         # No activation row, no audit event, no room broadcast.
         svc._repo.create_active.assert_not_awaited()
+
+    async def test_an_opted_in_platform_example_is_gated_identically(self) -> None:
+        """AC-9: no platform exemption.
+
+        The shipped examples both set `expose_payload_to_agent`, so a tightened
+        policy refuses them exactly as it refuses a project's own type — the
+        resolution is that an admin edits the example into compliance ([R30.23]
+        Q-4), never that the check is skipped for a platform row.
+        """
+        at = _make_type(project_id=None, scope=ActivityTypeScope.PLATFORM, expose_payload_to_agent=True)
+        svc = self._service(_locked_policy(), at, opted_in=True)
+
+        with pytest.raises(ActivityTypeViolatesPolicy) as exc:
+            await svc.start(
+                project_id=uuid.uuid4(),
+                chatroom_id=uuid.uuid4(),
+                activity_type_id=at.id,
+                started_by_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        assert exc.value.field == "expose_payload_to_agent"
+        svc._repo.create_active.assert_not_awaited()
+
+    async def test_an_edited_platform_example_activates(self) -> None:
+        """The other half of Q-4: once the admin has set the flag to false, the
+        same facilitator's activation goes through."""
+        at = _make_type(project_id=None, scope=ActivityTypeScope.PLATFORM, expose_payload_to_agent=False)
+        svc = self._service(_locked_policy(), at, opted_in=True)
+        activation_id = uuid.uuid4()
+        svc._repo.create_active = AsyncMock(return_value=activation_id)
+        svc._repo.get = AsyncMock(
+            return_value=ActivityActivation(
+                id=activation_id,
+                chatroom_id=uuid.uuid4(),
+                activity_type_id=at.id,
+                started_by_user_id=uuid.uuid4(),
+                status=ActivationStatus.ACTIVE,
+                created_at=_NOW,
+            )
+        )
+
+        with patch("contexts.activities.application.activation_service.audit.emit", new=AsyncMock()):
+            result = await svc.start(
+                project_id=uuid.uuid4(),
+                chatroom_id=uuid.uuid4(),
+                activity_type_id=at.id,
+                started_by_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        assert result.id == activation_id
 
     async def test_the_stored_type_is_not_modified(self) -> None:
         """AC-9: the platform never rewrites a type to match a policy change."""
