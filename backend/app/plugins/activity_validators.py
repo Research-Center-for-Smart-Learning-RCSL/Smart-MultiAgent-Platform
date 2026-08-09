@@ -129,6 +129,30 @@ def validate_filled_count_config(config: dict[str, Any]) -> None:
         raise ValidatorConfigInvalid("filled_count validator requires a non-negative 'min_filled'")
 
 
+def validate_filled_count_against_schema(config: dict[str, Any], payload_schema: dict[str, Any]) -> None:
+    """Reject a ``min_filled`` no submission could ever reach.
+
+    The scorer counts *declared* properties only, so a threshold above that count
+    yields an activity nobody can pass. This cannot live in
+    :func:`validate_filled_count_config` — that one is handed the config alone,
+    which is exactly why the registry carries a second hook.
+
+    A schema with no ``properties`` is left to the well-formedness check that
+    already ran; complaining about the threshold there would name the wrong field.
+    """
+    declared = payload_schema.get("properties")
+    if not isinstance(declared, dict):
+        return
+    min_filled = config.get("min_filled")
+    if isinstance(min_filled, bool) or not isinstance(min_filled, int):
+        return  # validate_filled_count_config owns the type error
+    if min_filled > len(declared):
+        raise ValidatorConfigInvalid(
+            f"filled_count min_filled is {min_filled}, above the {len(declared)} declared "
+            f"propert{'y' if len(declared) == 1 else 'ies'}"
+        )
+
+
 def register_first_party_validators() -> None:
     register_in_process_validator(
         EXACT_MATCH_ID,
@@ -141,6 +165,7 @@ def register_first_party_validators() -> None:
         filled_count_scorer,
         title="Filled count",
         config_validator=validate_filled_count_config,
+        schema_config_validator=validate_filled_count_against_schema,
     )
 
 
@@ -154,5 +179,6 @@ __all__ = [
     "filled_count_scorer",
     "register_first_party_validators",
     "validate_exact_match_config",
+    "validate_filled_count_against_schema",
     "validate_filled_count_config",
 ]

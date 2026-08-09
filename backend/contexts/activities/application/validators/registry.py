@@ -16,6 +16,13 @@ that raises ``ValidatorConfigInvalid`` when a type's config is malformed for it
 registration/edit so a broken config is rejected at the API boundary rather than
 deferred to a per-submission ``error`` verdict.
 
+It may additionally register a ``schema_config_validator`` — ``fn(validator_config,
+payload_schema)`` — for the rules a ``config_validator`` structurally cannot state
+because it never sees the schema. ``filled_count``'s ``min_filled`` must not exceed
+the number of declared properties, or the activity is one nobody can pass; that
+rule lives on the same side of the boundary as the validator it belongs to rather
+than being retyped by every caller that happens to hold both values.
+
 Trust note: an in-process validator is first-party backend code running in the app
 process with a live DB session — the same trust tier as any backend module. Register
 only validators you ship; untrusted validators use the MCP sandbox.
@@ -33,6 +40,11 @@ from contexts.activities.domain.models import ActivityType, ValidationResult
 InProcessScorer = Callable[..., ValidationResult | Awaitable[ValidationResult]]
 # Raises ``ValidatorConfigInvalid`` on a malformed ``validator_config``; returns None.
 ConfigValidator = Callable[[dict[str, Any]], None]
+# ``fn(validator_config, payload_schema)`` — the cross-field rules a ConfigValidator
+# structurally cannot express, because it never sees the schema (e.g. filled_count's
+# ``min_filled`` must not exceed the number of declared properties). Raises
+# ``ValidatorConfigInvalid``; returns None.
+SchemaConfigValidator = Callable[[dict[str, Any], dict[str, Any]], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +60,7 @@ class _Registered:
     fn: InProcessScorer
     title: str
     config_validator: ConfigValidator | None
+    schema_config_validator: SchemaConfigValidator | None
 
 
 _REGISTRY: dict[str, _Registered] = {}
@@ -59,9 +72,13 @@ def register_in_process_validator(
     *,
     title: str | None = None,
     config_validator: ConfigValidator | None = None,
+    schema_config_validator: SchemaConfigValidator | None = None,
 ) -> None:
     _REGISTRY[validator_id] = _Registered(
-        fn=fn, title=title or validator_id, config_validator=config_validator
+        fn=fn,
+        title=title or validator_id,
+        config_validator=config_validator,
+        schema_config_validator=schema_config_validator,
     )
 
 
@@ -78,6 +95,17 @@ def list_registered() -> list[ValidatorInfo]:
 def get_config_validator(validator_id: str) -> ConfigValidator | None:
     entry = _REGISTRY.get(validator_id)
     return entry.config_validator if entry is not None else None
+
+
+def get_schema_config_validator(validator_id: str) -> SchemaConfigValidator | None:
+    """The config-against-schema check for a validator, if it declared one.
+
+    Separate from :func:`get_config_validator` because the two have different
+    callers: every write path has a config, but only a caller holding the
+    ``payload_schema`` too can run this one.
+    """
+    entry = _REGISTRY.get(validator_id)
+    return entry.schema_config_validator if entry is not None else None
 
 
 def clear_registry() -> None:
@@ -100,9 +128,11 @@ async def run_in_process_scorer(
 __all__ = [
     "ConfigValidator",
     "InProcessScorer",
+    "SchemaConfigValidator",
     "ValidatorInfo",
     "clear_registry",
     "get_config_validator",
+    "get_schema_config_validator",
     "is_registered",
     "list_registered",
     "register_in_process_validator",
