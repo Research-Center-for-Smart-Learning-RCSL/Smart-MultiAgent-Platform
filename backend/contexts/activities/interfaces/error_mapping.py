@@ -78,6 +78,11 @@ _MAP: ErrorMap = {
         409,
         "The activity policy changed since this form was loaded",
     ),
+    errors.ActivityPolicyInconsistent: (
+        "activities/policy-inconsistent",
+        422,
+        "The activity policy contradicts itself",
+    ),
 }
 
 

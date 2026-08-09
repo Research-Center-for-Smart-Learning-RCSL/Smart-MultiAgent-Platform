@@ -16,6 +16,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.domain.errors import (
+    ActivityPolicyInconsistent,
     ActivityPolicyVersionMismatch,
     ActivityTypeViolatesPolicy,
 )
@@ -126,6 +127,19 @@ class ActivityPolicyService:
         already exists and ignored on first write, mirroring
         ``prompt_studio``'s ``put_config``.
         """
+        # A policy must not contradict itself. Pydantic and the table CHECKs each
+        # validate the two retention fields independently, so `default=500,
+        # max=100` passes both — and then the authoring form pre-fills 500 and the
+        # owner's first save is rejected by the very policy that supplied it.
+        if (
+            retention_days_default is not None
+            and retention_days_max is not None
+            and retention_days_default > retention_days_max
+        ):
+            raise ActivityPolicyInconsistent(
+                f"retention default {retention_days_default} exceeds the maximum {retention_days_max}"
+            )
+
         values = {
             "expose_payload_to_agent_default": expose_payload_to_agent_default,
             "expose_payload_to_agent_locked": expose_payload_to_agent_locked,
