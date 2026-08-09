@@ -105,17 +105,18 @@ async def test_a_platform_row_may_not_name_a_project(
     platform_type_key: str,
 ) -> None:
     """ck_activity_types_project_scope, forward direction."""
-    async with (
-        sessionmaker() as session,
-        pytest.raises(IntegrityError, match="ck_activity_types_project_scope"),
-    ):
-        await session.execute(
-            text(
-                "INSERT INTO activity_types (project_id, scope, key, name, validator_kind) "
-                "VALUES (:pid, 'platform', :k, 'half converted', 'in_process')"
-            ),
-            {"pid": project_id, "k": platform_type_key},
-        )
+    # `pytest.raises` is a sync context manager only (pytest 9 returns a RaisesExc,
+    # which has no __aenter__), so it must nest inside the session rather than
+    # share its `async with`.
+    async with sessionmaker() as session:
+        with pytest.raises(IntegrityError, match="ck_activity_types_project_scope"):
+            await session.execute(
+                text(
+                    "INSERT INTO activity_types (project_id, scope, key, name, validator_kind) "
+                    "VALUES (:pid, 'platform', :k, 'half converted', 'in_process')"
+                ),
+                {"pid": project_id, "k": platform_type_key},
+            )
 
 
 @pytest.mark.asyncio
@@ -128,17 +129,15 @@ async def test_a_project_row_may_not_be_ownerless(
     The direction that would otherwise be easy to miss: NULL means both "platform"
     and "someone forgot", and only this half of the equivalence tells them apart.
     """
-    async with (
-        sessionmaker() as session,
-        pytest.raises(IntegrityError, match="ck_activity_types_project_scope"),
-    ):
-        await session.execute(
-            text(
-                "INSERT INTO activity_types (project_id, scope, key, name, validator_kind) "
-                "VALUES (NULL, 'project', :k, 'orphan', 'in_process')"
-            ),
-            {"k": platform_type_key},
-        )
+    async with sessionmaker() as session:
+        with pytest.raises(IntegrityError, match="ck_activity_types_project_scope"):
+            await session.execute(
+                text(
+                    "INSERT INTO activity_types (project_id, scope, key, name, validator_kind) "
+                    "VALUES (NULL, 'project', :k, 'orphan', 'in_process')"
+                ),
+                {"k": platform_type_key},
+            )
 
 
 @pytest.mark.asyncio
@@ -146,14 +145,15 @@ async def test_an_unknown_scope_is_rejected(
     sessionmaker: async_sessionmaker[AsyncSession],
     platform_type_key: str,
 ) -> None:
-    async with sessionmaker() as session, pytest.raises(IntegrityError, match="ck_activity_types_scope"):
-        await session.execute(
-            text(
-                "INSERT INTO activity_types (project_id, scope, key, name, validator_kind) "
-                "VALUES (NULL, 'organisation', :k, 'not a scope', 'in_process')"
-            ),
-            {"k": platform_type_key},
-        )
+    async with sessionmaker() as session:
+        with pytest.raises(IntegrityError, match="ck_activity_types_scope"):
+            await session.execute(
+                text(
+                    "INSERT INTO activity_types (project_id, scope, key, name, validator_kind) "
+                    "VALUES (NULL, 'organisation', :k, 'not a scope', 'in_process')"
+                ),
+                {"k": platform_type_key},
+            )
 
 
 @pytest.mark.asyncio
@@ -166,8 +166,9 @@ async def test_two_live_platform_types_cannot_share_a_key(
         await _insert_platform_type(session, key=platform_type_key)
         await session.commit()
 
-    async with sessionmaker() as session, pytest.raises(ActivityTypeKeyConflict):
-        await _insert_platform_type(session, key=platform_type_key)
+    async with sessionmaker() as session:
+        with pytest.raises(ActivityTypeKeyConflict):
+            await _insert_platform_type(session, key=platform_type_key)
 
 
 @pytest.mark.asyncio
