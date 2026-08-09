@@ -7,7 +7,10 @@ import uuid
 import typer
 from loguru import logger
 
-from . import creative_thinking_course as _creative_thinking_course
+from ._catalogue import CourseFileInvalid, load_course
+from ._seeding import run as run_seed
+
+DEFAULT_COURSE = "creative-thinking"
 
 app = typer.Typer(
     help="SMAP worked-example seeder. Registers example activity types into an existing project.",
@@ -28,15 +31,17 @@ def _main() -> None:
 
 
 @app.command("creative-thinking-course")
-def creative_thinking_course_cmd(
+def seed_course_cmd(
     project_id: str = typer.Option(..., "--project-id"),
     owner_user_id: str = typer.Option(..., "--owner-user-id"),
+    course: str = typer.Option(DEFAULT_COURSE, "--course"),
 ) -> None:
-    """Register the two-unit creative-thinking course example into a project.
+    """Register a shipped example course's activity types into a project.
 
-    Seeds `mandala-9grid` (unit 2, rendered by the bundled nine-grid plugin) and
-    `six-hats-emotion-desk` (unit 4, rendered by the generic schema form). Both
-    score with the `filled_count` validator.
+    Defaults to the two-unit creative-thinking course: `mandala-9grid` (unit 2,
+    rendered by the bundled nine-grid plugin) and `six-hats-emotion-desk` (unit 4,
+    rendered by the generic schema form). Both score with the `filled_count`
+    validator. --course names any file in smap/examples/courses/.
 
     Idempotent -- a type whose key already exists is left untouched, so re-running
     after a partial failure is safe.
@@ -53,13 +58,24 @@ def creative_thinking_course_cmd(
         raise typer.Exit(code=1) from None
 
     try:
-        report = _creative_thinking_course.run(project, owner)
+        definition = load_course(course)
+    except CourseFileInvalid as exc:
+        logger.error("creative-thinking-course cannot read the course: {}", exc)
+        raise typer.Exit(code=1) from None
+
+    try:
+        report = run_seed(
+            project_id=project,
+            owner_user_id=owner,
+            activity_types=definition.activity_types,
+        )
     except Exception:
         logger.exception("creative-thinking-course failed")
         raise typer.Exit(code=1) from None
 
     logger.info(
-        "creative-thinking-course complete created={} already_present={}",
+        "creative-thinking-course complete course={} created={} already_present={}",
+        definition.course_key,
         report.created,
         report.already_present,
     )
