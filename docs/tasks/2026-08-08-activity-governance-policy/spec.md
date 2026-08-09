@@ -549,6 +549,45 @@ Add **[R30.31]**:
   development host. The revision chain is verified offline (0074 is the single head, chained
   to 0073). Applying it and exercising the downgrade is CI's, or a live stack's, job.
 
+- **D-7 (post-merge)** — A `/code-review` pass over the unpushed branch on 2026-08-09 found
+  six defects in this work, all fixed with regression tests before the branch was pushed.
+  Recorded here rather than as a separate dossier because they are this feature's bugs, and
+  none changes what §5 designed:
+  - **Locked switch uneditable in edit mode.** `exposeLocked`/`echoLocked` were computed from
+    the policy alone, so a stored value that a newly locked policy forbids opened checked and
+    **disabled**. The owner is the only person who can fix it, and `activities.panel.
+    policyRefused` sends them to that form, but every save resent the breaching value and was
+    refused again — the type was stranded permanently. A lock now disables the control only
+    while its value already complies. Directly contradicted the intent comment at
+    `ActivityTypeForm.vue:155-158`.
+  - **The refusal was reported as the wrong error.** `type-violates-policy` is a 409, and both
+    mutations hit their own 409 branch first, so exceeding the retention ceiling was reported
+    as "this key is already in use" on create and "this type is active in a room" on edit.
+    (`:max` on the retention input is a hint only; vee-validate never checks it — see FU-13.)
+  - **The named field was echoed untranslated.** `field` arrives as a wire identifier and was
+    interpolated raw, so the zh-TW facilitator message read
+    「原因是它的「expose_payload_to_agent」設定」 — defeating the reason `_extras()` sends it
+    structurally. New `usePolicyRefusal` composable maps it to the label the UI already shows,
+    shared by the panel and the authoring form, and falls back to the field-less sentence for
+    a name it does not know rather than echoing it.
+  - **A mistyped retention bound silently removed it.** `numberField`'s setter was
+    `Number(trimmed)`; `Number('30 days')` is `NaN`, `JSON.stringify` writes `NaN` as `null`,
+    and `AdminActivityPolicyIn` reads `null` as "no ceiling". So a typo in the admin's
+    Maximum box cleared the cap it was meant to set, and the toast still said "Policy saved."
+    Digits only now, the rejected text stays visible, and save and preview are both blocked.
+  - **The impact preview skipped the self-consistency check** that `update` applies, so
+    `default=500, max=100` previewed as "nothing would be blocked" and then 422'd on save.
+    `assert_self_consistent` is now a public static on the service, called by both writers.
+  - **Nothing re-checked a running activation.** This is the substantive one. Both gates run
+    before a room goes live, so an admin locking `expose_payload_to_agent` off mid-class kept
+    feeding that room's answers to every agent until someone ended the activity — while the
+    admin copy said tightening reaches what already exists. `ActivityContextProvider` now
+    re-reads the policy per turn and withholds submission content when it is locked off,
+    failing closed if the policy cannot be read; only the digests drop, since the outcome
+    fields carry no answer text. `PolicyImpact` gained `violating_activations` so the preview
+    reports what is running, and the admin copy now says plainly that the activity keeps
+    running until a facilitator ends it. This narrows FU-12 rather than closing it.
+
 ## 16. Follow-ups
 
 - **FU-1** — Absorbs FU-8 of `2026-08-08-creative-thinking-course-example`: that dossier
@@ -592,6 +631,20 @@ Add **[R30.31]**:
   when an admin tightens keeps accepting submissions until the facilitator ends it. That is
   the designed semantics ([R30.30]) and avoids killing a class mid-session; worth saying in
   the admin UI copy if the expectation ever matters.
+  **Narrowed by D-7:** the *exposure* half is now enforced live — a policy locked to
+  `expose_payload_to_agent=false` stops content reaching agents in rooms already
+  mid-activity, because that switch exists for consent. What remains open is the rest:
+  submissions are still accepted, `echo_includes_content` is still evaluated from the stored
+  type at submit time, and a retention ceiling tightened now does not retro-shorten the
+  `retain_until` already stamped on stored submissions. The admin copy now states the
+  boundary. Whether a tightening should end running activations outright is a product
+  decision, not an implementation gap.
+- **FU-13** — The authoring form has no client-side check that `retention_days` is within the
+  policy's `retention_days_max`. The `:max` attribute on `SInput` is a hint the validation
+  layer never reads, so the owner learns of it only from the server's refusal. Since D-7 that
+  refusal names the field and is translated, which is adequate; a `superRefine` against the
+  fetched policy — the shape `filled_count_min` already uses in `schemas.ts:138` — would
+  catch it before the round trip.
 - **FU-8** — Minor quality items recorded and not fixed: the two governance-flag cells in
   `AdminActivitiesView.vue` duplicate a six-line `SBadge` block; the audit-link column uses
   an empty `label`, leaving that `<th>` without an accessible name; and
