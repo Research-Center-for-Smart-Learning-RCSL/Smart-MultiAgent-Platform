@@ -24,7 +24,6 @@ from app.api.v1.deps import (
     is_project_owner_or_admin,
 )
 from contexts.activities.domain.errors import (
-    ActivityTypeNotFound,
     SessionNotFound,
     ValidatorConfigInvalid,
 )
@@ -249,19 +248,28 @@ async def _resolve_activation_type(
 ) -> ActivityType | None:
     """Tenant-safe lookup for embedding in an activation read/broadcast: the
     type is fetched fresh rather than trusted from the activation row, so a
-    type that went missing or was somehow cross-project never leaks through.
+    type that went missing or became unreachable from this project never leaks
+    through.
+
+    Goes through the reachability resolver rather than comparing ``project_id``:
+    a platform-scoped type has none, so the old comparison would embed
+    ``activity_type: null`` for every installed example and leave participants
+    with no rendering contract ([R30.26], [R30.33]).
 
     Called post-commit at two call sites (start/end): a transient failure here
     must not turn an already-committed activation change into a 500 for the
     facilitator, so it degrades to no embedded type rather than propagating —
-    the client's fallback room-scoped read (Q-1) recovers it.
+    the client's fallback room-scoped read (Q-1) recovers it. ``ActivityTypeNotFound``
+    lands in the same arm by design: the correct response to "not reachable" is
+    an absent embed, which is what a null already meant.
     """
     try:
-        t = await facade.get_type(activation.activity_type_id)
+        return await facade.resolve_type_for_project(
+            project_id=project_id, activity_type_id=activation.activity_type_id
+        )
     except Exception:
         _log.warning("activity type resolution failed for embed, activation %s", activation.id, exc_info=True)
         return None
-    return t if t is not None and t.project_id == project_id else None
 
 
 def _submission_out(s: ActivitySubmission) -> ActivitySubmissionOut:
@@ -440,9 +448,11 @@ async def get_room_activity_type(
     full activity participant."""
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_read(access, is_admin=principal.is_admin)
-    activity_type = await ActivitiesFacade(db).get_type(type_id)
-    if activity_type is None or activity_type.project_id != access.project_id:
-        raise ActivityTypeNotFound(str(type_id))
+    # Same gate as the write paths ([R30.33]): the id comes from the client, and a
+    # platform type has no project_id to compare against.
+    activity_type = await ActivitiesFacade(db).resolve_type_for_project(
+        project_id=access.project_id, activity_type_id=type_id
+    )
     return _type_public_out(activity_type)
 
 

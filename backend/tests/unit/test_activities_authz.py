@@ -48,7 +48,7 @@ class TestRoomScopedTypeRead:
         project_id = uuid.uuid4()
         activity_type = _make_type(project_id=project_id)
         facade = MagicMock()
-        facade.get_type = AsyncMock(return_value=activity_type)
+        facade.resolve_type_for_project = AsyncMock(return_value=activity_type)
         monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
         monkeypatch.setattr(
             activities,
@@ -77,7 +77,7 @@ class TestRoomScopedTypeRead:
             validator_config={"validator_id": "exact_match", "field": "answer", "expected": "day"},
         )
         facade = MagicMock()
-        facade.get_type = AsyncMock(return_value=activity_type)
+        facade.resolve_type_for_project = AsyncMock(return_value=activity_type)
         monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
         monkeypatch.setattr(
             activities,
@@ -96,27 +96,40 @@ class TestRoomScopedTypeRead:
         assert "validator_config" not in out.model_dump()
         assert "validator_kind" not in out.model_dump()
 
-    async def test_room_scoped_type_read_rejects_cross_project_type(
+    async def test_room_scoped_type_read_gates_on_the_rooms_project(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        activity_type = _make_type(project_id=uuid.uuid4())
+        """The route must ask the reachability resolver with the *room's* project
+        and let its refusal through untranslated.
+
+        Since 0076 the route no longer compares ``project_id`` itself — a platform
+        type has none. What is pinned here is that the room's project is what
+        bounds the read and that the 404 is not swallowed; which types that
+        resolver admits is pinned in ``test_platform_type_reachability.py``.
+        """
+        room_project_id = uuid.uuid4()
+        type_id = uuid.uuid4()
         facade = MagicMock()
-        facade.get_type = AsyncMock(return_value=activity_type)
+        facade.resolve_type_for_project = AsyncMock(side_effect=ActivityTypeNotFound(str(type_id)))
         monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
         monkeypatch.setattr(
             activities,
             "resolve_room_access",
-            AsyncMock(return_value=SimpleNamespace(project_id=uuid.uuid4())),
+            AsyncMock(return_value=SimpleNamespace(project_id=room_project_id)),
         )
         monkeypatch.setattr(activities, "ensure_can_read", MagicMock())
 
         with pytest.raises(ActivityTypeNotFound):
             await activities.get_room_activity_type(
                 chatroom_id=uuid.uuid4(),
-                type_id=activity_type.id,
+                type_id=type_id,
                 principal=SimpleNamespace(user_id=uuid.uuid4(), is_admin=False),
                 db=MagicMock(),
             )
+
+        facade.resolve_type_for_project.assert_awaited_once_with(
+            project_id=room_project_id, activity_type_id=type_id
+        )
 
 
 class TestListTypesRedaction:

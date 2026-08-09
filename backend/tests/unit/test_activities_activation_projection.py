@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.api.v1 import activities
+from contexts.activities.domain.errors import ActivityTypeNotFound
 from contexts.activities.domain.models import (
     ActivationStatus,
     ActivityActivation,
@@ -75,7 +76,7 @@ async def test_active_activation_embeds_public_type(monkeypatch: pytest.MonkeyPa
     activation = _make_activation(activity_type.id, chatroom_id=uuid.uuid4())
     facade = MagicMock()
     facade.get_active_activation = AsyncMock(return_value=activation)
-    facade.get_type = AsyncMock(return_value=activity_type)
+    facade.resolve_type_for_project = AsyncMock(return_value=activity_type)
     monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
     monkeypatch.setattr(
         activities,
@@ -124,9 +125,25 @@ async def test_resolve_activation_type_degrades_to_none_on_facade_error(
     activity_type = _make_type(project_id=project_id)
     activation = _make_activation(activity_type.id)
     facade = MagicMock()
-    facade.get_type = AsyncMock(side_effect=RuntimeError("db hiccup"))
+    facade.resolve_type_for_project = AsyncMock(side_effect=RuntimeError("db hiccup"))
 
     result = await activities._resolve_activation_type(facade, project_id=project_id, activation=activation)
+
+    assert result is None
+
+
+async def test_resolve_activation_type_degrades_to_none_when_unreachable() -> None:
+    """An unreachable type embeds as absent, not as a 500.
+
+    Same arm as the transient-error case above, and deliberately so: the client's
+    fallback room-scoped read recovers a missed embed, and that read applies the
+    same gate — so degrading here cannot widen access.
+    """
+    activation = _make_activation(uuid.uuid4())
+    facade = MagicMock()
+    facade.resolve_type_for_project = AsyncMock(side_effect=ActivityTypeNotFound(str(uuid.uuid4())))
+
+    result = await activities._resolve_activation_type(facade, project_id=uuid.uuid4(), activation=activation)
 
     assert result is None
 
