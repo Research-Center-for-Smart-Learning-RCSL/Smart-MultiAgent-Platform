@@ -21,6 +21,16 @@ vi.mock('../api', () => ({
   getActivityPolicy: policyMock,
 }))
 
+const toastErrorMock = vi.hoisted(() => vi.fn())
+vi.mock('vue-sonner', () => ({
+  toast: {
+    success: vi.fn(),
+    error: toastErrorMock,
+    warning: vi.fn(),
+    info: vi.fn(),
+  },
+}))
+
 vi.mock('@slices/agents', async (importOriginal) => ({
   ...(await importOriginal<typeof AgentsSlice>()),
   agentsApi: {
@@ -66,6 +76,7 @@ beforeEach(() => {
   updateMock.mockReset()
   listValidatorsMock.mockReset()
   listValidatorsMock.mockResolvedValue([{ id: 'exact_match', title: 'Exact match' }])
+  toastErrorMock.mockReset()
   policyMock.mockReset()
   // Default: no platform policy saved, so nothing is locked or pre-filled — the
   // behavior every pre-existing test here was written against.
@@ -275,6 +286,130 @@ describe('ActivityTypeForm', () => {
     // suggestion, not a constraint.
     expect(expose.checked).toBe(false)
     expect(expose.disabled).toBe(false)
+  })
+
+  describe('platform policy refusal', () => {
+    async function policyError(field?: string) {
+      const { ApiError } = await import('@shared/errors')
+      return new ApiError({
+        type: 'https://smap.invalid/problems/activities/type-violates-policy',
+        title: 'This activity type conflicts with the platform activity policy',
+        status: 409,
+        detail: 'platform policy caps retention_days at 30',
+        ...(field !== undefined && { field }),
+      })
+    }
+
+    it('names the refused setting instead of blaming the key (create)', async () => {
+      // The regression: `type-violates-policy` is a 409, and the create handler's
+      // 409 branch assumed key conflict — so an owner who exceeded the retention
+      // ceiling was told "this key is already in use".
+      registerMock.mockRejectedValue(await policyError('retention_days'))
+      const wrapper = await mountForm()
+      await flushPromises()
+      await fillValidWebhook(wrapper)
+
+      await wrapper.find('form').trigger('submit')
+      await vi.waitFor(() => expect(toastErrorMock).toHaveBeenCalled())
+
+      expect(toastErrorMock.mock.calls.map((c) => c[0])).toContain(
+        'activities.typeForm.policyRefusedField',
+      )
+      expect(wrapper.text()).not.toContain('activities.typeForm.keyConflict')
+    })
+
+    it('names the refused setting instead of blaming an active room (edit)', async () => {
+      updateMock.mockRejectedValue(await policyError('expose_payload_to_agent'))
+      const wrapper = await renderView(ActivityTypeForm, {
+        props: { projectId: 'p1', open: true, editType: EDIT_TYPE },
+      })
+      await flushPromises()
+
+      await wrapper.find('form').trigger('submit')
+      await vi.waitFor(() => expect(toastErrorMock).toHaveBeenCalled())
+
+      const messages = toastErrorMock.mock.calls.map((c) => c[0])
+      expect(messages).toContain('activities.typeForm.policyRefusedField')
+      expect(messages).not.toContain('activities.typeForm.activeConflict')
+    })
+
+    it('falls back to the field-less message when no field is named', async () => {
+      registerMock.mockRejectedValue(await policyError())
+      const wrapper = await mountForm()
+      await flushPromises()
+      await fillValidWebhook(wrapper)
+
+      await wrapper.find('form').trigger('submit')
+      await vi.waitFor(() => expect(toastErrorMock).toHaveBeenCalled())
+
+      expect(toastErrorMock.mock.calls.map((c) => c[0])).toContain(
+        'activities.typeForm.policyRefused',
+      )
+    })
+
+    it('still reports a real key conflict as one', async () => {
+      const { ApiError } = await import('@shared/errors')
+      registerMock.mockRejectedValue(
+        new ApiError({
+          type: 'https://smap.invalid/problems/activities/type-key-conflict',
+          title: 'That key is taken',
+          status: 409,
+        }),
+      )
+      const wrapper = await mountForm()
+      await flushPromises()
+      await fillValidWebhook(wrapper)
+
+      await wrapper.find('form').trigger('submit')
+      await vi.waitFor(() => expect(wrapper.text()).toContain('activities.typeForm.keyConflict'))
+    })
+  })
+
+  it('keeps a locked switch editable when the stored value breaches it', async () => {
+    // The regression: `exposeLocked` read the policy alone, so an existing type
+    // whose stored value the policy now forbids opened with a checked, DISABLED
+    // box. The owner is the only person who can fix it — and the facilitator's
+    // refusal message tells them to — but every save resent the breaching value
+    // and was refused again, stranding the type for good.
+    policyMock.mockResolvedValue({
+      expose_payload_to_agent_default: false,
+      expose_payload_to_agent_locked: true,
+      echo_includes_content_default: false,
+      echo_includes_content_locked: true,
+      retention_days_default: null,
+      retention_days_max: null,
+    })
+    const wrapper = await renderView(ActivityTypeForm, {
+      props: { projectId: 'p1', open: true, editType: EDIT_TYPE },
+    })
+    await flushPromises()
+
+    const expose = wrapper.find('[data-testid="type-expose-payload-to-agent"] input')
+      .element as HTMLInputElement
+    const echo = wrapper.find('[data-testid="type-echo-includes-content"] input')
+      .element as HTMLInputElement
+    // Stored true, policy demands false: this is the one the owner must change.
+    expect(expose.checked).toBe(true)
+    expect(expose.disabled).toBe(false)
+    // Stored false and the policy demands false: nothing to decide, stays locked.
+    expect(echo.disabled).toBe(true)
+  })
+
+  it('still disables a locked switch on a new type', async () => {
+    policyMock.mockResolvedValue({
+      expose_payload_to_agent_default: false,
+      expose_payload_to_agent_locked: true,
+      echo_includes_content_default: false,
+      echo_includes_content_locked: false,
+      retention_days_default: null,
+      retention_days_max: null,
+    })
+    const wrapper = await mountForm()
+    await flushPromises()
+
+    const expose = wrapper.find('[data-testid="type-expose-payload-to-agent"] input')
+      .element as HTMLInputElement
+    expect(expose.disabled).toBe(true)
   })
 
   it('leaves a permissive policy alone (AC-7)', async () => {

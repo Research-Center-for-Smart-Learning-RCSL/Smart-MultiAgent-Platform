@@ -17,6 +17,7 @@ import type {
 } from '@shared/api-client'
 
 import PayloadSchemaField from './PayloadSchemaField.vue'
+import { usePolicyRefusal } from '../composables/usePolicyRefusal'
 import {
   getActivityPolicy,
   listActivityValidators,
@@ -168,8 +169,34 @@ function applyPolicyDefaults(
     retention_days: policy.value.retention_days_default,
   }
 }
-const exposeLocked = computed(() => policy.value?.expose_payload_to_agent_locked === true)
-const echoLocked = computed(() => policy.value?.echo_includes_content_locked === true)
+/** Whether a locked switch should be disabled for the row being edited.
+ *
+ *  A lock disables the control while its value already complies — there is
+ *  nothing to decide. It must NOT disable a stored value that breaches the lock:
+ *  the owner is the only person who can bring that type back into compliance,
+ *  and the facilitator's refusal message sends them here to do it. Disabling it
+ *  strands the type permanently, because every save then resends the breaching
+ *  value and `assert_allows` refuses it again. */
+function lockDisables(locked: boolean | undefined, required: boolean, stored: boolean | undefined): boolean {
+  if (locked !== true) return false
+  if (!props.editType) return true
+  return stored === required
+}
+
+const exposeLocked = computed(() =>
+  lockDisables(
+    policy.value?.expose_payload_to_agent_locked,
+    policy.value?.expose_payload_to_agent_default === true,
+    props.editType?.expose_payload_to_agent,
+  ),
+)
+const echoLocked = computed(() =>
+  lockDisables(
+    policy.value?.echo_includes_content_locked,
+    policy.value?.echo_includes_content_default === true,
+    props.editType?.echo_includes_content,
+  ),
+)
 const retentionMax = computed(() => policy.value?.retention_days_max ?? null)
 
 const validatorKindOptions = computed(() =>
@@ -285,6 +312,24 @@ watch(
 )
 
 const { applyServerErrors } = useServerErrors(setErrors)
+const { isPolicyRefusal, refusedFieldLabel } = usePolicyRefusal()
+
+/** Surface a platform-policy refusal on the field it names; true when handled.
+ *
+ *  Both mutations need this before their own 409 branch: `type-violates-policy`
+ *  is a 409 too, so without it a policy refusal is reported as a duplicate key
+ *  on create and as "this type is active" on edit — neither of which tells the
+ *  owner what to change. */
+function policyRefusal(err: unknown): boolean {
+  if (!isPolicyRefusal(err)) return false
+  const field = refusedFieldLabel(err)
+  toast.error(
+    field
+      ? t('activities.typeForm.policyRefusedField', { field })
+      : t('activities.typeForm.policyRefused'),
+  )
+  return true
+}
 
 const createMutation = useMutation({
   mutationFn: (body: ActivityTypeIn) => registerActivityType(props.projectId, body),
@@ -296,6 +341,10 @@ const createMutation = useMutation({
     if (applyServerErrors(err)) return
     // Domain 409/422 arrive as a plain ApiError (no per-field payload), so map
     // them to the form ourselves rather than let them fall through unhandled.
+    // The policy refusal is also a 409 and must be read before the key-conflict
+    // branch, or an owner who exceeded the retention ceiling is told their key
+    // is taken.
+    if (policyRefusal(err)) return
     if (err instanceof ApiError && err.status === 409) {
       setFieldError('key', t('activities.typeForm.keyConflict'))
       return
@@ -317,6 +366,10 @@ const updateMutation = useMutation({
   },
   onError: (err) => {
     if (applyServerErrors(err)) return
+    // Three different 409s reach here: the policy refusal, an active type, and
+    // (from the shared handler) a key conflict. Check the policy first — it is
+    // the only one that names a field the owner can act on.
+    if (policyRefusal(err)) return
     // In edit mode a 409 means the type is active (a behavioral edit was blocked),
     // not a key conflict — surface the distinct reason.
     if (err instanceof ApiError && err.status === 409) {
