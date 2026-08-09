@@ -25,7 +25,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
 from contexts.activities.domain.errors import ActivityPolicyVersionMismatch
-from contexts.activities.domain.models import PLATFORM_SCOPE, ActivityActivation, ActivityPolicy
+from contexts.activities.domain.models import (
+    PLATFORM_SCOPE,
+    ActivityActivation,
+    ActivityPolicy,
+    ActivityTypeScope,
+)
 from contexts.activities.interfaces.facade import ActivitiesFacade
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
@@ -53,8 +58,10 @@ class AdminActivityTypeOut(BaseModel):
     """
 
     id: uuid.UUID
-    project_id: uuid.UUID
+    # Both None for a platform-scoped type — it has no owning project ([R30.02]).
+    project_id: uuid.UUID | None
     project_name: str | None
+    scope: ActivityTypeScope
     key: str
     name: str
     validator_kind: str
@@ -229,17 +236,24 @@ async def list_all_activity_types(
     """Every live activity type across every project, newest first."""
     types = await ActivitiesFacade(db).list_all_types(cursor=cursor, limit=limit)
 
-    # One batch lookup for the whole page, not one per row.
-    projects = await TenancyFacade(db).get_projects([at.project_id for at in types])
+    # One batch lookup for the whole page, not one per row. Platform-scoped rows
+    # are filtered out rather than passed through as None: `get_projects` would
+    # have to grow a None arm for a lookup that has no answer by construction.
+    projects = await TenancyFacade(db).get_projects(
+        [at.project_id for at in types if at.project_id is not None]
+    )
 
-    def _project_name(project_id: uuid.UUID) -> str | None:
-        """None when the project is gone, so one stale row cannot 500 the page.
+    def _project_name(project_id: uuid.UUID | None) -> str | None:
+        """None when the type is platform-scoped or its project is gone, so
+        neither can 500 the page.
 
         Written as an explicit branch rather than ``getattr(..., "name", None)``:
         the dict is precisely typed, and the getattr form would also swallow a
         rename of ``Project.name`` — leaving a silently blank column behind a
         green typecheck.
         """
+        if project_id is None:
+            return None
         project = projects.get(project_id)
         return project.name if project is not None else None
 
@@ -248,6 +262,7 @@ async def list_all_activity_types(
             id=at.id,
             project_id=at.project_id,
             project_name=_project_name(at.project_id),
+            scope=at.scope,
             key=at.key,
             name=at.name,
             validator_kind=at.validator_kind.value,

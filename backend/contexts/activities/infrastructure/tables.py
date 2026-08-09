@@ -22,12 +22,18 @@ activity_types = sa.Table(
     "activity_types",
     metadata,
     sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    # NULL exactly when scope='platform' — 0076 pairs the two with a CHECK, so a
+    # half-converted row cannot exist.
     sa.Column(
         "project_id",
         pg.UUID(as_uuid=True),
         sa.ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     ),
+    # 'project' | 'platform' (0076). Text + CHECK rather than a PG ENUM, matching
+    # activity_policies.scope: adding a scope stays a code change, not a migration
+    # against a type other tables reference.
+    sa.Column("scope", sa.Text, nullable=False, server_default=sa.text("'project'")),
     sa.Column("key", sa.Text, nullable=False),
     sa.Column("name", sa.Text, nullable=False),
     sa.Column("payload_schema", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
@@ -176,10 +182,38 @@ activity_policies = sa.Table(
 )
 
 
+project_activity_type_optins = sa.Table(
+    "project_activity_type_optins",
+    metadata,
+    sa.Column(
+        "project_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("projects.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    sa.Column(
+        "activity_type_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("activity_types.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    # SET NULL, not CASCADE: deleting the admin who enabled a type must not
+    # silently revoke a project's access to it mid-course.
+    sa.Column(
+        "enabled_by_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+)
+
+
 __all__ = [
     "activity_activations",
     "activity_policies",
     "activity_sessions",
     "activity_submissions",
     "activity_types",
+    "project_activity_type_optins",
 ]
