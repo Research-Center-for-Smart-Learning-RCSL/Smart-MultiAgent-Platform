@@ -17,7 +17,9 @@
       "loadFailed": "Could not load activities. Please try again.",
       "startFailed": "Could not start the activity. Please try again.",
       "endFailed": "Could not end the activity. Please try again.",
-      "finishFailed": "Could not finish the activity. Please try again."
+      "finishFailed": "Could not finish the activity. Please try again.",
+      "policyRefused": "The platform activity policy will not allow this activity to start. A project owner must edit the activity type before it can be used.",
+      "policyRefusedField": "The platform activity policy will not allow this activity to start, because of its '{field}' setting. A project owner must edit the activity type before it can be used."
     },
     "outcome": {
       "pending": "Validating…",

@@ -95,6 +95,21 @@ async function ensureActiveTypeLoaded(): Promise<void> {
   }
 }
 
+/** A translated refusal for the platform activity policy, or null.
+ *
+ *  The backend's `detail` already names the offending field, but as untranslated
+ *  English prose and without saying who can fix it. A facilitator hits this at
+ *  class time, so the message has to be actionable: which switch, and that only a
+ *  Project Owner can change it ([R30.30]). The field arrives as a structured
+ *  problem member so the copy can be translated rather than echoed. */
+function policyRefusalMessage(err: unknown): string | null {
+  if (!(err instanceof ApiError) || !err.type.includes('type-violates-policy')) return null
+  const field = typeof err.extra.field === 'string' ? err.extra.field : null
+  return field
+    ? t('activities.panel.policyRefusedField', { field })
+    : t('activities.panel.policyRefused')
+}
+
 async function startForRoom(): Promise<void> {
   if (!selectedTypeId.value) return
   actionPending.value = true
@@ -102,7 +117,9 @@ async function startForRoom(): Promise<void> {
   try {
     store.setActivation(props.chatroomId, await startActivation(props.chatroomId, { activity_type_id: selectedTypeId.value }))
   } catch (err) {
-    errorMessage.value = err instanceof ApiError ? err.message : t('activities.panel.startFailed')
+    errorMessage.value = policyRefusalMessage(err) ?? (
+      err instanceof ApiError ? err.message : t('activities.panel.startFailed')
+    )
   } finally {
     actionPending.value = false
   }

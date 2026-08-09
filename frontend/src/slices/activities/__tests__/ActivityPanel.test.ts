@@ -14,10 +14,12 @@ import type { ActivityTypePublic } from '../types'
 const getActiveActivationMock = vi.hoisted(() => vi.fn())
 const listActivityTypesMock = vi.hoisted(() => vi.fn())
 const getRoomActivityTypeMock = vi.hoisted(() => vi.fn())
+const startActivationMock = vi.hoisted(() => vi.fn())
 vi.mock('../api', () => ({
   getActiveActivation: getActiveActivationMock,
   listActivityTypes: listActivityTypesMock,
   getRoomActivityType: getRoomActivityTypeMock,
+  startActivation: startActivationMock,
 }))
 
 function publicType(over: Partial<ActivityTypePublic> = {}): ActivityTypePublic {
@@ -34,6 +36,72 @@ afterEach(() => {
   getActiveActivationMock.mockReset()
   listActivityTypesMock.mockReset()
   getRoomActivityTypeMock.mockReset()
+  startActivationMock.mockReset()
+})
+
+describe('ActivityPanel — platform policy refusal (AC-14)', () => {
+  async function refuseWith(extra: Record<string, unknown>) {
+    const { ApiError } = await import('@shared/errors')
+    getActiveActivationMock.mockResolvedValue(null)
+    listActivityTypesMock.mockResolvedValue([publicType()])
+    startActivationMock.mockRejectedValue(
+      new ApiError({
+        type: 'https://smap.invalid/problems/activities/type-violates-policy',
+        title: 'This activity type conflicts with the platform activity policy',
+        status: 409,
+        detail: 'platform policy requires expose_payload_to_agent to be false',
+        ...extra,
+      }),
+    )
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: true },
+    })
+    await flushPromises()
+    wrapper.findAll('select')[0]?.setValue('at_1')
+    await flushPromises()
+    const start = wrapper.findAll('button').find((b) => b.text().includes('startForRoom'))
+    await start?.trigger('click')
+    await flushPromises()
+    return wrapper
+  }
+
+  it('names the offending field and says a project owner must fix it', async () => {
+    // "Could not start" is not enough for someone standing in front of a class.
+    const wrapper = await refuseWith({ field: 'expose_payload_to_agent' })
+
+    expect(wrapper.text()).toContain('activities.panel.policyRefusedField')
+    expect(wrapper.text()).not.toContain('activities.panel.startFailed')
+  })
+
+  it('still explains itself when the field is absent', async () => {
+    const wrapper = await refuseWith({})
+
+    expect(wrapper.text()).toContain('activities.panel.policyRefused')
+  })
+
+  it('leaves an unrelated failure on the generic message', async () => {
+    const { ApiError } = await import('@shared/errors')
+    getActiveActivationMock.mockResolvedValue(null)
+    listActivityTypesMock.mockResolvedValue([publicType()])
+    startActivationMock.mockRejectedValue(
+      new ApiError({
+        type: 'https://smap.invalid/problems/activities/already-active',
+        title: 'A different activity is already active',
+        status: 409,
+      }),
+    )
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: true },
+    })
+    await flushPromises()
+    wrapper.findAll('select')[0]?.setValue('at_1')
+    await flushPromises()
+    const start = wrapper.findAll('button').find((b) => b.text().includes('startForRoom'))
+    await start?.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('activities.panel.policyRefused')
+  })
 })
 
 describe('ActivityPanel — participant surface (Q-1, AC-2)', () => {
