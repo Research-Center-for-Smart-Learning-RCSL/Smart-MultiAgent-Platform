@@ -46,9 +46,14 @@ def _registered_validators() -> None:
     register_first_party_validators()
 
 
+# The four types below transcribe the thesis worksheets (appendix 一, PDF pages 118
+# and 126) rather than a paraphrase of them. Cell themes, hat order, and hat
+# descriptors are the worksheet's own; `x-order` carries the order the worksheet
+# fixes, because the stored schema is jsonb and object key order does not survive
+# it ([R30.36]).
 MANDALA: dict[str, Any] = {
     "key": "mandala-9grid",
-    "name": "單元二 時空旅人",
+    "name": "單元二 時空旅人（曼陀羅九宮格）",
     "validator_kind": "in_process",
     "validator_config": {"validator_id": "filled_count", "min_filled": 4},
     "retention_days": None,
@@ -57,27 +62,85 @@ MANDALA: dict[str, Any] = {
     "payload_schema": {
         "type": "object",
         "properties": {
+            "home": {"type": "string", "title": "家", "x-order": 1},
+            "work": {"type": "string", "title": "工作", "x-order": 2},
+            "abilities": {"type": "string", "title": "具備能力", "x-order": 3},
+            "appearance": {"type": "string", "title": "外貌", "x-order": 4},
             "center": {
                 "type": "string",
-                "title": "中心主題：30 歲的我",
-                "description": "用一句話寫下你想像中 30 歲的自己。",
+                "title": "30 歲的我會有什麼改變呢？",
+                "description": "想像 30 歲的自己過的一天，和 13 歲的今天有什麼不同。",
+                "x-order": 5,
             },
-            "cell_1": {"type": "string", "title": "格 1"},
-            "cell_2": {"type": "string", "title": "格 2"},
-            "cell_3": {"type": "string", "title": "格 3"},
-            "cell_4": {"type": "string", "title": "格 4"},
-            "cell_5": {"type": "string", "title": "格 5"},
-            "cell_6": {"type": "string", "title": "格 6"},
-            "cell_7": {"type": "string", "title": "格 7"},
-            "cell_8": {"type": "string", "title": "格 8"},
+            "leisure": {"type": "string", "title": "休閒娛樂", "x-order": 6},
+            "message_to_self": {"type": "string", "title": "想對 30 歲的自己說…", "x-order": 7},
+            "free": {
+                "type": "string",
+                "title": "自由發揮",
+                "description": "這一格沒有主題，由你自己決定要寫什麼。",
+                "x-order": 8,
+            },
+            "relationships": {"type": "string", "title": "人際關係", "x-order": 9},
         },
-        "required": ["center"],
+        # The worksheet's centre cell is a printed question, not a blank, so
+        # nothing in this unit is individually mandatory; `min_filled` carries the
+        # completeness floor instead.
+        "required": [],
+    },
+}
+
+NEXT_STEPS: dict[str, Any] = {
+    "key": "time-traveler-next-steps",
+    "name": "單元二 為了與你相遇",
+    "validator_kind": "in_process",
+    "validator_config": {"validator_id": "filled_count", "min_filled": 1},
+    "retention_days": None,
+    "expose_payload_to_agent": True,
+    "echo_includes_content": False,
+    "payload_schema": {
+        "type": "object",
+        "properties": {
+            "next_steps": {
+                "type": "string",
+                "title": "若要讓我更接近想像中的生活，現在的我需要學習的可能有",
+                "description": "回顧剛才的曼陀羅，寫下現在就能開始的努力。",
+                "x-order": 1,
+            },
+        },
+        "required": ["next_steps"],
+    },
+}
+
+THREE_EMOTIONS: dict[str, Any] = {
+    "key": "emotion-desk-three-emotions",
+    "name": "單元四 情緒播報台（三種情緒）",
+    "validator_kind": "in_process",
+    "validator_config": {"validator_id": "filled_count", "min_filled": 2},
+    "retention_days": None,
+    "expose_payload_to_agent": True,
+    "echo_includes_content": False,
+    "payload_schema": {
+        "type": "object",
+        "properties": {
+            "emotion_1": {
+                "type": "string",
+                "title": "情緒一",
+                "description": "生活中最常出現的三種情緒之一。",
+                "x-order": 1,
+            },
+            "emotion_1_reason": {"type": "string", "title": "情緒一最近一次出現的原因", "x-order": 2},
+            "emotion_2": {"type": "string", "title": "情緒二", "x-order": 3},
+            "emotion_2_reason": {"type": "string", "title": "情緒二最近一次出現的原因", "x-order": 4},
+            "emotion_3": {"type": "string", "title": "情緒三", "x-order": 5},
+            "emotion_3_reason": {"type": "string", "title": "情緒三最近一次出現的原因", "x-order": 6},
+        },
+        "required": ["emotion_1"],
     },
 }
 
 SIX_HATS: dict[str, Any] = {
     "key": "six-hats-emotion-desk",
-    "name": "單元四 情緒播報台",
+    "name": "單元四 情緒列車（六頂思考帽）",
     "validator_kind": "in_process",
     "validator_config": {"validator_id": "filled_count", "min_filled": 3},
     "retention_days": None,
@@ -88,40 +151,26 @@ SIX_HATS: dict[str, Any] = {
         "properties": {
             "event": {
                 "type": "string",
-                "title": "困擾我的事件",
-                "description": "最近或曾經讓自己困擾的一件事。",
+                "title": "事件",
+                "description": "一件最近或曾經讓自己困擾的事情。",
+                "x-order": 1,
             },
-            "hat_white": {
-                "type": "string",
-                "title": "白帽：事實",
-                "description": "只寫客觀發生了什麼，不加評價。",
-            },
-            "hat_red": {
-                "type": "string",
-                "title": "紅帽：感受",
-                "description": "當下的情緒，不需要說明理由。",
-            },
+            "hat_white": {"type": "string", "title": "白帽", "description": "中立、客觀、事實", "x-order": 2},
+            "hat_red": {"type": "string", "title": "紅帽", "description": "情緒、直覺、預感", "x-order": 3},
+            "hat_black": {"type": "string", "title": "黑帽", "description": "悲觀、負面、謹慎", "x-order": 4},
             "hat_yellow": {
                 "type": "string",
-                "title": "黃帽：好處",
-                "description": "這件事有沒有任何好的一面？",
+                "title": "黃帽",
+                "description": "樂觀、正面、積極",
+                "x-order": 5,
             },
-            "hat_black": {
-                "type": "string",
-                "title": "黑帽：風險",
-                "description": "可能的壞處或風險是什麼？",
-            },
-            "hat_blue": {
-                "type": "string",
-                "title": "藍帽：總結",
-                "description": "整理以上，你現在的想法是什麼？",
-            },
+            "hat_blue": {"type": "string", "title": "藍帽", "description": "指揮、控制、結論", "x-order": 6},
         },
         "required": ["event"],
     },
 }
 
-CREATIVE_THINKING_TYPES: tuple[dict[str, Any], ...] = (MANDALA, SIX_HATS)
+CREATIVE_THINKING_TYPES: tuple[dict[str, Any], ...] = (MANDALA, NEXT_STEPS, THREE_EMOTIONS, SIX_HATS)
 
 SHIPPED_TYPES = load_course("creative-thinking").activity_types
 
@@ -138,7 +187,7 @@ class TestShippedCourseContent:
     every other test in the suite would still pass.
     """
 
-    def test_the_course_is_exactly_the_two_pinned_units(self) -> None:
+    def test_the_course_is_exactly_the_pinned_units(self) -> None:
         assert as_dicts(SHIPPED_TYPES) == list(CREATIVE_THINKING_TYPES)
 
     @pytest.mark.parametrize(
@@ -150,15 +199,52 @@ class TestShippedCourseContent:
         """Same assertion split per unit, so a failure names the unit that drifted."""
         assert dataclasses.asdict(SHIPPED_TYPES[index]) == expected
 
-    def test_property_order_is_preserved(self) -> None:
-        """Property order drives render order in the generic form, so it is behavior.
+    def test_every_property_declares_a_contiguous_render_order(self) -> None:
+        """AC-3: `x-order` is what fixes render order, and it has to be complete.
 
-        JSON object order is preserved by `json.loads`, but nothing in the format
-        promises it, so a future loader change that normalised key order would
-        silently reshuffle a worksheet.
+        Object key order cannot carry it: `activity_types.payload_schema` is jsonb,
+        which normalises keys by length then bytewise
+        (`tests/integration/test_activity_schema_key_order.py` pins that against a
+        real database). A property missing an `x-order` sorts after every declared
+        one, and two sharing a value tie -- both would reshuffle a worksheet
+        silently, so 1..n with no gaps and no repeats is the invariant.
         """
-        for actual, expected in zip(SHIPPED_TYPES, CREATIVE_THINKING_TYPES, strict=True):
-            assert list(actual.payload_schema["properties"]) == list(expected["payload_schema"]["properties"])
+        for activity_type in SHIPPED_TYPES:
+            orders = [p["x-order"] for p in activity_type.payload_schema["properties"].values()]
+            assert sorted(orders) == list(range(1, len(orders) + 1)), activity_type.key
+
+    def test_the_mandala_grid_reads_as_the_worksheet(self) -> None:
+        """The 3x3 the plugin builds: it drops `center`, then splices it back at
+        index 4 (`MandalaGrid.vue`), so declared order 1..9 lands as the worksheet
+        prints it (thesis appendix 一, PDF p.118)."""
+        properties = MANDALA["payload_schema"]["properties"]
+        by_order = sorted(properties, key=lambda name: properties[name]["x-order"])
+        ring = [name for name in by_order if name != "center"]
+        grid = [*ring[:4], "center", *ring[4:]]
+
+        assert grid == [
+            "home",
+            "work",
+            "abilities",
+            "appearance",
+            "center",
+            "leisure",
+            "message_to_self",
+            "free",
+            "relationships",
+        ]
+
+    def test_the_hats_follow_the_worksheet_order(self) -> None:
+        """白, 紅, 黑, 黃, 藍 -- the 情緒列車 table's own column order (PDF p.126).
+
+        Pinned separately from the field-for-field comparison because this is the
+        one the shipped file got wrong: it had 黃 and 黑 transposed, behind a
+        rationale claiming the thesis fixed no sequence.
+        """
+        properties = SIX_HATS["payload_schema"]["properties"]
+        by_order = sorted(properties, key=lambda name: properties[name]["x-order"])
+
+        assert by_order == ["event", "hat_white", "hat_red", "hat_black", "hat_yellow", "hat_blue"]
 
     def test_the_course_carries_its_provenance(self) -> None:
         course = load_course("creative-thinking")

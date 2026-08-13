@@ -29,6 +29,8 @@ from smap.examples import _seeding
 from smap.examples._catalogue import CourseActivityType, load_course
 
 COURSE_TYPES = load_course("creative-thinking").activity_types
+COURSE_KEYS = [t.key for t in COURSE_TYPES]
+BY_KEY = {t.key: t for t in COURSE_TYPES}
 
 
 class _FakeSession:
@@ -65,9 +67,12 @@ def _facade(existing_keys: list[str]) -> MagicMock:
 
 
 class TestSeededDefinitions:
-    def test_seeds_exactly_the_two_units(self) -> None:
-        assert [t.key for t in COURSE_TYPES] == [
+    def test_seeds_the_course_units_in_file_order(self) -> None:
+        """One type per worksheet section of the two modelled units."""
+        assert COURSE_KEYS == [
             "mandala-9grid",
+            "time-traveler-next-steps",
+            "emotion-desk-three-emotions",
             "six-hats-emotion-desk",
         ]
 
@@ -92,15 +97,28 @@ class TestSeededDefinitions:
         validate_filled_count_config(course_type.validator_config)
 
     def test_mandala_is_a_nine_field_schema_with_a_center(self) -> None:
-        """The bundled plugin lays out 3x3 only for nine fields including `center`."""
-        schema = COURSE_TYPES[0].payload_schema
-        properties = schema["properties"]
+        """The bundled plugin lays out 3x3 only for nine fields including `center`.
+
+        Looked up by key rather than by index: the course grew two types, and an
+        index would have silently started asserting about a different unit.
+        """
+        properties = BY_KEY["mandala-9grid"].payload_schema["properties"]
         assert len(properties) == 9
         assert "center" in properties
-        assert list(properties) == ["center", *[f"cell_{i}" for i in range(1, 9)]]
+        assert set(properties) == {
+            "home",
+            "work",
+            "abilities",
+            "appearance",
+            "center",
+            "leisure",
+            "message_to_self",
+            "free",
+            "relationships",
+        }
 
     def test_six_hats_covers_the_five_hats_plus_the_event(self) -> None:
-        properties = COURSE_TYPES[1].payload_schema["properties"]
+        properties = BY_KEY["six-hats-emotion-desk"].payload_schema["properties"]
         assert set(properties) == {
             "event",
             "hat_white",
@@ -165,35 +183,35 @@ class TestSeededConfigsPassTheRealRegistrationGate:
 
 
 class TestSeederIdempotency:
-    async def test_first_run_registers_both(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_first_run_registers_every_unit(self, monkeypatch: pytest.MonkeyPatch) -> None:
         facade = _facade(existing_keys=[])
         session = _patch_infra(monkeypatch, facade)
 
         report = await _seed_the_course(uuid.uuid4(), uuid.uuid4())
 
-        assert report.created == ["mandala-9grid", "six-hats-emotion-desk"]
+        assert report.created == COURSE_KEYS
         assert report.already_present == []
-        assert facade.register_type.await_count == 2
+        assert facade.register_type.await_count == len(COURSE_KEYS)
         session.commit.assert_awaited_once()
 
     async def test_second_run_registers_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        facade = _facade(existing_keys=["mandala-9grid", "six-hats-emotion-desk"])
+        facade = _facade(existing_keys=COURSE_KEYS)
         _patch_infra(monkeypatch, facade)
 
         report = await _seed_the_course(uuid.uuid4(), uuid.uuid4())
 
         assert report.created == []
-        assert report.already_present == ["mandala-9grid", "six-hats-emotion-desk"]
+        assert report.already_present == COURSE_KEYS
         facade.register_type.assert_not_awaited()
 
     async def test_partial_run_fills_only_the_gap(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        facade = _facade(existing_keys=["mandala-9grid"])
+        facade = _facade(existing_keys=COURSE_KEYS[:1])
         _patch_infra(monkeypatch, facade)
 
         report = await _seed_the_course(uuid.uuid4(), uuid.uuid4())
 
-        assert report.created == ["six-hats-emotion-desk"]
-        assert report.already_present == ["mandala-9grid"]
+        assert report.created == COURSE_KEYS[1:]
+        assert report.already_present == COURSE_KEYS[:1]
 
     async def test_registers_with_the_operator_supplied_audit_actor(
         self, monkeypatch: pytest.MonkeyPatch
@@ -214,7 +232,7 @@ class TestRunReturnsTheReport:
     """G-2: `run()`'s return shape, which the command formats its output from."""
 
     def test_run_returns_the_seed_report(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        facade = _facade(existing_keys=["mandala-9grid"])
+        facade = _facade(existing_keys=COURSE_KEYS[:1])
         _patch_infra(monkeypatch, facade)
 
         report = _seeding.run(
@@ -224,8 +242,8 @@ class TestRunReturnsTheReport:
         )
 
         assert isinstance(report, _seeding.SeedReport)
-        assert report.created == ["six-hats-emotion-desk"]
-        assert report.already_present == ["mandala-9grid"]
+        assert report.created == COURSE_KEYS[1:]
+        assert report.already_present == COURSE_KEYS[:1]
 
 
 class TestAddingACourseNeedsNoCode:
@@ -332,10 +350,7 @@ class TestSeederCli:
         )
 
         assert result.exit_code == 0, result.output
-        assert [t.key for t in seeded.call_args.kwargs["activity_types"]] == [
-            "mandala-9grid",
-            "six-hats-emotion-desk",
-        ]
+        assert [t.key for t in seeded.call_args.kwargs["activity_types"]] == COURSE_KEYS
 
     def test_exits_1_on_an_unknown_course(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from smap.examples import __main__ as cli
