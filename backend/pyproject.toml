@@ -86,12 +86,13 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 include = ["app*", "contexts*", "shared_kernel*", "smap*"]
 
-# `packages.find` collects .py files only. The worked-example courses are JSON
-# data, so without this a non-editable install ships an empty course catalogue --
-# it works from a source checkout and fails from a wheel. Pinned by
+# `packages.find` collects .py files only. The worked-example courses and agent
+# packs are JSON data, so without this a non-editable install ships an empty
+# catalogue -- it works from a source checkout and fails from a wheel. Pinned by
 # tests/unit/test_smap_examples_packaging.py.
 [tool.setuptools.package-data]
 "contexts.activities.infrastructure.examples" = ["courses/*.json"]
+"contexts.agents.infrastructure.examples" = ["packs/*.json"]
 
 # ---------- Ruff ----------
 [tool.ruff]
