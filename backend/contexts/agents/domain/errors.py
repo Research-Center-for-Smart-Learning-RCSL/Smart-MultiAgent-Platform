@@ -32,9 +32,27 @@ class KeyGroupOutOfProject(AgentsError):
 
 
 class KeyGroupNoMatchingProvider(AgentsError):
-    """Key Group has no carried key matching the agent's model_hint provider."""
+    """Key Group has no carried key matching the agent's model_hint provider.
+
+    Also raised when installing a shipped agent pack ([R30.35]) against a key
+    group that carries no provider key at all, or that cannot serve a provider the
+    installer asked for explicitly. Installing refuses rather than falling back in
+    that case: an explicit choice the platform silently overrode would be worse
+    than a refusal, and a group serving nothing cannot run any agent in the pack.
+    """
 
     code = "agents/key-group-no-matching-provider"
+
+
+class AgentPackNotFound(AgentsError):
+    """No shipped agent pack with that key ([R30.35]).
+
+    Distinct from a pack file that exists but does not parse: that is a defect in
+    the deployed artifact, and reporting it to a client as "not found" would send
+    an operator looking in the wrong place.
+    """
+
+    code = "agents/example-pack-not-found"
 
 
 class RagConfigOutOfProject(AgentsError):
@@ -211,6 +229,7 @@ __all__ = [
     "AgentConfigTooLarge",
     "AgentNameTaken",
     "AgentNotFound",
+    "AgentPackNotFound",
     "AgentToolNotFound",
     "AgentToolTypeImmutable",
     "AgentVersionMismatch",

@@ -9,14 +9,22 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    # Type-only. `example_service` reaches `AgentService`, which reaches the turn
+    # runtime, which imports this module -- so a runtime import here is a cycle.
+    # `from __future__ import annotations` keeps these annotations strings, and
+    # the two example methods import the service inside their own bodies.
+    from contexts.agents.application.example_service import CataloguePack, PackInstallReport
 
 from contexts.agents.domain.errors import AgentVersionMismatch
 from contexts.agents.domain.models import (
     Agent,
     AgentDraft,
+    AgentModelHint,
     AgentTool,
     ChatModelCatalogEntry,
     WorkspaceFile,
@@ -87,6 +95,40 @@ class AgentsFacade:
     def chat_model_catalog(self) -> tuple[ChatModelCatalogEntry, ...]:
         """Per-provider preset chat models + runtime default for the agent UI."""
         return chat_model_catalog()
+
+    # ------------------------------------------------------------------
+    # Shipped example packs ([R30.35])
+    # ------------------------------------------------------------------
+
+    async def list_example_packs(self, project_id: uuid.UUID) -> tuple[CataloguePack, ...]:
+        """The shipped packs, annotated with what this project already has."""
+        from contexts.agents.application.example_service import AgentExampleService
+
+        return await AgentExampleService(self._db).list_catalogue(project_id)
+
+    async def install_example_pack(
+        self,
+        *,
+        project_id: uuid.UUID,
+        pack_key: str,
+        key_group_id: uuid.UUID,
+        model_hint: AgentModelHint | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> PackInstallReport:
+        """Instantiate a shipped pack into one project. Never commits."""
+        from contexts.agents.application.example_service import AgentExampleService
+
+        return await AgentExampleService(self._db).install_pack(
+            project_id=project_id,
+            pack_key=pack_key,
+            key_group_id=key_group_id,
+            model_hint=model_hint,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
 
     async def get_agent(self, agent_id: uuid.UUID, *, include_deleted: bool = False) -> Agent | None:
         return await self._agents.get(agent_id, include_deleted=include_deleted)

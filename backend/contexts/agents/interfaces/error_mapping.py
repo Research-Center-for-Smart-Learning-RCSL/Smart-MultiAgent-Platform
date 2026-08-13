@@ -33,6 +33,11 @@ _MAP: ErrorMap = {
         422,
         "Key Group has no keys matching the agent's model provider",
     ),
+    errors.AgentPackNotFound: (
+        "agents/example-pack-not-found",
+        404,
+        "No shipped agent pack with that key",
+    ),
     errors.RagConfigOutOfProject: (
         "agents/rag-config-not-found",
         404,
