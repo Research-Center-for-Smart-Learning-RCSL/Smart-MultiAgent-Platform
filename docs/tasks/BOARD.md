@@ -16,7 +16,7 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-08-13-creative-thinking-example-agents` (feature, draft) — `depends_on: []`. Ships two
+- `2026-08-13-creative-thinking-example-agents` (feature, approved) — `depends_on: []`. Ships two
   example agent packs (TA/SA/AA in one, DA in the other) for the shipped creative-thinking
   course, installed copy-on-import into a project because an agent cannot be platform-scoped
   under BYO-key. Also corrects the course example against its source worksheets and makes
