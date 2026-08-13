@@ -442,7 +442,15 @@ class AgentService:
         self._knowledge = KnowledgeFacade(db)
         self._skills = SkillsFacade(db)
 
-    async def _assert_key_group_in_project(self, *, key_group_id: uuid.UUID, project_id: uuid.UUID) -> None:
+    async def assert_key_group_in_project(self, *, key_group_id: uuid.UUID, project_id: uuid.UUID) -> None:
+        """The tenancy gate on an attached key group.
+
+        Public rather than private because the example-pack installer has to run
+        it *before* asking which providers the group carries: that question is
+        answerable for any group id, so probing first and checking ownership
+        second turns the refusal into an oracle for another project's provider
+        inventory. One rule called from both places, rather than a second copy.
+        """
         group = await self._keys.get_key_group(key_group_id)
         if group is None or group.project_id != project_id:
             raise KeyGroupOutOfProject(f"key_group {key_group_id} is not in project {project_id}")
@@ -457,7 +465,7 @@ class AgentService:
         """SEC-H1 — a RAG config attached to an agent must live in the same
         project, else the agent would pull another tenant's document chunks
         into context at retrieval time (the Qdrant collection is keyed on the
-        *config's* project_id). Mirrors `_assert_key_group_in_project`.
+        *config's* project_id). Mirrors `assert_key_group_in_project`.
         """
         cfg = await self._knowledge.get_rag_config(rag_config_id)
         if cfg is None or cfg.project_id != project_id:
@@ -615,7 +623,7 @@ class AgentService:
         if draft.key_group_id is None:
             raise ValueError("key_group_id is required")
 
-        await self._assert_key_group_in_project(
+        await self.assert_key_group_in_project(
             key_group_id=draft.key_group_id,
             project_id=project_id,
         )
@@ -732,7 +740,7 @@ class AgentService:
         # If the key group is being swapped, validate project membership.
         new_kg = draft.key_group_id
         if new_kg is not None and new_kg != current.key_group_id:
-            await self._assert_key_group_in_project(
+            await self.assert_key_group_in_project(
                 key_group_id=new_kg,
                 project_id=current.project_id,
             )

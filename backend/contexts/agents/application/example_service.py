@@ -184,6 +184,18 @@ class AgentExampleService:
             raise AgentPackNotFound(pack_key)
         pack = _load_cached(pack_key)
 
+        # Ownership before capability, and the order is load-bearing.
+        # `has_carried_provider_in_group` answers for *any* group id, so probing
+        # first and checking ownership second would let a member of project A
+        # learn which providers project B's key group carries by reading which
+        # refusal came back. `AgentService.create` re-checks this authoritatively;
+        # running it here is what keeps the probe below from ever seeing a group
+        # the caller does not own.
+        await self._agents.assert_key_group_in_project(
+            key_group_id=key_group_id,
+            project_id=project_id,
+        )
+
         # Every provider question answered before anything is created, so a key
         # group that cannot serve the pack is refused rather than half-installed.
         usable = await self._usable_hints(key_group_id)

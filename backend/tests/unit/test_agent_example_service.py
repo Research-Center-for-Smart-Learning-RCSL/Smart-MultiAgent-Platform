@@ -23,7 +23,11 @@ import pytest
 from contexts.agent_groups.domain.models import AgentGroup
 from contexts.agents.application import example_service
 from contexts.agents.application.example_service import AgentExampleService
-from contexts.agents.domain.errors import AgentPackNotFound, KeyGroupNoMatchingProvider
+from contexts.agents.domain.errors import (
+    AgentPackNotFound,
+    KeyGroupNoMatchingProvider,
+    KeyGroupOutOfProject,
+)
 from contexts.agents.domain.models import Agent, AgentModelHint, ContextMode
 from contexts.agents.infrastructure.examples.catalogue import load_pack
 
@@ -80,6 +84,7 @@ def _service(
 
     agents = MagicMock()
     agents.create = AsyncMock(side_effect=lambda **kw: _agent_row(kw["draft"].name))
+    agents.assert_key_group_in_project = AsyncMock()
     service._agents = agents  # type: ignore[assignment]
 
     repo = MagicMock()
@@ -284,11 +289,25 @@ class TestTenantIsolation:
     """AC-13. Installing must not become a way to build agents against another
     project's keys.
 
-    The guard is `AgentService._assert_key_group_in_project`, which `create`
+    The guard is `AgentService.assert_key_group_in_project`, which `create`
     already runs unconditionally; what this file owns is that the install path
-    hands it the *route's* project id rather than anything derived from the
-    request body.
+    hands it the *route's* project id, and that it runs *before* the provider
+    probe.
     """
+
+    async def test_ownership_is_checked_before_any_provider_is_probed(self) -> None:
+        """`has_carried_provider_in_group` answers for any group id, so probing a
+        group the caller does not own and refusing afterwards would report which
+        providers another project's group carries."""
+        service, doubles = _service(providers=[])
+        doubles["agents"].assert_key_group_in_project.side_effect = KeyGroupOutOfProject("nope")
+
+        with pytest.raises(KeyGroupOutOfProject):
+            await _install(service)
+
+        doubles["keys"].has_carried_provider_in_group.assert_not_awaited()
+        doubles["agents"].create.assert_not_awaited()
+        doubles["groups"].create_group.assert_not_awaited()
 
     async def test_the_route_project_id_is_what_reaches_every_create(self) -> None:
         service, doubles = _service()
@@ -311,7 +330,6 @@ class TestTenantIsolation:
         """Exercised on the real guard, as `test_agent_config_project_guard` does
         for RAG configs: bypass __init__ and drive the one method."""
         from contexts.agents.application.agent_service import AgentService
-        from contexts.agents.domain.errors import KeyGroupOutOfProject
 
         keys = MagicMock()
         keys.get_key_group = AsyncMock(return_value=MagicMock(project_id=uuid.uuid4()))
@@ -319,7 +337,7 @@ class TestTenantIsolation:
         agent_service._keys = keys  # type: ignore[attr-defined]
 
         with pytest.raises(KeyGroupOutOfProject):
-            await agent_service._assert_key_group_in_project(
+            await agent_service.assert_key_group_in_project(
                 key_group_id=uuid.uuid4(),
                 project_id=uuid.uuid4(),
             )
