@@ -48,6 +48,62 @@ describe('fieldsFromSchema', () => {
   })
 })
 
+// AC-4: the stored schema is jsonb, which normalises object keys, so the author's
+// order has to travel as a value ([R30.36]). These pin the sort that reads it.
+describe('fieldsFromSchema x-order', () => {
+  const names = (s: JSONSchema): string[] => fieldsFromSchema(s).map((f) => f.name)
+
+  it('renders declared order, not object key order', () => {
+    // Keys deliberately in the order PostgreSQL would hand them back for the
+    // shipped six-hats type, with x-order carrying the worksheet's order.
+    expect(
+      names({
+        type: 'object',
+        properties: {
+          event: { type: 'string', 'x-order': 1 },
+          hat_red: { type: 'string', 'x-order': 3 },
+          hat_blue: { type: 'string', 'x-order': 6 },
+          hat_black: { type: 'string', 'x-order': 4 },
+          hat_white: { type: 'string', 'x-order': 2 },
+          hat_yellow: { type: 'string', 'x-order': 5 },
+        },
+      }),
+    ).toEqual(['event', 'hat_white', 'hat_red', 'hat_black', 'hat_yellow', 'hat_blue'])
+  })
+
+  it('leaves a schema that declares no order exactly as it was', () => {
+    expect(names(schema)).toEqual(Object.keys(schema.properties!))
+  })
+
+  it('puts undeclared properties after declared ones, keeping their relative order', () => {
+    expect(
+      names({
+        type: 'object',
+        properties: {
+          tail_a: { type: 'string' },
+          head: { type: 'string', 'x-order': 1 },
+          tail_b: { type: 'string' },
+        },
+      }),
+    ).toEqual(['head', 'tail_a', 'tail_b'])
+  })
+
+  it('ignores a non-numeric or non-finite order rather than coercing it', () => {
+    // NaN in the comparator would make it inconsistent and scramble the form,
+    // which is the failure this guards: such a property is simply undeclared.
+    expect(
+      names({
+        type: 'object',
+        properties: {
+          bad_string: { type: 'string', 'x-order': '2' as unknown as number },
+          bad_nan: { type: 'string', 'x-order': Number.NaN },
+          good: { type: 'string', 'x-order': 1 },
+        },
+      }),
+    ).toEqual(['good', 'bad_string', 'bad_nan'])
+  })
+})
+
 describe('assemblePayload', () => {
   const fields = fieldsFromSchema(schema)
 

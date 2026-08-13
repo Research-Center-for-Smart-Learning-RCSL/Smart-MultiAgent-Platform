@@ -44,10 +44,35 @@ function kindFor(node: JSONSchema): SchemaFieldKind {
   }
 }
 
+/** A property's declared render position, or +Infinity when it declares none.
+ *
+ *  The stored schema is `jsonb`, which normalises object keys by length then
+ *  bytewise, so `Object.entries` order is the datastore's, not the author's
+ *  ([R30.36]). `x-order` is the author's, carried as a value where normalisation
+ *  cannot reach it. Non-numeric and non-finite values are ignored rather than
+ *  coerced: NaN would make the comparator inconsistent and scramble the form. */
+function orderOf(node: JSONSchema): number {
+  const raw = node['x-order']
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : Number.POSITIVE_INFINITY
+}
+
 export function fieldsFromSchema(schema: JSONSchema | null | undefined): SchemaField[] {
   if (!schema || !schema.properties) return []
   const required = new Set(Array.isArray(schema.required) ? schema.required : [])
-  return Object.entries(schema.properties).map(([name, node]) => {
+  // Sort is stable (ES2019), so properties that declare no `x-order` keep their
+  // relative stored order and follow the ones that do. A schema declaring none
+  // is therefore unchanged in behaviour.
+  //
+  // Compared rather than subtracted: two undeclared properties both yield
+  // +Infinity, and `Infinity - Infinity` is NaN, which makes the comparator
+  // inconsistent and leaves the resulting order implementation-defined.
+  const entries = Object.entries(schema.properties).sort(([, a], [, b]) => {
+    const left = orderOf(a)
+    const right = orderOf(b)
+    if (left === right) return 0
+    return left < right ? -1 : 1
+  })
+  return entries.map(([name, node]) => {
     const kind = kindFor(node)
     const enumSource =
       kind === 'enum' ? node.enum : kind === 'enum-array' ? node.items?.enum : null
