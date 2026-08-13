@@ -152,6 +152,29 @@ describe('AgentPackInstallDialog', () => {
     })
   })
 
+  it('says why nothing can be installed when the project has no key group', async () => {
+    listKeyGroupsMock.mockResolvedValue([])
+    listPacksMock.mockResolvedValue([pack()])
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('agents.examplePacks.noKeyGroups')
+    expect(
+      wrapper.find('[data-testid="install-creative-thinking-room"]').attributes('disabled'),
+    ).toBeDefined()
+  })
+
+  it('says why nothing can be installed when the key groups fail to load', async () => {
+    listKeyGroupsMock.mockRejectedValue(new Error('boom'))
+    listPacksMock.mockResolvedValue([pack()])
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('agents.examplePacks.keyGroupsFailed')
+  })
+
   it('shows the empty state when the deployment ships no packs', async () => {
     listPacksMock.mockResolvedValue([])
 

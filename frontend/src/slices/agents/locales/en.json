@@ -24,6 +24,8 @@
       "keyGroup": "Key group",
       "keyGroupHelp": "The agents run on this group's provider keys. Each pack states a preferred provider; where this group cannot serve it, a provider it does carry is used instead.",
       "keyGroupPlaceholder": "Select a key group",
+      "keyGroupsFailed": "The project's key groups could not be loaded, so nothing can be installed yet.",
+      "noKeyGroups": "This project has no key groups. Add provider keys and a key group first.",
       "forCourse": "Written for the {course} course example",
       "installedBadge": "Installed",
       "agentInstalled": "Already in this project",

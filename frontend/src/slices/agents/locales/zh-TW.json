@@ -24,6 +24,8 @@
       "keyGroup": "金鑰群組",
       "keyGroupHelp": "Agent 會使用這個群組的供應商金鑰。每個組合都有建議的供應商；若這個群組無法提供，就改用它實際持有的供應商。",
       "keyGroupPlaceholder": "選擇金鑰群組",
+      "keyGroupsFailed": "無法載入這個專案的金鑰群組，目前還不能安裝。",
+      "noKeyGroups": "這個專案還沒有金鑰群組。請先新增供應商金鑰與金鑰群組。",
       "forCourse": "為 {course} 範例課程而寫",
       "installedBadge": "已安裝",
       "agentInstalled": "專案中已有",
