@@ -11,6 +11,9 @@ import type {
   AgentToolCreateIn,
   AgentToolOut,
   AgentToolTestOut,
+  ExamplePackInstallIn,
+  ExamplePackInstallReportOut,
+  ExamplePackOut,
   GraphRagConfigPatchIn,
   KnowmapConfigPatchIn,
 } from '@shared/api-client'
@@ -397,6 +400,20 @@ export const agentsApi = {
 
   remove: (agentId: string, version: number): Promise<void> =>
     AgentsService.deleteAgentApiAgentsAgentIdDelete({ agentId, ifMatch: String(version) }),
+
+  listExamplePacks: (projectId: string): Promise<ExamplePackOut[]> =>
+    AgentsService.listAgentExamplePacksApiProjectsProjectIdAgentsExamplePacksGet({ projectId }),
+
+  installExamplePack: (
+    projectId: string,
+    packKey: string,
+    payload: ExamplePackInstallIn,
+  ): Promise<ExamplePackInstallReportOut> =>
+    AgentsService.installAgentExamplePackApiProjectsProjectIdAgentsExamplePacksPackKeyInstallPost({
+      projectId,
+      packKey,
+      requestBody: payload,
+    }),
 
   listRagConfigs: (projectId: string): Promise<RagConfig[]> =>
     RagService.listRagConfigsApiProjectsProjectIdRagConfigsGet({ projectId }),

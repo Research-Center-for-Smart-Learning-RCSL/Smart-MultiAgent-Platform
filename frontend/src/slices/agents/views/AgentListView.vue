@@ -11,6 +11,7 @@ import {
   CpuChipIcon,
   EllipsisVerticalIcon,
   ExclamationTriangleIcon,
+  UserGroupIcon,
 } from '@heroicons/vue/24/outline'
 import {
   SPageHeader,
@@ -34,6 +35,7 @@ import { useSessionStore } from '@shared/stores/session'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
 import { agentsApi, type Agent } from '../api'
 import { agentKeys } from '../queries'
+import AgentPackInstallDialog from '../components/AgentPackInstallDialog.vue'
 import { useProjectBreadcrumbs } from '../composables/useProjectBreadcrumbs'
 import type { AgentCreateInput } from '../types/schemas'
 import type { Column } from '@shared/ui/STable.vue'
@@ -51,6 +53,7 @@ const isAdmin = computed(() => session.me?.is_admin === true)
 const search = ref('')
 const modelFilter = ref<string>('')
 const statusFilter = ref<string>('')
+const packDialogOpen = ref(false)
 
 const { breadcrumbs } = useProjectBreadcrumbs(projectId, [
   { label: t('agents.breadcrumb.agents') },
@@ -245,6 +248,16 @@ function onRowClick(row: Agent): void {
     >
       <template #actions>
         <SButton
+          variant="secondary"
+          data-testid="open-example-packs"
+          @click="packDialogOpen = true"
+        >
+          <template #icon-left>
+            <UserGroupIcon class="w-4 h-4" />
+          </template>
+          {{ t('agents.examplePacks.open') }}
+        </SButton>
+        <SButton
           variant="primary"
           @click="goToCreate"
         >
@@ -255,6 +268,13 @@ function onRowClick(row: Agent): void {
         </SButton>
       </template>
     </SPageHeader>
+
+    <AgentPackInstallDialog
+      :project-id="projectId"
+      :open="packDialogOpen"
+      @close="packDialogOpen = false"
+      @installed="qc.invalidateQueries({ queryKey: agentKeys.agents(projectId) })"
+    />
 
     <div class="flex flex-wrap items-center gap-4 mt-6">
       <SSearchInput
