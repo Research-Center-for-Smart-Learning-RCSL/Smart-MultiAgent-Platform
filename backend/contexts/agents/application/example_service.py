@@ -182,6 +182,11 @@ class AgentExampleService:
         hidden -- renaming an installed agent and re-installing produces a second
         copy.
 
+        Re-installing does converge on the group, though: every agent the pack
+        names is added to it, whether this run created it or found it already
+        there. Recovering a deleted group, or folding in an agent someone had
+        hand-created under the pack's name, both work.
+
         Creates no chatroom and binds no room. Installing is the owner's act;
         starting a class is the facilitator's.
         """
@@ -215,13 +220,20 @@ class AgentExampleService:
                 f"key_group {key_group_id} has no carried keys for provider {model_hint.value!r}"
             )
 
-        existing = {a.name for a in await self._agent_repo.list_for_project(project_id)}
+        existing = {a.name: a.id for a in await self._agent_repo.list_for_project(project_id)}
 
         created: list[InstalledAgent] = []
         already_present: list[str] = []
+        # Every agent the pack names, created here or found already present. The
+        # group is the pack's end state, not a record of what this run happened to
+        # create: an agent the project already had under the pack's name -- from an
+        # earlier install, or hand-authored -- belongs in it too, and leaving it out
+        # would be an omission nothing in the report mentions.
+        members: list[uuid.UUID] = []
         for pack_agent in pack.agents:
             if pack_agent.name in existing:
                 already_present.append(pack_agent.name)
+                members.append(existing[pack_agent.name])
                 continue
             hint = self._hint_for(pack_agent, override=model_hint, usable=usable)
             # create() emits agent.created with the installer as actor, so the
@@ -248,6 +260,7 @@ class AgentExampleService:
                     model_hint=hint,
                 )
             )
+            members.append(agent.id)
 
         group_id = await self._group_for(
             project_id=project_id,
@@ -256,10 +269,13 @@ class AgentExampleService:
             actor_ip=actor_ip,
             request_id=request_id,
         )
-        for installed in created:
+        for agent_id in members:
+            # Idempotent, and only a real insert emits `agent_group.member_added`
+            # (`AgentGroupService.add_member`), so re-installing adds no audit
+            # noise for memberships that already existed.
             await self._groups.add_member(
                 group_id=group_id,
-                agent_id=installed.agent_id,
+                agent_id=agent_id,
                 actor_user_id=actor_user_id,
                 actor_ip=actor_ip,
                 request_id=request_id,

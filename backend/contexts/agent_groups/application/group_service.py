@@ -126,7 +126,14 @@ class AgentGroupService:
             raise AgentGroupMemberProjectMismatch(
                 f"agent {agent_id} is not in group {group_id}'s project {project_id}"
             )
-        await self._repo.add_member(group_id=group_id, agent_id=agent_id)
+        inserted = await self._repo.add_member(group_id=group_id, agent_id=agent_id)
+        if not inserted:
+            # Already a member. The call is still a success (the repo is
+            # idempotent by design), but recording `member_added` for a
+            # membership that already existed would put a false statement in the
+            # audit log — and a caller adding a whole set at once, such as the
+            # example-pack installer, would do it once per existing member.
+            return
         await audit.emit(
             self._db,
             audit.AuditEvent(
