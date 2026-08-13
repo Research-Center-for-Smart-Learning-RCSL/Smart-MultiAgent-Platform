@@ -19,6 +19,11 @@ export interface JSONSchema {
   required?: string[]
   enum?: Array<string | number>
   items?: JSONSchema
+  /** Explicit render position, ascending ([R30.36]). Declared because the stored
+   *  schema is `jsonb`, which normalises object keys rather than preserving the
+   *  order they were authored in, so object order cannot carry this. A schema
+   *  where no property declares it renders in stored order, as before. */
+  'x-order'?: number
   [key: string]: unknown
 }
 
