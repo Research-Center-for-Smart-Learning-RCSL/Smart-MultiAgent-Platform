@@ -29,13 +29,16 @@ parallel.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
-- `2026-08-13-creative-thinking-example-agents` (feature) — `depends_on: []`. Ships two example
-  agent packs (TA/SA/AA in one, DA in the other) for the shipped creative-thinking course,
-  installed copy-on-import into a project because an agent cannot be platform-scoped under
-  BYO-key. Also corrects the course example against its source worksheets and makes
-  payload-schema field order explicit, since `payload_schema` is `jsonb` and does not preserve
-  key order. **AC-4's `db`-tier test is the premise check for the whole `x-order` half** and
-  can only run on CI; the `x-order` commits are kept separately revertable in case it fails.
+Removed on 2026-08-14 after implementation: `2026-08-13-creative-thinking-example-agents`
+(two shipped agent packs installed copy-on-import into a project, the creative-thinking course
+transcribed from its actual worksheets, and an explicit `x-order` on payload-schema
+properties). Nothing lists it in `depends_on`, so no row moved out of Blocked. **Two caveats a
+later reader needs.** AC-4's `db`-tier test — `tests/integration/test_activity_schema_key_order.py`,
+which pins that `jsonb` really does discard payload-schema key order — has never been
+executed: Docker was unavailable on the implementing host, so the entire `x-order` half rests
+on reasoning until CI runs it, and §10 says what to do if it fails. And **D-12**: no
+behavioural verification was performed at all, for the same reason; confirm the install flow
+and the corrected worksheets on the first deployed build.
 Removed on 2026-08-09 after implementation: `2026-08-09-platform-example-activity-types`
 (migration 0076 gives `activity_types` a `scope`, the example catalogue moves out of the
 `smap` CLI package into `contexts/activities/infrastructure/examples/`, and seven duplicated

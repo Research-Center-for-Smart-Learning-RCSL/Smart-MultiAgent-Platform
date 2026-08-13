@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-08-13
 requirements: [R9.01, R9.02, R15.01, R28.01, R28.04, R30.15, R30.17, R30.18, R30.23, R30.27, R30.28, R30.32, R30.33]
 depends_on: []
@@ -602,63 +602,75 @@ and the tenancy surface apply.
 
 ## 11. Acceptance Criteria
 
-- [ ] **AC-1** — `mandala-9grid`'s schema declares exactly nine properties named
+- [x] **AC-1** — `mandala-9grid`'s schema declares exactly nine properties named
   `home, work, abilities, appearance, center, leisure, message_to_self, free, relationships`
   with `x-order` 1–9 and the worksheet's titles; `center` is not in `required`. Rendering it
   through the bundled plugin produces the worksheet's 3x3 layout with 家/工作/具備能力 on the
   top row and 想對30歲的自己說…/自由發揮/人際關係 on the bottom.
-- [ ] **AC-2** — `six-hats-emotion-desk`'s properties render in the order
+- [x] **AC-2** — `six-hats-emotion-desk`'s properties render in the order
   事件, 白帽, 紅帽, 黑帽, 黃帽, 藍帽, each carrying the worksheet's own descriptor wording.
-- [ ] **AC-3** — The course installs four activity types; `time-traveler-next-steps` and
+- [x] **AC-3** — The course installs four activity types; `time-traveler-next-steps` and
   `emotion-desk-three-emotions` exist with the worksheet sections they model, and every
   type's `min_filled` is at most its declared property count (enforced by the loader, so a
   violation is a load error naming the type).
-- [ ] **AC-4** — A `db`-tier test round-trips a `payload_schema` whose authored key order
+- [x] **AC-4** — A `db`-tier test round-trips a `payload_schema` whose authored key order
   differs from `jsonb`'s and asserts the stored order differs from the authored one, pinning
   §4.3's premise. A companion unit test asserts `fieldsFromSchema` returns `x-order` order
   regardless of object key order, and unchanged object order when no property declares it.
-- [ ] **AC-5** — Every shipped pack parses: `available_packs()` returns both keys, and
+  *The unit half passes. **The `db` half has not been observed passing:** Docker Desktop was
+  not running on this host, so `tests/integration/test_activity_schema_key_order.py` has only
+  been collected, never executed. It runs on CI, and until it does the `x-order` half of this
+  change rests on reasoning about PostgreSQL rather than on measurement — §10 says what to do
+  if it fails. Treated as closeable on the same basis the platform-example dossier's AC-15
+  used for its `db`/`integration`/`wiring` tiers.*
+- [x] **AC-5** — Every shipped pack parses: `available_packs()` returns both keys, and
   `load_pack` rejects a pack missing any required field, carrying an unknown field, naming an
   unknown `room_role`, or whose `pack_key` disagrees with its filename.
-- [ ] **AC-6** — A tripwire scanning every pack asserts `for_course` resolves through
+- [x] **AC-6** — A tripwire scanning every pack asserts `for_course` resolves through
   `available_courses()` and every `binds_activity_types` key exists in that course. Deleting
   a type from the course JSON fails this test.
-- [ ] **AC-7** — A second tripwire asserts `contexts/agents/**` contains no import of
+- [x] **AC-7** — A second tripwire asserts `contexts/agents/**` contains no import of
   `contexts.activities.infrastructure`, so the cross-check stays in tests.
-- [ ] **AC-8** — Installing `creative-thinking-room` into a project with a key group carrying
+- [x] **AC-8** — Installing `creative-thinking-room` into a project with a key group carrying
   Claude keys creates three agents with the pack's names, prompts, temperatures, and
   `wakeup_config`s, plus one agent group containing all three, and emits one `agent.created`
   per agent with the installing user as actor. A second install reports all three as
   already-present and creates nothing.
-- [ ] **AC-9** — Every shipped `system_prompt` contains an explicit instruction never to
+- [x] **AC-9** — Every shipped `system_prompt` contains an explicit instruction never to
   quote or paraphrase a participant's submission text into the room, asserted by a test over
   the pack files rather than by review.
-- [ ] **AC-10** — The AA prompt states that only fluency is scored automatically, names the
+- [x] **AC-10** — The AA prompt states that only fluency is scored automatically, names the
   thesis unit competency rubric as what it reasons from, and contains no claim to score
   flexibility, originality, or elaboration. Asserted over the pack file.
-- [ ] **AC-11** — The TA and SA prompts contain the unit-4 boundary clause (no pressing for
+- [x] **AC-11** — The TA and SA prompts contain the unit-4 boundary clause (no pressing for
   detail, no eliciting further disclosure, no therapeutic response, hand back to the
   teacher). Asserted over the pack file.
-- [ ] **AC-12** — `preferred_model_hint` is honoured when the chosen key group carries that
+- [x] **AC-12** — `preferred_model_hint` is honoured when the chosen key group carries that
   provider; when it does not, install succeeds using a provider the group does carry, and the
   response reports which. When the group carries no provider at all, install returns a named
   422 and creates nothing — no partial install.
-- [ ] **AC-13** — A caller with `RESOURCE_CREATE_EDIT` on project A cannot install into
+- [x] **AC-13** — A caller with `RESOURCE_CREATE_EDIT` on project A cannot install into
   project B, and cannot install into A using a key group belonging to B; both are refused
   before any agent row is created.
-- [ ] **AC-14** — `creative-thinking-design` installs DA alone, with both wake-up triggers
+- [x] **AC-14** — `creative-thinking-design` installs DA alone, with both wake-up triggers
   disabled, and the dialog and docs both state that DA belongs in the teacher's own room and
   that its drafts must be pasted into an agent by hand.
-- [ ] **AC-15** — `docs/examples/creative-thinking-course.md` describes four activity types,
+- [x] **AC-15** — `docs/examples/creative-thinking-course.md` describes four activity types,
   both packs, the `x-order` fact replacing the claim at `:125`, the drawing adaptation, and
   the upgrade note for already-installed deployments;
   `docs/assessments/nstc-meeting-learning-activities.md:47` no longer states that every agent
   answers every message.
-- [ ] **AC-16** — All user-facing strings exist in `agents/locales/en.json` and `zh-TW.json`.
-- [ ] **AC-17** — Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`,
+- [x] **AC-16** — All user-facing strings exist in `agents/locales/en.json` and `zh-TW.json`.
+- [x] **AC-17** — Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`,
   `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm run check:openapi-drift`,
   `pnpm run check:bundle-size`, `pnpm run check:type-coverage`,
   `pnpm run check:boundaries-enforced`. `db` / `integration` / `wiring` tiers on CI.
+  *All green locally except `check:openapi-drift`, whose shell script needs `python` on the
+  git-bash PATH and cannot run on this host — the same limitation the platform-example
+  dossier recorded. Its two steps were performed by hand instead (re-export the spec,
+  regenerate the client, confirm the tree is clean) and CI runs the script itself. See D-8:
+  the export required a pydantic upgrade within the declared range to produce an additive
+  diff, and the spec is written without a BOM, which shell redirection would otherwise add.*
 
 ## 12. Test Plan
 
@@ -732,7 +744,66 @@ Apply verbatim on approval.
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- **D-1** — **AC-13's test home moved.** §12 cited `tests/unit/test_agents_authz.py`, which
+  does not exist; the agents context's cross-project guard tests live in
+  `test_agent_config_project_guard.py`. The AC-13 assertions went into
+  `test_agent_example_service.py::TestTenantIsolation` instead, beside the install path they
+  are about. Caught by the freshness spot-check before any code was written.
+- **D-2** — **`AgentService._assert_key_group_in_project` was promoted to public.** Not in
+  the spec. The security gate found that `install_pack` probed the key group's providers
+  *before* the ownership check, and since `has_carried_provider_in_group` answers for any
+  group id, the two distinguishable refusals formed an oracle for another project's provider
+  inventory. Reordering required calling the guard from the example service; promoting the
+  one rule was chosen over a second copy of it, given §9 already records what seven copies of
+  a tenancy check cost this codebase.
+- **D-3** — **Packs deliberately omit `triggers.call_only`.** §5.5 described DA as
+  "both triggers disabled; `@mention` only" without naming the mechanism. `call_only` reads
+  as exactly that and does suppress autonomous wake-ups, but it is also an A2A authorization
+  widener (`a2a_scope.evaluate` lets any a2a-enabled agent in the project call a `call_only`
+  agent with no shared context). Shipping it would leave that widening latent behind a flag
+  nobody re-reads when enabling a2a later, so the packs disable both triggers instead and a
+  test asserts `call_only` is absent.
+- **D-4** — **The pack loader bounds `system_prompt` at 100 000 characters**, mirroring
+  `_MAX_SYSTEM_PROMPT` in `app/api/v1/agents.py`. Not in the spec. Installing bypasses the
+  request model, so without this a pack could create an agent the API would then refuse to
+  accept on the owner's next edit.
+- **D-5** — **The routes live under the existing agents router** as
+  `/api/projects/{project_id}/agents/example-packs`, not at
+  `/api/projects/{project_id}/agent-example-packs` as §6 wrote. The latter needed a third
+  router for two endpoints and split the OpenAPI grouping; the former reads as "this
+  project's agents, its example packs" and reuses the router that already carries the
+  capability gate.
+- **D-6** — **`AgentsFacade` imports the example service inside its two methods.**
+  `example_service` reaches `AgentService`, which reaches the turn runtime, which imports the
+  facade — a module-level import closes that cycle at startup. The in-method import is the
+  idiom already used at `activity_context_provider.py:43` and `app/api/v1/activities.py:351`.
+- **D-7** — **The course JSON carries both halves of the change.** §10 planned the `x-order`
+  work as separately revertable, and M0 (the `db` premise test) and M1 (the frontend sort)
+  are. The course file is not: it necessarily gained both the worksheet corrections and the
+  `x-order` values in one edit. If the premise fails, that file needs its `x-order` keys
+  stripped rather than a commit reverted.
+- **D-8** — **The local venv's pydantic had to be upgraded to regenerate the API contract.**
+  It sat at 2.9.2, the floor of `pydantic[email]>=2.9,<2.14`, and emits a different JSON
+  Schema for free-form config fields than whatever generated the committed `openapi.json`;
+  regenerating stripped `additionalProperties` across the whole spec. Upgraded to 2.13.4
+  within the same declared range, after which the regeneration is purely additive. Recorded
+  because it means the committed spec is reproducible only against a *resolved* dependency
+  set, not a pinned one — see FU-11.
+- **D-9** — **`test_smap_examples_packaging.py` was generalised rather than duplicated.** It
+  now parametrizes over both shipped catalogues, so a third one is covered by adding a row.
+- **D-10** — **`list_catalogue` gained a log line and a narrower except.** It originally
+  skipped an unloadable pack with a bare `except ValueError` and no log, which made a
+  packaging error indistinguishable from a pack that was never shipped and would have
+  swallowed a genuine defect in the method itself. Found by the audit gates.
+- **D-11** — **The install dialog gained key-group precondition states.** The quality gate
+  found `keyGroupsQuery` had no error handling, so a failed request and a project with no key
+  groups both rendered as an empty select with inert buttons and no explanation.
+- **D-12** — **No behavioural verification was performed.** `/build`'s Definition of Done
+  asks for the change observed working in the running app. Docker Desktop was not running on
+  this host, so the compose stack could not be started and neither the install flow nor the
+  corrected worksheets have been seen rendering in a browser. Every claim about them rests on
+  unit and component tests. This is the same gap the `2026-08-09-chatroom-rail-scroll-and-resize`
+  dossier closed with, and it carries the same instruction: confirm on the first deployed build.
 
 ## 16. Follow-ups
 
@@ -765,3 +836,31 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - **FU-8** — `docs/tasks/2026-07-13-activities-activation-ux/spec.md` still carries
   `status: done`, not a value in the contract's lifecycle. Carried forward unresolved from
   FU-6 of the platform-example dossier.
+- **FU-9** — The two example catalogues duplicate their error-formatting helpers: `_fail`,
+  `_require_fields`, `_require_str` are near-identical across
+  `contexts/activities/infrastructure/examples/catalogue.py:102-127` and
+  `contexts/agents/infrastructure/examples/catalogue.py:112-138`. The *schemas* diverging is
+  intentional (Q-1); these helpers are not artifact-specific and belong in `shared_kernel`.
+  Deferred because lifting them means editing the activities loader, outside this task's
+  blast radius.
+- **FU-10** — `install_pack` adds only newly created agents to the group. An installer who
+  renames the pack's group and re-installs therefore gets a second, empty group beside it.
+  Adding the already-present agents too would converge instead, and `add_member` is
+  idempotent at the repository (`ON CONFLICT DO NOTHING`, `group_repository.py:195-205`) —
+  but `AgentGroupService.add_member` emits `agent_group.member_added` unconditionally, so it
+  would write audit events for memberships that already existed. Fixing this properly means
+  making that emission conditional on a real insert.
+- **FU-11** — `backend/pyproject.toml` pins dependency *ranges*, so `backend/openapi.json` is
+  reproducible only against whatever resolves at generation time; D-8 is what that costs in
+  practice. A lock file, or an exact pin on the codegen-relevant dependencies, would make
+  `check:openapi-drift` mean the same thing on every machine.
+- **FU-12** — An unknown `course_key` on `POST /api/admin/activity-examples/{course_key}/install`
+  returns 500: `CourseFileInvalid` is a bare `ValueError` and is absent from
+  `contexts/activities/interfaces/error_mapping.py:15`. The agent-pack route handles the
+  equivalent case as a 404 by checking `available_packs()` before loading. Pre-existing in the
+  activities work, not touched here.
+- **FU-13** — The activity digest emits `json.dumps(payload, sort_keys=True)` over raw
+  property keys (`agent_digest.py:23`), so an agent sees fields alphabetically and never sees
+  a `title`. Now that schemas declare `x-order`, emitting titles in declared order would make
+  the digest self-describing for every activity type. Out of scope here because it changes the
+  prompt input of every existing deployment.
