@@ -20,7 +20,7 @@
       "emptyTitle": "沒有範例組合",
       "emptyText": "這個部署沒有出貨任何 Agent 組合。",
       "installScopeNotice": "安裝會在這個專案建立 Agent 與一個 Agent 群組。它不會建立討論室、不會把任何 Agent 綁進房間，也不會啟動活動。",
-      "observerNotice": "這個組合裡有一個 Agent 是靜默觀察者：它讀得到討論室，但只寫給房間建立者看的筆記，不會出現在對話裡。",
+      "observerNotice": "標示為靜默觀察的 Agent 讀得到討論室，但只寫給房間建立者看的筆記，不會出現在對話裡。",
       "keyGroup": "金鑰群組",
       "keyGroupHelp": "Agent 會使用這個群組的供應商金鑰。每個組合都有建議的供應商；若這個群組無法提供，就改用它實際持有的供應商。",
       "keyGroupPlaceholder": "選擇金鑰群組",

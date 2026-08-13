@@ -20,7 +20,7 @@
       "emptyTitle": "No example packs",
       "emptyText": "This deployment ships no agent packs.",
       "installScopeNotice": "Installing creates agents and one agent group in this project. It does not create a chatroom, bind any agent to a room, or start an activity.",
-      "observerNotice": "One agent in this pack observes silently: it reads the room and writes notes only the room creator can see, and it does not appear in the conversation.",
+      "observerNotice": "Agents marked as silent observers read the room and write notes only the room creator can see. They do not appear in the conversation.",
       "keyGroup": "Key group",
       "keyGroupHelp": "The agents run on this group's provider keys. Each pack states a preferred provider; where this group cannot serve it, a provider it does carry is used instead.",
       "keyGroupPlaceholder": "Select a key group",

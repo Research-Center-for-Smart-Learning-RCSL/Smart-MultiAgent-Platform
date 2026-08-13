@@ -240,9 +240,18 @@ course yet. `payload_schema` is outside the set of fields a platform admin may e
 re-syncing an installed example is deliberately not implemented (OQ-1 of
 `docs/tasks/2026-08-09-platform-example-activity-types/spec.md`).
 
-To upgrade an environment that already installed `creative-thinking`: delete the platform
-types from `/admin/activities` and install the course again. **Deleting a platform type
-ends its active activations across every tenant**, so do it between classes.
+**Re-installing without deleting first is the trap, because it half-works.** Install is
+idempotent by key and never updates an existing row, so on a deployment that already has
+the course it creates the two new types (`time-traveler-next-steps`,
+`emotion-desk-three-emotions`) and leaves the two old ones untouched. The result reports
+success and looks installed, but `mandala-9grid` still renders 格 1 to 格 8 while the agent
+packs' prompts describe 家 / 工作 / 具備能力, `six-hats-emotion-desk` still runs the
+transposed 黃/黑 order, and neither old row carries `x-order` at all — so the ordering
+mechanism is inert for exactly the two units it was introduced to fix.
+
+To upgrade properly: **delete `mandala-9grid` and `six-hats-emotion-desk` from
+`/admin/activities` first**, then install the course again. Deleting a platform type ends
+its active activations across every tenant, so do it between classes.
 
 ## Running a session
 
