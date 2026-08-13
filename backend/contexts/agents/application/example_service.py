@@ -22,6 +22,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agent_groups.interfaces.facade import AgentGroupFacade
@@ -31,6 +32,7 @@ from contexts.agents.domain.models import AgentDraft, AgentModelHint
 from contexts.agents.infrastructure.examples.catalogue import (
     AgentPackDefinition,
     PackAgent,
+    PackFileInvalid,
     available_packs,
     load_pack,
 )
@@ -118,15 +120,20 @@ class AgentExampleService:
 
         A pack that fails to parse is skipped rather than failing the listing: one
         malformed file must not hide the packs that could still be installed. It is
-        logged by the loader's own error rather than swallowed silently -- see the
-        `install_pack` path, which surfaces the parse failure when a caller asks
-        for that specific pack.
+        logged rather than swallowed, because an omitted pack looks exactly like a
+        pack that was never shipped and an operator would have nothing to go on.
+        `install_pack` still surfaces the parse failure when a caller names that
+        specific pack.
+
+        Only `PackFileInvalid` is caught. A broader `ValueError` here would also
+        swallow a genuine defect in this method and report it as a missing pack.
         """
         packs: list[AgentPackDefinition] = []
         for pack_key in available_packs():
             try:
                 packs.append(_load_cached(pack_key))
-            except ValueError:
+            except PackFileInvalid:
+                logger.warning("shipped agent pack {} is not loadable; omitted from the catalogue", pack_key)
                 continue
 
         existing = {a.name for a in await self._agent_repo.list_for_project(project_id)}
