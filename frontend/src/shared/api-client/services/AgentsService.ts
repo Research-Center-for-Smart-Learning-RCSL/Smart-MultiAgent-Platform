@@ -9,6 +9,9 @@ import type { AgentToolCreateIn } from '../models/AgentToolCreateIn';
 import type { AgentToolOut } from '../models/AgentToolOut';
 import type { AgentToolPatchIn } from '../models/AgentToolPatchIn';
 import type { AgentToolTestOut } from '../models/AgentToolTestOut';
+import type { ExamplePackInstallIn } from '../models/ExamplePackInstallIn';
+import type { ExamplePackInstallReportOut } from '../models/ExamplePackInstallReportOut';
+import type { ExamplePackOut } from '../models/ExamplePackOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -278,6 +281,66 @@ export class AgentsService {
             url: '/api/projects/{project_id}/agents',
             path: {
                 'project_id': projectId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List Agent Example Packs
+     * The shipped packs and this project's install state ([R30.35]).
+     *
+     * Gated on `RESOURCE_CREATE_EDIT` rather than plain membership, matching
+     * `create_agent`: the only thing this listing is for is deciding what to
+     * install, and installing creates agents.
+     * @returns ExamplePackOut Successful Response
+     * @throws ApiError
+     */
+    public static listAgentExamplePacksApiProjectsProjectIdAgentsExamplePacksGet({
+        projectId,
+    }: {
+        projectId: string,
+    }): CancelablePromise<Array<ExamplePackOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/agents/example-packs',
+            path: {
+                'project_id': projectId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Install Agent Example Pack
+     * Instantiate a shipped pack into this project ([R30.35]).
+     *
+     * Creates agents and one agent group, nothing else: no chatroom, no room
+     * binding, no activity started. `pack_key` is a client-supplied path segment,
+     * which is what makes the loader's anchored traversal guard load-bearing here
+     * rather than merely tidy.
+     * @returns ExamplePackInstallReportOut Successful Response
+     * @throws ApiError
+     */
+    public static installAgentExamplePackApiProjectsProjectIdAgentsExamplePacksPackKeyInstallPost({
+        projectId,
+        packKey,
+        requestBody,
+    }: {
+        projectId: string,
+        packKey: string,
+        requestBody: ExamplePackInstallIn,
+    }): CancelablePromise<ExamplePackInstallReportOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/agents/example-packs/{pack_key}/install',
+            path: {
+                'project_id': projectId,
+                'pack_key': packKey,
             },
             body: requestBody,
             mediaType: 'application/json',

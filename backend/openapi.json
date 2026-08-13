@@ -4247,6 +4247,171 @@
         "title": "EmbedModelProviderOut",
         "type": "object"
       },
+      "ExamplePackAgentOut": {
+        "description": "One agent a pack would install, and whether this project already has it.",
+        "properties": {
+          "binds_activity_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Binds Activity Types",
+            "type": "array"
+          },
+          "installed": {
+            "title": "Installed",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "preferred_model_hint": {
+            "title": "Preferred Model Hint",
+            "type": "string"
+          },
+          "room_role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "normal",
+                  "observer"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Room Role"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "room_role",
+          "preferred_model_hint",
+          "binds_activity_types",
+          "installed"
+        ],
+        "title": "ExamplePackAgentOut",
+        "type": "object"
+      },
+      "ExamplePackInstallIn": {
+        "properties": {
+          "key_group_id": {
+            "format": "uuid",
+            "title": "Key Group Id",
+            "type": "string"
+          },
+          "model_hint": {
+            "anyOf": [
+              {
+                "enum": [
+                  "claude",
+                  "openai",
+                  "gemini"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Hint"
+          }
+        },
+        "required": [
+          "key_group_id"
+        ],
+        "title": "ExamplePackInstallIn",
+        "type": "object"
+      },
+      "ExamplePackInstallReportOut": {
+        "description": "What one install created and what was already there.\n\nBoth lists rather than a count: install is idempotent by agent name, so\n\"nothing created\" is a normal, successful outcome the installer needs to see\nthe reason for.",
+        "properties": {
+          "already_present": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Already Present",
+            "type": "array"
+          },
+          "created": {
+            "items": {
+              "$ref": "#/components/schemas/InstalledPackAgentOut"
+            },
+            "title": "Created",
+            "type": "array"
+          },
+          "group_id": {
+            "format": "uuid",
+            "title": "Group Id",
+            "type": "string"
+          },
+          "pack_key": {
+            "title": "Pack Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pack_key",
+          "created",
+          "already_present",
+          "group_id"
+        ],
+        "title": "ExamplePackInstallReportOut",
+        "type": "object"
+      },
+      "ExamplePackOut": {
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/ExamplePackAgentOut"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "for_course": {
+            "title": "For Course",
+            "type": "string"
+          },
+          "fully_installed": {
+            "title": "Fully Installed",
+            "type": "boolean"
+          },
+          "group_name": {
+            "title": "Group Name",
+            "type": "string"
+          },
+          "pack_key": {
+            "title": "Pack Key",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pack_key",
+          "title",
+          "source",
+          "for_course",
+          "group_name",
+          "agents",
+          "fully_installed"
+        ],
+        "title": "ExamplePackOut",
+        "type": "object"
+      },
       "ExportCreateIn": {
         "properties": {
           "date_range": {
@@ -5071,6 +5236,35 @@
           "access_token"
         ],
         "title": "ImpersonateOut",
+        "type": "object"
+      },
+      "InstalledPackAgentOut": {
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "model_hint": {
+            "title": "Model Hint",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "agent_id",
+          "model_hint"
+        ],
+        "title": "InstalledPackAgentOut",
         "type": "object"
       },
       "InstructionOut": {
@@ -23127,6 +23321,118 @@
           }
         },
         "summary": "Create Agent",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/agents/example-packs": {
+      "get": {
+        "description": "The shipped packs and this project's install state ([R30.35]).\n\nGated on `RESOURCE_CREATE_EDIT` rather than plain membership, matching\n`create_agent`: the only thing this listing is for is deciding what to\ninstall, and installing creates agents.",
+        "operationId": "list_agent_example_packs_api_projects__project_id__agents_example_packs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ExamplePackOut"
+                  },
+                  "title": "Response List Agent Example Packs Api Projects  Project Id  Agents Example Packs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Agent Example Packs",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/agents/example-packs/{pack_key}/install": {
+      "post": {
+        "description": "Instantiate a shipped pack into this project ([R30.35]).\n\nCreates agents and one agent group, nothing else: no chatroom, no room\nbinding, no activity started. `pack_key` is a client-supplied path segment,\nwhich is what makes the loader's anchored traversal guard load-bearing here\nrather than merely tidy.",
+        "operationId": "install_agent_example_pack_api_projects__project_id__agents_example_packs__pack_key__install_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "title": "Pack Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExamplePackInstallIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExamplePackInstallReportOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Install Agent Example Pack",
         "tags": [
           "agents"
         ]

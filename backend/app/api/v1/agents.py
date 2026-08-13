@@ -30,6 +30,7 @@ from contexts.agents.domain.models import (
     AgentToolType,
     ContextMode,
 )
+from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.orchestration.domain.models import (
     AUTOSTOP_HARD_CAP,
     N_MAX,
@@ -61,6 +62,9 @@ from shared_kernel.validation import BoundedConfig
 _MAX_SYSTEM_PROMPT = 100_000
 _MAX_REFERENCE = 2_000
 _MAX_ALLOWED_TOOLS = 200
+# A pack key is lowercase words joined by hyphens; the loader's own anchored guard
+# is the authority, this only stops an absurd path segment reaching it.
+_MAX_PACK_KEY = 100
 
 # `agents.seed` is an int4 column; bound the input to its range so an oversized
 # integer is rejected at the API (422) instead of overflowing the column (500).
@@ -438,6 +442,165 @@ async def create_agent(
         request_id=ctx.request_id,
     )
     return _to_agent_out(agent)
+
+
+# ---------------------------------------------------------------------------
+# Shipped example packs ([R30.35])
+# ---------------------------------------------------------------------------
+
+
+class ExamplePackAgentOut(BaseModel):
+    """One agent a pack would install, and whether this project already has it."""
+
+    model_config = {"protected_namespaces": ()}
+
+    key: str
+    name: str
+    # None means the agent is not meant for a class chatroom (the design agent).
+    # Advisory: installing binds no room, so nothing enforces it.
+    room_role: Literal["normal", "observer"] | None
+    preferred_model_hint: str
+    binds_activity_types: list[str]
+    installed: bool
+
+
+class ExamplePackOut(BaseModel):
+    pack_key: str
+    title: str
+    source: str
+    # The shipped course this pack is written against, so the dialog can say which
+    # activity types the prompts assume.
+    for_course: str
+    group_name: str
+    agents: list[ExamplePackAgentOut]
+    fully_installed: bool
+
+
+class ExamplePackInstallIn(BaseModel):
+    # `model_hint` collides with Pydantic's protected `model_` namespace, as
+    # AgentOut already documents by carrying the same override.
+    model_config = {"protected_namespaces": ()}
+
+    key_group_id: uuid.UUID
+    # None means "resolve from the key group": a pack names a preferred provider
+    # but never a key, and a project holding a different vendor's key must still
+    # be able to install the example.
+    model_hint: Literal["claude", "openai", "gemini"] | None = None
+
+
+class InstalledPackAgentOut(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
+    key: str
+    name: str
+    agent_id: uuid.UUID
+    # The hint actually used, which is not always the pack's preference -- reported
+    # so the installer sees what was chosen rather than assuming the pack decided.
+    model_hint: str
+
+
+class ExamplePackInstallReportOut(BaseModel):
+    """What one install created and what was already there.
+
+    Both lists rather than a count: install is idempotent by agent name, so
+    "nothing created" is a normal, successful outcome the installer needs to see
+    the reason for.
+    """
+
+    pack_key: str
+    created: list[InstalledPackAgentOut]
+    already_present: list[str]
+    group_id: uuid.UUID
+
+
+@project_router.get("/example-packs")
+async def list_agent_example_packs(
+    project_id: uuid.UUID = Path(...),
+    _=Depends(
+        require(
+            Capability.RESOURCE_CREATE_EDIT,
+            scope_from_path(project_param="project_id"),
+        )
+    ),
+    db: AsyncSession = Depends(db_session),
+) -> list[ExamplePackOut]:
+    """The shipped packs and this project's install state ([R30.35]).
+
+    Gated on `RESOURCE_CREATE_EDIT` rather than plain membership, matching
+    `create_agent`: the only thing this listing is for is deciding what to
+    install, and installing creates agents.
+    """
+    packs = await AgentsFacade(db).list_example_packs(project_id)
+    return [
+        ExamplePackOut(
+            pack_key=pack.pack_key,
+            title=pack.title,
+            source=pack.source,
+            for_course=pack.for_course,
+            group_name=pack.group_name,
+            agents=[
+                ExamplePackAgentOut(
+                    key=a.key,
+                    name=a.name,
+                    room_role=a.room_role,
+                    preferred_model_hint=a.preferred_model_hint.value,
+                    binds_activity_types=list(a.binds_activity_types),
+                    installed=a.installed,
+                )
+                for a in pack.agents
+            ],
+            fully_installed=pack.fully_installed,
+        )
+        for pack in packs
+    ]
+
+
+@project_router.post("/example-packs/{pack_key}/install")
+async def install_agent_example_pack(
+    body: ExamplePackInstallIn,
+    project_id: uuid.UUID = Path(...),
+    pack_key: str = Path(..., max_length=_MAX_PACK_KEY),
+    principal: Principal = Depends(current_principal),
+    ctx: RequestContext = Depends(current_context),
+    _=Depends(
+        require(
+            Capability.RESOURCE_CREATE_EDIT,
+            scope_from_path(project_param="project_id"),
+        )
+    ),
+    db: AsyncSession = Depends(db_session),
+) -> ExamplePackInstallReportOut:
+    """Instantiate a shipped pack into this project ([R30.35]).
+
+    Creates agents and one agent group, nothing else: no chatroom, no room
+    binding, no activity started. `pack_key` is a client-supplied path segment,
+    which is what makes the loader's anchored traversal guard load-bearing here
+    rather than merely tidy.
+    """
+    report = await AgentsFacade(db).install_example_pack(
+        project_id=project_id,
+        pack_key=pack_key,
+        key_group_id=body.key_group_id,
+        model_hint=AgentModelHint(body.model_hint) if body.model_hint else None,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    return ExamplePackInstallReportOut(
+        pack_key=report.pack_key,
+        created=[
+            InstalledPackAgentOut(
+                key=a.key,
+                name=a.name,
+                agent_id=a.agent_id,
+                model_hint=a.model_hint.value,
+            )
+            for a in report.created
+        ],
+        already_present=list(report.already_present),
+        group_id=report.group_id,
+    )
 
 
 # ---------------------------------------------------------------------------
