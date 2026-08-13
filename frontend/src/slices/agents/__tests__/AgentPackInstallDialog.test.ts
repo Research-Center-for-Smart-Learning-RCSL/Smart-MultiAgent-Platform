@@ -175,6 +175,28 @@ describe('AgentPackInstallDialog', () => {
     expect(wrapper.text()).toContain('agents.examplePacks.keyGroupsFailed')
   })
 
+  it('disables every install button while one install is in flight', async () => {
+    listPacksMock.mockResolvedValue([
+      pack(),
+      pack({ pack_key: 'creative-thinking-design', title: 'Design agent' }),
+    ])
+    // Never settles, so the in-flight state is observable.
+    installMock.mockReturnValue(new Promise(() => {}))
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="install-creative-thinking-room"]').trigger('click')
+    await flushPromises()
+
+    // The other pack's button too: `pendingPack` is single-valued, so a second
+    // install started here would overwrite it and the first completion would
+    // clear the pending state for the wrong pack.
+    expect(
+      wrapper.find('[data-testid="install-creative-thinking-design"]').attributes('disabled'),
+    ).toBeDefined()
+  })
+
   it('shows the empty state when the deployment ships no packs', async () => {
     listPacksMock.mockResolvedValue([])
 

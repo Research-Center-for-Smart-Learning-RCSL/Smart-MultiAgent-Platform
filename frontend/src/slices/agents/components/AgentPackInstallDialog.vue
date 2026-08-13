@@ -238,10 +238,14 @@ function roleLabel(role: string | null): string {
                 </span>
               </div>
 
+              <!-- Disabled while *any* install is in flight, not just this row's.
+                   `pendingPack` is single-valued, so a second install started
+                   before the first settles overwrites it and the first one's
+                   completion clears the pending state for the wrong pack. -->
               <SButton
                 variant="primary"
                 size="sm"
-                :disabled="!canInstall || pendingPack === pack.pack_key"
+                :disabled="!canInstall || pendingPack !== null"
                 :data-testid="`install-${pack.pack_key}`"
                 @click="install(pack.pack_key)"
               >
