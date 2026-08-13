@@ -805,6 +805,32 @@ Apply verbatim on approval.
   unit and component tests. This is the same gap the `2026-08-09-chatroom-rail-scroll-and-resize`
   dossier closed with, and it carries the same instruction: confirm on the first deployed build.
 
+Appended after `/code-review` on the finished branch:
+
+- **D-13** — **Every agent a pack names now joins its group, not only the ones the run
+  created**, and `AgentGroupService.add_member` emits `agent_group.member_added` only on a
+  real insert (`AgentGroupRepository.add_member` returns whether it inserted, mirroring
+  `remove_member`). This was recorded as FU-10 and deliberately deferred on the grounds that
+  adding existing members would write false audit events. The review found two paths into
+  the gap that the deferral had not considered — re-installing to recover a deleted group
+  leaves it empty, and an agent someone hand-authored under a pack's name silently stays out
+  with nothing in the report mentioning it — and the audit objection turned out to be fixable
+  at its source rather than a reason to accept the gap. Touches `contexts/agent_groups`,
+  which this task otherwise only consumed.
+- **D-14** — **All install buttons are disabled while any install is in flight.**
+  `pendingPack` is single-valued, so disabling only the in-flight row let a second install
+  start, overwrite it, and have the first completion clear the pending state for the wrong
+  pack.
+- **D-15** — **The observer notice was reworded.** It named "this pack" while being rendered
+  once above the whole list and gated on *any* pack carrying an observer, so it sat above the
+  design pack and attributed a silent observer to it.
+- **D-16** — **The upgrade note now states the trap rather than only the remedy.** §10 and
+  the docs said the correction cannot reach an installed deployment and gave the delete-then-
+  reinstall step. What neither said is that re-installing *without* deleting half-works: it
+  creates the two new types, leaves the two corrected ones untouched, and reports success —
+  so the mandala still renders 格 1 to 格 8 against agent prompts describing 家 / 工作 /
+  具備能力, and `x-order` is inert for exactly the units it exists to fix.
+
 ## 16. Follow-ups
 
 - **FU-1** — `app/api/v1/agents.py` calls `AgentService` directly at fourteen sites instead of
@@ -843,13 +869,10 @@ Apply verbatim on approval.
   intentional (Q-1); these helpers are not artifact-specific and belong in `shared_kernel`.
   Deferred because lifting them means editing the activities loader, outside this task's
   blast radius.
-- **FU-10** — `install_pack` adds only newly created agents to the group. An installer who
-  renames the pack's group and re-installs therefore gets a second, empty group beside it.
-  Adding the already-present agents too would converge instead, and `add_member` is
-  idempotent at the repository (`ON CONFLICT DO NOTHING`, `group_repository.py:195-205`) —
-  but `AgentGroupService.add_member` emits `agent_group.member_added` unconditionally, so it
-  would write audit events for memberships that already existed. Fixing this properly means
-  making that emission conditional on a real insert.
+- **FU-10** — ~~`install_pack` adds only newly created agents to the group.~~ **Resolved by
+  code review, see D-13.** The deferral reasoning was right about the audit-noise cost and
+  wrong to stop there: the review surfaced two commoner paths into the gap than the rename
+  case this entry described, and the emission was fixable at its source.
 - **FU-11** — `backend/pyproject.toml` pins dependency *ranges*, so `backend/openapi.json` is
   reproducible only against whatever resolves at generation time; D-8 is what that costs in
   practice. A lock file, or an exact pin on the codegen-relevant dependencies, would make
