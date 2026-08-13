@@ -1,7 +1,7 @@
 """Shipped agent packs: read the catalogue, install one into a project ([R30.35]).
 
 Copy-on-import, not a shared platform row. An `Agent` needs a project-owned key
-group carrying a real provider key (`agent_service._assert_key_group_in_project`,
+group carrying a real provider key (`AgentService.assert_key_group_in_project`,
 `_assert_key_group_has_provider`), and under BYO-key the platform owns no key, so
 the platform-scoped model the activity examples use has no analogue here. The
 consequence is a feature rather than a compromise: an installed agent's prompt,
