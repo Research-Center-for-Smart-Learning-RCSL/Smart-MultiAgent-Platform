@@ -70,6 +70,43 @@ describe('mandala9GridPlugin', () => {
     teardown()
   })
 
+  it('reproduces the 時空旅人 worksheet from a jsonb-ordered schema (AC-1)', () => {
+    // Properties are written here in the order PostgreSQL actually returns them
+    // (by length, then bytewise), not the order the course file declares. The
+    // worksheet layout must come back regardless, which is what x-order buys.
+    const { container, teardown } = mount({
+      type: 'object',
+      properties: {
+        free: { type: 'string', title: '自由發揮', 'x-order': 8 },
+        home: { type: 'string', title: '家', 'x-order': 1 },
+        work: { type: 'string', title: '工作', 'x-order': 2 },
+        center: { type: 'string', title: '30 歲的我會有什麼改變呢？', 'x-order': 5 },
+        leisure: { type: 'string', title: '休閒娛樂', 'x-order': 6 },
+        abilities: { type: 'string', title: '具備能力', 'x-order': 3 },
+        appearance: { type: 'string', title: '外貌', 'x-order': 4 },
+        relationships: { type: 'string', title: '人際關係', 'x-order': 9 },
+        message_to_self: { type: 'string', title: '想對 30 歲的自己說…', 'x-order': 7 },
+      },
+      required: [],
+    })
+
+    const cells = container.querySelectorAll('[data-testid="mandala-grid"] > div')
+    const ids = Array.from(cells).map((c) => c.querySelector('textarea')?.id)
+    expect(ids).toEqual([
+      'mandala-home',
+      'mandala-work',
+      'mandala-abilities',
+      'mandala-appearance',
+      'mandala-center',
+      'mandala-leisure',
+      'mandala-message_to_self',
+      'mandala-free',
+      'mandala-relationships',
+    ])
+    expect(cells[4]?.getAttribute('data-testid')).toBe('mandala-cell-center')
+    teardown()
+  })
+
   it('treats the first property as the centre when none is named center (AC-8)', () => {
     const properties: Record<string, JSONSchema> = {}
     for (let i = 1; i <= 9; i += 1) properties[`f${i}`] = { type: 'string' }
