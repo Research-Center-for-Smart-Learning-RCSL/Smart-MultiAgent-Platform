@@ -280,6 +280,51 @@ class TestUnknownPack:
             await _install(service, pack_key="../secrets")
 
 
+class TestTenantIsolation:
+    """AC-13. Installing must not become a way to build agents against another
+    project's keys.
+
+    The guard is `AgentService._assert_key_group_in_project`, which `create`
+    already runs unconditionally; what this file owns is that the install path
+    hands it the *route's* project id rather than anything derived from the
+    request body.
+    """
+
+    async def test_the_route_project_id_is_what_reaches_every_create(self) -> None:
+        service, doubles = _service()
+        project_id = uuid.uuid4()
+
+        await service.install_pack(
+            project_id=project_id,
+            pack_key=_ROOM_PACK,
+            key_group_id=uuid.uuid4(),
+            model_hint=None,
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
+        )
+
+        assert doubles["agents"].create.await_count > 0
+        for call in doubles["agents"].create.await_args_list:
+            assert call.kwargs["project_id"] == project_id
+
+    async def test_a_key_group_from_another_project_is_refused(self) -> None:
+        """Exercised on the real guard, as `test_agent_config_project_guard` does
+        for RAG configs: bypass __init__ and drive the one method."""
+        from contexts.agents.application.agent_service import AgentService
+        from contexts.agents.domain.errors import KeyGroupOutOfProject
+
+        keys = MagicMock()
+        keys.get_key_group = AsyncMock(return_value=MagicMock(project_id=uuid.uuid4()))
+        agent_service = AgentService.__new__(AgentService)
+        agent_service._keys = keys  # type: ignore[attr-defined]
+
+        with pytest.raises(KeyGroupOutOfProject):
+            await agent_service._assert_key_group_in_project(
+                key_group_id=uuid.uuid4(),
+                project_id=uuid.uuid4(),
+            )
+
+
 class TestCatalogue:
     async def test_lists_both_packs_with_their_install_state(self) -> None:
         pack = load_pack(_ROOM_PACK)
