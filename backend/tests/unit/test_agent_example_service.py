@@ -186,6 +186,20 @@ class TestInstallPack:
         assert report.already_present == tuple(a.name for a in pack.agents)
         doubles["agents"].create.assert_not_awaited()
 
+    async def test_an_agent_the_project_already_had_still_joins_the_group(self) -> None:
+        """The group is the pack's end state, not a log of what this run created.
+
+        Two ways to reach this: re-installing to recover a deleted group, and a
+        project that already had an agent under one of the pack's names. Both used
+        to leave that agent outside the group with nothing in the report saying so.
+        """
+        pack = load_pack(_ROOM_PACK)
+        service, doubles = _service(existing_names=[pack.agents[0].name])
+
+        await _install(service)
+
+        assert doubles["groups"].add_member.await_count == len(pack.agents)
+
     async def test_a_partial_install_fills_only_the_gap(self) -> None:
         pack = load_pack(_ROOM_PACK)
         service, doubles = _service(existing_names=[pack.agents[0].name])

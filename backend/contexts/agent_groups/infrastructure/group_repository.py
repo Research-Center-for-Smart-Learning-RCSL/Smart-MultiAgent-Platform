@@ -192,17 +192,23 @@ class AgentGroupRepository:
         )
         return bool(rowcount(result))
 
-    async def add_member(self, *, group_id: uuid.UUID, agent_id: uuid.UUID) -> None:
-        """Add an agent to a group; idempotent on the (group, agent) PK.
+    async def add_member(self, *, group_id: uuid.UUID, agent_id: uuid.UUID) -> bool:
+        """Add an agent to a group; returns whether a row was actually inserted.
 
         ``ON CONFLICT DO NOTHING`` so re-adding an existing member is a no-op
         rather than an IntegrityError — the caller need not pre-check membership.
+
+        The return value exists so the service can keep its audit event truthful:
+        a caller that adds a whole set of agents, some of them already members,
+        would otherwise record `member_added` for memberships that already
+        existed. Mirrors ``remove_member``'s did-anything-happen contract.
         """
-        await self._db.execute(
+        result = await self._db.execute(
             pg_insert(t.agent_group_members)
             .values(agent_group_id=group_id, agent_id=agent_id)
             .on_conflict_do_nothing(index_elements=["agent_group_id", "agent_id"])
         )
+        return bool(rowcount(result))
 
     async def remove_member(self, *, group_id: uuid.UUID, agent_id: uuid.UUID) -> bool:
         """Remove an agent from a group; returns whether a row was deleted."""
