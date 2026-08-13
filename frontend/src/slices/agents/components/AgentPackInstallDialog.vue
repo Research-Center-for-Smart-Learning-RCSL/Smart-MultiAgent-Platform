@@ -69,6 +69,16 @@ const keyGroupOptions = computed(() =>
   keyGroups.value.map((g) => ({ value: g.id, label: g.name })),
 )
 
+/** Why the install buttons are inert, when they are. Without this the dialog
+ *  renders fully, offers a select with nothing in it, and leaves the reader to
+ *  guess whether the project has no key groups or the request for them failed. */
+const keyGroupProblem = computed<string | null>(() => {
+  if (keyGroupsQuery.isLoading.value) return null
+  if (keyGroupsQuery.isError.value) return t('agents.examplePacks.keyGroupsFailed')
+  if (keyGroups.value.length === 0) return t('agents.examplePacks.noKeyGroups')
+  return null
+})
+
 // Preselect the only choice rather than making the installer open a select with
 // one entry. Deliberately not a default when there are several: which key group
 // an agent runs on is a real decision.
@@ -191,6 +201,16 @@ function roleLabel(role: string | null): string {
             :placeholder="t('agents.examplePacks.keyGroupPlaceholder')"
           />
         </SFormField>
+        <!-- Its own line rather than SFormField's `error` slot: this is a
+             precondition the reader has not violated, not a validation failure
+             on something they typed. -->
+        <p
+          v-if="keyGroupProblem"
+          class="text-sm text-[var(--color-danger)]"
+          role="alert"
+        >
+          {{ keyGroupProblem }}
+        </p>
 
         <ul class="flex flex-col gap-3">
           <li
