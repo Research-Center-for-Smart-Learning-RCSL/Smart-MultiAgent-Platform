@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-08-13
 requirements: [R9.01, R9.02, R15.01, R28.01, R28.04, R30.15, R30.17, R30.18, R30.23, R30.27, R30.28, R30.32, R30.33]
 depends_on: []

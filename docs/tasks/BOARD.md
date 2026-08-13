@@ -16,13 +16,6 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-- `2026-08-13-creative-thinking-example-agents` (feature, approved) — `depends_on: []`. Ships two
-  example agent packs (TA/SA/AA in one, DA in the other) for the shipped creative-thinking
-  course, installed copy-on-import into a project because an agent cannot be platform-scoped
-  under BYO-key. Also corrects the course example against its source worksheets and makes
-  payload-schema field order explicit, since `payload_schema` is `jsonb` and does not preserve
-  key order. **Build AC-4's `db`-tier test first** — the whole `x-order` half rests on that
-  premise being real.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
@@ -36,6 +29,13 @@ parallel.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+- `2026-08-13-creative-thinking-example-agents` (feature) — `depends_on: []`. Ships two example
+  agent packs (TA/SA/AA in one, DA in the other) for the shipped creative-thinking course,
+  installed copy-on-import into a project because an agent cannot be platform-scoped under
+  BYO-key. Also corrects the course example against its source worksheets and makes
+  payload-schema field order explicit, since `payload_schema` is `jsonb` and does not preserve
+  key order. **AC-4's `db`-tier test is the premise check for the whole `x-order` half** and
+  can only run on CI; the `x-order` commits are kept separately revertable in case it fails.
 Removed on 2026-08-09 after implementation: `2026-08-09-platform-example-activity-types`
 (migration 0076 gives `activity_types` a `scope`, the example catalogue moves out of the
 `smap` CLI package into `contexts/activities/infrastructure/examples/`, and seven duplicated
