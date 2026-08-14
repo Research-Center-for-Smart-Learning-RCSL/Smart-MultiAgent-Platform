@@ -38,10 +38,10 @@ __all__ = [
     "ParserError",
     "ResourceBudgetError",
     "normalise_mime",
-    "parse_path",
-    "parse_path_isolated",
     "parse_docx",
     "parse_markdown",
+    "parse_path",
+    "parse_path_isolated",
     "parse_pdf",
     "parse_plaintext",
 ]
@@ -55,7 +55,7 @@ def normalise_mime(raw: str, filename: str) -> str:
     """
     # Strip MIME parameters (e.g. "; charset=utf-8") so downstream lookups
     # match the bare media type (M6).
-    raw = raw.split(";")[0].strip()
+    raw = raw.split(";", maxsplit=1)[0].strip()
     if raw and raw not in {"application/octet-stream", ""}:
         return raw
     guessed, _ = mimetypes.guess_type(filename)

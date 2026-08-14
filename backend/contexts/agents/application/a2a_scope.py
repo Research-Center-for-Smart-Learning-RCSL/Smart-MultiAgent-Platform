@@ -124,9 +124,7 @@ def enforce(ipt: A2ACheckInput) -> None:
     """
     verdict = evaluate(ipt)
     if not verdict.allowed:
-        raise A2AForbidden(
-            f"a2a denied: {verdict.reason} " f"(caller={ipt.caller.id}, callee={ipt.callee.id})"
-        )
+        raise A2AForbidden(f"a2a denied: {verdict.reason} (caller={ipt.caller.id}, callee={ipt.callee.id})")
 
 
 def contexts_frozenset(ids: Iterable[uuid.UUID]) -> frozenset[uuid.UUID]:

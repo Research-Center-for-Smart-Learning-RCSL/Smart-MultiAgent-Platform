@@ -1020,7 +1020,7 @@ class AgentService:
 
         if tool_type in SINGLETON_TOOL_TYPES:
             raise AgentToolTypeImmutable(
-                f"singleton tool {tool_type.value} is auto-provisioned; " f"toggle via PATCH /tools/{{id}}"
+                f"singleton tool {tool_type.value} is auto-provisioned; toggle via PATCH /tools/{{id}}"
             )
         if tool_type == AgentToolType.LOCAL_SHELL:
             raise ToolNotAvailable("local_shell is not available yet")
@@ -1187,7 +1187,7 @@ class AgentService:
             raise AgentToolNotFound(str(tool_id))
         if existing.is_singleton():
             raise AgentToolTypeImmutable(
-                f"singleton tool {existing.tool_type.value} cannot be deleted; " f"disable via PATCH"
+                f"singleton tool {existing.tool_type.value} cannot be deleted; disable via PATCH"
             )
         await self._tools.remove(agent_id=agent_id, tool_id=tool_id)
         await audit.emit(

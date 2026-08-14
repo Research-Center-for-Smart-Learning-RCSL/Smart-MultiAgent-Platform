@@ -39,7 +39,7 @@ from shared_kernel.auth.clients import get_redis, get_vault_client
 
 # Pinned Google OIDC endpoints (never discovered from the token/iss — SSRF-nil).
 _AUTHORIZE_URL: Final = "https://accounts.google.com/o/oauth2/v2/auth"
-_TOKEN_URL: Final = "https://oauth2.googleapis.com/token"
+_TOKEN_URL: Final = "https://oauth2.googleapis.com/token"  # noqa: S105 — endpoint URL
 _JWKS_URL: Final = "https://www.googleapis.com/oauth2/v3/certs"
 _ISSUERS: Final = frozenset({"https://accounts.google.com", "accounts.google.com"})
 _SCOPES: Final = "openid email profile"

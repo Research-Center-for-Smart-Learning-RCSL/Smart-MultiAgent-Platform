@@ -108,8 +108,8 @@ class InstructCapabilityDenied(OrchestrationError):
 
 
 __all__ = [
-    "A2ACallDepthExceeded",
     "A2ACallCancelled",
+    "A2ACallDepthExceeded",
     "A2ACallLoop",
     "A2ADeliveryFailed",
     "A2AForbidden",

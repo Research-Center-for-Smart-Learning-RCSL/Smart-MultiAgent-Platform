@@ -86,7 +86,7 @@ async def test_activate_audits_each_deactivated_key(monkeypatch: pytest.MonkeyPa
     service = SearchKeyService(_FakeSession())  # type: ignore[arg-type]
     service._repo = _Repo(project_id, deactivated=[deactivated_key_id])  # type: ignore[assignment]
     monkeypatch.setattr(search_service.audit, "emit", _emit)
-    monkeypatch.setattr(search_service, "get_redis", lambda: _FakeRedis())
+    monkeypatch.setattr(search_service, "get_redis", _FakeRedis)
 
     await service.activate(
         project_id=project_id,
@@ -118,7 +118,7 @@ async def test_activate_returns_the_activated_keys_provider(
     service = SearchKeyService(_FakeSession())  # type: ignore[arg-type]
     service._repo = _Repo(project_id, provider)  # type: ignore[assignment]
     monkeypatch.setattr(search_service.audit, "emit", _noop_emit)
-    monkeypatch.setattr(search_service, "get_redis", lambda: _FakeRedis())
+    monkeypatch.setattr(search_service, "get_redis", _FakeRedis)
 
     result = await service.activate(project_id=project_id, key_id=key_id, actor_user_id=uuid.uuid4())
 

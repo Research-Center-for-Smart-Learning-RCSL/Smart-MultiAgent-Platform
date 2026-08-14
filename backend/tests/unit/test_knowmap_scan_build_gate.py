@@ -43,7 +43,7 @@ class _Session:
 
 
 def _sm() -> Any:
-    return lambda: _Session()
+    return _Session
 
 
 def _install_repos(monkeypatch, *, doc: object, bumped_rev: int = 5) -> list[dict[str, Any]]:

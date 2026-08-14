@@ -392,4 +392,4 @@ class MessageService:
         await self._db.flush()
 
 
-__all__ = ["EditAuthority", "MessageService", "SELF_EDIT_WINDOW"]
+__all__ = ["SELF_EDIT_WINDOW", "EditAuthority", "MessageService"]

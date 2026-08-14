@@ -374,7 +374,7 @@ class TusService:
             staged_bytes = await asyncio.to_thread(os.path.getsize, upload.staging_path)
             if staged_bytes != upload.upload_length:
                 raise TusSizeMismatch(
-                    f"staged file holds {staged_bytes} bytes, " f"declared length is {upload.upload_length}",
+                    f"staged file holds {staged_bytes} bytes, declared length is {upload.upload_length}",
                 )
             if upload.purpose == "chat_attachment":
                 assert upload.chatroom_id is not None  # guaranteed by create()

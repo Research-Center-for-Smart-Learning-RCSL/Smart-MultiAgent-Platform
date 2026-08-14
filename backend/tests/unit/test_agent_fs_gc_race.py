@@ -609,9 +609,9 @@ class TestTheInvariantTheSweepRestsOn:
             def begin(self):
                 return _CM()
 
-        session.begin = lambda: _CM()
+        session.begin = _CM
 
-        with patch.object(ret, "get_sessionmaker", return_value=lambda: _CM()):
+        with patch.object(ret, "get_sessionmaker", return_value=_CM):
             await ret._purge_soft_deleted_tenancy(session)
 
         deletes = [

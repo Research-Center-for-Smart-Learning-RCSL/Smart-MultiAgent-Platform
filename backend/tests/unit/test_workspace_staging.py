@@ -75,7 +75,7 @@ def _facade(ws_files):
 def _patch_storage(monkeypatch):
     import shared_kernel.storage as storage_mod
 
-    monkeypatch.setattr(storage_mod, "get_minio_client", lambda: _Storage())
+    monkeypatch.setattr(storage_mod, "get_minio_client", _Storage)
 
 
 async def _stage(ws_files) -> tuple[_Runner, list[str]]:
@@ -432,7 +432,7 @@ async def test_a_pending_scan_withholds_the_script_too(monkeypatch) -> None:
     skill = make_skill(name="s")
     files = [make_skill_file(skill.id, path="scripts/run.py", scan_status=SkillScanStatus.PENDING)]
 
-    runner, out, _dropped = await _stage_skills(monkeypatch, _bound((skill, files)))
+    runner, _out, _dropped = await _stage_skills(monkeypatch, _bound((skill, files)))
 
     assert runner.calls == []
 

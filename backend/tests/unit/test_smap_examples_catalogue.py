@@ -468,7 +468,7 @@ class TestLoaderRejectsAMalformedCourse:
 
     def test_invalid_json(self, tmp_path: Path) -> None:
         (tmp_path / "fixture-course.json").write_bytes(b'{"course_key": ')
-        with pytest.raises(CourseFileInvalid, match="fixture-course.json"):
+        with pytest.raises(CourseFileInvalid, match=r"fixture-course\.json"):
             load_course("fixture-course", root=tmp_path)
 
     def test_a_file_that_is_not_utf8(self, tmp_path: Path) -> None:

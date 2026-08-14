@@ -78,7 +78,7 @@ _KIND_BY_TOP_LEVEL: dict[str, SkillFileKind] = {
 
 def kind_for_path(path: str) -> SkillFileKind:
     """R31.18 — the directory decides the kind. Assumes `skill_file_path_reason` passed."""
-    return _KIND_BY_TOP_LEVEL[path.split("/")[0]]
+    return _KIND_BY_TOP_LEVEL[path.split("/", maxsplit=1)[0]]
 
 
 def file_sha256(data: bytes) -> str:

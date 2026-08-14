@@ -168,7 +168,7 @@ class InviteService:
         row = (
             await self._db.execute(
                 sa.text(
-                    "SELECT id FROM users" " WHERE LOWER(email) = LOWER(:email)" " AND deleted_at IS NULL"
+                    "SELECT id FROM users WHERE LOWER(email) = LOWER(:email) AND deleted_at IS NULL"
                 ).bindparams(email=invitee_email)
             )
         ).first()

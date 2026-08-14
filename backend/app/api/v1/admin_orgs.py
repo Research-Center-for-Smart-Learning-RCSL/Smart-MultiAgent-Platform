@@ -124,7 +124,7 @@ async def force_transfer_oc(
     )
     result = await db.execute(
         sa.text(
-            "UPDATE org_members SET is_original_creator = true " "WHERE org_id = :oid AND user_id = :uid"
+            "UPDATE org_members SET is_original_creator = true WHERE org_id = :oid AND user_id = :uid"
         ).bindparams(oid=org_id, uid=body.target_user_id)
     )
     if result.rowcount == 0:  # type: ignore[attr-defined]

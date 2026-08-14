@@ -117,7 +117,7 @@ async def test_policy_isolates_per_item_failure_and_uses_a_session_per_pin() -> 
             nonlocal sessions_opened
             sessions_opened += 1
             session = AsyncMock()
-            session.begin = lambda: _Begin()
+            session.begin = _Begin
             return session
 
         async def __aexit__(self, *_a: object) -> None:

@@ -60,7 +60,7 @@ async def test_member_lookup_calls_get_knowmap_config_and_subscribes_its_channel
         return auth
 
     monkeypatch.setattr(ws_mod, "authenticate_subprotocol", _fake_auth)
-    monkeypatch.setattr(ws_mod, "get_sessionmaker", lambda: (lambda: _NullCtx()))
+    monkeypatch.setattr(ws_mod, "get_sessionmaker", lambda: _NullCtx)
 
     facade = AsyncMock()
     project_id = uuid.uuid4()

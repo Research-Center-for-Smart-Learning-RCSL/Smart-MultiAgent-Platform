@@ -74,12 +74,12 @@ def test_patch_still_clears_to_null() -> None:
 
 @pytest.mark.parametrize("bad_n", [None, "many", True, 0, 5000])
 def test_patch_rejects_wrong_typed_wakeup_fields(bad_n: object) -> None:
-    with pytest.raises(ValidationError, match="wakeup_config.*n"):
+    with pytest.raises(ValidationError, match=r"wakeup_config.*n"):
         AgentPatchIn(wakeup_config={"triggers": {"every_n_messages": {"n": bad_n}}})
 
 
 def test_create_rejects_wrong_typed_wakeup_fields() -> None:
-    with pytest.raises(ValidationError, match="wakeup_config.*n"):
+    with pytest.raises(ValidationError, match=r"wakeup_config.*n"):
         _create(wakeup_config={"triggers": {"every_n_messages": {"n": None}}})
 
 

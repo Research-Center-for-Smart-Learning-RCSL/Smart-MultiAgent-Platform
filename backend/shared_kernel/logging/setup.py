@@ -101,4 +101,4 @@ def configure_logging(settings: Any) -> None:
         lg.propagate = False
 
 
-__all__ = ["configure_logging", "_REQUIRED_FIELDS"]
+__all__ = ["_REQUIRED_FIELDS", "configure_logging"]

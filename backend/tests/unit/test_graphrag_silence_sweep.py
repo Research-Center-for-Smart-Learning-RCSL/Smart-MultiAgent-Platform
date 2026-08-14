@@ -96,7 +96,7 @@ async def test_silence_sweep_enqueues_fired_configs_and_isolates_failures(monkey
 
     _FakeRepo.configs = [boom, idle, fresh]
     db = _FakeDb()
-    monkeypatch.setattr(graphrag_task, "get_sessionmaker", lambda: (lambda: _Session(db)))
+    monkeypatch.setattr(graphrag_task, "get_sessionmaker", lambda: lambda: _Session(db))
     monkeypatch.setattr(graphrag_task, "GraphRagConfigRepository", _FakeRepo)
     monkeypatch.setattr(trigger_mod, "RedisGraphRagSilenceClock", _Clock)
 

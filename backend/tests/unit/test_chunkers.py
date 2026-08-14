@@ -179,7 +179,7 @@ async def test_semantic_respects_capacity() -> None:
     same = [1.0, 0.0]
     out = await chunk_semantic(
         text,
-        embedder=_StubEmbedder({s: same for s in ["aa bb.", "cc dd.", "ee ff."]}),
+        embedder=_StubEmbedder(dict.fromkeys(["aa bb.", "cc dd.", "ee ff."], same)),
         max_tokens_per_chunk=2,  # each sentence is 2 tokens → one sentence per chunk
         similarity_threshold=0.1,
     )

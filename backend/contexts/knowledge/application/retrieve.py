@@ -46,7 +46,7 @@ from contexts.knowledge.infrastructure.repositories import (
 
 _log = logging.getLogger(__name__)
 
-__all__ = ["RetrievedChunk", "RetrieveService"]
+__all__ = ["RetrieveService", "RetrievedChunk"]
 
 
 @dataclass(frozen=True, slots=True)

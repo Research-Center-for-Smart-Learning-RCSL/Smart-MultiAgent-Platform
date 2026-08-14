@@ -567,7 +567,7 @@ def _wire_service(
 async def test_release_to_room_creates_system_message(monkeypatch) -> None:
     observer_id = uuid.uuid4()
     obs = _observation(uuid.uuid4(), observer_id)
-    service, room_id, obs_repo, messages, audits, pushes = _wire_service(
+    service, room_id, obs_repo, messages, _audits, pushes = _wire_service(
         monkeypatch, observation=obs, disclose=True
     )
 
@@ -1357,7 +1357,7 @@ async def test_pending_context_requeues_released_observation_for_headless_turn(m
     agent = _observer_agent()
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = object()  # type: ignore[attr-defined]
-    block, tools, drained, _voted = await engine._pending_context_and_tools(agent, None)
+    block, _tools, drained, _voted = await engine._pending_context_and_tools(agent, None)
 
     assert block is None
     assert drained == []

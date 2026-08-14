@@ -26,8 +26,8 @@ ADMIN_RESET_FORCE_DESCRIPTION = (
 class PaginationParams:
     """Reusable limit/offset pagination extracted from query-string params."""
 
-    limit: int = Query(100, ge=1, le=500, description="Max items to return")  # noqa: RUF009
-    offset: int = Query(0, ge=0, description="Number of items to skip")  # noqa: RUF009
+    limit: int = Query(100, ge=1, le=500, description="Max items to return")
+    offset: int = Query(0, ge=0, description="Number of items to skip")
 
 
 def parse_if_match(raw: str | None) -> int | None:

@@ -375,7 +375,7 @@ class TestIngest:
 
         with (
             patch(f"{_MOD}.emit_knowmap_reupload_audit", AsyncMock()) as reupload_audit,
-            pytest.raises(DocumentAllowlistConflict, match="/api/knowmap-documents/.+/agents"),
+            pytest.raises(DocumentAllowlistConflict, match=r"/api/knowmap-documents/.+/agents"),
         ):
             await svc.ingest(
                 ipt=_ipt(agent_ids=(agent_a, agent_b)),

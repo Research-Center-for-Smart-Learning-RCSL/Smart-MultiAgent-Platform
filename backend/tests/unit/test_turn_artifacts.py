@@ -62,7 +62,7 @@ def _engine() -> SimpleNamespace:
     daemon -- a dependency they never meant to have and nothing declared.
     """
     engine = SimpleNamespace(_db=_FakeDB())
-    engine._sandbox = lambda: SimpleNamespace()
+    engine._sandbox = SimpleNamespace
     engine._artifact_bytes = partial(TurnEngine._artifact_bytes, engine)
     return engine
 

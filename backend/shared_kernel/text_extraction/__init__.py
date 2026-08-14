@@ -21,9 +21,9 @@ __all__ = [
     "ExtractionLimits",
     "ParserError",
     "ResourceBudgetError",
-    "parse_path",
     "parse_docx",
     "parse_markdown",
+    "parse_path",
     "parse_pdf",
     "parse_plaintext",
 ]

@@ -130,7 +130,7 @@ class TestSeededDefinitions:
 
     @pytest.mark.parametrize("course_type", COURSE_TYPES, ids=lambda t: t.key)
     def test_a_realistic_submission_passes_schema_validation(self, course_type: CourseActivityType) -> None:
-        payload = {name: "x" for name in course_type.payload_schema["properties"]}
+        payload = dict.fromkeys(course_type.payload_schema["properties"], "x")
         assert payload_errors(course_type.payload_schema, payload) == []
 
 

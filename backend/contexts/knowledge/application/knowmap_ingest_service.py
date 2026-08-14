@@ -600,9 +600,9 @@ async def enqueue_knowmap_scan(
 
 
 __all__ = [
+    "MAX_MULTIPART_BYTES",
     "KnowmapIngestInput",
     "KnowmapIngestService",
-    "MAX_MULTIPART_BYTES",
     "enqueue_knowmap_scan",
     "knowmap_source_object_key",
 ]

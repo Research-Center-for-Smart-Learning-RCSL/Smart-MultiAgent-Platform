@@ -132,7 +132,7 @@ async def test_final_rag_download_failure_terminally_fails_owned_claim(
     scanner = SimpleNamespace(scan_file=AsyncMock())
     failed_emit = AsyncMock()
     settings = SimpleNamespace(security=SimpleNamespace(file_scan_enabled=True, clamav_max_scan_bytes=1000))
-    monkeypatch.setattr(rag_tasks, "get_sessionmaker", lambda: _SessionMaker())
+    monkeypatch.setattr(rag_tasks, "get_sessionmaker", _SessionMaker)
     monkeypatch.setattr(rag_tasks, "RagDocumentRepository", _Repo)
     monkeypatch.setattr(
         rag_tasks,

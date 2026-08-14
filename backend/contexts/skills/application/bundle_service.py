@@ -308,7 +308,7 @@ def read_bundle(data: bytes) -> ParsedBundle:
                 # Two paths differing only by case import cleanly on Linux prod and
                 # destroy one another on a Windows dev box (§8 item 8).
                 raise BundleInvalid(
-                    f"bundle entries {seen[collision]!r} and {path!r} collide " f"case-insensitively",
+                    f"bundle entries {seen[collision]!r} and {path!r} collide case-insensitively",
                     path=path,
                 )
             seen[collision] = path

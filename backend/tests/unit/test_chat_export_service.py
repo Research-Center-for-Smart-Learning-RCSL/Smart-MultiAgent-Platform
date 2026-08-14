@@ -267,7 +267,7 @@ class TestChatExportBuildAndUpload:
         db = AsyncMock()
         svc = ChatExportService(db)
 
-        bucket, key = await svc.build_and_upload_export(
+        bucket, _key = await svc.build_and_upload_export(
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_USER,
@@ -340,7 +340,7 @@ class TestChatExportBuildAndUpload:
         db = AsyncMock()
         svc = ChatExportService(db)
 
-        bucket, key = await svc.build_and_upload_export(
+        _bucket, _key = await svc.build_and_upload_export(
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_USER,

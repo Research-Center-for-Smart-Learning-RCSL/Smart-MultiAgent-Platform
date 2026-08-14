@@ -207,7 +207,7 @@ class _PagingRepo:
 def _install(monkeypatch: Any, db: _FakeDb, enqueue: Any, repo: Any = None) -> None:
     import contexts.tenancy.interfaces.facade as tenancy_facade
 
-    monkeypatch.setattr(knowmap_task, "get_sessionmaker", lambda: (lambda: _Session(db)))
+    monkeypatch.setattr(knowmap_task, "get_sessionmaker", lambda: lambda: _Session(db))
     monkeypatch.setattr(knowmap_task, "KnowmapConfigRepository", repo or _PagingRepo)
     monkeypatch.setattr(knowmap_task, "enqueue_knowmap_build", enqueue)
     monkeypatch.setattr(tenancy_facade, "TenancyFacade", _FakeTenancy)

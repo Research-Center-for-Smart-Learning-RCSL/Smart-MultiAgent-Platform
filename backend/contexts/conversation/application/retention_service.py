@@ -194,4 +194,4 @@ class RetentionService:
                 return by_room
 
 
-__all__ = ["PurgeReport", "RETENTION", "RetentionService"]
+__all__ = ["RETENTION", "PurgeReport", "RetentionService"]

@@ -530,8 +530,8 @@ def _session_maker(session):
         def begin(self):
             return _CM()
 
-    session.begin = lambda: _CM()
-    return lambda: _CM()
+    session.begin = _CM
+    return _CM
 
 
 class TestPurgeSoftDeletedTenancy:

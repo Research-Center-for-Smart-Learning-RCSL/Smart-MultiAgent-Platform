@@ -66,7 +66,7 @@ def vault_approle(
     # Secret_id only lands on stdout once (O5.01-style); operator must capture.
     for c in creds:
         if c.secret_id is not None:
-            typer.echo(f"[vault-approle] role={c.name} role_id={c.role_id} " f"secret_id={c.secret_id}")
+            typer.echo(f"[vault-approle] role={c.name} role_id={c.role_id} secret_id={c.secret_id}")
 
 
 @app.command("db-init")

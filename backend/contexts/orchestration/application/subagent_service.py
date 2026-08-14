@@ -125,7 +125,7 @@ class SubagentService:
                 ),
             )
             raise SubagentDepthExceeded(
-                f"instance {parent_instance_id} is already a sub-agent; " f"depth > 1 not allowed"
+                f"instance {parent_instance_id} is already a sub-agent; depth > 1 not allowed"
             )
 
         # R15.20: concurrent cap. Serialise concurrent spawns for this parent
@@ -136,7 +136,7 @@ class SubagentService:
         alive = await self._instances.count_alive_children(parent_instance_id)
         if alive >= effective_cap:
             raise SubagentConcurrencyExceeded(
-                f"parent {parent_instance_id} has {alive} alive sub-agents " f"(max {effective_cap})"
+                f"parent {parent_instance_id} has {alive} alive sub-agents (max {effective_cap})"
             )
 
         # Build inherited run_context per R15.22.

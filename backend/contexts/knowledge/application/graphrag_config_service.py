@@ -122,8 +122,7 @@ class GraphRagConfigService:
         )
         if builder_group_project_id is None or builder_group_project_id != project_id:
             raise GraphRagBuilderKeyGroupProjectMismatch(
-                f"builder_key_group_id {draft.builder_key_group_id} "
-                f"does not belong to project {project_id}"
+                f"builder_key_group_id {draft.builder_key_group_id} does not belong to project {project_id}"
             )
 
         # Phase 2a D2: derive + enforce the project embedding pin from the builder
@@ -398,8 +397,7 @@ class GraphRagConfigService:
             )
             if builder_group_project_id is None or builder_group_project_id != cfg.project_id:
                 raise GraphRagBuilderKeyGroupProjectMismatch(
-                    f"builder_key_group_id {builder_key_group_id} "
-                    f"does not belong to project {cfg.project_id}"
+                    f"builder_key_group_id {builder_key_group_id} does not belong to project {cfg.project_id}"
                 )
             # Phase 2a D2: a swapped builder group must still resolve to the
             # project's pinned dimension; re-derive and persist the new pin. The

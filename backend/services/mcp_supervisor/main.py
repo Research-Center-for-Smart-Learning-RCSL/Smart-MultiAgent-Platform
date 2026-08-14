@@ -48,7 +48,7 @@ _cache: tuple[float, bool, str] | None = None
 
 def _check() -> tuple[bool, str]:
     try:
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             ["docker", "info", "--format", "{{json .Runtimes}}"],  # noqa: S607
             capture_output=True,
             text=True,
@@ -95,7 +95,7 @@ def _check_cached() -> tuple[bool, str]:
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self) -> None:  # noqa: N802 — stdlib BaseHTTPRequestHandler signature
+    def do_GET(self) -> None:
         if self.path != "/healthz":
             self.send_response(404)
             self.end_headers()

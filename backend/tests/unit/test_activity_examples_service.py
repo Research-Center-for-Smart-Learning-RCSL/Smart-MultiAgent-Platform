@@ -127,7 +127,7 @@ def _service(
 
     svc._types._repo = MagicMock()
     svc._types._repo.create = AsyncMock(side_effect=_create)
-    svc._types._repo.get = AsyncMock(side_effect=lambda type_id: created.get(type_id))
+    svc._types._repo.get = AsyncMock(side_effect=created.get)
     svc._types._policy._repo = MagicMock(get_platform=AsyncMock(return_value=None))
     svc._created_rows = created  # type: ignore[attr-defined]  # exposed for assertions
     return svc

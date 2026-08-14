@@ -24,7 +24,7 @@ def test_parses_types_into_controlled_vocabulary() -> None:
 
 
 def test_unknown_type_maps_to_other_and_missing_to_blank() -> None:
-    raw = '[{"subject": "x", "relation": "r", "object": "y", ' '"subject_type": "alien", "confidence": 0.5}]'
+    raw = '[{"subject": "x", "relation": "r", "object": "y", "subject_type": "alien", "confidence": 0.5}]'
     triples = _parse_triples(raw)
     assert len(triples) == 1
     assert triples[0].subject_type == "other"  # not in vocabulary -> other

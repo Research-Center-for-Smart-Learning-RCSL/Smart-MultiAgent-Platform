@@ -101,8 +101,7 @@ def email_change_reverify(link: str) -> RenderedEmail:
             [
                 "You requested to change your SMAP account email to this address. "
                 "Confirm to complete the change.",
-                "This link is valid for 24 hours. If you did not request this, "
-                "you can ignore this message.",
+                "This link is valid for 24 hours. If you did not request this, you can ignore this message.",
             ],
             link=link,
             cta="Confirm email",
@@ -121,8 +120,7 @@ def password_reset(link: str) -> RenderedEmail:
         html_body=_wrap_html(
             "Reset your password",
             [
-                "We received a request to reset your SMAP password. "
-                "The link below is valid for 30 minutes.",
+                "We received a request to reset your SMAP password. The link below is valid for 30 minutes.",
                 "If you did not request this, you can safely ignore this message.",
             ],
             link=link,
@@ -143,7 +141,7 @@ def already_registered(login_link: str) -> RenderedEmail:
         html_body=_wrap_html(
             "You already have an account",
             [
-                "Someone tried to register an account with this email address, " "but one already exists.",
+                "Someone tried to register an account with this email address, but one already exists.",
                 "If this was you, sign in or use the password-reset flow. "
                 "If it wasn't, you can safely ignore this message.",
             ],

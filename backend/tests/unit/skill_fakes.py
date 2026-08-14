@@ -94,7 +94,7 @@ def make_skill_file(
     """
     if kind is None:
         kind = {"references": SkillFileKind.REFERENCE, "scripts": SkillFileKind.SCRIPT}.get(
-            path.split("/")[0], SkillFileKind.ASSET
+            path.split("/", maxsplit=1)[0], SkillFileKind.ASSET
         )
     return SkillFile(
         id=uuid.uuid4(),

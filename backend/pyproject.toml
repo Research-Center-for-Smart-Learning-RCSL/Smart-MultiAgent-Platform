@@ -62,7 +62,7 @@ otel = [
   "opentelemetry-instrumentation-httpx==0.65b0",
 ]
 dev = [
-  "ruff==0.7.*",
+  "ruff>=0.7,<0.17",
   "mypy>=1.13,<2.4",
   "import-linter>=2.1,<2.14",
   "pytest>=9.0,<9.2",  # SEC-DEP: <9.0.3 uses a predictable /tmp/pytest-of-{user} path (PYSEC-2026-1845)
@@ -141,6 +141,26 @@ ignore = [
   # `import X as X` is the canonical PEP 484 explicit re-export pattern that
   # makes type checkers treat the symbol as part of the module's public API.
   "PLC0414",
+  # Function-level imports are a deliberate pattern here, not an oversight:
+  # the route registry (app/api/v1/__init__.py) and the plugin/bootstrap
+  # wiring import inside functions to break import cycles between the API
+  # layer and the contexts, and to keep module import time off the critical
+  # path. Enforcing top-level imports would reintroduce those cycles.
+  "PLC0415",
+  # Same rationale as PLR0913 above, counted a different way: FastAPI handlers
+  # take their dependencies positionally-or-by-keyword, so the positional cap
+  # fires on the same signatures the argument cap already exempts.
+  "PLR0917",
+  # PEP 695 type parameters would re-declare, per function, TypeVars that are
+  # shared with the Protocol classes describing the same constructors, and the
+  # explicit `_co` variance is load-bearing there.
+  "UP047",
+  # `class X(str, Enum)` -> `StrEnum` is not a refactor, it changes behaviour:
+  # `str(X.A)` and f-strings go from "X.A" to the member value. The 58 classes
+  # this fires on are domain enums bound to PostgreSQL ENUM columns and used in
+  # log lines and error messages, so the swap needs its own change with tests
+  # rather than a lint autofix. See docs/dependency-holds.md.
+  "UP042",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -149,6 +169,10 @@ ignore = [
 # mock parameter naming (N803/N806/PT019) are all noise in test files.
 "tests/**/*" = ["S", "PLR", "PT011", "PT004", "PT019", "N803", "N806", "E501"]
 "**/__init__.py" = ["F401"]
+# flake8-pytest-style keys off the `test_` prefix, and nothing under app/ is a
+# test. The one match today is the POST .../tools/{tool_id}/test route handler,
+# whose FastAPI `Depends(...)` defaults read as pytest parameter defaults.
+"app/**" = ["PT"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app", "contexts", "shared_kernel", "smap"]

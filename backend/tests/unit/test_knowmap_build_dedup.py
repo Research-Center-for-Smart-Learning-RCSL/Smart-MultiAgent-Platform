@@ -119,7 +119,7 @@ class _FakeSession:
 
 
 def _sm() -> Any:
-    return lambda: _FakeSession()
+    return _FakeSession
 
 
 async def _run_finalize(*, succeeded: bool, target: int | None, current_rev: int) -> tuple[Any, Any, Any]:

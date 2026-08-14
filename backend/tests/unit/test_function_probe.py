@@ -154,7 +154,7 @@ async def test_transport_failure_reported(monkeypatch) -> None:
 
     monkeypatch.setattr(
         "contexts.agents.infrastructure.egress_client.egress_proxy_client_from_settings",
-        lambda: _BoomProxy(),
+        _BoomProxy,
     )
     res = await _service()._probe_function(_agent(), _fn_tool())
     assert res.ok is False

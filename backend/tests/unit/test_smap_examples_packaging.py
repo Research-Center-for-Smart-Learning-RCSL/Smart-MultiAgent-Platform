@@ -50,9 +50,9 @@ def _package_data_patterns(package: str) -> list[str]:
 
 @pytest.mark.parametrize(("package", "dirname", "root"), CATALOGUES, ids=CATALOGUE_IDS)
 def test_the_catalogue_is_declared_as_package_data(package: str, dirname: str, root: Traversable) -> None:
-    assert _package_data_patterns(
-        package
-    ), f"{package} declares no package-data; a wheel would ship an empty {dirname} catalogue"
+    assert _package_data_patterns(package), (
+        f"{package} declares no package-data; a wheel would ship an empty {dirname} catalogue"
+    )
 
 
 @pytest.mark.parametrize(("package", "dirname", "root"), CATALOGUES, ids=CATALOGUE_IDS)

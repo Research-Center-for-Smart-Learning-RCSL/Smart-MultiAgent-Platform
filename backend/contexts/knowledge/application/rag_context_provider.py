@@ -166,8 +166,7 @@ class RagContextProvider:
                         )
                     except TypeError:
                         _log.warning(
-                            "router-backed reranker unavailable for rag config %s; "
-                            "retrieving without rerank",
+                            "router-backed reranker unavailable for rag config %s; retrieving without rerank",
                             cfg.id,
                         )
             qclient = AsyncQdrantClient(

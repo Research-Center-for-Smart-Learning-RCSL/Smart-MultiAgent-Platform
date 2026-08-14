@@ -896,9 +896,7 @@ async def test_denied_instruct_leaves_no_issued_row() -> None:
 
         issued = (
             await db.execute(
-                sa.text(
-                    "SELECT count(*) FROM instructions " "WHERE issuer_agent_id = :i AND state = 'issued'"
-                ),
+                sa.text("SELECT count(*) FROM instructions WHERE issuer_agent_id = :i AND state = 'issued'"),
                 {"i": str(issuer.id)},
             )
         ).scalar_one()
@@ -948,9 +946,7 @@ async def test_instruct_chain_loop_detected() -> None:
 
         rejected = (
             await db.execute(
-                sa.text(
-                    "SELECT count(*) FROM instructions " "WHERE chain_id = :c AND state = 'rejected_loop'"
-                ),
+                sa.text("SELECT count(*) FROM instructions WHERE chain_id = :c AND state = 'rejected_loop'"),
                 {"c": str(inst1.chain_id)},
             )
         ).scalar_one()

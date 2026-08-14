@@ -66,7 +66,7 @@ class _Clock:
         self.touched.extend(config_ids)
 
     async def get_many(self, config_ids):
-        return {cid: None for cid in config_ids}
+        return dict.fromkeys(config_ids)
 
 
 @pytest.mark.asyncio
