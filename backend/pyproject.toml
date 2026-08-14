@@ -21,7 +21,7 @@ dependencies = [
   "loguru==0.7.*",
   "aiosmtplib==5.1.*",  # SEC-DEP: <5.1.1 allows CRLF SMTP command injection (PYSEC-2026-2338)
   "argon2-cffi==23.1.*",
-  "httpx==0.27.*",
+  "httpx>=0.27,<0.29",
   "bleach==6.4.*",
   "markdown-it-py>=3.0,<4.3",
   "google-re2==1.1.*",
