@@ -46,7 +46,39 @@ Two consequences worth knowing before changing this back:
   matches what `proxy_pass http://upstream;` passed before.
 
 `nginx -t` runs against these files in CI (`compose-validate`), because the
-compose boot test skips the nginx service.
+compose boot test skips the nginx service. That job mounts both files fresh, so
+it proves the config parses — it cannot prove the running container is serving
+the config you just pulled. See the next section for why those differ.
+
+## How config reaches the container
+
+The two mounts in `docker-compose.yml` do **not** behave the same way:
+
+| Mount | Type | `git pull` propagates? |
+|---|---|---|
+| `./nginx/conf.d:/etc/nginx/conf.d:ro` | directory | yes |
+| `./nginx/nginx.conf:/etc/nginx/nginx.conf:ro` | single file | **no** |
+
+A single-file bind mount is pinned to the file's inode. Git replaces a file by
+writing a new one and renaming it over the old, which allocates a new inode, so
+the container keeps serving the pre-pull copy. Compare them when in doubt:
+
+```sh
+stat -c '%i' deploy/compose/nginx/nginx.conf
+docker compose exec nginx stat -c '%i' /etc/nginx/nginx.conf   # differs => stale
+```
+
+Consequences:
+
+- **Keep edge configuration in `conf.d/`.** A reload picks it up. That is why
+  the `resolver` directive sits at the top of `conf.d/smap.conf` rather than in
+  `nginx.conf`, even though `http{}` is its natural home — `include
+  conf.d/*.conf` runs inside `http{}`, so the context is identical.
+- **Editing `nginx.conf` requires recreating the container**, not a reload:
+  `docker compose up -d --no-deps nginx`.
+- **`nginx -t` will not catch the mismatch.** It validates whatever the
+  container currently sees. A new `conf.d/smap.conf` paired with a stale
+  `nginx.conf` can parse cleanly and still 502 every request.
 
 ## Trust boundary
 
