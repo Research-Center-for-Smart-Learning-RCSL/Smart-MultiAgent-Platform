@@ -1,0 +1,128 @@
+name: ci-rerun-on-infra-failure
+
+# Re-runs ci's failed jobs when, and only when, every one of them failed for a
+# reason outside this repository -- a codeload 500 on an action tarball, a git
+# packfile RPC 500, a registry timeout.
+#
+# WHY A SEPARATE WORKFLOW. The failure that motivated this kills a job during
+# "Set up job", while the runner is fetching the `uses:` tarballs and before any
+# step exists to retry. Nothing inside the job can recover from that; the only
+# remedy is re-running the job, which has to be driven from outside it.
+#
+# WHY IT MATCHES ON THE LOGS instead of just re-running every failure: a blanket
+# retry hides flaky tests. A test that fails once and passes on the rerun is a
+# defect worth seeing, and it would look identical to a green build here.
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+
+permissions:
+  actions: write
+
+jobs:
+  rerun:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # run_attempt == 1 is the loop guard: a re-run raises the attempt number, so
+    # this can fire at most once per run no matter what the reruns conclude.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.run_attempt == 1
+    steps:
+      # No `uses:` anywhere in this job, deliberately. A workflow whose job is to
+      # repair action-download failures must not be able to die of one itself.
+      - name: Re-run failed jobs if every failure is infrastructure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          # Second-line check, for a job that got far enough to run steps and
+          # then lost the network mid-way. Deliberately narrow: each signature
+          # names a transport or a host, so a test asserting on ordinary error
+          # text does not match.
+          #
+          # It is a heuristic, and the log is scanned whole: a job that failed
+          # for a real reason AFTER surviving, say, a checkout that retried past
+          # an RPC 500 would be misread as infrastructure. That costs one wasted
+          # re-run which then fails again -- the attempt guard bounds it, and no
+          # false positive can produce a green build. Job logs are also
+          # attacker-influenced (a PR author controls test output), and the same
+          # bound is what makes that harmless.
+          patterns=(
+            'Failed to download archive'
+            'Failed to download action'
+            'An action could not be found at the URI'
+            'RPC failed; HTTP 5[0-9][0-9]'
+            'The requested URL returned error: 5[0-9][0-9]'
+            'unexpected disconnect while reading sideband packet'
+            'fetch-pack: invalid index-pack output'
+            'ECONNRESET'
+            'EAI_AGAIN'
+            'net/http: TLS handshake timeout'
+            '50[234] (Bad Gateway|Service Unavailable|Gateway Time-?out)'
+            '(HTTP )?429 Too Many Requests'
+            'toomanyrequests'
+            'The runner has received a shutdown signal'
+          )
+          joined="$(IFS='|'; echo "${patterns[*]}")"
+
+          jobs_json="$(gh api \
+            "/repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs?per_page=100")"
+
+          # `gate` is excluded because it is the aggregator: it reports whatever
+          # its dependencies did, so its log can never carry a transport error
+          # and leaving it in would veto every re-run. A run where gate is the
+          # ONLY failure means the aggregator itself broke, which is real.
+          mapfile -t failed < <(
+            echo "$jobs_json" | jq -r '
+              .jobs[]
+              | select(.conclusion == "failure")
+              | select(.name != "gate")
+              | [
+                  (.id | tostring),
+                  .name,
+                  ([.steps[]? | select(.conclusion == "failure") | .name] | join("; "))
+                ]
+              | @tsv
+            '
+          )
+
+          if [ "${#failed[@]}" -eq 0 ]; then
+            echo "No failed job other than the aggregator — nothing here looks transient."
+            exit 0
+          fi
+
+          for entry in "${failed[@]}"; do
+            IFS=$'\t' read -r id name failed_steps <<<"$entry"
+
+            # First-line check, and the exact one. A job whose only failed step
+            # is "Set up job" died while the runner was fetching its `uses:`
+            # tarballs -- before checkout, before a single line of this repo ran.
+            # Nothing in the tree can have caused it, so no log inspection is
+            # needed or meaningful.
+            if [ "$failed_steps" = "Set up job" ]; then
+              echo "FAILED job '$name' ($id): died in Set up job — infrastructure."
+              continue
+            fi
+
+            log="$(gh api "/repos/$REPO/actions/jobs/$id/logs" 2>/dev/null || true)"
+            if [ -z "$log" ]; then
+              echo "FAILED job '$name' ($id): log unavailable — treating as a real failure."
+              exit 0
+            fi
+            hit="$(echo "$log" | grep -Eaom1 "$joined" || true)"
+            if [ -z "$hit" ]; then
+              echo "FAILED job '$name' ($id): failed at [${failed_steps:-unknown}], no infrastructure signature — not re-running."
+              exit 0
+            fi
+            echo "FAILED job '$name' ($id): failed at [${failed_steps:-unknown}], matched '$hit'"
+          done
+
+          echo "All ${#failed[@]} failed job(s) look like GitHub infrastructure — re-running them."
+          gh api --method POST "/repos/$REPO/actions/runs/$RUN_ID/rerun-failed-jobs"
