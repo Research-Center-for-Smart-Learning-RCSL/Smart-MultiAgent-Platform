@@ -251,6 +251,56 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 ---
 
+## 6a. Updating a running stack
+
+Do **not** update with a bare `docker compose up -d --build`. Compose restarts a
+service's dependents when it recreates one, so that command takes the edge nginx
+down for the length of the rebuild. A front proxy that caches static assets can
+latch onto the 502s served during that window and keep serving them long after
+the stack is healthy again — see the last two Troubleshooting rows.
+
+Build first, then swap only the services you changed, leaving the edge alone:
+
+```bash
+COMPOSE="docker compose --env-file .env \
+  -f deploy/compose/docker-compose.yml \
+  -f deploy/compose/docker-compose.staging.yml"      # or docker-compose.prod.yml
+
+APP="frontend backend-web backend-worker knowledge-scan-worker \
+     knowledge-ingest-worker egress-proxy mcp-sandbox-supervisor"
+
+git pull
+
+# 1. Build while the stack keeps serving — nothing is recreated yet.
+$COMPOSE build $APP
+
+# 2. Apply migrations before the new backend code starts.
+#    Staging only: the `migrate` one-shot service exists in that overlay.
+#    On prod, run `alembic upgrade head` per §5 instead.
+$COMPOSE run --rm migrate
+
+# 3. Swap the containers. --no-deps is what keeps nginx untouched.
+$COMPOSE up -d --no-deps $APP
+
+$COMPOSE ps
+```
+
+`--no-deps` is safe because nginx resolves `frontend` / `backend-web` through
+Docker DNS per request instead of caching the IPs from startup — a recreated
+container is picked up within the resolver's 10 s TTL and the edge never
+restarts. That is the whole reason `deploy/compose/nginx/conf.d/smap.conf` uses
+variable `proxy_pass` targets rather than `upstream {}` blocks; reverting that
+also reverts the safety of `--no-deps`.
+
+Restart nginx only when you changed `deploy/compose/nginx/**`, and prefer a
+graceful reload — it re-reads the config without dropping in-flight requests:
+
+```bash
+$COMPOSE exec nginx nginx -t && $COMPOSE exec nginx nginx -s reload
+```
+
+---
+
 ## 7. Smoke test
 
 ```bash
@@ -370,3 +420,5 @@ production. Test restores quarterly.
 | Backend 401 on all requests | Vault token expired / Vault sealed | Check Vault status; restart backend after unseal |
 | Frontend shows blank page | Build failed or nginx misconfigured | Check `docker compose logs frontend nginx` |
 | WebSocket 502 | Nginx upgrade header missing | Verify `/ws/` location in `nginx/conf.d/smap.conf` |
+| `/assets/*.js` and `*.css` return 502 but `/` and `/healthz` return 200 | A front proxy is serving cached 502s for the asset URLs. Confirm by re-requesting with a query string (`?cb=1`) — a 200 there proves the origin is fine and the cache key is poisoned | Purge the front proxy's cache, then stop it caching assets at all. On Nginx Proxy Manager: `docker exec <npm> sh -c 'rm -rf /var/lib/nginx/cache/public/*' && docker exec <npm> nginx -s reload`, then untick **Cache Assets** on the proxy host. Its `assets.conf` combines `proxy_cache_valid any 30m` (stores 502s) with `proxy_cache_use_stale ... http_502` (keeps serving them), and `access_log off` hides the requests. The upstream already sends `immutable, max-age=31536000`, so that cache layer buys nothing |
+| Everything 502s right after a deploy and stays that way | The edge was restarted while a dependent was recreated, or an `upstream {}` block is holding a dead container IP | Deploy per §6a (`build` + `up -d --no-deps`). If the edge config was reverted to `upstream {}` blocks, nginx resolves hostnames only at startup and needs `docker compose restart nginx` after every recreation |
