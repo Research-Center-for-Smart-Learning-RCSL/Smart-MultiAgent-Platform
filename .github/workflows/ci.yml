@@ -1101,6 +1101,24 @@ jobs:
             -f deploy/compose/compose.test.yml \
             config > /dev/null
 
+      # compose-boot-prod skips the nginx service, so nothing else in CI ever
+      # parses the edge config — a typo there is invisible until deploy, where
+      # it presents as a dead edge rather than a failed build. `nginx -t` needs
+      # ssl_certificate to resolve to a real file, hence the throwaway pair.
+      # Image tag tracks the nginx service in docker-compose.yml.
+      - name: Validate nginx edge config
+        run: |
+          mkdir -p /tmp/nginx-certs
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout /tmp/nginx-certs/smap.key \
+            -out /tmp/nginx-certs/smap.crt \
+            -subj "/CN=smap.local"
+          docker run --rm \
+            -v "$PWD/deploy/compose/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            -v "$PWD/deploy/compose/nginx/conf.d:/etc/nginx/conf.d:ro" \
+            -v /tmp/nginx-certs:/etc/nginx/certs:ro \
+            nginx:1.27.3-alpine nginx -t
+
   # ──────────────────────────────────────────────
   # Prod overlay boot test (B2-5)
   # ──────────────────────────────────────────────
