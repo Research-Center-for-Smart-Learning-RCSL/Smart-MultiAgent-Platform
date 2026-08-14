@@ -57,7 +57,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      - run: pip install -e '.[dev]'
+      - name: Install backend (+ dev extras)
+        run: bash "$GITHUB_WORKSPACE/scripts/ci-retry.sh" pip install -e '.[dev]'
       - name: ruff
         run: ruff check .
       - name: ruff format (check-only)
@@ -75,7 +76,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      - run: pip install -e '.[dev]'
+      - name: Install backend (+ dev extras)
+        run: bash "$GITHUB_WORKSPACE/scripts/ci-retry.sh" pip install -e '.[dev]'
       - name: mypy (strict on domain + shared_kernel)
         run: mypy .
 
@@ -89,7 +91,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      - run: pip install -e '.[dev]'
+      - name: Install backend (+ dev extras)
+        run: bash "$GITHUB_WORKSPACE/scripts/ci-retry.sh" pip install -e '.[dev]'
       # Unit tier only. The `integration` / `wiring` markers now genuinely
       # filter (K.7): integration tests run in backend-integration, the
       # cross-context wiring tier in backend-wiring.
@@ -112,7 +115,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      - run: pip install -e '.[dev]'
+      - name: Install backend (+ dev extras)
+        run: bash "$GITHUB_WORKSPACE/scripts/ci-retry.sh" pip install -e '.[dev]'
       # `db`-marked tests live in this directory too but need a provisioned
       # datastore, so they belong to backend-db, not here.
       - run: pytest -q -m "integration and not wiring and not db"
@@ -307,18 +311,23 @@ jobs:
           test -n "$stamp"
           echo "value=$stamp" >> "$GITHUB_OUTPUT"
           echo "sandbox build stamp: $stamp"
+      # Retried for the base-image pull and the apt/pip fetches inside the build,
+      # not for the build itself: a Dockerfile that is actually broken fails at
+      # the same layer every time, and the layer cache makes a retry cheap.
       - name: Build mcp-runtime image
         env:
           STAMP: ${{ steps.stamp.outputs.value }}
         run: |
-          docker build -t smap/mcp-runtime:ci \
+          bash "$GITHUB_WORKSPACE/scripts/ci-retry.sh" \
+            docker build -t smap/mcp-runtime:ci \
             --build-arg "SMAP_SANDBOX_STAMP=$STAMP" \
             -f deploy/sandbox/mcp-runtime/Dockerfile deploy/sandbox
       - name: Build code-exec image
         env:
           STAMP: ${{ steps.stamp.outputs.value }}
         run: |
-          docker build -t smap/code-exec:ci \
+          bash "$GITHUB_WORKSPACE/scripts/ci-retry.sh" \
+            docker build -t smap/code-exec:ci \
             --build-arg "SMAP_SANDBOX_STAMP=$STAMP" \
             -f deploy/sandbox/code-exec/Dockerfile deploy/sandbox
       - name: Verify the build stamp round-trips into both images
@@ -712,7 +721,7 @@ jobs:
           cache: pip
       - name: Install backend (+ pip-audit)
         working-directory: backend
-        run: pip install -e '.[dev]'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci-retry.sh" pip install -e '.[dev]'
       # PYSEC-2026-3412 (WeasyPrint CSS injection via presentational hints) has no
       # fixed release as of 68.1. It only bites callers that pass
       # presentational_hints=True; our single call site
@@ -745,13 +754,10 @@ jobs:
           --desc on --progress-spinner off
           --ignore-vuln PYSEC-2026-3412
           --ignore-vuln PYSEC-2025-183
-      - uses: pnpm/action-setup@v6
-        with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-frontend
         with:
+          pnpm-version: ${{ env.PNPM_VERSION }}
           node-version: ${{ env.NODE_VERSION }}
-      - run: pnpm install --frozen-lockfile
-        working-directory: frontend
       # Frontend scan BLOCKS on high-severity prod advisories — verified green
       # at the axios 1.15.2 / mermaid 11.15.0 bump.
       - name: "pnpm audit (frontend prod deps, high+)"
@@ -769,20 +775,10 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-frontend
         with:
+          pnpm-version: ${{ env.PNPM_VERSION }}
           node-version: ${{ env.NODE_VERSION }}
-      - name: Get pnpm store path
-        id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v6
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-      - run: pnpm install --frozen-lockfile
       - name: "ESLint (gates #1-5, #7, #11, #12)"
         run: pnpm run lint
 
@@ -796,20 +792,10 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-frontend
         with:
+          pnpm-version: ${{ env.PNPM_VERSION }}
           node-version: ${{ env.NODE_VERSION }}
-      - name: Get pnpm store path
-        id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v6
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-      - run: pnpm install --frozen-lockfile
       - name: "Gate #1b: SoC boundary enforcement is live"
         run: pnpm run check:boundaries-enforced
 
@@ -840,20 +826,10 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-frontend
         with:
+          pnpm-version: ${{ env.PNPM_VERSION }}
           node-version: ${{ env.NODE_VERSION }}
-      - name: Get pnpm store path
-        id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v6
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-      - run: pnpm install --frozen-lockfile
       - name: Build
         run: pnpm run build
       - name: "Gate #9: Bundle budget"
@@ -866,20 +842,10 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-frontend
         with:
+          pnpm-version: ${{ env.PNPM_VERSION }}
           node-version: ${{ env.NODE_VERSION }}
-      - name: Get pnpm store path
-        id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v6
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-      - run: pnpm install --frozen-lockfile
       - name: "Gate #10: Type coverage >= 95%"
         run: pnpm run check:type-coverage
 
@@ -896,21 +862,11 @@ jobs:
           cache: pip
       - name: Install backend deps (for OpenAPI export)
         working-directory: backend
-        run: pip install -e '.[dev]'
-      - uses: pnpm/action-setup@v6
-        with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v7
+        run: bash "$GITHUB_WORKSPACE/scripts/ci-retry.sh" pip install -e '.[dev]'
+      - uses: ./.github/actions/setup-frontend
         with:
+          pnpm-version: ${{ env.PNPM_VERSION }}
           node-version: ${{ env.NODE_VERSION }}
-      - name: Get pnpm store path
-        id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v6
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-      - run: pnpm install --frozen-lockfile
       - name: OpenAPI drift check
         run: pnpm run check:openapi-drift
 
@@ -921,20 +877,10 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-frontend
         with:
+          pnpm-version: ${{ env.PNPM_VERSION }}
           node-version: ${{ env.NODE_VERSION }}
-      - name: Get pnpm store path
-        id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v6
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-      - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - name: "Typecheck gate cannot regress to a no-op"
         run: pnpm run check:typecheck-gate
@@ -946,20 +892,10 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-frontend
         with:
+          pnpm-version: ${{ env.PNPM_VERSION }}
           node-version: ${{ env.NODE_VERSION }}
-      - name: Get pnpm store path
-        id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v6
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-      - run: pnpm install --frozen-lockfile
       - run: pnpm run test
 
   # frontend-e2e brings up the whole compose stack, so it is not worth running
@@ -1002,22 +938,14 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with: { version: "${{ env.PNPM_VERSION }}" }
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-frontend
         with:
+          pnpm-version: ${{ env.PNPM_VERSION }}
           node-version: ${{ env.NODE_VERSION }}
-      - name: Get pnpm store path
-        id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v6
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-      - run: pnpm install --frozen-lockfile
+      # Downloads a browser bundle plus apt packages, so it is the step in this
+      # job most exposed to a CDN or mirror hiccup, and it is uncached.
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci-retry.sh" npx playwright install --with-deps chromium
 
       # Bring up the FULL data plane backend-web's /readyz probes (Postgres,
       # Redis, Qdrant, Neo4j, MinIO, Vault) — not just postgres/redis/vault, or
@@ -1198,9 +1126,12 @@ jobs:
       - name: Generate Vault internal TLS certs
         run: bash deploy/vault/gen-internal-tls.sh deploy/vault/certs
 
+      # Builds every prod image, so it pulls a dozen bases and runs as many
+      # package installs — the largest single network surface in the workflow.
       - name: Build prod images
         run: |
-          docker compose \
+          bash "$GITHUB_WORKSPACE/scripts/ci-retry.sh" \
+            docker compose \
             -f deploy/compose/docker-compose.yml \
             -f deploy/compose/docker-compose.prod.yml \
             build --parallel
