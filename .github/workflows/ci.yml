@@ -5,8 +5,17 @@ on:
     branches: [main]
   pull_request:
 
+# `head_ref` is set on pull_request and empty on push, so a PR groups by its
+# branch and cancels its own superseded runs, while every push to main falls
+# back to run_id and therefore gets a group of its own that nothing cancels.
+#
+# Grouping main by `github.ref` instead meant a second merge cancelled the first
+# one's run: 31774964414 (#149's merge commit) and 31774289741 (#152) both died
+# that way, and those commits carry no CI verdict at all. Merges arrive in
+# bursts — Dependabot alone lands several in a minute — so this was routine, not
+# a corner case.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 env:
