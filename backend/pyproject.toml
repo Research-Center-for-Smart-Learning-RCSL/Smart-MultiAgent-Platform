@@ -41,7 +41,7 @@ dependencies = [
   "python-docx==1.*",  # DOCX text extraction on the same ingestion path; accepted upload type (imported as `docx`)
   "neo4j==5.24.*",
   "qdrant-client==1.12.*",
-  "protobuf>=5.29.6,<7.0.0",  # SEC-DEP: reject vulnerable protobuf releases (CVE-2026-0994)
+  "protobuf>=5.29.6,<8.0.0",  # SEC-DEP: reject vulnerable protobuf releases (CVE-2026-0994)
   "prometheus-client==0.21.*",
   # >=0.16 for click 8.2+ support. 0.12.x mis-converts option defaults against
   # modern click: a bool flag arrives as the string "False" when absent and None
