@@ -1106,6 +1106,13 @@ jobs:
       # it presents as a dead edge rather than a failed build. `nginx -t` needs
       # ssl_certificate to resolve to a real file, hence the throwaway pair.
       # Image tag tracks the nginx service in docker-compose.yml.
+      #
+      # Coverage boundary: this mounts both files fresh, so it proves the config
+      # parses. It cannot prove a deployed container is serving the config that
+      # was pulled — nginx.conf is a single-file bind mount and goes stale on
+      # `git pull` (see deploy/compose/nginx/README.md). Nor does it exercise
+      # runtime resolution: `nginx -t` never evaluates a variable proxy_pass, so
+      # a missing `resolver` passes here and 502s in production.
       - name: Validate nginx edge config
         run: |
           mkdir -p /tmp/nginx-certs

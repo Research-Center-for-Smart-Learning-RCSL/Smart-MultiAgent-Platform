@@ -292,12 +292,31 @@ restarts. That is the whole reason `deploy/compose/nginx/conf.d/smap.conf` uses
 variable `proxy_pass` targets rather than `upstream {}` blocks; reverting that
 also reverts the safety of `--no-deps`.
 
-Restart nginx only when you changed `deploy/compose/nginx/**`, and prefer a
-graceful reload — it re-reads the config without dropping in-flight requests:
+Edge config changes are the one case that still touches nginx. Which command you
+need depends on **which file** changed, because the two mounts propagate
+differently — `conf.d/` is a directory mount, `nginx.conf` is a single-file
+mount pinned to an inode that `git pull` replaces:
 
 ```bash
+# Changed conf.d/** only — a graceful reload picks it up, no dropped requests.
 $COMPOSE exec nginx nginx -t && $COMPOSE exec nginx nginx -s reload
+
+# Changed nginx.conf — the container is still serving the pre-pull copy, so a
+# reload silently applies the OLD file. It must be recreated.
+$COMPOSE up -d --no-deps nginx
 ```
+
+`nginx -t` does not protect you here: it validates whatever the container
+currently sees, so a new `conf.d/smap.conf` paired with a stale `nginx.conf` can
+pass the test and then 502 every request. Verify the container actually has your
+edit before reloading:
+
+```bash
+stat -c '%i' deploy/compose/nginx/nginx.conf
+$COMPOSE exec nginx stat -c '%i' /etc/nginx/nginx.conf   # differs => stale mount
+```
+
+See `deploy/compose/nginx/README.md` for the full rationale.
 
 ---
 
