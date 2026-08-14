@@ -477,7 +477,7 @@ class A2AService:
                     },
                 ),
             )
-            raise A2AForbidden(f"a2a denied: {verdict.reason} " f"(caller={caller.id}, callee={callee.id})")
+            raise A2AForbidden(f"a2a denied: {verdict.reason} (caller={caller.id}, callee={callee.id})")
 
     # ------------------------------------------------------------------
     # Helpers

@@ -29,7 +29,7 @@ from shared_kernel.auth.clients import get_redis
 # been re-acquired by a second build) would DELETE the *second* build's lock on
 # release and let a third build start concurrently (audit C3).
 _RELEASE_LUA = (
-    "if redis.call('get', KEYS[1]) == ARGV[1] then " "return redis.call('del', KEYS[1]) else return 0 end"
+    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end"
 )
 
 # Token-checked TTL extension: only the current holder may refresh, so a build

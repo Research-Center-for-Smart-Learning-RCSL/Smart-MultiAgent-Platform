@@ -634,7 +634,7 @@ class TestMessageEdit:
         msgs.get.return_value = existing
         svc = _make_message_service(messages=msgs)
 
-        with pytest.raises(MessageImmutable, match="R13.22"):
+        with pytest.raises(MessageImmutable, match=r"R13\.22"):
             await svc.edit(
                 message_id=_MSG,
                 expected_version=1,

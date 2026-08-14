@@ -121,7 +121,7 @@ async def test_delete_agent_cascades_graphrag_external_stores() -> None:
         call.kwargs["config_id"]: call.kwargs["project_id"]
         for call in facade_cls.purge_graph_config_external_stores.await_args_list
     }
-    assert purged == {c: project_id for c in cfg_ids}
+    assert purged == dict.fromkeys(cfg_ids, project_id)
 
     # A durable audit row follows each purge, carrying its outcome.
     assert [e.action for e in emitted] == ["graphrag.config_infra_purged"] * len(cfg_ids)

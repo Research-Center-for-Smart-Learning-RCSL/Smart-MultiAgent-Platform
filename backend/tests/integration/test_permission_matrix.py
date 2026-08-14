@@ -152,8 +152,7 @@ async def test_matrix_full_sweep(cap: Capability, role: Role) -> None:
     d = await decide(principal, cap, scope, resolver)
     expected = role in _EXPECTED_ALLOW[cap]
     assert d.allowed is expected, (
-        f"{cap.value} × {role.value}: got allowed={d.allowed} "
-        f"reason={d.reason}, expected allowed={expected}"
+        f"{cap.value} × {role.value}: got allowed={d.allowed} reason={d.reason}, expected allowed={expected}"
     )
 
 

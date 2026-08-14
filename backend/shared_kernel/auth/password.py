@@ -99,7 +99,7 @@ def validate_password(candidate: str) -> None:
 # the "no such user" branch pays the same ~64 MiB / t=3 cost as a real verify —
 # closing the timing oracle that otherwise reveals which emails have accounts
 # (SEC-M3). Computed once at import; the ~tens-of-ms cost is paid at startup.
-_DUMMY_PASSWORD: Final = "Tldr-NoSuchUser-9!"  # satisfies R6.01 so hash() accepts it
+_DUMMY_PASSWORD: Final = "Tldr-NoSuchUser-9!"  # noqa: S105 — throwaway, satisfies R6.01 so hash() accepts it
 DUMMY_HASH: Final = PasswordHasher().hash(_DUMMY_PASSWORD)
 
 

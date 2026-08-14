@@ -77,7 +77,7 @@ class Neo4jSection(BaseSettings):
 
     url: str = "bolt://neo4j:7687"
     user: str = "neo4j"
-    password: str = "neo4jneo4j"  # dev default matches compose; prod pulls from Vault KV
+    password: str = "neo4jneo4j"  # noqa: S105 — dev default matches compose; prod pulls from Vault KV
     database: str = "smap"
 
 
@@ -103,7 +103,7 @@ class MinioSection(BaseSettings):
     # service account on first run; the runtime backend talks to MinIO via the
     # service-account creds read from Vault KV (`secret/smap/config/minio`).
     root_access_key: str = "minioadmin"
-    root_secret_key: str = "minioadmin"
+    root_secret_key: str = "minioadmin"  # noqa: S105 — dev default; prod reads Vault KV
     use_tls: bool = False
     region: str = "us-east-1"
     bucket_chat_uploads: str = "chat-uploads"

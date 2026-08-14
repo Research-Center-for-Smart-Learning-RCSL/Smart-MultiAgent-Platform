@@ -419,7 +419,7 @@ def rule_10_instruct_cycle(defn: dict[str, Any]) -> list[LintIssue]:
 
     # DFS cycle detection
     WHITE, GRAY, BLACK = 0, 1, 2  # noqa: N806 — conventional DFS colour constants
-    color: dict[str, int] = {aid: WHITE for aid in graph}
+    color: dict[str, int] = dict.fromkeys(graph, WHITE)
     for target_set in graph.values():
         for t in target_set:
             if t not in color:

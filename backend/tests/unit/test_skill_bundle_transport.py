@@ -256,7 +256,7 @@ def wired(monkeypatch: pytest.MonkeyPatch, redis: _FakeRedis) -> dict[str, Any]:
     minio = _FakeMinio()
     events: list[audit.AuditEvent] = []
 
-    monkeypatch.setattr(worker, "get_sessionmaker", lambda: (lambda: _Session()))
+    monkeypatch.setattr(worker, "get_sessionmaker", lambda: _Session)
     monkeypatch.setattr("shared_kernel.storage.get_minio_client", lambda: minio)
 
     async def _capture(_db: object, event: audit.AuditEvent) -> None:

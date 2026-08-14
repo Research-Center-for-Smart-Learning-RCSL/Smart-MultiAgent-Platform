@@ -32,15 +32,13 @@ from ._common import BootstrapReport
 _CONSTRAINTS: tuple[str, ...] = ()
 
 _INDEXES: tuple[str, ...] = (
-    "CREATE INDEX entity_config_name IF NOT EXISTS " "FOR (e:Entity) ON (e.graphrag_config_id, e.name)",
-    "CREATE INDEX entity_config_build IF NOT EXISTS " "FOR (e:Entity) ON (e.graphrag_config_id, e.build_id)",
+    "CREATE INDEX entity_config_name IF NOT EXISTS FOR (e:Entity) ON (e.graphrag_config_id, e.name)",
+    "CREATE INDEX entity_config_build IF NOT EXISTS FOR (e:Entity) ON (e.graphrag_config_id, e.build_id)",
     # Backs the reconciler orphan sweep's `list_config_ids` distinct scan so it
     # reads the index rather than every :Entity node each cycle.
-    "CREATE INDEX entity_config_project IF NOT EXISTS "
-    "FOR (e:Entity) ON (e.graphrag_config_id, e.project_id)",
-    "CREATE INDEX rel_config_relation IF NOT EXISTS "
-    "FOR ()-[r:REL]-() ON (r.graphrag_config_id, r.relation)",
-    "CREATE INDEX rel_config_build IF NOT EXISTS " "FOR ()-[r:REL]-() ON (r.graphrag_config_id, r.build_id)",
+    "CREATE INDEX entity_config_project IF NOT EXISTS FOR (e:Entity) ON (e.graphrag_config_id, e.project_id)",
+    "CREATE INDEX rel_config_relation IF NOT EXISTS FOR ()-[r:REL]-() ON (r.graphrag_config_id, r.relation)",
+    "CREATE INDEX rel_config_build IF NOT EXISTS FOR ()-[r:REL]-() ON (r.graphrag_config_id, r.build_id)",
 )
 
 

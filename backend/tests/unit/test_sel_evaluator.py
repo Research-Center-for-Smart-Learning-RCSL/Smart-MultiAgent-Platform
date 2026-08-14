@@ -226,7 +226,7 @@ class TestFuncLen:
         assert evaluate("len({{ x }})", {"x": 42}) == 0
 
     def test_wrong_arity(self) -> None:
-        with pytest.raises(SELSyntaxError, match="len.*1 argument"):
+        with pytest.raises(SELSyntaxError, match=r"len.*1 argument"):
             evaluate('len("a", "b")')
 
 
@@ -280,7 +280,7 @@ class TestFuncTypeConversion:
         assert evaluate("int(false)") == 0
 
     def test_int_unconvertible(self) -> None:
-        with pytest.raises(SELSyntaxError, match="int.*cannot convert"):
+        with pytest.raises(SELSyntaxError, match=r"int.*cannot convert"):
             evaluate('int("abc")')
 
     def test_float_from_string(self) -> None:
@@ -290,7 +290,7 @@ class TestFuncTypeConversion:
         assert evaluate("float(null)") == pytest.approx(0.0)
 
     def test_float_unconvertible(self) -> None:
-        with pytest.raises(SELSyntaxError, match="float.*cannot convert"):
+        with pytest.raises(SELSyntaxError, match=r"float.*cannot convert"):
             evaluate('float("abc")')
 
     def test_str_from_number(self) -> None:
@@ -349,11 +349,11 @@ class TestFuncMath:
         assert evaluate("max(3, 1, 2)") == 3
 
     def test_min_no_args(self) -> None:
-        with pytest.raises(SELSyntaxError, match="min.*at least 1"):
+        with pytest.raises(SELSyntaxError, match=r"min.*at least 1"):
             evaluate("min()")
 
     def test_max_no_args(self) -> None:
-        with pytest.raises(SELSyntaxError, match="max.*at least 1"):
+        with pytest.raises(SELSyntaxError, match=r"max.*at least 1"):
             evaluate("max()")
 
     def test_min_no_numbers(self) -> None:

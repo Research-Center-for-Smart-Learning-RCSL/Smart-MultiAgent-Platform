@@ -39,7 +39,7 @@ class _FakeDb(_NullCtx):
 
 
 def _fake_sessionmaker():
-    return lambda: _FakeDb()
+    return _FakeDb
 
 
 def _config(*, model_id: str | None, key_id: uuid.UUID | None) -> AssistantConfig:
@@ -162,7 +162,7 @@ class _RaisingRouter:
 
 def _patch_common(monkeypatch, *, config, key, store, router) -> None:
     monkeypatch.setattr(worker_mod, "get_sessionmaker", _fake_sessionmaker)
-    monkeypatch.setattr(worker_mod, "get_redis", lambda: object())
+    monkeypatch.setattr(worker_mod, "get_redis", object)
     monkeypatch.setattr(worker_mod, "SessionStore", lambda _redis: store)
     monkeypatch.setattr(worker_mod, "ConfigService", _FakeConfigService(config))
     monkeypatch.setattr(worker_mod, "KeysFacade", _FakeKeysFacade(key))

@@ -91,10 +91,7 @@ def _ensure_version_table_width(connection: Connection) -> None:
     elif row[0] is not None and row[0] < _VERSION_NUM_LENGTH:
         # A NULL length means an unbounded type (TEXT) — already wide enough, leave it.
         connection.execute(
-            text(
-                f"ALTER TABLE {_VERSION_TABLE} "
-                f"ALTER COLUMN version_num TYPE VARCHAR({_VERSION_NUM_LENGTH})"
-            )
+            text(f"ALTER TABLE {_VERSION_TABLE} ALTER COLUMN version_num TYPE VARCHAR({_VERSION_NUM_LENGTH})")
         )
 
     connection.commit()

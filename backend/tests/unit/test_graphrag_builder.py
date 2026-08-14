@@ -1659,7 +1659,7 @@ async def test_orphan_sweep_attributes_to_owning_consumer(monkeypatch: Any) -> N
         raise AssertionError("no stuck configs")
 
     recon = ReconciliationLoop(
-        session_factory=lambda: _Db(),  # type: ignore[arg-type, return-value]
+        session_factory=_Db,  # type: ignore[arg-type, return-value]
         repo_factory=lambda _db: gr_store,  # type: ignore[arg-type, return-value]
         neo4j=neo4j,
         vector_store=gr_vectors,  # type: ignore[arg-type]
@@ -2018,7 +2018,7 @@ async def test_reconciler_phase2_retry_is_idempotent_on_point_id(monkeypatch: An
         return "openai", "text-embedding-3-small", uuid.uuid4()
 
     monkeypatch.setattr(wmod, "resolve_pinned_embed_key", _resolve)
-    monkeypatch.setattr(wmod, "get_sessionmaker", lambda: (lambda: _FakeDbCtx()))
+    monkeypatch.setattr(wmod, "get_sessionmaker", lambda: _FakeDbCtx)
     monkeypatch.setattr("contexts.keys.infrastructure.adapters.build_router", lambda _db: object())
     monkeypatch.setattr(
         "contexts.knowledge.infrastructure.embedders.router_embedder_for",

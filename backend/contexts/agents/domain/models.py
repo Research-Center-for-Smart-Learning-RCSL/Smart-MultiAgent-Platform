@@ -45,15 +45,15 @@ CONTEXT_LIMITS: dict[str, int] = {
     "gemini": 1_000_000,
 }
 
-assert set(DEFAULT_CHAT_MODELS) == set(
-    CHAT_MODEL_CATALOG
-), "DEFAULT_CHAT_MODELS and CHAT_MODEL_CATALOG must have identical provider keys"
-assert all(
-    DEFAULT_CHAT_MODELS[p] in models for p, models in CHAT_MODEL_CATALOG.items()
-), "every DEFAULT_CHAT_MODELS value must appear in its provider's CHAT_MODEL_CATALOG tuple"
-assert set(CONTEXT_LIMITS) == set(
-    CHAT_MODEL_CATALOG
-), "CONTEXT_LIMITS and CHAT_MODEL_CATALOG must have identical provider keys"
+assert set(DEFAULT_CHAT_MODELS) == set(CHAT_MODEL_CATALOG), (
+    "DEFAULT_CHAT_MODELS and CHAT_MODEL_CATALOG must have identical provider keys"
+)
+assert all(DEFAULT_CHAT_MODELS[p] in models for p, models in CHAT_MODEL_CATALOG.items()), (
+    "every DEFAULT_CHAT_MODELS value must appear in its provider's CHAT_MODEL_CATALOG tuple"
+)
+assert set(CONTEXT_LIMITS) == set(CHAT_MODEL_CATALOG), (
+    "CONTEXT_LIMITS and CHAT_MODEL_CATALOG must have identical provider keys"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,6 +310,7 @@ __all__ = [
     "DEFAULT_CHAT_MODELS",
     "MAX_CONTEXT_TOKEN_CAP",
     "MAX_SKILL_INDEX_TOKEN_CAP",
+    "SINGLETON_TOOL_TYPES",
     "Agent",
     "AgentDraft",
     "AgentEffort",
@@ -321,7 +322,6 @@ __all__ = [
     "McpBinding",
     "McpSource",
     "McpToolSpec",
-    "SINGLETON_TOOL_TYPES",
     "WorkspaceFile",
     "chat_model_catalog",
 ]

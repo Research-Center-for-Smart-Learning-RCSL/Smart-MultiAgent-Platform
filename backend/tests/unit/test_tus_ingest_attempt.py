@@ -326,7 +326,7 @@ async def test_rag_tus_ready_duplicate_with_different_allowlist_conflicts() -> N
     )
     fin = _make_rag_finalizer(existing, claim_returns=[])
 
-    with pytest.raises(DocumentAllowlistConflict, match="/api/rag-documents/.+/agents"):
+    with pytest.raises(DocumentAllowlistConflict, match=r"/api/rag-documents/.+/agents"):
         await _run_rag(fin, _Captured(), agent_ids=[agent_a, agent_b])
 
     fin._docs.set_agents.assert_not_awaited()
@@ -549,7 +549,7 @@ async def test_knowmap_tus_ready_duplicate_with_different_allowlist_conflicts() 
     )
     fin = _make_km_finalizer(existing, claim_returns=[])
 
-    with pytest.raises(DocumentAllowlistConflict, match="/api/knowmap-documents/.+/agents"):
+    with pytest.raises(DocumentAllowlistConflict, match=r"/api/knowmap-documents/.+/agents"):
         await _run_km(fin, _Captured(), agent_ids=[agent_a, agent_b])
 
     fin._docs.set_agents.assert_not_awaited()

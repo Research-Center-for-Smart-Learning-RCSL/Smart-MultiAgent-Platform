@@ -55,13 +55,13 @@ async def daily_org_advisory_snapshot(ctx: dict[str, Any]) -> dict[str, int]:
         orgs_processed=total_orgs,
         eligible=eligible,
         failed=len(failed_orgs),
-    ).info(f"advisory snapshots computed for {total_orgs}/{eligible} orgs " f"({len(failed_orgs)} failed)")
+    ).info(f"advisory snapshots computed for {total_orgs}/{eligible} orgs ({len(failed_orgs)} failed)")
     _ = ctx
 
     # If every eligible org blew up, surface to Arq instead of returning quietly.
     if eligible > 0 and len(failed_orgs) == eligible:
         raise RuntimeError(
-            f"advisory snapshot: all {eligible} orgs failed " f"(first 5: {', '.join(failed_orgs[:5])})"
+            f"advisory snapshot: all {eligible} orgs failed (first 5: {', '.join(failed_orgs[:5])})"
         )
 
     return {
@@ -87,4 +87,4 @@ async def get_advisory_targets() -> dict[str, int]:
         return await AdvisoryService(session).get_advisory_targets()
 
 
-__all__ = ["daily_org_advisory_snapshot", "get_org_advisory", "get_advisory_targets"]
+__all__ = ["daily_org_advisory_snapshot", "get_advisory_targets", "get_org_advisory"]

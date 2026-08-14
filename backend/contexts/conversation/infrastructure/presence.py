@@ -91,7 +91,7 @@ _ROSTER_JOIN_LUA = (
     "redis.call('EXPIRE', KEYS[1], ARGV[2]) "
     "return redis.call('SCARD', KEYS[1])"
 )
-_ROSTER_LEAVE_LUA = "redis.call('SREM', KEYS[1], ARGV[1]) " "return redis.call('SCARD', KEYS[1])"
+_ROSTER_LEAVE_LUA = "redis.call('SREM', KEYS[1], ARGV[1]) return redis.call('SCARD', KEYS[1])"
 
 
 class PresenceTracker:

@@ -709,7 +709,7 @@ def wire(
     class _Settings:
         security = SimpleNamespace(file_scan_enabled=scan_enabled)
 
-    monkeypatch.setattr(bundle_service, "get_settings", lambda: _Settings())
+    monkeypatch.setattr(bundle_service, "get_settings", _Settings)
     # The **source module**, not `bundle_service.get_scanner`: the import is function-local
     # (matching the worker's lazy load), so patching a name on `bundle_service` would bind
     # nothing and the fake would never be reached. D-47's lesson — a test that only works
@@ -1184,7 +1184,7 @@ class TestExportRefusesUnreadableFiles:
                 reads.append(f.path)
                 return read_bytes
 
-        monkeypatch.setattr(bundle_service, "SkillFileService", lambda db: _Files(db))
+        monkeypatch.setattr(bundle_service, "SkillFileService", _Files)
         return reads
 
     @pytest.mark.parametrize(

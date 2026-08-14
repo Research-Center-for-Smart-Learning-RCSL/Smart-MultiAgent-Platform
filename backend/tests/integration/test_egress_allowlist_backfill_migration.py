@@ -16,11 +16,10 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 pytestmark = pytest.mark.db
 

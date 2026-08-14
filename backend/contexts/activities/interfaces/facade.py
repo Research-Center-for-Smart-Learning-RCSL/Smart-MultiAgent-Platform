@@ -60,9 +60,9 @@ _POLICY_PREVIEW_SCAN = 500
 
 __all__ = [
     "ActivitiesFacade",
-    "ActivityAggregate",
     "ActivityActivation",
     "ActivityActivationEndResult",
+    "ActivityAggregate",
     "ActivitySession",
     "ActivitySubmission",
     "ActivityType",

@@ -48,10 +48,7 @@ def _tables_exist(conn: object) -> bool:
     # Duck-typed on SQLAlchemy Connection to keep imports shallow.
     rows = (
         conn.execute(  # type: ignore[attr-defined]
-            text(
-                "SELECT to_regclass('public.users') AS users, "
-                "       to_regclass('public.admins') AS admins"
-            )
+            text("SELECT to_regclass('public.users') AS users,        to_regclass('public.admins') AS admins")
         )
         .mappings()
         .first()

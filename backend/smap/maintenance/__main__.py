@@ -81,8 +81,7 @@ def reconcile_attachment_sizes_cmd() -> None:
     """
     report = _reconcile_attachment_sizes.run()
     logger.info(
-        "reconcile-attachment-sizes complete examined={} mismatched={} "
-        "missing_unexpectedly={} unreadable={}",
+        "reconcile-attachment-sizes complete examined={} mismatched={} missing_unexpectedly={} unreadable={}",
         report.examined,
         len(report.mismatched),
         len(report.missing_unexpectedly),

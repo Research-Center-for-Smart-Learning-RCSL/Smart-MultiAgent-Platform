@@ -452,7 +452,7 @@ def parse_skill_md(text: str) -> SkillManifest:
     name = _as_scalar(raw[KEY_NAME], key=KEY_NAME)
     if not SKILL_NAME_RE.match(name):
         raise BundleInvalid(
-            f"skill name {name!r} must be lowercase alphanumeric with hyphens and " f"at most 64 characters",
+            f"skill name {name!r} must be lowercase alphanumeric with hyphens and at most 64 characters",
             key=KEY_NAME,
         )
 

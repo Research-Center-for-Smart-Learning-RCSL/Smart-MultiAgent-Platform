@@ -358,4 +358,4 @@ class OrgService:
         return blocked
 
 
-__all__ = ["CreatedOrg", "DEFAULT_PROJECT_NAME", "OrgService"]
+__all__ = ["DEFAULT_PROJECT_NAME", "CreatedOrg", "OrgService"]

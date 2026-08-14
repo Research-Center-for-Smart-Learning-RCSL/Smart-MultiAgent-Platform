@@ -892,8 +892,8 @@ _CAPS: dict[ApiKeyProvider, frozenset[ProviderCapability]] = {p: capabilities_of
 
 
 __all__ = [
-    "DEK_CACHE",
     "DEFAULT_QUEUE_WAIT_SECONDS",
+    "DEK_CACHE",
     "ProviderAdapter",
     "ProviderCallResult",
     "ProviderRequest",

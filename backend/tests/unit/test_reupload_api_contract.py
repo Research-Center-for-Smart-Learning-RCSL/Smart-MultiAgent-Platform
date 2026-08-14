@@ -44,7 +44,7 @@ def test_duplicate_allowlist_conflict_is_actionable_problem_json(
         "type": "https://smap.local/problems/knowledge/document-allowlist-conflict",
         "title": "Document allowlist differs",
         "status": 409,
-        "detail": ("document already exists with a different agent allowlist; " f"use PATCH {patch_path}"),
+        "detail": (f"document already exists with a different agent allowlist; use PATCH {patch_path}"),
         "instance": route,
     }
 

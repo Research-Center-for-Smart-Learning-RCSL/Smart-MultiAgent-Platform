@@ -441,7 +441,7 @@ async def _purge_rag_source_orphans(session: AsyncSession) -> int:
 
 async def _expire_invites(session: AsyncSession) -> int:
     result = await session.execute(
-        sa.text("UPDATE invites SET state = 'expired' " "WHERE state = 'pending' AND expires_at < now()")
+        sa.text("UPDATE invites SET state = 'expired' WHERE state = 'pending' AND expires_at < now()")
     )
     count = result.rowcount or 0
     await _emit_summary(session, "retention.invites.expired", count)
@@ -588,7 +588,7 @@ async def _close_idle_impersonations(session: AsyncSession) -> int:
     # value. Coarse (nightly) but cheap; fine-grained tracking would belong in
     # the impersonation start/end paths.
     active_row = await session.execute(
-        sa.text("SELECT count(*) FROM admin_impersonation_sessions " "WHERE ended_at IS NULL")
+        sa.text("SELECT count(*) FROM admin_impersonation_sessions WHERE ended_at IS NULL")
     )
     active = int(active_row.scalar() or 0)
     ADMIN_IMPERSONATION_SESSIONS_ACTIVE.set(active)
