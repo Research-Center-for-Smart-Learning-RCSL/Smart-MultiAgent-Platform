@@ -28,7 +28,7 @@ dependencies = [
   "jsonschema==4.23.*",  # workflow.schema.json validation (contexts/workflow); previously only resolved transitively via the dev-only pip-audit chain, so the runtime image lacked it
 
   "hvac>=2.3,<2.5",
-  "redis==5.2.*",
+  "redis>=5.2,<8.2",
   "pyjwt[crypto]==2.13.*",  # verify Google's RS256 OIDC id_token against JWKS (R6.14); algorithms pinned to RS256 at the call site. SEC-DEP: <2.13 has 6 known CVEs (crit-header bypass, HMAC/JWK confusion, JWKClient SSRF/DoS, algorithm allow-list bypass)
 
   "python-multipart==0.0.32",  # SEC-DEP: 0.0.27+ fixes multipart DoS; 0.0.30+ fixes CVE-2026-53538/39/40
