@@ -51,12 +51,20 @@ const SLICE_DEPS = {
 // drop gate #1. See docs at https://www.jsboundaries.dev/docs/selectors/.
 const sliceElement = (slice) => ({ element: { type: 'slice', captured: { slice } } })
 
+// Every `allow`/`disallow` entry must name the side it constrains. 7.2.0 stopped
+// reading a bare element selector as an implicit `to`: instead of erroring it
+// warns and matches nothing, so gate #1 flips from "allows the declared imports"
+// to "rejects every import" — enforcement in neither direction. That is what
+// `check:boundaries-enforced` (gate #1b) catches, and it is why the wrapper is
+// not optional cosmetics.
+const to = (selector) => ({ to: selector })
+
 function buildSliceBoundaryPolicies() {
   return SLICES.map((slice) => ({
     from: [sliceElement(slice)],
     allow: [
-      { element: { type: 'shared' } },
-      ...SLICE_DEPS[slice].map(sliceElement),
+      to({ element: { type: 'shared' } }),
+      ...SLICE_DEPS[slice].map((dep) => to(sliceElement(dep))),
     ],
   }))
 }
@@ -160,12 +168,12 @@ export default [
         policies: [
           {
             from: [{ element: { type: 'app' } }],
-            allow: [{ element: { type: 'slice' } }, { element: { type: 'shared' } }],
+            allow: [to({ element: { type: 'slice' } }), to({ element: { type: 'shared' } })],
           },
           ...buildSliceBoundaryPolicies(),
           {
             from: [{ element: { type: 'shared' } }],
-            allow: [{ element: { type: 'shared' } }],
+            allow: [to({ element: { type: 'shared' } })],
           },
         ],
       }],
