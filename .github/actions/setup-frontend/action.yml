@@ -1,0 +1,52 @@
+name: Set up the frontend toolchain
+description: >-
+  pnpm and Node at the pinned versions, a warm pnpm store, and frontend/
+  dependencies installed. Extracted because eight jobs repeated these five steps
+  verbatim, which meant any fix -- a cache key, a retry, a version bump -- had to
+  land in eight places or silently apply to some jobs and not others.
+
+inputs:
+  pnpm-version:
+    description: pnpm version to install. Pass ci.yml's PNPM_VERSION.
+    required: true
+  node-version:
+    description: Node version to install. Pass ci.yml's NODE_VERSION.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+      with:
+        version: ${{ inputs.pnpm-version }}
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    # Resolved from frontend/, as the jobs this replaces did. pnpm walks up for
+    # .npmrc so the repo-root store-dir applies either way, but a future
+    # frontend/.npmrc would silently move the store and mis-key the cache below.
+    - name: Get pnpm store path
+      id: pnpm-cache
+      shell: bash
+      working-directory: frontend
+      run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/cache@v6
+      with:
+        path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+        key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+        restore-keys: ${{ runner.os }}-pnpm-
+
+    # Hard-coded to frontend/ rather than parameterised: there is one frontend,
+    # and a working-directory input would have to be kept in step with the cache
+    # key's lockfile path above, which nothing would check.
+    #
+    # Retried because a cold cache resolves every package against the registry,
+    # and a --frozen-lockfile install is deterministic: a genuine lockfile
+    # mismatch fails identically on all three attempts.
+    - name: Install frontend dependencies
+      shell: bash
+      working-directory: frontend
+      run: bash "$GITHUB_WORKSPACE/scripts/ci-retry.sh" pnpm install --frozen-lockfile
