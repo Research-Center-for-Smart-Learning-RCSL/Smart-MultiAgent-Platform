@@ -29,7 +29,7 @@ class _NullCtx:
 
 
 def _fake_sessionmaker():
-    return lambda: _NullCtx()
+    return _NullCtx
 
 
 class _FakeWs:

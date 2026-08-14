@@ -153,7 +153,7 @@ async def test_lazy_email_sender_defers_construction() -> None:
 
 def test_warn_if_email_unconfigured_only_in_prod_without_host(monkeypatch) -> None:
     calls: list[str] = []
-    fake_logger = SimpleNamespace(bind=lambda **_: SimpleNamespace(warning=lambda m: calls.append(m)))
+    fake_logger = SimpleNamespace(bind=lambda **_: SimpleNamespace(warning=calls.append))
     monkeypatch.setattr(factory, "logger", fake_logger)
 
     monkeypatch.setattr(factory, "get_settings", lambda: _settings(env="prod", smtp_host=""))
@@ -259,7 +259,7 @@ def test_recipient_digest_is_stable_and_not_plaintext() -> None:
 )
 def test_warn_on_smtp_port_tls_mismatch(monkeypatch, port, mode, expect_warn) -> None:
     calls: list[str] = []
-    fake_logger = SimpleNamespace(bind=lambda **_: SimpleNamespace(warning=lambda m: calls.append(m)))
+    fake_logger = SimpleNamespace(bind=lambda **_: SimpleNamespace(warning=calls.append))
     monkeypatch.setattr(factory, "logger", fake_logger)
     s = _settings(env="dev", smtp_host="mail")
     s.email.smtp_port = port

@@ -76,7 +76,7 @@ def patched(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_concurrent_process_entry_runs_handler_once(patched) -> None:
-    fake, _xack, _dlq = patched
+    _fake, _xack, _dlq = patched
     agent_id = uuid.uuid4()
     stream_id = "1-0"
     fields = _entry_fields()

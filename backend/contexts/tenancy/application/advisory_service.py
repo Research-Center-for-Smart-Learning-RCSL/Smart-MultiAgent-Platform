@@ -91,7 +91,7 @@ class AdvisoryService:
         """Read operator-configurable soft advisory targets from rate_limit_policies."""
         rows = (
             await self._db.execute(
-                sa.text("SELECT key, max_count FROM rate_limit_policies " "WHERE key LIKE 'advisory_%'")
+                sa.text("SELECT key, max_count FROM rate_limit_policies WHERE key LIKE 'advisory_%'")
             )
         ).all()
         targets: dict[str, int] = {}

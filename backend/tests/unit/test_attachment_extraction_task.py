@@ -31,7 +31,7 @@ class _FakeSession(_NullCtx):
 
 
 def _fake_sessionmaker():
-    return lambda: _FakeSession()
+    return _FakeSession
 
 
 def _fake_attachment_service(attachment, recorded):
@@ -88,7 +88,7 @@ async def test_extract_attachment_text_parse_failure(monkeypatch) -> None:
         async def get_object(self, *, bucket, key):
             return b"irrelevant"
 
-    monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", lambda: _Minio())
+    monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", _Minio)
 
     out = await conv_task.extract_attachment_text({}, str(uuid.uuid4()))
 
@@ -113,7 +113,7 @@ async def test_extract_attachment_text_empty_result_is_distinct_from_unsupported
         async def get_object(self, *, bucket, key):
             return b"irrelevant"
 
-    monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", lambda: _Minio())
+    monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", _Minio)
 
     out = await conv_task.extract_attachment_text({}, str(uuid.uuid4()))
 
@@ -136,7 +136,7 @@ async def test_extract_attachment_text_success_clips_to_max_chars(monkeypatch) -
         async def get_object(self, *, bucket, key):
             return b"irrelevant"
 
-    monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", lambda: _Minio())
+    monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", _Minio)
 
     out = await conv_task.extract_attachment_text({}, str(uuid.uuid4()))
 

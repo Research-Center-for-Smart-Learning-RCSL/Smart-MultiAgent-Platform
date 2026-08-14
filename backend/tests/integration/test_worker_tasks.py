@@ -47,7 +47,7 @@ async def test_advisory_snapshot_raises_when_every_org_fails() -> None:
             return None
 
     with (
-        patch.object(adv, "get_sessionmaker", return_value=lambda: _SessionCM()),
+        patch.object(adv, "get_sessionmaker", return_value=_SessionCM),
         patch(
             "contexts.tenancy.application.advisory_service.AdvisoryService",
             side_effect=_make_svc,
@@ -90,7 +90,7 @@ async def test_advisory_snapshot_partial_failure_does_not_raise() -> None:
             return None
 
     with (
-        patch.object(adv, "get_sessionmaker", return_value=lambda: _SessionCM()),
+        patch.object(adv, "get_sessionmaker", return_value=_SessionCM),
         patch(
             "contexts.tenancy.application.advisory_service.AdvisoryService",
             side_effect=_make_svc,

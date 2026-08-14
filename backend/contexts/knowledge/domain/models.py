@@ -61,12 +61,12 @@ DEFAULT_EMBED_MODELS: dict[str, str] = {
 }
 
 _embed_providers = {p for p, _ in EMBED_MODEL_DIMENSIONS}
-assert (
-    set(DEFAULT_EMBED_MODELS) == _embed_providers
-), "DEFAULT_EMBED_MODELS and EMBED_MODEL_DIMENSIONS must cover the same providers"
-assert all(
-    (p, m) in EMBED_MODEL_DIMENSIONS for p, m in DEFAULT_EMBED_MODELS.items()
-), "every DEFAULT_EMBED_MODELS value must be a key of EMBED_MODEL_DIMENSIONS"
+assert set(DEFAULT_EMBED_MODELS) == _embed_providers, (
+    "DEFAULT_EMBED_MODELS and EMBED_MODEL_DIMENSIONS must cover the same providers"
+)
+assert all((p, m) in EMBED_MODEL_DIMENSIONS for p, m in DEFAULT_EMBED_MODELS.items()), (
+    "every DEFAULT_EMBED_MODELS value must be a key of EMBED_MODEL_DIMENSIONS"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,27 +282,27 @@ class RagConfigDraft:
 
 
 __all__ = [
-    "ChunkStrategy",
     "DEFAULT_EMBED_MODELS",
     "DEFAULT_FIXED_CHUNK_PARAMS",
     "DEFAULT_SEMANTIC_CHUNK_PARAMS",
-    "DocumentStatus",
     "EMBED_MODEL_DIMENSIONS",
     "EMBED_MODEL_WHITELIST",
-    "EmbedCatalogEntry",
-    "EmbedModelOption",
-    "IngestClaim",
     "MAX_CHUNK_OUTPUT_BYTES",
     "MAX_CHUNK_OVERLAP_TOKENS",
     "MAX_CHUNK_SIZE_TOKENS",
+    "ChunkStrategy",
+    "DocumentStatus",
+    "EmbedCatalogEntry",
+    "EmbedModelOption",
+    "IngestClaim",
     "RagChunk",
     "RagConfig",
     "RagConfigDraft",
     "RagDocument",
     "ScanStatus",
+    "clamp_chunk_params",
     "embed_dimension",
     "embedding_catalog",
-    "clamp_chunk_params",
     "normalized_chunk_params",
     "validate_chunk_params",
 ]

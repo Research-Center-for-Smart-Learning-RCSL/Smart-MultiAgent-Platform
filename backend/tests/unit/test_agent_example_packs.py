@@ -425,7 +425,7 @@ class TestLoaderRejectsAMalformedPack:
 
     def test_invalid_json(self, tmp_path: pathlib.Path) -> None:
         (tmp_path / "fixture-pack.json").write_bytes(b'{"pack_key": ')
-        with pytest.raises(PackFileInvalid, match="fixture-pack.json"):
+        with pytest.raises(PackFileInvalid, match=r"fixture-pack\.json"):
             load_pack("fixture-pack", root=tmp_path)
 
     def test_a_file_that_is_not_utf8(self, tmp_path: pathlib.Path) -> None:

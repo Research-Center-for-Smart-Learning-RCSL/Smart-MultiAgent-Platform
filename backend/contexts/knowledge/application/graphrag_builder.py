@@ -226,9 +226,7 @@ class GraphRagBuilder:
             BuildState.FAILED,
             BuildState.RECOVERY_UNAVAILABLE,
         }:
-            raise GraphRagBuildBusy(
-                f"config {cfg.id} in non-resumable state " f"{cfg.last_build_state.value}"
-            )
+            raise GraphRagBuildBusy(f"config {cfg.id} in non-resumable state {cfg.last_build_state.value}")
 
         # R7.09a pre-flight: re-verify the builder key group is still live and in
         # this config's project before spending anything. Validated on write
@@ -242,8 +240,7 @@ class GraphRagBuilder:
         )
         if builder_group_project_id is None or builder_group_project_id != cfg.project_id:
             error = (
-                f"builder_key_group_id {cfg.builder_key_group_id} "
-                f"does not belong to project {cfg.project_id}"
+                f"builder_key_group_id {cfg.builder_key_group_id} does not belong to project {cfg.project_id}"
             )
             # R7.09a: never silently -- record FAILED + an audit event before
             # raising, so this is visible via the config's own state, not only
@@ -497,7 +494,7 @@ class GraphRagBuilder:
                 )
             except Exception as exc:  # best-effort cleanup; never fail the build
                 _log.warning(
-                    "graphrag superseded-entity sweep failed for config %s " "build %s: %s",
+                    "graphrag superseded-entity sweep failed for config %s build %s: %s",
                     cfg.id,
                     build_id,
                     exc,
@@ -653,7 +650,7 @@ class GraphRagBuilder:
             # would stop short and under-report `entities_written`. Fail
             # the build instead so the reconciler/operator sees it.
             raise GraphRagBuildFailed(
-                f"embedder returned {len(vectors)} vectors for " f"{len(descriptions)} entities"
+                f"embedder returned {len(vectors)} vectors for {len(descriptions)} entities"
             )
         return [
             EntityEmbedding(
@@ -710,14 +707,14 @@ EmbedderFactory = Callable[[ConfigLike], Awaitable[ResolvedEmbedder]]
 
 
 __all__ = [
+    "LOCK_TTL_S",
+    "MAX_DESC_FRAGMENTS",
+    "SNAPSHOT_TTL_S",
     "DeltaLoader",
     "EmbedderFactory",
     "EntityEmbedding",
     "GraphRagBuilder",
-    "LOCK_TTL_S",
-    "MAX_DESC_FRAGMENTS",
     "ResolvedEmbedder",
-    "SNAPSHOT_TTL_S",
     "attach_member_provenance",
     "attach_temporal_provenance",
     "build_entity_descriptions",

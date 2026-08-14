@@ -17,8 +17,8 @@ from typing import Protocol
 __all__ = [
     "BlobStore",
     "Embedder",
-    "Reranker",
     "RerankResult",
+    "Reranker",
 ]
 
 

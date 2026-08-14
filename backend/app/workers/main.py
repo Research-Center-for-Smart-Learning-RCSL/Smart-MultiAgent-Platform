@@ -181,7 +181,7 @@ def _redis_alive() -> bool:
 
 
 class _HealthzHandler(BaseHTTPRequestHandler):
-    def do_GET(self) -> None:  # noqa: N802 — stdlib signature
+    def do_GET(self) -> None:
         if self.path != "/healthz":
             self.send_response(404)
             self.end_headers()

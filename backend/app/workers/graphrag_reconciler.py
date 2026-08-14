@@ -97,9 +97,7 @@ def _make_phase2_retry(
         if len(vectors) != len(descriptions):
             # DOM-5: a short embedding list would silently drop entities.
             # Raise so the reconciler counts this retry as failed.
-            raise RuntimeError(
-                f"embedder returned {len(vectors)} vectors for " f"{len(descriptions)} entities"
-            )
+            raise RuntimeError(f"embedder returned {len(vectors)} vectors for {len(descriptions)} entities")
 
         await vector_store.ensure_graphrag_collection(
             cfg.project_id,
@@ -143,7 +141,7 @@ async def _loop() -> AsyncIterator[ReconciliationLoop]:
     knowmap_vectors = GraphRagVectorStore(qclient, prefix="knowmap")
     maker = get_sessionmaker()
     loop = ReconciliationLoop(
-        session_factory=lambda: maker(),
+        session_factory=maker,
         repo_factory=GraphRagConfigRepository,
         neo4j=neo4j,
         vector_store=vectors,
@@ -192,7 +190,7 @@ async def _knowmap_loop() -> AsyncIterator[ReconciliationLoop]:
     vectors = GraphRagVectorStore(qclient, prefix="knowmap")
     maker = get_sessionmaker()
     loop = ReconciliationLoop(
-        session_factory=lambda: maker(),
+        session_factory=maker,
         repo_factory=KnowmapConfigRepository,
         neo4j=neo4j,
         vector_store=vectors,

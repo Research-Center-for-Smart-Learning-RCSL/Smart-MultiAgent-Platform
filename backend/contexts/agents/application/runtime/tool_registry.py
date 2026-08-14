@@ -760,8 +760,7 @@ async def _serve_file(
         # Rendering either into the prompt would be a decode of something that is not
         # text for the model to read, and for a script it would also be the wrong channel.
         return _tool_error(
-            f"File {path!r} is a {match.kind.value}, not a reference document, and "
-            f"cannot be read as text."
+            f"File {path!r} is a {match.kind.value}, not a reference document, and cannot be read as text."
         )
     text = text_cache.get(match.id)
     if text is None:

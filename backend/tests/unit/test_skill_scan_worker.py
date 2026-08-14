@@ -125,7 +125,7 @@ def w(monkeypatch: pytest.MonkeyPatch) -> _Wiring:
         async def commit(self) -> None:
             return None
 
-    monkeypatch.setattr(worker, "get_sessionmaker", lambda: (lambda: _Session()))
+    monkeypatch.setattr(worker, "get_sessionmaker", lambda: _Session)
     monkeypatch.setattr(worker, "SkillFileRepository", lambda _db: wiring.repo)
 
     async def _capture(_db: object, event: audit.AuditEvent) -> None:
@@ -163,7 +163,7 @@ class TestVerdicts:
         w.repo = FakeFileRepo(_file())
         monkeypatch.setattr(worker, "get_settings", lambda: _settings(scan_enabled=True))
         monkeypatch.setattr("shared_kernel.scanning.get_scanner", lambda: FakeScanner(FakeScanResult(True)))
-        monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", lambda: FakeMinio())
+        monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", FakeMinio)
 
         out = await worker.skill_scan_file({}, file_id=str(uuid.uuid4()))
         assert out == "clean"
@@ -180,7 +180,7 @@ class TestVerdicts:
         monkeypatch.setattr(
             "shared_kernel.scanning.get_scanner", lambda: FakeScanner(FakeScanResult(False, "Eicar-Test"))
         )
-        monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", lambda: FakeMinio())
+        monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", FakeMinio)
 
         out = await worker.skill_scan_file({}, file_id=str(uuid.uuid4()))
         assert out == "quarantined"
@@ -217,7 +217,7 @@ class TestFailurePaths:
         monkeypatch.setattr(
             "shared_kernel.scanning.get_scanner", lambda: FakeScanner(error=ScanError("clamd down"))
         )
-        monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", lambda: FakeMinio())
+        monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", FakeMinio)
 
         with pytest.raises(ScanError):
             await worker.skill_scan_file({}, file_id=str(uuid.uuid4()))
@@ -284,7 +284,7 @@ class TestStaleVerdicts:
 
         monkeypatch.setattr(worker, "get_settings", lambda: _settings(scan_enabled=True))
         monkeypatch.setattr("shared_kernel.scanning.get_scanner", lambda: FakeScanner(FakeScanResult(True)))
-        monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", lambda: FakeMinio())
+        monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", FakeMinio)
 
         out = await worker.skill_scan_file({}, file_id=str(uuid.uuid4()))
 
@@ -306,7 +306,7 @@ class TestStaleVerdicts:
         monkeypatch.setattr(
             "shared_kernel.scanning.get_scanner", lambda: FakeScanner(FakeScanResult(False, "Eicar"))
         )
-        monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", lambda: FakeMinio())
+        monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", FakeMinio)
 
         assert await worker.skill_scan_file({}, file_id=str(uuid.uuid4())) == "superseded"
         assert w.repo.marks == []
@@ -322,7 +322,7 @@ class TestStaleVerdicts:
         w.repo = FakeFileRepo(_file())
         monkeypatch.setattr(worker, "get_settings", lambda: _settings(scan_enabled=True))
         monkeypatch.setattr("shared_kernel.scanning.get_scanner", lambda: FakeScanner(FakeScanResult(True)))
-        monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", lambda: FakeMinio())
+        monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", FakeMinio)
 
         assert await worker.skill_scan_file({}, file_id=str(uuid.uuid4())) == "clean"
         assert w.repo.statuses == [SkillScanStatus.CLEAN]
@@ -336,7 +336,7 @@ class TestStaleVerdicts:
         w.repo = FakeFileRepo(_file())
         monkeypatch.setattr(worker, "get_settings", lambda: _settings(scan_enabled=True))
         monkeypatch.setattr("shared_kernel.scanning.get_scanner", lambda: FakeScanner(FakeScanResult(True)))
-        monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", lambda: FakeMinio())
+        monkeypatch.setattr("shared_kernel.storage.minio_client.get_minio_client", FakeMinio)
 
         await worker.skill_scan_file({}, file_id=str(fid))
 

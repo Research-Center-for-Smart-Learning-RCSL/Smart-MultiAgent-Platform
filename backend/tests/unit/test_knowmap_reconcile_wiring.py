@@ -73,7 +73,7 @@ async def test_knowmap_loop_is_wired_to_the_knowmap_repository(monkeypatch: Any)
     monkeypatch.setattr(recon_mod, "GraphRagVectorStore", lambda *_a, **_kw: object())
     monkeypatch.setattr(recon_mod, "RedisSnapshotStore", lambda *_a, **_kw: object())
     monkeypatch.setattr(recon_mod, "RedisBuildLockStore", lambda *_a, **_kw: object())
-    monkeypatch.setattr(recon_mod, "get_sessionmaker", lambda: (lambda: object()))
+    monkeypatch.setattr(recon_mod, "get_sessionmaker", lambda: object)
     monkeypatch.setattr(recon_mod, "_make_phase2_retry", lambda *_a, **_kw: object())
 
     import qdrant_client

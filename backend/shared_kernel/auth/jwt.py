@@ -36,7 +36,7 @@ _DEFAULT_ROLE: Final = "user"
 # rejects any JWT that lacks it, so an artifact minted for another purpose
 # but signed by the same Vault transit key cannot be replayed as an access
 # token (SEC-7).
-_TOKEN_USE_ACCESS: Final = "access"
+_TOKEN_USE_ACCESS: Final = "access"  # noqa: S105 — claim value, not a credential
 
 
 class JwtError(ValueError):

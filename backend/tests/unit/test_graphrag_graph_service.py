@@ -67,7 +67,7 @@ def _patch_common(monkeypatch: pytest.MonkeyPatch, *, cfg: _FakeCfg | None) -> N
             user = "u"
             password = "p"
 
-    monkeypatch.setattr("app.config.settings.get_settings", lambda: _FakeSettings())
+    monkeypatch.setattr("app.config.settings.get_settings", _FakeSettings)
 
 
 @pytest.mark.asyncio

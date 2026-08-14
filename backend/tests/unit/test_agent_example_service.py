@@ -202,7 +202,7 @@ class TestInstallPack:
 
     async def test_a_partial_install_fills_only_the_gap(self) -> None:
         pack = load_pack(_ROOM_PACK)
-        service, doubles = _service(existing_names=[pack.agents[0].name])
+        service, _doubles = _service(existing_names=[pack.agents[0].name])
 
         report = await _install(service)
 

@@ -512,9 +512,9 @@ async def _enqueue_extraction(*, attachment_id: uuid.UUID) -> None:
 
 __all__ = [
     "ATTACHMENT_TTL",
-    "AttachmentPointer",
-    "AttachmentService",
     "MAX_STORED_EXTRACTED_TEXT_CHARS",
     "SINGLE_SHOT_MAX_BYTES",
     "TUS_MAX_BYTES",
+    "AttachmentPointer",
+    "AttachmentService",
 ]

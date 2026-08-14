@@ -931,8 +931,7 @@ async def knowmap_build(
         except Exception:
             _log.exception("knowmap_build: post-build revision finalize failed config=%s", config_id)
         return (
-            f"state={result.state.value} "
-            f"triples={result.triples_written} entities={result.entities_written}"
+            f"state={result.state.value} triples={result.triples_written} entities={result.entities_written}"
         )
     finally:
         await neo4j.close()

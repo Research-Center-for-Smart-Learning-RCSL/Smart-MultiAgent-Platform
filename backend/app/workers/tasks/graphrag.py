@@ -176,8 +176,7 @@ class _DbDeltaLoader:
             # session per fetch page keeps no DB connection open across the slow
             # per-window extraction the caller runs between yields.
             cursor_clause = (
-                "AND (m.created_at, m.id) > "
-                "(CAST(:last_created_at AS timestamptz), CAST(:last_id AS uuid)) "
+                "AND (m.created_at, m.id) > (CAST(:last_created_at AS timestamptz), CAST(:last_id AS uuid)) "
                 if last_id is not None
                 else ""
             )

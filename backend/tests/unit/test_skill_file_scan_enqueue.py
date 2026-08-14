@@ -118,7 +118,7 @@ def rec(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
     monkeypatch.setattr(
         facade_mod,
         "get_settings",
-        lambda: type("S", (), {"security": type("X", (), {"file_scan_enabled": True})()})(),
+        type("S", (), {"security": type("X", (), {"file_scan_enabled": True})()}),
     )
 
     r.facade = facade_mod.SkillsFacade(_Db())  # type: ignore[attr-defined]

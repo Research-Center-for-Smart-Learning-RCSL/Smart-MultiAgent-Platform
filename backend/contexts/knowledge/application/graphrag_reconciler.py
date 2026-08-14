@@ -197,7 +197,7 @@ class ReconciliationLoop:
                     touched.append(cfg.id)
                 except Exception:
                     _log.exception(
-                        "graphrag reconcile failed for config %s; " "peers in this cycle are unaffected",
+                        "graphrag reconcile failed for config %s; peers in this cycle are unaffected",
                         cfg.id,
                     )
                     await db.rollback()
@@ -598,9 +598,9 @@ Signature: ``async def(*, cfg: ConfigLike, build_id: uuid.UUID) -> None``.
 
 
 __all__ = [
+    "RETRY_BACKOFF_S",
     "GraphConsumer",
     "Phase2Retry",
-    "RETRY_BACKOFF_S",
     "ReconciliationLoop",
     "Sleeper",
 ]

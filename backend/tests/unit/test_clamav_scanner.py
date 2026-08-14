@@ -110,7 +110,7 @@ class TestClamAVScanner:
         mock_reader.read = AsyncMock(return_value=b"stream: OK\0")
 
         mock_writer = AsyncMock()
-        mock_writer.write = lambda x: written_chunks.append(x)
+        mock_writer.write = written_chunks.append
         mock_writer.drain = AsyncMock()
         mock_writer.close = lambda: None
         mock_writer.wait_closed = AsyncMock()

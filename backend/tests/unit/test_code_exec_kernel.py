@@ -391,7 +391,7 @@ class TestFetchKernelArtifact:
 
     async def test_refuses_a_file_over_the_ceiling(self, monkeypatch: pytest.MonkeyPatch) -> None:
         stat = {"size": 99_999, "mode": 0o644, "linkTarget": ""}
-        sandbox, agent_id, room_id, asked = self._wire(
+        sandbox, agent_id, room_id, _asked = self._wire(
             monkeypatch, stat=stat, payload=self._tar_bytes("big.bin", b"payload")
         )
         assert await self._fetch(sandbox, agent_id, room_id, "/session/outputs/big.bin") is None
