@@ -3,16 +3,21 @@
 Dependencies deliberately kept below their latest version, with the evidence and
 the condition for releasing the hold.
 
-Dependabot re-proposes these weekly. Without this file the investigation gets
-re-derived from scratch every time, or the bump lands and breaks CI again. Each
-entry must carry a reproduction, so the next person can re-check in minutes
-rather than re-bisect.
+Without this file the investigation gets re-derived from scratch every time, or
+the bump lands and breaks CI again. Each entry must carry a reproduction, so the
+next person can re-check in minutes rather than re-bisect.
 
-Delete an entry when its hold is released — a stale entry is worse than none.
+Every entry has a matching `ignore` rule in `.github/dependabot.yml`. A held
+package that is still proposed does not just cost a review — inside a group it
+takes the whole group's PR red, so unrelated bumps cannot land either (this
+sank #108 and #130).
+
+Delete an entry when its hold is released, and delete its ignore rule with it —
+a stale entry is worse than none.
 
 ## msw — held at 2.7.3 (latest 2.15.0)
 
-**Logged:** 2026-08-07 · **Blocks:** the frontend-minor-and-patch group (#108)
+**Logged:** 2026-08-07 · **Blocks:** the frontend-minor-and-patch group (#108, #130)
 
 msw 2.15.0 aborts the Node process during test teardown. Three vitest workers
 die per run, taking 26 tests with them, and **no assertion failure is produced**
@@ -79,3 +84,28 @@ assertion pass vacuously. The upgrade would trade one visible failure for an
 unknown number of silent ones.
 
 **Release when:** jsdom/jsdom#4227 is fixed. Re-check with the snippet above.
+
+## Node — held on the 24 LTS line
+
+**Logged:** 2026-08-14 · **Blocks:** #124 (`frontend/Dockerfile`), #131 (`@types/node`)
+
+Three places name a Node version and they must agree: `NODE_VERSION` in
+`.github/workflows/ci.yml`, the `FROM node:` build stage in `frontend/Dockerfile`,
+and `@types/node` in `frontend/package.json`. Dependabot proposes them separately,
+so each PR on its own silently breaks that agreement.
+
+The Dockerfile bump is the one that matters: the production bundle is built in
+that stage, so accepting it alone means the artifact we ship is produced by a
+Node major CI never executes. Nothing fails — CI stays green because CI is still
+on 24 — which is why this needs a written hold rather than a test.
+
+`@types/node` fails in the opposite direction and just as quietly: types for a
+newer major describe APIs the runtime does not have, so `pnpm typecheck` approves
+a call that throws at build time.
+
+**Not a bug in Node 26.** The hold is about the version line, not the release:
+26 has been Current since 2026-04 and is not LTS until 2026-10, and this project
+ships to production, so Active LTS is the floor.
+
+**Release when:** Node 26 reaches LTS. Then bump all three in one commit —
+`NODE_VERSION`, the Dockerfile stage, and `@types/node` — never one alone.
