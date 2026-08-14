@@ -109,3 +109,61 @@ ships to production, so Active LTS is the floor.
 
 **Release when:** Node 26 reaches LTS. Then bump all three in one commit —
 `NODE_VERSION`, the Dockerfile stage, and `@types/node` — never one alone.
+
+## typescript — held at 5.9.3 (latest 7.0.2)
+
+**Logged:** 2026-08-14 · **Blocks:** #146 · **Upstream:** typescript-eslint/typescript-eslint#10940 (open)
+
+typescript-eslint refuses to load against TypeScript 7 — not a rule failure, a
+hard refusal at plugin load, so `pnpm lint` exits before evaluating anything:
+
+```
+Error: typescript-eslint does not support TS 7.0.
+  at @typescript-eslint/eslint-plugin/dist/index.js:50:11
+```
+
+That takes every ESLint-backed gate with it, which is all twelve of them. The
+upstream issue targets TS >= 7.1, so there is no version pairing that works
+today: the ceiling is typescript-eslint's, not ours.
+
+`vue-tsc` was the second blocker — 2.1.10 died with `ERR_PACKAGE_PATH_NOT_EXPORTED`
+reaching for TS internals 7 no longer exports — but that half is already cleared
+by vue-tsc 3.3.9 (#144). Only the linter is left.
+
+**Reproduction:** set `typescript` to `7.0.2` in `frontend/package.json`,
+`pnpm install`, `pnpm lint`. The refusal is immediate and unmistakable.
+
+**Release when:** typescript-eslint ships TS 7 support (their #10940). Do not
+reach for the TS 6 side-by-side workaround upstream documents — running the
+linter against a different compiler than the build uses is the same
+two-sources-of-truth problem the Node hold above describes.
+
+## qdrant-client — held at 1.12.* (latest 1.19.x)
+
+**Logged:** 2026-08-14 · **Blocks:** #140
+
+Not a bug and not a toolchain conflict — an API we still call was removed.
+`AsyncQdrantClient.search` is gone in the 1.1x line, replaced by `query_points`,
+so widening the pin fails `mypy` with 8 errors across 2 files:
+
+```
+contexts/knowledge/infrastructure/qdrant_store.py:167: error:
+  "AsyncQdrantClient" has no attribute "search"  [attr-defined]
+contexts/knowledge/infrastructure/graphrag_vector_store.py:256: error:
+  "AsyncQdrantClient" has no attribute "search"  [attr-defined]
+```
+
+Both call sites pass `query_vector` / `query_filter` and read a bare result list;
+`query_points` takes `query` and returns a response object whose hits live under
+`.points`. The mechanical part is small, but this is the retrieval path for RAG
+and GraphRAG, so it needs its own change with tests rather than riding along on a
+version bump.
+
+**Reproduction:** widen to `qdrant-client>=1.12,<1.20` in `backend/pyproject.toml`,
+`pip install -e '.[dev]'`, `mypy .`.
+
+**Release when:** both call sites move to `query_points`. The ignore rule and this
+entry come out in the same commit as the migration.
+
+Note on the ignore: it suppresses update PRs, not Dependabot alerts — a CVE in
+qdrant-client still surfaces, it just will not arrive as an automatic bump.

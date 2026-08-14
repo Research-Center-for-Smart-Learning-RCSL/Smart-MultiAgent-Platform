@@ -20,6 +20,13 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # 1.1x removed AsyncQdrantClient.search, which two retrieval call sites
+      # still use. Held until they move to query_points.
+      - dependency-name: "qdrant-client"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
     commit-message:
       prefix: "deps(backend)"
 
@@ -43,6 +50,10 @@ updates:
       # Held to the runtime's major. Node 24 is what ci.yml and the build image
       # run; types ahead of the runtime describe APIs that are not there.
       - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # typescript-eslint refuses to load against TS 7 at all, which takes every
+      # ESLint-backed gate with it. Held until upstream supports it.
+      - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "deps(frontend)"
