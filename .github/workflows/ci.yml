@@ -721,6 +721,21 @@ jobs:
           python -m pip_audit --desc on --progress-spinner off
           --ignore-vuln PYSEC-2026-3412
           --ignore-vuln PYSEC-2025-183
+      # The step above audits the environment resolved from pyproject.toml, which
+      # is not what ships: the runtime image installs from requirements.lock and
+      # nothing else (backend/Dockerfile:18-19). A fresh resolve takes the newest
+      # release each range allows, so it can be clean while the lock still pins a
+      # vulnerable one — the same gap that let the weasyprint 68 -> 69 bump leave
+      # 68.1 shipping. scripts/check_lock_consistency.py closes it only for
+      # declared pins and says transitive ones are out of scope; this step is
+      # where those get audited. --no-deps because the lock is fully pinned.
+      - name: "pip-audit (backend shipping lock)"
+        working-directory: backend
+        run: >-
+          python -m pip_audit -r requirements.lock --no-deps
+          --desc on --progress-spinner off
+          --ignore-vuln PYSEC-2026-3412
+          --ignore-vuln PYSEC-2025-183
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v7
