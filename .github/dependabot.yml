@@ -1,6 +1,11 @@
 # Dependabot configuration — referenced by SECURITY.md §"Dependency Management".
 # Weekly grouped PRs for backend (pip) and frontend (npm); ecosystem-internal
 # major bumps still open standalone PRs so a breaking change is easy to revert.
+#
+# Every `ignore` below mirrors an entry in docs/dependency-holds.md. Without the
+# ignore, a held package is re-proposed weekly and — for anything in a group —
+# takes the whole group's PR red with it, so the other bumps in that group cannot
+# land either. Releasing a hold means deleting both the doc entry and its rule.
 
 version: 2
 updates:
@@ -30,6 +35,15 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # Held outright — no known good release, so a version-scoped ignore would
+      # just re-propose the next broken one. Re-check manually per the doc.
+      - dependency-name: "msw"
+      - dependency-name: "jsdom"
+      # Held to the runtime's major. Node 24 is what ci.yml and the build image
+      # run; types ahead of the runtime describe APIs that are not there.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "deps(frontend)"
 
@@ -57,6 +71,11 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 3
+    ignore:
+      # The build image must stay on the Node line ci.yml pins in NODE_VERSION,
+      # otherwise the shipped bundle is built by a Node version CI never runs.
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "deps(docker)"
 
