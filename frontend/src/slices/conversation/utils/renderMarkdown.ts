@@ -12,7 +12,10 @@
 // `onMounted` / `onUpdated`.
 
 import DOMPurify, { type Config } from 'dompurify'
-import MarkdownIt from 'markdown-it'
+// markdown-it 15 ships its own types: the default export is the callable
+// constructor (a value), and the instance type is a separate named export that
+// collides with it, hence the alias.
+import MarkdownIt, { type MarkdownIt as MarkdownItInstance } from 'markdown-it'
 
 let mermaidInited = false
 
@@ -21,11 +24,11 @@ let mermaidInited = false
 // module is only reached via the lazy chatroom/search chunks); the lazy
 // singleton additionally avoids tree-shaking surprises if an eager module ever
 // imports it, and defers the MarkdownIt instantiation cost to first render.
-let _md: MarkdownIt | null = null
+let _md: MarkdownItInstance | null = null
 
-function getMd(): MarkdownIt {
+function getMd(): MarkdownItInstance {
   if (_md) return _md
-  const md: MarkdownIt = new MarkdownIt({
+  const md: MarkdownItInstance = new MarkdownIt({
     html: true,
     linkify: true,
     breaks: false,
