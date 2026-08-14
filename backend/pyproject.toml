@@ -74,7 +74,7 @@ dev = [
   # drop symbols within a patch series (types-bleach 6.4.0.20260607 removed
   # `html5lib_shim.Filter`), so a wildcard lets CI typecheck against stubs no
   # developer has locally. Bump deliberately, with the mypy run in the same PR.
-  "types-bleach==6.4.0.20260607",
+  "types-bleach==6.4.0.20260728",
   "types-redis==4.6.0.20241004",
 ]
 
