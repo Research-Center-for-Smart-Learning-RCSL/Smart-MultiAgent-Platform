@@ -74,7 +74,7 @@
     "openapi-typescript-codegen": "0.31.0",
     "tailwindcss": "^4.3.3",
     "type-coverage": "2.30.1",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "vite": "8.2.0",
     "vitest": "4.1.10",
     "vue-tsc": "3.3.9"
