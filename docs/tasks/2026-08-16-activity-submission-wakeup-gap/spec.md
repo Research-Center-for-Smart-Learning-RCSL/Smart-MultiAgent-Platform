@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-08-16
 requirements: [R15.01, R15.02, R15.03, R28.04, R30.17]
 depends_on: []
@@ -254,22 +254,22 @@ Also `backend/tests/wiring/test_wiring.py:294-305` (a user send still reaches
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The test from §8.1 fails before the fix and passes after: submitting an activity
+- [x] AC-1: The test from §8.1 fails before the fix and passes after: submitting an activity
   re-arms the silence clock for every bound agent in the room, including observers.
-- [ ] AC-2: A submission does **not** call `evaluate_message_wakeups`, does not increment any
+- [x] AC-2: A submission does **not** call `evaluate_message_wakeups`, does not increment any
   agent's message count, and enqueues no `wakeup_agent` job (§8.2).
-- [ ] AC-3: A submission does not reset `autostop` (Q-2).
-- [ ] AC-4: With SA at `t_minutes: 3`, a stream of submissions arriving inside three minutes of
+- [x] AC-3: A submission does not reset `autostop` (Q-2).
+- [x] AC-4: With SA at `t_minutes: 3`, a stream of submissions arriving inside three minutes of
   each other does not fire the silence trigger; a genuine three-minute gap with neither a
   submission nor a chat message does fire it exactly once (§8.4).
-- [ ] AC-5: The new call happens **after** the route's commit and cannot fail the submission -
+- [x] AC-5: The new call happens **after** the route's commit and cannot fail the submission -
   a raising trigger leaves the submission committed and returns 2xx.
-- [ ] AC-6: `SubmissionService` is unchanged; `contexts/activities` gains no import of
+- [x] AC-6: `SubmissionService` is unchanged; `contexts/activities` gains no import of
   `contexts.orchestration`, verified by the existing AST tripwires plus a manual check of
   `contexts/activities/interfaces/facade.py:5-6`'s claim.
-- [ ] AC-7: `docs/examples/creative-thinking-course.md:160` and `:268-271` state the exclusion,
+- [x] AC-7: `docs/examples/creative-thinking-course.md:160` and `:268-271` state the exclusion,
   and `wakeup_service.py:76-77`'s docstring carries the carve-out.
-- [ ] AC-8: The eight `SubmissionService.submit` tests and `test_wiring.py:294-305` pass
+- [x] AC-8: The eight `SubmissionService.submit` tests and `test_wiring.py:294-305` pass
   unmodified.
 - [ ] AC-9: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`;
   `wiring` tier on CI.
@@ -292,7 +292,33 @@ the asymmetry is documented rather than implied. [R28.04] and [R30.17] are cited
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1** — **The route reaches the trigger through `ConversationFacade`, not by importing
+  `contexts.conversation.application.triggers`. Q-3's justification was factually wrong.**
+  Q-3 states "the route already imports `contexts.conversation.interfaces` and
+  `.interfaces.access` (`activities.py:40-46`), exactly as `messages.py:33-37` does". Those are
+  two different things and only the first half is true of `activities.py`. Checked at build
+  time: `activities.py` imports **only** from `contexts.conversation.interfaces` (`:40`, `:41`),
+  so it is currently clean under `backend/CLAUDE.md`'s route rule
+  ("`app/api/v1/` → calls `contexts/*/interfaces/facade.py`", stated as a hard rule);
+  `messages.py:23-33` is the one importing `contexts.conversation.application.*`, and it is
+  pre-existing non-compliance. Following Q-3 literally would have **introduced** a fresh
+  `app/api/v1/ → contexts/*/application/` violation into a compliant file.
+
+  So `ConversationFacade` gains `note_room_activity`, which delegates to the new trigger with an
+  in-method import — the cycle-breaking idiom the facade already uses at `:63`. The call site,
+  the behaviour, the post-commit ordering and the "silence clock only" semantics are all exactly
+  as approved; only the import path changed, and it changed to comply rather than to redesign.
+- **D-2** — **`evaluate_presence_change` and `evaluate_room_activity` share a `_re_arm_silence`
+  helper** rather than the latter duplicating the former's four lines. Not specified either way;
+  recorded because it means a future change to how the clock is touched lands in one place.
+- **D-3** — **The re-arm is ordered after the realtime emit, not before it.** §7.2 did not
+  specify a position within the fan-out. Placed last-but-one deliberately: the emit is what the
+  participant's client is waiting on, and the re-arm costs a DB read they should not queue
+  behind. Caught by the self-audit gate.
+- **D-4** — **§8.4's behavioural test became a pair.** The spec asked for "a re-armed clock does
+  not fire within `t_minutes`". Asserting only that is weak — it would also pass if the trigger
+  were suppressed outright — so a converse test asserting a genuine lull past the window *does*
+  still fire was added beside it.
 
 ## 13. Follow-ups
 
