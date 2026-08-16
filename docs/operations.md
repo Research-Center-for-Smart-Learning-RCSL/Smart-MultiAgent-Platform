@@ -143,7 +143,7 @@ backend/
   - Add columns as NULL-able first; backfill; then add NOT NULL and defaults in a second migration.
   - Drop columns only after the application stops reading them (two-release cycle).
   - Never rename a column in a single migration — add new, copy, cut-over, drop old.
-- **[O4.04]** Index creation uses `CREATE INDEX CONCURRENTLY` wherever possible; Alembic offers `op.create_index(..., postgresql_concurrently=True)` in non-transactional mode. Migrations that use this MUST be marked `transactional_ddl = False`.
+- **[O4.04]** Index creation on a high-write table uses `CREATE INDEX CONCURRENTLY`, issued inside `op.get_context().autocommit_block()`; there is no per-revision `transactional_ddl` marker in Alembic and none is used in this repository. A migration that opens an autocommit block **must place no statement before it in the same function**: the block unconditionally commits the transaction that precedes it, while the revision stamp is written only after the migration body returns, so any earlier statement can be committed at the previous stamped version and make the migration unretryable. `CONCURRENTLY` is not used where the same migration already takes `ACCESS EXCLUSIVE` on the same relation, since the weaker lock buys nothing there.
 - **[O4.05]** Autogeneration (`alembic revision --autogenerate`) is a convenience; every generated migration is reviewed by hand before commit.
 
 ### 4.3 Operational flow
