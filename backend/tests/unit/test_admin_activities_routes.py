@@ -25,7 +25,7 @@ from contexts.activities.application.example_service import (
     CatalogueTypeEntry,
     InstallReport,
 )
-from contexts.activities.domain.errors import ActivityPolicyVersionMismatch
+from contexts.activities.domain.errors import ActivityPolicyVersionMismatch, ExampleCourseNotFound
 from contexts.activities.domain.models import (
     PLATFORM_SCOPE,
     ActivationStatus,
@@ -36,9 +36,11 @@ from contexts.activities.domain.models import (
     PolicyImpact,
     ValidatorKind,
 )
+from contexts.activities.interfaces.error_mapping import _MAP as _ACTIVITIES_MAP
 from contexts.activities.interfaces.facade import ActivitiesFacade
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
+from shared_kernel.errors.context_handler import resolve_spec
 
 _NOW = dt.datetime(2026, 8, 8, tzinfo=dt.UTC)
 _ADMIN = SimpleNamespace(user_id=uuid.uuid4(), is_admin=True)
@@ -427,6 +429,29 @@ class TestExampleCatalogueRoutes:
         db.commit.assert_awaited_once()
         assert out.created == ["mandala-9grid"]
         assert out.already_present == ["six-hats-emotion-desk"]
+
+    async def test_an_unknown_course_key_maps_to_404_and_commits_nothing(self) -> None:
+        """F-6/AC-1. The route adds no guard of its own, so what makes an admin's
+        typo a 404 instead of a logged 500 is that the service raises a domain
+        error this context's `_MAP` carries."""
+        db = _committing_db()
+
+        with (
+            patch.object(
+                ActivitiesFacade,
+                "install_example_course",
+                new=AsyncMock(side_effect=ExampleCourseNotFound("'nope' is not a shipped course")),
+            ),
+            pytest.raises(ExampleCourseNotFound),
+        ):
+            await admin_activities.install_activity_example(
+                course_key="nope", admin=_ADMIN, ctx=_CTX, db=db
+            )
+
+        db.commit.assert_not_awaited()
+
+        slug, status, _title = resolve_spec(ExampleCourseNotFound("nope"), _ACTIVITIES_MAP)
+        assert (slug, status) == ("activities/example-course-not-found", 404)
 
     async def test_the_platform_edit_passes_only_the_four_permitted_fields(self) -> None:
         """AC-8: `key`, `payload_schema` and `validator_config` are not parameters
