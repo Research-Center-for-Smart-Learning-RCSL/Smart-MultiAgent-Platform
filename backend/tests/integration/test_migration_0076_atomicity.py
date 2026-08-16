@@ -48,7 +48,6 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -102,22 +101,24 @@ def scratch_conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[sa.engine.Connecti
 
     from app.config.settings import get_settings
 
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "alembic"))
-    import env as alembic_env  # type: ignore[import-not-found]
-
     monkeypatch.setenv("SMAP_DB_DSN", _SCRATCH_URL)
     get_settings.cache_clear()
     try:
-        resolved = alembic_env._sync_dsn()
-        expected = _SCRATCH_URL.replace("+asyncpg", "+psycopg")
-        if resolved != expected:
+        # Assert on the *input* env.py reads rather than importing env.py to call
+        # its _sync_dsn(): that module runs a migration at import time
+        # (`alembic/env.py:149-152`), so importing it here would either fire
+        # run_migrations_online() or raise for want of an alembic context.
+        configured = get_settings().database.dsn
+        if configured != _SCRATCH_URL:
             pytest.fail(
                 "refusing to run: the DSN override did not take effect. Alembic would migrate "
-                f"{resolved!r}, not the scratch database {expected!r}. Running anyway would "
-                "rewrite the schema of whatever that first URL points at."
+                f"{configured!r}, not the scratch database {_SCRATCH_URL!r}. Running anyway "
+                "would rewrite the schema of whatever that first URL points at."
             )
 
-        engine = sa.create_engine(resolved)
+        # The same conversion env.py:100-105 applies, so this engine and Alembic's
+        # own necessarily address one database.
+        engine = sa.create_engine(_SCRATCH_URL.replace("+asyncpg", "+psycopg"))
         try:
             # A dedicated scratch database, verified above -- so starting from a
             # known-empty schema is safe and makes each test independent.
