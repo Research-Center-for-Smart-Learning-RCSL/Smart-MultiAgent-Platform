@@ -4347,6 +4347,10 @@
             "title": "Created",
             "type": "array"
           },
+          "group_created": {
+            "title": "Group Created",
+            "type": "boolean"
+          },
           "group_id": {
             "format": "uuid",
             "title": "Group Id",
@@ -4361,7 +4365,8 @@
           "pack_key",
           "created",
           "already_present",
-          "group_id"
+          "group_id",
+          "group_created"
         ],
         "title": "ExamplePackInstallReportOut",
         "type": "object"

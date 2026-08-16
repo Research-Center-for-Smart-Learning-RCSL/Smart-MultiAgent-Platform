@@ -152,6 +152,7 @@ class TestInstallPack:
         assert doubles["groups"].create_group.await_args.kwargs["name"] == pack.group_name
         assert doubles["groups"].add_member.await_count == len(pack.agents)
         assert report.group_id == doubles["groups"].create_group.return_value
+        assert report.group_created is True
 
     async def test_reuses_an_existing_group_of_the_same_name(self) -> None:
         """A re-install lands its new agents beside the old ones, not in a second
@@ -173,18 +174,59 @@ class TestInstallPack:
 
         doubles["groups"].create_group.assert_not_awaited()
         assert report.group_id == existing.id
+        assert report.group_created is False
+
+    async def test_a_renamed_group_makes_a_reinstall_create_a_second_one_and_say_so(self) -> None:
+        """The rename is a supported route, so this state is reachable, not exotic.
+
+        `_group_for` matches by exact name, so once the owner renames the group the
+        next install creates a second one holding the same agents. That is left as
+        it is (the platform cannot tell a duplicate from a group the owner wanted);
+        what must not happen is the report claiming nothing was created.
+        """
+        pack = load_pack(_ROOM_PACK)
+        renamed = AgentGroup(
+            id=uuid.uuid4(),
+            project_id=uuid.uuid4(),
+            name="七年三班",
+            concept_map_enabled=False,
+            created_at=_NOW,
+        )
+        service, doubles = _service(existing_names=[a.name for a in pack.agents], groups=[renamed])
+
+        report = await _install(service)
+
+        assert report.created == ()
+        assert report.group_created is True
+        doubles["groups"].create_group.assert_awaited_once()
+        assert report.group_id == doubles["groups"].create_group.return_value
 
     async def test_a_second_install_reports_already_present_and_creates_nothing(self) -> None:
         """Idempotency is by name, which is what `agents` can offer -- it has no
-        key column and no name uniqueness."""
+        key column and no name uniqueness.
+
+        Asserts the *group* outcome too. This test carried AC-8's "creates nothing"
+        claim while `create_group` was awaited during its own run, because the
+        default double reports no existing group -- so the claim was only ever
+        checked against the agent rows.
+        """
         pack = load_pack(_ROOM_PACK)
-        service, doubles = _service(existing_names=[a.name for a in pack.agents])
+        group = AgentGroup(
+            id=uuid.uuid4(),
+            project_id=uuid.uuid4(),
+            name=pack.group_name,
+            concept_map_enabled=False,
+            created_at=_NOW,
+        )
+        service, doubles = _service(existing_names=[a.name for a in pack.agents], groups=[group])
 
         report = await _install(service)
 
         assert report.created == ()
         assert report.already_present == tuple(a.name for a in pack.agents)
+        assert report.group_created is False
         doubles["agents"].create.assert_not_awaited()
+        doubles["groups"].create_group.assert_not_awaited()
 
     async def test_an_agent_the_project_already_had_still_joins_the_group(self) -> None:
         """The group is the pack's end state, not a log of what this run created.
