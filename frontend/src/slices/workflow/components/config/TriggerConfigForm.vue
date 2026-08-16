@@ -42,6 +42,11 @@ const EVENT_TYPE_OPTIONS = ['call', 'reply', 'notify', 'instruct'] as const
 // 'any' = fire on any emit (submit + completion); a status fires only on that phase.
 const ACTIVITY_STATUS_OPTIONS = ['any', 'validated', 'pending', 'error'] as const
 
+// A key does not name exactly one type: a project's usable set may hold its own
+// type and an opted-in platform type under the same key ([R30.02]). 'any' is the
+// default and is what every rule written before this filter existed does.
+const ACTIVITY_SCOPE_OPTIONS = ['any', 'project', 'platform'] as const
+
 // Technical placeholders (cron syntax / IANA timezone) — universal, not translated
 const CRON_PLACEHOLDER = '0 9 * * MON-FRI'
 const TIMEZONE_PLACEHOLDER = 'UTC'
@@ -56,6 +61,10 @@ const senderFilterOptions = computed(() =>
 
 const activityStatusOptions = computed(() =>
   ACTIVITY_STATUS_OPTIONS.map((s) => ({ value: s, label: t('workflow.config.activityStatus_' + s) })),
+)
+
+const activityScopeOptions = computed(() =>
+  ACTIVITY_SCOPE_OPTIONS.map((s) => ({ value: s, label: t('workflow.config.activityScope_' + s) })),
 )
 
 const chatroomOptions = computed(() => [
@@ -272,6 +281,19 @@ function isInArray(field: string, item: string): boolean {
           :model-value="(local.activity_type_key as string) ?? ''"
           :placeholder="t('workflow.config.activityTypeKeyPlaceholder')"
           @update:model-value="update('activity_type_key', $event)"
+        />
+      </SFormField>
+
+      <SFormField
+        :label="t('workflow.config.activityTypeScope')"
+        name="activity-type-scope"
+        :help="t('workflow.config.activityTypeScopeHelp')"
+      >
+        <SSelect
+          id="activity-type-scope"
+          :model-value="(local.activity_type_scope as string) ?? 'any'"
+          :options="activityScopeOptions"
+          @update:model-value="update('activity_type_scope', $event)"
         />
       </SFormField>
 

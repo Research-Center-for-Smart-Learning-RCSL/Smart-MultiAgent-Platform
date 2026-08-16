@@ -5,6 +5,8 @@ import { useMutation, useQuery } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 
+import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
+
 import { SModal, SFormField, SInput, SSelect, SCheckbox, SButton } from '@shared/ui'
 import { useServerErrors, useToast } from '@shared/composables'
 import { ApiError } from '@shared/errors'
@@ -35,7 +37,15 @@ import {
   type ValidatorKindOption,
 } from '../types/schemas'
 
-const props = defineProps<{ projectId: string; open: boolean; editType?: ActivityTypeOut | null }>()
+const props = defineProps<{
+  projectId: string
+  open: boolean
+  editType?: ActivityTypeOut | null
+  /** The project's usable set, so the key field can warn *before* submit that
+   *  this key already names an opted-in platform type ([R30.02]). Passed down
+   *  rather than re-fetched: the view that owns this modal already holds it. */
+  existingTypes?: ActivityTypeOut[]
+}>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'created'): void; (e: 'updated'): void }>()
 
 const { t } = useI18n()
@@ -241,6 +251,18 @@ const filledCountError = computed(() => {
     : t('activities.typeForm.fieldRequired')
 })
 
+// Registering a key that already names an opted-in platform type is permitted
+// ([R30.02]) — a project-scoped copy of a shipped example is a supported
+// outcome — so this is a notice, never a validation error that blocks submit.
+// The server repeats it authoritatively in the response, because this list can
+// be stale; what it buys is telling the owner before they commit to the key.
+const shadowsPlatformKey = computed(() => {
+  if (isEdit.value) return false
+  const typed = (key.value ?? '').trim()
+  if (!typed) return false
+  return (props.existingTypes ?? []).some((row) => row.scope === 'platform' && row.key === typed)
+})
+
 // The payload schema's property names — the fields an exact_match validator can
 // compare against. Sourced from the same schema the builder is editing.
 const schemaFieldOptions = computed(() => {
@@ -333,7 +355,13 @@ function policyRefusal(err: unknown): boolean {
 
 const createMutation = useMutation({
   mutationFn: (body: ActivityTypeIn) => registerActivityType(props.projectId, body),
-  onSuccess: () => {
+  onSuccess: (created) => {
+    // The server's own answer, not the pre-submit notice: the types list this
+    // component was handed can be stale, and the collision is worth stating
+    // again at the moment it becomes real.
+    if (created.shadowed_by_platform) {
+      toast.warning(t('activities.typeForm.shadowsPlatformKeyToast', { key: created.key }))
+    }
     resetForm()
     emit('created')
   },
@@ -448,6 +476,18 @@ function onClose(): void {
           data-testid="type-key"
         />
       </SFormField>
+
+      <div
+        v-if="shadowsPlatformKey"
+        class="flex gap-2 rounded-md border border-[var(--color-warning)] p-3"
+        role="note"
+        data-testid="type-shadows-platform-key"
+      >
+        <ExclamationTriangleIcon class="w-5 h-5 shrink-0 text-[var(--color-warning)]" />
+        <p class="text-sm text-[var(--color-fg)]">
+          {{ t('activities.typeForm.shadowsPlatformKey') }}
+        </p>
+      </div>
 
       <SFormField
         :label="t('activities.typeForm.name')"

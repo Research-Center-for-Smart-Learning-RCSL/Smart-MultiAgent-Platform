@@ -19,7 +19,8 @@
       "endFailed": "Could not end the activity. Please try again.",
       "finishFailed": "Could not finish the activity. Please try again.",
       "policyRefused": "The platform activity policy will not allow this activity to start. A project owner must edit the activity type before it can be used.",
-      "policyRefusedField": "The platform activity policy will not allow this activity to start, because of its '{field}' setting. A project owner must edit the activity type before it can be used."
+      "policyRefusedField": "The platform activity policy will not allow this activity to start, because of its '{field}' setting. A project owner must edit the activity type before it can be used.",
+      "platformTypeOption": "{name} (platform example)"
     },
     "outcome": {
       "pending": "Validating…",
@@ -82,7 +83,8 @@
       "disableConfirm": "Disable \"{name}\"? Any room in this project currently running it will have the activity ended. Other projects are unaffected.",
       "emptyTitle": "No examples installed",
       "emptyText": "No shipped examples have been installed yet. Ask a platform admin to install one.",
-      "errorText": "Something went wrong loading the examples. Please try again."
+      "errorText": "Something went wrong loading the examples. Please try again.",
+      "shadowsOwnedKey": "This project already has its own activity type with the same key. Both are now usable and they are told apart only by the platform badge; anything that selects an activity by key alone, such as a workflow rule, will match both."
     },
     "typeForm": {
       "title": "New activity type",
@@ -155,6 +157,8 @@
       "fieldRequired": "This field is required.",
       "schemaEmpty": "Add at least one field.",
       "keyConflict": "An activity type with this key already exists.",
+      "shadowsPlatformKey": "This key already names a platform example enabled for this project. Creating it is allowed and gives you an editable copy, but both will be usable at once, and anything that selects an activity by key alone, such as a workflow rule, will match both.",
+      "shadowsPlatformKeyToast": "Created. This project now has two activity types with the key \"{key}\": yours and an enabled platform example.",
       "configRejected": "The validator configuration or schema was rejected. Please review it.",
       "activeConflict": "This activity type is active in a room. End it before changing its fields or validator.",
       "createFailed": "Could not create the activity type. Please try again.",

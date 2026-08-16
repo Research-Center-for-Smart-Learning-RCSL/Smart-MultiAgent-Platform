@@ -57,9 +57,16 @@ function invalidate(): void {
 
 const enableMutation = useMutation({
   mutationFn: (typeId: string) => optIntoActivityType(props.projectId, typeId),
-  onSuccess: () => {
+  onSuccess: (result) => {
     invalidate()
     toast.success(t('activities.examples.enabled'))
+    // Enabling is the cheaper of the two doors onto the same collision: the
+    // project now holds two live types under one key, and everything that
+    // selects by key alone selects both ([R30.02]). Permitted, so this warns
+    // rather than refuses -- but it must be said, because one click caused it.
+    if (result.shadows_owned_key) {
+      toast.warning(t('activities.examples.shadowsOwnedKey'))
+    }
   },
   onError: () => {
     invalidate()

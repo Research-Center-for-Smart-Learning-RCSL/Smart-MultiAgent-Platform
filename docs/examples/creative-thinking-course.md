@@ -317,7 +317,12 @@ Stated plainly, because an example that oversells the platform is worse than no 
 - **DA cannot write its drafts into an agent.**
 - **One plugin per activity-type key.** The plugin registry is a single global map keyed by
   type key. Any project whose type is named `mandala-9grid` inherits the grid renderer.
-  Since the shipped type is now platform-scoped and shared, this is less severe than it was.
+  A key does not name exactly one type: since platform scope exists, a project's usable set
+  can hold both its own `mandala-9grid` and an opted-in platform `mandala-9grid` ([R30.02]).
+  The plugin binds to the key, so it renders for both, and so does any workflow reactive
+  rule matching on `activity_type_key` alone. Both actions that create the collision warn
+  the Project Owner, and `scope` is what distinguishes the two rows everywhere they are
+  listed together.
 - **Retention is unset.** Submissions follow the room's normal purge. A real study should
   set `retention_days` on the type to pin the record for its data-retention period.
 
