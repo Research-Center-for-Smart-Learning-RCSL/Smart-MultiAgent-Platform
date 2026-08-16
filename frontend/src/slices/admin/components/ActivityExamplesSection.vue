@@ -200,8 +200,15 @@ function displayed(unit: AdminCatalogueTypeRow): {
 // Say so rather than leaving a disabled button with no explanation. Held back
 // while the query is in flight: an unresolved row is the normal in-flight state
 // and only means something once the answer is in.
+//
+// `isFetching`, not `isPending`. A refetch keeps `status === 'success'`, so
+// `isPending` covers only the very first load — and the two queries are
+// invalidated together after an install and then race. Whenever the catalogue
+// answers first, the freshly installed unit has an `installed_type_id` whose row
+// is not in the still-stale platform list, and an `isPending` guard would flash
+// "could not be loaded, reload the page" at an admin whose install just worked.
 const unresolvedInstalled = computed(() => {
-  if (platformTypesQuery.isPending.value) return 0
+  if (platformTypesQuery.isFetching.value) return 0
   return examples.value
     .flatMap((course) => course.activity_types)
     .filter((unit) => unit.installed_type_id !== null && storedRowFor(unit) === null).length
