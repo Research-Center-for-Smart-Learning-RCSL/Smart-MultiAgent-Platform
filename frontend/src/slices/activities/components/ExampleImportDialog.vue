@@ -86,18 +86,29 @@ const disableMutation = useMutation({
   },
 })
 
-/** Whether *any* request from this dialog is outstanding, which is what every
- *  action button is gated on. Not "is this row the pending one": both mutations
- *  invalidate the same two query keys, so a second request started mid-flight
- *  races the first on the same cache entry whichever rows they touch. Matches
- *  the rule D-14 of `2026-08-13-creative-thinking-example-agents` set for
- *  `AgentPackInstallDialog`.
+/** Whether any action button must refuse a click. Never "is this row the pending
+ *  one": both mutations invalidate the same two query keys, so a second request
+ *  started mid-flight races the first on the same cache entry whichever rows
+ *  they touch. Matches the rule D-14 of
+ *  `2026-08-13-creative-thinking-example-agents` set for `AgentPackInstallDialog`.
  *
  *  Read off the mutations rather than a ref this component clears itself: a
  *  hand-maintained token cannot say which request a completion belongs to, so
- *  the first one to settle released the second one's lock. */
+ *  the first one to settle released the second one's lock.
+ *
+ *  `isFetching` is the second half and not optional. `invalidate()` fires
+ *  `void qc.invalidateQueries(...)` and `onSuccess` returns void, so vue-query
+ *  does not hold the mutation open until the refetch lands: `isPending` goes
+ *  false while the list still shows the pre-mutation `enabled`. A click in that
+ *  window disables an already-disabled type, and `opt_out` is not idempotent --
+ *  it raises ActivityTypeNotOptedIn, so the user is told a disable failed that
+ *  in fact succeeded. That is the exact symptom this component was fixed for,
+ *  reached through the stale list instead of through a concurrent mutation. */
 const anyPending = computed(
-  () => enableMutation.isPending.value || disableMutation.isPending.value,
+  () =>
+    enableMutation.isPending.value ||
+    disableMutation.isPending.value ||
+    examplesQuery.isFetching.value,
 )
 
 /** Which row is mid-request, so its own button also shows a spinner while the

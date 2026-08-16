@@ -261,6 +261,46 @@ describe('ExampleImportDialog', () => {
     await flushPromises()
   })
 
+  it('keeps the buttons inert until the invalidated list has been re-read', async () => {
+    // The second window, and the one that still misreports. `invalidate()` fires
+    // `void qc.invalidateQueries(...)` and `onSuccess` returns void, so vue-query
+    // never awaits the refetch: `isPending` is already false while the list still
+    // says `enabled: true`. Acting on that stale row issues a second opt-out,
+    // which `opt_out` refuses with ActivityTypeNotOptedIn, and the user is shown
+    // `disableFailed` for a disable that succeeded.
+    const refetch = deferred<ReturnType<typeof example>[]>()
+    let call = 0
+    listMock.mockImplementation(() => {
+      call += 1
+      return call === 1 ? Promise.resolve([example({ enabled: true })]) : refetch.promise
+    })
+    optOutMock.mockResolvedValue(undefined)
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+
+    const disable = () =>
+      wrapper.findAll('button').filter((b) => b.text().includes('activities.examples.disable'))[0]
+
+    await disable().trigger('click')
+    await flushPromises()
+
+    expect(optOutMock).toHaveBeenCalledTimes(1)
+    // The mutation has settled, but the row on screen is still the pre-opt-out one.
+    expect(disable().attributes('disabled')).toBeDefined()
+
+    refetch.resolve([example({ enabled: false })])
+    await flushPromises()
+
+    // Re-read, and the row is now an Enable button that accepts a click again.
+    const enable = wrapper
+      .findAll('button')
+      .filter((b) => b.text().includes('activities.examples.enable'))
+    expect(enable).toHaveLength(1)
+    expect(enable[0].attributes('disabled')).toBeUndefined()
+    expect(optOutMock).toHaveBeenCalledTimes(1)
+  })
+
   it('shows the empty state naming who can install one', async () => {
     listMock.mockResolvedValue([])
 
