@@ -3,15 +3,20 @@
 //
 // Copy-on-import, not an opt-in like the activity examples: an agent needs a
 // project-owned key group carrying a real provider key, so a pack cannot be a
-// shared platform row. That is why this dialog asks for a key group at all, and
-// why it shows which provider each agent will end up on -- the pack states a
-// preference the chosen group may not be able to serve.
+// shared platform row. That is why this dialog asks for a key group at all.
+//
+// Before installing it shows each agent's *preferred* provider and the activity
+// types it is written for. The preference, not the resolved value: which
+// provider an agent ends up on is decided server-side against the chosen key
+// group, and no endpoint answers that question ahead of the install. The
+// resolved provider is reported afterwards, from the install report.
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import {
   EyeSlashIcon,
   InformationCircleIcon,
+  PencilSquareIcon,
   PuzzlePieceIcon,
   UserGroupIcon,
 } from '@heroicons/vue/24/outline'
@@ -99,6 +104,14 @@ const anyObserver = computed(() =>
   packs.value.some((p) => p.agents.some((a) => a.room_role === 'observer')),
 )
 
+/** Any pack carrying a design agent -- `room_role: null` is exactly and only
+ *  that. Shown up front because "design agent" reads as something that
+ *  configures agents for you, and it does not: it drafts material for the
+ *  teacher's own room, and applying a draft is a manual copy and paste. */
+const anyDesignAgent = computed(() =>
+  packs.value.some((p) => p.agents.some((a) => a.room_role === null)),
+)
+
 const installMutation = useMutation({
   mutationFn: (packKey: string) =>
     agentsApi.installExamplePack(props.projectId, packKey, {
@@ -106,13 +119,27 @@ const installMutation = useMutation({
       model_hint: null,
     }),
   onSuccess: (report) => {
+    // Read the group name off the still-current list before invalidating it --
+    // the report carries `group_id` but no name, and only the catalogue has one.
+    const groupName = packs.value.find((p) => p.pack_key === report.pack_key)?.group_name ?? ''
+
     void qc.invalidateQueries({ queryKey: agentKeys.examplePacks(props.projectId) })
     void qc.invalidateQueries({ queryKey: agentKeys.agents(props.projectId) })
     emit('installed')
-    if (report.created.length === 0) {
+    if (report.created.length > 0) {
+      // A set, not one value: agents can resolve to different providers when
+      // their preferred hints differ and the key group serves only some.
+      const providers = [...new Set(report.created.map((a) => a.model_hint))].join(', ')
+      toast.success(
+        t('agents.examplePacks.installed', { count: report.created.length, providers }),
+      )
+    } else if (!report.group_created) {
+      // Only when the run really created nothing. A run that created a group is
+      // not a no-op, and saying so was F-8's whole symptom.
       toast.info(t('agents.examplePacks.nothingToInstall'))
-    } else {
-      toast.success(t('agents.examplePacks.installed', { count: report.created.length }))
+    }
+    if (report.group_created) {
+      toast.success(t('agents.examplePacks.groupCreated', { group: groupName }))
     }
   },
   onError: () => {
@@ -187,6 +214,17 @@ function roleLabel(role: string | null): string {
           <EyeSlashIcon class="w-5 h-5 shrink-0 text-[var(--color-muted)]" />
           <p class="text-sm text-[var(--color-fg)]">
             {{ t('agents.examplePacks.observerNotice') }}
+          </p>
+        </div>
+
+        <div
+          v-if="anyDesignAgent"
+          class="flex gap-2 rounded-md border border-[var(--color-border)] p-3"
+          role="note"
+        >
+          <PencilSquareIcon class="w-5 h-5 shrink-0 text-[var(--color-muted)]" />
+          <p class="text-sm text-[var(--color-fg)]">
+            {{ t('agents.examplePacks.designNotice') }}
           </p>
         </div>
 
@@ -267,12 +305,32 @@ function roleLabel(role: string | null): string {
                   {{ roleLabel(agent.room_role) }}
                 </SBadge>
                 <SBadge
+                  size="sm"
+                  variant="neutral"
+                >
+                  {{
+                    t('agents.examplePacks.prefersProvider', {
+                      provider: agent.preferred_model_hint,
+                    })
+                  }}
+                </SBadge>
+                <SBadge
                   v-if="agent.installed"
                   size="sm"
                   variant="success"
                 >
                   {{ t('agents.examplePacks.agentInstalled') }}
                 </SBadge>
+                <span
+                  v-if="agent.binds_activity_types.length > 0"
+                  class="basis-full text-xs text-[var(--color-muted)]"
+                >
+                  {{
+                    t('agents.examplePacks.bindsActivities', {
+                      types: agent.binds_activity_types.join(', '),
+                    })
+                  }}
+                </span>
               </li>
             </ul>
           </li>
