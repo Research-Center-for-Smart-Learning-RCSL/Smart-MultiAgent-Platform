@@ -14,7 +14,11 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.application.policy_service import ActivityPolicyService
-from contexts.activities.application.validators.registry import get_config_validator, is_registered
+from contexts.activities.application.validators.registry import (
+    get_config_validator,
+    get_schema_config_validator,
+    is_registered,
+)
 from contexts.activities.application.validators.schema import validate_schema_wellformed
 from contexts.activities.domain.errors import (
     ActivityTypeActive,
@@ -57,7 +61,7 @@ class ActivityTypeService:
             # CHECK is a worse diagnosis than naming the inconsistent argument.
             raise ValueError(f"scope {scope.value!r} does not agree with project_id={project_id!r}")
         validate_schema_wellformed(payload_schema)
-        self._validate_validator_config(validator_kind, validator_config)
+        self._validate_validator_config(validator_kind, validator_config, payload_schema=payload_schema)
         # [R30.30] first gate: reject a violating type at authoring time so the
         # activation-time gate seldom has to fire in front of a class.
         await self._policy.assert_allows(
@@ -147,7 +151,7 @@ class ActivityTypeService:
         )
         if behavioral_changed:
             validate_schema_wellformed(payload_schema)
-            self._validate_validator_config(validator_kind, validator_config)
+            self._validate_validator_config(validator_kind, validator_config, payload_schema=payload_schema)
             if await self._activation_repo.list_active_for_type(type_id):
                 raise ActivityTypeActive(str(type_id))
 
@@ -317,7 +321,16 @@ class ActivityTypeService:
         )
 
     @staticmethod
-    def _validate_validator_config(kind: ValidatorKind, config: dict[str, Any]) -> None:
+    def _validate_validator_config(
+        kind: ValidatorKind, config: dict[str, Any], *, payload_schema: dict[str, Any]
+    ) -> None:
+        """The single validator gate both write paths run.
+
+        ``payload_schema`` is unused by the ``WEBHOOK`` and ``MCP`` branches. It is
+        a parameter rather than a second method so a future write path cannot wire
+        up one check and forget the other -- the cost is paid once here, the
+        correctness risk would be paid on every change.
+        """
         if kind is ValidatorKind.IN_PROCESS:
             vid = str(config.get("validator_id", ""))
             if not vid or not is_registered(vid):
@@ -328,6 +341,14 @@ class ActivityTypeService:
             config_validator = get_config_validator(vid)
             if config_validator is not None:
                 config_validator(config)
+            # The cross-field rules a config check cannot state because it never
+            # sees the schema (filled_count's min_filled vs the declared property
+            # count). Mirrors the course loader, which has always run this hook.
+            # Note it is not the only gate on those values: it returns early rather
+            # than raising for a config the check above already owns.
+            schema_config_validator = get_schema_config_validator(vid)
+            if schema_config_validator is not None:
+                schema_config_validator(config, payload_schema)
         elif kind is ValidatorKind.WEBHOOK:
             if not str(config.get("url", "")):
                 raise ValidatorConfigInvalid("webhook validator requires a 'url'")

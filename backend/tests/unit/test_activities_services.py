@@ -328,6 +328,126 @@ class TestTypeServiceValidatorConfig:
             )
         svc._repo.create.assert_not_awaited()
 
+    async def test_a_min_filled_above_the_property_count_is_rejected_at_register(self) -> None:
+        """F-7. `_SCHEMA` declares one property, so no submission could ever reach
+        99 and the activity would be permanently unpassable. The rule lives on the
+        registry's `schema_config_validator` hook, which the course loader has
+        always called and this write path never did."""
+        from app.plugins.activity_validators import register_first_party_validators
+
+        register_first_party_validators()
+        svc = _no_policy(ActivityTypeService(MagicMock()))
+        svc._repo = MagicMock()
+        svc._repo.create = AsyncMock()
+        with pytest.raises(ValidatorConfigInvalid, match="min_filled"):
+            await svc.register(
+                project_id=uuid.uuid4(),
+                key="k",
+                name="n",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config={"validator_id": "filled_count", "min_filled": 99},
+                retention_days=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+        svc._repo.create.assert_not_awaited()
+
+    async def test_a_min_filled_equal_to_the_property_count_is_accepted(self) -> None:
+        """AC-7. The check uses `>`: a threshold every field must be filled to reach
+        is a legal, and shipped, configuration."""
+        from app.plugins.activity_validators import register_first_party_validators
+
+        register_first_party_validators()
+        svc = _no_policy(ActivityTypeService(MagicMock()))
+        svc._repo = MagicMock()
+        type_id = uuid.uuid4()
+        svc._repo.create = AsyncMock(return_value=type_id)
+        svc._repo.get = AsyncMock(return_value=_make_type(id=type_id))
+        with patch("contexts.activities.application.type_service.audit.emit", new=AsyncMock()):
+            await svc.register(
+                project_id=uuid.uuid4(),
+                key="k",
+                name="n",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config={"validator_id": "filled_count", "min_filled": len(_SCHEMA["properties"])},
+                retention_days=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+        svc._repo.create.assert_awaited_once()
+
+    async def test_a_min_filled_above_the_property_count_is_rejected_at_edit(self) -> None:
+        """F-7's other write path: `update` shares the same single validator gate."""
+        from app.plugins.activity_validators import register_first_party_validators
+
+        register_first_party_validators()
+        project_id = uuid.uuid4()
+        type_id = uuid.uuid4()
+        svc = _no_policy(ActivityTypeService(MagicMock()))
+        svc._repo = MagicMock()
+        svc._repo.update = AsyncMock()
+        svc._repo.get = AsyncMock(
+            return_value=_make_type(
+                id=type_id,
+                project_id=project_id,
+                validator_config={"validator_id": "filled_count", "min_filled": 1},
+            )
+        )
+        svc._activation_repo = MagicMock()
+        svc._activation_repo.list_active_for_type = AsyncMock(return_value=[])
+        with pytest.raises(ValidatorConfigInvalid, match="min_filled"):
+            await svc.update(
+                project_id=project_id,
+                type_id=type_id,
+                name="n",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config={"validator_id": "filled_count", "min_filled": 99},
+                retention_days=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+        svc._repo.update.assert_not_awaited()
+
+    async def test_a_metadata_only_edit_of_a_stored_violating_type_still_succeeds(self) -> None:
+        """AC-8. This is why F-7 needs no data migration: the validator gate runs
+        only inside `if behavioral_changed`, so a row stored before the fix (or by
+        a direct DB write) still accepts a rename or a retention change. A future
+        refactor of `update` that hoists the gate out of that branch would strand
+        every such row, which is what this pins."""
+        from app.plugins.activity_validators import register_first_party_validators
+
+        register_first_party_validators()
+        project_id = uuid.uuid4()
+        type_id = uuid.uuid4()
+        violating = {"validator_id": "filled_count", "min_filled": 99}
+        svc = _no_policy(ActivityTypeService(MagicMock()))
+        svc._repo = MagicMock()
+        svc._repo.update = AsyncMock(return_value=True)
+        svc._repo.get = AsyncMock(
+            return_value=_make_type(id=type_id, project_id=project_id, validator_config=violating)
+        )
+        svc._activation_repo = MagicMock()
+        svc._activation_repo.list_active_for_type = AsyncMock(return_value=[])
+
+        with patch("contexts.activities.application.type_service.audit.emit", new=AsyncMock()):
+            await svc.update(
+                project_id=project_id,
+                type_id=type_id,
+                name="A new name",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config=violating,
+                retention_days=30,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        svc._repo.update.assert_awaited_once()
+        assert svc._repo.update.await_args.kwargs["bump_version"] is False
+
     async def test_edit_to_bad_filled_count_config_rejected(self) -> None:
         """The same config gate runs on the edit path, not only registration (R30.23)."""
         from app.plugins.activity_validators import register_first_party_validators

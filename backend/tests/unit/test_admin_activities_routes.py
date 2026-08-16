@@ -444,9 +444,7 @@ class TestExampleCatalogueRoutes:
             ),
             pytest.raises(ExampleCourseNotFound),
         ):
-            await admin_activities.install_activity_example(
-                course_key="nope", admin=_ADMIN, ctx=_CTX, db=db
-            )
+            await admin_activities.install_activity_example(course_key="nope", admin=_ADMIN, ctx=_CTX, db=db)
 
         db.commit.assert_not_awaited()
 

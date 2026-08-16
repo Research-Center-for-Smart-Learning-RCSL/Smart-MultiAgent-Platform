@@ -217,9 +217,7 @@ class TestInstallCourse:
         svc = _service()
 
         with pytest.raises(ExampleCourseNotFound) as exc:
-            await svc.install_course(
-                course_key="creative-thinkin", actor_user_id=uuid.uuid4(), actor_ip=None
-            )
+            await svc.install_course(course_key="creative-thinkin", actor_user_id=uuid.uuid4(), actor_ip=None)
 
         # AC-4: the detail names what *is* available, which is the whole diagnosis
         # when a packaging failure leaves the catalogue empty.

@@ -195,7 +195,9 @@ class TestSeededConfigsPassTheRealRegistrationGate:
         registry.clear_registry()
         with pytest.raises(ValidatorConfigInvalid):
             ActivityTypeService._validate_validator_config(
-                course_type.validator_kind, course_type.validator_config
+                course_type.validator_kind,
+                course_type.validator_config,
+                payload_schema=course_type.payload_schema,
             )
 
     @pytest.mark.parametrize("course_type", COURSE_TYPES, ids=lambda t: t.key)
@@ -203,7 +205,9 @@ class TestSeededConfigsPassTheRealRegistrationGate:
         registry.clear_registry()
         register_first_party_validators()
         ActivityTypeService._validate_validator_config(
-            course_type.validator_kind, course_type.validator_config
+            course_type.validator_kind,
+            course_type.validator_config,
+            payload_schema=course_type.payload_schema,
         )
 
     async def test_seed_registers_validators_before_touching_the_facade(
