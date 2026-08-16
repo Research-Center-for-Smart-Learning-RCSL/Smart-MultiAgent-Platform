@@ -152,6 +152,15 @@ def _scope_column_exists(conn: sa.engine.Connection) -> bool:
     )
 
 
+def _raise(message: str) -> object:
+    """A stand-in for an ``op.*`` call that blows up mid-migration."""
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError(message)
+
+    return _boom
+
+
 def _table_exists(conn: sa.engine.Connection, name: str) -> bool:
     return bool(
         conn.execute(
@@ -211,10 +220,3 @@ class TestDowngradeAtomicity:
         # Before the fix the block had already committed both drops by this point,
         # leaving the opt-in table gone at version 0076.
         assert _table_exists(scratch_conn, "project_activity_type_optins")
-
-
-def _raise(message: str):
-    def _boom(*_args: object, **_kwargs: object) -> None:
-        raise RuntimeError(message)
-
-    return _boom

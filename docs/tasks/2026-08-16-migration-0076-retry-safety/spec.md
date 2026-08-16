@@ -264,18 +264,28 @@ record the result in the deviation log.
 
 - [ ] AC-1: The atomicity test from §8.1 fails before the fix and passes after: a failure in
   `create_table` leaves no `scope` column on `activity_types`.
+  ***NOT OBSERVED.** Docker was unavailable on this host, so
+  `tests/integration/test_migration_0076_atomicity.py` has only ever been collected. The test is
+  written, lints, typechecks, and skips cleanly without a scratch database; it has never run.
+  Deliberately left unchecked rather than checked-with-a-caveat: this is the behavioural
+  verification of a **migration**, and the whole subject of the dossier is a failure mode that
+  only appears when the migration actually executes. Until CI or a developer with PostgreSQL
+  runs it, this fix is reasoned, not measured.*
 - [ ] AC-2: The symmetric downgrade test from §8.2 passes: a failure after the table drop
   leaves `project_activity_type_optins` intact.
-- [ ] AC-3: `upgrade()` and `downgrade()` each contain no `autocommit_block` and no
+  ***NOT OBSERVED**, same reason as AC-1. Note the structural test (AC-6) did independently
+  confirm this half of the defect exists — it named `downgrade` alongside `upgrade` against the
+  pre-fix file — so the *defect* is measured even though the *fix* is not.*
+- [x] AC-3: `upgrade()` and `downgrade()` each contain no `autocommit_block` and no
   `CONCURRENTLY`, and each is a single transaction.
-- [ ] AC-4: The index name and predicate are byte-identical to today, and
+- [x] AC-4: The index name and predicate are byte-identical to today, and
   `backend/tests/unit/test_activity_repos.py:347-374` plus
   `backend/tests/integration/test_platform_activity_type_schema.py` pass **unmodified**.
-- [ ] AC-5: `assert_no_platform_types` still runs first in `downgrade()`, before any DDL, and
+- [x] AC-5: `assert_no_platform_types` still runs first in `downgrade()`, before any DDL, and
   still fails loudly when a platform row exists.
-- [ ] AC-6: The structural test from §8.3 exists, passes for all four `autocommit_block` users
+- [x] AC-6: The structural test from §8.3 exists, passes for all four `autocommit_block` users
   after the fix, and is demonstrated to fail against the pre-fix 0076.
-- [ ] AC-7: The comment at `:63-65` states why this migration is a single transaction and ties
+- [x] AC-7: The comment at `:63-65` states why this migration is a single transaction and ties
   it to the catalogue-cardinality assumption; **all three** copies of the stale rule -
   `docs/operations.md:146`, `backend/alembic.ini:17-19` and `backend/alembic/README.md:57-58` -
   no longer prescribe a per-revision `transactional_ddl` marker, and [O4.04] states the
@@ -284,6 +294,12 @@ record the result in the deviation log.
   why "no mentions at all" was the wrong criterion.
 - [ ] AC-8: Manual verification against a real PostgreSQL per §4, with the result and the
   `alembic current` readings from §9 recorded in the deviation log.
+  ***PARTIALLY DONE.** The §4 manual procedure was not run — no PostgreSQL on this host. The §9
+  readings are resolved for **staging** from the deploy configuration rather than a shell
+  (D-5): `docker-compose.staging.yml:96-127` migrates automatically on every deploy, so staging
+  is at head and 0076 is applied there. **Production is still unread** and has no automatic
+  migration step at all (FU-5); `alembic current` against prod remains outstanding and is the
+  user's to run.*
 - [ ] AC-9: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`;
   `db` and `integration` tiers on CI, which is authoritative per the project's remote-CI rule.
 
@@ -313,11 +329,71 @@ Replace with:
 
 ## 12. Deviation Log
 
-Appended by /build. Must record the `alembic current` readings from §9 and the §4 manual
-verification result.
+- **D-1** — **AC-7's grep criterion was wrong and is amended.** It required a repo-wide grep for
+  `transactional_ddl` to come back clean. But the corrections deliberately *name* the mechanism
+  in order to deny it ("there is no per-revision `transactional_ddl` marker in Alembic"), which
+  is more useful than silence: a reader who greps for the term should land on the correction
+  rather than on nothing. The criterion is now "every remaining mention denies the mechanism
+  rather than prescribing it". Three mentions remain, one per corrected file, all denials.
+- **D-2** — **The db-tier atomicity tests were rewritten twice, for two real defects in the
+  test itself.** The first version drove the migration with `cfg.attributes["connection"]`, the
+  standard Alembic idiom — which **this project's `env.py` ignores**:
+  `run_migrations_online` (`alembic/env.py:129-146`) always builds its own engine from
+  `_sync_dsn()`. Setting `SMAP_SCRATCH_DATABASE_URL` would therefore not have redirected
+  anything; it would have run destructive DDL against whatever the settings point at, which is
+  the exact hazard `test_platform_activity_type_schema.py:199-204` declines to take. The
+  redirect now goes through `SMAP_DB_DSN` (the only channel `env.py` reads) with the
+  `get_settings` cache cleared on both sides, and the fixture **asserts** the redirect took
+  effect before touching anything. The second version then imported `env.py` to call
+  `_sync_dsn()` for that assertion — but `env.py:149-152` runs a migration at module scope, so
+  the import would have fired `run_migrations_online()` or raised. The guard now asserts on the
+  settings DSN that `env.py` reads and applies the same conversion locally. Both were caught by
+  the self-audit gate, not by any test, because the tests cannot execute here.
+- **D-3** — **The db-tier tests have still never been executed.** Docker is unavailable on this
+  host, so AC-1 and AC-2 are verified structurally and by reading, not empirically. Their module
+  docstring states this and gives the command to run them. This is a migration, so the gap is
+  worth naming plainly rather than filing away: **the fix is reasoned, not observed.**
+- **D-4** — **`alembic upgrade head` (gate 2) could not run**, for the same reason. The
+  migration has not been applied or reversed against a real PostgreSQL by this task.
+- **D-5** — **The §9 ops prerequisite is partly resolved, from the deploy config rather than
+  from a shell.** Staging runs migrations automatically: `docker-compose.staging.yml:96-127`
+  defines a one-shot `migrate` service running `alembic upgrade head`, which `backend-web`
+  (`:144`) and `backend-worker` (`:168`) gate on via `service_completed_successfully`. So
+  staging has been at head since its last deploy, and 0076 has been applied there — making the
+  `upgrade()` half of this fix dead code on staging and live only for fresh environments, local
+  compose, and `deploy/scripts/restore.sh`. **Production is different and remains unknown**: it
+  has no `migrate` service in either the base or the prod overlay, and is migrated by the manual
+  runbook step `docker compose exec backend-web alembic upgrade head`
+  (`docs/runbook-upgrade.md:34`). `alembic current` against prod is still outstanding and is the
+  user's to run. The `downgrade()` half is live everywhere regardless, having never run.
+- **D-6** — **0076 also violated an invariant the upgrade runbook asks operators to verify.**
+  `docs/runbook-upgrade.md:170-178` requires every migration to survive
+  `upgrade → downgrade -1 → upgrade head`, "must be idempotent". 0076 failed that round trip in
+  both directions before this fix. Not cited in the dossier when written; recorded because it
+  means the defect broke four documented rules, not three.
 
 ## 13. Follow-ups
 
+- **FU-5**: **Production has no automatic migration step; staging does.** Found while resolving
+  D-5's ops prerequisite. `docker-compose.staging.yml:96-127` runs a one-shot `migrate` service
+  that `backend-web` and `backend-worker` gate on, so a staging deploy cannot start the app
+  against a stale schema. Neither the base `docker-compose.yml` nor `docker-compose.prod.yml`
+  defines that service, and prod's documented usage composes exactly those two files — so
+  production relies on the manual runbook step `docker compose exec backend-web alembic upgrade
+  head` (`docs/runbook-upgrade.md:34`).
+
+  This is worth deciding deliberately rather than leaving as an asymmetry nobody chose. The
+  manual path is also the more dangerous of the two for the class of defect this dossier fixed:
+  on staging a half-applied migration stops the app from starting, which is loud; on prod the
+  command runs against an **already-serving** container, so the app keeps serving a
+  half-migrated schema while the operator's retry fails. Either add the `migrate` service to the
+  prod overlay, or state in the runbook why prod deliberately gates migrations behind a human.
+- **FU-6**: `docs/runbook-upgrade.md:170-178` asks operators to verify
+  `upgrade → downgrade -1 → upgrade head` for every migration (D-6), but nothing enforces it and
+  0076 shipped failing it in both directions. The structural test added here catches the
+  autocommit-ordering cause; it does not catch every way a migration can fail that round trip. A
+  CI job running the round trip against a scratch database would — and would also give the
+  db-tier tests in this task somewhere to actually execute.
 - **FU-1**: Adopt `transaction_per_migration=True` in `backend/alembic/env.py` as a separate
   operational-posture change (Q-5). Upstream recommends it alongside autocommit blocks
   (`alembic/runtime/migration.py:320-324`), and the all-or-nothing property it would replace is
