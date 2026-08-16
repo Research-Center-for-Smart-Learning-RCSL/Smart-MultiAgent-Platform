@@ -275,6 +275,22 @@ class TestPlatformScopedTypeQueries:
         assert compiled.count(str(project_id)) == 2
         assert "ORDER BY activity_types.created_at DESC, activity_types.id DESC" in compiled
 
+    async def test_list_owned_by_project_has_no_optin_arm(self) -> None:
+        """The ownership question, as distinct from ``list_for_project``'s usable set.
+
+        The seeder keys idempotency on this: if it grew an opt-in arm it would
+        report a read-only platform example as a copy the project already owns.
+        """
+        project_id = uuid.uuid4()
+        compiled = await self._run(lambda db: ActivityTypeRepository(db).list_owned_by_project(project_id))
+
+        assert "activity_types.project_id = " in compiled
+        assert "deleted_at IS NULL" in compiled
+        assert "project_activity_type_optins" not in compiled
+        # One arm, so the project id appears exactly once — two would mean the
+        # opt-in subquery crept back in.
+        assert compiled.count(str(project_id)) == 1
+
     async def test_list_platform_returns_only_ownerless_live_rows(self) -> None:
         compiled = await self._run(lambda db: ActivityTypeRepository(db).list_platform())
 

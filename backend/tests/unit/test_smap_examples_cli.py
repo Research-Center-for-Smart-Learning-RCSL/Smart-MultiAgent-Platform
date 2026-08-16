@@ -6,6 +6,7 @@ settings and schema well-formedness of both seeded types).
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import uuid
 from contextlib import asynccontextmanager
@@ -24,9 +25,11 @@ from contexts.activities.application.validators.schema import (
     validate_schema_wellformed,
 )
 from contexts.activities.domain.errors import ValidatorConfigInvalid
-from contexts.activities.domain.models import ValidatorKind
+from contexts.activities.domain.models import ActivityType, ActivityTypeScope, ValidatorKind
 from smap.examples import _seeding
 from smap.examples._catalogue import CourseActivityType, load_course
+
+_NOW = dt.datetime(2026, 8, 16, tzinfo=dt.UTC)
 
 COURSE_TYPES = load_course("creative-thinking").activity_types
 COURSE_KEYS = [t.key for t in COURSE_TYPES]
@@ -59,9 +62,49 @@ async def _seed_the_course(project_id: uuid.UUID, owner_user_id: uuid.UUID) -> _
     )
 
 
-def _facade(existing_keys: list[str]) -> MagicMock:
+def _type_row(key: str, *, project_id: uuid.UUID | None) -> ActivityType:
+    """A real domain row, so the double can express what the seeder must distinguish.
+
+    These were `MagicMock(key=k)` — objects with no `project_id` and no `scope` at
+    all — which is why the unit tier could not see the defect this file now pins:
+    every assertion held identically whether the seeder asked "what does this
+    project own" or "what may it use". A double that cannot express the difference
+    cannot fail when the implementation confuses the two.
+    """
+    return ActivityType(
+        id=uuid.uuid4(),
+        project_id=project_id,
+        key=key,
+        name=key,
+        payload_schema={"type": "object", "properties": {"a": {"type": "string"}}},
+        validator_kind=ValidatorKind.IN_PROCESS,
+        validator_config={"validator_id": "filled_count", "min_filled": 0},
+        retention_days=None,
+        version=1,
+        created_at=_NOW,
+        scope=ActivityTypeScope.PROJECT if project_id is not None else ActivityTypeScope.PLATFORM,
+    )
+
+
+def _facade(
+    existing_keys: list[str],
+    *,
+    project_id: uuid.UUID | None = None,
+    opted_in_keys: list[str] | None = None,
+) -> MagicMock:
+    """Facade double whose two listing methods answer different questions.
+
+    ``existing_keys`` are types the project **owns**; ``opted_in_keys`` are platform
+    types it has **opted into**. ``list_owned_types`` answers the first, ``list_types``
+    the union — which is the distinction the seeder gets wrong when it keys
+    idempotency on the wrong one.
+    """
+    owner = project_id or uuid.uuid4()
+    owned = [_type_row(k, project_id=owner) for k in existing_keys]
+    platform = [_type_row(k, project_id=None) for k in opted_in_keys or []]
     facade = MagicMock()
-    facade.list_types = AsyncMock(return_value=[MagicMock(key=k) for k in existing_keys])
+    facade.list_owned_types = AsyncMock(return_value=owned)
+    facade.list_types = AsyncMock(return_value=[*owned, *platform])
     facade.register_type = AsyncMock()
     return facade
 
@@ -212,6 +255,61 @@ class TestSeederIdempotency:
 
         assert report.created == COURSE_KEYS[1:]
         assert report.already_present == COURSE_KEYS[:1]
+
+    async def test_opted_in_platform_types_are_not_ownership(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A platform type the project opted into is not a project-scoped copy.
+
+        Platform rows are read-only to a Project Owner, so treating them as
+        "already present" leaves the operator without the editable copy the CLI
+        exists to produce -- and reports success while doing it.
+        """
+        project_id = uuid.uuid4()
+        facade = _facade([], project_id=project_id, opted_in_keys=COURSE_KEYS)
+        _patch_infra(monkeypatch, facade)
+
+        report = await _seed_the_course(project_id, uuid.uuid4())
+
+        assert report.created == COURSE_KEYS
+        assert report.already_present == []
+        assert facade.register_type.await_count == len(COURSE_KEYS)
+        assert all(c.kwargs["project_id"] == project_id for c in facade.register_type.await_args_list)
+
+    async def test_partial_optin_overlap_fills_only_the_unowned_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project_id = uuid.uuid4()
+        facade = _facade(COURSE_KEYS[:2], project_id=project_id, opted_in_keys=COURSE_KEYS[2:])
+        _patch_infra(monkeypatch, facade)
+
+        report = await _seed_the_course(project_id, uuid.uuid4())
+
+        assert report.created == COURSE_KEYS[2:]
+        assert report.already_present == COURSE_KEYS[:2]
+
+    async def test_a_created_key_shadowing_a_platform_type_is_reported(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Q-2: creating the copy is correct, but the operator must be told the
+        project now holds two types under one key -- the bundled plugin and any
+        workflow rule match on the key alone and cannot tell them apart."""
+        project_id = uuid.uuid4()
+        facade = _facade([], project_id=project_id, opted_in_keys=COURSE_KEYS)
+        _patch_infra(monkeypatch, facade)
+
+        report = await _seed_the_course(project_id, uuid.uuid4())
+
+        assert report.shadowed_by_platform == COURSE_KEYS
+
+    async def test_nothing_is_shadowed_when_the_project_opted_into_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        facade = _facade([])
+        _patch_infra(monkeypatch, facade)
+
+        report = await _seed_the_course(uuid.uuid4(), uuid.uuid4())
+
+        assert report.created == COURSE_KEYS
+        assert report.shadowed_by_platform == []
 
     async def test_registers_with_the_operator_supplied_audit_actor(
         self, monkeypatch: pytest.MonkeyPatch
