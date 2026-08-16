@@ -56,11 +56,13 @@
             <span class="text-xs text-[var(--color-muted)]">{{ course.source }}</span>
           </div>
 
+          <!-- Disabled while *any* install is in flight, not just this course's;
+               the spinner is what says which one it is. -->
           <SButton
             variant="primary"
             size="sm"
-            :loading="installingKey === course.course_key"
-            :disabled="course.fully_installed"
+            :loading="isInstalling(course.course_key)"
+            :disabled="course.fully_installed || anyInstallPending"
             :data-testid="`install-${course.course_key}`"
             @click="install(course.course_key)"
           >
@@ -150,7 +152,6 @@ const { t } = useI18n()
 const toast = useToast()
 const qc = useQueryClient()
 
-const installingKey = ref<string | null>(null)
 const editTypeId = ref<string | null>(null)
 
 const query = useQuery({
@@ -242,13 +243,26 @@ const installMutation = useMutation({
     refreshExamplesAndTypes()
     toast.error(t('admin.activities.examples.installFailed'))
   },
-  onSettled: () => {
-    installingKey.value = null
-  },
 })
 
+/** Whether *any* install is outstanding, which is what every install button is
+ *  gated on. Not "is this course the installing one": that is only equivalent
+ *  while a second install cannot start, and starting one is what breaks the
+ *  equivalence. Same rule as `anyPending` in the activities slice's
+ *  `ExampleImportDialog`, named the same way so a sweep for the shape finds
+ *  both. */
+const anyInstallPending = computed(() => installMutation.isPending.value)
+
+/** Which course is mid-install, for its own spinner. Read off the mutation
+ *  rather than a ref this component clears itself: a single-valued token cannot
+ *  say which request a completion belongs to, so with more than one course
+ *  shipped the first install to settle would release the second one's lock.
+ *  Only one course ships today, which is the only reason that never showed. */
+function isInstalling(courseKey: string): boolean {
+  return installMutation.isPending.value && installMutation.variables.value === courseKey
+}
+
 function install(courseKey: string): void {
-  installingKey.value = courseKey
   installMutation.mutate(courseKey)
 }
 
