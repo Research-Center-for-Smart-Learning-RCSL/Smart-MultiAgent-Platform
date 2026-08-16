@@ -79,10 +79,17 @@ assume.
   created; the dialog discards provider and activity-type data already on the wire; AC-14's
   design-agent sentence was never added. Adds a response field, so `gen:api` +
   `check:openapi-drift` apply.
-- `2026-08-16-migration-0076-retry-safety` (bugfix) — `depends_on: []`. Moved out of Ready on
-  2026-08-16 when implementation started; see its own frontmatter. Chosen ahead of the other
-  majors because it has zero file overlap with the concurrent `agent-pack-install-report-fidelity`
-  build running in the same tree.
+- `2026-08-16-migration-0076-retry-safety` (bugfix) — `depends_on: []`. **Code complete;
+  deliberately parked at `in-progress`, not abandoned.** The migration fix, the three stale
+  rule corrections and a structural test covering all 80 migrations are committed and green.
+  What is missing is empirical verification: AC-1, AC-2 and AC-8 need a real PostgreSQL, and
+  Docker was unavailable on the implementing host, so the db-tier atomicity tests have only
+  ever been collected. They were left unchecked rather than checked-with-a-caveat because this
+  is the behavioural verification of a **migration** and the defect only manifests when one
+  actually executes. **To finish: run `tests/integration/test_migration_0076_atomicity.py` with
+  `SMAP_SCRATCH_DATABASE_URL` set (the module docstring gives the command), and `alembic
+  current` against prod.** The structural test did independently confirm the defect in both
+  directions, so the defect is measured even though the fix is not.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-08-16 after implementation: `2026-08-16-example-cli-seeder-scope-leak` (the
 example CLI seeder now keys idempotency on ownership via a new `list_owned_by_project` read
