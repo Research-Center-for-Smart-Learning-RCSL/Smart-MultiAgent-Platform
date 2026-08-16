@@ -55,6 +55,49 @@ def _stub_stale_but_ready_silence_state(monkeypatch, *, autostop_count: int = 0)
     )
 
 
+async def test_a_recently_re_armed_clock_does_not_fire(monkeypatch) -> None:
+    """The behavioural half of the activity-submission fix ([R15.02]).
+
+    An activity submission re-arms the silence timestamp via
+    ``triggers.evaluate_room_activity`` -> ``on_users_present`` ->
+    ``touch_silence_timestamp``. What that has to buy is this: while submissions
+    keep arriving inside the window, the trigger must not fire. Before the fix
+    nothing touched the timestamp on submit, so a class quietly filling in a
+    worksheet looked identical to an empty room and the peer agent barged in.
+
+    The room roster is non-empty on purpose -- students hold live sockets while
+    they write, so the presence gate passes and the timestamp is the only thing
+    standing between them and an interruption.
+    """
+    agent = _agent(wakeup_config=_silence_config(allow_self_open=False))
+    svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.get_silence_timestamp",
+        _async_return(datetime.now(UTC) - timedelta(seconds=30)),  # inside t_minutes=2
+    )
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.get_autostop_count",
+        _async_return(0),
+    )
+
+    fired = await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4())
+
+    assert fired is False
+
+
+async def test_a_genuine_lull_past_the_window_still_fires(monkeypatch) -> None:
+    """The converse, so the test above cannot pass by suppressing the trigger
+    outright: once nothing has re-armed the clock for longer than the window, the
+    agent does speak."""
+    agent = _agent(wakeup_config=_silence_config(allow_self_open=False))
+    svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
+    _stub_stale_but_ready_silence_state(monkeypatch)
+
+    fired = await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4())
+
+    assert fired is True
+
+
 async def test_allow_self_open_true_does_not_fire_into_empty_room(monkeypatch) -> None:
     """Self-opening agents still require a live user for silence wake-ups."""
     agent = _agent(wakeup_config=_silence_config(allow_self_open=True))
