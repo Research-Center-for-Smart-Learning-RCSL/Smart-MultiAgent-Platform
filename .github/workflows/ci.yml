@@ -150,6 +150,20 @@ jobs:
             -e VAULT_ADDR=http://vault:8200 \
             -e VAULT_TOKEN=root \
             backend-web python -m smap.bootstrap db-init
+      # A second, empty database on the same server. The migration-atomicity tests
+      # execute real DDL and drop/recreate the `public` schema, so they must never
+      # run against `smap_test` — every other db-tier test is using it. They skip
+      # unless SMAP_SCRATCH_DATABASE_URL names a throwaway database, and a skip
+      # here is indistinguishable from a pass in the tier summary, which is how
+      # they sat unverified through a green run.
+      - name: Create the scratch database for migration tests
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/compose.test.yml \
+            exec -T postgres psql -U smap -d postgres \
+            -c "DROP DATABASE IF EXISTS smap_scratch" \
+            -c "CREATE DATABASE smap_scratch OWNER smap"
       # Same bind-mount/root rationale as the wiring tier below: the runtime image
       # ships without tests/ and appuser cannot write site-packages.
       - name: Run datastore tier
@@ -162,6 +176,7 @@ jobs:
             --user root \
             -e SMAP_APP_ENV=test \
             -e SMAP_DB_DSN=postgresql+asyncpg://smap:smap@postgres:5432/smap_test \
+            -e SMAP_SCRATCH_DATABASE_URL=postgresql+asyncpg://smap:smap@postgres:5432/smap_scratch \
             -e SMAP_REDIS_DSN=redis://redis:6379/1 \
             -e VAULT_ADDR=http://vault:8200 \
             -e VAULT_TOKEN=root \

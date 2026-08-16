@@ -375,6 +375,18 @@ Replace with:
   `upgrade → downgrade -1 → upgrade head`, "must be idempotent". 0076 failed that round trip in
   both directions before this fix. Not cited in the dossier when written; recorded because it
   means the defect broke four documented rules, not three.
+- **D-7** — **The db tier has been running green over these tests without executing them, and
+  CI now provisions what they need.** Resuming this dossier, `main` was pushed so the remote
+  `db` and `integration` tiers would settle AC-1 and AC-2. Both jobs passed — and the tests
+  **skipped**: `backend-db` reported `SKIPPED [1] tests/integration/test_migration_0076_atomicity.py:173`
+  and `:203`, "SMAP_SCRATCH_DATABASE_URL is not set", inside a run that ended
+  `68 passed, 5 skipped`. Nothing in `.github/workflows/ci.yml` ever set that variable, so the
+  tests could not have run on any host, and the tier summary made a skip look like coverage.
+  Fixed here rather than filed: the `backend-db` job now creates an empty `smap_scratch`
+  database on the postgres service it already starts, and passes `SMAP_SCRATCH_DATABASE_URL`
+  into the tier. This is the mechanism FU-6 asked for, at the smallest scale that closes AC-1
+  and AC-2. **The skip was the whole reason a green CI run did not settle anything** — worth
+  remembering for any future test that gates itself on an environment variable.
 
 ## 13. Follow-ups
 
