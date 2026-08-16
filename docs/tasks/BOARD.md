@@ -22,23 +22,18 @@ Thirteen dossiers from `docs/audits/2026-08-16-example-activities-and-agent-pack
 (18 findings, grouped by blast radius so concurrent builds cannot produce conflicting diffs).
 Every one is `depends_on: []`; the five majors are listed first. Three file-overlap pairs are
 noted below — these are **not** sequenced, but whoever builds second must rebase rather than
-assume.
+assume. Two are now implemented and removed (see the notes under In progress).
 
-- `2026-08-16-activity-type-key-collision-across-scopes` (bugfix, approved) — major. Two live types
-  can share one key in a project's usable set. **Carries an SRS Delta** amending [R30.02], which
-  is silent on the union [R30.33] created. Deliberately permissive, because refusing would
-  overturn the approved `example-cli-seeder-scope-leak` Q-2.
-- `2026-08-16-activities-install-error-contract` (bugfix, approved) — F-6 + F-7. An unknown course
-  key returns 500; `min_filled` is never checked against the schema it scores. Adjacent-line
-  overlap with `activity-type-key-collision-across-scopes` in `type_service.register`'s pre-flight
-  region.
 - `2026-08-16-platform-type-delete-optin-lifecycle` (bugfix, approved) — F-9. The type delete is
   soft, so the FK cascade never fires and every project's opt-in outlives its type; two docstrings
   and migration 0076's index comment all assume otherwise.
 - `2026-08-16-example-dialog-pending-and-optout` (bugfix, approved) — F-10. D-14's single-valued
   pending-token defect, unfixed in the activities dialog and its admin sibling. **File overlap**
   with `admin-platform-type-edit-unreachable` in `ActivityExamplesSection.vue` (different
-  regions).
+  regions), and now also with the implemented
+  `activity-type-key-collision-across-scopes` in `ExampleImportDialog.vue` — that dossier
+  rewrote `enableMutation.onSuccess` (the very handler holding `pendingId`) to read the opt-in
+  response and raise a collision warning. Rebase and keep the warning.
 - `2026-08-16-example-pack-prompt-grounding` (bugfix, approved) — F-12. The shipped AA prompt asks
   who has not submitted, against a 30-row window with no roster. Prompt content only; note the fix
   does not reach agents already installed copy-on-import.
@@ -91,6 +86,38 @@ assume.
   `example-dialog-pending-and-optout` in `ActivityExamplesSection.vue` (different region — this
   one is row resolution, that one is the pending token); whoever builds second rebases.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-16 after implementation: `2026-08-16-activities-install-error-contract` (an
+unknown admin `course_key` is now a mapped 404 carrying the shipped-course list instead of a
+logged 500, and `_validate_validator_config` finally receives the `payload_schema` it must
+score `min_filled` against, so `register`/`update` refuse an unpassable threshold with the same
+422 every other validator-config refusal produces). Nothing lists it in `depends_on`, so no row
+moved out of Blocked. **Three things a later reader needs.** **D-1** — it also closed the three
+pre-existing `__all__` omissions in `activities/domain/errors.py`, which retires FU-3 of
+`2026-08-09-platform-example-activity-types`. **D-2** — `pytest -q` was NOT run to completion:
+the `integration`/`wiring`/`db` tiers need a live PostgreSQL and Docker was unavailable, so
+they fail at connect (`getaddrinfo failed`); the `unit` tier, which holds every test this
+dossier touches, is green. And the deliberate non-goal worth not undoing: a course file that
+exists but does **not parse** still produces a 500, because that is a defect in the deployed
+artifact and reporting it as "not found" sends an operator to the wrong place — a negative test
+pins it.
+Removed on 2026-08-16 after implementation:
+`2026-08-16-activity-type-key-collision-across-scopes` (both doors onto a cross-scope key
+collision now warn without refusing, the facilitator picker and the type list distinguish the
+two rows by `scope`, and the activity signal carries `activity_type_id`/`activity_type_scope` so
+a rule written from now on can pin one). Nothing lists it in `depends_on`, so no row moved out
+of Blocked. **Four things a later reader needs.** This dossier **applied an SRS Delta** amending
+[R30.02] (`REQUIREMENTS.md:2161`): key uniqueness is per scope, the collision is permitted, and
+`scope` is the disambiguator — so a future dual-scope entity has a stated rule to follow.
+**D-3** — the `opt_in` warning reports *state, not this call's effect*: a repeat opt-in that
+inserts nothing still reports the collision it left behind, matching what
+`smap/examples/_seeding.py` already does, and the field name `shadowed_by_platform` is
+deliberately shared with the seeder's report. **D-8** — no behavioural verification at all
+(Docker unavailable); four user-visible surfaces changed and none has been seen in a browser,
+so confirm on the first deployed build. And the central trade, stated plainly: **the collision
+is not prevented**, so an *already-stored* workflow rule naming only `activity_type_key` still
+matches both types. The new optional `activity_type_scope` filter helps only rules written
+after this change; FU-1 records the report that would tell an operator which existing rules to
+edit by hand.
 Removed on 2026-08-16 after implementation: `2026-08-16-activity-submission-wakeup-gap` (an
 activity submission now re-arms the per-agent silence clock through a new
 `triggers.evaluate_room_activity`, so an agent on `silence_minutes` no longer reads a class

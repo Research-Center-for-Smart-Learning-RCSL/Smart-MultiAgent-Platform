@@ -64,7 +64,10 @@ const enableMutation = useMutation({
     // project now holds two live types under one key, and everything that
     // selects by key alone selects both ([R30.02]). Permitted, so this warns
     // rather than refuses -- but it must be said, because one click caused it.
-    if (result.shadows_owned_key) {
+    // Optional-chained: this route answered 204 with no body until [R30.02]'s
+    // warning needed somewhere to go, so a frontend running against an older
+    // backend gets nothing here rather than a TypeError.
+    if (result?.shadows_owned_key) {
       toast.warning(t('activities.examples.shadowsOwnedKey'))
     }
   },
