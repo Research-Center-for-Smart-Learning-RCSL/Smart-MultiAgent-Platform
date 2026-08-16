@@ -731,7 +731,7 @@ no dossier and no explicit decision to skip it is an unfinished triage.
 
 **Triaged 2026-08-16: every finding is selected for fixing.** None was declined.
 
-**Why eighteen findings map to twelve dossiers.** The contract's `depends_on` section names
+**Why eighteen findings map to thirteen dossiers.** The contract's `depends_on` section names
 "overlap prerequisite" as a first-class reason to sequence work: dossiers touching the same
 files closely enough that building them concurrently produces conflicting diffs. Several
 findings here share a blast radius exactly that way (F-6 and F-7 are both the activities
@@ -766,7 +766,7 @@ reaches `closed` only once every row above resolves to a real folder. Suggested 
 which is also the severity order with the overlap constraints honoured: the five majors
 (`example-cli-seeder-scope-leak`, `activity-submission-wakeup-gap`,
 `migration-0076-retry-safety`, `admin-platform-type-edit-unreachable`,
-`activity-type-key-collision-across-scopes`) first, then the remaining seven, which are
+`activity-type-key-collision-across-scopes`) first, then the remaining eight, which are
 mutually independent and can run in parallel.
 
 One cross-dossier note for whoever writes them: `activity-type-key-collision-across-scopes`
