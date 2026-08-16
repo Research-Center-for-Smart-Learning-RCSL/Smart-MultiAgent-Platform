@@ -34,20 +34,50 @@ _VERSIONS = Path(__file__).resolve().parents[2] / "alembic" / "versions"
 _MIGRATION_BODIES = ("upgrade", "downgrade")
 
 
-def _autocommit_block_index(body: list[ast.stmt]) -> int | None:
-    """Index of the first ``with ... autocommit_block():`` statement, if any."""
-    for i, stmt in enumerate(body):
-        if not isinstance(stmt, ast.With):
-            continue
-        for item in stmt.items:
-            call = item.context_expr
-            if (
-                isinstance(call, ast.Call)
-                and isinstance(call.func, ast.Attribute)
-                and call.func.attr == "autocommit_block"
-            ):
-                return i
-    return None
+def _is_autocommit_with(stmt: ast.stmt) -> bool:
+    """True when ``stmt`` is itself a ``with ... autocommit_block():``."""
+    if not isinstance(stmt, ast.With):
+        return False
+    return any(
+        isinstance(item.context_expr, ast.Call)
+        and isinstance(item.context_expr.func, ast.Attribute)
+        and item.context_expr.func.attr == "autocommit_block"
+        for item in stmt.items
+    )
+
+
+def _encloses_autocommit_block(stmt: ast.stmt) -> bool:
+    """True when an autocommit block is ``stmt`` or lies anywhere inside it.
+
+    The whole subtree, not just the top level: a block nested in an ``if``/``for``/
+    ``try`` commits everything issued before it exactly as a top-level one does, so
+    hiding it inside a conditional must not buy an exemption from the rule.
+    """
+    return any(_is_autocommit_with(node) for node in ast.walk(stmt))
+
+
+def _autocommit_block_indices(body: list[ast.stmt]) -> list[int]:
+    """Indices of every statement that is, or encloses, an autocommit block."""
+    return [i for i, stmt in enumerate(body) if _encloses_autocommit_block(stmt)]
+
+
+def _issues_a_statement_before_a_block(fn: ast.FunctionDef) -> bool:
+    """True when ``fn`` runs anything that is not itself a block before its last one.
+
+    Measured against the LAST block, not the first. A body shaped
+    block / add_column / block reads clean by the first block's index and is still
+    broken: the second block commits the ``add_column`` while the stamp is behind.
+
+    A docstring does not count -- it is an expression, not DDL.
+    """
+    body = fn.body
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        body = body[1:]
+    indices = _autocommit_block_indices(body)
+    if not indices:
+        return False
+    blocks = set(indices)
+    return any(i not in blocks for i in range(max(indices)))
 
 
 def _migration_files() -> list[Path]:
@@ -55,22 +85,15 @@ def _migration_files() -> list[Path]:
 
 
 def _offending_functions(path: Path) -> list[str]:
-    """Names of ``upgrade``/``downgrade`` in ``path`` with a statement before a block.
-
-    A docstring does not count: it is an expression, not DDL.
-    """
+    """Names of ``upgrade``/``downgrade`` in ``path`` with a statement before a block."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    offenders: list[str] = []
-    for node in tree.body:
-        if not isinstance(node, ast.FunctionDef) or node.name not in _MIGRATION_BODIES:
-            continue
-        body = node.body
-        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
-            body = body[1:]  # drop the docstring
-        index = _autocommit_block_index(body)
-        if index is not None and index > 0:
-            offenders.append(node.name)
-    return offenders
+    return [
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in _MIGRATION_BODIES
+        and _issues_a_statement_before_a_block(node)
+    ]
 
 
 def test_the_versions_directory_was_actually_found() -> None:
@@ -91,32 +114,68 @@ def test_no_statement_precedes_an_autocommit_block(path: Path) -> None:
     )
 
 
+def _offends(source: str) -> bool:
+    """Run the real detector over a literal migration body."""
+    fn = ast.parse(source).body[0]
+    assert isinstance(fn, ast.FunctionDef)
+    return _issues_a_statement_before_a_block(fn)
+
+
 def test_the_check_detects_a_violation() -> None:
     """The parametrized test above passes trivially if the detector is broken."""
-    offending = ast.parse(
+    assert _offends(
         "def upgrade():\n"
         "    op.add_column('t', c)\n"
         "    with op.get_context().autocommit_block():\n"
         "        op.execute('CREATE INDEX CONCURRENTLY i ON t (c)')\n"
     )
-    fn = offending.body[0]
-    assert isinstance(fn, ast.FunctionDef)
-    assert _autocommit_block_index(fn.body) == 1
-
-    clean = ast.parse(
+    assert not _offends(
         "def upgrade():\n"
         "    with op.get_context().autocommit_block():\n"
         "        op.execute('CREATE INDEX CONCURRENTLY i ON t (c)')\n"
         "    op.create_table('u')\n"
     )
-    fn = clean.body[0]
-    assert isinstance(fn, ast.FunctionDef)
-    assert _autocommit_block_index(fn.body) == 0
+
+
+def test_a_statement_between_two_blocks_is_caught() -> None:
+    """The gap a first-block-only check leaves open.
+
+    0071, 0072 and 0074 already use two blocks per file, so this shape is the
+    house style rather than a hypothetical. Keyed on the first block alone the
+    body reads clean -- and the second block still commits the ``add_column``
+    while ``alembic_version`` names the previous revision, which is the whole
+    defect [O4.04] exists to prevent.
+    """
+    assert _offends(
+        "def upgrade():\n"
+        "    with op.get_context().autocommit_block():\n"
+        "        op.execute('CREATE INDEX CONCURRENTLY i ON t (c)')\n"
+        "    op.add_column('t', c2)\n"
+        "    with op.get_context().autocommit_block():\n"
+        "        op.execute('CREATE INDEX CONCURRENTLY j ON t (c2)')\n"
+    )
+    # Two adjacent blocks are fine: nothing is issued between them.
+    assert not _offends(
+        "def upgrade():\n"
+        "    with op.get_context().autocommit_block():\n"
+        "        op.execute('CREATE INDEX CONCURRENTLY i ON t (c)')\n"
+        "    with op.get_context().autocommit_block():\n"
+        "        op.execute('CREATE INDEX CONCURRENTLY j ON t (c2)')\n"
+        "    op.create_table('u')\n"
+    )
+
+
+def test_a_block_nested_in_a_conditional_is_still_seen() -> None:
+    """Walking only the top level would let an ``if`` hide the block entirely."""
+    assert _offends(
+        "def upgrade():\n"
+        "    op.add_column('t', c)\n"
+        "    if bind.dialect.name == 'postgresql':\n"
+        "        with op.get_context().autocommit_block():\n"
+        "            op.execute('CREATE INDEX CONCURRENTLY i ON t (c)')\n"
+    )
 
 
 def test_a_comment_mentioning_the_block_does_not_trip_the_check() -> None:
     """0071 mentions ``autocommit_block`` in prose; only the statement counts."""
-    tree = ast.parse("def upgrade():\n    # autocommit_block is used below\n    op.add_column('t', c)\n")
-    fn = tree.body[0]
-    assert isinstance(fn, ast.FunctionDef)
-    assert _autocommit_block_index(fn.body) is None
+    assert not _offends("def upgrade():\n    # autocommit_block is used below\n    op.add_column('t', c)\n")
