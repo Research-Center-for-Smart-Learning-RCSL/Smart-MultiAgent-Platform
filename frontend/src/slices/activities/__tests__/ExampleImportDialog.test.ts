@@ -8,7 +8,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
-import { renderView } from '../../../../tests/utils'
+import { renderView, deferred } from '../../../../tests/utils'
 import ExampleImportDialog from '../components/ExampleImportDialog.vue'
 
 const listMock = vi.hoisted(() => vi.fn())
@@ -152,6 +152,113 @@ describe('ExampleImportDialog', () => {
     await flushPromises()
 
     expect(optOutMock).not.toHaveBeenCalled()
+  })
+
+  // -- Concurrency: one request at a time, for the whole dialog (AC-2/AC-3) --
+  //
+  // Both mutations invalidate the same two query keys, so two in-flight requests
+  // race on the same cache entry whichever rows they touch. Gating on "is this
+  // row the pending one" was only ever equivalent to "is anything pending" while
+  // a second request could not start, and starting one is what broke it.
+
+  /** The four platform examples a fully installed course lists. */
+  function fourExamples(over: Record<string, unknown> = {}) {
+    return ['pt1', 'pt2', 'pt3', 'pt4'].map((id) =>
+      example({ id, key: `unit-${id}`, name: `Unit ${id}`, ...over }),
+    )
+  }
+
+  function actionButtons(wrapper: Awaited<ReturnType<typeof mountDialog>>) {
+    return wrapper
+      .findAll('button')
+      .filter(
+        (b) =>
+          b.text().includes('activities.examples.enable') ||
+          b.text().includes('activities.examples.disable'),
+      )
+  }
+
+  it('disables every action button while any request is in flight (AC-2)', async () => {
+    listMock.mockResolvedValue(fourExamples())
+    const gate = deferred<{ shadows_owned_key: boolean }>()
+    optInMock.mockReturnValue(gate.promise)
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+
+    const before = actionButtons(wrapper)
+    expect(before).toHaveLength(4)
+    expect(before.every((b) => b.attributes('disabled') === undefined)).toBe(true)
+
+    await before[0].trigger('click')
+    await flushPromises()
+
+    // Not only row 1's: rows 2-4 are what the identity check left clickable.
+    const during = actionButtons(wrapper)
+    expect(during).toHaveLength(4)
+    for (const button of during) expect(button.attributes('disabled')).toBeDefined()
+
+    // With every button inert, the spinner is the only thing left saying which
+    // row the click landed on, so it has to be on that row and no other.
+    expect(during.map((b) => b.classes('s-btn--loading'))).toEqual([true, false, false, false])
+
+    gate.resolve({ shadows_owned_key: false })
+    await flushPromises()
+
+    for (const button of actionButtons(wrapper)) {
+      expect(button.attributes('disabled')).toBeUndefined()
+    }
+  })
+
+  it('issues no second request from a click on another row mid-flight (AC-3)', async () => {
+    listMock.mockResolvedValue(fourExamples())
+    const gate = deferred<{ shadows_owned_key: boolean }>()
+    optInMock.mockReturnValue(gate.promise)
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+
+    await actionButtons(wrapper)[0].trigger('click')
+    await flushPromises()
+    await actionButtons(wrapper)[1].trigger('click')
+    await flushPromises()
+
+    // The second click moved `pendingId` off row 1, which re-enabled row 1's
+    // button while its own POST was still outstanding.
+    expect(optInMock).toHaveBeenCalledTimes(1)
+    expect(optInMock).toHaveBeenCalledWith('p1', 'pt1')
+
+    gate.resolve({ shadows_owned_key: false })
+    await flushPromises()
+  })
+
+  it('blocks a duplicate opt-out, which the backend reports as a failure (AC-3)', async () => {
+    // The worse half of the same defect: opt_out is not idempotent, so a second
+    // one raises ActivityTypeNotOptedIn and the user is shown disableFailed for
+    // a disable that in fact succeeded.
+    listMock.mockResolvedValue(fourExamples({ enabled: true }))
+    const gate = deferred<void>()
+    optOutMock.mockReturnValue(gate.promise)
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+
+    await actionButtons(wrapper)[0].trigger('click')
+    await flushPromises()
+
+    const during = actionButtons(wrapper)
+    for (const button of during) expect(button.attributes('disabled')).toBeDefined()
+    expect(during.map((b) => b.classes('s-btn--loading'))).toEqual([true, false, false, false])
+
+    await actionButtons(wrapper)[0].trigger('click')
+    await actionButtons(wrapper)[1].trigger('click')
+    await flushPromises()
+
+    expect(optOutMock).toHaveBeenCalledTimes(1)
+    expect(confirmMock).toHaveBeenCalledTimes(1)
+
+    gate.resolve()
+    await flushPromises()
   })
 
   it('shows the empty state naming who can install one', async () => {
