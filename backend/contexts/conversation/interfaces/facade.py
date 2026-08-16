@@ -220,6 +220,22 @@ class ConversationFacade:
             metadata=stamped,
         )
 
+    async def note_room_activity(self, *, chatroom_id: uuid.UUID) -> None:
+        """Tell the wake-up system this room is being worked in ([R15.02]).
+
+        Exposed on the facade so a cross-context caller -- the activities submit
+        route -- can re-arm the silence clock without importing this context's
+        application layer, which the route rule in ``backend/CLAUDE.md`` forbids.
+
+        Narrower than a message: it re-arms the silence timer only. A submission
+        does not count toward ``every_n_messages`` and does not reset the autostop
+        cap; see :func:`~contexts.conversation.application.triggers.evaluate_room_activity`
+        for why counting it would be worse than the defect it fixes.
+        """
+        from contexts.conversation.application.triggers import evaluate_room_activity
+
+        await evaluate_room_activity(self._db, chatroom_id=chatroom_id)
+
     # -- Code-Interpreter staging (read-only) ----------------------------------
 
     async def latest_user_attachments(self, chatroom_id: uuid.UUID) -> list[MessageAttachment]:

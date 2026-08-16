@@ -132,10 +132,48 @@ async def evaluate_presence_change(
     `evaluate_silence_trigger` is the sole, level-triggered authority on an
     empty room now, so there is no longer a pause edge to deliver here.
     """
+    await _re_arm_silence(db, chatroom_id=chatroom_id)
+
+
+async def evaluate_room_activity(
+    db: AsyncSession,
+    *,
+    chatroom_id: uuid.UUID,
+) -> None:
+    """Re-arm the silence timer because the room is being worked in ([R15.02]).
+
+    For room activity that is **not** a message the agents are waiting on -- today,
+    an activity submission. A submission writes a transcript-visible row, so the
+    silence trigger's "no room activity for T minutes" must account for it, or an
+    agent configured to speak on a lull barges into a class that is busy filling in
+    a worksheet.
+
+    Deliberately narrower than :func:`evaluate_message_wakeups`: it does **not**
+    count toward ``every_n_messages`` and does not reset the autostop cap. Counting
+    submissions would wake every ``n=1`` agent once per submission -- one agent turn
+    per student, on the operator's own provider key -- which is worse than the
+    defect this fixes. Nor may a caller invoke ``evaluate_message_wakeups`` and
+    discard its result as a middle ground: that still increments the message
+    counter and drifts every ``n > 1`` agent off its cadence.
+
+    Returns nothing because there is nothing to enqueue: re-arming a clock is the
+    whole effect.
+    """
+    await _re_arm_silence(db, chatroom_id=chatroom_id)
+
+
+async def _re_arm_silence(db: AsyncSession, *, chatroom_id: uuid.UUID) -> None:
+    """Touch every bound agent's silence timestamp for this room.
+
+    Observers included: the silence trigger runs for them too, and an observer is
+    exactly the kind of agent that reports on a room it never speaks in.
+    """
     agents = await ChatroomAgentRepository(db).list(chatroom_id)
     agent_ids = [a.agent_id for a in agents]
     if not agent_ids:
         return
+    # Imported here rather than at module scope: the orchestration facade reaches
+    # back into this context, and a module-level import closes the cycle at startup.
     from contexts.orchestration.interfaces.facade import OrchestrationFacade
 
     await OrchestrationFacade(db).on_users_present(

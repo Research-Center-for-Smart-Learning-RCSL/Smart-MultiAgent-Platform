@@ -192,6 +192,53 @@ async def test_evaluate_presence_change_forwards_to_on_users_present(monkeypatch
     assert captured == {"room_id": room, "agent_ids": [a1]}
 
 
+@pytest.mark.asyncio
+async def test_evaluate_room_activity_re_arms_every_bound_agent(monkeypatch) -> None:
+    """An activity submission is room activity: it re-arms the silence clock.
+
+    Observers are included deliberately -- the shipped AA agent runs on
+    ``silence_minutes`` and is bound as an observer, so excluding it would leave
+    exactly the agent this fix exists for still reading worksheet time as a lull.
+    """
+    from contexts.conversation.domain.models import ChatroomAgentRole
+
+    normal, observer = uuid.uuid4(), uuid.uuid4()
+    room = uuid.uuid4()
+    captured: dict = {}
+
+    monkeypatch.setattr(
+        triggers,
+        "ChatroomAgentRepository",
+        _fake_agent_repo([normal, observer], roles={observer: ChatroomAgentRole.OBSERVER}),
+    )
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def on_users_present(self, *, room_id, agent_ids):
+            captured.update(room_id=room_id, agent_ids=list(agent_ids))
+
+    monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
+
+    await triggers.evaluate_room_activity(object(), chatroom_id=room)
+
+    assert captured == {"room_id": room, "agent_ids": [normal, observer]}
+
+
+@pytest.mark.asyncio
+async def test_evaluate_room_activity_is_a_noop_without_bound_agents(monkeypatch) -> None:
+    monkeypatch.setattr(triggers, "ChatroomAgentRepository", _fake_agent_repo([]))
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            raise AssertionError("must not reach orchestration with no bound agents")
+
+    monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
+
+    await triggers.evaluate_room_activity(object(), chatroom_id=uuid.uuid4())
+
+
 # --------------------------------------------------------------------------- #
 # wakeup_agent task
 # --------------------------------------------------------------------------- #
