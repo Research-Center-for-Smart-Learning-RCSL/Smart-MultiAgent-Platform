@@ -295,6 +295,67 @@ class TestListAllActiveActivations:
         assert gc.await_args.args[0] == []
 
 
+class TestListPlatformActivityTypes:
+    """The listing the shipped-examples section resolves its edit target from.
+
+    Its sibling is a keyset page of an unbounded cross-project listing, so it
+    cannot be relied on to contain a given platform row: platform types are
+    installed at setup, so they are the oldest rows and the first to age off a
+    newest-first page.
+    """
+
+    async def test_returns_every_platform_row_with_no_pagination_arguments(self) -> None:
+        types = [
+            _make_type(project_id=None, key=f"unit-{i}", scope=ActivityTypeScope.PLATFORM) for i in range(250)
+        ]
+
+        with patch.object(ActivitiesFacade, "list_platform_types", AsyncMock(return_value=types)) as lp:
+            out = await admin_activities.list_platform_activity_types(_=_ADMIN, db=MagicMock())
+
+        # Past any page size the sibling route would impose, which is the point.
+        assert len(out) == 250
+        assert [r.key for r in out] == [f"unit-{i}" for i in range(250)]
+        # No cursor, no limit — the route has nothing to pass and must not invent one.
+        assert lp.await_args.args == ()
+        assert lp.await_args.kwargs == {}
+
+    async def test_a_platform_row_carries_no_project_and_needs_no_lookup(self) -> None:
+        """A platform type has no owning project by construction, so hydrating a
+        name would be a query with no possible answer."""
+        at = _make_type(project_id=None, key="mandala-9grid", scope=ActivityTypeScope.PLATFORM)
+
+        with (
+            patch.object(ActivitiesFacade, "list_platform_types", AsyncMock(return_value=[at])),
+            patch.object(TenancyFacade, "get_projects", AsyncMock(return_value={})) as gp,
+        ):
+            out = await admin_activities.list_platform_activity_types(_=_ADMIN, db=MagicMock())
+
+        assert out[0].project_id is None
+        assert out[0].project_name is None
+        gp.assert_not_awaited()
+
+    async def test_the_governance_fields_the_edit_form_seeds_from_survive(self) -> None:
+        """The whole reason this route exists: the form seeds from these, and a
+        row that lost them would seed plausible-looking defaults instead."""
+        at = _make_type(
+            project_id=None,
+            key="mandala-9grid",
+            scope=ActivityTypeScope.PLATFORM,
+            name="Mandala (renamed by an admin)",
+            expose_payload_to_agent=False,
+            echo_includes_content=True,
+            retention_days=30,
+        )
+
+        with patch.object(ActivitiesFacade, "list_platform_types", AsyncMock(return_value=[at])):
+            out = await admin_activities.list_platform_activity_types(_=_ADMIN, db=MagicMock())
+
+        assert out[0].name == "Mandala (renamed by an admin)"
+        assert out[0].expose_payload_to_agent is False
+        assert out[0].echo_includes_content is True
+        assert out[0].retention_days == 30
+
+
 class TestPolicyRoutes:
     """AC-12/AC-13 at the HTTP boundary: the If-Match handling and the gate."""
 
@@ -528,6 +589,7 @@ class TestRouterRegistration:
         paths = app.openapi()["paths"]
         assert "/api/admin/activity-types" in paths
         assert "/api/admin/activity-activations" in paths
+        assert "get" in paths["/api/admin/platform-activity-types"]
         assert "get" in paths["/api/admin/activity-types"]
         assert "get" in paths["/api/admin/activity-activations"]
         assert {"get", "put"} <= set(paths["/api/admin/activity-policy"])
