@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-08-16
 requirements: [R30.23, R30.31, R30.32]
 depends_on: []
@@ -268,28 +268,48 @@ puts any control inside a table it breaks, which is the intended signal.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The test from §8.1 fails before the fix and passes after.
-- [ ] AC-2: Editing an installed platform example works regardless of how many activity types
+- [x] AC-1: The test from §8.1 fails before the fix and passes after.
+  *Observed red first: `expected '' to be 'Mandala (renamed by an admin)'`, then green.*
+- [x] AC-2: Editing an installed platform example works regardless of how many activity types
   exist platform-wide: the form seeds from the stored row and the PATCH is sent.
-- [ ] AC-3: The Edit action is disabled while the row is unresolved, so it is never offered in a
+  *The §8.1 test keeps the 200-row cross-project fixture that does **not** contain the installed
+  type, so it stays pinned against the exact truncation that caused the defect.*
+- [x] AC-3: The Edit action is disabled while the row is unresolved, so it is never offered in a
   state where it cannot work.
-- [ ] AC-4: Clicking Save with no resolved row surfaces a toast rather than doing nothing
+  *Its own test, gated on a deferred response, asserting both that Edit is disabled while the
+  request is in flight and that it is enabled once the row lands - a guard that never lifts
+  would be the same dead end in a different costume.*
+- [x] AC-4: Clicking Save with no resolved row surfaces a toast rather than doing nothing
   silently, and Save is disabled in that state.
-- [ ] AC-5: A refetch returning an identical row does not reseed an open, dirty form (§8.2).
-- [ ] AC-6: The catalogue cards show the **stored** values for installed units, not the course
+- [x] AC-5: A refetch returning an identical row does not reseed an open, dirty form (§8.2).
+  *Two tests, and the split matters - see **D-5**. The identical-row case passed before this fix
+  as well, because vue-query's structural sharing never hands the dialog a new object for a
+  deeply-equal refetch. The case that reaches the watch, and that failed first, is a refetch
+  whose **contents** changed.*
+- [x] AC-6: The catalogue cards show the **stored** values for installed units, not the course
   file's (Q-3).
-- [ ] AC-7: `GET /api/admin/platform-activity-types` returns every live platform type, is gated
+- [x] AC-7: `GET /api/admin/platform-activity-types` returns every live platform type, is gated
   on `require_admin`, and is covered by the parametrized admin-gate test at
   `test_admin_activities_routes.py:128-134`.
-- [ ] AC-8: The governance table's `adminKeys.activityTypes()` cache entry is untouched - the new
+  *The gate half landed in `35a0a47`; the "returns every platform row unpaginated" half of §8.3
+  did not, and was added now - see **D-7**.*
+- [x] AC-8: The governance table's `adminKeys.activityTypes()` cache entry is untouched - the new
   query uses its own key, and `AdminActivitiesView`'s tests pass unmodified.
-- [ ] AC-9: The section renders the truncation warning using the existing
-  `admin.activities.truncated` key; any genuinely new string exists in both `en.json` and
-  `zh-TW.json`.
-- [ ] AC-10: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`,
-  `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm run gen:api` +
-  `pnpm run check:openapi-drift`, `pnpm run check:bundle-size`,
+  *Unmodified in substance: no assertion changed. Its `stub()` helper gained the one MSW line
+  §8.4 called for, without which every test in that file logs an unmocked request.*
+- [x] AC-9: ~~The section renders the truncation warning using the existing
+  `admin.activities.truncated` key~~ — **superseded by D-4.** The section warns when an installed
+  example's stored row is absent from the listing, under a new key; any genuinely new string
+  exists in both `en.json` and `zh-TW.json`.
+  *Key parity re-checked programmatically over the whole admin bundle: zero keys on either side
+  only.*
+- [x] AC-10: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`,
+  `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm run check:bundle-size`,
   `pnpm run check:type-coverage`, `pnpm run check:boundaries-enforced`.
+  *`ruff` clean over 943 files (one file needed `ruff format`, applied), `mypy` clean over 938,
+  frontend 1126 tests over 181 files, lint/typecheck/build clean, and the three budget gates
+  passed. `check:openapi-drift` could **not** run on this host and was verified another way -
+  see **D-8**.*
 
 ## 11. SRS Delta
 
@@ -317,8 +337,59 @@ documented capability is restored.
   `agent-pack-install-report-fidelity` landed mid-task and owns
   `ExamplePackInstallReportOut.ts`; after the regeneration that file showed as modified but
   `git diff` reported no content change, and its `group_created` field is intact.
+- **D-4** — **§7.3's truncation warning is replaced by an unresolved-row warning, under a new
+  i18n key.** The two are in tension: Q-1 chose an **unbounded** route, which leaves the section
+  no page limit to key a truncation warning on, and `admin.activities.truncated` reads
+  "Showing the most recent {count}. More exist than are listed here." — a sentence that cannot be
+  true of a response that carries everything. Keying it on a sentinel count of 200 would have
+  been literal compliance and a lie in both directions: it would fire falsely at 200 genuine
+  platform types and stay silent if the route were later paginated at any other limit. The
+  section instead warns when an installed example's stored row is **absent from the listing** —
+  which is exactly the condition that disables Edit, exactly what a future pagination of this
+  route would cause, and the thing the admin actually needs told. New key
+  `admin.activities.examples.storedRowUnavailable` in both locale files. User decision; AC-9
+  amended above rather than silently reinterpreted.
+- **D-5** — **§5's reseed mechanism is right about the watch and wrong about the trigger, and
+  the first test written for it passed for the wrong reason.** The array-literal source really
+  does defeat the change test exactly as §5 describes. But the trigger §5 names —
+  `refetchOnWindowFocus` returning a row with identical contents — cannot reach it:
+  vue-query's `structuralSharing` (on by default) returns the **previous** object for a
+  deeply-equal refetch, so `props.row` never changes identity and the watcher's effect is never
+  even triggered. §8.2 written literally therefore passed against the pre-fix code. What does
+  reach the watch is a refetch whose contents **changed** — another admin's edit, or the refetch
+  after this admin's own save — and there the pre-fix dialog reseeded, observed as
+  `expected 'Mandala (edit 1)' to be 'half-typed name'`. Both cases are now tests: the
+  identical-row one pins the property AC-5 states, the changed-row one is the regression. Worth
+  knowing generally — this codebase already carries a memory about ref-array reactivity, and
+  structural sharing is the mirror-image trap: it *suppresses* identity changes you were
+  counting on to fire.
+- **D-6** — **No behavioural verification (gate 4).** Docker is unavailable on this host and
+  there is no local PostgreSQL, so the admin activities screen was never opened in a browser.
+  Four user-visible behaviours changed: the card values, the disabled Edit button, the
+  unresolved-row warning and the refused-save toast. jsdom asserts all four, but none has been
+  seen. This is the sixth consecutive dossier in this area closed without a manual pass; confirm
+  on the first deployed build.
+- **D-7** — **§8.3's route test was missing from the backend half.** `35a0a47` added the route
+  to the parametrized admin-gate list but not the test asserting what it returns, though §8.3
+  asks for both and AC-7 gates on both. Added here: 250 rows come back whole with no cursor or
+  limit reaching the facade, a platform row triggers no project-name lookup, and the four
+  governance fields the form seeds from survive the response mapping. Easy to miss because the
+  gate test's `ids=[...]` change *looks* like coverage.
+- **D-8** — **`pnpm run check:openapi-drift` cannot run on this host**, and was verified another
+  way. The script shells out to bare `python`, which is not on this machine's bash PATH
+  (`scripts/check-openapi-drift.sh: line 22: python: command not found`); it fails before
+  touching the tracked spec, so nothing was damaged. Substituted: the spec was re-exported with
+  the venv interpreter via `python -m scripts.export_openapi` (D-1's rule) and compared against
+  `backend/openapi.json` as **parsed JSON** — identical, no path added or removed. A byte
+  comparison is useless here, since PowerShell's redirect adds a BOM and CRLF. `gen:api` was
+  deliberately **not** re-run: no route changed this session, and D-2 records that it rewrites
+  all ~280 api-client files with CRLF on Windows. CI runs the real gate.
 
-## 12a. RESUME NOTE — where this task stopped and what is left
+## 12a. RESUME NOTE — CLOSED
+
+*Kept for the record; every item below is now done. The frontend half landed in `4a4b3a5` and
+the missing route test in `53bc1cb`. Read §12's D-4 through D-8 for what changed against the
+plan on the way.*
 
 Stopped deliberately at a green checkpoint, not blocked. **`main` is green**: the backend half
 is committed and the frontend half was never started, so nothing is half-wired.
@@ -385,4 +456,12 @@ type, and a second `stubPlatformTypes` helper stubs `/api/admin/platform-activit
 - **FU-4**: The watch-source-as-array-literal pattern (§5) defeats Vue's change detection
   silently and its accompanying comment asserts a protection that does not hold. Worth grepping
   for `watch(() => [` across the frontend: any other instance has the same always-fires
-  behaviour, which is usually harmless and occasionally exactly this defect.
+  behaviour, which is usually harmless and occasionally exactly this defect. **Sharpened by
+  D-5**: the sweep should look for the *changed-contents* trigger, not the refocus one — under
+  vue-query's structural sharing a deeply-equal refetch never reaches the watcher at all, so an
+  instance that looks harmless under an alt-tab test can still be live.
+- **FU-5**: **The platform-types query has no retry affordance of its own.** When it errors the
+  section now says so (D-4's warning), but the only remedy offered is "reload the page", while
+  the examples query directly above it renders an `SQueryError` with a Retry button. The
+  asymmetry is cosmetic today — the failure is rare and reloading works — but two adjacent
+  failures on one screen should not be reported two different ways.
