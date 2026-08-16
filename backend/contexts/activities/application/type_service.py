@@ -277,6 +277,10 @@ class ActivityTypeService:
     async def list_types(self, project_id: uuid.UUID) -> Sequence[ActivityType]:
         return await self._repo.list_for_project(project_id)
 
+    async def list_owned_types(self, project_id: uuid.UUID) -> Sequence[ActivityType]:
+        """Types this project owns, as opposed to :meth:`list_types`' usable set."""
+        return await self._repo.list_owned_by_project(project_id)
+
     async def list_platform_types(self) -> Sequence[ActivityType]:
         return await self._repo.list_platform()
 

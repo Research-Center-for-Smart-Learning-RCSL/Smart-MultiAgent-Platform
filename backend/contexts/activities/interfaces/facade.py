@@ -305,7 +305,16 @@ class ActivitiesFacade:
         return await self._type_repo.get_many(type_ids)
 
     async def list_types(self, project_id: uuid.UUID) -> Sequence[ActivityType]:
+        """Every type this project may **use**: its own, plus platform types it
+        opted into ([R30.33]). Callers asking which types the project *owns* want
+        :meth:`list_owned_types` — a platform row is read-only to a Project Owner
+        and is not a substitute for an owned copy."""
         return await self._types.list_types(project_id)
+
+    async def list_owned_types(self, project_id: uuid.UUID) -> Sequence[ActivityType]:
+        """Every type this project **owns**. The complement of :meth:`list_types`'
+        second population; see that method for why the two are not interchangeable."""
+        return await self._types.list_owned_types(project_id)
 
     async def get_type(self, type_id: uuid.UUID) -> ActivityType | None:
         """An unscoped read by id. Callers holding a project context must use

@@ -216,6 +216,29 @@ class ActivityTypeRepository:
         ).all()
         return [_row_to_type(r) for r in rows]
 
+    async def list_owned_by_project(self, project_id: uuid.UUID) -> Sequence[ActivityType]:
+        """Live types this project **owns**, newest first.
+
+        Not the usable set — that is :meth:`list_for_project`, which also admits
+        the platform types this project opted into. The distinction matters to any
+        caller asking "does this project already have its own type under this key":
+        a platform row is read-only to a Project Owner, so it is not a substitute
+        for one they own ([R30.02], [R30.33]).
+        """
+        rows = (
+            await self._db.execute(
+                sa.select(*_TYPE_COLS)
+                .where(
+                    sa.and_(
+                        t.activity_types.c.project_id == project_id,
+                        t.activity_types.c.deleted_at.is_(None),
+                    )
+                )
+                .order_by(t.activity_types.c.created_at.desc(), t.activity_types.c.id.desc())
+            )
+        ).all()
+        return [_row_to_type(r) for r in rows]
+
     async def list_platform(self) -> Sequence[ActivityType]:
         """Every live platform-scoped type, newest first ([R30.32]).
 
