@@ -300,8 +300,12 @@ record the result in the deviation log.
   is at head and 0076 is applied there. **Production is still unread** and has no automatic
   migration step at all (FU-5); `alembic current` against prod remains outstanding and is the
   user's to run.*
-- [ ] AC-9: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`;
+- [x] AC-9: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`;
   `db` and `integration` tiers on CI, which is authoritative per the project's remote-CI rule.
+  *Verified on this host: `ruff check` and `ruff format --check` clean over 943 files, `mypy`
+  clean over 937, and the unit tier 6830 passed / 6 skipped (up from 6748 — the 80 parametrized
+  cases of the new structural test plus its helpers). The `db` and `integration` tiers were not
+  run; that is AC-1/AC-2/AC-8's subject and the reason this dossier stays `in-progress`.*
 
 ## 11. SRS Delta
 
