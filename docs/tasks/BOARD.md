@@ -16,6 +16,15 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+- `2026-08-16-example-cli-seeder-scope-leak` (bugfix, draft) — `depends_on: []`. F-1 + F-14 of
+  `docs/audits/2026-08-16-example-activities-and-agent-packs/findings.md`. The example CLI
+  seeder builds its idempotency set from `list_types`, which since 0076 unions opted-in
+  platform types, so seeding into an opted-in project creates nothing and reports success.
+  **Cross-dossier note (its Q-3):** fixing it makes
+  `2026-08-16-activity-type-key-collision-across-scopes` (F-5) reachable through the documented
+  operator path rather than only by a deliberate owner action. The two are deliberately *not*
+  sequenced — zero file overlap — but whichever lands second must re-verify the other's
+  assumption about what `list_types` returns.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
