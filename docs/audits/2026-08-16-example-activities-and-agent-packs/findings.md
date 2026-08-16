@@ -1,6 +1,6 @@
 ---
 type: audit
-status: reviewed
+status: closed
 created: 2026-08-16
 requirements: [R9.02, R28.04, R30.02, R30.09, R30.23, R30.25, R30.27, R30.28, R30.30, R30.31, R30.32, R30.33, R30.35, R30.36]
 ---
@@ -771,8 +771,20 @@ below still resolves to a named artifact.
 | F-15 | fix | `docs/tasks/2026-08-16-shared-common-i18n-namespace/` |
 | F-18 | fix | `docs/tasks/2026-08-16-mandala-center-fallback/` |
 
-The dossiers do not exist yet; each is written by `/spec` in bugfix mode, and this audit
-reaches `closed` only once every row above resolves to a real folder. Suggested build order,
+**All thirteen dossiers exist as of 2026-08-16**, so this audit is `closed`: every row above
+resolves to a real folder. `closed` says the hand-off is complete, not that the defects are
+fixed — the linked dossiers own that. One is `approved`
+(`2026-08-16-example-cli-seeder-scope-leak`); the other twelve are `draft` and await approval
+before `/build` will touch them.
+
+Three of them carry an **SRS Delta**, which is unusual for bugfixes and is called out here so a
+reviewer does not skim past it: `migration-0076-retry-safety` replaces [O4.04], which prescribes
+a mechanism Alembic does not have; `activity-type-key-collision-across-scopes` amends [R30.02],
+which is silent on the union [R30.33] created; and `activity-submission-wakeup-gap` amends
+[R15.02] to say what re-arms the silence clock. In each case the code matched the requirement as
+written and the requirement was incomplete, so there was no stated intent to restore.
+
+Suggested build order,
 which is also the severity order with the overlap constraints honoured: the five majors
 (`example-cli-seeder-scope-leak`, `activity-submission-wakeup-gap`,
 `migration-0076-retry-safety`, `admin-platform-type-edit-unreachable`,
