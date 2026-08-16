@@ -300,6 +300,26 @@ class TestSeederIdempotency:
 
         assert report.shadowed_by_platform == COURSE_KEYS
 
+    async def test_a_re_run_keeps_reporting_an_unresolved_shadowing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The collision outlives the run that created it.
+
+        Reporting only what this run created goes silent on the second
+        invocation -- which is the natural thing for an operator to do after the
+        first warning -- and reads as though the opt-out had happened, while both
+        rows still answer to the same key.
+        """
+        project_id = uuid.uuid4()
+        facade = _facade(COURSE_KEYS, project_id=project_id, opted_in_keys=COURSE_KEYS)
+        _patch_infra(monkeypatch, facade)
+
+        report = await _seed_the_course(project_id, uuid.uuid4())
+
+        assert report.created == []
+        assert report.already_present == COURSE_KEYS
+        assert report.shadowed_by_platform == COURSE_KEYS
+
     async def test_nothing_is_shadowed_when_the_project_opted_into_nothing(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
