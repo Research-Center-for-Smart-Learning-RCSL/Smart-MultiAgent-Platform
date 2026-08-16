@@ -22,15 +22,17 @@ Thirteen dossiers from `docs/audits/2026-08-16-example-activities-and-agent-pack
 (18 findings, grouped by blast radius so concurrent builds cannot produce conflicting diffs).
 Every one is `depends_on: []`; the five majors are listed first. Three file-overlap pairs are
 noted below — these are **not** sequenced, but whoever builds second must rebase rather than
-assume. Two are now implemented and removed (see the notes under In progress).
+assume. Seven are now implemented and removed (see the notes below the In progress list).
 
 - `2026-08-16-platform-type-delete-optin-lifecycle` (bugfix, approved) — F-9. The type delete is
   soft, so the FK cascade never fires and every project's opt-in outlives its type; two docstrings
   and migration 0076's index comment all assume otherwise.
 - `2026-08-16-example-dialog-pending-and-optout` (bugfix, approved) — F-10. D-14's single-valued
   pending-token defect, unfixed in the activities dialog and its admin sibling. **File overlap**
-  with `admin-platform-type-edit-unreachable` in `ActivityExamplesSection.vue` (different
-  regions), and now also with the implemented
+  with the now-implemented `admin-platform-type-edit-unreachable` in
+  `ActivityExamplesSection.vue` — that dossier landed first and rewrote row resolution, the card
+  rendering and the Edit button's guard, leaving the `installingKey` region this one owns
+  untouched. Rebase; the regions really are disjoint. Also overlaps the implemented
   `activity-type-key-collision-across-scopes` in `ExampleImportDialog.vue` — that dossier
   rewrote `enableMutation.onSuccess` (the very handler holding `pendingId`) to read the opt-in
   response and raise a collision warning. Rebase and keep the warning.
@@ -62,30 +64,40 @@ assume. Two are now implemented and removed (see the notes under In progress).
 
 ## In progress
 
-- `2026-08-16-migration-0076-retry-safety` (bugfix) — `depends_on: []`. **Code complete;
-  deliberately parked at `in-progress`, not abandoned.** The migration fix, the three stale
-  rule corrections and a structural test covering all 80 migrations are committed and green.
-  What is missing is empirical verification: AC-1, AC-2 and AC-8 need a real PostgreSQL, and
-  Docker was unavailable on the implementing host, so the db-tier atomicity tests have only
-  ever been collected. They were left unchecked rather than checked-with-a-caveat because this
-  is the behavioural verification of a **migration** and the defect only manifests when one
-  actually executes. **To finish: run `tests/integration/test_migration_0076_atomicity.py` with
-  `SMAP_SCRATCH_DATABASE_URL` set (the module docstring gives the command), and `alembic
-  current` against prod.** The structural test did independently confirm the defect in both
-  directions, so the defect is measured even though the fix is not.
-- `2026-08-16-admin-platform-type-edit-unreachable` (bugfix) — `depends_on: []`. **Backend half
-  done and committed (`35a0a47`); the entire frontend half is not started.** Stopped at a green
-  checkpoint, not blocked — `main` is green because nothing is half-wired. `GET
-  /api/admin/platform-activity-types` exists, is admin-gated, and the spec and TS client are
-  regenerated. **Read the dossier's §12a RESUME NOTE before picking this up**: it lists the six
-  remaining frontend steps in dependency order, and records that the two failing-first tests
-  were written, confirmed failing, then reverted rather than committed (red tests on `main`
-  break everyone). Two traps it captures: the OpenAPI spec must be exported via `python -m
-  scripts.export_openapi`, and on Windows `gen:api` rewrites all ~280 api-client files with
-  CRLF while only `AdminService.ts` genuinely changes. **File overlap** with
-  `example-dialog-pending-and-optout` in `ActivityExamplesSection.vue` (different region — this
-  one is row resolution, that one is the pending token); whoever builds second rebases.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-16 after implementation: `2026-08-16-migration-0076-retry-safety` (0076 is a
+single transaction in both directions, the three stale copies of the `transactional_ddl` rule
+are corrected, and a structural test pins the no-statement-before-an-autocommit-block rule
+across all 80 migrations). Nothing lists it in `depends_on`, so no row moved out of Blocked.
+**Two things a later reader needs.** The dossier was parked because AC-1/AC-2 could not be
+measured; they are now measured, and the reason they were not is worth knowing. **D-7** — the
+db-tier atomicity tests gate on `SMAP_SCRATCH_DATABASE_URL` and **nothing ever set it**, so they
+had never executed anywhere while `backend-db` reported `68 passed, 5 skipped` and read as full
+coverage. `ci.yml` now creates a `smap_scratch` database on the postgres service that job
+already starts; the tier is at `70 passed, 3 skipped`. If that step is ever removed these go
+quiet rather than red. **D-8** — the first run that actually executed them failed in both
+directions on the *tests*, not the migration (SQLAlchemy 2.0 autobegins on the first `execute`,
+so the pre-check assertion owned the transaction the migration needed). And the one thing still
+outstanding, deliberately routed to FU-3 rather than held against the dossier: **production's
+`alembic current` is still unread**, and prod has no automatic migration step at all (FU-5).
+Removed on 2026-08-16 after implementation:
+`2026-08-16-admin-platform-type-edit-unreachable` (the shipped-examples section resolves its
+edit target from a new unbounded platform-only listing instead of one 200-row page of the
+cross-project one, so an installed example can always be edited; the cards show stored values
+rather than the course file's). Nothing lists it in `depends_on`, so no row moved out of
+Blocked. **Three things a later reader needs.** **D-4** — §7.3's truncation warning was
+*replaced*, not implemented: Q-1's unbounded route leaves no page limit to key one on, and
+`admin.activities.truncated`'s "Showing the most recent {count}" could not be true of it, so the
+section warns on an unresolved row instead, under a new key. **D-5** — §5's account of the
+reseed defect names a trigger that cannot happen: vue-query's structural sharing returns the
+*previous* object for a deeply-equal refetch, so an identical refetch never reaches the watcher
+at all and the literal §8.2 test passed against the pre-fix code. The live case is a refetch
+whose **contents** changed; both are now tests. This sharpens FU-4's sweep for
+`watch(() => [`. And **D-6** — no behavioural verification, again (Docker unavailable); four
+user-visible behaviours changed and none has been seen in a browser, so confirm on the first
+deployed build. **File overlap** with the still-open `example-dialog-pending-and-optout` in
+`ActivityExamplesSection.vue`: that dossier owns the `installingKey` pending state, this one
+rewrote row resolution, the card rendering and the Edit button's guard around it. Rebase.
 Removed on 2026-08-16 after implementation: `2026-08-16-activities-install-error-contract` (an
 unknown admin `course_key` is now a mapped 404 carrying the shipped-course list instead of a
 logged 500, and `_validate_validator_config` finally receives the `payload_schema` it must

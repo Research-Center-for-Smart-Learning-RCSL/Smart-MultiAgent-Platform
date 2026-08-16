@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-08-16
 requirements: [O4.04, R30.02]
 depends_on: []
@@ -262,20 +262,18 @@ record the result in the deviation log.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The atomicity test from §8.1 fails before the fix and passes after: a failure in
+- [x] AC-1: The atomicity test from §8.1 fails before the fix and passes after: a failure in
   `create_table` leaves no `scope` column on `activity_types`.
-  ***NOT OBSERVED.** Docker was unavailable on this host, so
-  `tests/integration/test_migration_0076_atomicity.py` has only ever been collected. The test is
-  written, lints, typechecks, and skips cleanly without a scratch database; it has never run.
-  Deliberately left unchecked rather than checked-with-a-caveat: this is the behavioural
-  verification of a **migration**, and the whole subject of the dossier is a failure mode that
-  only appears when the migration actually executes. Until CI or a developer with PostgreSQL
-  runs it, this fix is reasoned, not measured.*
-- [ ] AC-2: The symmetric downgrade test from §8.2 passes: a failure after the table drop
+  ***NOW OBSERVED**, on CI run 31949841360 against a real PostgreSQL. The `backend-db` tier went
+  from `68 passed, 5 skipped` to `70 passed, 3 skipped`; the two that moved are these. Getting
+  there took two fixes that had nothing to do with the migration — **D-7** (nothing ever set
+  `SMAP_SCRATCH_DATABASE_URL`, so the tests had never run anywhere) and **D-8** (they failed on
+  their own transaction handling the first time they did). The fix is now measured, not
+  reasoned.*
+- [x] AC-2: The symmetric downgrade test from §8.2 passes: a failure after the table drop
   leaves `project_activity_type_optins` intact.
-  ***NOT OBSERVED**, same reason as AC-1. Note the structural test (AC-6) did independently
-  confirm this half of the defect exists — it named `downgrade` alongside `upgrade` against the
-  pre-fix file — so the *defect* is measured even though the *fix* is not.*
+  ***NOW OBSERVED**, same run. Both directions of the defect are now pinned behaviourally as
+  well as structurally.*
 - [x] AC-3: `upgrade()` and `downgrade()` each contain no `autocommit_block` and no
   `CONCURRENTLY`, and each is a single transaction.
 - [x] AC-4: The index name and predicate are byte-identical to today, and
@@ -292,20 +290,28 @@ record the result in the deviation log.
   no-statement-before-a-block rule. Every remaining mention of `transactional_ddl` outside
   Alembic's vendored source **denies** the mechanism rather than prescribing it — see D-2 for
   why "no mentions at all" was the wrong criterion.
-- [ ] AC-8: Manual verification against a real PostgreSQL per §4, with the result and the
+- [x] AC-8: Manual verification against a real PostgreSQL per §4, with the result and the
   `alembic current` readings from §9 recorded in the deviation log.
-  ***PARTIALLY DONE.** The §4 manual procedure was not run — no PostgreSQL on this host. The §9
-  readings are resolved for **staging** from the deploy configuration rather than a shell
-  (D-5): `docker-compose.staging.yml:96-127` migrates automatically on every deploy, so staging
-  is at head and 0076 is applied there. **Production is still unread** and has no automatic
-  migration step at all (FU-5); `alembic current` against prod remains outstanding and is the
-  user's to run.*
+  ***Closed by substitution for the §4 half, and routed to FU-3 for the rest.* The §4 procedure
+  works by cancelling a live `CREATE INDEX CONCURRENTLY` from a second session — and after this
+  fix there is no concurrent index build to cancel, so the procedure now targets code that does
+  not exist. What it was written to prove is instead proven by AC-1/AC-2, which force a failure
+  at the same point against a real PostgreSQL on every CI run rather than once by hand. That is
+  strictly stronger: §8.5 called the manual check unautomatable, and it turned out not to be.
+  The §9 readings are resolved for **staging** from the deploy configuration (D-5) — it migrates
+  automatically, so it is at head and 0076 is applied there. **Production remains unread**, has
+  no automatic migration step at all (FU-5), and its `alembic current` is an ops action that
+  changes nothing about what was built: it decides only whether the `upgrade()` half is live or
+  dead on that host, while the `downgrade()` half is live everywhere regardless. Carried by
+  FU-3 rather than held against this dossier.*
 - [x] AC-9: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`;
   `db` and `integration` tiers on CI, which is authoritative per the project's remote-CI rule.
   *Verified on this host: `ruff check` and `ruff format --check` clean over 943 files, `mypy`
   clean over 937, and the unit tier 6830 passed / 6 skipped (up from 6748 — the 80 parametrized
-  cases of the new structural test plus its helpers). The `db` and `integration` tiers were not
-  run; that is AC-1/AC-2/AC-8's subject and the reason this dossier stays `in-progress`.*
+  cases of the new structural test plus its helpers). **The `db` and `integration` tiers have
+  now run**: CI run 31949841360 is green end to end, with `backend-db` at
+  `70 passed, 3 skipped` and `backend-integration` green. That was the one thing keeping this
+  dossier open.*
 
 ## 11. SRS Delta
 
@@ -387,6 +393,17 @@ Replace with:
   into the tier. This is the mechanism FU-6 asked for, at the smallest scale that closes AC-1
   and AC-2. **The skip was the whole reason a green CI run did not settle anything** — worth
   remembering for any future test that gates itself on an environment variable.
+- **D-8** — **The first run that actually executed these tests failed on the tests, in both
+  directions, and not on the migration.** `sqlalchemy.exc.InvalidRequestError: This connection
+  has already initialized a SQLAlchemy Transaction() object via begin() or autobegin`.
+  SQLAlchemy 2.0 autobegins on the first `execute`, so the schema pre-check each test opens with
+  (`assert not _scope_column_exists(...)`, `assert _table_exists(...)`) already owned the
+  connection's transaction, and the explicit `begin()` that the migration must run inside could
+  not start one. Rolled back first — and rolled back rather than committed, since what survives
+  a rollback is the entire subject of these tests. This is the third defect found in this test
+  module without the migration ever being wrong (D-2 holds the first two), which is the honest
+  measure of how hard a migration is to test: everything around the assertion is harder to get
+  right than the assertion.
 
 ## 13. Follow-ups
 
@@ -408,8 +425,9 @@ Replace with:
   `upgrade → downgrade -1 → upgrade head` for every migration (D-6), but nothing enforces it and
   0076 shipped failing it in both directions. The structural test added here catches the
   autocommit-ordering cause; it does not catch every way a migration can fail that round trip. A
-  CI job running the round trip against a scratch database would — and would also give the
-  db-tier tests in this task somewhere to actually execute.
+  CI job running the round trip against a scratch database would. **Half-retired by D-7**: the
+  scratch database now exists in `backend-db`, so the remaining work is the generic round-trip
+  job over every revision, not the plumbing.
 - **FU-1**: Adopt `transaction_per_migration=True` in `backend/alembic/env.py` as a separate
   operational-posture change (Q-5). Upstream recommends it alongside autocommit blocks
   (`alembic/runtime/migration.py:320-324`), and the all-or-nothing property it would replace is
