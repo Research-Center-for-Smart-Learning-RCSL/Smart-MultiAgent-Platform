@@ -298,6 +298,14 @@ are being brought into line with requirements that already exist.
   no production Python changed at all, so the exclusion does not shadow this work. It is
   recorded because a future `/build` on this host will hit the same wall and should not spend
   half an hour rediscovering it; CI is the authority per the project's standing rule.
+- **D-6**: A post-close `/code-review` caught the new Limitations entry enumerating the affected
+  temperatures as "AA 0.2, TA 0.7, SA 0.9" while saying "the packs" plural. **Two** packs ship,
+  and `packs/creative-thinking-design.json:13` gives `da-lesson-designer` a `temperature` of 0.6
+  that is dropped on OpenAI identically. A reader auditing which agents lose their configured
+  sampling would have concluded DA was unaffected. Corrected to name both packs and all four
+  agents. Worth noting that §1 of this dossier carries the same three-value enumeration, which
+  is where the omission came from: the spec described the room pack and the document generalized
+  it to both.
 
 ## 13. Follow-ups
 
