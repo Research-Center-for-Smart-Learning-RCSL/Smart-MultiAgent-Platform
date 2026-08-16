@@ -22,6 +22,11 @@ DOWNGRADE IS NOT UNCONDITIONAL. Restoring NOT NULL is impossible while platform
 rows exist, and the alternative -- deleting rows an admin installed, along with
 every session and submission that cascades from them -- is worse than a refused
 downgrade. It therefore fails loudly and names the manual step.
+
+BOTH DIRECTIONS ARE A SINGLE TRANSACTION, with no autocommit block and no
+CONCURRENTLY. See the comment above the index build for why concurrency would buy
+nothing here and cost retry-safety; ``tests/unit/test_migration_autocommit_ordering.py``
+pins the rule for every migration.
 """
 
 from __future__ import annotations
@@ -60,15 +65,27 @@ def upgrade() -> None:
         "(scope = 'project') = (project_id IS NOT NULL)",
     )
 
-    # CONCURRENTLY on the live table, following 0074/0071. IF NOT EXISTS makes a
-    # retry safe: a failed concurrent build leaves an INVALID index occupying the
-    # name, which must be dropped by hand before re-running.
-    with op.get_context().autocommit_block():
-        op.execute(
-            "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_activity_types_platform_key_active "
-            "ON activity_types (key) "
-            "WHERE project_id IS NULL AND deleted_at IS NULL"
-        )
+    # Deliberately NOT CONCURRENTLY, unlike 0071/0072/0074.
+    #
+    # Those build indexes on high-write tables and take no stronger lock themselves,
+    # so concurrency buys them something. This migration has already taken ACCESS
+    # EXCLUSIVE on activity_types four times above (add_column, alter_column, and
+    # both CHECKs) and holds it for its duration -- strictly stronger than the
+    # ShareLock a plain CREATE INDEX takes, and it blocks readers too. Building
+    # concurrently here would buy nothing and cost a great deal: CONCURRENTLY
+    # cannot run inside a transaction, so it forces an autocommit_block, which
+    # commits everything above it while the revision stamp still says 0075. A
+    # failure after that point leaves the schema advanced, the version behind, and
+    # the migration unretryable ([O4.04]).
+    #
+    # This rests on activity_types being a catalogue table -- one row per activity
+    # type per project. If it ever grows to millions of rows, revisit: the lock is
+    # then held for the length of a real index build.
+    op.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_activity_types_platform_key_active "
+        "ON activity_types (key) "
+        "WHERE project_id IS NULL AND deleted_at IS NULL"
+    )
 
     op.create_table(
         "project_activity_type_optins",
@@ -140,8 +157,11 @@ def downgrade() -> None:
     op.drop_index("ix_project_activity_type_optins_type", table_name="project_activity_type_optins")
     op.drop_table("project_activity_type_optins")
 
-    with op.get_context().autocommit_block():
-        op.execute("DROP INDEX CONCURRENTLY IF EXISTS uq_activity_types_platform_key_active")
+    # Not CONCURRENTLY, for the same reason as the upgrade: an autocommit block here
+    # would commit the two drops above it while the stamp still says 0076, so a
+    # failure in the constraint drops below would leave the opt-in table gone and
+    # the migration unretryable.
+    op.execute("DROP INDEX IF EXISTS uq_activity_types_platform_key_active")
 
     op.drop_constraint("ck_activity_types_project_scope", "activity_types", type_="check")
     op.drop_constraint("ck_activity_types_scope", "activity_types", type_="check")
