@@ -38,6 +38,7 @@
       "nextSteps": "After installing: create a chatroom, bind the room-facing agents to it with their roles, then start an activity from the Activity tab.",
       "installed": "Installed {count} agent(s), running on {providers}.",
       "groupCreated": "Created the agent group \"{group}\".",
+      "nothingNewButGroupCreated": "No agent was created -- this pack's agents are all in the project already. They have been put in a new agent group \"{group}\".",
       "nothingToInstall": "Every agent in this pack is already in the project.",
       "installFailed": "The pack could not be installed."
     },
