@@ -40,14 +40,17 @@ def seed_course_cmd(
 ) -> None:
     """Register a shipped example course's activity types into a project.
 
-    Defaults to the two-unit creative-thinking course: `mandala-9grid` (unit 2,
-    rendered by the bundled nine-grid plugin) and `six-hats-emotion-desk` (unit 4,
-    rendered by the generic schema form). Both score with the `filled_count`
-    validator. --course names any file in
+    Defaults to the creative-thinking course, one activity type per worksheet
+    section of the two modelled units; the unit-2 mandala renders through the
+    bundled nine-grid plugin and the rest through the generic schema form. The
+    course file is the authority on how many there are, so this text does not
+    list them. --course names any file in
     contexts/activities/infrastructure/examples/courses/.
 
-    Idempotent -- a type whose key already exists is left untouched, so re-running
-    after a partial failure is safe.
+    Idempotent -- a type whose key this project already **owns** is left
+    untouched, so re-running after a partial failure is safe. A platform-scoped
+    type the project merely opted into does not count: it is read-only to a
+    Project Owner, so it is not the editable copy this command produces.
 
     Like every smap CLI this trusts its operator: it calls the facade directly and
     so bypasses the HTTP route's Project Owner check. --owner-user-id is recorded
@@ -95,6 +98,18 @@ def seed_course_cmd(
         report.created,
         report.already_present,
     )
+    if report.shadowed_by_platform:
+        # Not a failure: the operator asked for a project-scoped copy and got one.
+        # But the project now holds two live types under each of these keys, and
+        # the bundled plugin registry and any workflow reactive rule select by key
+        # alone, so both rows answer to the same rule.
+        logger.warning(
+            "creative-thinking-course: {} now exist both as this project's own type and as a "
+            "platform example it opted into. Anything selecting an activity type by key alone "
+            "(the bundled plugins, workflow activity rules) will match both. Opt the project out "
+            "of the platform example, or give the project's copy a different key.",
+            report.shadowed_by_platform,
+        )
 
 
 if __name__ == "__main__":
