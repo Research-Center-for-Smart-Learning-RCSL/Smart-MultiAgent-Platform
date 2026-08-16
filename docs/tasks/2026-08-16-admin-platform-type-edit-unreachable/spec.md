@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-08-16
 requirements: [R30.23, R30.31, R30.32]
 depends_on: []
@@ -299,7 +299,72 @@ documented capability is restored.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1** — **The OpenAPI spec must be exported with `python -m scripts.export_openapi`, not by
+  hand.** A first attempt built the spec with an ad-hoc `get_openapi(...)` call and produced a
+  **21915-insertion / 21894-deletion whole-file rewrite** — different indent, key order and
+  escaping from whatever generated the committed spec. Reverted and re-exported through the
+  project's own script (`frontend/scripts/check-openapi-drift.sh` names it), which yields a
+  purely additive 27-line diff. This is D-8 of
+  `docs/tasks/2026-08-13-creative-thinking-example-agents/spec.md` recurring, and it will
+  recur again for anyone who does not find the script first.
+- **D-2** — **On Windows the codegen rewrites all ~280 api-client files with CRLF.**
+  `git status` therefore lists the whole tree as modified after `gen:api`, while
+  `git diff --numstat` correctly reports content changes in only `AdminService.ts` (+26, the
+  new method). The line-ending-only churn was discarded with `git checkout -- ` over the
+  codegen tree after staging the two genuine changes. Worth knowing before someone commits 280
+  files of noise, or — worse — concludes the generator broke something.
+- **D-3** — **Verified the concurrent build's work was not clobbered.**
+  `agent-pack-install-report-fidelity` landed mid-task and owns
+  `ExamplePackInstallReportOut.ts`; after the regeneration that file showed as modified but
+  `git diff` reported no content change, and its `group_created` field is intact.
+
+## 12a. RESUME NOTE — where this task stopped and what is left
+
+Stopped deliberately at a green checkpoint, not blocked. **`main` is green**: the backend half
+is committed and the frontend half was never started, so nothing is half-wired.
+
+**Done and committed** (`35a0a47`):
+
+- `GET /api/admin/platform-activity-types` in `app/api/v1/admin_activities.py`, `require_admin`,
+  unbounded, returning `_type_out(at, project_name=None)` over the existing
+  `ActivitiesFacade.list_platform_types()`. No new repository or facade method was needed.
+- The route added to the parametrized admin-gate test
+  (`tests/unit/test_admin_activities_routes.py`), which is the only thing pinning
+  `require_admin` onto each handler and previously listed two routes.
+- `backend/openapi.json` re-exported (additive, 27 lines) and
+  `frontend/src/shared/api-client/services/AdminService.ts` regenerated (+26 lines,
+  `listPlatformActivityTypesApiAdminPlatformActivityTypesGet`).
+
+**Not started — the whole frontend half.** In dependency order:
+
+1. `adminKeys.platformActivityTypes()` in `slices/admin/queries/index.ts` — a **new** key, per
+   Q-2 deliberately *not* a variant of `activityTypes()`, which `AdminActivitiesView:209-212`
+   shares; a scope-filtered fetch under that key would poison the governance table's cache.
+2. An `adminApi` wrapper in `slices/admin/api/admin.ts`, pattern at `:137-141`.
+3. `ActivityExamplesSection.vue`: resolve `editRow` (`:165-167`) from the new unbounded query
+   instead of the 200-row page, and render **stored** values on the cards (Q-3) rather than the
+   course file's.
+4. Both §7.3 guards. The second is easy to skip and must not be: the dialog watch source
+   (`PlatformActivityTypeDialog.vue:148`) is a fresh array literal every evaluation, so
+   `Object.is` always reports "changed" and the id-keying its comment claims never gates
+   anything — meaning `refetchOnWindowFocus` reseeds an open, dirty form **today**, independent
+   of this task's headline defect. It needs a scalar source.
+5. §7.4: `onSubmit`'s `props.row === null` branch toasts instead of returning silently, and Save
+   is disabled in that state. **Keep the guard** — `mutationFn` (`:183-184`) falls back to
+   `props.row?.id ?? ''`, which would PATCH an empty id.
+6. The truncation warning, reusing the existing `admin.activities.truncated` key
+   (`admin/locales/en.json:254`) — no new key needed.
+
+**The two failing-first tests were written, confirmed failing for the documented reasons, then
+reverted rather than committed** — committing red tests would break `main` for everyone, and
+skipping them would rot. Recreate them from §8.1; both are fully specified there. Their observed
+failures were `expected '' to be 'Mandala (renamed by an admin)'` (the blank form) and
+`expected undefined to be defined` (no `disabled` attribute), with the other six passing. The
+fixture that matters: the types listing returns 200 rows that do **not** contain the installed
+type, and a second `stubPlatformTypes` helper stubs `/api/admin/platform-activity-types`.
+
+**Still to run when resumed**: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`,
+`pnpm run check:openapi-drift`, plus gates 5-7 over the whole task diff from base `1b45ebb`.
 
 ## 13. Follow-ups
 
