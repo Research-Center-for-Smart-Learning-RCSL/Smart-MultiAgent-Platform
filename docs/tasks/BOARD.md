@@ -74,11 +74,6 @@ assume.
 
 ## In progress
 
-- `2026-08-16-agent-pack-install-report-fidelity` (bugfix) — `depends_on: []`. F-8 + F-11 + F-16.
-  A re-install after a group rename creates a second group while reporting that nothing was
-  created; the dialog discards provider and activity-type data already on the wire; AC-14's
-  design-agent sentence was never added. Adds a response field, so `gen:api` +
-  `check:openapi-drift` apply.
 - `2026-08-16-migration-0076-retry-safety` (bugfix) — `depends_on: []`. **Code complete;
   deliberately parked at `in-progress`, not abandoned.** The migration fix, the three stale
   rule corrections and a structural test covering all 80 migrations are committed and green.
@@ -91,6 +86,17 @@ assume.
   current` against prod.** The structural test did independently confirm the defect in both
   directions, so the defect is measured even though the fix is not.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-16 after implementation: `2026-08-16-agent-pack-install-report-fidelity`
+(the pack install report now carries `group_created`, and the dialog renders each agent's
+preferred provider and bound activity types, reports the provider actually used, and states
+that a design agent's drafts are copied by hand). Nothing lists it in `depends_on`, so no row
+moved out of Blocked. **Two things a later reader needs.** **D-1** — no behavioural
+verification was performed: Docker was unavailable, so the install flow was never exercised in
+a browser and the `integration`/`db`/`wiring` test tiers are unrun locally; this dialog has now
+shipped twice without a manual pass (the source dossier's D-12 was the first), so confirm on
+the first deployed build. And **D-4** — this task's uncommitted work was stashed mid-build by a
+concurrent session on the same branch; it was recovered intact, but the task base moved from
+`bf1edcb` to `9bec23a` and both audit gates were run against the later base.
 Removed on 2026-08-16 after implementation: `2026-08-16-example-cli-seeder-scope-leak` (the
 example CLI seeder now keys idempotency on ownership via a new `list_owned_by_project` read
 rather than on `list_types`' usable set, and warns per key that shadows an opted-in platform

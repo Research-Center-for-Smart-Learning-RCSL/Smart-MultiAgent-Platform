@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-08-16
 requirements: [R30.35]
 depends_on: []
@@ -278,27 +278,55 @@ neither the guard order nor the project scoping.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The test from §8.1 fails before the fix and passes after: a re-install that creates a
+- [x] AC-1: The test from §8.1 fails before the fix and passes after: a re-install that creates a
   second group reports `group_created: true`.
-- [ ] AC-2: A re-install that reuses the same-named group reports `group_created: false`, and the
+  `test_a_renamed_group_makes_a_reinstall_create_a_second_one_and_say_so`; failed pre-fix with
+  `AttributeError: 'PackInstallReport' object has no attribute 'group_created'`.
+- [x] AC-2: A re-install that reuses the same-named group reports `group_created: false`, and the
   AC-8 test asserts the group outcome rather than agents alone.
-- [ ] AC-3: The install toast never reads "nothing was installed" for a run that created a group;
+  `test_reuses_an_existing_group_of_the_same_name` and
+  `test_a_second_install_reports_already_present_and_creates_nothing`, the latter now also
+  asserting `create_group.assert_not_awaited()`.
+- [x] AC-3: The install toast never reads "nothing was installed" for a run that created a group;
   when a group is created it is named.
-- [ ] AC-4: Before confirming, the dialog shows each agent's preferred provider, labelled as a
+  `never reports nothing installed for a run that created a group` + `names the group when the
+  install created one`.
+- [x] AC-4: Before confirming, the dialog shows each agent's preferred provider, labelled as a
   preference rather than as the resolved value, and the activity types it is written for.
-- [ ] AC-5: After installing, the dialog reports the provider actually used, from
+  `names each agent preferred provider and the activities it is written for`.
+- [x] AC-5: After installing, the dialog reports the provider actually used, from
   `report.created[].model_hint`.
-- [ ] AC-6: The header comment at `AgentPackInstallDialog.vue:6-8` describes what the component
+  `reports the provider actually used once the install returns` + `reports every distinct
+  provider when agents resolved differently` (which also pins the de-duplication).
+- [x] AC-6: The header comment at `AgentPackInstallDialog.vue:6-8` describes what the component
   renders.
-- [ ] AC-7: A note states that a design agent belongs in the teacher's own chatroom **and** that
+- [x] AC-7: A note states that a design agent belongs in the teacher's own chatroom **and** that
   applying its drafts to an agent is a manual copy and paste; it is absent when no listed pack
-  carries a `room_role: null` agent.
-- [ ] AC-8: Every new string exists in both `en.json` and `zh-TW.json` under
-  `agents.examplePacks`, and the two key sets remain identical.
-- [ ] AC-9: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`,
-  `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm run gen:api` +
-  `pnpm run check:openapi-drift`, `pnpm run check:bundle-size`,
-  `pnpm run check:type-coverage`, `pnpm run check:boundaries-enforced`.
+  carries a `room_role: null` agent. Asserted as a pair, mirroring the observer notice.
+- [x] AC-8: Every new string exists in both `en.json` and `zh-TW.json` under
+  `agents.examplePacks`, and the two key sets remain identical. Verified 30/30 keys, no
+  asymmetry, plus gate #12 in `pnpm lint`.
+- [x] AC-9: Gates green. `ruff check .` (all passed), `ruff format --check .` (943 files),
+  `mypy .` (938 source files, no issues), `pytest tests/unit -q` (**6838 passed, 6 skipped**,
+  24m54s), `pnpm lint`, `pnpm typecheck`, `pnpm test` (**1111 passed, 181 files**),
+  `pnpm build`, `pnpm run check:bundle-size`, `pnpm run check:type-coverage`,
+  `pnpm run check:boundaries-enforced`. Three qualifications, all recorded rather than
+  waved past:
+  - **`pytest -q` was run as `pytest tests/unit -q`.** `testpaths = ["tests"]` with no default
+    marker filter (`pyproject.toml:431-444`), so the bare form also collects the
+    `integration`/`db`/`wiring` tiers, which need Postgres+Redis+Vault from compose. Docker
+    was down (D-1), so those tiers are **unrun here and belong to CI**, whose
+    `backend-integration`, `backend-db` and `backend-wiring` jobs own them. The 6 skips are
+    pre-existing (`test_workspace_volume_reconcile.py`, "host cannot create symlinks").
+  - **`gen:api` + `check:openapi-drift` verified by equivalence, not by the script.**
+    `check-openapi-drift.sh` asserts a clean `git status` after regenerating, and the codegen
+    writes CRLF on Windows, which that check reports as drift while CI's Linux runners never
+    produce it. Re-running the export and `pnpm run gen:api` was confirmed a **content**
+    no-op against the committed spec and client (`git diff --numstat` empty), which is what
+    the gate is actually asserting. The spec was written BOM-free and LF, per the source
+    dossier's D-8.
+  - The exported `openapi.json` diff is exactly the additive `group_created` boolean plus its
+    `required` entry; nothing else in the 765 KB document moved.
 
 ## 11. SRS Delta
 
@@ -312,7 +340,36 @@ it one (Q-1).
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1: No behavioural verification.** Docker Desktop was not running on the implementing host,
+  so the compose stack could not be launched and the install flow was never exercised in a
+  browser. Both halves rest on unit tests and reasoning. This is the same constraint the source
+  dossier recorded as its own D-12, which means the pack install dialog has now shipped twice
+  without a manual pass; confirm on the first deployed build, specifically that the two toasts
+  read sensibly together and that the per-agent badge row does not wrap badly at narrow widths
+  (jsdom asserts neither).
+- **D-2: Four new i18n keys, not five.** §7.4 planned separate keys for the preference label, the
+  bound-activities label, the resolved-provider toast, the group-created toast and the design
+  note. The resolved provider was folded into the existing `installed` message as a `{providers}`
+  parameter rather than added as a fifth key and a third toast. Reason: §9 warned that reporting
+  both facts risks "a sentence nobody reads" and asked for a compact form; one enriched success
+  message plus one group message is the two short lines it recommended. `installed` is called
+  from nowhere else, so widening its parameters breaks no other caller.
+- **D-3: The test harness fix went further than §8.3.** That section asked only that the
+  `useToast` spies be hoisted. Hoisting alone leaves AC-5 unassertable: the render harness loads
+  no locale messages, so the real `t` returns the bare key and the resolved provider never
+  appears in the string the toast receives. `useI18n` is therefore also faked, returning a `t`
+  that appends serialised interpolation params. Verified safe for this tree - `SModal` and
+  `SBadge` are the only components in it that call `useI18n`, and both destructure `t` alone.
+- **D-4: The task base commit moved mid-build, and this task's work was stashed by another
+  session.** Work started at `bf1edcb`. While it was in progress a concurrent session committed
+  `2026-08-16-example-cli-seeder-scope-leak` (three commits, `49f6197`..`9bec23a`) and ran
+  `git stash`, which parked this task's uncommitted backend half. It was recovered from
+  `stash@{0}` intact - the stash held exactly this task's five files and nothing else - and the
+  base was re-baselined to `9bec23a`. Both audit gates in §Definition of Done were run against
+  `9bec23a..HEAD`, not the original base. Q-5's "no unfinished dossier conflicts" still holds on
+  the merits: the seeder touches `contexts/activities` and `smap/examples`, this task touches
+  `contexts/agents` and the agents slice, and the two diffs do not intersect. What Q-5 did not
+  anticipate was concurrent *sessions* on one branch rather than concurrent dossiers.
 
 ## 13. Follow-ups
 
@@ -330,3 +387,19 @@ Appended by /build.
 - **FU-4**: `agent_groups` has no metadata column (Q-1), so nothing in the platform can record
   that a group came from a pack. That is deliberate today; if packs ever gain re-sync (OQ-2 of
   the source dossier), provenance becomes a prerequisite and this is where it would live.
+- **FU-5**: `roleLabel` (`AgentPackInstallDialog.vue:131-135`) returns `roleDesign` for anything
+  that is not `'observer'` or `'normal'`, while the new `anyDesignAgent` tests `room_role === null`
+  exactly. They agree only because the union is currently `'normal' | 'observer' | null`; a third
+  room role would be labelled a design agent while the design note stayed hidden. Found by the
+  quality gate, pre-existing in `roleLabel`. Fix is a `switch` over the union with an explicit
+  `null` arm, which the type checker would then keep exhaustive.
+- **FU-6**: `_group_for` (`example_service.py:340-350`) reads every group in the project and
+  matches by name in Python. Bounded only by how many groups a project has, and self-inflicted,
+  so the security gate filed it as hardening rather than a finding - but a name-filtered
+  repository read would bound it properly. Same family as the source dossier's FU-8/FU-9.
+- **FU-7**: the group-created toast falls back to an empty name
+  (`AgentPackInstallDialog.vue:124`, `?? ''`) if the installed pack is not in the catalogue list,
+  rendering `Created the agent group ""`. Verified near-unreachable - the lookup runs before the
+  query is invalidated, and the pack key came from the button rendered off that same list - and
+  deliberately left, because every alternative fallback (`group_id`, `pack_key`) names something
+  that is not the group's name. Recorded so the next reader does not have to re-derive why.
