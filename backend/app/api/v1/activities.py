@@ -808,15 +808,6 @@ async def _dispatch_submission(
 ) -> None:
     """Post-commit fan-out — best-effort: the submission is committed, so a Redis
     or pub/sub hiccup must never surface as a failed submission."""
-    # Re-arm the silence clock ([R15.02]): a submission is room activity, so an
-    # agent on `silence_minutes` must not read a class busy filling in a worksheet
-    # as a lull. Deliberately NOT a full wake-up evaluation — that would wake every
-    # `every_n_messages` agent once per submission. See
-    # `triggers.evaluate_room_activity`.
-    try:
-        await ConversationFacade(db).note_room_activity(chatroom_id=chatroom_id)
-    except Exception:
-        _log.warning("silence-clock re-arm failed for activity submission %s", submission.id, exc_info=True)
     try:
         await Publisher(room_channel(chatroom_id)).emit(
             "activity.created",
@@ -828,6 +819,16 @@ async def _dispatch_submission(
         )
     except Exception:
         _log.error("realtime publish failed for activity submission %s", submission.id, exc_info=True)
+    # Re-arm the silence clock ([R15.02]): a submission is room activity, so an agent
+    # on `silence_minutes` must not read a class busy filling in a worksheet as a
+    # lull. Deliberately NOT a full wake-up evaluation — that would wake every
+    # `every_n_messages` agent once per submission; see `triggers.evaluate_room_activity`.
+    # Ordered after the emit because that is what the client is waiting on, and this
+    # costs a DB read the participant should not wait behind.
+    try:
+        await ConversationFacade(db).note_room_activity(chatroom_id=chatroom_id)
+    except Exception:
+        _log.warning("silence-clock re-arm failed for activity submission %s", submission.id, exc_info=True)
     if submission.validation_status.value == "pending":
         try:
             await enqueue("validate_activity_submission", str(submission.id))
