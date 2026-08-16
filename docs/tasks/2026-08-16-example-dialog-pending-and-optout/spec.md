@@ -271,6 +271,18 @@ component already claims in a comment and that D-14 established for the sibling 
   opt-out blocks the whole of it, which is the exact trade §9 flagged as this fix's cost.
   Confirm on the first deployed build. This is the fifth consecutive dossier in this audit's
   series to record the same gap, which is itself worth acting on rather than re-recording.
+- **D-7**: A post-close `/code-review` found that the fix closed only one of **two** windows
+  onto the same symptom, and the second is the one that still misreports. `invalidate()` fires
+  `void qc.invalidateQueries(...)` and `onSuccess` returns void, so vue-query never holds the
+  mutation open until the refetch lands: `isPending` goes false while `examples` still carries
+  the pre-mutation `enabled: true`. The row therefore renders a live Disable button for a type
+  that is already opted out, and a click there produces exactly the `disableFailed` toast for a
+  succeeded disable that §2 defines as the defect - reached through the stale list rather than
+  through a concurrent mutation. §2's claim that a duplicate opt-out "can only arise from the UI
+  defect" that Q-1 removes was therefore incomplete, and so was AC-2's framing in terms of
+  requests in flight. `anyPending` now also gates on `examplesQuery.isFetching`, and a test
+  holds the invalidated refetch open and asserts the button stays inert until it lands. The
+  window is normally sub-second but widens to seconds while vue-query retries a failed refetch.
 
 ## 13. Follow-ups
 
@@ -301,3 +313,11 @@ component already claims in a comment and that D-14 established for the sibling 
   slices may not import each other, but `@shared/composables` can serve all three. This is the
   concrete shape FU-2's sweep should end in: one helper is also the only version of this rule
   that a lint rule or a test could ever be written against.
+- **FU-6**: `ActivityExamplesSection` has the same settle-to-refetch window D-7 closed in the
+  activities dialog: after an install succeeds, `course.fully_installed` is still `false` in the
+  stale catalogue, so the Install button goes live again until the refetch lands and a click
+  issues a second install. Deliberately **not** fixed, on Q-2's own reasoning: `install` is
+  idempotent and reports `alreadyInstalled` as a success, so the duplicate is cosmetic rather
+  than a misreported failure, and the component's residual-state handling was rewritten by
+  `admin-platform-type-edit-unreachable` recently enough that a benign change there is not worth
+  the risk. Gate on `query.isFetching` alongside `anyInstallPending` if it is ever picked up.
