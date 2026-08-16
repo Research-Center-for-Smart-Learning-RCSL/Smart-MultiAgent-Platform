@@ -189,8 +189,18 @@ Ordered by severity. Never renumber; F-n identifiers are cited from spec dossier
   do.
 - **Blast radius**: any deployment applying 0076 where the concurrent index build or the
   table create fails. 0076 is the only migration in the tree that puts transactional DDL
-  before an autocommit block, so the fix is local: either `transaction_per_migration=True`
-  in `env.py`, or split 0076 at the block boundary.
+  before an autocommit block.
+- **Correction (2026-08-16, from the fixing dossier's research)**: this entry originally
+  proposed `transaction_per_migration=True` in `env.py` or splitting 0076 at the block
+  boundary. **The first is a no-op for this defect** — `autocommit_block` commits the
+  preceding transaction under either setting (`alembic/runtime/migration.py:328-337`), and
+  under per-migration mode that transaction is still exactly 0076's pre-block DDL. The second
+  is unsafe while no record exists of which revision staging and production are stamped at.
+  The entry also missed that `downgrade()` (`0076:135-149`) carries the **same defect
+  mirrored**: it drops the index and table transactionally, then enters an autocommit block,
+  so a failure after that point leaves the opt-in table gone and committed at version `0076`.
+  Both corrections are carried into
+  `docs/tasks/2026-08-16-migration-0076-retry-safety/`.
 - **Intent source**: the migration's own retry-safety comment; and AC-1 of
   `docs/tasks/2026-08-09-platform-example-activity-types/spec.md:501-507`, which exercised
   upgrade and downgrade but not a mid-migration failure.
