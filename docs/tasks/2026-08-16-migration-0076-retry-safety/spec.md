@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-08-16
 requirements: [O4.04, R30.02]
 depends_on: []
@@ -279,8 +279,9 @@ record the result in the deviation log.
   it to the catalogue-cardinality assumption; **all three** copies of the stale rule -
   `docs/operations.md:146`, `backend/alembic.ini:17-19` and `backend/alembic/README.md:57-58` -
   no longer prescribe a per-revision `transactional_ddl` marker, and [O4.04] states the
-  no-statement-before-a-block rule. A repo-wide grep for `transactional_ddl` returns only
-  Alembic's own vendored source afterwards.
+  no-statement-before-a-block rule. Every remaining mention of `transactional_ddl` outside
+  Alembic's vendored source **denies** the mechanism rather than prescribing it — see D-2 for
+  why "no mentions at all" was the wrong criterion.
 - [ ] AC-8: Manual verification against a real PostgreSQL per §4, with the result and the
   `alembic current` readings from §9 recorded in the deviation log.
 - [ ] AC-9: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`;
