@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-08-16
 requirements: [R30.02, R30.27, R30.32]
 depends_on: []
@@ -299,27 +299,54 @@ existing `register`/`update` config test.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The test from §8.1 fails before the fix and passes after; an unknown or malformed
+- [x] AC-1: The test from §8.1 fails before the fix and passes after; an unknown or malformed
   `course_key` on the admin install route returns **404** with code
   `activities/example-course-not-found`, and no unhandled exception is logged.
-- [ ] AC-2: A course file that exists but does not parse still produces a 500 and is still
+  *Verified: `test_an_unknown_course_key_is_a_domain_not_found` and the rewritten traversal test
+  both fail with the pre-check disabled and pass with it (run recorded during the build).
+  `test_an_unknown_course_key_maps_to_404_and_commits_nothing` pins the mapping via
+  `resolve_spec`. The "no unhandled exception" half follows structurally:
+  `context_handler.py:64-77` logs nothing on a mapped error, whereas the previous path went
+  through `handlers.py:124-133`'s `_unhandled_handler`, which does.*
+- [x] AC-2: A course file that exists but does not parse still produces a 500 and is still
   logged as a server fault - the not-found lift must not swallow artifact failures.
-- [ ] AC-3: `ExampleCourseNotFound` is in `errors.__all__`, and the three pre-existing omissions
+  *`test_a_malformed_shipped_file_is_still_a_server_fault`: a key that IS in
+  `available_courses()` whose load raises `CourseFileInvalid` still propagates that class,
+  which remains unmapped and so still reaches `_unhandled_handler`.*
+- [x] AC-3: `ExampleCourseNotFound` is in `errors.__all__`, and the three pre-existing omissions
   are either fixed in the same change or recorded explicitly in the deviation log.
-- [ ] AC-4: The 404 detail names the available course keys, including the "none" case (Q-2).
-- [ ] AC-5: The traversal guard still prevents any filesystem access for a key containing path
+  *Fixed rather than recorded: `ActivityTypeViolatesPolicy`, `ActivityPolicyVersionMismatch`
+  and `ActivityPolicyInconsistent` were added alongside it, closing FU-3 of the
+  platform-example dossier and this dossier's FU-1.*
+- [x] AC-4: The 404 detail names the available course keys, including the "none" case (Q-2).
+  *`', '.join(known) or 'none'` at `example_service.py:192`; the populated case is asserted
+  by §8.1's test, the "none" case by the `or` fallback on an empty tuple.*
+- [x] AC-5: The traversal guard still prevents any filesystem access for a key containing path
   separators or `..`, still asserted by §8.2's rewritten test.
-- [ ] AC-6: The tests from §8.4 fail before the fix and pass after: `register` and `update` both
+  *Strengthened rather than preserved: the rewritten test patches `_load_cached` **and**
+  `Path.is_file`/`Path.read_text` to assert-raise, so it proves the key never reaches the
+  loader at all rather than only that the regex rejected it.*
+- [x] AC-6: The tests from §8.4 fail before the fix and pass after: `register` and `update` both
   refuse `min_filled` above the declared property count with **422**
   `activities/validator-config-invalid`, and neither writes.
-- [ ] AC-7: `min_filled` equal to the property count is still accepted (the check uses `>`).
-- [ ] AC-8: A metadata-only edit to a stored violating type still succeeds (§8.5).
-- [ ] AC-9: `_validate_validator_config` is still a `@staticmethod` and all four call sites pass
+  *Both confirmed failing before the fix and passing after (recorded during the build);
+  `_repo.create`/`_repo.update` asserted not-awaited. The 422 is `ValidatorConfigInvalid`'s
+  existing mapping at `error_mapping.py:61-65`, unchanged.*
+- [x] AC-7: `min_filled` equal to the property count is still accepted (the check uses `>`).
+  *`test_a_min_filled_equal_to_the_property_count_is_accepted`.*
+- [x] AC-8: A metadata-only edit to a stored violating type still succeeds (§8.5).
+  *`test_a_metadata_only_edit_of_a_stored_violating_type_still_succeeds`, which also asserts
+  `bump_version is False` so the `behavioral_changed` gate itself is pinned.*
+- [x] AC-9: `_validate_validator_config` is still a `@staticmethod` and all four call sites pass
   `payload_schema`.
-- [ ] AC-10: The shipped course still installs unchanged, and
+- [x] AC-10: The shipped course still installs unchanged, and
   `TestFilledCountSchemaConfigValidator` passes unmodified.
-- [ ] AC-11: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`.
+  *`TestInstallCourse`'s four pre-existing tests run against the real shipped catalogue and
+  pass untouched; `TestFilledCountSchemaConfigValidator` is unmodified in the diff.*
+- [x] AC-11: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`.
   No `gen:api` run is required - no response model changes shape.
+  *ruff and mypy clean (938 source files). `pytest -q`: see D-2 - the `unit` tier is green,
+  the `integration`/`wiring`/`db` tiers cannot run on this host.*
 
 ## 11. SRS Delta
 
@@ -331,14 +358,54 @@ course file is parsed. Neither requirement changes.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1**: AC-3 offered a choice between fixing the three pre-existing `__all__` omissions and
+  recording them. They were **fixed** - `ActivityTypeViolatesPolicy`,
+  `ActivityPolicyVersionMismatch` and `ActivityPolicyInconsistent` are now exported alongside
+  `ExampleCourseNotFound`. Recording a fourth silent omission to close a dossier about
+  diagnosability would have been the wrong trade for three added lines. This closes FU-1 of
+  this dossier and FU-3 of `2026-08-09-platform-example-activity-types`.
+- **D-2**: **`pytest -q` was not run to completion on the full suite.** The `integration`,
+  `wiring` and `db` tiers need a live PostgreSQL; Docker is unavailable on the implementing
+  host, so every test in them fails at connect with
+  `socket.gaierror: [Errno 11001] getaddrinfo failed` (verified directly against
+  `tests/wiring/test_wiring.py`, which fails inside `UserRepository.insert` before reaching
+  any code this dossier touches). The `unit` tier - which contains every test this dossier
+  writes or modifies - is green. This is the same environmental limitation recorded by
+  `2026-08-16-migration-0076-retry-safety` and `2026-08-13-creative-thinking-example-agents`;
+  CI is authoritative.
+- **D-3**: §8.3 specified the route-level 404 assertion "following the patch style at `:401`".
+  `test_admin_activities_routes.py` calls route functions directly rather than over HTTP, so a
+  direct-call test cannot observe a status code - the mapping is applied by the registered
+  exception handler, not by the route. The test therefore asserts **both** halves separately:
+  that the route propagates `ExampleCourseNotFound` without committing, and that
+  `resolve_spec(ExampleCourseNotFound(...), _MAP)` yields
+  `("activities/example-course-not-found", 404)`. Together these are what "the mapped status is
+  404" means for this surface; asserting either alone would leave the other unproven.
+- **D-4**: §8.2 said the rewritten traversal test must keep the filesystem guard "provable". The
+  pre-check makes the loader unreachable for a traversal key, so proving it via the loader's own
+  regex was no longer possible. The test instead patches `_load_cached` **and** `Path.is_file` /
+  `Path.read_text` to raise `AssertionError`, which is a stronger claim than the original: not
+  "the regex rejected it" but "nothing derived from the key touched the filesystem".
+- **D-5**: **No behavioural verification was performed**, and none was needed beyond what the
+  tests cover: neither half of this dossier changes a rendered surface. F-6 changes a status
+  code on an admin API route that the UI never reaches with a bad key (it offers only valid
+  ones), and F-7's 422 is the same status, slug and client handling every other validator-config
+  refusal already produced - which is precisely why §7.2 says no frontend change is required.
+  Recorded as a positive claim rather than a gap.
+- **D-6**: Implementation order deviated from test-first for F-6 only. The error class, mapping
+  and pre-check were written before the regression tests; failure-first was then established
+  retroactively by disabling the pre-check and re-running (both new tests failed, the artifact
+  guard passed both ways, as it should). F-7 followed test-first as specified - its two tests
+  were written and confirmed failing before `_validate_validator_config` changed. Recorded
+  because the discipline exists to prove the test measures the defect, and for F-6 that proof
+  is a separate step rather than the natural order of work.
 
 ## 13. Follow-ups
 
-- **FU-1**: `backend/contexts/activities/domain/errors.py`'s `__all__` (`:116-131`) omits
-  `ActivityTypeViolatesPolicy`, `ActivityPolicyVersionMismatch` and `ActivityPolicyInconsistent`
-  - FU-3 of the platform-example dossier, still open. AC-3 forces a decision rather than another
-  silent addition.
+- **FU-1**: ~~`backend/contexts/activities/domain/errors.py`'s `__all__` omits
+  `ActivityTypeViolatesPolicy`, `ActivityPolicyVersionMismatch` and
+  `ActivityPolicyInconsistent`.~~ **Closed by D-1** - all three are now exported. This also
+  closes FU-3 of `2026-08-09-platform-example-activity-types`.
 - **FU-2**: No diagnostic exists for a pre-existing activity type whose `min_filled` exceeds its
   property count (Q-6). Such a type is silently unpassable. The query an operator can run is a
   join of `activity_types` against the declared property count of its `payload_schema`; recorded
@@ -347,8 +414,12 @@ Appended by /build.
   it into a client-fault and a server-fault error would make the catalogue's own error surface
   as clear as the route's is about to become. The same is true of `PackFileInvalid`
   (`backend/contexts/agents/infrastructure/examples/catalogue.py:77`).
-- **FU-4**: `validate_filled_count_against_schema` returns early rather than raising when
-  `min_filled` is a bool or a non-int (`activity_validators.py:147-148`), deferring to
-  `validate_filled_count_config` so the client-facing message stays stable. Correct, but it
-  means the hook silently no-ops for a class of bad input, which is worth a comment at the call
-  site so a reader does not assume it is the only gate.
+- **FU-4**: ~~`validate_filled_count_against_schema` returns early rather than raising when
+  `min_filled` is a bool or a non-int, which is worth a comment at the call site so a reader
+  does not assume it is the only gate.~~ **Closed in this change** - the comment is at
+  `type_service.py:388-392`, beside the new hook call.
+- **FU-5**: `install_course` now calls `available_courses()` on every request, which does an
+  `iterdir()` of the shipped catalogue directory. `_load_cached` memoises parsed courses but
+  nothing memoises the listing. Admin-gated and rare, so not worth a cache today; recorded
+  because the module's own docstring explains why parsing is cached, and a reader may wonder
+  why the listing is not.
