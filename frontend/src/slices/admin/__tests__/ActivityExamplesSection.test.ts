@@ -353,6 +353,61 @@ describe('ActivityExamplesSection', () => {
     expect(banner().exists()).toBe(false)
   })
 
+  // Two courses, deliberately: exactly one ships today, and that is the only
+  // reason the single-valued `installingKey` never misbehaved here. A second
+  // shipped course would have made it the same defect as the activities dialog's
+  // (AC-4), so the fixture supplies one rather than waiting for the catalogue to.
+  const SECOND_COURSE = {
+    ...COURSE,
+    course_key: 'design-thinking',
+    title: 'Design thinking',
+    activity_types: [{ ...COURSE.activity_types[0], key: 'empathy-map' }],
+  }
+
+  it('disables every install button while any install is in flight (AC-4)', async () => {
+    const gate = deferred<void>()
+    const calls: string[] = []
+    server.use(
+      http.get('/api/admin/activity-examples', () => HttpResponse.json([COURSE, SECOND_COURSE])),
+      stubPlatformTypes([]),
+      http.post('/api/admin/activity-examples/:courseKey/install', async ({ params }) => {
+        calls.push(String(params.courseKey))
+        await gate.promise
+        return HttpResponse.json({
+          course_key: String(params.courseKey),
+          created: ['mandala-9grid'],
+          already_present: [],
+        })
+      }),
+    )
+
+    const wrapper = await renderView(ActivityExamplesSection)
+    await settled()
+
+    const first = () => wrapper.find('[data-testid="install-creative-thinking"]')
+    const second = () => wrapper.find('[data-testid="install-design-thinking"]')
+    expect(second().attributes('disabled')).toBeUndefined()
+
+    await first().trigger('click')
+    await settled()
+
+    // The other course's button is what `installingKey === course.course_key`
+    // left clickable, so a second install could start and its completion would
+    // clear the first one's pending state.
+    expect(second().attributes('disabled')).toBeDefined()
+    // With both buttons inert, the spinner is what says which install is running.
+    expect(first().classes('s-btn--loading')).toBe(true)
+    expect(second().classes('s-btn--loading')).toBe(false)
+    await second().trigger('click')
+    await settled()
+    expect(calls).toEqual(['creative-thinking'])
+
+    gate.resolve()
+    await settled()
+
+    expect(second().attributes('disabled')).toBeUndefined()
+  })
+
   it('shows an installed unit its stored values, not the shipped course file (AC-6)', async () => {
     server.use(
       http.get('/api/admin/activity-examples', () => HttpResponse.json([installed('at_1')])),
