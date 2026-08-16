@@ -28,10 +28,11 @@ from ._catalogue import CourseActivityType
 class SeedReport:
     created: list[str] = field(default_factory=list)
     already_present: list[str] = field(default_factory=list)
-    # Keys this run created that now coexist with an opted-in platform type of the
-    # same key. Creating the copy is what the operator asked for, but the plugin
-    # registry and any workflow reactive rule match on the key alone and cannot
-    # tell the two apart, so the operator has to be told.
+    # Course keys the project now holds twice: once as its own type and once as an
+    # opted-in platform example. Creating the copy is what the operator asked for,
+    # but the plugin registry and any workflow reactive rule match on the key alone
+    # and cannot tell the two apart, so the operator has to be told -- on every run
+    # while the state lasts, not only on the run that created it.
     shadowed_by_platform: list[str] = field(default_factory=list)
 
 
@@ -64,6 +65,12 @@ async def seed_course(
             t.key for t in await facade.list_types(project_id) if t.scope is ActivityTypeScope.PLATFORM
         }
         for course_type in activity_types:
+            # State, not this run's work: the collision outlives the run that
+            # created it, so a re-run must keep reporting it. Reporting only what
+            # this run created would go silent on the second invocation and read
+            # as though the operator's opt-out had happened.
+            if course_type.key in shadowing:
+                report.shadowed_by_platform.append(course_type.key)
             if course_type.key in owned:
                 report.already_present.append(course_type.key)
                 continue
@@ -81,8 +88,6 @@ async def seed_course(
                 actor_ip=None,
             )
             report.created.append(course_type.key)
-            if course_type.key in shadowing:
-                report.shadowed_by_platform.append(course_type.key)
         # The facade never commits; the caller owns the transaction boundary.
         await session.commit()
     return report

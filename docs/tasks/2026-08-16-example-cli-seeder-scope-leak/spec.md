@@ -313,9 +313,11 @@ invocation surface, which this change does not alter.
   variant).
 - [x] **AC-4**: Genuine idempotency is unchanged: with P owning all four keys, a re-run creates
   nothing and reports all four `already_present`.
-- [x] **AC-5**: Every key created that shares its key with an opted-in platform type appears in
-  `SeedReport.shadowed_by_platform` and is logged at `warning` level naming both the consequence
-  and the remedy; the list is empty and no warning is emitted when the project has no opt-ins.
+- [x] **AC-5**: Every course key the project holds **both** as its own type and as an opted-in
+  platform example appears in `SeedReport.shadowed_by_platform` and is logged at `warning` level
+  naming both the consequence and the remedy — on every run while that state lasts, not only on
+  the run that created it; the list is empty and no warning is emitted when the project has no
+  opt-ins. *Amended after code review; see D-4.*
 - [x] **AC-6**: `ActivityTypeRepository.list_owned_by_project` returns only rows with
   `project_id = <project>` and `deleted_at IS NULL`, with no opt-in arm, pinned by the
   compiled-SQL test in §8.4.
@@ -362,6 +364,16 @@ this one's.
   the same working tree — its failing-first `group_created` assertions. With that work parked,
   the module passed 22/22 deterministically. Nothing in this task's diff is implicated. See
   FU-4.
+
+- **D-4** — **`shadowed_by_platform` was run-based and is now state-based; AC-5 was amended to
+  match.** As first implemented the shadowing check sat inside the created branch, after the
+  `already_present` `continue`, so a re-run — the natural thing for an operator to do after the
+  first warning — reported an empty list and emitted no warning while both live rows still
+  answered to the same key. That satisfied AC-5 as originally worded ("every key *created*")
+  but defeated Q-2's stated purpose ("silence would let them walk into F-5 unknowingly"); the
+  AC was written too narrowly rather than the code diverging from it. The check now runs for
+  every course key the project holds twice, regardless of which run created it, and a new test
+  pins the re-run case. Found by `/code-review` after the dossier was closed.
 
 ## 13. Follow-ups
 
