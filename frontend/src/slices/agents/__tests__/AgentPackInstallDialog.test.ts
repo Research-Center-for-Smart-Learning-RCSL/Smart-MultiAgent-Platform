@@ -83,6 +83,21 @@ function pack(over: Record<string, unknown> = {}) {
   }
 }
 
+function installedAgent(over: Record<string, unknown> = {}) {
+  return { key: 'ta-guidance-teacher', name: 'TA', agent_id: 'a1', model_hint: 'claude', ...over }
+}
+
+function installReport(over: Record<string, unknown> = {}) {
+  return {
+    pack_key: 'creative-thinking-room',
+    created: [installedAgent()],
+    already_present: [],
+    group_id: 'g1',
+    group_created: true,
+    ...over,
+  }
+}
+
 function mountDialog() {
   return renderView(AgentPackInstallDialog, { props: { projectId: 'p1', open: true } })
 }
@@ -96,13 +111,7 @@ beforeEach(() => {
   toastError.mockReset()
   toastWarning.mockReset()
   listKeyGroupsMock.mockResolvedValue([{ id: 'kg1', name: 'Group one' }])
-  installMock.mockResolvedValue({
-    pack_key: 'creative-thinking-room',
-    created: [{ key: 'ta-guidance-teacher', name: 'TA', agent_id: 'a1', model_hint: 'claude' }],
-    already_present: [],
-    group_id: 'g1',
-    group_created: true,
-  })
+  installMock.mockResolvedValue(installReport())
 })
 
 /** Click install on the room pack and let the mutation settle. */
@@ -197,17 +206,16 @@ describe('AgentPackInstallDialog', () => {
 
   it('reports every distinct provider when agents resolved differently', async () => {
     listPacksMock.mockResolvedValue([pack()])
-    installMock.mockResolvedValue({
-      pack_key: 'creative-thinking-room',
-      created: [
-        { key: 'ta', name: 'TA', agent_id: 'a1', model_hint: 'claude' },
-        { key: 'sa', name: 'SA', agent_id: 'a2', model_hint: 'openai' },
-        { key: 'aa', name: 'AA', agent_id: 'a3', model_hint: 'claude' },
-      ],
-      already_present: [],
-      group_id: 'g1',
-      group_created: false,
-    })
+    installMock.mockResolvedValue(
+      installReport({
+        created: [
+          installedAgent({ key: 'ta', model_hint: 'claude' }),
+          installedAgent({ key: 'sa', name: 'SA', agent_id: 'a2', model_hint: 'openai' }),
+          installedAgent({ key: 'aa', name: 'AA', agent_id: 'a3', model_hint: 'claude' }),
+        ],
+        group_created: false,
+      }),
+    )
 
     const wrapper = await mountDialog()
     await flushPromises()
@@ -236,13 +244,7 @@ describe('AgentPackInstallDialog', () => {
 
   it('says nothing about a group when the install reused one', async () => {
     listPacksMock.mockResolvedValue([pack()])
-    installMock.mockResolvedValue({
-      pack_key: 'creative-thinking-room',
-      created: [{ key: 'ta-guidance-teacher', name: 'TA', agent_id: 'a1', model_hint: 'claude' }],
-      already_present: [],
-      group_id: 'g1',
-      group_created: false,
-    })
+    installMock.mockResolvedValue(installReport({ group_created: false }))
 
     const wrapper = await mountDialog()
     await flushPromises()
@@ -258,13 +260,9 @@ describe('AgentPackInstallDialog', () => {
     // present, so `created` is empty -- but a second group now exists, and the
     // old toast said nothing was installed.
     listPacksMock.mockResolvedValue([pack()])
-    installMock.mockResolvedValue({
-      pack_key: 'creative-thinking-room',
-      created: [],
-      already_present: ['TA'],
-      group_id: 'g2',
-      group_created: true,
-    })
+    installMock.mockResolvedValue(
+      installReport({ created: [], already_present: ['TA'], group_id: 'g2' }),
+    )
 
     const wrapper = await mountDialog()
     await flushPromises()
@@ -278,13 +276,9 @@ describe('AgentPackInstallDialog', () => {
 
   it('still says nothing was installed when neither an agent nor a group was created', async () => {
     listPacksMock.mockResolvedValue([pack()])
-    installMock.mockResolvedValue({
-      pack_key: 'creative-thinking-room',
-      created: [],
-      already_present: ['TA'],
-      group_id: 'g1',
-      group_created: false,
-    })
+    installMock.mockResolvedValue(
+      installReport({ created: [], already_present: ['TA'], group_created: false }),
+    )
 
     const wrapper = await mountDialog()
     await flushPromises()
