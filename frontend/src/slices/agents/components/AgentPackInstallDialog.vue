@@ -133,13 +133,17 @@ const installMutation = useMutation({
       toast.success(
         t('agents.examplePacks.installed', { count: report.created.length, providers }),
       )
-    } else if (!report.group_created) {
-      // Only when the run really created nothing. A run that created a group is
-      // not a no-op, and saying so was F-8's whole symptom.
+      if (report.group_created) {
+        toast.success(t('agents.examplePacks.groupCreated', { group: groupName }))
+      }
+    } else if (report.group_created) {
+      // F-8's own case, and the one that needs both halves said in a single
+      // breath: nothing was created *except* a group. Reporting only the group
+      // drops the reason there is nothing else to report; reporting only
+      // "already present" was the original defect.
+      toast.success(t('agents.examplePacks.nothingNewButGroupCreated', { group: groupName }))
+    } else {
       toast.info(t('agents.examplePacks.nothingToInstall'))
-    }
-    if (report.group_created) {
-      toast.success(t('agents.examplePacks.groupCreated', { group: groupName }))
     }
   },
   onError: () => {

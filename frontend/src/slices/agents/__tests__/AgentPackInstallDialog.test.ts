@@ -255,10 +255,11 @@ describe('AgentPackInstallDialog', () => {
     )
   })
 
-  it('never reports nothing installed for a run that created a group', async () => {
+  it('says both halves when a run created only a group', async () => {
     // F-8 at the surface the installer actually reads. Every agent was already
-    // present, so `created` is empty -- but a second group now exists, and the
-    // old toast said nothing was installed.
+    // present, so `created` is empty -- but a second group now exists. Reporting
+    // only "nothing was installed" was the defect; reporting only the group
+    // drops the reason there is nothing else to report.
     listPacksMock.mockResolvedValue([pack()])
     installMock.mockResolvedValue(
       installReport({ created: [], already_present: ['TA'], group_id: 'g2' }),
@@ -269,7 +270,11 @@ describe('AgentPackInstallDialog', () => {
     await installRoomPack(wrapper)
 
     expect(toastInfo).not.toHaveBeenCalled()
-    expect(toastSuccess).toHaveBeenCalledWith(
+    const message = toastSuccess.mock.calls.at(-1)?.[0] as string
+    expect(message).toContain('agents.examplePacks.nothingNewButGroupCreated')
+    expect(message).toContain('Course agents')
+    // Not the bare group message, which would say nothing about the agents.
+    expect(toastSuccess).not.toHaveBeenCalledWith(
       expect.stringContaining('agents.examplePacks.groupCreated'),
     )
   })

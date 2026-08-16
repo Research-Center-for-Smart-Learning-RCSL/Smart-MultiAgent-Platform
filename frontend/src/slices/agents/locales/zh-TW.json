@@ -38,6 +38,7 @@
       "nextSteps": "安裝之後：建立討論室、把會發言的 Agent 依角色綁進去，再從活動分頁啟動活動。",
       "installed": "已安裝 {count} 個 Agent，執行於 {providers}。",
       "groupCreated": "已建立 Agent 群組「{group}」。",
+      "nothingNewButGroupCreated": "沒有建立任何 Agent，這個組合的 Agent 專案裡都已經有了。它們已被加入新建的 Agent 群組「{group}」。",
       "nothingToInstall": "這個組合的 Agent 專案裡都已經有了。",
       "installFailed": "無法安裝這個組合。"
     },
