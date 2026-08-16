@@ -5,7 +5,7 @@
 // not import each other (eslint.config.js SLICE_DEPS), so the two are separate
 // components by design rather than by omission. They also answer different
 // questions -- "install this course platform-wide" vs "use this in my project".
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import {
@@ -27,9 +27,6 @@ const { t } = useI18n()
 const qc = useQueryClient()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
-
-/** Which row is mid-request, so only its own button shows a pending state. */
-const pendingId = ref<string | null>(null)
 
 const examplesQuery = useQuery({
   queryKey: activityKeys.examples(props.projectId),
@@ -75,9 +72,6 @@ const enableMutation = useMutation({
     invalidate()
     toast.error(t('activities.examples.enableFailed'))
   },
-  onSettled: () => {
-    pendingId.value = null
-  },
 })
 
 const disableMutation = useMutation({
@@ -90,13 +84,33 @@ const disableMutation = useMutation({
     invalidate()
     toast.error(t('activities.examples.disableFailed'))
   },
-  onSettled: () => {
-    pendingId.value = null
-  },
 })
 
+/** Whether *any* request from this dialog is outstanding, which is what every
+ *  action button is gated on. Not "is this row the pending one": both mutations
+ *  invalidate the same two query keys, so a second request started mid-flight
+ *  races the first on the same cache entry whichever rows they touch. Matches
+ *  the rule D-14 of `2026-08-13-creative-thinking-example-agents` set for
+ *  `AgentPackInstallDialog`.
+ *
+ *  Read off the mutations rather than a ref this component clears itself: a
+ *  hand-maintained token cannot say which request a completion belongs to, so
+ *  the first one to settle released the second one's lock. */
+const anyPending = computed(
+  () => enableMutation.isPending.value || disableMutation.isPending.value,
+)
+
+/** Which row is mid-request, so its own button also shows a spinner while the
+ *  rest are merely inert. `variables` is the mutation's own record of what it
+ *  was called with, so there is nothing to clear when it settles. */
+function isPendingRow(typeId: string): boolean {
+  return (
+    (enableMutation.isPending.value && enableMutation.variables.value === typeId) ||
+    (disableMutation.isPending.value && disableMutation.variables.value === typeId)
+  )
+}
+
 function enable(typeId: string): void {
-  pendingId.value = typeId
   enableMutation.mutate(typeId)
 }
 
@@ -109,7 +123,6 @@ async function disable(typeId: string, name: string): Promise<void> {
     variant: 'warning',
   })
   if (!ok) return
-  pendingId.value = typeId
   disableMutation.mutate(typeId)
 }
 </script>
@@ -203,11 +216,14 @@ async function disable(typeId: string, name: string): Promise<void> {
               </div>
             </div>
 
+            <!-- Disabled while *any* request from this dialog is in flight, not
+                 just this row's; the spinner is what says which row it is. -->
             <SButton
               v-if="example.enabled"
               variant="secondary"
               size="sm"
-              :disabled="pendingId === example.id"
+              :disabled="anyPending"
+              :loading="isPendingRow(example.id)"
               @click="disable(example.id, example.name)"
             >
               {{ t('activities.examples.disable') }}
@@ -216,7 +232,8 @@ async function disable(typeId: string, name: string): Promise<void> {
               v-else
               variant="primary"
               size="sm"
-              :disabled="pendingId === example.id"
+              :disabled="anyPending"
+              :loading="isPendingRow(example.id)"
               @click="enable(example.id)"
             >
               {{ t('activities.examples.enable') }}
