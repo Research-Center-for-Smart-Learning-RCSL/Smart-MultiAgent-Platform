@@ -24,10 +24,6 @@ Every one is `depends_on: []`; the five majors are listed first. Three file-over
 noted below — these are **not** sequenced, but whoever builds second must rebase rather than
 assume.
 
-- `2026-08-16-activity-submission-wakeup-gap` (bugfix, approved) — major. Submissions never re-arm
-  the silence clock, so agents read worksheet time as a lull. Fix touches the clock only; a full
-  wake-up evaluation would produce one agent turn per submission. **Carries an SRS Delta**
-  amending [R15.02].
 - `2026-08-16-admin-platform-type-edit-unreachable` (bugfix, approved) — major. The admin Edit action
   on an installed platform example does nothing once the row ages off a 200-row page. Adds
   `GET /api/admin/platform-activity-types`, so `gen:api` + `check:openapi-drift` apply.
@@ -86,6 +82,17 @@ assume.
   current` against prod.** The structural test did independently confirm the defect in both
   directions, so the defect is measured even though the fix is not.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-16 after implementation: `2026-08-16-activity-submission-wakeup-gap` (an
+activity submission now re-arms the per-agent silence clock through a new
+`triggers.evaluate_room_activity`, so an agent on `silence_minutes` no longer reads a class
+filling in a worksheet as a lull). Nothing lists it in `depends_on`, so no row moved out of
+Blocked. **Two things a later reader needs.** **D-1** — Q-3 justified importing the conversation
+*application* layer into the route on a false premise: `activities.py` imports only from
+`interfaces` and was clean under the route rule, so the fix goes through
+`ConversationFacade.note_room_activity` instead. Behaviour and call site are exactly as approved.
+And the deliberate non-goal worth not undoing: a submission re-arms the clock but is **not**
+counted by `every_n_messages`, because the shipped teacher agent runs at `n=1` and counting would
+mean one agent turn per student per submission. A negative test pins it.
 Removed on 2026-08-16 after implementation: `2026-08-16-agent-pack-install-report-fidelity`
 (the pack install report now carries `group_created`, and the dialog renders each agent's
 preferred provider and bound activity types, reports the provider actually used, and states
