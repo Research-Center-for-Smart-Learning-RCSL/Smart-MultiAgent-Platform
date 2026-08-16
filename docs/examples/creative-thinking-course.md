@@ -335,9 +335,10 @@ Stated plainly, because an example that oversells the platform is worse than no 
 - **Six of the eight units are not modelled.**
 - **Text entry replaces drawing** in both worksheets.
 - **A pack's `temperature` applies only where the resolved model accepts sampling
-  controls.** The packs ship a deliberate spread (AA 0.2, TA 0.7, SA 0.9), and the install
-  fallback described under [Installing](#installing) can put them on a provider that
-  discards it. OpenAI is that case today: its default chat model is a reasoning model, and
+  controls.** Both packs ship a deliberate spread, and every agent in them is affected:
+  AA 0.2, TA 0.7 and SA 0.9 in the room pack, DA 0.6 in the design pack. The install
+  fallback described under [Installing](#installing) can put any of them on a provider
+  that discards it. OpenAI is that case today: its default chat model is a reasoning model, and
   reasoning models accept only the default temperature, so the adapter drops `temperature`
   and `top_p` rather than send a value the provider would answer with a 400
   (`backend/contexts/keys/infrastructure/adapters/openai.py:155-160`). Overriding the model
