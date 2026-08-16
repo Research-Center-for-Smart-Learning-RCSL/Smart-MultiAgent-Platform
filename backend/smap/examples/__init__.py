@@ -11,7 +11,10 @@ actor; it authorizes nothing.
 
 Three parts, so that adding an example is a data file rather than a code change:
 
-- ``courses/*.json`` — course content, editable by the educator who authored it.
-- ``_catalogue.py`` — reads and validates one course file. A pure parser.
+- ``contexts/activities/infrastructure/examples/courses/*.json`` — course content,
+  editable by the educator who authored it. It lives in the activities context
+  rather than here because the HTTP layer installs from the same catalogue.
+- ``_catalogue.py`` — a thin re-export of that context's loader, kept so this
+  package's own imports and the CLI contract test do not move with it.
 - ``_seeding.py`` — the course-agnostic seeding engine (idempotency, transaction).
 """
