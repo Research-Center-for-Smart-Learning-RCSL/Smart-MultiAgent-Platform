@@ -28,6 +28,14 @@ one, so "the block committed" and "the block did not commit" are indistinguishab
 there. ``tests/unit/test_migration_autocommit_ordering.py`` pins the *structural*
 rule that prevents the class; these pin the *behaviour* for this instance.
 
+HOW TO RUN THEM
+---------------
+Point ``SMAP_SCRATCH_DATABASE_URL`` at a **dedicated throwaway database** -- the
+fixture drops and recreates its ``public`` schema. Without it they skip.
+
+    SMAP_SCRATCH_DATABASE_URL=postgresql+asyncpg://smap:smap@localhost:5432/smap_scratch \\
+        pytest tests/integration/test_migration_0076_atomicity.py -m db
+
 STATUS: WRITTEN, NEVER EXECUTED
 -------------------------------
 Docker was unavailable on the implementing host, so no ``db``-tier test could run
@@ -40,6 +48,8 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -65,38 +75,68 @@ _SCRATCH_URL = os.environ.get("SMAP_SCRATCH_DATABASE_URL")
 
 
 @pytest.fixture
-def scratch_conn() -> sa.engine.Connection:
-    """A connection to a throwaway database at revision 0075.
+def scratch_conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[sa.engine.Connection]:
+    """A connection to a throwaway database, migrated to revision 0075.
 
-    DISABLED -- DO NOT RE-ENABLE WITHOUT READING THIS.
+    HOW THE REDIRECT WORKS, AND WHY IT IS ASSERTED RATHER THAN ASSUMED
+    ------------------------------------------------------------------
+    The obvious idiom -- ``cfg.attributes["connection"]`` -- does **not** work in
+    this project: ``run_migrations_online`` (``alembic/env.py:129-146``) always
+    builds its own engine from ``_sync_dsn()``, which reads
+    ``get_settings().database.dsn`` (``env.py:100-105``) and ignores any injected
+    connection. A fixture written that way would silently run destructive DDL
+    against the shared ``db``-tier database.
 
-    ``_upgrade_to_0075`` below sets ``cfg.attributes["connection"]``, which is the
-    standard Alembic idiom for driving a migration against a caller-supplied
-    connection. **This project's ``env.py`` does not honour it.**
-    ``run_migrations_online`` (``alembic/env.py:129-146``) unconditionally builds
-    its own engine from ``_sync_dsn()``, which reads ``get_settings().database.dsn``
-    (``env.py:100-105``) -- so the injected connection is ignored and the migration
-    chain runs against the *configured* database.
-
-    That makes these tests worse than useless: setting SMAP_SCRATCH_DATABASE_URL
-    would not redirect them to the scratch database, it would run destructive DDL
-    against whatever the shared ``db``-tier settings point at. This is precisely
-    the hazard ``test_platform_activity_type_schema.py`` declines to take.
-
-    The skip is therefore unconditional and deliberate, pending a decision on
-    whether to (a) drop these in favour of the structural unit test, which already
-    catches the regression class deterministically, or (b) rework the fixture to
-    override the settings DSN. See the dossier's Deviation Log.
+    So the redirect goes through the only channel ``env.py`` actually reads: the
+    ``SMAP_DB_DSN`` environment variable behind ``get_settings()``, whose
+    ``lru_cache`` is cleared on both sides of the override. Because getting this
+    wrong is destructive rather than merely wrong, the fixture **verifies** that
+    ``env._sync_dsn()`` now resolves to the scratch database and aborts if it does
+    not -- a guard, not a comment.
     """
-    pytest.skip(
-        "disabled: env.py ignores cfg.attributes['connection'], so this fixture cannot "
-        "target a scratch database -- see the module and fixture docstrings"
-    )
+    if not _SCRATCH_URL:
+        pytest.skip(
+            "SMAP_SCRATCH_DATABASE_URL is not set. These tests migrate and drop schema, "
+            "so they require a dedicated throwaway database, never the db-tier one."
+        )
+
+    from app.config.settings import get_settings
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "alembic"))
+    import env as alembic_env  # type: ignore[import-not-found]
+
+    monkeypatch.setenv("SMAP_DB_DSN", _SCRATCH_URL)
+    get_settings.cache_clear()
+    try:
+        resolved = alembic_env._sync_dsn()
+        expected = _SCRATCH_URL.replace("+asyncpg", "+psycopg")
+        if resolved != expected:
+            pytest.fail(
+                "refusing to run: the DSN override did not take effect. Alembic would migrate "
+                f"{resolved!r}, not the scratch database {expected!r}. Running anyway would "
+                "rewrite the schema of whatever that first URL points at."
+            )
+
+        engine = sa.create_engine(resolved)
+        try:
+            # A dedicated scratch database, verified above -- so starting from a
+            # known-empty schema is safe and makes each test independent.
+            with engine.begin() as reset:
+                reset.execute(sa.text("DROP SCHEMA IF EXISTS public CASCADE"))
+                reset.execute(sa.text("CREATE SCHEMA public"))
+            _upgrade_to_0075()
+            with engine.connect() as conn:
+                yield conn
+        finally:
+            engine.dispose()
+    finally:
+        get_settings.cache_clear()
 
 
-def _upgrade_to_0075(conn: sa.engine.Connection) -> None:
+def _upgrade_to_0075() -> None:
+    """Run the chain against whatever ``env.py`` resolves -- the caller has already
+    verified that is the scratch database."""
     cfg = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
-    cfg.attributes["connection"] = conn
     command.upgrade(cfg, "0075_activity_policies")
 
 
@@ -129,9 +169,10 @@ class TestUpgradeAtomicity:
         committed ``scope``, the nullable ``project_id`` and both CHECKs by the time
         ``create_table`` ran.
         """
-        _upgrade_to_0075(scratch_conn)
+        # The fixture already migrated the scratch database to 0075.
         assert not _scope_column_exists(scratch_conn)
 
+        trans = scratch_conn.begin()
         ctx = MigrationContext.configure(scratch_conn)
         with Operations.context(ctx):
             monkeypatch.setattr(
@@ -139,10 +180,11 @@ class TestUpgradeAtomicity:
             )
             with pytest.raises(RuntimeError, match="blew up"):
                 migration_0076.upgrade()
+        trans.rollback()
 
-        # The transaction the fixture opened is still open and will roll back; the
-        # point is that nothing was committed out from under it.
-        scratch_conn.rollback()
+        # Before the fix the autocommit block had already committed `scope`, the
+        # nullable `project_id` and both CHECKs by this point, so the rollback
+        # could not take them back and these assertions failed.
         assert not _scope_column_exists(scratch_conn)
         assert not _table_exists(scratch_conn, "project_activity_type_optins")
 
@@ -152,17 +194,21 @@ class TestDowngradeAtomicity:
         self, scratch_conn: sa.engine.Connection, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The mirrored defect the audit missed and the structural test found."""
-        _upgrade_to_0075(scratch_conn)
+        # Apply 0076 for real first, so the downgrade has something to reverse.
         ctx = MigrationContext.configure(scratch_conn)
-        with Operations.context(ctx):
+        with Operations.context(ctx), scratch_conn.begin():
             migration_0076.upgrade()
-            assert _table_exists(scratch_conn, "project_activity_type_optins")
+        assert _table_exists(scratch_conn, "project_activity_type_optins")
 
+        trans = scratch_conn.begin()
+        with Operations.context(ctx):
             monkeypatch.setattr(migration_0076.op, "drop_constraint", _raise("drop_constraint blew up"))
             with pytest.raises(RuntimeError, match="blew up"):
                 migration_0076.downgrade()
+        trans.rollback()
 
-        scratch_conn.rollback()
+        # Before the fix the block had already committed both drops by this point,
+        # leaving the opt-in table gone at version 0076.
         assert _table_exists(scratch_conn, "project_activity_type_optins")
 
 
