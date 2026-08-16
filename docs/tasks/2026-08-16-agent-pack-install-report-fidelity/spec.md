@@ -289,8 +289,10 @@ neither the guard order nor the project scoping.
   asserting `create_group.assert_not_awaited()`.
 - [x] AC-3: The install toast never reads "nothing was installed" for a run that created a group;
   when a group is created it is named.
-  `never reports nothing installed for a run that created a group` + `names the group when the
-  install created one`.
+  `says both halves when a run created only a group` + `names the group when the install
+  created one`. See D-5: the first of those was strengthened after close-out, because
+  satisfying this criterion literally still left the owner less informed than before in
+  exactly F-8's scenario.
 - [x] AC-4: Before confirming, the dialog shows each agent's preferred provider, labelled as a
   preference rather than as the resolved value, and the activity types it is written for.
   `names each agent preferred provider and the activities it is written for`.
@@ -304,8 +306,8 @@ neither the guard order nor the project scoping.
   applying its drafts to an agent is a manual copy and paste; it is absent when no listed pack
   carries a `room_role: null` agent. Asserted as a pair, mirroring the observer notice.
 - [x] AC-8: Every new string exists in both `en.json` and `zh-TW.json` under
-  `agents.examplePacks`, and the two key sets remain identical. Verified 30/30 keys, no
-  asymmetry, plus gate #12 in `pnpm lint`.
+  `agents.examplePacks`, and the two key sets remain identical. Verified 31/31 keys after
+  D-5's addition, no asymmetry, plus gate #12 in `pnpm lint`.
 - [x] AC-9: Gates green. `ruff check .` (all passed), `ruff format --check .` (943 files),
   `mypy .` (938 source files, no issues), `pytest tests/unit -q` (**6838 passed, 6 skipped**,
   24m54s), `pnpm lint`, `pnpm typecheck`, `pnpm test` (**1111 passed, 181 files**),
@@ -360,6 +362,16 @@ it one (Q-1).
   appears in the string the toast receives. `useI18n` is therefore also faked, returning a `t`
   that appends serialised interpolation params. Verified safe for this tree - `SModal` and
   `SBadge` are the only components in it that call `useI18n`, and both destructure `t` alone.
+- **D-5: One toast case reworked after close-out, on a code-review finding.** As first
+  shipped, the `created == 0 && group_created` branch suppressed `nothingToInstall` and
+  emitted only `groupCreated` - which satisfies AC-3 as written, but is F-8's own scenario and
+  told the owner *less* than before the change about one thing: that every agent already
+  existed. The two facts were traded rather than both reported. A fifth key,
+  `nothingNewButGroupCreated`, now states both in one message, and the branch structure became
+  a three-way (agents created / only a group created / genuinely nothing) rather than an
+  `else if` plus a trailing `if`. Note this narrows D-2: the count is now five new keys after
+  all, though still two toasts at most. Q-2 is untouched - it ruled out group-picking
+  machinery, not saying what happened.
 - **D-4: The task base commit moved mid-build, and this task's work was stashed by another
   session.** Work started at `bf1edcb`. While it was in progress a concurrent session committed
   `2026-08-16-example-cli-seeder-scope-leak` (three commits, `49f6197`..`9bec23a`) and ran
