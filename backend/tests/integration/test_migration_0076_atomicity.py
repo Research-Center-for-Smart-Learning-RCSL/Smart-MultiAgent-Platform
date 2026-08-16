@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import importlib.util
 import os
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -66,19 +65,33 @@ _SCRATCH_URL = os.environ.get("SMAP_SCRATCH_DATABASE_URL")
 
 
 @pytest.fixture
-def scratch_conn() -> Iterator[sa.engine.Connection]:
+def scratch_conn() -> sa.engine.Connection:
     """A connection to a throwaway database at revision 0075.
 
-    Skips rather than fails when no scratch database is configured: these tests
-    are destructive and must never be pointed at the shared ``db``-tier database
-    by accident.
+    DISABLED -- DO NOT RE-ENABLE WITHOUT READING THIS.
+
+    ``_upgrade_to_0075`` below sets ``cfg.attributes["connection"]``, which is the
+    standard Alembic idiom for driving a migration against a caller-supplied
+    connection. **This project's ``env.py`` does not honour it.**
+    ``run_migrations_online`` (``alembic/env.py:129-146``) unconditionally builds
+    its own engine from ``_sync_dsn()``, which reads ``get_settings().database.dsn``
+    (``env.py:100-105``) -- so the injected connection is ignored and the migration
+    chain runs against the *configured* database.
+
+    That makes these tests worse than useless: setting SMAP_SCRATCH_DATABASE_URL
+    would not redirect them to the scratch database, it would run destructive DDL
+    against whatever the shared ``db``-tier settings point at. This is precisely
+    the hazard ``test_platform_activity_type_schema.py`` declines to take.
+
+    The skip is therefore unconditional and deliberate, pending a decision on
+    whether to (a) drop these in favour of the structural unit test, which already
+    catches the regression class deterministically, or (b) rework the fixture to
+    override the settings DSN. See the dossier's Deviation Log.
     """
-    if not _SCRATCH_URL:
-        pytest.skip("SMAP_SCRATCH_DATABASE_URL is not set; this test rewrites schema destructively")
-    engine = sa.create_engine(_SCRATCH_URL)
-    with engine.begin() as conn:
-        yield conn
-    engine.dispose()
+    pytest.skip(
+        "disabled: env.py ignores cfg.attributes['connection'], so this fixture cannot "
+        "target a scratch database -- see the module and fixture docstrings"
+    )
 
 
 def _upgrade_to_0075(conn: sa.engine.Connection) -> None:
