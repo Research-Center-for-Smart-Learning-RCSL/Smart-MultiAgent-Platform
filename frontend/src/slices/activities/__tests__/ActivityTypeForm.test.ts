@@ -22,11 +22,12 @@ vi.mock('../api', () => ({
 }))
 
 const toastErrorMock = vi.hoisted(() => vi.fn())
+const toastWarningMock = vi.hoisted(() => vi.fn())
 vi.mock('vue-sonner', () => ({
   toast: {
     success: vi.fn(),
     error: toastErrorMock,
-    warning: vi.fn(),
+    warning: toastWarningMock,
     info: vi.fn(),
   },
 }))
@@ -77,6 +78,7 @@ beforeEach(() => {
   listValidatorsMock.mockReset()
   listValidatorsMock.mockResolvedValue([{ id: 'exact_match', title: 'Exact match' }])
   toastErrorMock.mockReset()
+  toastWarningMock.mockReset()
   policyMock.mockReset()
   // Default: no platform policy saved, so nothing is locked or pre-filled — the
   // behavior every pre-existing test here was written against.
@@ -593,5 +595,97 @@ describe('ActivityTypeForm', () => {
     expect(registerMock).not.toHaveBeenCalled()
     await flushPromises()
     expect(wrapper.emitted('updated')).toBeTruthy()
+  })
+})
+
+describe('ActivityTypeForm — cross-scope key collision (AC-1)', () => {
+  // Registering a key that already names an opted-in platform type is permitted
+  // ([R30.02]) — it gives the owner an editable copy of a shipped example. What
+  // must not happen is that they only find out later, from a workflow rule
+  // firing twice.
+  const PLATFORM_ROW = {
+    id: 'at_platform',
+    project_id: null,
+    scope: 'platform',
+    key: 'mandala-9grid',
+    name: 'Mandala',
+    payload_schema: { type: 'object', properties: {} },
+    validator_kind: 'in_process',
+    validator_config: {},
+    retention_days: null,
+    expose_payload_to_agent: true,
+    echo_includes_content: false,
+    created_at: null,
+  }
+
+  async function mountWith(existingTypes: unknown[]) {
+    return renderView(ActivityTypeForm, {
+      props: { projectId: 'p1', open: true, existingTypes },
+    })
+  }
+
+  it('warns before submit when the typed key names an enabled platform example', async () => {
+    const wrapper = await mountWith([PLATFORM_ROW])
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="type-shadows-platform-key"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="type-key"]').setValue('mandala-9grid')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="type-shadows-platform-key"]').exists()).toBe(true)
+  })
+
+  it('does not warn for a key the project merely owns already', async () => {
+    // That case is a real 409 the server refuses, and it is the key field's own
+    // error — conflating the two would tell an owner a permitted act is blocked.
+    const wrapper = await mountWith([{ ...PLATFORM_ROW, scope: 'project', project_id: 'p1' }])
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-key"]').setValue('mandala-9grid')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="type-shadows-platform-key"]').exists()).toBe(false)
+  })
+
+  it('does not warn for an unrelated key', async () => {
+    const wrapper = await mountWith([PLATFORM_ROW])
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-key"]').setValue('something-else')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="type-shadows-platform-key"]').exists()).toBe(false)
+  })
+
+  it('never blocks the submit — the collision is permitted, not refused', async () => {
+    registerMock.mockResolvedValue({ id: 't1', key: 'mandala-9grid', shadowed_by_platform: true })
+    const wrapper = await mountWith([PLATFORM_ROW])
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-key"]').setValue('mandala-9grid')
+    await wrapper.find('[data-testid="type-name"]').setValue('Mandala')
+    await wrapper.find('[data-testid="schema-field-name"]').setValue('answer')
+    await wrapper.find('[data-testid="type-webhook-url"]').setValue('https://x.test/score')
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(registerMock).toHaveBeenCalled())
+    await flushPromises()
+    expect(wrapper.emitted('created')).toBeTruthy()
+    // The server's own answer is repeated, because the list above can be stale.
+    expect(toastWarningMock).toHaveBeenCalled()
+  })
+
+  it('stays quiet when the server reports no collision', async () => {
+    registerMock.mockResolvedValue({ id: 't1', key: 'quiz', shadowed_by_platform: false })
+    const wrapper = await mountWith([])
+    await flushPromises()
+
+    await fillValidWebhook(wrapper)
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(registerMock).toHaveBeenCalled())
+    await flushPromises()
+    expect(toastWarningMock).not.toHaveBeenCalled()
   })
 })

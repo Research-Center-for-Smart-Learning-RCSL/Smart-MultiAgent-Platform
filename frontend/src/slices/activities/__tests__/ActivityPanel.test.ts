@@ -235,3 +235,57 @@ describe('ActivityPanel — participant surface (Q-1, AC-2)', () => {
     expect(wrapper.find('[role="alert"]').exists()).toBe(true)
   })
 })
+
+describe('ActivityPanel — cross-scope key collision (AC-5)', () => {
+  // A project's usable set can hold its own type and an opted-in platform type
+  // under one key ([R30.02]). The two are then identical in this picker unless
+  // it says which is which — the worst case being identical names too, which is
+  // exactly what an owner copying a shipped example produces.
+  const collidingPair = [
+    {
+      id: 'at_project',
+      key: 'mandala-9grid',
+      name: 'Mandala',
+      scope: 'project',
+      payload_schema: { type: 'object', properties: {} },
+    },
+    {
+      id: 'at_platform',
+      key: 'mandala-9grid',
+      name: 'Mandala',
+      scope: 'platform',
+      payload_schema: { type: 'object', properties: {} },
+    },
+  ]
+
+  it('distinguishes the platform row from the project row of the same key and name', async () => {
+    getActiveActivationMock.mockResolvedValue(null)
+    listActivityTypesMock.mockResolvedValue(collidingPair)
+
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: true },
+    })
+    await flushPromises()
+
+    const labels = wrapper.findAll('option').map((o) => o.text())
+    expect(labels).toContain('Mandala')
+    expect(labels).toContain('activities.panel.platformTypeOption')
+    // The ids stay the values, so starting the intended one was always possible;
+    // what was missing was any way to tell them apart.
+    const values = wrapper.findAll('option').map((o) => o.attributes('value'))
+    expect(values).toContain('at_project')
+    expect(values).toContain('at_platform')
+  })
+
+  it('leaves an ordinary project-only list unmarked', async () => {
+    getActiveActivationMock.mockResolvedValue(null)
+    listActivityTypesMock.mockResolvedValue([collidingPair[0]])
+
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: true },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('activities.panel.platformTypeOption')
+  })
+})

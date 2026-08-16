@@ -41,7 +41,21 @@ const fetchedType = ref<ActivityTypePublic | null>(null)
 
 const activation = computed(() => store.getActivation(props.chatroomId) ?? null)
 const activeType = computed(() => activation.value?.activityType ?? fetchedType.value)
-const typeOptions = computed(() => types.value.map((activityType) => ({ value: activityType.id, label: activityType.name })))
+// A project's usable set can hold its own type and an opted-in platform type
+// under one key ([R30.02]), and `name` alone leaves those two indistinguishable
+// here. The value is already the id, so starting the right one is possible —
+// what was missing was any way to tell which is which. SSelect renders plain
+// string labels, so the marker is a suffix rather than the SBadge the types
+// table uses.
+const typeOptions = computed(() =>
+  types.value.map((activityType) => ({
+    value: activityType.id,
+    label:
+      activityType.scope === 'platform'
+        ? t('activities.panel.platformTypeOption', { name: activityType.name })
+        : activityType.name,
+  })),
+)
 
 async function hydrate(): Promise<void> {
   loading.value = true

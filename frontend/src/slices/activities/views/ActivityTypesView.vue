@@ -283,6 +283,7 @@ const ActivityTypeTable = typedTable<ActivityType>()
       :project-id="projectId"
       :open="showModal"
       :edit-type="editType"
+      :existing-types="types"
       @close="closeModal"
       @created="onCreated"
       @updated="onUpdated"

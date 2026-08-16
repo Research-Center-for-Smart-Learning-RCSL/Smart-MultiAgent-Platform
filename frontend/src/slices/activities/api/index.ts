@@ -15,8 +15,10 @@ import type {
   ActivitySubmissionOut,
   ActivitySubmissionsPageOut,
   ActivityTypeIn,
+  ActivityTypeOptInResultOut,
   ActivityTypeOut,
   ActivityTypePublicOut,
+  ActivityTypeRegisteredOut,
   ActivityTypeUpdateIn,
   ActivityValidatorOut,
   PlatformExampleOut,
@@ -49,10 +51,13 @@ export async function getActivityPolicy(): Promise<ActivityPolicyPublicOut> {
   return ActivitiesService.getActivityPolicyPublicApiActivityPolicyGet()
 }
 
+/** Register a project-scoped type. The response is the created row plus
+ *  `shadowed_by_platform` — the server's authoritative answer to whether this
+ *  key now names two live types in the project's usable set ([R30.02]). */
 export async function registerActivityType(
   projectId: string,
   body: ActivityTypeIn,
-): Promise<ActivityTypeOut> {
+): Promise<ActivityTypeRegisteredOut> {
   return ActivitiesService.registerActivityTypeApiProjectsProjectIdActivityTypesPost({
     projectId,
     requestBody: body,
@@ -86,8 +91,13 @@ export async function listPlatformExamples(projectId: string): Promise<PlatformE
   })
 }
 
-/** Enable a platform example for this project ([R30.33]). */
-export async function optIntoActivityType(projectId: string, activityTypeId: string): Promise<void> {
+/** Enable a platform example for this project ([R30.33]). The result reports
+ *  whether the project already owns a live type under the same key, which leaves
+ *  two types under one key in its usable set ([R30.02]). */
+export async function optIntoActivityType(
+  projectId: string,
+  activityTypeId: string,
+): Promise<ActivityTypeOptInResultOut> {
   return ActivitiesService.optProjectIntoActivityTypeApiProjectsProjectIdActivityTypeOptinsPost({
     projectId,
     requestBody: { activity_type_id: activityTypeId },

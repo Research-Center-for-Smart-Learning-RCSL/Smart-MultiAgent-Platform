@@ -15,6 +15,7 @@ const listMock = vi.hoisted(() => vi.fn())
 const optInMock = vi.hoisted(() => vi.fn())
 const optOutMock = vi.hoisted(() => vi.fn())
 const confirmMock = vi.hoisted(() => vi.fn())
+const toastWarningMock = vi.hoisted(() => vi.fn())
 
 vi.mock('../api', () => ({
   listPlatformExamples: listMock,
@@ -24,7 +25,12 @@ vi.mock('../api', () => ({
 vi.mock('@shared/composables', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   useConfirmDialog: () => ({ confirm: confirmMock }),
-  useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }),
+  useToast: () => ({
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warning: toastWarningMock,
+  }),
 }))
 
 function example(over: Record<string, unknown> = {}) {
@@ -50,6 +56,7 @@ beforeEach(() => {
   optOutMock.mockReset()
   confirmMock.mockReset()
   confirmMock.mockResolvedValue(true)
+  toastWarningMock.mockReset()
 })
 
 describe('ExampleImportDialog', () => {
@@ -76,7 +83,7 @@ describe('ExampleImportDialog', () => {
 
   it('enables an example and refreshes the list (AC-4)', async () => {
     listMock.mockResolvedValue([example()])
-    optInMock.mockResolvedValue(undefined)
+    optInMock.mockResolvedValue({ shadows_owned_key: false })
 
     const wrapper = await mountDialog()
     await flushPromises()
@@ -90,6 +97,28 @@ describe('ExampleImportDialog', () => {
     await flushPromises()
 
     expect(optInMock).toHaveBeenCalledWith('p1', 'pt1')
+    expect(toastWarningMock).not.toHaveBeenCalled()
+  })
+
+  it('warns when enabling shadows a key the project already owns (AC-2)', async () => {
+    // One click is all it takes to leave the project holding two live types
+    // under one key ([R30.02]) — permitted, but not something to discover later
+    // from a workflow rule firing twice.
+    listMock.mockResolvedValue([example()])
+    optInMock.mockResolvedValue({ shadows_owned_key: true })
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+
+    const enable = wrapper
+      .findAll('button')
+      .filter((b) => b.text().includes('activities.examples.enable'))
+    await enable[0].trigger('click')
+    await flushPromises()
+
+    // Enabled, not refused: the success path still ran.
+    expect(optInMock).toHaveBeenCalledWith('p1', 'pt1')
+    expect(toastWarningMock).toHaveBeenCalledWith('activities.examples.shadowsOwnedKey')
   })
 
   it('confirms before disabling, because it ends running activations', async () => {
