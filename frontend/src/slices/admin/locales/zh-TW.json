@@ -275,6 +275,8 @@
         "save": "儲存",
         "saved": "已更新範例。",
         "saveFailed": "無法儲存範例，請再試一次。",
+        "storedRowUnavailable": "有已安裝的範例讀不到目前儲存的設定，因此暫時無法編輯。請重新整理頁面再試一次。",
+        "editUnavailable": "讀不到這個範例目前儲存的設定，沒有內容可以儲存。請關閉此視窗後再試一次。",
         "policyRefused": "平台活動政策不允許這樣的設定。",
         "policyRefusedField": "平台活動政策不允許「{field}」設為這個值。請調整此欄位，或放寬上方的政策。"
       },

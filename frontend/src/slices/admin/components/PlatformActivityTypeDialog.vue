@@ -72,7 +72,7 @@
           variant="primary"
           type="submit"
           :loading="saveMutation.isPending.value"
-          :disabled="retentionInvalid || form.name.trim() === ''"
+          :disabled="retentionInvalid || form.name.trim() === '' || row === null"
           data-testid="platform-type-save"
         >
           {{ $t('admin.activities.examples.save') }}
@@ -139,13 +139,16 @@ const retentionInvalid = computed(() => {
   return !Number.isInteger(n) || n < 1
 })
 
-// Keyed on the row's *id*, not the row object. `refetchOnWindowFocus` is left at
-// its default, so alt-tabbing away and back re-runs the types query and hands
-// this a new object with identical contents — watching identity would reseed the
-// form there and silently discard whatever the admin had typed. The id changes
-// only when a different type is opened, which is exactly when reseeding is right.
+// Keyed on the row's *id*, and as a **scalar**. An array literal as the source
+// defeats the keying entirely: the getter allocates a fresh array on every
+// evaluation, so the `Object.is` change test always reports "changed" and the
+// callback fires whenever the effect is triggered at all. That reseeds the form
+// and discards whatever the admin had typed whenever the row's contents change
+// underneath an open dialog — someone else's edit, or a refetch after this
+// admin's own save. A scalar makes the comparison mean what it says: the id
+// changes only when a different type is opened, which is when reseeding is right.
 watch(
-  () => [props.open, props.row?.id ?? null] as const,
+  () => (props.open ? (props.row?.id ?? '') : null),
   () => {
     if (!props.open) return
     refusal.value = null
@@ -183,6 +186,9 @@ const saveMutation = useMutation({
   mutationFn: (body: AdminPlatformActivityTypeInput) =>
     adminApi.updatePlatformActivityType(props.row?.id ?? '', body),
   onSuccess: () => {
+    void qc.invalidateQueries({ queryKey: adminKeys.platformActivityTypes() })
+    // The governance table lists platform rows alongside every project's, so it
+    // is stale too.
     void qc.invalidateQueries({ queryKey: adminKeys.activityTypes() })
     toast.success(t('admin.activities.examples.saved'))
     emit('saved')
@@ -198,7 +204,16 @@ const saveMutation = useMutation({
 })
 
 function onSubmit(): void {
-  if (retentionInvalid.value || props.row === null) return
+  if (retentionInvalid.value) return
+  // Kept rather than removed: `mutationFn` falls back to `?? ''`, so dropping
+  // the guard would PATCH an empty id. But an enabled-looking control that
+  // performs no action and reports nothing has no excuse, so it says so —
+  // Save is disabled in this state as well, making the toast the backstop for
+  // a submit that arrives some other way (Enter in a text field).
+  if (props.row === null) {
+    toast.warning(t('admin.activities.examples.editUnavailable'))
+    return
+  }
   refusal.value = null
   const raw = retention.value.trim()
   saveMutation.mutate({

@@ -21,6 +21,11 @@ export const adminKeys = {
     ['admin', 'ip-bans'] as const,
   activityTypes: () =>
     ['admin', 'activity-types'] as const,
+  // Deliberately its own entry rather than a variant of activityTypes(): the
+  // governance table shares that one, and a platform-only list cached under it
+  // would make the table claim the platform rows are all that exist.
+  platformActivityTypes: () =>
+    ['admin', 'platform-activity-types'] as const,
   activityActivations: () =>
     ['admin', 'activity-activations'] as const,
   activityPolicy: () =>

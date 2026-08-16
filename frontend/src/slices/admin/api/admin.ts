@@ -140,6 +140,12 @@ export const adminApi = {
   }): Promise<AdminActivityTypeRow[]> =>
     AdminService.listAllActivityTypesApiAdminActivityTypesGet(params ?? {}),
 
+  /** Every live platform-scoped type, unpaginated. Its sibling above is a page
+   *  of an unbounded cross-project listing, so it cannot be relied on to contain
+   *  a given platform row; this one always does. */
+  listPlatformActivityTypes: (): Promise<AdminActivityTypeRow[]> =>
+    AdminService.listPlatformActivityTypesApiAdminPlatformActivityTypesGet(),
+
   listAllActiveActivations: (params?: {
     cursor?: string
     limit?: number
