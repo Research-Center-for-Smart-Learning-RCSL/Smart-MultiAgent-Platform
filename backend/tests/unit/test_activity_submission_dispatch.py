@@ -92,6 +92,37 @@ class TestSubmissionReArmsTheSilenceClock:
             "a submission must not enqueue an agent turn"
         )
 
+    async def test_the_re_arm_is_issued_after_both_enqueues(
+        self, monkeypatch: pytest.MonkeyPatch, submission: SimpleNamespace
+    ) -> None:
+        """The re-arm is the only step here that costs a DB read, and it is
+        best-effort, so nothing the participant or the workers wait on may queue
+        behind it. Ordering is otherwise invisible -- every assertion in this file
+        passes with the block in either position -- so it is pinned explicitly.
+
+        Matters under load: a class submitting together would push every
+        validation job back by one SELECT each.
+        """
+        _silence_the_other_concerns(monkeypatch)
+        submission.validation_status = SimpleNamespace(value="pending")
+        seen: list[str] = []
+
+        async def _enqueue(name: str, *_args: object) -> None:
+            seen.append(name)
+
+        facade = AsyncMock()
+
+        async def _note(**_kwargs: object) -> None:
+            seen.append("note_room_activity")
+
+        facade.note_room_activity.side_effect = _note
+        monkeypatch.setattr(activities_api, "enqueue", _enqueue)
+        monkeypatch.setattr(activities_api, "ConversationFacade", lambda _db: facade)
+
+        await activities_api._dispatch_submission(uuid.uuid4(), submission, {}, db=object())
+
+        assert seen == ["validate_activity_submission", "workflow_signal", "note_room_activity"]
+
     async def test_a_failing_re_arm_never_fails_the_submission(
         self, monkeypatch: pytest.MonkeyPatch, submission: SimpleNamespace
     ) -> None:
