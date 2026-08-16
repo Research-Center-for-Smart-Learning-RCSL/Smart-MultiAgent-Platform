@@ -47,10 +47,10 @@ def seed_course_cmd(
     list them. --course names any file in
     contexts/activities/infrastructure/examples/courses/.
 
-    Idempotent -- a type whose key this project already **owns** is left
-    untouched, so re-running after a partial failure is safe. A platform-scoped
-    type the project merely opted into does not count: it is read-only to a
-    Project Owner, so it is not the editable copy this command produces.
+    Idempotent -- a type whose key this project already owns is left untouched,
+    so re-running after a partial failure is safe. A platform-scoped type the
+    project merely opted into does not count: it is read-only to a Project
+    Owner, so it is not the editable copy this command produces.
 
     Like every smap CLI this trusts its operator: it calls the facade directly and
     so bypasses the HTTP route's Project Owner check. --owner-user-id is recorded
