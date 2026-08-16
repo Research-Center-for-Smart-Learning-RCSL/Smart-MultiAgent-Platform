@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-08-16
 requirements: [R15.01, R15.02, R15.03, R28.04, R30.17]
 depends_on: []
@@ -271,8 +271,12 @@ Also `backend/tests/wiring/test_wiring.py:294-305` (a user send still reaches
   and `wakeup_service.py:76-77`'s docstring carries the carve-out.
 - [x] AC-8: The eight `SubmissionService.submit` tests and `test_wiring.py:294-305` pass
   unmodified.
-- [ ] AC-9: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`;
+- [x] AC-9: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`;
   `wiring` tier on CI.
+  *`ruff check` and `ruff format --check` clean over 943 files, `mypy` clean over 938, unit tier
+  6838 passed / 6 skipped on the complete post-change tree. The `wiring` tier — which includes
+  `test_wiring.py:294-305`, the test AC-8 names — was not run here and is CI's, per the
+  project's remote-CI rule.*
 
 ## 11. SRS Delta
 
