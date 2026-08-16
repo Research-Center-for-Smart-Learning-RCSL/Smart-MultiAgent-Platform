@@ -36,12 +36,13 @@ fixture drops and recreates its ``public`` schema. Without it they skip.
     SMAP_SCRATCH_DATABASE_URL=postgresql+asyncpg://smap:smap@localhost:5432/smap_scratch \\
         pytest tests/integration/test_migration_0076_atomicity.py -m db
 
-STATUS: WRITTEN, NEVER EXECUTED
--------------------------------
-Docker was unavailable on the implementing host, so no ``db``-tier test could run
-and these have only ever been collected. They are the empirical half of AC-1 and
-AC-2 and both remain unverified until CI or a developer with a running PostgreSQL
-executes them. Do not read a green unit run as covering them.
+WHY THE SKIP IS THE DANGEROUS PART
+----------------------------------
+These gate themselves on an environment variable, and for their first life nothing
+set it: CI's ``backend-db`` job reported ``68 passed, 5 skipped`` over a run in
+which neither of these executed, which reads as coverage. ``ci.yml`` now creates a
+``smap_scratch`` database on the postgres service that job already starts. If that
+step is ever removed, these go quiet again rather than failing.
 """
 
 from __future__ import annotations
@@ -169,6 +170,20 @@ def _table_exists(conn: sa.engine.Connection, name: str) -> bool:
     )
 
 
+def _begin_after_reads(conn: sa.engine.Connection) -> sa.engine.Transaction:
+    """Start the explicit transaction the migration runs in.
+
+    SQLAlchemy 2.0 *autobegins* on the first ``execute``, so the schema
+    assertions above each call site already own a transaction and a bare
+    ``conn.begin()`` raises ``InvalidRequestError``. Every read on this
+    connection is an assertion, so discarding that implicit transaction is
+    safe -- and it must be discarded rather than committed, since the whole
+    subject of these tests is what survives a rollback.
+    """
+    conn.rollback()
+    return conn.begin()
+
+
 class TestUpgradeAtomicity:
     def test_a_failure_after_the_index_leaves_no_scope_column(
         self, scratch_conn: sa.engine.Connection, monkeypatch: pytest.MonkeyPatch
@@ -182,7 +197,7 @@ class TestUpgradeAtomicity:
         # The fixture already migrated the scratch database to 0075.
         assert not _scope_column_exists(scratch_conn)
 
-        trans = scratch_conn.begin()
+        trans = _begin_after_reads(scratch_conn)
         ctx = MigrationContext.configure(scratch_conn)
         with Operations.context(ctx):
             monkeypatch.setattr(
@@ -206,11 +221,11 @@ class TestDowngradeAtomicity:
         """The mirrored defect the audit missed and the structural test found."""
         # Apply 0076 for real first, so the downgrade has something to reverse.
         ctx = MigrationContext.configure(scratch_conn)
-        with Operations.context(ctx), scratch_conn.begin():
+        with Operations.context(ctx), _begin_after_reads(scratch_conn):
             migration_0076.upgrade()
         assert _table_exists(scratch_conn, "project_activity_type_optins")
 
-        trans = scratch_conn.begin()
+        trans = _begin_after_reads(scratch_conn)
         with Operations.context(ctx):
             monkeypatch.setattr(migration_0076.op, "drop_constraint", _raise("drop_constraint blew up"))
             with pytest.raises(RuntimeError, match="blew up"):
