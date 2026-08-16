@@ -668,6 +668,33 @@ async def test_openai_reasoning_model_uses_max_completion_tokens_and_drops_tempe
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_openai_default_chat_model_is_a_reasoning_model_and_drops_temperature() -> None:
+    """The composition ``docs/examples/creative-thinking-course.md`` now cites.
+
+    An agent with no ``model_id`` resolves to ``DEFAULT_CHAT_MODELS["openai"]``,
+    so an agent pack installed against an OpenAI-only key group runs on whatever
+    that is — and that model matching ``_REASONING_MODEL_RE`` is what silently
+    voids the pack's shipped ``temperature``. Both halves are pinned here, and
+    deliberately across the context boundary: neither side alone can state the
+    consequence, and the document promises it.
+    """
+    from contexts.agents.domain.models import DEFAULT_CHAT_MODELS
+    from contexts.keys.infrastructure.adapters.openai import _is_reasoning_model
+
+    default = DEFAULT_CHAT_MODELS["openai"]
+    assert _is_reasoning_model(default) is True
+
+    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
+        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
+    )
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat(default, temperature=0.2, top_p=0.9))
+    sent = json.loads(route.calls.last.request.content)
+    assert "temperature" not in sent
+    assert "top_p" not in sent
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_openai_non_reasoning_model_drops_effort_keeps_classic_params() -> None:
     # Setting effort on a gpt-4o agent must not 400: `reasoning_effort` is
     # dropped while the legacy max_tokens/temperature fields are preserved.
