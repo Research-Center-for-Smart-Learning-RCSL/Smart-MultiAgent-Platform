@@ -529,6 +529,32 @@ export class AdminService {
         });
     }
     /**
+     * List Platform Activity Types
+     * Every live platform-scoped activity type, newest first ([R30.32]).
+     *
+     * Deliberately unbounded, unlike its cross-project sibling above. That one grows
+     * with every tenant's authoring and so must be keyset-paginated; this population
+     * is bounded by deliberate admin installs, which is the rationale
+     * ``ActivityTypeRepository.list_platform`` already documents.
+     *
+     * It exists because the shipped-examples section needs the **stored** row for a
+     * type it offers to edit, and the paged cross-project listing cannot be relied on
+     * to contain it: platform examples are installed at setup, so they are the oldest
+     * rows and the first to age off a newest-first page. Resolving from there left an
+     * Edit action that opened a blank form and silently saved nothing.
+     *
+     * ``project_name`` is always None here: a platform type has no owning project by
+     * construction, so there is nothing to look up.
+     * @returns AdminActivityTypeOut Successful Response
+     * @throws ApiError
+     */
+    public static listPlatformActivityTypesApiAdminPlatformActivityTypesGet(): CancelablePromise<Array<AdminActivityTypeOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/platform-activity-types',
+        });
+    }
+    /**
      * List Projects
      * @returns ProjectSummaryOut Successful Response
      * @throws ApiError

@@ -289,6 +289,31 @@ async def list_all_activity_types(
     return [_type_out(at, project_name=_project_name(at.project_id)) for at in types]
 
 
+@router.get("/platform-activity-types")
+async def list_platform_activity_types(
+    _: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(db_session),
+) -> list[AdminActivityTypeOut]:
+    """Every live platform-scoped activity type, newest first ([R30.32]).
+
+    Deliberately unbounded, unlike its cross-project sibling above. That one grows
+    with every tenant's authoring and so must be keyset-paginated; this population
+    is bounded by deliberate admin installs, which is the rationale
+    ``ActivityTypeRepository.list_platform`` already documents.
+
+    It exists because the shipped-examples section needs the **stored** row for a
+    type it offers to edit, and the paged cross-project listing cannot be relied on
+    to contain it: platform examples are installed at setup, so they are the oldest
+    rows and the first to age off a newest-first page. Resolving from there left an
+    Edit action that opened a blank form and silently saved nothing.
+
+    ``project_name`` is always None here: a platform type has no owning project by
+    construction, so there is nothing to look up.
+    """
+    types = await ActivitiesFacade(db).list_platform_types()
+    return [_type_out(at, project_name=None) for at in types]
+
+
 class AdminCatalogueTypeOut(BaseModel):
     key: str
     name: str

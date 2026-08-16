@@ -11677,6 +11677,33 @@
         ]
       }
     },
+    "/api/admin/platform-activity-types": {
+      "get": {
+        "description": "Every live platform-scoped activity type, newest first ([R30.32]).\n\nDeliberately unbounded, unlike its cross-project sibling above. That one grows\nwith every tenant's authoring and so must be keyset-paginated; this population\nis bounded by deliberate admin installs, which is the rationale\n``ActivityTypeRepository.list_platform`` already documents.\n\nIt exists because the shipped-examples section needs the **stored** row for a\ntype it offers to edit, and the paged cross-project listing cannot be relied on\nto contain it: platform examples are installed at setup, so they are the oldest\nrows and the first to age off a newest-first page. Resolving from there left an\nEdit action that opened a blank form and silently saved nothing.\n\n``project_name`` is always None here: a platform type has no owning project by\nconstruction, so there is nothing to look up.",
+        "operationId": "list_platform_activity_types_api_admin_platform_activity_types_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AdminActivityTypeOut"
+                  },
+                  "title": "Response List Platform Activity Types Api Admin Platform Activity Types Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Platform Activity Types",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      }
+    },
     "/api/admin/projects": {
       "get": {
         "operationId": "list_projects_api_admin_projects_get",

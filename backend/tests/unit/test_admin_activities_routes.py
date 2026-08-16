@@ -130,8 +130,9 @@ class TestAdminGate:
         [
             admin_activities.list_all_activity_types,
             admin_activities.list_all_active_activations,
+            admin_activities.list_platform_activity_types,
         ],
-        ids=["types", "activations"],
+        ids=["types", "activations", "platform-types"],
     )
     def test_route_depends_on_the_shared_require_admin(self, route: object) -> None:
         # Not a local re-implementation (admin_ip_bans has one) and not omitted.
