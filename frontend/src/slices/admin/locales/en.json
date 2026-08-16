@@ -275,6 +275,8 @@
         "save": "Save",
         "saved": "Example updated.",
         "saveFailed": "Could not save the example. Please try again.",
+        "storedRowUnavailable": "The saved settings for one or more installed examples could not be loaded, so those cannot be edited right now. Reload the page to try again.",
+        "editUnavailable": "The saved settings for this example are not loaded, so there is nothing to save. Close this dialog and try again.",
         "policyRefused": "The platform activity policy does not allow these settings.",
         "policyRefusedField": "The platform activity policy does not allow this value for \"{field}\". Change it, or relax the policy above."
       },

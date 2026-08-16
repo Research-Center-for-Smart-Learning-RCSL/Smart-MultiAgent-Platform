@@ -39,9 +39,12 @@ function stub(types: unknown[] = [], activations: unknown[] = [], examples: unkn
   server.use(
     http.get('/api/admin/activity-types', () => HttpResponse.json(types)),
     http.get('/api/admin/activity-activations', () => HttpResponse.json(activations)),
-    // The view now also hosts the shipped-example install section; without this
-    // every test here would emit an unhandled-request warning for it.
+    // The view now also hosts the shipped-example install section; without these
+    // every test here would emit an unhandled-request warning for them. The
+    // section resolves its editable rows from the platform-only listing, not
+    // from the paged cross-project one this view's table reads.
     http.get('/api/admin/activity-examples', () => HttpResponse.json(examples)),
+    http.get('/api/admin/platform-activity-types', () => HttpResponse.json([])),
   )
 }
 

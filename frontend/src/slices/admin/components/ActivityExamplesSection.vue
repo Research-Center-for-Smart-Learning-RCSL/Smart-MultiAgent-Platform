@@ -75,10 +75,10 @@
             class="flex items-center justify-between gap-3 text-sm"
           >
             <div class="flex flex-wrap items-center gap-2">
-              <span>{{ unit.name }}</span>
+              <span>{{ displayed(unit).name }}</span>
               <span class="font-mono text-xs text-[var(--color-muted)]">{{ unit.key }}</span>
               <SBadge
-                v-if="unit.expose_payload_to_agent"
+                v-if="displayed(unit).expose_payload_to_agent"
                 size="sm"
                 variant="warning"
               >
@@ -97,6 +97,7 @@
               v-if="unit.installed_type_id !== null"
               variant="ghost"
               size="sm"
+              :disabled="storedRowFor(unit) === null"
               :data-testid="`edit-${unit.key}`"
               @click="openEdit(unit.installed_type_id)"
             >
@@ -106,6 +107,15 @@
         </ul>
       </li>
     </ul>
+
+    <p
+      v-if="unresolvedInstalled > 0"
+      class="mt-2 text-xs text-[var(--color-warning)]"
+      role="status"
+      data-testid="examples-stored-row-unavailable"
+    >
+      {{ $t('admin.activities.examples.storedRowUnavailable') }}
+    </p>
 
     <PlatformActivityTypeDialog
       :open="editTypeId !== null"
@@ -133,6 +143,7 @@ import { useToast } from '@shared/composables'
 
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
+import type { AdminActivityTypeRow, AdminCatalogueTypeRow } from '../types'
 import PlatformActivityTypeDialog from './PlatformActivityTypeDialog.vue'
 
 const { t } = useI18n()
@@ -142,10 +153,6 @@ const qc = useQueryClient()
 const installingKey = ref<string | null>(null)
 const editTypeId = ref<string | null>(null)
 
-// Matches AdminActivitiesView's PAGE_LIMIT so both share one cache entry rather
-// than fetching the same list twice under different keys.
-const TYPES_PAGE_LIMIT = 200
-
 const query = useQuery({
   queryKey: adminKeys.activityExamples(),
   queryFn: () => adminApi.listActivityExamples(),
@@ -154,21 +161,61 @@ const query = useQuery({
 const examples = computed(() => query.data.value ?? [])
 
 // The catalogue reports each unit's *shipped* values, which stop being the truth
-// once an admin edits an installed one ([R30.23] Q-4) — so the edit form seeds
-// from the stored row instead. Same query key as the view's types table, so this
-// shares its cache rather than issuing a second request.
-const typesQuery = useQuery({
-  queryKey: adminKeys.activityTypes(),
-  queryFn: () => adminApi.listAllActivityTypes({ limit: TYPES_PAGE_LIMIT }),
+// once an admin edits an installed one ([R30.23] Q-4) — so both the card and the
+// edit form read the stored row instead.
+//
+// Deliberately the unbounded platform-only listing rather than a page of the
+// cross-project one the governance table uses: platform types are installed at
+// setup, so they are the oldest rows and the first to age off a newest-first
+// page, and resolving from there left an Edit action that opened a blank form
+// and silently saved nothing. Its own query key, so the table's cache entry
+// still holds the cross-project list it is built to show.
+const platformTypesQuery = useQuery({
+  queryKey: adminKeys.platformActivityTypes(),
+  queryFn: () => adminApi.listPlatformActivityTypes(),
 })
 
-const editRow = computed(
-  () => (typesQuery.data.value ?? []).find((r) => r.id === editTypeId.value) ?? null,
+const platformTypeById = computed(() => {
+  const byId = new Map<string, AdminActivityTypeRow>()
+  for (const row of platformTypesQuery.data.value ?? []) byId.set(row.id, row)
+  return byId
+})
+
+/** The stored row behind an installed unit, or null while it is in flight or
+ *  absent. Absent is not expected — the listing is unbounded — but "offered and
+ *  unusable" is the defect this component had, so it is handled rather than
+ *  assumed away. */
+function storedRowFor(unit: AdminCatalogueTypeRow): AdminActivityTypeRow | null {
+  if (unit.installed_type_id === null) return null
+  return platformTypeById.value.get(unit.installed_type_id) ?? null
+}
+
+function displayed(unit: AdminCatalogueTypeRow): {
+  name: string
+  expose_payload_to_agent: boolean
+} {
+  return storedRowFor(unit) ?? unit
+}
+
+// Say so rather than leaving a disabled button with no explanation. Held back
+// while the query is in flight: an unresolved row is the normal in-flight state
+// and only means something once the answer is in.
+const unresolvedInstalled = computed(() => {
+  if (platformTypesQuery.isPending.value) return 0
+  return examples.value
+    .flatMap((course) => course.activity_types)
+    .filter((unit) => unit.installed_type_id !== null && storedRowFor(unit) === null).length
+})
+
+const editRow = computed(() =>
+  editTypeId.value === null ? null : (platformTypeById.value.get(editTypeId.value) ?? null),
 )
 
 function refreshExamplesAndTypes(): void {
   void qc.invalidateQueries({ queryKey: adminKeys.activityExamples() })
-  // Installing adds rows to the types table above, so it has to refetch too.
+  void qc.invalidateQueries({ queryKey: adminKeys.platformActivityTypes() })
+  // Installing adds rows to the governance table in the view above, which reads
+  // the cross-project listing under its own key.
   void qc.invalidateQueries({ queryKey: adminKeys.activityTypes() })
 }
 
