@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-08-16
 requirements: [R30.33]
 depends_on: []
@@ -205,18 +205,22 @@ defect and its change should be called out in the deviation log rather than made
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The test from §8.1 fails before the fix and passes after.
-- [ ] AC-2: While any opt-in or opt-out request from `ExampleImportDialog` is in flight, every
+- [x] AC-1: The test from §8.1 fails before the fix and passes after.
+  `disables every action button while any request is in flight (AC-2)` failed with
+  `expected undefined to be defined` on rows 2-4, and passes after.
+- [x] AC-2: While any opt-in or opt-out request from `ExampleImportDialog` is in flight, every
   Enable and Disable button in the dialog is disabled.
-- [ ] AC-3: A request settling re-enables the buttons only when no other request from the same
-  dialog is still outstanding (§8.2).
-- [ ] AC-4: The same guarantee holds for `ActivityExamplesSection`'s install action, verified
+- [x] AC-3: A request settling re-enables the buttons only when no other request from the same
+  dialog is still outstanding (§8.2). See D-3 for how this is asserted.
+- [x] AC-4: The same guarantee holds for `ActivityExamplesSection`'s install action, verified
   against a fixture listing at least two courses (§8.3).
-- [ ] AC-5: The comment at `ExampleImportDialog.vue:31` states the invariant the code holds.
-- [ ] AC-6: `opt_out` still raises `ActivityTypeNotOptedIn` for a genuine duplicate, and its
-  backend tests pass unmodified.
-- [ ] AC-7: Gates green: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`,
-  `pnpm run check:bundle-size`, `pnpm run check:type-coverage`,
+- [x] AC-5: The comment at `ExampleImportDialog.vue:31` states the invariant the code holds.
+  See D-1: the ref that comment described is gone, so the invariant is stated on `anyPending`
+  and `isPendingRow`.
+- [x] AC-6: `opt_out` still raises `ActivityTypeNotOptedIn` for a genuine duplicate, and its
+  backend tests pass unmodified. No backend file was touched by this dossier.
+- [x] AC-7: Gates green: `pnpm lint`, `pnpm typecheck`, `pnpm test` (1132 passed, 181 files),
+  `pnpm build`, `pnpm run check:bundle-size`, `pnpm run check:type-coverage`,
   `pnpm run check:boundaries-enforced`.
 
 ## 11. SRS Delta
@@ -226,7 +230,47 @@ component already claims in a comment and that D-14 established for the sibling 
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1**: §7.1 said to *keep* `pendingId` for which row shows a spinner and gate `:disabled`
+  on the mutations' `isPending`. Both refs were removed instead (`pendingId` and, in
+  `ActivityExamplesSection`, `installingKey`), and *both* questions are now answered from the
+  mutations: "is anything pending" from `isPending`, "which row" from the mutation's own
+  `variables`. §7.1's own preference is the reason ("derived from the two mutations' own
+  `isPending` rather than from a hand-maintained ref where possible"); keeping the ref would
+  have left the unconditional `onSettled` clear in place to be patched rather than deleted,
+  which is the second half of the root cause per §5.2. Both `onSettled` blocks are gone; they
+  held nothing else. This diverges from the `AgentPackInstallDialog` exemplar, which still
+  keeps `pendingPack` (its clear is safe only because a second install can no longer start).
+  The user-visible behaviour is identical; see FU-5 for reconciling the three sites.
+- **D-2**: Both components' action buttons gained a `:loading` binding they did not have.
+  Not cosmetic scope creep: before the fix, the clicked row's button going disabled *was* the
+  only signal that the click registered, and gating on "anything pending" disables every
+  button and destroys that signal. The spinner replaces it. `SButton`'s `loading` implies
+  `disabled` (`SButton.vue:29`), so this adds no reachable state. Found by the quality gate as
+  an untested new behaviour and then pinned: both test files now assert the spinner is on the
+  clicked row and on no other.
+- **D-3**: §8.2's literal sequence is unreachable once the fix is in place, because a second
+  request can no longer be started at all. It is asserted instead as the two things that
+  remain observable: a click on another row mid-flight issues **no** request
+  (`optInMock`/`optOutMock` called exactly once), and the buttons re-enable only after the
+  outstanding request settles. Both fail against the pre-fix code, the first with
+  `expected 1 times, but got 2 times`.
+- **D-4**: §8.4's contingency did not arise. All 24 pre-existing tests across the two files
+  passed unmodified; none asserted that a non-pending row stays clickable during another
+  row's request.
+- **D-5**: `ActivityExamplesSection` gained a named `anyInstallPending` computed rather than
+  inlining `installMutation.isPending.value` in the template. Raised by the quality gate: the
+  two components fixed for the same defect were expressing the same rule two different ways,
+  and a future sweep for the D-14 shape greps for the named form. The admin instance not
+  matching that grep is how this defect survived the first review.
+- **D-6**: **No behavioural verification was performed.** Docker is unavailable on this host
+  (`docker info` fails at the named pipe), so the compose stack could not be started and
+  neither dialog was exercised in a browser. Both user-visible changes are unobserved: every
+  action button going inert while one request is in flight, and the new spinner marking which
+  row. jsdom asserts the `disabled` attribute and the `s-btn--loading` class, which is not the
+  same as seeing that the dialog still reads as responsive rather than broken while a slow
+  opt-out blocks the whole of it, which is the exact trade §9 flagged as this fix's cost.
+  Confirm on the first deployed build. This is the fifth consecutive dossier in this audit's
+  series to record the same gap, which is itself worth acting on rather than re-recording.
 
 ## 13. Follow-ups
 
@@ -244,3 +288,16 @@ Appended by /build.
   `onError` (`:60-67`, `:75-82`), so a failed request still refetches two queries. Harmless and
   arguably deliberate (the server state may have changed), but it means a burst of failures
   produces a burst of refetches. Not a defect; noted because the fix touches the same block.
+- **FU-4**: The gate is open during the confirm await. `disable()` calls `await confirm(...)`
+  before `mutate`, and in that window no request is in flight, so `anyPending` is false and
+  every button is enabled. Masked today by the confirm being a modal overlay, and unchanged by
+  this task (the old `pendingId` was also assigned only after the confirm resolved), so AC-2 -
+  which is about requests *in flight* - holds as written. If the overlay ever stops blocking
+  pointer events beneath it, two confirms could be opened and two opt-outs started. The fix, if
+  it is ever wanted, is a separate "a decision is pending" flag covering the await.
+- **FU-5**: Three sites now express "which row is mid-request, and is anything pending" three
+  ways: `anyPending`/`isPendingRow` here, `anyInstallPending`/`isInstalling` in the admin slice,
+  and `pendingPack` in `AgentPackInstallDialog` (still the D-14 hand-maintained form). The
+  slices may not import each other, but `@shared/composables` can serve all three. This is the
+  concrete shape FU-2's sweep should end in: one helper is also the only version of this rule
+  that a lint rule or a test could ever be written against.

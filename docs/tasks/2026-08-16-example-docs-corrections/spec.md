@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-08-16
 requirements: [R30.27, R30.28, R30.35]
 depends_on: []
@@ -212,22 +212,34 @@ used for its own AC-15 ("manual - doc review at approval").
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The characterization test from §8.1 exists and passes, covering at minimum `None`,
+- [x] AC-1: The characterization test from §8.1 exists and passes, covering at minimum `None`,
   `False`, `True`, `""`, whitespace-only, `0`, `[]`, `{}` and a non-empty string.
-- [ ] AC-2: `docs/examples/creative-thinking-course.md` states that `False` does **not** count
+  `TestIsFilledRule` in `backend/tests/unit/test_activities_services.py`, 13 parametrized
+  cases (the nine required plus `1`, `0.0`, `[1]`, `{"k": 1}`). See D-1.
+- [x] AC-2: `docs/examples/creative-thinking-course.md` states that `False` does **not** count
   as filled, covers the four cases `_is_filled` distinguishes, and points at `_is_filled`'s
   docstring rather than restating its reasoning.
-- [ ] AC-3: The Limitations section states that a pack's `temperature` takes effect only where
+- [x] AC-3: The Limitations section states that a pack's `temperature` takes effect only where
   the resolved provider accepts sampling controls, names OpenAI's current default model as a
   case where it does not, and confirms Claude and Gemini forward it; the fallback description
-  at `:228-230` links to it.
-- [ ] AC-4: A read-through confirms no other claim in the edited sections contradicts code, and
+  at `:228-230` links to it. See D-2 on the Claude half.
+- [x] AC-4: A read-through confirms no other claim in the edited sections contradicts code, and
   the five sibling claims in §6 are left to their owning dossiers rather than half-edited here.
-- [ ] AC-5: The OpenAI reasoning-model temperature-drop assertion from §8.2 exists and passes.
-- [ ] AC-6: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`.
-  No frontend gates apply - this change touches no frontend file.
-- [ ] AC-7: The document contains no em-dash and no emoji, per the project's documentation
-  style rules.
+  Each surviving claim in the rewritten section was checked against
+  `activity_validators.py:85-91` and `filled_count_scorer:109-116` line by line. Note D-4: the
+  em-dash sweep changed punctuation on lines inside two sibling-owned sections; no claim in
+  them was touched.
+- [x] AC-5: The OpenAI reasoning-model temperature-drop assertion from §8.2 exists and passes.
+  See D-3.
+- [x] AC-6: `ruff check .` (all checks passed), `ruff format --check .` (943 files formatted),
+  `mypy .` (no issues in 938 source files). `pytest -q` was **not** run to completion; the
+  `unit` tier, which holds every test this dossier touches, is green at 6721 passed / 6 skipped
+  with the `graphrag` files excluded. See D-5 for what was not run and why. No frontend gates
+  apply, this change touches no frontend file.
+- [x] AC-7: The document contains no em-dash (verified: 0 occurrences of U+2014) and no emoji.
+  Applied document-wide rather than to the edited sections only, per D-4. The three remaining
+  non-ASCII symbols are `→` (U+2192) in the 事件 → 想法 → 情緒 teaching frame and `–` (U+2013,
+  an en-dash) in "A–E rubric"; neither is an em-dash or an emoji.
 
 ## 11. SRS Delta
 
@@ -238,7 +250,54 @@ are being brought into line with requirements that already exist.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1**: §8.1 anticipated that the coverage might already exist, and it did.
+  `TestFilledCountValidator` already asserted `False`, `0`, whitespace, empty collections and
+  a ticked checkbox (`test_activities_services.py:702-728`), all of it reached *through*
+  `filled_count_scorer`. §8.1's fallback was to extend those; a separate `TestIsFilledRule`
+  calling `_is_filled` directly was added instead, because §8.1's stated job is to give the
+  rule "one authoritative, executable statement" and coverage spread across six scorer tests
+  is not one statement. The existing tests are left untouched: they pin the *scorer's*
+  behaviour, which is a different claim. The overlap is deliberate and the new class's
+  docstring says so, so neither gets deleted later as redundant. §8.1 also said to put the
+  characterization note in the *module* docstring; it is on the class instead, because the
+  module covers the whole activities service surface and the note is true only of this class.
+- **D-2**: AC-3 asked the entry to "confirm Claude and Gemini forward it". Stated as written
+  that would be a second wrong claim of the kind this dossier exists to fix: the rule is per
+  *resolved model*, not per provider. `_NO_SAMPLING_RE`
+  (`backend/contexts/keys/infrastructure/adapters/anthropic.py:35`) also drops sampling for
+  `claude-*-5` and `claude-opus-4-[7-9]`. The entry therefore confirms that Claude's current
+  default `claude-sonnet-4-6` forwards and that Gemini forwards on every model, while saying
+  the rule is per model and naming the Anthropic constraint's location so a reader can check
+  it the same way they can check OpenAI's.
+- **D-3**: §8.2 said to extend the existing OpenAI adapter tests. Two already assert the
+  temperature drop (`test_provider_adapters.py:653`, `:752`) and both pin `o3-mini`. A new
+  test was added instead, pinned to `DEFAULT_CHAT_MODELS["openai"]` rather than to a literal
+  model id, because the document's claim is about the *default* model: a test on `o3-mini`
+  keeps passing if the default ever moves to a non-reasoning model, leaving the document
+  silently wrong with a green suite. It imports `contexts.agents.domain.models` inside a
+  `contexts.keys` test file, which is the only cross-context import there; that is the point
+  of the assertion (neither context alone can state the consequence) and its docstring says
+  so, so it is not copied as precedent into production code.
+- **D-4**: AC-7's em-dash rule was applied to the **whole document**, on the user's explicit
+  instruction when asked. 23 occurrences, of which roughly 20 sit outside the sections this
+  dossier owns, including lines inside the delete-then-reinstall note owned by
+  `2026-08-16-platform-type-delete-optin-lifecycle` and the Limitations rubric bullet. Every
+  one is punctuation only; no claim, citation, or emphasis was changed. The consequence is
+  that the sibling dossiers listed in §6 and §9 will hit conflicts on lines they expected to
+  merge cleanly, and must rebase rather than assume.
+- **D-5**: `pytest -q` did not complete on this host, and the reason is worth writing down
+  because it is not the usual one. The `integration`/`wiring`/`db` tiers need a live PostgreSQL
+  and Docker is unavailable (`docker info` fails at the named pipe), which prior dossiers in
+  this series already record. The new one is that **`tests/unit` itself stalls in the `graphrag`
+  files**: a whole-tier run reached 24% in 25 minutes and was still crawling, and the 22-27%
+  band is `test_graphrag_builder.py`, `test_graphrag_retrieve.py`, `test_graphrag_reset.py` and
+  `test_graphrag_vector_store.py`, which appear to block on Neo4j/Qdrant connections that fail
+  slowly on Windows rather than fast. With `--ignore-glob="*graphrag*"` the same tier finishes
+  in 7m50s at **6721 passed, 6 skipped** (all six are host-capability skips for symlinks and
+  Windows zipfile semantics, all pre-existing). Nothing in this dossier touches graphrag, and
+  no production Python changed at all, so the exclusion does not shadow this work. It is
+  recorded because a future `/build` on this host will hit the same wall and should not spend
+  half an hour rediscovering it; CI is the authority per the project's standing rule.
 
 ## 13. Follow-ups
 
@@ -258,3 +317,10 @@ Appended by /build.
   asymmetry is a property of the generic form's `assemblePayload`, not of the validator, and it
   would disappear if the form omitted untouched booleans. Worth considering if the form is ever
   reworked; it would let `False` count as a deliberate answer.
+- **FU-4**: `backend/tests/unit/test_provider_adapters.py`'s module docstring claims "every
+  test asserts the secret never leaks into the normalised body". It is not true of the test
+  added here, nor of its immediate siblings around `:653` and `:752`. Raised by the security
+  gate as hardening rather than a vulnerability (the credential rides in the `Authorization`
+  header, not the body, and nothing in this change touches header assembly). Either the
+  docstring should be narrowed to the tests that do assert it, or a shared
+  `assert _SECRET not in body` helper should be applied across the file.
