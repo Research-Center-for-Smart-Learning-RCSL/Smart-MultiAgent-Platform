@@ -77,6 +77,12 @@ class WakeupService:
         the room — user + agent) and resets autostop only on user messages.
         Loop protection is the job of ``autostop_rounds`` (R15.03/R15.04).
 
+        One carve-out ([R15.02]): a service-authored ``activity_submission`` echo
+        re-arms the silence clock without reaching this method at all — see
+        ``triggers.evaluate_room_activity``. It is room activity, but not a turn
+        the room is waiting on, so it neither counts toward ``every_n_messages``
+        nor resets the autostop cap.
+
         ``sender_agent_id`` — when set, the author is excluded from its own
         wake list (an agent must not be woken by its own reply).
 

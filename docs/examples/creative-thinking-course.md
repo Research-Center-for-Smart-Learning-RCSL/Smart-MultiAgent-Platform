@@ -157,7 +157,7 @@ of this example that cannot be reproduced by copying four prompts.
 
 | Agent | Room role | Wake-up | Effect |
 |---|---|---|---|
-| TA | `normal` | `every_n_messages` n=1 | leads; responds to every message |
+| TA | `normal` | `every_n_messages` n=1 | leads; responds to every chat message |
 | SA | `normal` | `silence_minutes`, `every_n` off | peer catalyst; speaks on a lull or when named |
 | AA | `observer` | `silence_minutes` with a bounded observer autostop | silent; writes notes only the room creator sees |
 | DA | not for a class room | both triggers off | speaks only when named |
@@ -268,7 +268,13 @@ its active activations across every tenant, so do it between classes.
 5. **The room transcript** gets a system-stamped echo that a submission happened, carrying
    no answer text.
 6. **Room agents** read a digest of recent structured activity, which is what lets TA
-   respond to what the class actually wrote and AA observe across submissions.
+   respond to what the class actually wrote and AA observe across submissions. Note what
+   a submission does and does not do to the agents: it **re-arms the silence clock**, so
+   SA does not mistake a class quietly filling in a worksheet for a lull, but it does
+   **not** itself wake anyone. An agent sees the submissions on its next turn, whether
+   that turn comes from a chat message or from a genuine lull. Submissions are
+   deliberately not counted by `every_n_messages`: TA runs at `n=1`, so counting them
+   would mean one TA turn per student per submission, on your own provider key.
 7. **Facilitator** ends the activity, then starts the unit's second type.
 
 ## What `filled_count` does and does not measure
