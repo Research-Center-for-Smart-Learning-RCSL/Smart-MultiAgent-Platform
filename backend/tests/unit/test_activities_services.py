@@ -778,6 +778,57 @@ class TestFilledCountValidator:
             validate_filled_count_config(bad)
 
 
+class TestIsFilledRule:
+    """The whole of ``_is_filled``, in one executable statement of the rule.
+
+    A **characterization** test, not a regression test: nothing here fails before
+    the change that added it, because the code was already right. Its job is that
+    the rule has one authoritative place to be read off.
+    ``docs/examples/creative-thinking-course.md`` paraphrases this function for
+    educators authoring their own schemas, and once stated the boolean case
+    exactly backwards; a prose paraphrase and a scorer test that reaches the rule
+    through ``filled_count_scorer`` both left the rule itself unpinned.
+    """
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (None, False),
+            (False, False),
+            (True, True),
+            ("", False),
+            ("   \n\t ", False),
+            ("x", True),
+            (0, True),
+            (1, True),
+            (0.0, True),
+            ([], False),
+            ({}, False),
+            ([1], True),
+            ({"k": 1}, True),
+        ],
+        ids=[
+            "none",
+            "false",
+            "true",
+            "empty-string",
+            "whitespace-string",
+            "non-empty-string",
+            "zero",
+            "one",
+            "zero-float",
+            "empty-list",
+            "empty-dict",
+            "non-empty-list",
+            "non-empty-dict",
+        ],
+    )
+    def test_is_filled(self, value: Any, expected: bool) -> None:
+        from app.plugins.activity_validators import _is_filled
+
+        assert _is_filled(value) is expected
+
+
 class TestFilledCountSchemaConfigValidator:
     """The cross-field rule the config-only validator structurally cannot state.
 
