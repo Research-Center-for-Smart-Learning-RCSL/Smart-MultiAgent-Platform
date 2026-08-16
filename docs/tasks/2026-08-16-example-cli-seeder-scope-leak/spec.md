@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-08-16
 requirements: [R30.02, R30.28, R30.33]
 depends_on: []
@@ -303,30 +303,30 @@ invocation surface, which this change does not alter.
 
 ## 10. Acceptance Criteria
 
-- [ ] **AC-1**: The regression test from §8.2 fails against current code (on its `created`
+- [x] **AC-1**: The regression test from §8.2 fails against current code (on its `created`
   assertion) and passes after the fix.
-- [ ] **AC-2**: With project P opted into all four shipped platform types and owning none,
+- [x] **AC-2**: With project P opted into all four shipped platform types and owning none,
   the CLI creates four project-scoped rows, reports all four in `created` and none in
   `already_present`, and exits 0.
-- [ ] **AC-3**: With P owning two of the four keys and opted into the other two, exactly the two
+- [x] **AC-3**: With P owning two of the four keys and opted into the other two, exactly the two
   unowned keys are created and the two owned keys are reported `already_present` (§4's partial
   variant).
-- [ ] **AC-4**: Genuine idempotency is unchanged: with P owning all four keys, a re-run creates
+- [x] **AC-4**: Genuine idempotency is unchanged: with P owning all four keys, a re-run creates
   nothing and reports all four `already_present`.
-- [ ] **AC-5**: Every key created that shares its key with an opted-in platform type appears in
+- [x] **AC-5**: Every key created that shares its key with an opted-in platform type appears in
   `SeedReport.shadowed_by_platform` and is logged at `warning` level naming both the consequence
   and the remedy; the list is empty and no warning is emitted when the project has no opt-ins.
-- [ ] **AC-6**: `ActivityTypeRepository.list_owned_by_project` returns only rows with
+- [x] **AC-6**: `ActivityTypeRepository.list_owned_by_project` returns only rows with
   `project_id = <project>` and `deleted_at IS NULL`, with no opt-in arm, pinned by the
   compiled-SQL test in §8.4.
-- [ ] **AC-7**: `list_for_project`, `list_types`, and the HTTP listing at
+- [x] **AC-7**: `list_for_project`, `list_types`, and the HTTP listing at
   `app/api/v1/activities.py:433` are behaviourally unchanged;
   `test_activity_repos.py::test_list_for_project_admits_platform_types_only_through_an_optin`
   passes unmodified, as does `test_smap_cli_contract.py`.
-- [ ] **AC-8**: The four stale statements of §7.4 are corrected, and
+- [x] **AC-8**: The four stale statements of §7.4 are corrected, and
   `python -m smap.examples creative-thinking-course --help` describes the four-type course and
   states the idempotency rule in terms of ownership.
-- [ ] **AC-9**: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`
+- [x] **AC-9**: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`
   (unit tier locally; `db`/`integration`/`wiring` on CI, which is authoritative per the
   project's remote-CI rule).
 
@@ -342,7 +342,26 @@ this one's.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1** — **The local venv's ruff had to be upgraded to run the lint gate.** It sat at
+  0.7.4 while `pyproject.toml`'s `[tool.ruff.lint]` selects `UP047`, which only the 0.16 line
+  understands, so `ruff check` failed to parse the config before evaluating any rule. Upgraded
+  to 0.16.3, inside the declared `ruff>=0.7,<0.17` range. No repository file changed. Recorded
+  because it is the same class of trap as D-8 of
+  `docs/tasks/2026-08-13-creative-thinking-example-agents/spec.md:785-791`: a gate that is
+  reproducible only against a *resolved* dependency set, not a pinned one.
+- **D-2** — **The `--help` text was written with markdown emphasis and had to be de-marked.**
+  Typer renders the docstring straight to the terminal, so `**owns**` displayed as literal
+  asterisks. Not a spec deviation in substance; recorded because it was caught by the
+  behavioural gate (running the command) and by nothing else — no test asserts the rendered
+  help.
+- **D-3** — **The full unit tier was verified under the suite's normal ordering, not under
+  forced deterministic ordering.** `pytest -q tests/unit` passes 6748 with 6 skipped. A run
+  with `-p no:randomly` surfaced one failure in `tests/unit/test_agent_example_service.py`,
+  which was traced to **concurrent uncommitted work for a different dossier**
+  (`2026-08-16-agent-pack-install-report-fidelity`, since committed as `6999830`) present in
+  the same working tree — its failing-first `group_created` assertions. With that work parked,
+  the module passed 22/22 deterministically. Nothing in this task's diff is implicated. See
+  FU-4.
 
 ## 13. Follow-ups
 
@@ -352,6 +371,19 @@ Appended by /build.
   `MagicMock` with only the attributes the current implementation happens to read cannot fail
   when the implementation starts reading a different one. This is the mechanism that let AC-12
   be verified green against defective code.
+- **FU-4**: **Two pre-existing quality findings in touched code**, from the gate-5 audit, both
+  worsened by exactly one instance here and neither blocking. (a) `type_repo.py` now has six
+  read methods repeating `sa.select(*_TYPE_COLS).where(...).order_by(created_at DESC, id DESC)`;
+  a private `_select_types(*where)` helper would collapse them. (b)
+  `contexts/activities/interfaces/facade.py` carries 37 public async methods, well past the ~20
+  facade calibration; splitting by subdomain (types / activations / sessions / submissions /
+  examples / policy) is the shape.
+- **FU-5**: **The unit tier has a latent inter-module order dependency.** It passes under the
+  suite's normal random ordering but a specific deterministic ordering can surface failures
+  (D-3). That is the same class D-6 of
+  `docs/tasks/2026-08-13-creative-thinking-example-agents/spec.md` recorded for the validator
+  registry. A CI job pinning one seed, or running `-p no:randomly` on a clean tree, would say
+  whether any genuine dependency remains once concurrent work is excluded.
 - **FU-2**: `SeedReport` is logged as a Python repr into a loguru template
   (`__main__.py:92-97`). With a third field this is getting hard to read on a terminal; a small
   formatter would make the three outcomes legible without changing the data.
