@@ -29,9 +29,33 @@ vi.mock('@slices/keys', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   keyGroupsApi: { listForProject: listKeyGroupsMock },
 }))
+// Hoisted rather than fresh per call: `useToast()` returning new `vi.fn()`s each
+// time made every toast in this file unassertable, which is why the dialog could
+// ship reporting neither the resolved provider nor the group it created.
+const toastSuccess = vi.hoisted(() => vi.fn())
+const toastInfo = vi.hoisted(() => vi.fn())
+const toastError = vi.hoisted(() => vi.fn())
+const toastWarning = vi.hoisted(() => vi.fn())
+
 vi.mock('@shared/composables', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }),
+  useToast: () => ({
+    success: toastSuccess,
+    error: toastError,
+    info: toastInfo,
+    warning: toastWarning,
+  }),
+}))
+// The harness loads no messages, so the real `t` returns the bare key and an
+// assertion on it cannot see interpolation params -- which is precisely what
+// AC-5 (the provider actually used) is about. This fake appends them. Safe for
+// this tree: every component in it (SModal, SBadge) destructures only `t`.
+vi.mock('vue-i18n', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useI18n: () => ({
+    t: (key: string, params?: Record<string, unknown>) =>
+      params === undefined ? key : `${key}|${JSON.stringify(params)}`,
+  }),
 }))
 
 function packAgent(over: Record<string, unknown> = {}) {
@@ -67,14 +91,25 @@ beforeEach(() => {
   listPacksMock.mockReset()
   installMock.mockReset()
   listKeyGroupsMock.mockReset()
+  toastSuccess.mockReset()
+  toastInfo.mockReset()
+  toastError.mockReset()
+  toastWarning.mockReset()
   listKeyGroupsMock.mockResolvedValue([{ id: 'kg1', name: 'Group one' }])
   installMock.mockResolvedValue({
     pack_key: 'creative-thinking-room',
     created: [{ key: 'ta-guidance-teacher', name: 'TA', agent_id: 'a1', model_hint: 'claude' }],
     already_present: [],
     group_id: 'g1',
+    group_created: true,
   })
 })
+
+/** Click install on the room pack and let the mutation settle. */
+async function installRoomPack(wrapper: Awaited<ReturnType<typeof mountDialog>>): Promise<void> {
+  await wrapper.find('[data-testid="install-creative-thinking-room"]').trigger('click')
+  await flushPromises()
+}
 
 describe('AgentPackInstallDialog', () => {
   it('states what installing does and does not create, before anything is installed', async () => {
@@ -108,7 +143,7 @@ describe('AgentPackInstallDialog', () => {
     expect(wrapper.text()).not.toContain('agents.examplePacks.observerNotice')
   })
 
-  it('labels a design agent as belonging in no class room (AC-14)', async () => {
+  it('labels a design agent as belonging in no class room, and says its drafts are copied by hand (AC-14)', async () => {
     listPacksMock.mockResolvedValue([
       pack({ pack_key: 'creative-thinking-design', agents: [packAgent({ room_role: null })] }),
     ])
@@ -116,7 +151,148 @@ describe('AgentPackInstallDialog', () => {
     const wrapper = await mountDialog()
     await flushPromises()
 
+    // Both halves of AC-14. The badge alone satisfied the first and left the
+    // second -- that applying a draft is a manual copy and paste -- unstated,
+    // which is the misreading a "design agent" invites.
     expect(wrapper.text()).toContain('agents.examplePacks.roleDesign')
+    expect(wrapper.text()).toContain('agents.examplePacks.designNotice')
+  })
+
+  it('omits the design-agent note when no listed pack carries one', async () => {
+    listPacksMock.mockResolvedValue([pack()])
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('agents.examplePacks.designNotice')
+  })
+
+  it('names each agent preferred provider and the activities it is written for', async () => {
+    listPacksMock.mockResolvedValue([pack()])
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+
+    // A preference, not the resolved value: which provider an agent ends up on
+    // is decided server-side against the chosen key group, and no endpoint
+    // answers that before the install runs.
+    expect(wrapper.text()).toContain('agents.examplePacks.prefersProvider')
+    expect(wrapper.text()).toContain('agents.examplePacks.bindsActivities')
+  })
+
+  it('reports the provider actually used once the install returns', async () => {
+    listPacksMock.mockResolvedValue([pack()])
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+    await installRoomPack(wrapper)
+
+    // The resolved hint off the report, not the pack's preference: the two
+    // diverge whenever the chosen key group cannot serve what the pack asked for.
+    expect(toastSuccess).toHaveBeenCalledWith(
+      expect.stringContaining('agents.examplePacks.installed'),
+    )
+    expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('claude'))
+  })
+
+  it('reports every distinct provider when agents resolved differently', async () => {
+    listPacksMock.mockResolvedValue([pack()])
+    installMock.mockResolvedValue({
+      pack_key: 'creative-thinking-room',
+      created: [
+        { key: 'ta', name: 'TA', agent_id: 'a1', model_hint: 'claude' },
+        { key: 'sa', name: 'SA', agent_id: 'a2', model_hint: 'openai' },
+        { key: 'aa', name: 'AA', agent_id: 'a3', model_hint: 'claude' },
+      ],
+      already_present: [],
+      group_id: 'g1',
+      group_created: false,
+    })
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+    await installRoomPack(wrapper)
+
+    const message = toastSuccess.mock.calls.at(-1)?.[0] as string
+    expect(message).toContain('claude')
+    expect(message).toContain('openai')
+    // Distinct, not one entry per agent.
+    expect(message.match(/claude/g)).toHaveLength(1)
+  })
+
+  it('names the group when the install created one', async () => {
+    listPacksMock.mockResolvedValue([pack()])
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+    await installRoomPack(wrapper)
+
+    expect(toastSuccess).toHaveBeenCalledWith(
+      expect.stringContaining('agents.examplePacks.groupCreated'),
+    )
+    // Named, not just announced -- the owner needs to know which group to look at.
+    expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('Course agents'))
+  })
+
+  it('says nothing about a group when the install reused one', async () => {
+    listPacksMock.mockResolvedValue([pack()])
+    installMock.mockResolvedValue({
+      pack_key: 'creative-thinking-room',
+      created: [{ key: 'ta-guidance-teacher', name: 'TA', agent_id: 'a1', model_hint: 'claude' }],
+      already_present: [],
+      group_id: 'g1',
+      group_created: false,
+    })
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+    await installRoomPack(wrapper)
+
+    expect(toastSuccess).not.toHaveBeenCalledWith(
+      expect.stringContaining('agents.examplePacks.groupCreated'),
+    )
+  })
+
+  it('never reports nothing installed for a run that created a group', async () => {
+    // F-8 at the surface the installer actually reads. Every agent was already
+    // present, so `created` is empty -- but a second group now exists, and the
+    // old toast said nothing was installed.
+    listPacksMock.mockResolvedValue([pack()])
+    installMock.mockResolvedValue({
+      pack_key: 'creative-thinking-room',
+      created: [],
+      already_present: ['TA'],
+      group_id: 'g2',
+      group_created: true,
+    })
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+    await installRoomPack(wrapper)
+
+    expect(toastInfo).not.toHaveBeenCalled()
+    expect(toastSuccess).toHaveBeenCalledWith(
+      expect.stringContaining('agents.examplePacks.groupCreated'),
+    )
+  })
+
+  it('still says nothing was installed when neither an agent nor a group was created', async () => {
+    listPacksMock.mockResolvedValue([pack()])
+    installMock.mockResolvedValue({
+      pack_key: 'creative-thinking-room',
+      created: [],
+      already_present: ['TA'],
+      group_id: 'g1',
+      group_created: false,
+    })
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+    await installRoomPack(wrapper)
+
+    expect(toastInfo).toHaveBeenCalledWith(
+      expect.stringContaining('agents.examplePacks.nothingToInstall'),
+    )
   })
 
   it('cannot install until a key group is chosen', async () => {
