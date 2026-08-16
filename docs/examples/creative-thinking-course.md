@@ -2,9 +2,9 @@
 
 A two-unit example showing how a published curriculum maps onto SMAP's structured
 activities, together with the agents that run alongside it. It exists to answer one
-question — *can the custom-activity and agent features carry a real lesson plan end to
-end?* — not to serve as a research instrument. Read [Limitations](#limitations) before
-using it for anything else.
+question: *can the custom-activity and agent features carry a real lesson plan end to
+end?* It is not a research instrument. Read [Limitations](#limitations) before using it
+for anything else.
 
 ## Source
 
@@ -42,9 +42,9 @@ substitution, not a property of the source.
 | Week | Unit | Technique | Modelled here |
 |---|---|---|---|
 | 1 | 為什麼要學習？ | Six Thinking Hats | no |
-| 2 | 時空旅人 | Mandala | **yes** — two activity types |
+| 2 | 時空旅人 | Mandala | **yes**, two activity types |
 | 3 | 我的本色 | Green hat + Mandala | no |
-| 4 | 情緒播報台 | Six Thinking Hats | **yes** — two activity types |
+| 4 | 情緒播報台 | Six Thinking Hats | **yes**, two activity types |
 | 5 | 好家在有你 | Mandala | no |
 | 6 | 超能拼圖 I | Mandala | no |
 | 7 | 超能拼圖 II | Six Thinking Hats | no |
@@ -56,10 +56,10 @@ with zero frontend code.
 
 ## The four activity types
 
-One type per worksheet section. The split is forced for unit 2 — the bundled plugin lays
+One type per worksheet section. The split is forced for unit 2: the bundled plugin lays
 out a 3x3 grid only for a schema of exactly nine fields, so the worksheet's second section
-could not simply become a tenth property — and unit 4 follows the same shape because its
-two sections are the lesson plan's 準備活動 and 總結活動 and are scored on different things.
+could not simply become a tenth property. Unit 4 follows the same shape because its two
+sections are the lesson plan's 準備活動 and 總結活動 and are scored on different things.
 
 | Key | Name | Renderer | Fields | `min_filled` |
 |---|---|---|---|---|
@@ -76,7 +76,7 @@ All four set `validator_kind: in_process` with `filled_count`, `retention_days: 
 Every property carries an `x-order` integer, and the renderer sorts by it ([R30.36]).
 
 This is not decoration. `activity_types.payload_schema` is `jsonb`, and PostgreSQL does
-not preserve a JSON object's key order — it stores keys sorted by length, then bytewise.
+not preserve a JSON object's key order: it stores keys sorted by length, then bytewise.
 The order an author writes in the course file is therefore *not* the order a participant
 sees. An earlier version of this document claimed "property order drives render order in
 the generic form"; that was false as implemented, and the shipped six-hats form rendered
@@ -85,7 +85,7 @@ pins the reordering against a real database so the claim cannot quietly become f
 
 A schema that declares no `x-order` behaves exactly as before.
 
-### Unit 2 — 時空旅人 (Mandala)
+### Unit 2: 時空旅人 (Mandala)
 
 The worksheet's grid prints seven themes and leaves exactly one cell blank. The lesson
 plan states it directly: 紀錄13歲與30歲的一日生活差異（外貌、工作、家庭、人際關係、休閒
@@ -103,7 +103,7 @@ Property keys are `home`, `work`, `abilities`, `appearance`, `center`, `leisure`
 above.
 
 Keys are semantic rather than positional (`cell_1`…`cell_8`) because the agent digest
-carries **raw property keys and no titles** — an agent reading a submission sees
+carries **raw property keys and no titles**, so an agent reading a submission sees
 `{"work": "…"}` and can tell 工作 from 人際關係 only if the key says so.
 
 The centre cell is a printed question on the worksheet, not a blank, so `center` is
@@ -111,7 +111,7 @@ optional; `min_filled: 4` carries the completeness floor instead. `filled_count`
 declared properties, and the second worksheet section is its own type, so a facilitator
 runs 時空旅人 and then 為了與你相遇 in the same session.
 
-### Unit 4 — 情緒播報台 (Six Thinking Hats)
+### Unit 4: 情緒播報台 (Six Thinking Hats)
 
 The 情緒列車 table fixes both the column order and the wording:
 
@@ -129,8 +129,8 @@ thesis fixes no sequence. The worksheet fixes one. (Table 3-5-2's prose lists
 黃、黑、白、紅、藍, which agrees with neither; the worksheet is the instrument the students
 actually filled in.)
 
-The worksheet's first section — three recurring emotions, what each represents, and the
-most recent occasion for it — is `emotion-desk-three-emotions`.
+The worksheet's first section (three recurring emotions, what each represents, and the
+most recent occasion for it) is `emotion-desk-three-emotions`.
 
 The unit's teaching frame, which the agents also carry: 情緒列車 is 事件 → 想法 → 情緒 →
 行為. The event is the locomotive, but what determines the feeling is the thought in
@@ -164,7 +164,7 @@ of this example that cannot be reproduced by copying four prompts.
 
 The packs deliberately do **not** set `triggers.call_only`. It reads as "explicit
 invocation only" and does suppress autonomous wake-ups, but it is also an A2A
-authorization widener — `a2a_scope.evaluate` lets any a2a-enabled agent in the project call
+authorization widener: `a2a_scope.evaluate` lets any a2a-enabled agent in the project call
 a `call_only` agent with no shared context. Disabling both triggers suppresses wake-ups
 identically and grants nothing.
 
@@ -181,7 +181,7 @@ files, not left to review.
    (流暢力)** alone. **Flexibility (變通力), originality (獨創力), and elaboration (精進力)
    have no scorer and no delivered rubric.** What AA may reason from is the thesis's own
    five-level (A–E) per-unit competency rubric, which measures the self-development theme
-   axis rather than the creativity dimensions — and the prompt requires it to say which it
+   axis rather than the creativity dimensions, and the prompt requires it to say which it
    is using.
 3. **Unit 4 collects negative-affect narratives from 13-year-olds.** The room-facing
    prompts forbid pressing for detail, eliciting further disclosure, and therapeutic
@@ -191,7 +191,7 @@ files, not left to review.
 ### What DA cannot do
 
 DA drafts lesson flows and TA/SA prompt text. **It has no path from its output into an
-agent's configuration** — the teacher copies the draft by hand into the agent's settings
+agent's configuration**; the teacher copies the draft by hand into the agent's settings
 page. The prompt requires DA to say so every time it delivers one. A design agent that
 appears to configure agents is the obvious misreading.
 
@@ -223,11 +223,15 @@ that already exists; it creates no orgs, projects, rooms, or users.
 
 **The agent packs** are installed by anyone who can create agents in the project, from the
 project's Agents page. Installing asks for a key group and creates the pack's agents plus
-one agent group — **no chatroom, no room binding, no activity started**.
+one agent group: **no chatroom, no room binding, no activity started**.
 
 A pack names a preferred provider but never a key. If the chosen key group cannot serve
 that provider, a provider it does carry is used instead and the result says which; if it
-carries none at all, the install is refused rather than partially applied.
+carries none at all, the install is refused rather than partially applied. That
+substitution is not free: on a model that rejects sampling controls the packs' shipped
+temperatures stop applying. See
+[the temperature entry under Limitations](#limitations) before installing against a key
+group that does not carry Claude.
 
 Install is idempotent **by agent name within the project**, which is weaker than the
 course installer's key idempotency: `agents` has no `key` column and no name uniqueness.
@@ -246,7 +250,7 @@ the course it creates the two new types (`time-traveler-next-steps`,
 `emotion-desk-three-emotions`) and leaves the two old ones untouched. The result reports
 success and looks installed, but `mandala-9grid` still renders 格 1 to 格 8 while the agent
 packs' prompts describe 家 / 工作 / 具備能力, `six-hats-emotion-desk` still runs the
-transposed 黃/黑 order, and neither old row carries `x-order` at all — so the ordering
+transposed 黃/黑 order, and neither old row carries `x-order` at all, so the ordering
 mechanism is inert for exactly the two units it was introduced to fix.
 
 To upgrade properly: **delete `mandala-9grid` and `six-hats-emotion-desk` from
@@ -257,7 +261,7 @@ its active activations across every tenant, so do it between classes.
 
 1. **Platform admin** installs the course once; **Project Owner** enables the types for the
    project and installs the agent packs.
-2. **Facilitator** — the room creator — creates a chatroom, binds TA and SA as normal
+2. **Facilitator** (the room creator) creates a chatroom, binds TA and SA as normal
    agents and AA as an observer, then opens the Activity tab and starts one type. A room
    holds **at most one active activity at a time**.
 3. **Participants** join the active activity, which opens a per-subject session, and
@@ -287,15 +291,32 @@ Only declared properties count. JSON Schema permits extra properties unless a sc
 forbids them, so a participant calling the API directly could otherwise pad a submission
 with keys the activity never asked for and clear the threshold.
 
-That count is a direct operational definition of **fluency (流暢力)** — one of the four
+That count is a direct operational definition of **fluency (流暢力)**, one of the four
 creativity dimensions the source study measured. It says nothing whatsoever about
 **flexibility (變通力)**, **originality (獨創力)**, or **elaboration (精進力)**, which are
 judgements about answer *quality*.
 
-A threshold of `0` is legal and turns the activity collect-only. `filled_count` is meant
-for text-response schemas: booleans always count as filled, because the generic form
-submits a value for every declared boolean property whether or not the participant touched
-it. All four types here are all-string, so this does not affect them.
+A threshold of `0` is legal and turns the activity collect-only.
+
+What counts as filled is decided by `_is_filled` in
+`backend/app/plugins/activity_validators.py`, which distinguishes four cases:
+
+- `null` and `false` do **not** count.
+- A **string** counts only if it is non-empty after whitespace is stripped.
+- An empty **array** or **object** does not count; a non-empty one does.
+- Every other value counts, including the number `0`. A numeric field is only present in
+  the payload when the participant typed something.
+
+The `false` case is the one to know before authoring your own schema. `filled_count` is
+meant for text-response schemas: the generic form submits a boolean for every declared
+boolean property whether or not the participant touched it, so an unticked box cannot be
+told apart from an untouched one, and counting it would make the metric report the
+schema's size rather than the participant's effort. A threshold set on the assumption that
+declaring a checkbox is enough will instead require that many boxes actually ticked. See
+`_is_filled`'s docstring for the reasoning and the cost it accepts; it is the authority,
+and this paragraph is a pointer to it rather than a second copy.
+
+All four types here are all-string, so none of this affects them.
 
 ## Limitations
 
@@ -304,7 +325,7 @@ Stated plainly, because an example that oversells the platform is worse than no 
 - **One active activity per room.** Each modelled unit is two activity types, so a
   45-minute session dispatches two in sequence. There is no notion of a course schedule.
 - **Only fluency is scored automatically.** The other three creativity dimensions need a
-  rubric, and that rubric is an open domain-expert deliverable — see
+  rubric, and that rubric is an open domain-expert deliverable; see
   `docs/assessments/nstc-meeting-learning-activities.md`. Nothing here substitutes for it.
   The thesis's per-unit A–E rubric is a *competency* rubric for the self-development theme
   axis and is not a substitute either.
@@ -313,6 +334,20 @@ Stated plainly, because an example that oversells the platform is worse than no 
   post-tests. None of them are modelled here.
 - **Six of the eight units are not modelled.**
 - **Text entry replaces drawing** in both worksheets.
+- **A pack's `temperature` applies only where the resolved model accepts sampling
+  controls.** The packs ship a deliberate spread (AA 0.2, TA 0.7, SA 0.9), and the install
+  fallback described under [Installing](#installing) can put them on a provider that
+  discards it. OpenAI is that case today: its default chat model is a reasoning model, and
+  reasoning models accept only the default temperature, so the adapter drops `temperature`
+  and `top_p` rather than send a value the provider would answer with a 400
+  (`backend/contexts/keys/infrastructure/adapters/openai.py:155-160`). Overriding the model
+  does not escape it, because every OpenAI preset in the catalog is a reasoning model. An
+  OpenAI-only project therefore gets the packs' prompts, roles, tools and wake-up
+  configuration, but the provider's default sampling instead of the spread. Gemini forwards
+  temperature on every model, and so does Claude's current default `claude-sonnet-4-6`;
+  note the rule is per resolved model rather than per provider, and the newer Claude
+  families reject sampling controls too
+  (`backend/contexts/keys/infrastructure/adapters/anthropic.py:35`).
 - **AA's observations are not reproducible run to run.** The packs pin no `seed`.
 - **DA cannot write its drafts into an agent.**
 - **One plugin per activity-type key.** The plugin registry is a single global map keyed by
@@ -364,7 +399,7 @@ authoritatively for later analysis; agents simply cannot read them.
 Both are data files, and both loaders validate on read.
 
 A **course** is a JSON document under `courses/`, named for its `course_key`. Every field
-is required, including the visibility flags — defaulting `expose_payload_to_agent` would be
+is required, including the visibility flags: defaulting `expose_payload_to_agent` would be
 the wrong way to decide whether student text reaches an LLM provider. The `payload_schema`
 must be a valid JSON Schema declaring at least one property, and a `filled_count`
 `min_filled` may not exceed the number of declared properties.
@@ -374,7 +409,7 @@ course it accompanies and, per agent, the activity type keys it is written again
 field is required, including `room_role`: defaulting it would quietly decide whether an
 agent speaks in front of a class or watches in silence.
 
-The pack loader does not resolve `for_course` or `binds_activity_types` — doing so would
-make the agents context reach into the activities context's infrastructure. That
+The pack loader does not resolve `for_course` or `binds_activity_types`, because doing so
+would make the agents context reach into the activities context's infrastructure. That
 cross-check is `backend/tests/unit/test_agent_example_packs.py`, which fails if a pack
 names a course or an activity type that does not exist.
