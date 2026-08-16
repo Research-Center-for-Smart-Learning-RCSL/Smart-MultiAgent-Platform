@@ -150,7 +150,14 @@ const retentionInvalid = computed(() => {
 watch(
   () => (props.open ? (props.row?.id ?? '') : null),
   () => {
-    if (!props.open) return
+    // Also bail on a row that went away under an open dialog -- another admin
+    // deleting this type drops it from the listing, which moves the source from
+    // the id to the unresolved sentinel. Seeding from `null` there would blank
+    // the form and discard what this admin had typed, which is the same defect
+    // the scalar source above fixes, arriving by the one path id-keying cannot
+    // see. Save is already disabled and refuses out loud in this state, so
+    // leaving the typed values on screen costs nothing.
+    if (!props.open || props.row === null) return
     refusal.value = null
     const row = props.row
     form.name = row?.name ?? ''

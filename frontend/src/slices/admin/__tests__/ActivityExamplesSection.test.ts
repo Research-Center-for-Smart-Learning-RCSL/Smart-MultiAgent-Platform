@@ -312,6 +312,47 @@ describe('ActivityExamplesSection', () => {
     expect(wrapper.find('[data-testid="edit-mandala-9grid"]').attributes('disabled')).toBeDefined()
   })
 
+  it('does not claim a row is missing while the platform listing is still refetching', async () => {
+    let examplesCall = 0
+    let platformCall = 0
+    const gate = deferred<void>()
+    server.use(
+      http.get('/api/admin/activity-examples', () =>
+        HttpResponse.json([examplesCall++ === 0 ? COURSE : installed('at_1')]),
+      ),
+      http.get('/api/admin/platform-activity-types', async () => {
+        // Installing invalidates both queries and they race. Holding the second
+        // platform response open makes the catalogue answer first — the exact
+        // window where the new unit has an installed_type_id and no row yet.
+        if (platformCall++ > 0) await gate.promise
+        return HttpResponse.json(platformCall > 1 ? [storedRow()] : [])
+      }),
+      http.post('/api/admin/activity-examples/:courseKey/install', () =>
+        HttpResponse.json({
+          course_key: 'creative-thinking',
+          created: ['mandala-9grid'],
+          already_present: [],
+        }),
+      ),
+    )
+
+    const wrapper = await renderView(ActivityExamplesSection)
+    await settled()
+
+    await wrapper.find('[data-testid="install-creative-thinking"]').trigger('click')
+    await settled()
+
+    // "Could not be loaded, reload the page" is the wrong thing to tell an admin
+    // whose install just succeeded.
+    const banner = () => wrapper.find('[data-testid="examples-stored-row-unavailable"]')
+    expect(banner().exists()).toBe(false)
+
+    gate.resolve()
+    await settled()
+
+    expect(banner().exists()).toBe(false)
+  })
+
   it('shows an installed unit its stored values, not the shipped course file (AC-6)', async () => {
     server.use(
       http.get('/api/admin/activity-examples', () => HttpResponse.json([installed('at_1')])),
@@ -367,6 +408,16 @@ describe('ActivityExamplesSection', () => {
     // what this admin had typed.
     let call = 0
     const rows = () => [storedRow({ name: `Mandala (edit ${call++})` })]
+    expect(await dirtyFormThroughRefetch(rows)).toBe('half-typed name')
+  })
+
+  it('does not reseed an open, dirty form when the row disappears under it (AC-5)', async () => {
+    // Another admin deleting the type drops it from the listing, so the watch
+    // source moves from the id to the unresolved sentinel — a transition the
+    // id-keying cannot distinguish from opening a different row. Seeding from
+    // null there would blank the form.
+    let call = 0
+    const rows = () => (call++ === 0 ? [storedRow()] : [])
     expect(await dirtyFormThroughRefetch(rows)).toBe('half-typed name')
   })
 })
