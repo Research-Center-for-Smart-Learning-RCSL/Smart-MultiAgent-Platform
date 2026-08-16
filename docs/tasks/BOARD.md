@@ -27,22 +27,9 @@ assume. Seven are now implemented and removed (see the notes below the In progre
 - `2026-08-16-platform-type-delete-optin-lifecycle` (bugfix, approved) — F-9. The type delete is
   soft, so the FK cascade never fires and every project's opt-in outlives its type; two docstrings
   and migration 0076's index comment all assume otherwise.
-- `2026-08-16-example-dialog-pending-and-optout` (bugfix, approved) — F-10. D-14's single-valued
-  pending-token defect, unfixed in the activities dialog and its admin sibling. **File overlap**
-  with the now-implemented `admin-platform-type-edit-unreachable` in
-  `ActivityExamplesSection.vue` — that dossier landed first and rewrote row resolution, the card
-  rendering and the Edit button's guard, leaving the `installingKey` region this one owns
-  untouched. Rebase; the regions really are disjoint. Also overlaps the implemented
-  `activity-type-key-collision-across-scopes` in `ExampleImportDialog.vue` — that dossier
-  rewrote `enableMutation.onSuccess` (the very handler holding `pendingId`) to read the opt-in
-  response and raise a collision warning. Rebase and keep the warning.
 - `2026-08-16-example-pack-prompt-grounding` (bugfix, approved) — F-12. The shipped AA prompt asks
   who has not submitted, against a 30-row window with no roster. Prompt content only; note the fix
   does not reach agents already installed copy-on-import.
-- `2026-08-16-example-docs-corrections` (bugfix, approved) — F-13 + F-17. The walkthrough inverts the
-  `filled_count` boolean rule and omits that the OpenAI fallback voids the packs' temperatures.
-  **File overlap** with `example-pack-prompt-grounding` in
-  `docs/examples/creative-thinking-course.md` (different sections).
 - `2026-08-16-shared-common-i18n-namespace` (bugfix, approved) — F-15. The `common.*` namespace
   exists in no bundle, so 17 call sites render their English default arguments. Two JSON files; no
   call site changes.
@@ -65,6 +52,34 @@ assume. Seven are now implemented and removed (see the notes below the In progre
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-16 after implementation: `2026-08-16-example-dialog-pending-and-optout`
+(both example surfaces now gate every action button on "is anything in flight" read off the
+mutations themselves, and the hand-maintained `pendingId`/`installingKey` refs are gone along
+with the `onSettled` clears that released the wrong request's lock). Nothing lists it in
+`depends_on`, so no row moved out of Blocked. **Three things a later reader needs.** **D-1** —
+the fix went further than §7.1 asked: *both* questions are now answered from vue-query, "is
+anything pending" from `isPending` and "which row" from the mutation's own `variables`, which
+deletes the second half of the root cause instead of patching it. That leaves
+`AgentPackInstallDialog` as the last site still on the D-14 hand-maintained form, and **FU-5**
+records the shared `@shared/composables` helper the three sites should collapse into. **D-2** —
+the buttons gained a `:loading` spinner they never had: gating on "anything pending" disables
+every button and destroys the only signal that a click registered, so the spinner replaces it.
+And **D-6** — no behavioural verification, again (Docker unavailable); two user-visible changes
+are unobserved, so confirm on the first deployed build. That is the fifth consecutive dossier
+in this series to record the same gap.
+Removed on 2026-08-16 after implementation: `2026-08-16-example-docs-corrections` (the
+walkthrough now states the `filled_count` boolean rule the code actually implements and points
+at `_is_filled`'s docstring as the authority, and a new Limitations entry says that the install
+fallback's provider substitution voids the packs' shipped temperatures on OpenAI). Nothing
+lists it in `depends_on`, so no row moved out of Blocked. **Two things a later reader needs.**
+**D-4** — AC-7's em-dash rule was applied to the **whole** document, not only the two sections
+this dossier owns: 23 occurrences, roughly 20 of them inside sections that
+`example-pack-prompt-grounding` and `platform-type-delete-optin-lifecycle` own. Punctuation
+only, no claim changed, but those dossiers will hit conflicts on lines they expected to merge
+cleanly and must rebase. And **D-2** — AC-3 asked the entry to say "Claude and Gemini forward
+temperature", which would have been a second per-provider claim of exactly the kind this
+dossier exists to fix; the rule is per *resolved model*, and `claude-*-5` / `claude-opus-4-[7-9]`
+reject sampling too, so the entry says that instead.
 Removed on 2026-08-16 after implementation: `2026-08-16-migration-0076-retry-safety` (0076 is a
 single transaction in both directions, the three stale copies of the `transactional_ddl` rule
 are corrected, and a structural test pins the no-statement-before-an-autocommit-block rule
