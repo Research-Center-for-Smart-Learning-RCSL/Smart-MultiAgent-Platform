@@ -44,6 +44,7 @@ from contexts.conversation.interfaces.access import (
     ensure_room_creator,
     resolve_room_access,
 )
+from contexts.conversation.interfaces.facade import ConversationFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
@@ -767,7 +768,7 @@ async def submit_activity(
     # Durable-commit before dispatch (mirrors send_message): the client refetch
     # and the validation worker must see the committed rows.
     await db.commit()
-    await _dispatch_submission(chatroom_id, submission, signal_payload)
+    await _dispatch_submission(chatroom_id, submission, signal_payload, db=db)
     return _submission_out(submission)
 
 
@@ -799,10 +800,23 @@ async def list_activity_submissions(
 
 
 async def _dispatch_submission(
-    chatroom_id: uuid.UUID, submission: ActivitySubmission, signal_payload: dict[str, Any]
+    chatroom_id: uuid.UUID,
+    submission: ActivitySubmission,
+    signal_payload: dict[str, Any],
+    *,
+    db: AsyncSession,
 ) -> None:
     """Post-commit fan-out — best-effort: the submission is committed, so a Redis
     or pub/sub hiccup must never surface as a failed submission."""
+    # Re-arm the silence clock ([R15.02]): a submission is room activity, so an
+    # agent on `silence_minutes` must not read a class busy filling in a worksheet
+    # as a lull. Deliberately NOT a full wake-up evaluation — that would wake every
+    # `every_n_messages` agent once per submission. See
+    # `triggers.evaluate_room_activity`.
+    try:
+        await ConversationFacade(db).note_room_activity(chatroom_id=chatroom_id)
+    except Exception:
+        _log.warning("silence-clock re-arm failed for activity submission %s", submission.id, exc_info=True)
     try:
         await Publisher(room_channel(chatroom_id)).emit(
             "activity.created",
