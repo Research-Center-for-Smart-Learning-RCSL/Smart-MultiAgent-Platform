@@ -24,9 +24,6 @@ Every one is `depends_on: []`; the five majors are listed first. Three file-over
 noted below — these are **not** sequenced, but whoever builds second must rebase rather than
 assume.
 
-- `2026-08-16-admin-platform-type-edit-unreachable` (bugfix, approved) — major. The admin Edit action
-  on an installed platform example does nothing once the row ages off a 200-row page. Adds
-  `GET /api/admin/platform-activity-types`, so `gen:api` + `check:openapi-drift` apply.
 - `2026-08-16-activity-type-key-collision-across-scopes` (bugfix, approved) — major. Two live types
   can share one key in a project's usable set. **Carries an SRS Delta** amending [R30.02], which
   is silent on the union [R30.33] created. Deliberately permissive, because refusing would
@@ -81,6 +78,18 @@ assume.
   `SMAP_SCRATCH_DATABASE_URL` set (the module docstring gives the command), and `alembic
   current` against prod.** The structural test did independently confirm the defect in both
   directions, so the defect is measured even though the fix is not.
+- `2026-08-16-admin-platform-type-edit-unreachable` (bugfix) — `depends_on: []`. **Backend half
+  done and committed (`35a0a47`); the entire frontend half is not started.** Stopped at a green
+  checkpoint, not blocked — `main` is green because nothing is half-wired. `GET
+  /api/admin/platform-activity-types` exists, is admin-gated, and the spec and TS client are
+  regenerated. **Read the dossier's §12a RESUME NOTE before picking this up**: it lists the six
+  remaining frontend steps in dependency order, and records that the two failing-first tests
+  were written, confirmed failing, then reverted rather than committed (red tests on `main`
+  break everyone). Two traps it captures: the OpenAPI spec must be exported via `python -m
+  scripts.export_openapi`, and on Windows `gen:api` rewrites all ~280 api-client files with
+  CRLF while only `AdminService.ts` genuinely changes. **File overlap** with
+  `example-dialog-pending-and-optout` in `ActivityExamplesSection.vue` (different region — this
+  one is row resolution, that one is the pending token); whoever builds second rebases.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-08-16 after implementation: `2026-08-16-activity-submission-wakeup-gap` (an
 activity submission now re-arms the per-agent silence clock through a new
