@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: reviewed
 created: 2026-08-16
 requirements: [R9.02, R28.04, R30.02, R30.09, R30.23, R30.25, R30.27, R30.28, R30.30, R30.31, R30.32, R30.33, R30.35, R30.36]
 ---
@@ -630,7 +630,13 @@ Ordered by severity. Never renumber; F-n identifiers are cited from spec dossier
   `frontend/src/slices/activities/__tests__/MandalaGrid.test.ts:110-118` explicitly pins this
   behaviour ("treats the first property as the centre when none is named center") citing an
   earlier dossier's AC-8, so it may be accepted intent that [R30.36] later contradicted rather
-  than a defect. Triage needs a decision on which of the two rules wins.
+  than a defect.
+- **Triage decision (2026-08-16)**: **[R30.36] wins; the fallback is removed.** A schema with
+  no property named `center` renders its declared fields in declared order with no promotion.
+  `MandalaGrid.test.ts:110-118` is amended in the same change, and the fixing dossier records
+  why the earlier AC-8 behaviour is being reversed rather than silently dropped. This
+  supersedes the plausible verdict: with the rule conflict resolved in [R30.36]'s favour, the
+  behaviour is a defect.
 
 ## 4. Refuted Candidates
 
@@ -721,29 +727,54 @@ documented upgrade path survive.
 ## 5. Hand-off
 
 Per the dossier contract, this section links the task slugs this audit spawned. A finding with
-no dossier and no explicit decision to skip it is an unfinished triage. Awaiting the user's
-triage; all rows are currently undecided.
+no dossier and no explicit decision to skip it is an unfinished triage.
+
+**Triaged 2026-08-16: every finding is selected for fixing.** None was declined.
+
+**Why eighteen findings map to twelve dossiers.** The contract's `depends_on` section names
+"overlap prerequisite" as a first-class reason to sequence work: dossiers touching the same
+files closely enough that building them concurrently produces conflicting diffs. Several
+findings here share a blast radius exactly that way (F-6 and F-7 are both the activities
+validation-and-error contract; F-8, F-11 and F-16 are all the pack install report and the one
+dialog that renders it; F-1 and F-14 are the same two CLI files). Grouping them is not
+scope-merging: each finding keeps its own AC inside the dossier that owns it, and each row
+below still resolves to a named artifact.
 
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | pending triage | |
-| F-2 | pending triage | |
-| F-3 | pending triage | |
-| F-4 | pending triage | |
-| F-5 | pending triage | |
-| F-6 | pending triage | |
-| F-7 | pending triage | |
-| F-8 | pending triage | |
-| F-9 | pending triage | |
-| F-10 | pending triage | |
-| F-11 | pending triage | |
-| F-12 | pending triage | |
-| F-13 | pending triage | |
-| F-14 | pending triage | |
-| F-15 | pending triage | |
-| F-16 | pending triage | |
-| F-17 | pending triage | |
-| F-18 | pending triage | |
+| F-1 | fix | `docs/tasks/2026-08-16-example-cli-seeder-scope-leak/` |
+| F-14 | fix | `docs/tasks/2026-08-16-example-cli-seeder-scope-leak/` |
+| F-2 | fix | `docs/tasks/2026-08-16-activity-submission-wakeup-gap/` |
+| F-3 | fix | `docs/tasks/2026-08-16-migration-0076-retry-safety/` |
+| F-4 | fix | `docs/tasks/2026-08-16-admin-platform-type-edit-unreachable/` |
+| F-5 | fix | `docs/tasks/2026-08-16-activity-type-key-collision-across-scopes/` |
+| F-6 | fix | `docs/tasks/2026-08-16-activities-install-error-contract/` |
+| F-7 | fix | `docs/tasks/2026-08-16-activities-install-error-contract/` |
+| F-8 | fix | `docs/tasks/2026-08-16-agent-pack-install-report-fidelity/` |
+| F-11 | fix | `docs/tasks/2026-08-16-agent-pack-install-report-fidelity/` |
+| F-16 | fix | `docs/tasks/2026-08-16-agent-pack-install-report-fidelity/` |
+| F-9 | fix | `docs/tasks/2026-08-16-platform-type-delete-optin-lifecycle/` |
+| F-10 | fix | `docs/tasks/2026-08-16-example-dialog-pending-and-optout/` |
+| F-12 | fix | `docs/tasks/2026-08-16-example-pack-prompt-grounding/` |
+| F-13 | fix | `docs/tasks/2026-08-16-example-docs-corrections/` |
+| F-17 | fix | `docs/tasks/2026-08-16-example-docs-corrections/` |
+| F-15 | fix | `docs/tasks/2026-08-16-shared-common-i18n-namespace/` |
+| F-18 | fix | `docs/tasks/2026-08-16-mandala-center-fallback/` |
+
+The dossiers do not exist yet; each is written by `/spec` in bugfix mode, and this audit
+reaches `closed` only once every row above resolves to a real folder. Suggested build order,
+which is also the severity order with the overlap constraints honoured: the five majors
+(`example-cli-seeder-scope-leak`, `activity-submission-wakeup-gap`,
+`migration-0076-retry-safety`, `admin-platform-type-edit-unreachable`,
+`activity-type-key-collision-across-scopes`) first, then the remaining seven, which are
+mutually independent and can run in parallel.
+
+One cross-dossier note for whoever writes them: `activity-type-key-collision-across-scopes`
+(F-5) and `example-cli-seeder-scope-leak` (F-1) both stem from the same root, the widening of
+`type_repo.list_for_project` to union project-owned and opted-in platform rows. They are
+separate dossiers because the fixes are separate (one adds a scope predicate at a single CLI
+call site, the other needs a design decision about cross-scope key uniqueness), but whichever
+lands second must re-verify the other's assumption about what `list_types` returns.
 
 ## 6. Out-of-scope Observations
 
