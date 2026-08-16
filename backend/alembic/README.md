@@ -54,8 +54,16 @@ python -m alembic upgrade head
   comment explaining why.
 - Column additions start NULL-able; a follow-up revision adds NOT NULL and
   defaults after the application has been rolled.
-- Index creation prefers `op.create_index(..., postgresql_concurrently=True)`
-  in non-transactional mode (`transactional_ddl = False`).
+- Index creation on a high-write table prefers `CREATE INDEX CONCURRENTLY`,
+  issued inside `op.get_context().autocommit_block()`. There is no per-revision
+  `transactional_ddl` marker in Alembic. A revision that opens such a block MUST
+  put no statement before it: the block commits whatever precedes it while the
+  revision stamp is still the previous one, so a later failure leaves the schema
+  advanced, the version behind, and the migration unretryable. Skip
+  `CONCURRENTLY` where the same revision already takes `ACCESS EXCLUSIVE` on that
+  table — the weaker lock buys nothing there. See O4.04 and
+  `tests/unit/test_migration_autocommit_ordering.py`, which enforces the ordering
+  rule.
 - Autogenerate is a convenience. Every diff is hand-reviewed before commit.
 
 ## What lives elsewhere

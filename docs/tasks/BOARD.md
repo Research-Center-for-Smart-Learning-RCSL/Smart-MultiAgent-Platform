@@ -28,11 +28,6 @@ assume.
   the silence clock, so agents read worksheet time as a lull. Fix touches the clock only; a full
   wake-up evaluation would produce one agent turn per submission. **Carries an SRS Delta**
   amending [R15.02].
-- `2026-08-16-migration-0076-retry-safety` (bugfix, approved) — major. 0076 half-applies and cannot
-  be re-run, in both directions. Note the audit's originally proposed fix
-  (`transaction_per_migration`) is a **no-op** for this defect. **Carries an SRS Delta** replacing
-  [O4.04], which prescribes a mechanism Alembic does not have. Has an ops prerequisite: run
-  `alembic current` against staging and prod before merging.
 - `2026-08-16-admin-platform-type-edit-unreachable` (bugfix, approved) — major. The admin Edit action
   on an installed platform example does nothing once the row ages off a 200-row page. Adds
   `GET /api/admin/platform-activity-types`, so `gen:api` + `check:openapi-drift` apply.
@@ -84,6 +79,10 @@ assume.
   created; the dialog discards provider and activity-type data already on the wire; AC-14's
   design-agent sentence was never added. Adds a response field, so `gen:api` +
   `check:openapi-drift` apply.
+- `2026-08-16-migration-0076-retry-safety` (bugfix) — `depends_on: []`. Moved out of Ready on
+  2026-08-16 when implementation started; see its own frontmatter. Chosen ahead of the other
+  majors because it has zero file overlap with the concurrent `agent-pack-install-report-fidelity`
+  build running in the same tree.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-08-16 after implementation: `2026-08-16-example-cli-seeder-scope-leak` (the
 example CLI seeder now keys idempotency on ownership via a new `list_owned_by_project` read
