@@ -40,23 +40,10 @@ assume.
   can share one key in a project's usable set. **Carries an SRS Delta** amending [R30.02], which
   is silent on the union [R30.33] created. Deliberately permissive, because refusing would
   overturn the approved `example-cli-seeder-scope-leak` Q-2.
-- `2026-08-16-example-cli-seeder-scope-leak` (bugfix, **approved**) — major. F-1 + F-14 of
-  `docs/audits/2026-08-16-example-activities-and-agent-packs/findings.md`. The example CLI
-  seeder builds its idempotency set from `list_types`, which since 0076 unions opted-in
-  platform types, so seeding into an opted-in project creates nothing and reports success.
-  **Cross-dossier note (its Q-3):** fixing it makes
-  `2026-08-16-activity-type-key-collision-across-scopes` (F-5) reachable through the documented
-  operator path rather than only by a deliberate owner action. The two are deliberately *not*
-  sequenced — zero file overlap — but whichever lands second must re-verify the other's
-  assumption about what `list_types` returns.
 - `2026-08-16-activities-install-error-contract` (bugfix, draft) — F-6 + F-7. An unknown course
   key returns 500; `min_filled` is never checked against the schema it scores. Adjacent-line
   overlap with `activity-type-key-collision-across-scopes` in `type_service.register`'s pre-flight
   region.
-- `2026-08-16-agent-pack-install-report-fidelity` (bugfix, draft) — F-8 + F-11 + F-16. A
-  re-install after a group rename creates a second group while reporting that nothing was created;
-  the dialog discards provider and activity-type data already on the wire; AC-14's design-agent
-  sentence was never added. Adds a response field, so `gen:api` + `check:openapi-drift` apply.
 - `2026-08-16-platform-type-delete-optin-lifecycle` (bugfix, draft) — F-9. The type delete is
   soft, so the FK cascade never fires and every project's opt-in outlives its type; two docstrings
   and migration 0076's index comment all assume otherwise.
@@ -92,7 +79,19 @@ assume.
 
 ## In progress
 
+- `2026-08-16-agent-pack-install-report-fidelity` (bugfix) — `depends_on: []`. F-8 + F-11 + F-16.
+  A re-install after a group rename creates a second group while reporting that nothing was
+  created; the dialog discards provider and activity-type data already on the wire; AC-14's
+  design-agent sentence was never added. Adds a response field, so `gen:api` +
+  `check:openapi-drift` apply.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-16 after implementation: `2026-08-16-example-cli-seeder-scope-leak` (the
+example CLI seeder now keys idempotency on ownership via a new `list_owned_by_project` read
+rather than on `list_types`' usable set, and warns per key that shadows an opted-in platform
+type). Nothing lists it in `depends_on`, so no row moved out of Blocked. **One thing a later
+reader needs:** its Q-2 warning and `2026-08-16-activity-type-key-collision-across-scopes`
+(F-5) describe the same collision from two sides; when F-5 is built, its warning wording should
+be reconciled with the seeder's rather than duplicated.
 Removed on 2026-08-14 after implementation: `2026-08-13-creative-thinking-example-agents`
 (two shipped agent packs installed copy-on-import into a project, the creative-thinking course
 transcribed from its actual worksheets, and an explicit `x-order` on payload-schema
