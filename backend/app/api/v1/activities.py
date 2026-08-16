@@ -819,16 +819,6 @@ async def _dispatch_submission(
         )
     except Exception:
         _log.error("realtime publish failed for activity submission %s", submission.id, exc_info=True)
-    # Re-arm the silence clock ([R15.02]): a submission is room activity, so an agent
-    # on `silence_minutes` must not read a class busy filling in a worksheet as a
-    # lull. Deliberately NOT a full wake-up evaluation — that would wake every
-    # `every_n_messages` agent once per submission; see `triggers.evaluate_room_activity`.
-    # Ordered after the emit because that is what the client is waiting on, and this
-    # costs a DB read the participant should not wait behind.
-    try:
-        await ConversationFacade(db).note_room_activity(chatroom_id=chatroom_id)
-    except Exception:
-        _log.warning("silence-clock re-arm failed for activity submission %s", submission.id, exc_info=True)
     if submission.validation_status.value == "pending":
         try:
             await enqueue("validate_activity_submission", str(submission.id))
@@ -844,6 +834,18 @@ async def _dispatch_submission(
         await enqueue("workflow_signal", "activity", signal_payload)
     except Exception:
         _log.warning("activity workflow-signal dispatch failed for %s", submission.id, exc_info=True)
+    # Re-arm the silence clock ([R15.02]): a submission is room activity, so an agent
+    # on `silence_minutes` must not read a class busy filling in a worksheet as a
+    # lull. Deliberately NOT a full wake-up evaluation — that would wake every
+    # `every_n_messages` agent once per submission; see `triggers.evaluate_room_activity`.
+    # Ordered last on purpose: it is the only step here that costs a DB read, and it is
+    # best-effort, so neither the client's realtime emit nor the two enqueues should
+    # queue behind it. Matters under load — a class submitting together would otherwise
+    # push every validation job back by one SELECT each.
+    try:
+        await ConversationFacade(db).note_room_activity(chatroom_id=chatroom_id)
+    except Exception:
+        _log.warning("silence-clock re-arm failed for activity submission %s", submission.id, exc_info=True)
 
 
 async def _dispatch_activation_started(
