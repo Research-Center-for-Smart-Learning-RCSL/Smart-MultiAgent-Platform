@@ -184,6 +184,14 @@ taking an explicit bind (`:110-121`) is unchanged, since
   version stamp lands only after the body returns.
 - `backend/alembic.ini:17-19` - remove the claim that env.py "keeps transaction-per-migration
   semantics" (it does not) and the reference to the nonexistent per-revision marker.
+- `backend/alembic/README.md:57-58` - **a third copy of the same wrong instruction**, missed
+  when this dossier was written and found by `/code-review`: "Index creation prefers
+  `op.create_index(..., postgresql_concurrently=True)` in non-transactional mode
+  (`transactional_ddl = False`)". This is the file a migration author is most likely to read,
+  since it sits beside the revisions. Left uncorrected it would keep prescribing the mechanism
+  after the other two are fixed, and an author following it writes a revision with no
+  `autocommit_block()` whose deploy fails with "CREATE INDEX CONCURRENTLY cannot run inside a
+  transaction block" - the exact failure [O4.04] is being corrected to prevent.
 
 **Why this does not mask the symptom.** The symptom is committed schema at an earlier stamped
 version; the cause is a commit point inside the migration body. Removing the commit point
@@ -268,9 +276,11 @@ record the result in the deviation log.
 - [ ] AC-6: The structural test from §8.3 exists, passes for all four `autocommit_block` users
   after the fix, and is demonstrated to fail against the pre-fix 0076.
 - [ ] AC-7: The comment at `:63-65` states why this migration is a single transaction and ties
-  it to the catalogue-cardinality assumption; `docs/operations.md:146` and
-  `backend/alembic.ini:17-19` no longer prescribe a per-revision `transactional_ddl` marker,
-  and [O4.04] states the no-statement-before-a-block rule.
+  it to the catalogue-cardinality assumption; **all three** copies of the stale rule -
+  `docs/operations.md:146`, `backend/alembic.ini:17-19` and `backend/alembic/README.md:57-58` -
+  no longer prescribe a per-revision `transactional_ddl` marker, and [O4.04] states the
+  no-statement-before-a-block rule. A repo-wide grep for `transactional_ddl` returns only
+  Alembic's own vendored source afterwards.
 - [ ] AC-8: Manual verification against a real PostgreSQL per §4, with the result and the
   `alembic current` readings from §9 recorded in the deviation log.
 - [ ] AC-9: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`;

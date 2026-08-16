@@ -24,44 +24,44 @@ Every one is `depends_on: []`; the five majors are listed first. Three file-over
 noted below — these are **not** sequenced, but whoever builds second must rebase rather than
 assume.
 
-- `2026-08-16-activity-submission-wakeup-gap` (bugfix, draft) — major. Submissions never re-arm
+- `2026-08-16-activity-submission-wakeup-gap` (bugfix, approved) — major. Submissions never re-arm
   the silence clock, so agents read worksheet time as a lull. Fix touches the clock only; a full
   wake-up evaluation would produce one agent turn per submission. **Carries an SRS Delta**
   amending [R15.02].
-- `2026-08-16-migration-0076-retry-safety` (bugfix, draft) — major. 0076 half-applies and cannot
+- `2026-08-16-migration-0076-retry-safety` (bugfix, approved) — major. 0076 half-applies and cannot
   be re-run, in both directions. Note the audit's originally proposed fix
   (`transaction_per_migration`) is a **no-op** for this defect. **Carries an SRS Delta** replacing
   [O4.04], which prescribes a mechanism Alembic does not have. Has an ops prerequisite: run
   `alembic current` against staging and prod before merging.
-- `2026-08-16-admin-platform-type-edit-unreachable` (bugfix, draft) — major. The admin Edit action
+- `2026-08-16-admin-platform-type-edit-unreachable` (bugfix, approved) — major. The admin Edit action
   on an installed platform example does nothing once the row ages off a 200-row page. Adds
   `GET /api/admin/platform-activity-types`, so `gen:api` + `check:openapi-drift` apply.
-- `2026-08-16-activity-type-key-collision-across-scopes` (bugfix, draft) — major. Two live types
+- `2026-08-16-activity-type-key-collision-across-scopes` (bugfix, approved) — major. Two live types
   can share one key in a project's usable set. **Carries an SRS Delta** amending [R30.02], which
   is silent on the union [R30.33] created. Deliberately permissive, because refusing would
   overturn the approved `example-cli-seeder-scope-leak` Q-2.
-- `2026-08-16-activities-install-error-contract` (bugfix, draft) — F-6 + F-7. An unknown course
+- `2026-08-16-activities-install-error-contract` (bugfix, approved) — F-6 + F-7. An unknown course
   key returns 500; `min_filled` is never checked against the schema it scores. Adjacent-line
   overlap with `activity-type-key-collision-across-scopes` in `type_service.register`'s pre-flight
   region.
-- `2026-08-16-platform-type-delete-optin-lifecycle` (bugfix, draft) — F-9. The type delete is
+- `2026-08-16-platform-type-delete-optin-lifecycle` (bugfix, approved) — F-9. The type delete is
   soft, so the FK cascade never fires and every project's opt-in outlives its type; two docstrings
   and migration 0076's index comment all assume otherwise.
-- `2026-08-16-example-dialog-pending-and-optout` (bugfix, draft) — F-10. D-14's single-valued
+- `2026-08-16-example-dialog-pending-and-optout` (bugfix, approved) — F-10. D-14's single-valued
   pending-token defect, unfixed in the activities dialog and its admin sibling. **File overlap**
   with `admin-platform-type-edit-unreachable` in `ActivityExamplesSection.vue` (different
   regions).
-- `2026-08-16-example-pack-prompt-grounding` (bugfix, draft) — F-12. The shipped AA prompt asks
+- `2026-08-16-example-pack-prompt-grounding` (bugfix, approved) — F-12. The shipped AA prompt asks
   who has not submitted, against a 30-row window with no roster. Prompt content only; note the fix
   does not reach agents already installed copy-on-import.
-- `2026-08-16-example-docs-corrections` (bugfix, draft) — F-13 + F-17. The walkthrough inverts the
+- `2026-08-16-example-docs-corrections` (bugfix, approved) — F-13 + F-17. The walkthrough inverts the
   `filled_count` boolean rule and omits that the OpenAI fallback voids the packs' temperatures.
   **File overlap** with `example-pack-prompt-grounding` in
   `docs/examples/creative-thinking-course.md` (different sections).
-- `2026-08-16-shared-common-i18n-namespace` (bugfix, draft) — F-15. The `common.*` namespace
+- `2026-08-16-shared-common-i18n-namespace` (bugfix, approved) — F-15. The `common.*` namespace
   exists in no bundle, so 17 call sites render their English default arguments. Two JSON files; no
   call site changes.
-- `2026-08-16-mandala-center-fallback` (bugfix, draft) — F-18. The mandala promotes the first
+- `2026-08-16-mandala-center-fallback` (bugfix, approved) — F-18. The mandala promotes the first
   property to the centre when none is named `center`, against [R30.36]. The rule conflict with an
   older AC-8 was triaged in [R30.36]'s favour on 2026-08-16.
 
