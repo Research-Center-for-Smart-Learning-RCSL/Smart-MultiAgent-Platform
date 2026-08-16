@@ -103,6 +103,11 @@ class PackInstallReport:
     # Names, not keys: idempotency is by name (see `install_pack`).
     already_present: tuple[str, ...]
     group_id: uuid.UUID
+    # The group is matched by name, so renaming it makes the next install create a
+    # second one holding the same agents. That is left as it is (see `_group_for`);
+    # without this flag the report would read "created nothing" for such a run,
+    # which is the one outcome an installer must not be told wrongly.
+    group_created: bool
 
 
 class AgentExampleService:
@@ -262,7 +267,7 @@ class AgentExampleService:
             )
             members.append(agent.id)
 
-        group_id = await self._group_for(
+        group_id, group_created = await self._group_for(
             project_id=project_id,
             name=pack.group_name,
             actor_user_id=actor_user_id,
@@ -286,6 +291,7 @@ class AgentExampleService:
             created=tuple(created),
             already_present=tuple(already_present),
             group_id=group_id,
+            group_created=group_created,
         )
 
     # -- Internals ----------------------------------------------------------
@@ -333,22 +339,28 @@ class AgentExampleService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
-    ) -> uuid.UUID:
+    ) -> tuple[uuid.UUID, bool]:
         """Reuse the pack's group if it is already there, else create it.
 
         By name, matching how agents are deduplicated, so a re-install lands its
         new agents in the same group rather than creating a second one beside it.
+        Renaming the group is a supported owner route, and once the name has moved
+        this creates a second group rather than finding the first -- the caller is
+        told which happened so the report can say so, because matching on something
+        stabler would mean re-populating a group the owner deliberately renamed
+        away from.
         """
         for group in await self._groups.list_groups(project_id):
             if group.name == name:
-                return group.id
-        return await self._groups.create_group(
+                return group.id, False
+        group_id = await self._groups.create_group(
             project_id=project_id,
             name=name,
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
         )
+        return group_id, True
 
 
 __all__ = [

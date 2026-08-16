@@ -511,6 +511,11 @@ class ExamplePackInstallReportOut(BaseModel):
     created: list[InstalledPackAgentOut]
     already_present: list[str]
     group_id: uuid.UUID
+    # Whether `group_id` names a group this install created. The group is matched
+    # by name, so a re-install after the owner renamed it creates a second one --
+    # a run that creates nothing else and would otherwise be reported as having
+    # created nothing at all.
+    group_created: bool
 
 
 @project_router.get("/example-packs")
@@ -600,6 +605,7 @@ async def install_agent_example_pack(
         ],
         already_present=list(report.already_present),
         group_id=report.group_id,
+        group_created=report.group_created,
     )
 
 
