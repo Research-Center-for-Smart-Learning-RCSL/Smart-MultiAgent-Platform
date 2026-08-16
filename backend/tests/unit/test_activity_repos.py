@@ -389,6 +389,38 @@ class TestPlatformScopedTypeQueries:
                 scope=ActivityTypeScope.PLATFORM,
             )
 
+    async def test_create_maps_the_project_key_index_to_a_domain_conflict(self) -> None:
+        """The platform arm's sibling, and until now the untested one.
+
+        `uq_activity_types_project_key_active` has had no coverage at all, and
+        neither had the arm mapping it -- an asymmetry worth closing, because it
+        is exactly what let the cross-scope question go unasked: nothing pinned
+        what the *project* index does or does not constrain. It constrains one
+        project's own live keys, and nothing more; a platform type under the same
+        key is a different row this index never sees ([R30.02]).
+        """
+        db = AsyncMock()
+        db.execute.side_effect = IntegrityError(
+            "INSERT ...",
+            {},
+            Exception(
+                'duplicate key value violates unique constraint "uq_activity_types_project_key_active"'
+            ),
+        )
+
+        with pytest.raises(ActivityTypeKeyConflict):
+            await ActivityTypeRepository(db).create(
+                project_id=uuid.uuid4(),
+                key="mandala-9grid",
+                name="Mandala",
+                payload_schema={},
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config={},
+                retention_days=None,
+                expose_payload_to_agent=True,
+                echo_includes_content=False,
+            )
+
     async def test_create_reraises_an_unrelated_integrity_error(self) -> None:
         db = AsyncMock()
         db.execute.side_effect = IntegrityError(

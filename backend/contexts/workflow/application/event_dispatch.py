@@ -84,18 +84,30 @@ def matches_a2a_trigger(match: dict[str, Any], *, agent_id: str, msg_type: str) 
 
 
 def matches_activity(
-    match: dict[str, Any], *, chatroom_id: str, activity_type_key: str, validation_status: str
+    match: dict[str, Any],
+    *,
+    chatroom_id: str,
+    activity_type_key: str,
+    validation_status: str,
+    activity_type_scope: str = "",
 ) -> bool:
     """``activity_in_room`` wait / ``activity_event`` trigger criteria.
 
     Exact ``chatroom_id`` (the tenant-isolation filter — an activity in room A can
-    never trip a workflow scoped to room B) plus two optional filters:
+    never trip a workflow scoped to room B) plus three optional filters:
     - activity type: ``activity_type_key`` (single) and/or ``activity_type_keys``
       (allowed-list); absent both, any type in the room matches.
     - ``validation_status`` (``pending``|``validated``|``error``): when set, the
       config fires only on that phase. This lets a rule that needs the scored
       outcome (e.g. an impasse rule) ignore the pending submit emit an async
       validator produces; absent, it fires on every emit (submit and completion).
+    - ``activity_type_scope`` (``project``|``platform``): a key no longer names
+      exactly one type, since a project's usable set may hold its own type and an
+      opted-in platform type under the same key ([R30.02]). Absent, both match —
+      which is deliberately what every rule written before this filter existed
+      keeps doing, because a stored rule cannot be migrated (the ``wait_for_event``
+      executor copies its match criteria into Redis for up to 86400s, so a
+      breaking change would silently strand every in-flight wait).
 
     The count threshold for an "impasse" rule is **not** here — it is an SEL
     ``condition`` node over ``trigger.rolling.same_error_count`` (edge guards are
@@ -105,6 +117,9 @@ def matches_activity(
         return False
     want_status = str(match.get("validation_status", "") or "")
     if want_status and want_status != "any" and want_status != str(validation_status):
+        return False
+    want_scope = str(match.get("activity_type_scope", "") or "")
+    if want_scope and want_scope != "any" and want_scope != str(activity_type_scope):
         return False
     allowed: list[str] = []
     single = match.get("activity_type_key")

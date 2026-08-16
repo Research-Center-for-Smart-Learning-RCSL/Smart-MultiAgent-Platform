@@ -139,6 +139,13 @@ class TestMatchesA2aTrigger:
 
 class TestMatchesActivity:
     def _m(self, config: dict, *, key: str = "quiz", status: str = "validated") -> bool:
+        """Deliberately calls the matcher WITHOUT `activity_type_scope`.
+
+        Every case in this class predates the scope filter, and that they all
+        still pass unchanged through this signature is the assertion: the filter
+        is additive, so no stored rule changes meaning. Scope-aware cases live in
+        `TestMatchesActivityScope`.
+        """
         return matches_activity(config, chatroom_id=_ROOM, activity_type_key=key, validation_status=status)
 
     def test_room_only_match(self) -> None:
@@ -181,6 +188,51 @@ class TestMatchesActivity:
 
     def test_status_absent_matches_every_phase(self) -> None:
         assert self._m({"chatroom_id": _ROOM}, status="pending") is True
+
+
+class TestMatchesActivityScope:
+    """The optional `activity_type_scope` filter ([R30.02]).
+
+    A key does not name exactly one type: a project's usable set may hold its own
+    type and an opted-in platform type under the same key, and a rule naming only
+    the key fires for both. The filter lets a rule written from now on pin one.
+    """
+
+    def _m(self, config: dict, *, scope: str) -> bool:
+        return matches_activity(
+            config,
+            chatroom_id=_ROOM,
+            activity_type_key="mandala-9grid",
+            validation_status="validated",
+            activity_type_scope=scope,
+        )
+
+    def test_absent_filter_matches_either_scope(self) -> None:
+        cfg = {"chatroom_id": _ROOM, "activity_type_key": "mandala-9grid"}
+        assert self._m(cfg, scope="project") is True
+        assert self._m(cfg, scope="platform") is True
+
+    def test_any_matches_either_scope(self) -> None:
+        cfg = {"chatroom_id": _ROOM, "activity_type_scope": "any"}
+        assert self._m(cfg, scope="project") is True
+        assert self._m(cfg, scope="platform") is True
+
+    def test_a_scoped_rule_matches_only_the_intended_row(self) -> None:
+        cfg = {"chatroom_id": _ROOM, "activity_type_key": "mandala-9grid", "activity_type_scope": "project"}
+        assert self._m(cfg, scope="project") is True
+        assert self._m(cfg, scope="platform") is False
+
+    def test_a_platform_scoped_rule_ignores_the_projects_own_type(self) -> None:
+        cfg = {"chatroom_id": _ROOM, "activity_type_scope": "platform"}
+        assert self._m(cfg, scope="platform") is True
+        assert self._m(cfg, scope="project") is False
+
+    def test_a_scoped_rule_does_not_match_a_signal_carrying_no_scope(self) -> None:
+        """A signal parked in Redis before this field existed carries `""`. The
+        filter must not guess: a rule that asked for `project` gets no match
+        rather than a match it did not ask for."""
+        cfg = {"chatroom_id": _ROOM, "activity_type_scope": "project"}
+        assert self._m(cfg, scope="") is False
 
 
 class TestActivityRollingSel:

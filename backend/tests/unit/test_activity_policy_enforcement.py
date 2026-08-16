@@ -75,6 +75,10 @@ def _type_service(policy: ActivityPolicy) -> ActivityTypeService:
     svc._repo = MagicMock()
     svc._repo.create = AsyncMock()
     svc._repo.update = AsyncMock()
+    # `register`'s advisory cross-scope key read ([R30.02]); never blocks, but it
+    # still has to be awaitable. That the policy refusal below happens *before*
+    # it is what keeps these tests about the policy.
+    svc._repo.list_platform_by_keys = AsyncMock(return_value=[])
     svc._activation_repo = MagicMock()
     svc._activation_repo.list_active_for_type = AsyncMock(return_value=[])
     svc._policy._repo = MagicMock()

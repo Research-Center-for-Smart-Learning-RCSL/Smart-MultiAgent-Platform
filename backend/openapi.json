@@ -544,6 +544,18 @@
         "title": "ActivityTypeOptInIn",
         "type": "object"
       },
+      "ActivityTypeOptInResultOut": {
+        "description": "The opt-in response. 200 with a body rather than 204, so the mirror of\n`ActivityTypeRegisteredOut.shadowed_by_platform` has somewhere to go.",
+        "properties": {
+          "shadows_owned_key": {
+            "default": false,
+            "title": "Shadows Owned Key",
+            "type": "boolean"
+          }
+        },
+        "title": "ActivityTypeOptInResultOut",
+        "type": "object"
+      },
       "ActivityTypeOut": {
         "properties": {
           "created_at": {
@@ -664,6 +676,103 @@
           "payload_schema"
         ],
         "title": "ActivityTypePublicOut",
+        "type": "object"
+      },
+      "ActivityTypeRegisteredOut": {
+        "description": "The registration response: the created type plus any advisory warning.\n\nA subclass rather than a wrapper so the client keeps reading the row exactly\nwhere it always did. `shadowed_by_platform` is not an error: the type WAS\ncreated ([R30.02] permits the collision), but the project now holds two live\ntypes under one key and everything that selects by key alone selects both.",
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "echo_includes_content": {
+            "title": "Echo Includes Content",
+            "type": "boolean"
+          },
+          "expose_payload_to_agent": {
+            "title": "Expose Payload To Agent",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "payload_schema": {
+            "additionalProperties": true,
+            "title": "Payload Schema",
+            "type": "object"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ActivityTypeScope"
+          },
+          "shadowed_by_platform": {
+            "default": false,
+            "title": "Shadowed By Platform",
+            "type": "boolean"
+          },
+          "validator_config": {
+            "additionalProperties": true,
+            "title": "Validator Config",
+            "type": "object"
+          },
+          "validator_kind": {
+            "$ref": "#/components/schemas/ValidatorKind"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "scope",
+          "key",
+          "name",
+          "payload_schema",
+          "validator_kind",
+          "validator_config",
+          "retention_days",
+          "expose_payload_to_agent",
+          "echo_includes_content",
+          "created_at"
+        ],
+        "title": "ActivityTypeRegisteredOut",
         "type": "object"
       },
       "ActivityTypeScope": {
@@ -22809,7 +22918,7 @@
     },
     "/api/projects/{project_id}/activity-type-optins": {
       "post": {
-        "description": "Enable a platform example for this project ([R30.33]).",
+        "description": "Enable a platform example for this project ([R30.33]).\n\n200 with a body rather than the 204 this used to return: opting into a key\nthe project already owns is permitted but leaves two live types under one key\n([R30.02]), and the owner has to be told at the moment they do it.",
         "operationId": "opt_project_into_activity_type_api_projects__project_id__activity_type_optins_post",
         "parameters": [
           {
@@ -22834,7 +22943,14 @@
           "required": true
         },
         "responses": {
-          "204": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityTypeOptInResultOut"
+                }
+              }
+            },
             "description": "Successful Response"
           },
           "422": {
@@ -22977,7 +23093,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ActivityTypeOut"
+                  "$ref": "#/components/schemas/ActivityTypeRegisteredOut"
                 }
               }
             },

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,8 +29,28 @@ from contexts.activities.domain.errors import (
 )
 from contexts.activities.domain.models import ActivityType, ActivityTypeScope, ValidatorKind
 from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
+from contexts.activities.infrastructure.repositories.optin_repo import (
+    ProjectActivityTypeOptInRepository,
+)
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
 from shared_kernel import audit
+
+
+@dataclass(frozen=True, slots=True)
+class TypeRegistration:
+    """A registered type plus the advisory warnings the act produced.
+
+    ``shadowed_by_platform`` says the project now holds two live types under one
+    ``key``: this one and a platform-scoped type it opted into ([R30.02]). The
+    registration is **not** refused -- a project-scoped copy of a shipped example
+    is a supported outcome ([R30.28]), and the CLI seeder's approved behaviour
+    depends on it -- but every consumer that resolves a type by key alone
+    (workflow reactive rules, the frontend plugin registry, an async validator
+    envelope) will match both, so the acting owner has to be told.
+    """
+
+    activity_type: ActivityType
+    shadowed_by_platform: bool
 
 
 class ActivityTypeService:
@@ -37,6 +58,7 @@ class ActivityTypeService:
         self._db = db
         self._repo = ActivityTypeRepository(db)
         self._activation_repo = ActivationRepository(db)
+        self._optin_repo = ProjectActivityTypeOptInRepository(db)
         self._policy = ActivityPolicyService(db)
 
     async def register(
@@ -55,7 +77,7 @@ class ActivityTypeService:
         echo_includes_content: bool = False,
         scope: ActivityTypeScope = ActivityTypeScope.PROJECT,
         request_id: uuid.UUID | None = None,
-    ) -> ActivityType:
+    ) -> TypeRegistration:
         if (project_id is None) is (scope is ActivityTypeScope.PROJECT):
             # Caught by ck_activity_types_project_scope anyway, but a 500 from a
             # CHECK is a worse diagnosis than naming the inconsistent argument.
@@ -68,6 +90,15 @@ class ActivityTypeService:
             expose_payload_to_agent=expose_payload_to_agent,
             echo_includes_content=echo_includes_content,
             retention_days=retention_days,
+        )
+        # After the policy gate, not before it: an existing type's early-rejection
+        # ordering is what the policy tests assert, and a warning must never delay
+        # a refusal. Project scope only -- the platform-install path registers with
+        # `project_id=None` and has no usable set to shadow.
+        shadowed_by_platform = (
+            await self._shadows_opted_in_platform_key(project_id, key)
+            if scope is ActivityTypeScope.PROJECT and project_id is not None
+            else False
         )
         type_id = await self._repo.create(
             project_id=project_id,
@@ -101,7 +132,20 @@ class ActivityTypeService:
         created = await self._repo.get(type_id)
         if created is None:  # pragma: no cover — just inserted in this transaction
             raise ActivityTypeNotFound(str(type_id))
-        return created
+        return TypeRegistration(activity_type=created, shadowed_by_platform=shadowed_by_platform)
+
+    async def _shadows_opted_in_platform_key(self, project_id: uuid.UUID, key: str) -> bool:
+        """Whether this project's usable set already holds ``key`` as a platform type.
+
+        Composed from two existing narrow reads rather than a join: the key lookup
+        is scoped to platform rows, and the opt-in is the authorization record that
+        decides whether such a row is in *this* project's usable set at all. A
+        platform type nobody opted into is not a collision.
+        """
+        for candidate in await self._repo.list_platform_by_keys([key]):
+            if await self._optin_repo.exists(project_id=project_id, activity_type_id=candidate.id):
+                return True
+        return False
 
     async def update(
         self,
@@ -369,4 +413,4 @@ class ActivityTypeService:
                     raise ValidatorConfigInvalid(f"mcp validator '{field}' must be a UUID") from None
 
 
-__all__ = ["ActivityTypeService"]
+__all__ = ["ActivityTypeService", "TypeRegistration"]

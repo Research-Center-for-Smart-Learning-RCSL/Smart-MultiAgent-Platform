@@ -26,7 +26,7 @@ from contexts.activities.application.policy_service import ActivityPolicyService
 from contexts.activities.application.reachability import resolve_reachable_type
 from contexts.activities.application.session_service import ActivitySessionService
 from contexts.activities.application.submission_service import SubmissionService
-from contexts.activities.application.type_service import ActivityTypeService
+from contexts.activities.application.type_service import ActivityTypeService, TypeRegistration
 from contexts.activities.application.validators.registry import ValidatorInfo, list_registered
 from contexts.activities.domain.errors import (
     ActivityTypeNotFound,
@@ -114,7 +114,9 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> ActivityType:
+    ) -> TypeRegistration:
+        """Register a project-scoped type; the result carries any advisory warning
+        the act produced, so a caller that ignores it still registers correctly."""
         return await self._types.register(
             project_id=project_id,
             key=key,
@@ -372,8 +374,10 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> None:
-        await self._examples.opt_in(
+    ) -> bool:
+        """Enable a platform example; returns whether the project already owns a
+        live type under the same key ([R30.02])."""
+        return await self._examples.opt_in(
             project_id=project_id,
             activity_type_id=activity_type_id,
             actor_user_id=actor_user_id,

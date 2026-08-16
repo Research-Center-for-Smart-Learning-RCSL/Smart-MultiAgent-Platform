@@ -38,6 +38,7 @@ from contexts.activities.domain.models import (
     ActivitySession,
     ActivitySubmission,
     ActivityType,
+    ActivityTypeScope,
     SessionStatus,
     ValidationResult,
     ValidationStatus,
@@ -46,6 +47,18 @@ from contexts.activities.domain.models import (
 
 _NOW = dt.datetime(2026, 7, 13, tzinfo=dt.UTC)
 _SCHEMA = {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}
+
+
+def _no_collision(svc: ActivityTypeService) -> ActivityTypeService:
+    """Point the registration collision read at "no platform type under this key".
+
+    ``register`` asks whether the project's usable set already holds this key as
+    an opted-in platform type ([R30.02]); the answer is advisory and never blocks,
+    but the read still has to be awaitable against a mocked repository. Tests that
+    care about the warning stub these two themselves.
+    """
+    svc._repo.list_platform_by_keys = AsyncMock(return_value=[])  # type: ignore[method-assign]
+    return svc
 
 
 def _no_policy(svc: ActivityTypeService) -> ActivityTypeService:
@@ -193,6 +206,7 @@ class TestTypeServiceValidatorConfig:
         svc._repo = MagicMock()
         type_id = uuid.uuid4()
         svc._repo.create = AsyncMock(return_value=type_id)
+        _no_collision(svc)
         svc._repo.get = AsyncMock(return_value=_make_type(id=type_id, validator_kind=ValidatorKind.MCP))
         with patch("contexts.activities.application.type_service.audit.emit", new=AsyncMock()):
             await svc.register(
@@ -238,6 +252,7 @@ class TestTypeServiceValidatorConfig:
         svc._repo = MagicMock()
         type_id = uuid.uuid4()
         svc._repo.create = AsyncMock(return_value=type_id)
+        _no_collision(svc)
         svc._repo.get = AsyncMock(return_value=_make_type(id=type_id))
         with patch("contexts.activities.application.type_service.audit.emit", new=AsyncMock()):
             await svc.register(
@@ -282,6 +297,7 @@ class TestTypeServiceValidatorConfig:
         svc._repo = MagicMock()
         type_id = uuid.uuid4()
         svc._repo.create = AsyncMock(return_value=type_id)
+        _no_collision(svc)
         svc._repo.get = AsyncMock(return_value=_make_type(id=type_id))
         with patch("contexts.activities.application.type_service.audit.emit", new=AsyncMock()):
             await svc.register(
@@ -363,6 +379,7 @@ class TestTypeServiceValidatorConfig:
         svc._repo = MagicMock()
         type_id = uuid.uuid4()
         svc._repo.create = AsyncMock(return_value=type_id)
+        _no_collision(svc)
         svc._repo.get = AsyncMock(return_value=_make_type(id=type_id))
         with patch("contexts.activities.application.type_service.audit.emit", new=AsyncMock()):
             await svc.register(
@@ -480,6 +497,114 @@ class TestTypeServiceValidatorConfig:
                 actor_ip=None,
             )
         svc._repo.update.assert_not_awaited()
+
+
+class TestCrossScopeKeyCollisionWarning:
+    """[R30.02]: a project may author a type whose key names a platform type it
+    opted into. Permitted -- a project-scoped copy of a shipped example is a
+    supported outcome, and the CLI seeder's approved behaviour depends on it --
+    but the acting owner is warned, because everything that resolves a type by key
+    alone then resolves two.
+    """
+
+    def teardown_method(self) -> None:
+        registry.clear_registry()
+
+    def _svc(
+        self, *, platform_rows: list[ActivityType], opted_in: bool
+    ) -> tuple[ActivityTypeService, uuid.UUID]:
+        from app.plugins.activity_validators import register_first_party_validators
+
+        register_first_party_validators()
+        svc = _no_policy(ActivityTypeService(MagicMock()))
+        type_id = uuid.uuid4()
+        svc._repo = MagicMock()
+        svc._repo.create = AsyncMock(return_value=type_id)
+        svc._repo.get = AsyncMock(return_value=_make_type(id=type_id, key="mandala-9grid"))
+        svc._repo.list_platform_by_keys = AsyncMock(return_value=platform_rows)
+        svc._optin_repo = MagicMock()
+        svc._optin_repo.exists = AsyncMock(return_value=opted_in)
+        return svc, type_id
+
+    async def _register(
+        self, svc: ActivityTypeService, *, project_id: uuid.UUID, key: str = "mandala-9grid", **over: Any
+    ) -> Any:
+        with patch("contexts.activities.application.type_service.audit.emit", new=AsyncMock()):
+            return await svc.register(
+                project_id=project_id,
+                key=key,
+                name="n",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config={"validator_id": "filled_count", "min_filled": 0},
+                retention_days=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+                **over,
+            )
+
+    async def test_it_warns_and_still_creates_the_type(self) -> None:
+        """AC-1. The warning is advisory: the row must exist afterwards."""
+        platform_row = _make_type(project_id=None, key="mandala-9grid", scope=ActivityTypeScope.PLATFORM)
+        svc, _ = self._svc(platform_rows=[platform_row], opted_in=True)
+        project_id = uuid.uuid4()
+
+        result = await self._register(svc, project_id=project_id)
+
+        assert result.shadowed_by_platform is True
+        assert result.activity_type.key == "mandala-9grid"
+        svc._repo.create.assert_awaited_once()
+        svc._optin_repo.exists.assert_awaited_once_with(
+            project_id=project_id, activity_type_id=platform_row.id
+        )
+
+    async def test_no_warning_when_the_project_has_not_opted_in(self) -> None:
+        """AC-3's negative half. A platform type nobody enabled is not in this
+        project's usable set, so there is no collision to report."""
+        platform_row = _make_type(project_id=None, key="mandala-9grid", scope=ActivityTypeScope.PLATFORM)
+        svc, _ = self._svc(platform_rows=[platform_row], opted_in=False)
+
+        result = await self._register(svc, project_id=uuid.uuid4())
+
+        assert result.shadowed_by_platform is False
+        svc._repo.create.assert_awaited_once()
+
+    async def test_no_warning_when_no_platform_type_carries_the_key(self) -> None:
+        svc, _ = self._svc(platform_rows=[], opted_in=True)
+
+        result = await self._register(svc, project_id=uuid.uuid4(), key="something-else")
+
+        assert result.shadowed_by_platform is False
+        svc._optin_repo.exists.assert_not_awaited()
+
+    async def test_the_platform_install_path_is_unaffected(self) -> None:
+        """AC-4. `install_course` registers with `project_id=None`, which has no
+        usable set to shadow -- and the opt-in read would have no project to ask
+        about. Scope-conditioning the check is what keeps that path untouched."""
+        svc, type_id = self._svc(platform_rows=[], opted_in=True)
+        svc._repo.get = AsyncMock(
+            return_value=_make_type(
+                id=type_id, project_id=None, key="mandala-9grid", scope=ActivityTypeScope.PLATFORM
+            )
+        )
+
+        result = await self._register(svc, project_id=None, scope=ActivityTypeScope.PLATFORM)
+
+        assert result.shadowed_by_platform is False
+        svc._repo.list_platform_by_keys.assert_not_awaited()
+        svc._optin_repo.exists.assert_not_awaited()
+
+    async def test_no_new_error_slug_is_raised(self) -> None:
+        """AC-3. A refusal here would be wrong twice over: it would overturn the
+        approved CLI-seeder decision, and `ActivityTypeForm` maps any non-policy
+        409 to "this key already exists" -- so a new 409 slug would inherit a
+        message describing a different situation."""
+        platform_row = _make_type(project_id=None, key="mandala-9grid", scope=ActivityTypeScope.PLATFORM)
+        svc, _ = self._svc(platform_rows=[platform_row], opted_in=True)
+
+        result = await self._register(svc, project_id=uuid.uuid4())  # no raise
+
+        assert result.activity_type is not None
 
 
 class TestExactMatchValidator:
@@ -1182,6 +1307,50 @@ class TestBuildActivitySignal:
         svc._sub_repo.get = AsyncMock(return_value=None)
 
         assert await svc.build_activity_signal(submission_id=uuid.uuid4()) is None
+
+    async def test_it_carries_the_type_id_and_scope_so_a_rule_can_disambiguate(self) -> None:
+        """AC-6. `activity_type_key` alone no longer names one type: a project's
+        usable set may hold its own type and an opted-in platform type under the
+        same key ([R30.02]). Both fields follow the payload's always-present
+        discipline, so an SEL rule can dereference them without a null check."""
+        activity_type = _make_type(key="mandala-9grid", scope=ActivityTypeScope.PLATFORM, project_id=None)
+        submission = _make_submission(activity_type_id=activity_type.id)
+        svc, _ = _wire_signal_service(activity_type=activity_type, submission=submission)
+
+        payload = await svc.build_activity_signal(submission_id=submission.id)
+
+        assert payload is not None
+        assert payload["activity_type_key"] == "mandala-9grid"
+        assert payload["activity_type_id"] == str(activity_type.id)
+        assert payload["activity_type_scope"] == "platform"
+
+    async def test_a_project_scoped_type_reports_the_project_scope(self) -> None:
+        activity_type = _make_type(key="mandala-9grid")
+        submission = _make_submission(activity_type_id=activity_type.id)
+        svc, _ = _wire_signal_service(activity_type=activity_type, submission=submission)
+
+        payload = await svc.build_activity_signal(submission_id=submission.id)
+
+        assert payload is not None
+        assert payload["activity_type_scope"] == "project"
+
+    async def test_a_vanished_type_still_yields_present_string_fields(self) -> None:
+        """The re-read path can find the submission but not its type (deleted
+        between submit and validation). `key` already degraded to `""` there;
+        `scope` must degrade the same way rather than becoming None and breaking
+        an SEL rule that dereferences it."""
+        activity_type = _make_type()
+        submission = _make_submission(activity_type_id=activity_type.id)
+        svc, _ = _wire_signal_service(activity_type=activity_type, submission=submission)
+        svc._type_repo.get = AsyncMock(return_value=None)
+
+        payload = await svc.build_activity_signal(submission_id=submission.id)
+
+        assert payload is not None
+        assert payload["activity_type_key"] == ""
+        assert payload["activity_type_scope"] == ""
+        # The id comes from the submission row, which is still there.
+        assert payload["activity_type_id"] == str(activity_type.id)
 
 
 class TestRecordValidationDigest:

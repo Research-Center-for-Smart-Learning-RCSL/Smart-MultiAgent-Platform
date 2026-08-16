@@ -18,6 +18,7 @@ from fastapi import HTTPException
 
 from app.api.v1 import activities
 from contexts.activities.application.example_service import PlatformExample
+from contexts.activities.application.type_service import TypeRegistration
 from contexts.activities.domain.errors import ActivityTypeNotFound
 from contexts.activities.domain.models import ActivityType, ActivityTypeScope, ValidatorKind
 
@@ -41,6 +42,55 @@ def _make_type(**over: Any) -> ActivityType:
     }
     base.update(over)
     return ActivityType(**base)
+
+
+class TestRegisterResponseRelaysTheCollisionWarning:
+    """AC-1's route half. The service answers advisory, the route has to carry it:
+    a warning nothing renders is the same as no warning ([R30.02])."""
+
+    async def _register(self, monkeypatch: pytest.MonkeyPatch, *, shadowed: bool) -> Any:
+        project_id = uuid.uuid4()
+        created = _make_type(project_id=project_id, key="mandala-9grid")
+        facade = MagicMock()
+        facade.register_type = AsyncMock(
+            return_value=TypeRegistration(activity_type=created, shadowed_by_platform=shadowed)
+        )
+        db = MagicMock()
+        db.commit = AsyncMock()
+        monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
+        monkeypatch.setattr(activities, "assert_project_owner", AsyncMock())
+
+        return await activities.register_activity_type(
+            body=activities.ActivityTypeIn(
+                key="mandala-9grid",
+                name="Mandala",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config={"validator_id": "filled_count", "min_filled": 0},
+            ),
+            project_id=project_id,
+            ctx=SimpleNamespace(actor_ip=None, request_id=None),
+            principal=SimpleNamespace(user_id=uuid.uuid4(), is_admin=False),
+            db=db,
+        )
+
+    async def test_it_carries_the_warning_alongside_the_created_row(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        out = await self._register(monkeypatch, shadowed=True)
+
+        assert out.shadowed_by_platform is True
+        # The row itself is unchanged: the response is a superset of what the
+        # client always read, not a wrapper it has to unpack.
+        assert out.key == "mandala-9grid"
+        assert out.payload_schema == _SCHEMA
+        assert out.scope is ActivityTypeScope.PROJECT
+        assert out.validator_config  # the owner-confidential config is still returned
+
+    async def test_the_ordinary_case_reports_no_warning(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        out = await self._register(monkeypatch, shadowed=False)
+
+        assert out.shadowed_by_platform is False
 
 
 class TestRoomScopedTypeRead:
@@ -192,13 +242,13 @@ class TestPlatformExampleRoutes:
     async def test_opt_in_is_owner_gated_and_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         project_id, type_id = uuid.uuid4(), uuid.uuid4()
         facade = MagicMock()
-        facade.opt_project_in = AsyncMock()
+        facade.opt_project_in = AsyncMock(return_value=False)
         db = MagicMock()
         db.commit = AsyncMock()
         monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
         monkeypatch.setattr(activities, "assert_project_owner", AsyncMock())
 
-        await activities.opt_project_into_activity_type(
+        out = await activities.opt_project_into_activity_type(
             body=activities.ActivityTypeOptInIn(activity_type_id=type_id),
             project_id=project_id,
             ctx=SimpleNamespace(actor_ip=None, request_id=None),
@@ -208,6 +258,28 @@ class TestPlatformExampleRoutes:
 
         assert facade.opt_project_in.await_args.kwargs["project_id"] == project_id
         assert facade.opt_project_in.await_args.kwargs["activity_type_id"] == type_id
+        db.commit.assert_awaited_once()
+        assert out.shadows_owned_key is False
+
+    async def test_opt_in_relays_the_collision_warning(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """AC-2: the route is where the service's advisory answer becomes visible.
+        It used to answer 204, which had nowhere to put it."""
+        facade = MagicMock()
+        facade.opt_project_in = AsyncMock(return_value=True)
+        db = MagicMock()
+        db.commit = AsyncMock()
+        monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
+        monkeypatch.setattr(activities, "assert_project_owner", AsyncMock())
+
+        out = await activities.opt_project_into_activity_type(
+            body=activities.ActivityTypeOptInIn(activity_type_id=uuid.uuid4()),
+            project_id=uuid.uuid4(),
+            ctx=SimpleNamespace(actor_ip=None, request_id=None),
+            principal=SimpleNamespace(user_id=uuid.uuid4(), is_admin=False),
+            db=db,
+        )
+
+        assert out.shadows_owned_key is True
         db.commit.assert_awaited_once()
 
     async def test_opt_out_commits_before_notifying_each_ended_room(
