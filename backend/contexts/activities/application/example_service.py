@@ -261,16 +261,27 @@ class ActivityExampleService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> None:
+    ) -> bool:
         """Authorize one project to use one platform type ([R30.33]).
 
         Refuses anything that is not a live platform type — an opt-in row naming a
         project-scoped id would be meaningless (the reachability predicate ignores
         ``opted_in`` for those) and would pollute the admin-delete blast radius.
+
+        Returns whether the project already owns a live type under this key, which
+        the caller surfaces as a warning ([R30.02]). This is the mirror of
+        ``type_service.register``'s check and exists because it is the *cheaper*
+        door: authoring a colliding type takes a whole form, opting into one takes
+        a click. It warns rather than refuses, for the same reason registration
+        does. Reported as state rather than as this call's effect, so a repeat
+        opt-in that changes nothing still reports the collision it left behind.
         """
         activity_type = await self._type_repo.get(activity_type_id)
         if activity_type is None or activity_type.scope is not ActivityTypeScope.PLATFORM:
             raise ActivityTypeNotFound(str(activity_type_id))
+
+        owned = await self._type_repo.list_owned_by_project(project_id)
+        shadows_owned_key = any(t.key == activity_type.key for t in owned)
 
         added = await self._optin_repo.add(
             project_id=project_id,
@@ -278,7 +289,7 @@ class ActivityExampleService:
             enabled_by_user_id=actor_user_id,
         )
         if not added:
-            return  # already enabled; nothing changed, so nothing to audit
+            return shadows_owned_key  # already enabled; nothing changed, so nothing to audit
 
         await audit.emit(
             self._db,
@@ -292,6 +303,7 @@ class ActivityExampleService:
                 request_id=request_id,
             ),
         )
+        return shadows_owned_key
 
     async def opt_out(
         self,

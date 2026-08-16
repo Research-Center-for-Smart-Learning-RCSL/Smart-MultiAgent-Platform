@@ -12,8 +12,10 @@ import type { ActivitySubmissionOut } from '../models/ActivitySubmissionOut';
 import type { ActivitySubmissionsPageOut } from '../models/ActivitySubmissionsPageOut';
 import type { ActivityTypeIn } from '../models/ActivityTypeIn';
 import type { ActivityTypeOptInIn } from '../models/ActivityTypeOptInIn';
+import type { ActivityTypeOptInResultOut } from '../models/ActivityTypeOptInResultOut';
 import type { ActivityTypeOut } from '../models/ActivityTypeOut';
 import type { ActivityTypePublicOut } from '../models/ActivityTypePublicOut';
+import type { ActivityTypeRegisteredOut } from '../models/ActivityTypeRegisteredOut';
 import type { ActivityTypeUpdateIn } from '../models/ActivityTypeUpdateIn';
 import type { ActivityValidatorOut } from '../models/ActivityValidatorOut';
 import type { PlatformExampleOut } from '../models/PlatformExampleOut';
@@ -291,7 +293,11 @@ export class ActivitiesService {
     /**
      * Opt Project Into Activity Type
      * Enable a platform example for this project ([R30.33]).
-     * @returns void
+     *
+     * 200 with a body rather than the 204 this used to return: opting into a key
+     * the project already owns is permitted but leaves two live types under one key
+     * ([R30.02]), and the owner has to be told at the moment they do it.
+     * @returns ActivityTypeOptInResultOut Successful Response
      * @throws ApiError
      */
     public static optProjectIntoActivityTypeApiProjectsProjectIdActivityTypeOptinsPost({
@@ -300,7 +306,7 @@ export class ActivitiesService {
     }: {
         projectId: string,
         requestBody: ActivityTypeOptInIn,
-    }): CancelablePromise<void> {
+    }): CancelablePromise<ActivityTypeOptInResultOut> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/projects/{project_id}/activity-type-optins',
@@ -370,7 +376,7 @@ export class ActivitiesService {
     }
     /**
      * Register Activity Type
-     * @returns ActivityTypeOut Successful Response
+     * @returns ActivityTypeRegisteredOut Successful Response
      * @throws ApiError
      */
     public static registerActivityTypeApiProjectsProjectIdActivityTypesPost({
@@ -379,7 +385,7 @@ export class ActivitiesService {
     }: {
         projectId: string,
         requestBody: ActivityTypeIn,
-    }): CancelablePromise<ActivityTypeOut> {
+    }): CancelablePromise<ActivityTypeRegisteredOut> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/projects/{project_id}/activity-types',

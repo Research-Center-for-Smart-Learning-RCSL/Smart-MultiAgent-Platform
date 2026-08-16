@@ -109,6 +109,25 @@ class ActivityTypeOut(BaseModel):
     created_at: str | None
 
 
+class ActivityTypeRegisteredOut(ActivityTypeOut):
+    """The registration response: the created type plus any advisory warning.
+
+    A subclass rather than a wrapper so the client keeps reading the row exactly
+    where it always did. `shadowed_by_platform` is not an error: the type WAS
+    created ([R30.02] permits the collision), but the project now holds two live
+    types under one key and everything that selects by key alone selects both.
+    """
+
+    shadowed_by_platform: bool = False
+
+
+class ActivityTypeOptInResultOut(BaseModel):
+    """The opt-in response. 200 with a body rather than 204, so the mirror of
+    `ActivityTypeRegisteredOut.shadowed_by_platform` has somewhere to go."""
+
+    shadows_owned_key: bool = False
+
+
 class ActivityTypePublicOut(BaseModel):
     """The participant rendering contract (R30.26): identity, key, display
     name, and payload schema, and nothing else. No `validator_config` — that
@@ -314,11 +333,11 @@ async def register_activity_type(
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
-) -> ActivityTypeOut:
+) -> ActivityTypeRegisteredOut:
     await assert_project_owner(db=db, principal=principal, project_id=project_id)
     if body.validator_kind is ValidatorKind.MCP:
         await _assert_mcp_binding_in_project(db, project_id, body.validator_config)
-    activity_type = await ActivitiesFacade(db).register_type(
+    registration = await ActivitiesFacade(db).register_type(
         project_id=project_id,
         key=body.key,
         name=body.name,
@@ -333,7 +352,10 @@ async def register_activity_type(
         request_id=ctx.request_id,
     )
     await db.commit()
-    return _type_out(activity_type)
+    return ActivityTypeRegisteredOut(
+        **_type_out(registration.activity_type).model_dump(),
+        shadowed_by_platform=registration.shadowed_by_platform,
+    )
 
 
 async def _assert_mcp_binding_in_project(
@@ -490,17 +512,22 @@ async def list_platform_activity_examples(
     ]
 
 
-@project_router.post("/{project_id}/activity-type-optins", status_code=204, response_model=None)
+@project_router.post("/{project_id}/activity-type-optins")
 async def opt_project_into_activity_type(
     body: ActivityTypeOptInIn,
     project_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
-) -> None:
-    """Enable a platform example for this project ([R30.33])."""
+) -> ActivityTypeOptInResultOut:
+    """Enable a platform example for this project ([R30.33]).
+
+    200 with a body rather than the 204 this used to return: opting into a key
+    the project already owns is permitted but leaves two live types under one key
+    ([R30.02]), and the owner has to be told at the moment they do it.
+    """
     await assert_project_owner(db=db, principal=principal, project_id=project_id)
-    await ActivitiesFacade(db).opt_project_in(
+    shadows_owned_key = await ActivitiesFacade(db).opt_project_in(
         project_id=project_id,
         activity_type_id=body.activity_type_id,
         actor_user_id=principal.user_id,
@@ -508,6 +535,7 @@ async def opt_project_into_activity_type(
         request_id=ctx.request_id,
     )
     await db.commit()
+    return ActivityTypeOptInResultOut(shadows_owned_key=shadows_owned_key)
 
 
 @project_router.delete("/{project_id}/activity-type-optins/{type_id}", status_code=204, response_model=None)

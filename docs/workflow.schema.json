@@ -177,6 +177,7 @@
     },
 
     "trigger_config": {
+      "$comment": "The absence of additionalProperties: false is load-bearing, not an oversight. Optional per-kind filters (activity_type_scope) are added additively so a stored rule keeps matching exactly as it did; adding the constraint later would retroactively invalidate them.",
       "type": "object",
       "required": ["trigger_type"],
       "properties": {
@@ -238,7 +239,8 @@
                 "items": { "type": "string", "maxLength": 128 },
                 "minItems": 1
               },
-              "validation_status":   { "enum": ["any", "pending", "validated", "error"], "default": "any" }
+              "validation_status":   { "enum": ["any", "pending", "validated", "error"], "default": "any" },
+              "activity_type_scope":  { "enum": ["any", "project", "platform"], "default": "any" }
             },
             "required": ["chatroom_id"]
           } }
@@ -342,6 +344,7 @@
     },
 
     "wait_for_event_config": {
+      "$comment": "The absence of additionalProperties: false is load-bearing here too, and more so: wait_for_event copies its match criteria into Redis for up to 86400s, so a stored wait cannot be migrated at all. See trigger_config.",
       "type": "object",
       "required": ["event_type", "timeout_seconds"],
       "properties": {
@@ -386,7 +389,8 @@
                 "items": { "type": "string", "maxLength": 128 },
                 "minItems": 1
               },
-              "validation_status":  { "enum": ["any", "pending", "validated", "error"], "default": "any" }
+              "validation_status":  { "enum": ["any", "pending", "validated", "error"], "default": "any" },
+              "activity_type_scope": { "enum": ["any", "project", "platform"], "default": "any" }
             },
             "required": ["chatroom_id"]
           } }

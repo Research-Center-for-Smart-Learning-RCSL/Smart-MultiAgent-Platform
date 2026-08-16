@@ -87,12 +87,14 @@ def _service(
     *,
     platform_types: list[ActivityType] | None = None,
     optins: list[ProjectActivityTypeOptIn] | None = None,
+    owned_types: list[ActivityType] | None = None,
 ) -> ActivityExampleService:
     svc = ActivityExampleService(MagicMock())
     installed = platform_types or []
 
     svc._type_repo = MagicMock()
     svc._type_repo.list_platform = AsyncMock(return_value=installed)
+    svc._type_repo.list_owned_by_project = AsyncMock(return_value=owned_types or [])
     svc._type_repo.list_platform_by_keys = AsyncMock(
         side_effect=lambda keys: [t for t in installed if t.key in set(keys)]
     )
@@ -344,6 +346,58 @@ class TestOptIn:
             )
 
         emit.assert_not_awaited()
+
+    async def test_opting_into_a_key_the_project_already_owns_warns_and_succeeds(self) -> None:
+        """AC-2. The mirror of `register`'s warning, and the cheaper of the two
+        doors onto the same state: authoring the collision takes a whole form,
+        opting into it takes one click. Permitted either way ([R30.02])."""
+        installed = _platform_type("mandala-9grid")
+        owned = _platform_type("mandala-9grid", project_id=uuid.uuid4(), scope=ActivityTypeScope.PROJECT)
+        svc = _service(platform_types=[installed], owned_types=[owned])
+
+        with patch("contexts.activities.application.example_service.audit.emit", new=AsyncMock()):
+            shadows = await svc.opt_in(
+                project_id=uuid.uuid4(),
+                activity_type_id=installed.id,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        assert shadows is True
+        svc._optin_repo.add.assert_awaited_once()
+
+    async def test_no_warning_when_the_project_owns_no_type_under_that_key(self) -> None:
+        installed = _platform_type("mandala-9grid")
+        owned = _platform_type("quiz", project_id=uuid.uuid4(), scope=ActivityTypeScope.PROJECT)
+        svc = _service(platform_types=[installed], owned_types=[owned])
+
+        with patch("contexts.activities.application.example_service.audit.emit", new=AsyncMock()):
+            shadows = await svc.opt_in(
+                project_id=uuid.uuid4(),
+                activity_type_id=installed.id,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        assert shadows is False
+
+    async def test_a_repeat_optin_still_reports_a_standing_collision(self) -> None:
+        """The warning is about state, not about this call's effect. A re-run that
+        changes nothing must keep reporting the collision it left behind, or going
+        silent would read as though the owner had resolved it."""
+        installed = _platform_type("mandala-9grid")
+        owned = _platform_type("mandala-9grid", project_id=uuid.uuid4(), scope=ActivityTypeScope.PROJECT)
+        svc = _service(platform_types=[installed], owned_types=[owned])
+        svc._optin_repo.add = AsyncMock(return_value=False)
+
+        shadows = await svc.opt_in(
+            project_id=uuid.uuid4(),
+            activity_type_id=installed.id,
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
+        )
+
+        assert shadows is True
 
     async def test_a_project_scoped_type_cannot_be_opted_into(self) -> None:
         """An opt-in row naming a project type would be meaningless -- the

@@ -337,6 +337,10 @@ async def workflow_signal(ctx: dict[str, Any], source: str, payload: dict[str, A
         chatroom_id = str(payload.get("chatroom_id", ""))
         activity_type_key = str(payload.get("activity_type_key", ""))
         validation_status = str(payload.get("validation_status", ""))
+        # Absent on a signal enqueued before this field existed and still parked
+        # in Redis; the matcher treats "" as "no scope known", which only ever
+        # widens a scope-filtered rule into not matching, never the reverse.
+        activity_type_scope = str(payload.get("activity_type_scope", ""))
 
         def _activity_pred(match: dict[str, Any]) -> bool:
             return ed.matches_activity(
@@ -344,6 +348,7 @@ async def workflow_signal(ctx: dict[str, Any], source: str, payload: dict[str, A
                 chatroom_id=chatroom_id,
                 activity_type_key=activity_type_key,
                 validation_status=validation_status,
+                activity_type_scope=activity_type_scope,
             )
 
         for run_id, node_id in await ed.find_matching_waits(redis, "activity_in_room", _activity_pred):

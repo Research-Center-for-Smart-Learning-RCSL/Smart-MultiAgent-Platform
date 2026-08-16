@@ -248,6 +248,7 @@ class SubmissionService:
         signal_payload = _assemble_activity_signal(
             submission=submission,
             activity_type_key=activity_type.key,
+            activity_type_scope=activity_type.scope.value,
             subject_user_id=session.subject_user_id,
             same_error_count=await self._same_error_count(submission, _ROLLING_WINDOW_SECONDS),
             window_seconds=_ROLLING_WINDOW_SECONDS,
@@ -337,6 +338,7 @@ class SubmissionService:
         return _assemble_activity_signal(
             submission=submission,
             activity_type_key=activity_type.key if activity_type is not None else "",
+            activity_type_scope=activity_type.scope.value if activity_type is not None else "",
             subject_user_id=session.subject_user_id if session is not None else None,
             same_error_count=await self._same_error_count(submission, window_seconds),
             window_seconds=window_seconds,
@@ -397,6 +399,7 @@ def _assemble_activity_signal(
     *,
     submission: ActivitySubmission,
     activity_type_key: str,
+    activity_type_scope: str,
     subject_user_id: uuid.UUID | None,
     same_error_count: int,
     window_seconds: int,
@@ -409,11 +412,20 @@ def _assemble_activity_signal(
     never dereferences ``None``. ``error_class``/``is_valid`` stay ``None`` while
     pending (they are compared, not coerced, so no crash). All fields derive from
     the authoritative row, never the client.
+
+    ``activity_type_id`` and ``activity_type_scope`` follow the same
+    always-present discipline (``""`` when the type row has gone, matching what
+    ``activity_type_key`` already does). They exist because ``key`` alone no
+    longer identifies one type: a project's usable set may hold its own type and
+    an opted-in platform type under the same key ([R30.02]), and a rule matching
+    on the key alone fires for both.
     """
     return {
         "submission_id": str(submission.id),
         "chatroom_id": str(submission.chatroom_id),
         "activity_type_key": activity_type_key,
+        "activity_type_id": str(submission.activity_type_id),
+        "activity_type_scope": activity_type_scope,
         "session_id": str(submission.session_id),
         "subject_user_id": str(subject_user_id) if subject_user_id is not None else None,
         "attempt_no": submission.attempt_no,
