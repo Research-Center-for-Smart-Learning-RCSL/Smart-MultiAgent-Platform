@@ -95,6 +95,11 @@ _MAP: ErrorMap = {
         404,
         "This project has not enabled that platform activity type",
     ),
+    errors.ExampleCourseNotFound: (
+        "activities/example-course-not-found",
+        404,
+        "No shipped course with that key",
+    ),
 }
 
 

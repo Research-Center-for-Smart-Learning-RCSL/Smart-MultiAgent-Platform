@@ -113,15 +113,32 @@ class ActivityTypeNotOptedIn(ActivitiesError):
     code = "activities/type-not-opted-in"
 
 
+class ExampleCourseNotFound(ActivitiesError):
+    """No shipped course with that key ([R30.32]).
+
+    Distinct from a course file that exists but does not parse: that is a defect
+    in the deployed artifact, and reporting it to a client as "not found" would
+    send an operator looking in the wrong place. The catalogue's own
+    ``CourseFileInvalid`` covers six causes across both fault domains, so only the
+    client-fault one is lifted into the domain here; the rest stay a 500.
+    """
+
+    code = "activities/example-course-not-found"
+
+
 __all__ = [
     "ActivitiesError",
     "ActivityActivationNotFound",
     "ActivityAlreadyActive",
     "ActivityNotActive",
+    "ActivityPolicyInconsistent",
+    "ActivityPolicyVersionMismatch",
     "ActivityTypeActive",
     "ActivityTypeKeyConflict",
     "ActivityTypeNotFound",
     "ActivityTypeNotOptedIn",
+    "ActivityTypeViolatesPolicy",
+    "ExampleCourseNotFound",
     "PayloadSchemaInvalid",
     "PlatformActivityTypeReadOnly",
     "SessionNotFound",

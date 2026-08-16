@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -24,6 +25,7 @@ from contexts.activities.application.example_service import ActivityExampleServi
 from contexts.activities.domain.errors import (
     ActivityTypeNotFound,
     ActivityTypeNotOptedIn,
+    ExampleCourseNotFound,
     ValidatorConfigInvalid,
 )
 from contexts.activities.domain.models import (
@@ -35,7 +37,11 @@ from contexts.activities.domain.models import (
     ProjectActivityTypeOptIn,
     ValidatorKind,
 )
-from contexts.activities.infrastructure.examples.catalogue import load_course
+from contexts.activities.infrastructure.examples.catalogue import (
+    CourseDefinition,
+    CourseFileInvalid,
+    load_course,
+)
 
 _NOW = dt.datetime(2026, 8, 9, tzinfo=dt.UTC)
 _COURSE_KEY = "creative-thinking"
@@ -204,15 +210,54 @@ class TestInstallCourse:
         assert report.already_present == (first,)
         assert report.created == tuple(rest)
 
-    async def test_a_traversal_course_key_never_reaches_the_filesystem(self) -> None:
-        """`course_key` is an HTTP path segment now, so the loader's anchored guard
-        bounds a network-reachable path rather than a CLI argument."""
+    async def test_an_unknown_course_key_is_a_domain_not_found(self) -> None:
+        """F-6. A mistyped key is the client's fault, so it must be the mapped 404
+        rather than the loader's bare `CourseFileInvalid`, which falls through to
+        the global catch-all as a 500 with a logged stack trace."""
         svc = _service()
 
-        from contexts.activities.infrastructure.examples.catalogue import CourseFileInvalid
+        with pytest.raises(ExampleCourseNotFound) as exc:
+            await svc.install_course(
+                course_key="creative-thinkin", actor_user_id=uuid.uuid4(), actor_ip=None
+            )
 
-        with pytest.raises(CourseFileInvalid, match="not a valid course key"):
+        # AC-4: the detail names what *is* available, which is the whole diagnosis
+        # when a packaging failure leaves the catalogue empty.
+        assert _COURSE_KEY in str(exc.value)
+
+    async def test_a_traversal_course_key_never_reaches_the_filesystem(self) -> None:
+        """`course_key` is an HTTP path segment now, so nothing derived from it may
+        reach the filesystem. The catalogue pre-check refuses it before the loader
+        runs at all, which is why this now raises the domain not-found; the guard
+        being asserted is that no `open`/`is_file` ever sees the key."""
+        svc = _service()
+
+        def _never(_key: str) -> CourseDefinition:
+            raise AssertionError("the loader was reached with a client-supplied key")
+
+        with (
+            patch.object(example_service, "_load_cached", _never),
+            patch.object(Path, "is_file", side_effect=AssertionError("filesystem touched")),
+            patch.object(Path, "read_text", side_effect=AssertionError("filesystem touched")),
+            pytest.raises(ExampleCourseNotFound),
+        ):
             await svc.install_course(course_key="../../etc/passwd", actor_user_id=uuid.uuid4(), actor_ip=None)
+
+    async def test_a_malformed_shipped_file_is_still_a_server_fault(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """AC-2. The not-found lift must not swallow artifact failures: a key that
+        names a real shipped file which does not parse stays a `CourseFileInvalid`,
+        so it stays a 500 an operator is paged about."""
+        svc = _service()
+
+        def _explode(_key: str) -> CourseDefinition:
+            raise CourseFileInvalid(f"{_key}.json: line 3: is not valid JSON")
+
+        monkeypatch.setattr(example_service, "_load_cached", _explode)
+
+        with pytest.raises(CourseFileInvalid):
+            await svc.install_course(course_key=_COURSE_KEY, actor_user_id=uuid.uuid4(), actor_ip=None)
 
     async def test_a_remote_validator_course_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A platform row has no project, so an mcp/webhook validator could never

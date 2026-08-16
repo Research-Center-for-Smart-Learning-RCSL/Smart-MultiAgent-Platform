@@ -26,6 +26,7 @@ from contexts.activities.application.type_service import ActivityTypeService
 from contexts.activities.domain.errors import (
     ActivityTypeNotFound,
     ActivityTypeNotOptedIn,
+    ExampleCourseNotFound,
     ValidatorConfigInvalid,
 )
 from contexts.activities.domain.models import ActivityType, ActivityTypeScope, ValidatorKind
@@ -174,7 +175,22 @@ class ActivityExampleService:
         traversal guard now bounds a network-reachable path rather than a CLI
         argument. ``load_course`` rejects anything that is not lowercase words
         joined by hyphens before it touches the filesystem.
+
+        The catalogue is consulted *before* the loader so an unknown key is a
+        mapped 404 rather than the loader's ``CourseFileInvalid`` -- a bare
+        ``ValueError`` outside this context's error contract, which reaches the
+        client as an unhandled 500 with a logged stack trace. A key that names a
+        shipped file which does not parse deliberately keeps producing that 500:
+        that is a defect in the deployed artifact, not a client mistake.
         """
+        known = available_courses()
+        if course_key not in known:
+            # The available list rather than the bare key: this route is
+            # admin-gated, and in the realistic packaging-failure case ("none")
+            # the list *is* the whole diagnosis.
+            raise ExampleCourseNotFound(
+                f"{course_key!r} is not a shipped course (available: {', '.join(known) or 'none'})"
+            )
         course = _load_cached(course_key)
 
         for course_type in course.activity_types:
