@@ -95,7 +95,10 @@ at all and the literal §8.2 test passed against the pre-fix code. The live case
 whose **contents** changed; both are now tests. This sharpens FU-4's sweep for
 `watch(() => [`. And **D-6** — no behavioural verification, again (Docker unavailable); four
 user-visible behaviours changed and none has been seen in a browser, so confirm on the first
-deployed build. **File overlap** with the still-open `example-dialog-pending-and-optout` in
+deployed build — **D-9** sharpens that: a post-close `/code-review` found two more windows in
+exactly the residual-state handling jsdom was asserting (the warning fired after a *successful*
+install, and a row deleted by another admin blanked an open form), both now fixed with tests.
+**File overlap** with the still-open `example-dialog-pending-and-optout` in
 `ActivityExamplesSection.vue`: that dossier owns the `installingKey` pending state, this one
 rewrote row resolution, the card rendering and the Edit button's guard around it. Rebase.
 Removed on 2026-08-16 after implementation: `2026-08-16-activities-install-error-contract` (an

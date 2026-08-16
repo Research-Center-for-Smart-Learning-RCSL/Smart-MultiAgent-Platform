@@ -282,7 +282,8 @@ puts any control inside a table it breaks, which is the intended signal.
 - [x] AC-4: Clicking Save with no resolved row surfaces a toast rather than doing nothing
   silently, and Save is disabled in that state.
 - [x] AC-5: A refetch returning an identical row does not reseed an open, dirty form (§8.2).
-  *Two tests, and the split matters - see **D-5**. The identical-row case passed before this fix
+  *Three tests after **D-9**: identical row, changed row, and vanished row. The split matters -
+  see **D-5**. The identical-row case passed before this fix
   as well, because vue-query's structural sharing never hands the dialog a new object for a
   deeply-equal refetch. The case that reaches the watch, and that failed first, is a refetch
   whose **contents** changed.*
@@ -384,6 +385,24 @@ documented capability is restored.
   comparison is useless here, since PowerShell's redirect adds a BOM and CRLF. `gen:api` was
   deliberately **not** re-run: no route changed this session, and D-2 records that it rewrites
   all ~280 api-client files with CRLF on Windows. CI runs the real gate.
+- **D-9** — **Post-close `/code-review` found two windows this fix left open, both in the
+  residual-state handling §7.3 and §7.4 added.** Fixed in `b62fceb` with a regression test each,
+  both confirmed failing first. Recorded rather than folded in silently, because both are the
+  same mistake: treating an unresolved row as a single state when it has several, and picking a
+  guard that covers only one of them.
+  - **The warning gated on `isPending`**, which in vue-query covers only the very first load —
+    a refetch keeps `status === 'success'` and flips `isFetching` alone. `refreshExamplesAndTypes`
+    invalidates the catalogue and the platform listing together and they race, so whenever the
+    catalogue answered first the freshly installed unit carried an `installed_type_id` whose row
+    was not yet in the platform list. The result: an admin whose install had just succeeded was
+    told the saved settings could not be loaded and to reload the page. Now `isFetching`.
+  - **The dialog watch used `''` as its open-but-unresolved sentinel**, so a row that
+    *disappeared* under an open dialog moved the source from the id to that sentinel, fired the
+    callback with `props.open` still true, and seeded from `null` — blanking the name and
+    resetting both switches. Another admin deleting the type while this one was mid-edit is
+    enough. This is **the same defect D-5 is about**, arriving by the one path id-keying cannot
+    distinguish: the scalar source fixed same-id reseeding and said nothing about
+    id-to-absent. The callback now bails on a null row as well as a closed dialog.
 
 ## 12a. RESUME NOTE — CLOSED
 
