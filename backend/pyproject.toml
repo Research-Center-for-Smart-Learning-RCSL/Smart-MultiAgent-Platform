@@ -32,7 +32,7 @@ dependencies = [
   "pyjwt[crypto]==2.13.*",  # verify Google's RS256 OIDC id_token against JWKS (R6.14); algorithms pinned to RS256 at the call site. SEC-DEP: <2.13 has 6 known CVEs (crit-header bypass, HMAC/JWK confusion, JWKClient SSRF/DoS, algorithm allow-list bypass)
 
   "python-multipart==0.0.32",  # SEC-DEP: 0.0.27+ fixes multipart DoS; 0.0.30+ fixes CVE-2026-53538/39/40
-  "orjson==3.11.*",
+  "orjson>=3.11,<3.13",
   "cryptography==50.0.*",  # SEC-DEP: 50.0 fixes the PKCS#7 Bleichenbacher oracle (PYSEC-2026-3552)
   "psycopg[binary]>=3.2,<3.4",
   "minio==7.2.*",
