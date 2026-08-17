@@ -47,6 +47,37 @@ down_revision: str | Sequence[str] | None = "0076_platform_activity_types"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+# The two data statements are module-level so a ``db``-tier test can execute the
+# exact SQL this migration runs, against a real PostgreSQL, without tearing down
+# the schema every other test in that job is using (the shape 0076 uses for
+# ``assert_no_platform_types``). A hand-copied duplicate in the test would prove
+# nothing about what the migration does.
+
+# Adopt the sessions a live round can still claim. At most one activation per
+# room is `active` (uq_activity_activations_active), so the join cannot match two
+# rows and the UPDATE is deterministic. A class under way when this runs keeps
+# its attempt history.
+BACKFILL_ACTIVATION_SQL = (
+    "UPDATE activity_sessions s "
+    "SET activation_id = a.id "
+    "FROM activity_activations a "
+    "WHERE s.status = 'open' "
+    "AND a.status = 'active' "
+    "AND a.chatroom_id = s.chatroom_id "
+    "AND a.activity_type_id = s.activity_type_id"
+)
+
+# Close what nothing claims. These sessions cannot receive a submission today
+# either ([R30.22] requires an active activation for the type), so this takes
+# nothing away; leaving them open is what would let the NEXT round adopt them,
+# which is the defect this migration exists to end. Not reversible by
+# downgrade() -- see the dossier's risk section.
+CLOSE_UNCLAIMED_SQL = (
+    "UPDATE activity_sessions "
+    "SET status = 'closed', closed_at = now() "
+    "WHERE status = 'open' AND activation_id IS NULL"
+)
+
 
 def upgrade() -> None:
     op.add_column(
@@ -63,31 +94,9 @@ def upgrade() -> None:
         sa.Column("completed_at", sa.TIMESTAMP(timezone=True), nullable=True),
     )
 
-    # Step 1 -- adopt the sessions a live round can still claim. At most one
-    # activation per room is `active` (uq_activity_activations_active), so the
-    # join cannot match two rows and the UPDATE is deterministic. A class under
-    # way when this runs keeps its attempt history.
-    op.execute(
-        "UPDATE activity_sessions s "
-        "SET activation_id = a.id "
-        "FROM activity_activations a "
-        "WHERE s.status = 'open' "
-        "AND a.status = 'active' "
-        "AND a.chatroom_id = s.chatroom_id "
-        "AND a.activity_type_id = s.activity_type_id"
-    )
-
-    # Step 2 -- close what nothing claims. These sessions cannot receive a
-    # submission today either ([R30.22] requires an active activation for the
-    # type), so this takes nothing away; leaving them open is what would let the
-    # NEXT round adopt them, which is the defect this migration exists to end.
-    # Not reversible by downgrade() -- see the module docstring in the dossier's
-    # risk section.
-    op.execute(
-        "UPDATE activity_sessions "
-        "SET status = 'closed', closed_at = now() "
-        "WHERE status = 'open' AND activation_id IS NULL"
-    )
+    # Order matters: adopt first, then close what is left unclaimed.
+    op.execute(BACKFILL_ACTIVATION_SQL)
+    op.execute(CLOSE_UNCLAIMED_SQL)
 
     op.execute("DROP INDEX IF EXISTS uq_activity_sessions_open")
     # Serves the per-round count and close as well as the identity lookup: a
