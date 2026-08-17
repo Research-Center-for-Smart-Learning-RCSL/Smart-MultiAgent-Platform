@@ -107,13 +107,59 @@ describe('mandala9GridPlugin', () => {
     teardown()
   })
 
-  it('treats the first property as the centre when none is named center (AC-8)', () => {
+  it('renders declared order when no property is named center (R30.36)', () => {
+    // This scenario used to assert the opposite: the plugin promoted the first
+    // property to the centre, citing AC-8 of
+    // `docs/tasks/2026-08-08-creative-thinking-course-example/spec.md:571-572`.
+    // That AC specifies the center-present and not-nine-fields cases and says
+    // nothing about this one, so the promotion was an implementation choice
+    // rather than a mandate. Triaged 2026-08-16 in [R30.36]'s favour: `center`
+    // is a named opt-in, and a schema that declares none renders as declared.
     const properties: Record<string, JSONSchema> = {}
     for (let i = 1; i <= 9; i += 1) properties[`f${i}`] = { type: 'string' }
     const { container, teardown } = mount({ type: 'object', properties })
 
     const cells = container.querySelectorAll('[data-testid="mandala-grid"] > div')
-    expect(cells[4]?.querySelector('textarea')?.id).toBe('mandala-f1')
+    expect(cells).toHaveLength(9)
+    const ids = Array.from(cells).map((c) => c.querySelector('textarea')?.id)
+    expect(ids).toEqual([
+      'mandala-f1',
+      'mandala-f2',
+      'mandala-f3',
+      'mandala-f4',
+      'mandala-f5',
+      'mandala-f6',
+      'mandala-f7',
+      'mandala-f8',
+      'mandala-f9',
+    ])
+    // No cell claims the centre styling when the schema named no centre.
+    expect(container.querySelector('[data-testid="mandala-cell-center"]')).toBeNull()
+    teardown()
+  })
+
+  it('honours x-order over object key order when no property is named center (R30.36)', () => {
+    // Key order here is deliberately the reverse of x-order, so passing cannot
+    // be an accident of how the object literal happens to enumerate — which is
+    // the property that ties this renderer to R30.36 rather than to jsonb's
+    // storage order.
+    const properties: Record<string, JSONSchema> = {}
+    for (let i = 9; i >= 1; i -= 1) properties[`f${i}`] = { type: 'string', 'x-order': i }
+    const { container, teardown } = mount({ type: 'object', properties })
+
+    const cells = container.querySelectorAll('[data-testid="mandala-grid"] > div')
+    const ids = Array.from(cells).map((c) => c.querySelector('textarea')?.id)
+    expect(ids).toEqual([
+      'mandala-f1',
+      'mandala-f2',
+      'mandala-f3',
+      'mandala-f4',
+      'mandala-f5',
+      'mandala-f6',
+      'mandala-f7',
+      'mandala-f8',
+      'mandala-f9',
+    ])
     teardown()
   })
 
