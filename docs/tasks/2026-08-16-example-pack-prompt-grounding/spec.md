@@ -290,6 +290,28 @@ prompt ungroundable. This corrects shipped content against requirements that alr
   assertable, so the gap is the whole point of AC-8's checklist item rather than an oversight -
   but it does mean the prompt's effect is reasoned, not observed. The dry-run OQ-1 already
   mandates is what closes it.
+- **D-5 — a post-close `/code-review` found the same bias one clause over, and the fix
+  reaches only the half this dossier introduced.** Newest-first truncation does not merely
+  shrink the sample, it **tilts** it: run two types in sequence and the later one owns most
+  of the window by construction, so ranking types by row count ranks recency and calls it
+  difficulty. That is this dossier's own failure shape applied to a different question.
+  Two clauses were exposed to it and they are not equivalent. `哪些活動多半一次就通過` was
+  **not in the spec** - §7.1 asked only for "the distribution of what is visible" and the
+  implementation added a third element unasked - so it is removed, returning the bullet to
+  the approved footprint. `哪個活動卡住的人最多` is required by AC-3 and was cleared by name
+  in §6, so it stays; overturning an approved AC after close would be exactly the unilateral
+  redesign the contract forbids. Instead the window caveat now states the skew directly
+  (新的在前 … 不是難度), which bounds the surviving clause without contradicting AC-3, and a
+  fourth test pins it. `誰反覆嘗試` needed nothing: `attempt_no` is a per-row server fact, so
+  a visible `#3` is true regardless of what was evicted.
+- **D-6 — §2's arithmetic overstates the eviction, and the walkthrough inherited it.** "By
+  the second activity, the first activity's submissions are entirely gone" does not follow
+  from the same sentence's own numbers: 56 events against a 30-row window leaves the two
+  newest activity-1 rows visible, and total eviction needs 30 later events. The direction of
+  the error is toward caution, which does not make it right, and the walkthrough paragraph is
+  the one a reader consults to check the constant against the code. `docs/examples/`
+  now says 26 of 28 evicted; §2 above is left as written, per the contract's rule that a
+  dossier records rather than rewrites.
 
 ## 13. Follow-ups
 

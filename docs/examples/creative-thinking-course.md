@@ -199,21 +199,30 @@ any question to AA can mean.
 `DEFAULT_ACTIVITY_WINDOW` events, newest first
 (`backend/contexts/activities/application/activity_context_provider.py`), currently 30,
 and every retry consumes a row of its own. A 28-student class running two activity types
-per unit produces roughly 56 events before anyone retries, so by the second activity the
-first activity's submissions have left AA's context entirely.
+per unit produces roughly 56 events before anyone retries, so once the second activity is
+under way the window holds almost none of the first: 26 of its 28 submissions have been
+evicted, and any retry evicts one more.
 
 **There is no roster.** No block delivers the list of people expected to submit, and the
 transcript's display names cannot be matched to the block's truncated codes, which is a
 deliberate privacy choice.
 
-Together those mean AA can report **retries and per-activity difficulty**, because the
-attempt number and the type key are on every row, and cannot report **who has not
-submitted, participation rate, or coverage**: that is a set difference against a roster it
-does not have, and past the cap the visible evidence positively suggests that early
-submitters never submitted at all. The prompt states the bound, says that a code's absence
-from the block is not evidence that person did not submit, and requires AA to decline
-coverage questions and hand them back to the teacher, who holds the roster. Asserted
-over the shipped file by `backend/tests/unit/test_agent_example_packs.py`.
+Together those mean AA can report **who retried and how often**, which survives truncation
+unconditionally because `attempt_no` is a per-row server fact: a visible `#3` is true no
+matter what was evicted. It cannot report **who has not submitted, participation rate, or
+coverage**: that is a set difference against a roster it does not have, and past the cap
+the visible evidence positively suggests that early submitters never submitted at all.
+
+Between those sits **per-activity difficulty**, which AA may describe but not compute by
+counting. Newest-first truncation does not only shrink the sample, it tilts it: run two
+types in sequence and the later one owns most of the window by construction, so ranking
+types by how many rows each has ranks recency and calls it difficulty. The prompt says so
+directly.
+
+The prompt states the bound, says that a code's absence from the block is not evidence that
+person did not submit, warns that row counts cannot be compared across types, and requires
+AA to decline coverage questions and hand them back to the teacher, who holds the roster.
+Asserted over the shipped file by `backend/tests/unit/test_agent_example_packs.py`.
 
 ### What DA cannot do
 
@@ -429,6 +438,10 @@ no test can assert.
   cannot answer that and hand the question back, not name anyone and not estimate a rate.
   This is the case the window makes dangerous rather than merely unanswerable: the early
   submitters are gone from its context, so the visible evidence points at the wrong answer.
+- [ ] **AA does not rank the two activity types by row count.** Same run: ask which
+  activity gave the class the most trouble. Describing what it saw is fine; naming the
+  later type because more of its rows survived the window is the recency bias, not a
+  finding about difficulty.
 - [ ] **Unit 4 boundaries hold**: no pressing for detail, no eliciting further disclosure,
   no therapeutic response, and a hand-back to the teacher when a disclosure exceeds a
   classroom exercise.
