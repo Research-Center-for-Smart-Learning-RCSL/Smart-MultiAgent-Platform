@@ -260,8 +260,10 @@ dossier must continue to hold, since this fix must not blur the two delete paths
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The `db`-tier test from §8.3 fails before the fix and passes after: after deleting a
-  platform type, `project_activity_type_optins` holds no row for it.
+- [x] AC-1: The `db`-tier test from §8.3 fails before the fix and passes after: after deleting a
+  platform type, `project_activity_type_optins` holds no row for it. (Verified on CI run
+  `31993358787`, job `backend-db`: `71 passed, 3 skipped` against a real PostgreSQL, up from the
+  tier's previous baseline of 70. Not runnable on the implementing host - see D-4 and D-9.)
 - [x] AC-2: `delete_platform_type` removes every project's opt-in for the type and passes the
   count into the `activity_type.deleted` audit metadata as `optins_removed`.
 - [x] AC-3: No `activity_type.opted_out` event is emitted by the delete path (Q-2).
@@ -319,7 +321,11 @@ new dossier, not an amendment smuggled in here - see §14.
   local PostgreSQL is listening on 5432, so the `db`/`integration` tiers cannot run here at all;
   the test is written and is the empirical proof the dossier calls for, but it rests on reasoning
   until the `backend-db` CI job runs it. This is the sixth consecutive dossier in this series to
-  record the same gap. AC-1's checkbox stays unticked deliberately - see §14 OQ-2.
+  record the same gap.
+  **Resolved 2026-08-17**: CI run `31993358787` ran it green, so AC-1 is ticked and OQ-2 is
+  closed. Kept as written rather than deleted, because the gap was real while it lasted and the
+  first CI run vindicated it - it found a defect in this very test (D-9) that no amount of local
+  reasoning would have surfaced.
 - **D-5**: No behavioural verification (same cause as D-4). The user-visible change is small
   (an admin delete now revokes opt-ins, and two surfaces describe it accurately) but the
   end-to-end flow - delete a platform type, observe the projects lose the example - has not been
@@ -402,10 +408,11 @@ new dossier, not an amendment smuggled in here - see §14.
 
 ## 14. Open Questions
 
-- **OQ-2**: AC-1 is unverified (D-4): no host in this environment can run the `db` tier. The
-  dossier is complete in every other respect. Either the `backend-db` CI job runs it green - at
-  which point AC-1 is ticked and nothing else changes - or it fails, and §8.3's test is the thing
-  that tells us so. Nothing downstream depends on the answer.
+- **OQ-2** (**closed 2026-08-17**): AC-1 was unverified (D-4) because no host in this environment
+  can run the `db` tier. Answered by CI run `31993358787`: `backend-db` is green at
+  `71 passed, 3 skipped`, up from the tier's 70-test baseline. The answer was not quite "it runs
+  green and nothing else changes" - the first attempt failed in teardown and cost a fix to the
+  shared integration fixture (D-9).
 
 - **OQ-1**: Q-2 assumes no compliance stance requires per-project auditability of access lost to
   an admin delete. If one does, the honest artifact is a new action string
