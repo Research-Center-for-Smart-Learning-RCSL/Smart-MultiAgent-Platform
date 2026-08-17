@@ -44,11 +44,19 @@ Removed on 2026-08-17 after implementation: `2026-08-16-platform-type-delete-opt
 (an admin platform-type delete now removes every project's opt-in explicitly and records the
 count on the `activity_type.deleted` event, instead of relying on an FK cascade that a soft
 delete can never fire). Nothing lists it in `depends_on`, so no row moved out of Blocked.
-**Three things a later reader needs.** **AC-1 has never been executed** (D-4): no Docker and no
-local PostgreSQL on the implementing host, so the `db`-tier test that is the dossier's empirical
-proof rests on reasoning until the `backend-db` CI job runs it. Its checkbox is deliberately left
-unticked and OQ-2 says what happens either way — sixth consecutive dossier in this series with
-the same gap, and D-5 records that no behavioural verification happened for the same reason.
+**Three things a later reader needs.** **The db tier is the only thing that found the real
+defects, and it found two.** No Docker and no local PostgreSQL on the implementing host, so AC-1
+shipped unverified (D-4) and was answered by CI: the first run failed, not on an assertion but on
+**fixture teardown** — `audit_logs` has an `ON DELETE SET NULL` FK to `users` and an append-only
+trigger that refuses the UPDATE that cascade performs, so dropping the `project` fixture's
+throwaway user breaks for any test that emitted an audit event as it. This was the first `db`
+test to do so; `tests/integration/conftest.py` now clears those rows under
+`SET ROLE smap_audit_retention` (D-9), which is a landmine removed for everyone. The same push
+also failed `frontend-gate-openapi-drift` twice: once because a FastAPI route **docstring** is
+published as the operation description and `make openapi-types` was never run (D-8), and again
+because the regenerated spec was committed with a **UTF-8 BOM** that PowerShell redirection adds
+and `core.autocrlf` does not normalise (D-10). AC-1 is now green on run `31993358787`. D-5 still
+stands: no behavioural verification in a browser.
 **D-3** — the db test does more than the spec asked, because `check-quality` found that nothing
 in the change exercised the real cursor: the unit tier mocks `result.scalars().all()`, so a
 misread `RETURNING` clause would delete correctly, pass everything, and write
