@@ -21,6 +21,7 @@ from contexts.activities.domain.models import ActivityActivation, ActivityActiva
 from contexts.activities.infrastructure.repositories.optin_repo import (
     ProjectActivityTypeOptInRepository,
 )
+from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
 from shared_kernel import audit
 
 
@@ -40,6 +41,9 @@ class ActivationService:
         # and a test double supplying only the two repos it exercises keeps working;
         # the opt-in table is read only for platform-scoped types.
         self._optin_repo = optin_repo or ProjectActivityTypeOptInRepository(db)
+        # Ending a round closes the sessions answered under it, so this service
+        # owns a session repo. Defaulted for the same reason as the opt-in one.
+        self._session_repo = ActivitySessionRepository(db)
         self._policy = ActivityPolicyService(db)
 
     async def start(
@@ -111,6 +115,13 @@ class ActivationService:
         if activation is None or activation.chatroom_id != chatroom_id:
             raise ActivityActivationNotFound(str(activation_id))
         if await self._repo.end(activation_id):
+            # The round is over, so nothing answered under it stays open ([R30.22]).
+            # Every path that ends an activation -- the facilitator's route, a type
+            # delete, an admin platform-type delete, a project opt-out -- goes
+            # through here, which is what makes this one call the whole cascade.
+            # Ordered before the audit so the count is a fact about what happened,
+            # not a prediction.
+            sessions_closed = await self._session_repo.close_open_for_activation(activation_id)
             await audit.emit(
                 self._db,
                 audit.AuditEvent(
@@ -122,6 +133,7 @@ class ActivationService:
                     metadata={
                         "chatroom_id": str(chatroom_id),
                         "activity_type_id": str(activation.activity_type_id),
+                        "sessions_closed": str(sessions_closed),
                     },
                     request_id=request_id,
                 ),

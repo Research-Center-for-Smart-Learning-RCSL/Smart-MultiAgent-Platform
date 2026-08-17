@@ -179,6 +179,14 @@ class ActivitySession:
     status: SessionStatus
     created_at: dt.datetime
     closed_at: dt.datetime | None = None
+    # The round this session was answered under (0077). Defaulted rather than
+    # positional so the existing construction sites keep describing the case they
+    # always described; ``None`` means a pre-0077 row, never a live one.
+    activation_id: uuid.UUID | None = None
+    # The subject's own "I am finished" declaration, independent of ``status``:
+    # the participant sets and clears this, the facilitator's end-of-round sets
+    # ``status``. A submission clears it (submission_service.py::submit).
+    completed_at: dt.datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
