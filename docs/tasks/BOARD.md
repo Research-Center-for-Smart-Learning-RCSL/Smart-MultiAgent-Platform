@@ -27,6 +27,13 @@ list). This section is kept as the record of what that audit produced.
 
 ### Other ready work
 
+- `2026-08-17-activity-participant-lifecycle` (feature, draft) — `depends_on: []`. Removes the
+  participant's self-serve session start/finish from the chatroom Activity rail, binds an
+  `ActivitySession` to the `ActivityActivation` it was answered under (so a re-run of the same
+  activity in one room is a separate attempt history), closes a round's sessions when the
+  facilitator ends it (the deferred FU-2 of `2026-07-13-activities-activation-ux`), and adds a
+  reversible participant "I'm done" signal the facilitator reads as a completed/in-progress
+  count. Migration 0077.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
