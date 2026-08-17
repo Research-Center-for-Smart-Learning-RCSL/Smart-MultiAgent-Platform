@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getActivityPlugin } from '../plugins'
 import { InProcessBridge, type HostBridge } from '../sdk/bridge'
-import type { ActivityTeardown, JSONSchema } from '../sdk/types'
+import type { ActivitySubmissionResult, ActivityTeardown, JSONSchema } from '../sdk/types'
 import { useActivityHost } from '../composables/useActivityHost'
 import type { ActivityTypePublic } from '../types'
 import SchemaForm from './SchemaForm.vue'
@@ -25,14 +25,31 @@ const props = withDefaults(
   },
 )
 
+const emit = defineEmits<{
+  /** A submission was accepted by the server. The host owns no state that
+   *  depends on it; the panel does — answering again retracts an "I am
+   *  finished" declaration server-side ([R30.22]), so a listener that shows that
+   *  declaration has to hear about it or it goes stale. */
+  submitted: []
+}>()
+
 const { t } = useI18n()
 
-const { submit, submitting, errorMessage, outcome } = useActivityHost({
+const { submit: rawSubmit, submitting, errorMessage, outcome } = useActivityHost({
   chatroomId: () => props.chatroomId,
   activityTypeId: () => props.activityType.id,
   sessionId: () => props.sessionId ?? null,
   subjectUserId: () => props.subjectUserId ?? null,
 })
+
+/** The single submit both paths (plugin and schema form) go through, so neither
+ *  can accept a submission without announcing it. Only a resolved call emits:
+ *  `rawSubmit` re-throws, and a failed submission changed nothing server-side. */
+async function submit(payload: unknown): Promise<ActivitySubmissionResult> {
+  const result = await rawSubmit(payload)
+  emit('submitted')
+  return result
+}
 
 // Form-path submit handler: `submit` re-throws so a plugin's `emit` can react to
 // the failure, but as a bare form handler that rejection would float. Swallow it

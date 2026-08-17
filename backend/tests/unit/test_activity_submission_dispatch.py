@@ -45,7 +45,7 @@ def submission() -> SimpleNamespace:
 
 
 def _silence_the_other_concerns(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stub the emit and the two enqueues; this file is about the fourth concern."""
+    """Stub the emit, the two enqueues and the progress fan-out."""
 
     class _Publisher:
         def __init__(self, _channel: object) -> None:
@@ -56,6 +56,7 @@ def _silence_the_other_concerns(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(activities_api, "Publisher", _Publisher)
     monkeypatch.setattr(activities_api, "room_channel", lambda _r: "room")
+    monkeypatch.setattr(activities_api, "_dispatch_room_activation_progress", AsyncMock())
 
 
 class TestSubmissionReArmsTheSilenceClock:
@@ -122,6 +123,58 @@ class TestSubmissionReArmsTheSilenceClock:
         await activities_api._dispatch_submission(uuid.uuid4(), submission, {}, db=object())
 
         assert seen == ["validate_activity_submission", "workflow_signal", "note_room_activity"]
+
+
+class TestSubmissionRepublishesTheFacilitatorCounts:
+    """A submission moves the counts, so it has to say so ([R30.22]).
+
+    Two ways, and neither was broadcast before this: the first submission opens
+    the subject's session (in_progress 0 -> 1), and any submission retracts an
+    "I am finished" declaration. Without the dispatch the facilitator's panel
+    keeps showing a class as finished while it carries on working, for the rest
+    of the round — the starter has no poll to recover with.
+    """
+
+    async def test_dispatch_republishes_the_progress(
+        self, monkeypatch: pytest.MonkeyPatch, submission: SimpleNamespace
+    ) -> None:
+        _silence_the_other_concerns(monkeypatch)
+        progress = AsyncMock()
+        monkeypatch.setattr(activities_api, "_dispatch_room_activation_progress", progress)
+        monkeypatch.setattr(activities_api, "enqueue", AsyncMock())
+        monkeypatch.setattr(activities_api, "ConversationFacade", lambda _db: AsyncMock())
+        monkeypatch.setattr(activities_api, "ActivitiesFacade", lambda _db: "facade")
+        room_id = uuid.uuid4()
+
+        await activities_api._dispatch_submission(room_id, submission, {}, db=object())
+
+        progress.assert_awaited_once_with("facade", room_id)
+
+    async def test_it_publishes_nothing_once_the_round_has_ended(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The facilitator ending the round between commit and dispatch is
+        precisely when there is nothing to report."""
+        publisher = AsyncMock()
+        monkeypatch.setattr(activities_api, "Publisher", publisher)
+        facade = AsyncMock()
+        facade.get_active_activation.return_value = None
+
+        await activities_api._dispatch_room_activation_progress(facade, uuid.uuid4())
+
+        publisher.assert_not_called()
+
+    async def test_a_failed_lookup_never_surfaces(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The submission is already committed; a progress read that cannot run
+        must not turn it into a failed request."""
+        publisher = AsyncMock()
+        monkeypatch.setattr(activities_api, "Publisher", publisher)
+        facade = AsyncMock()
+        facade.get_active_activation.side_effect = RuntimeError("db gone")
+
+        await activities_api._dispatch_room_activation_progress(facade, uuid.uuid4())
+
+        publisher.assert_not_called()
 
     async def test_a_failing_re_arm_never_fails_the_submission(
         self, monkeypatch: pytest.MonkeyPatch, submission: SimpleNamespace

@@ -87,6 +87,60 @@ describe('ActivityHost — form-renderer path (AC-2)', () => {
   })
 })
 
+describe('ActivityHost — submitted announcement', () => {
+  // The host owns no state that depends on a submission; the panel does. A
+  // submission retracts an "I am finished" declaration server-side ([R30.22]),
+  // so a listener showing that declaration has to hear about it.
+  it('announces an accepted submission from the form path', async () => {
+    submitActivityMock.mockResolvedValue(submissionOut())
+    const wrapper = await renderView(ActivityHost, {
+      props: { chatroomId: 'c1', activityType: activityType() },
+    })
+
+    await wrapper.find('input').setValue('hello')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.emitted('submitted')).toHaveLength(1)
+  })
+
+  it('stays silent when the server refused it', async () => {
+    // A failed submission changed nothing server-side, so announcing it would
+    // clear a declaration that still stands.
+    submitActivityMock.mockRejectedValue(new Error('boom'))
+    const wrapper = await renderView(ActivityHost, {
+      props: { chatroomId: 'c1', activityType: activityType() },
+    })
+
+    await wrapper.find('input').setValue('hello')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.emitted('submitted')).toBeUndefined()
+  })
+
+  it('announces a plugin submission too, since both paths share one submit', async () => {
+    let ctx: ActivityRenderCtx | null = null
+    registerActivityPlugin(
+      defineActivityPlugin({
+        manifest: { key: 'demo', version: '1', title: 'Demo' },
+        render: (_el, c) => {
+          ctx = c
+        },
+      }),
+    )
+    submitActivityMock.mockResolvedValue(submissionOut())
+    const wrapper = await renderView(ActivityHost, {
+      props: { chatroomId: 'c1', activityType: activityType() },
+    })
+
+    await ctx!.emit({ answer: 'hello' })
+    await flushPromises()
+
+    expect(wrapper.emitted('submitted')).toHaveLength(1)
+  })
+})
+
 describe('ActivityHost — plugin path (AC-1)', () => {
   it('mounts the plugin, routes emit through the api-client, and renders the server outcome', async () => {
     let ctx: ActivityRenderCtx | null = null

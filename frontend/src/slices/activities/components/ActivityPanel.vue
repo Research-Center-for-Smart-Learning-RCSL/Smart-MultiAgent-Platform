@@ -239,11 +239,15 @@ onMounted(() => {
         {{ t('activities.panel.progress', { completed: progress.completed, working: progress.in_progress }) }}
       </p>
       <template v-if="activeType">
+        <!-- Answering again retracts the declaration server-side ([R30.22]), so
+             the toggle has to follow or it shows the wrong label and costs the
+             participant two clicks to re-declare. -->
         <ActivityHost
           :chatroom-id="chatroomId"
           :activity-type="activeType"
           :session-id="null"
           :subject-user-id="session.me?.id ?? null"
+          @submitted="completed = false"
         />
         <SButton
           variant="secondary"
