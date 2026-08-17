@@ -195,9 +195,12 @@ export class AdminService {
      * Remove an installed example ([R30.32]).
      *
      * The cascade legitimately spans every tenant: the type is going away for
-     * everyone, so every active activation ends and every open session closes, and
-     * the opt-in rows go with it through the FK cascade. Durable-commit before the
-     * fan-out, so no room is told its activation ended before it is.
+     * everyone, so every active activation ends, every open session closes, and
+     * every project's opt-in is revoked. Durable-commit before the fan-out, so no
+     * room is told its activation ended before it is.
+     *
+     * Re-installing the course mints a new type id, so every project that had
+     * enabled this example must enable it again — the revocation is not undone.
      * @returns void
      * @throws ApiError
      */
