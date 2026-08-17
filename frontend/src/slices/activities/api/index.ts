@@ -6,6 +6,7 @@
 
 import { ActivitiesService } from '@shared/api-client'
 import type {
+  ActivityActivationProgressOut,
   ActivityPolicyPublicOut,
   ActivitySessionOpenIn,
   ActivitySessionOut,
@@ -154,6 +155,47 @@ export async function closeActivitySession(
 ): Promise<ActivitySessionOut> {
   return ActivitiesService.closeActivitySessionApiChatroomsChatroomIdActivitySessionsSessionIdClosePatch(
     { chatroomId, sessionId },
+  )
+}
+
+/** Declare the caller finished with the running activity, or undo it ([R30.22]).
+ *
+ *  Keyed on the activation, not on a session id: participants no longer open
+ *  sessions, so the client has none to send and the server resolves or creates
+ *  the one for this round. */
+export async function setActivationCompletion(
+  chatroomId: string,
+  activationId: string,
+  completed: boolean,
+): Promise<ActivitySessionOut> {
+  return ActivitiesService.setActivitySessionCompletionApiChatroomsChatroomIdActivityActivationsActivationIdCompletionPatch(
+    { chatroomId, activationId, requestBody: { completed } },
+  )
+}
+
+/** The caller's own session for this round, or `null` if they have none.
+ *
+ *  How a reloading participant learns they had already declared themselves
+ *  finished: the client holds no session id, so there is nothing else to ask
+ *  with. Creates nothing. */
+export async function getOwnRoundSession(
+  chatroomId: string,
+  activationId: string,
+): Promise<ActivitySessionOut | null> {
+  return ActivitiesService.getActivitySessionCompletionApiChatroomsChatroomIdActivityActivationsActivationIdCompletionGet(
+    { chatroomId, activationId },
+  )
+}
+
+/** How many participants have declared themselves finished ([R30.22]).
+ *  Room-creator only — a 403 here is the expected answer for everyone else, so
+ *  the caller must not surface it as a failure on the participant surface. */
+export async function getActivationProgress(
+  chatroomId: string,
+  activationId: string,
+): Promise<ActivityActivationProgressOut> {
+  return ActivitiesService.getActivityActivationProgressApiChatroomsChatroomIdActivityActivationsActivationIdProgressGet(
+    { chatroomId, activationId },
   )
 }
 

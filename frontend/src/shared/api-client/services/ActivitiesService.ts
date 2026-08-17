@@ -98,6 +98,36 @@ export class ActivitiesService {
         });
     }
     /**
+     * Get Activity Session Completion
+     * The caller's own session for this round, or ``null`` if they have none.
+     *
+     * The read counterpart of the completion PATCH. Without it a participant who
+     * reloads cannot know they had already declared themselves finished: they hold
+     * no session id to ask with, and the panel would render the toggle in the wrong
+     * state. Creates nothing — looking at the panel is not answering.
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static getActivitySessionCompletionApiChatroomsChatroomIdActivityActivationsActivationIdCompletionGet({
+        chatroomId,
+        activationId,
+    }: {
+        chatroomId: string,
+        activationId: string,
+    }): CancelablePromise<(ActivitySessionOut | null)> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/activity-activations/{activation_id}/completion',
+            path: {
+                'chatroom_id': chatroomId,
+                'activation_id': activationId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Set Activity Session Completion
      * A participant declares themselves finished with the running activity, or
      * undoes it ([R30.22]).

@@ -16533,6 +16533,66 @@
       }
     },
     "/api/chatrooms/{chatroom_id}/activity-activations/{activation_id}/completion": {
+      "get": {
+        "description": "The caller's own session for this round, or ``null`` if they have none.\n\nThe read counterpart of the completion PATCH. Without it a participant who\nreloads cannot know they had already declared themselves finished: they hold\nno session id to ask with, and the panel would render the toggle in the wrong\nstate. Creates nothing \u2014 looking at the panel is not answering.",
+        "operationId": "get_activity_session_completion_api_chatrooms__chatroom_id__activity_activations__activation_id__completion_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "activation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Activation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ActivitySessionOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Activity Session Completion Api Chatrooms  Chatroom Id  Activity Activations  Activation Id  Completion Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Activity Session Completion",
+        "tags": [
+          "activities"
+        ]
+      },
       "patch": {
         "description": "A participant declares themselves finished with the running activity, or\nundoes it ([R30.22]).\n\nKeyed on the activation rather than on a session id: participants no longer\nopen sessions, so a client legitimately has no session id to send -- the\nserver resolves or creates the one for this round. ``ensure_can_send``\nbecause this writes; the subject is forced to the caller inside the service\n(the admin arm passes ``caller_user_id=None``, as the session open does).",
         "operationId": "set_activity_session_completion_api_chatrooms__chatroom_id__activity_activations__activation_id__completion_patch",

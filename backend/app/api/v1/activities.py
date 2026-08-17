@@ -783,6 +783,32 @@ async def set_activity_session_completion(
     return _session_out(result.session)
 
 
+@chatroom_router.get("/{chatroom_id}/activity-activations/{activation_id}/completion")
+async def get_activity_session_completion(
+    chatroom_id: uuid.UUID = Path(...),
+    activation_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ActivitySessionOut | None:
+    """The caller's own session for this round, or ``null`` if they have none.
+
+    The read counterpart of the completion PATCH. Without it a participant who
+    reloads cannot know they had already declared themselves finished: they hold
+    no session id to ask with, and the panel would render the toggle in the wrong
+    state. Creates nothing — looking at the panel is not answering.
+    """
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    session = await ActivitiesFacade(db).get_session_for_round(
+        project_id=access.project_id,
+        chatroom_id=chatroom_id,
+        activation_id=activation_id,
+        subject_user_id=principal.user_id,
+        caller_user_id=None if principal.is_admin else principal.user_id,
+    )
+    return _session_out(session) if session is not None else None
+
+
 @chatroom_router.get("/{chatroom_id}/activity-activations/{activation_id}/progress")
 async def get_activity_activation_progress(
     chatroom_id: uuid.UUID = Path(...),
