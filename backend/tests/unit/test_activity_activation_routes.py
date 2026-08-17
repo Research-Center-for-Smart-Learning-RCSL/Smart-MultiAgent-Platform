@@ -1,4 +1,4 @@
-﻿"""Route behavior for activity activation lifecycle notifications."""
+"""Route behavior for activity activation lifecycle notifications."""
 
 from __future__ import annotations
 
