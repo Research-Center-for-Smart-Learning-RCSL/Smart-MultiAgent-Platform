@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-08-16
 requirements: [R30.31]
 depends_on: []
@@ -170,15 +170,15 @@ cheap half of FU-2.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The test from §8.1 fails before the fix and passes after.
-- [ ] AC-2: `frontend/src/shared/locales/en.json` and `zh-TW.json` both contain a `common`
+- [x] AC-1: The test from §8.1 fails before the fix and passes after.
+- [x] AC-2: `frontend/src/shared/locales/en.json` and `zh-TW.json` both contain a `common`
   namespace with `close`, `edit`, `delete`, `cancel`, `save`, and their key sets are identical.
-- [ ] AC-3: Under an active `zh-TW` locale, all seventeen call sites listed in §2 render
+- [x] AC-3: Under an active `zh-TW` locale, all seventeen call sites listed in §2 render
   Chinese; under `en` they render exactly the text they render today.
-- [ ] AC-4: No call site is modified - the diff touches only the two locale files and the
+- [x] AC-4: No call site is modified - the diff touches only the two locale files and the
   test files.
-- [ ] AC-5: `zh-TW.json` is written UTF-8 with no BOM.
-- [ ] AC-6: Gates green: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`,
+- [x] AC-5: `zh-TW.json` is written UTF-8 with no BOM.
+- [x] AC-6: Gates green: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`,
   `pnpm run check:bundle-size`, `pnpm run check:type-coverage`,
   `pnpm run check:boundaries-enforced`.
 
@@ -189,7 +189,32 @@ strings the code already asks for.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1**: §8.2 asked for a component-level assertion "under an active `zh-TW` locale", which
+  the test harness does not provide. `renderView` (`frontend/tests/utils/render.ts:38`) mounts
+  the shared `i18n` singleton with **no** bundle loaded at all - which is why every other
+  assertion in `ExampleImportDialog.test.ts` matches a raw key string such as
+  `activities.examples.enable`. The test therefore merges `@shared/locales/zh-TW.json` into the
+  singleton and switches the locale itself, restoring it in a `finally`. Consequence worth
+  knowing: it proves the key resolves, not that the app's boot path merges the bundle. Contained
+  by vitest's default per-file fork isolation (`vite.config.ts:70-74` sets no `pool`/`isolate`
+  override); if that ever changes, this merge becomes global.
+- **D-2**: §8.3's recurrence guard is a second `describe` block in the same file rather than an
+  extension of §8.1's assertions, and it carries two bounds the spec did not state. It excludes
+  `**/__tests__/**` from the scan, so a test asserting on the literal string `common.delete`
+  (`frontend/src/slices/agents/__tests__/KnowledgeMapConfigListView.test.ts:150`) is not counted
+  as a call site. And it asserts the scan finds at least one reference, so a glob or regex that
+  silently stops matching fails loudly instead of passing vacuously - the failure mode a
+  scan-based test is most likely to develop.
+- **D-3**: AC-3 is checked on this basis: one call site (`ExampleImportDialog`'s footer) is
+  rendered and asserted under `zh-TW`; the other sixteen follow from the same mechanism, pinned
+  by §8.3's scan asserting that every key referenced anywhere under `src/` exists in both
+  bundles. The `en` half needs no render assertion because the five new English values are
+  byte-identical to the default arguments already being rendered.
+- **D-4**: A `check-quality` finding on this task's sibling (the backend dossier) prompted a
+  second pass over this file's type handling: `en`/`zh-TW` are read through a
+  `{ common?: ... }` cast in *all* assertions, not only the first. Typing `common` as required
+  would turn a deleted namespace into a compile error in the test file, and a test that cannot
+  run is not a test that fails.
 
 ## 13. Follow-ups
 
@@ -206,3 +231,11 @@ Appended by /build.
 - **FU-3**: `AgentToolsView.vue` accounts for eight of the seventeen sites and is over 1350
   lines. Not this task's business, but it is the file most likely to grow a ninth; recorded for
   whoever routes structural work (`check-quality`).
+- **FU-4**: **The component test harness loads no locale bundles at all**, which sharpens FU-2
+  by naming the second reason this survived. `renderView` mounts the shared `i18n` instance
+  without running a single loader (D-1), so every component test asserts either a raw key or an
+  English default argument - 182 test files, and none of them could have seen this. The hole is
+  wider than `common.*`: a key deleted from `zh-TW.json` only is invisible to the entire suite
+  the same way. Making `renderView` merge the real bundles would break every existing
+  `toContain('slice.key')` assertion, so the cheap form is a per-slice bundle-parity test
+  (en and zh-TW declare identical key sets) modelled on §8.1's third assertion.
