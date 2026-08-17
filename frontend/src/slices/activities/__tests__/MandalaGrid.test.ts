@@ -1,6 +1,8 @@
 // AC-8 (grid placement + non-9-field fallback) and AC-9 (emit contract, failure
-// leaves the grid mounted) for the mandala-9grid plugin. The component is mounted
-// through InProcessBridge rather than directly, so the test also covers the
+// leaves the grid mounted) of `docs/tasks/2026-08-08-creative-thinking-course-example`
+// for the mandala-9grid plugin, plus [R30.36]'s declared-order rule, which supersedes
+// what that AC-8 was once read to mandate for a schema naming no centre. The component
+// is mounted through InProcessBridge rather than directly, so the test also covers the
 // island's lack of app context: a plugin that needed vue-i18n would throw here.
 
 import { describe, expect, it, vi } from 'vitest'
@@ -16,6 +18,20 @@ const OK: ActivitySubmissionResult = {
   isValid: true,
   subScores: { filled: 2 },
 }
+
+/** `f1`..`f9` in declared order — what a nine-field schema naming no centre
+ *  must render, however its keys happen to be stored. */
+const DECLARED_ORDER_IDS = [
+  'mandala-f1',
+  'mandala-f2',
+  'mandala-f3',
+  'mandala-f4',
+  'mandala-f5',
+  'mandala-f6',
+  'mandala-f7',
+  'mandala-f8',
+  'mandala-f9',
+]
 
 function nineFieldSchema(): JSONSchema {
   const properties: Record<string, JSONSchema> = {
@@ -122,17 +138,7 @@ describe('mandala9GridPlugin', () => {
     const cells = container.querySelectorAll('[data-testid="mandala-grid"] > div')
     expect(cells).toHaveLength(9)
     const ids = Array.from(cells).map((c) => c.querySelector('textarea')?.id)
-    expect(ids).toEqual([
-      'mandala-f1',
-      'mandala-f2',
-      'mandala-f3',
-      'mandala-f4',
-      'mandala-f5',
-      'mandala-f6',
-      'mandala-f7',
-      'mandala-f8',
-      'mandala-f9',
-    ])
+    expect(ids).toEqual(DECLARED_ORDER_IDS)
     // No cell claims the centre styling when the schema named no centre.
     expect(container.querySelector('[data-testid="mandala-cell-center"]')).toBeNull()
     teardown()
@@ -149,17 +155,7 @@ describe('mandala9GridPlugin', () => {
 
     const cells = container.querySelectorAll('[data-testid="mandala-grid"] > div')
     const ids = Array.from(cells).map((c) => c.querySelector('textarea')?.id)
-    expect(ids).toEqual([
-      'mandala-f1',
-      'mandala-f2',
-      'mandala-f3',
-      'mandala-f4',
-      'mandala-f5',
-      'mandala-f6',
-      'mandala-f7',
-      'mandala-f8',
-      'mandala-f9',
-    ])
+    expect(ids).toEqual(DECLARED_ORDER_IDS)
     teardown()
   })
 
