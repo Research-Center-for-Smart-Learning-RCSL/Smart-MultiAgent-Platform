@@ -19,6 +19,7 @@ import uuid
 from collections.abc import AsyncIterator
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from contexts.identity.infrastructure.tables import users as users_t
@@ -58,6 +59,14 @@ async def project(
     target every real-DB integration test needs (key groups, embedding pins,
     ...). Owned by a throwaway user, since ``created_by_user_id`` is NOT NULL;
     dropping that user cascades the project and everything hung off it.
+
+    Teardown clears this user's ``audit_logs`` rows first, and has to: the FK is
+    ``ON DELETE SET NULL`` (migration 0004), the append-only trigger rejects the
+    UPDATE that cascade performs, and the failure surfaces as a teardown ERROR on
+    a test whose assertions all passed. Any test that emits an audit event as
+    this user hits it, so the fixture owns the cleanup rather than each test. The
+    ``SET ROLE`` is the same deliberate, NOINHERIT bypass the retention worker
+    uses (``audit_query_service.purge_old_logs``), not a new privilege.
     """
     pid, uid = uuid.uuid4(), uuid.uuid4()
     async with sessionmaker() as session:
@@ -81,6 +90,11 @@ async def project(
         yield pid, uid
     finally:
         async with sessionmaker() as cleanup:
+            await cleanup.execute(text("SET ROLE smap_audit_retention"))
+            try:
+                await cleanup.execute(text("DELETE FROM audit_logs WHERE actor_user_id = :uid"), {"uid": uid})
+            finally:
+                await cleanup.execute(text("RESET ROLE"))
             await cleanup.execute(projects_t.delete().where(projects_t.c.id == pid))
             await cleanup.execute(users_t.delete().where(users_t.c.id == uid))
             await cleanup.commit()
