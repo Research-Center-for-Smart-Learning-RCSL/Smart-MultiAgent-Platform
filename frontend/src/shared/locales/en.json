@@ -1,4 +1,11 @@
 {
+  "common": {
+    "close": "Close",
+    "edit": "Edit",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "save": "Save"
+  },
   "shared": {
     "fileUpload": {
       "dropzone": "Drop files here or click to browse",

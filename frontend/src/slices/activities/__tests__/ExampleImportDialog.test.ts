@@ -9,6 +9,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import { renderView, deferred } from '../../../../tests/utils'
+import { i18n } from '@shared/i18n'
+import sharedZhTW from '@shared/locales/zh-TW.json'
 import ExampleImportDialog from '../components/ExampleImportDialog.vue'
 
 const listMock = vi.hoisted(() => vi.fn())
@@ -319,6 +321,29 @@ describe('ExampleImportDialog', () => {
 
     expect(wrapper.text()).toContain('activities.examples.errorText')
     expect(wrapper.text()).not.toContain('activities.examples.emptyTitle')
+  })
+
+  it('translates the footer button under zh-TW rather than falling back to English', async () => {
+    // The reported symptom, pinned at the surface it was reported on: every
+    // string on this dialog is Chinese except the footer, which read "Close".
+    // The call site was never wrong -- it passes the key and an English default,
+    // so the default rendered for want of a `common` namespace to resolve.
+    listMock.mockResolvedValue([example()])
+    const previous = i18n.global.locale.value
+    i18n.global.mergeLocaleMessage('zh-TW', sharedZhTW)
+    i18n.global.locale.value = 'zh-TW'
+
+    try {
+      const wrapper = await mountDialog()
+      await flushPromises()
+
+      const close = sharedZhTW.common.close
+      expect(close).not.toBe('Close')
+      expect(wrapper.findAll('button').filter((b) => b.text() === close)).toHaveLength(1)
+      expect(wrapper.text()).not.toContain('Close')
+    } finally {
+      i18n.global.locale.value = previous
+    }
   })
 
   it('does not query while closed', async () => {
