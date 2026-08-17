@@ -1,4 +1,4 @@
-"""Migration 0077 swaps the session uniqueness rule, in both directions (AC-9).
+"""Migration 0077's schema change, in both directions (AC-9).
 
 WHAT THIS COSTS TO RUN, AND WHY IT IS NOT IN THE SHARED ``db`` FIXTURE
 ---------------------------------------------------------------------
@@ -10,23 +10,22 @@ verified rather than assumed because getting it wrong is destructive.
 
 WHAT THEY PIN
 -------------
-The index swap is the load-bearing half of 0077. ``uq_activity_sessions_open``
-was ``(activity_type_id, chatroom_id, subject_user_id) WHERE status = 'open'``,
-which forbids a subject a second round's session while the first is still open --
-the exact reason a re-run of one activity used to reuse the previous round's
-session and continue its attempt sequence. It has to be *gone*, and the plain
-``(activation_id, subject_user_id)`` unique has to be *there*; either half
-missing leaves the defect in place, and neither is visible to a tier that never
-executes DDL.
+Two columns and one new unique, and -- the assertion that is easy to leave out --
+that ``uq_activity_sessions_open`` is still **there** afterwards. It is redundant
+under the new design and the obvious move is to drop it; the migration
+deliberately does not, because pre-0077 code relies on it and dropping it here
+would break the forward-compatibility rule (backend/CLAUDE.md). A later reader
+tidying up needs that decision defended by a test, not only by a comment.
 
-The downgrade is asserted too, because it is not a mechanical reversal: it has to
-retire duplicate open sessions before it can restore a constraint that forbids
-them. This file exercises the empty-table path (structure only); the data half
-lives in ``test_activity_session_activation.py``, which runs the migration's own
-backfill SQL against real rows without touching the schema.
+The downgrade is asserted too: with the old index never dropped, the reversal is
+unconditional, which is a property worth pinning rather than assuming.
+
+This file exercises the empty-table path (structure only); the data half lives in
+``test_activity_session_activation.py``, which runs the migration's own backfill
+SQL against real rows without touching the schema.
 
     SMAP_SCRATCH_DATABASE_URL=postgresql+asyncpg://smap:smap@localhost:5432/smap_scratch \\
-        pytest tests/integration/test_migration_0077_index_swap.py -m db
+        pytest tests/integration/test_migration_0077_schema.py -m db
 """
 
 from __future__ import annotations
@@ -49,7 +48,7 @@ pytestmark = pytest.mark.db
 _MIGRATION_PATH = (
     Path(__file__).resolve().parents[2] / "alembic" / "versions" / "0077_activity_session_activation.py"
 )
-_spec = importlib.util.spec_from_file_location("_migration_0077_index_swap", _MIGRATION_PATH)
+_spec = importlib.util.spec_from_file_location("_migration_0077_schema", _MIGRATION_PATH)
 assert _spec is not None
 assert _spec.loader is not None
 migration_0077 = importlib.util.module_from_spec(_spec)
@@ -137,7 +136,7 @@ def _begin_after_reads(conn: sa.engine.Connection) -> sa.engine.Transaction:
     return conn.begin()
 
 
-def test_the_upgrade_replaces_the_open_partial_unique(scratch_conn: sa.engine.Connection) -> None:
+def test_the_upgrade_adds_the_round_scoped_unique(scratch_conn: sa.engine.Connection) -> None:
     assert _index_exists(scratch_conn, _OLD_INDEX)
     assert not _column_exists(scratch_conn, "activation_id")
 
@@ -148,10 +147,23 @@ def test_the_upgrade_replaces_the_open_partial_unique(scratch_conn: sa.engine.Co
     assert _column_exists(scratch_conn, "activation_id")
     assert _column_exists(scratch_conn, "completed_at")
     assert _index_exists(scratch_conn, _NEW_INDEX)
-    # The half that is easy to forget: leaving the old index in place would keep
-    # forbidding the second round's session, so the migration would apply
-    # cleanly and change nothing about the defect.
-    assert not _index_exists(scratch_conn, _OLD_INDEX)
+
+
+def test_the_upgrade_leaves_the_pre_0077_unique_in_place(scratch_conn: sa.engine.Connection) -> None:
+    """Forward compatibility, asserted rather than commented.
+
+    Pre-0077 ``create_open`` relies on ``uq_activity_sessions_open`` for its
+    ``ON CONFLICT DO NOTHING``. Drop it and, in the window between
+    ``alembic upgrade`` and the app restart, that insert writes
+    ``activation_id = NULL``; NULLs are distinct under the new unique, so two
+    concurrent first submissions produce two open sessions for one subject --
+    the split 0077 exists to prevent, caused by 0077.
+    """
+    ctx = MigrationContext.configure(scratch_conn)
+    with Operations.context(ctx), _begin_after_reads(scratch_conn):
+        migration_0077.upgrade()
+
+    assert _index_exists(scratch_conn, _OLD_INDEX)
 
 
 def test_the_downgrade_restores_the_previous_shape(scratch_conn: sa.engine.Connection) -> None:
@@ -183,9 +195,9 @@ def test_a_failed_upgrade_leaves_no_column_behind(
 
         def _boom(*_args: object, **_kwargs: object) -> None:
             calls["n"] += 1
-            # Fail on the index swap, after both columns and both data steps.
+            # Fail on the index creation, after both columns and both data steps.
             if calls["n"] >= 3:
-                raise RuntimeError("index swap blew up mid-migration")
+                raise RuntimeError("index build blew up mid-migration")
 
         monkeypatch.setattr(migration_0077.op, "execute", _boom)
         with pytest.raises(RuntimeError, match="blew up"):

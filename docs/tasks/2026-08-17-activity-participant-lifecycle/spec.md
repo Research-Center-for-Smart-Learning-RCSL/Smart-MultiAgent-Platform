@@ -620,6 +620,46 @@ Amend `REQUIREMENTS.md:2181` **[R30.22]**, replacing the final sentence:
   carries (`BOARD.md`, D-10 of the migration-0076 dossier); the working defence is to write
   files through the editor rather than through PowerShell redirection.
 
+- **D-10 (review fix): a submission now republishes the facilitator's counts.**
+  `submit` clears `completed_at` (that is D-4's Q-5 behaviour) but the submit route published
+  nothing, and the starter — the only viewer the completion event targets — has no poll. So a
+  participant who declared themselves finished and then kept working left the facilitator's panel
+  reading "1 done" for the rest of the round, which is precisely the number a teacher decides to
+  move on from. The same hole swallowed the *first* submission of every round, which moves
+  `in_progress` 0 → 1 and was equally silent. `_dispatch_room_activation_progress` now runs at the
+  end of `_dispatch_submission`, unconditionally: the route cannot know whether the counts moved
+  without asking, and asking is the read. `_dispatch_activation_progress`'s docstring claimed a
+  dropped event "self-heals"; it does not for the starter, and now says so.
+
+- **D-11 (review fix): the done toggle follows the server after a submission.**
+  Mirror of D-10 on the client. `completed` was set only by the toggle and the round read, so
+  after answering again the button still read "Keep working" while the server considered the
+  participant unfinished — and the next click sent `completed: false`, a no-op, so re-declaring
+  cost two clicks with the wrong label in between. `ActivityHost` now emits `submitted` from the
+  single submit both its paths share (only on a resolved call — a refused submission changed
+  nothing), and the panel clears the toggle on it.
+
+- **D-12 (review fix, §6.1 step 4 reversed): 0077 no longer drops
+  `uq_activity_sessions_open`.**
+  The spec had the migration drop it, which breaks the forward-compatibility rule this repo holds
+  migrations to (backend/CLAUDE.md: old code runs on new schema). Pre-0077 `create_open` relies on
+  that index for its `ON CONFLICT DO NOTHING`; without it the old code inserts
+  `activation_id = NULL`, NULLs are distinct under the new unique, and two concurrent first
+  submissions in the window between `alembic upgrade` and the app restart produce two open
+  sessions for one subject — the split this migration exists to prevent, caused by it. Keeping the
+  index costs nothing because the new design already satisfies it (ending a round closes its
+  sessions, so a subject never holds two *open* sessions for one type+room even across rounds).
+  Dropping it is the contract half of an expand/contract pair: **FU-7**, and it must not ship in
+  the same release. The downgrade got simpler as a result — nothing to restore, nothing to
+  de-duplicate — and the schema test now asserts the old index *survives*, so a later tidy-up has
+  to argue with a test rather than only with a comment.
+
+- **D-13 (review fix): a route test that proved nothing now proves it.**
+  `test_a_member_may_only_declare_for_themselves` claimed to cover "a body naming another
+  subject" while passing `subject_user_id=None`, which the `or principal.user_id` fallback
+  satisfies by itself — so AC-7's route half was uncovered. It now passes a foreign uuid and
+  asserts both values reach the service; the no-subject case became its own test.
+
 ## 16. Follow-ups
 
 - **FU-1**: A per-subject completion roster for the facilitator (who has finished, not just how
@@ -639,3 +679,7 @@ Amend `REQUIREMENTS.md:2181` **[R30.22]**, replacing the final sentence:
   remaining reach is pre-0077 rows. This is §14's OQ-1, restated as work.
 - **FU-6**: `useActivationProgress`'s poll branch (the non-starter facilitator) has no test —
   the WS branch and the seed do. A fake-timer test would close AC-6's last uncovered path.
+- **FU-7**: Drop `uq_activity_sessions_open` in a later migration, once 0077's code is deployed
+  (D-12). It is redundant under the round-scoped unique and only still exists so pre-0077 code
+  survives the upgrade window. **Must not ship in the same release as 0077** — that is the whole
+  point of splitting it out.

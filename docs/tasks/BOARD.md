@@ -53,8 +53,13 @@ so every user-facing change here has been reasoned to work and not seen to; that
 consecutive dossiers in this area with the same gap. **D-3** is a defect in the approved spec
 worth learning from: seeding the participant's done-toggle from the PATCH response alone loses
 it on every reload, because the client holds no session id — a symmetric GET was added.
-And **FU-5** (this dossier's OQ-1): `close_open_for_type` and `close_open_for_type_in_rooms`
-now only reach pre-0077 rows, so they can retire once none can be created.
+And **FU-7**, which is a release constraint rather than a nice-to-have: 0077 deliberately does
+**not** drop `uq_activity_sessions_open`, because pre-0077 `create_open` relies on it and
+dropping it would let the upgrade window produce the very duplicate sessions 0077 exists to
+prevent (D-12). Dropping it is a separate migration that **must not ship in the same release**.
+A post-implementation `/code-review` found that plus two live defects — a submission moved the
+facilitator's counts without publishing them, and the participant's done-toggle did not follow
+the server after answering again — both fixed with tests (D-10, D-11).
 Removed on 2026-08-17 after implementation: `2026-08-16-platform-type-delete-optin-lifecycle`
 (an admin platform-type delete now removes every project's opt-in explicitly and records the
 count on the `activity_type.deleted` event, instead of relying on an FK cascade that a soft

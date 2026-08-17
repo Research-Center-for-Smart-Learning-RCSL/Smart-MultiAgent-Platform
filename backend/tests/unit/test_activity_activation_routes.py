@@ -118,15 +118,20 @@ class TestCompletionRoute:
         return facade, dispatch, activation, session, subject
 
     async def test_a_member_may_only_declare_for_themselves(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """AC-7: the subject constraint is server-side. A body naming another
-        subject still reaches the service with the caller as the constraint, so
-        the service's own 404 collapse is what refuses it."""
+        """AC-7: the subject constraint is server-side.
+
+        The body names *another* subject on purpose — a body naming nobody proves
+        nothing, because the `or principal.user_id` fallback satisfies the
+        assertion by itself. What has to hold is that the route forwards the
+        caller as `caller_user_id` regardless, which is what makes the service's
+        `_ensure_subject_is_caller` refuse it (404).
+        """
         facade, _dispatch, activation, _session, _subject = self._wire(monkeypatch, transitioned=True)
-        caller = uuid.uuid4()
+        caller, someone_else = uuid.uuid4(), uuid.uuid4()
         db = MagicMock(commit=AsyncMock())
 
         await activities.set_activity_session_completion(
-            body=activities.ActivitySessionCompletionIn(completed=True, subject_user_id=None),
+            body=activities.ActivitySessionCompletionIn(completed=True, subject_user_id=someone_else),
             chatroom_id=activation.chatroom_id,
             activation_id=activation.id,
             ctx=SimpleNamespace(actor_ip=None, request_id=None),
@@ -135,10 +140,32 @@ class TestCompletionRoute:
         )
 
         kwargs = facade.set_session_completion.await_args.kwargs
-        assert kwargs["subject_user_id"] == caller
+        # The route does not sanitise the subject — it constrains it. Both values
+        # reach the service, which is where the mismatch becomes a 404.
+        assert kwargs["subject_user_id"] == someone_else
         assert kwargs["caller_user_id"] == caller
         assert kwargs["completed"] is True
         db.commit.assert_awaited_once()
+
+    async def test_a_member_declaring_for_themselves_needs_no_body_subject(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The ordinary case the panel produces: no subject in the body at all."""
+        facade, _dispatch, activation, _session, _subject = self._wire(monkeypatch, transitioned=True)
+        caller = uuid.uuid4()
+
+        await activities.set_activity_session_completion(
+            body=activities.ActivitySessionCompletionIn(completed=True, subject_user_id=None),
+            chatroom_id=activation.chatroom_id,
+            activation_id=activation.id,
+            ctx=SimpleNamespace(actor_ip=None, request_id=None),
+            principal=SimpleNamespace(user_id=caller, is_admin=False),
+            db=MagicMock(commit=AsyncMock()),
+        )
+
+        kwargs = facade.set_session_completion.await_args.kwargs
+        assert kwargs["subject_user_id"] == caller
+        assert kwargs["caller_user_id"] == caller
 
     async def test_the_admin_arm_lifts_the_subject_constraint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         facade, _dispatch, activation, _session, _subject = self._wire(monkeypatch, transitioned=True)
