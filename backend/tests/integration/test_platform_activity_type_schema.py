@@ -5,7 +5,7 @@ them: it compiles statements with ``literal_binds`` and never executes one, so a
 CHECK constraint that was never created and a CHECK constraint that rejects the
 right rows are indistinguishable there.
 
-Three things are pinned:
+Four things are pinned:
 
 - ``scope`` and ``project_id`` cannot disagree, in either direction. This is what
   stops a half-converted row -- a platform type still pointing at a project, or a
@@ -14,6 +14,11 @@ Three things are pinned:
   ``(project_id, key)`` partial-unique cannot do this once ``project_id`` is
   nullable, because PostgreSQL treats every NULL as distinct.
 - The downgrade refuses while platform rows exist, rather than deleting them.
+- Deleting a platform type leaves no opt-in row behind. This one is about the
+  *interaction* between 0076's FK and the soft delete above it rather than about
+  the schema alone, and it lives here for the same reason as the rest: the unit
+  tier cannot tell a DELETE that runs from an ``ON DELETE CASCADE`` that silently
+  never fires.
 """
 
 from __future__ import annotations
@@ -30,7 +35,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from contexts.activities.domain.errors import ActivityTypeKeyConflict
 from contexts.activities.domain.models import ActivityTypeScope, ValidatorKind
+from contexts.activities.infrastructure.repositories.optin_repo import (
+    ProjectActivityTypeOptInRepository,
+)
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
+from contexts.activities.interfaces.facade import ActivitiesFacade
 
 pytestmark = pytest.mark.db
 
@@ -189,6 +198,68 @@ async def test_a_soft_deleted_platform_key_is_free_for_reuse(
         await session.commit()
 
     assert second != first
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_platform_type_revokes_every_projects_optin(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    project: tuple[uuid.UUID, uuid.UUID],
+    platform_type_key: str,
+) -> None:
+    """The finding itself, against a real database.
+
+    ``project_activity_type_optins.activity_type_id`` is ``ON DELETE CASCADE``, but
+    the type delete is an UPDATE that sets ``deleted_at``, so the cascade has
+    nothing to fire on and the authorization row outlives the thing it authorizes.
+    Written against the pre-fix tree this fails with one surviving row.
+    """
+    project_id, owner_id = project
+
+    async with sessionmaker() as session:
+        type_id = await _insert_platform_type(session, key=platform_type_key)
+        await ProjectActivityTypeOptInRepository(session).add(
+            project_id=project_id, activity_type_id=type_id, enabled_by_user_id=owner_id
+        )
+        await session.commit()
+
+    async with sessionmaker() as session:
+        assert await ProjectActivityTypeOptInRepository(session).exists(
+            project_id=project_id, activity_type_id=type_id
+        )
+
+    async with sessionmaker() as session:
+        await ActivitiesFacade(session).delete_platform_type(
+            type_id=type_id, actor_user_id=owner_id, actor_ip=None
+        )
+        await session.commit()
+
+    async with sessionmaker() as session:
+        surviving = (
+            await session.execute(
+                text("SELECT count(*) FROM project_activity_type_optins WHERE activity_type_id = :t"),
+                {"t": type_id},
+            )
+        ).scalar_one()
+
+    assert surviving == 0
+
+    # The count on the audit event, read back from the row that was actually
+    # written. The unit tier mocks the result cursor, so nothing there can tell a
+    # correctly-read ``RETURNING`` clause from one that yields nothing: the rows
+    # would still be deleted and the trail would still claim nobody had enabled
+    # the type.
+    async with sessionmaker() as session:
+        recorded = (
+            await session.execute(
+                text(
+                    "SELECT metadata FROM audit_logs "
+                    "WHERE action = 'activity_type.deleted' AND resource_id = :t"
+                ),
+                {"t": type_id},
+            )
+        ).scalar_one()
+
+    assert recorded["optins_removed"] == "1"
 
 
 @pytest.mark.asyncio

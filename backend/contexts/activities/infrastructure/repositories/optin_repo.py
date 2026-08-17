@@ -7,6 +7,11 @@ therefore deliberately narrow — exists, list, add, remove — so there is no q
 shape that could accidentally answer "reachable" more permissively than
 ``exists`` does.
 
+``remove_all_for_type`` is the one method not bounded by a project, and it does
+not breach that rule: the narrowness protects the *reachability answer*, and a
+delete only ever revokes access. It cannot widen what ``exists`` returns for any
+project, which is the property the rule exists to hold.
+
 Caller owns commit, as everywhere else in this context.
 """
 
@@ -103,6 +108,26 @@ class ProjectActivityTypeOptInRepository:
             )
         )
         return bool(rowcount(result))
+
+    async def remove_all_for_type(self, activity_type_id: uuid.UUID) -> Sequence[uuid.UUID]:
+        """Revoke every project's opt-in for one type; returns the projects revoked.
+
+        Unbounded by project on purpose, and only correct for an admin delete —
+        the type is going away for everyone. One project revoking its own access
+        is :meth:`remove`, and the two must never be confused: this one would end
+        every other tenant's access.
+
+        The type delete is soft, so the FK's ``ON DELETE CASCADE`` never fires and
+        this is what actually removes the rows. ``RETURNING project_id`` costs
+        nothing over a bare DELETE and is what lets the caller record the blast
+        radius on the delete's audit event.
+        """
+        result = await self._db.execute(
+            t.project_activity_type_optins.delete()
+            .where(t.project_activity_type_optins.c.activity_type_id == activity_type_id)
+            .returning(t.project_activity_type_optins.c.project_id)
+        )
+        return list(result.scalars().all())
 
 
 __all__ = ["ProjectActivityTypeOptInRepository"]

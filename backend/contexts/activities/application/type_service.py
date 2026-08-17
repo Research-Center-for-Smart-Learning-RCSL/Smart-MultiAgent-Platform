@@ -342,11 +342,25 @@ class ActivityTypeService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        extra_metadata: dict[str, str] | None = None,
     ) -> None:
+        """Tombstone a type and record it.
+
+        ``extra_metadata`` merges into the audit event so a caller can record what
+        its own cascade did — the admin path uses it for the count of opt-ins it
+        revoked. A caller's key wins on collision, which is why callers pass keys
+        of their own rather than overriding ``scope`` or ``key``.
+        """
         existing = await self._repo.get(type_id)
         if existing is None:
             raise ActivityTypeNotFound(str(type_id))
         await self._repo.soft_delete(type_id)
+        metadata: dict[str, Any] = {
+            "project_id": str(existing.project_id) if existing.project_id is not None else None,
+            "scope": existing.scope.value,
+            "key": existing.key,
+        }
+        metadata.update(extra_metadata or {})
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -355,11 +369,7 @@ class ActivityTypeService:
                 actor_ip=actor_ip,
                 resource_type="activity_type",
                 resource_id=type_id,
-                metadata={
-                    "project_id": str(existing.project_id) if existing.project_id is not None else None,
-                    "scope": existing.scope.value,
-                    "key": existing.key,
-                },
+                metadata=metadata,
                 request_id=request_id,
             ),
         )

@@ -497,15 +497,33 @@ class ActivitiesFacade:
         not share a code path, because sharing one is exactly how a single
         project's revocation would end another project's class.
 
-        The opt-in rows disappear with the type through the FK cascade, so no
-        project is left holding an authorization for a row that no longer exists.
+        Every project's opt-in row is removed explicitly here, not by the FK's
+        ``ON DELETE CASCADE``: the type delete is soft, so the cascade never fires
+        and the authorization rows would otherwise outlive the type forever. The
+        count is recorded on the ``activity_type.deleted`` audit event rather than
+        as a per-project opt-out, which no Project Owner performed.
+
+        Re-installing the course mints a *new* type id, so a project that had
+        enabled this example must enable it again — nothing restores the opt-ins
+        removed here.
+
+        The removal lives on this path and not in :meth:`_cascade_delete`, which
+        the project path also uses: a project-scoped type can hold no opt-in row
+        by construction, so putting it there would issue a cross-tenant DELETE on
+        every project's own type delete.
         """
         existing = await self._types.get_type(type_id)
         if existing is None or existing.scope is not ActivityTypeScope.PLATFORM:
             raise ActivityTypeNotFound(str(type_id))
 
+        revoked = await self._optin_repo.remove_all_for_type(type_id)
+
         return await self._cascade_delete(
-            type_id=type_id, actor_user_id=actor_user_id, actor_ip=actor_ip, request_id=request_id
+            type_id=type_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+            extra_metadata={"optins_removed": str(len(revoked))},
         )
 
     async def _cascade_delete(
@@ -515,10 +533,14 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
+        extra_metadata: dict[str, str] | None = None,
     ) -> list[tuple[uuid.UUID, uuid.UUID]]:
         """End every activation and close every open session for a type, then
         tombstone it. Unbounded across rooms — every caller must have established
-        that the type is going away platform-wide or project-wide first."""
+        that the type is going away platform-wide or project-wide first.
+
+        ``extra_metadata`` rides onto the delete's audit event, so a caller can
+        record what its own cascade did beyond the shared part done here."""
         ended: list[tuple[uuid.UUID, uuid.UUID]] = []
         for activation in await self._activation_repo.list_active_for_type(type_id):
             result = await self._activation.end(
@@ -535,7 +557,11 @@ class ActivitiesFacade:
         await self._sessions.close_open_for_type(type_id)
 
         await self._types.soft_delete(
-            type_id=type_id, actor_user_id=actor_user_id, actor_ip=actor_ip, request_id=request_id
+            type_id=type_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+            extra_metadata=extra_metadata,
         )
         return ended
 
