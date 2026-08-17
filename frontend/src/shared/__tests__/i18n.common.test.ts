@@ -29,7 +29,12 @@ const bundles: [string, Bundle][] = [
 describe('shared locales: the common namespace', () => {
   for (const [name, bundle] of bundles) {
     it(`${name} carries every key the call sites ask for`, () => {
-      expect(Object.keys(bundle.common ?? {}).sort()).toEqual([...REQUIRED].sort())
+      // A superset, not an exact match: adding a sixth verb to both bundles and a
+      // call site is the correct way to extend this namespace, and it must not
+      // fail here under a name that says the opposite of what broke. What an
+      // exact match would add is covered anyway -- a one-sided key by the parity
+      // test below, an unresolvable reference by the scan at the bottom.
+      expect(Object.keys(bundle.common ?? {})).toEqual(expect.arrayContaining([...REQUIRED]))
     })
 
     it(`${name} translates each key to a non-empty string`, () => {
