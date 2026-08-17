@@ -324,6 +324,23 @@ new dossier, not an amendment smuggled in here - see §14.
   (an admin delete now revokes opt-ins, and two surfaces describe it accurately) but the
   end-to-end flow - delete a platform type, observe the projects lose the example - has not been
   seen in a browser. Confirm on the first deployed build.
+- **D-9**: **AC-1's test passed on CI; its teardown did not** - the first CI run reported
+  `71 passed ... 1 error`, the error being fixture teardown, not an assertion. `audit_logs`
+  carries an `ON DELETE SET NULL` FK to `users` (`0004_audit.py:30-31`) and an append-only
+  trigger that rejects `BEFORE UPDATE OR DELETE` (`0004_audit.py:71-91`), so deleting the
+  `project` fixture's throwaway user cascades into an UPDATE the trigger refuses. This test is
+  the first `db`-tier test to emit an audit event as that user, so nothing had hit it before.
+  Fixed in `tests/integration/conftest.py` rather than in the test: the fixture now clears the
+  user's audit rows under `SET ROLE smap_audit_retention` - the same deliberate NOINHERIT bypass
+  `audit_query_service.purge_old_logs` uses - so the next audit-emitting test does not step on
+  the same landmine. A no-op for every test that emits nothing.
+- **D-10**: **The regenerated `openapi.json` was committed with a UTF-8 BOM**, so
+  `frontend-gate-openapi-drift` failed a second time even though the content was correct. Git's
+  `core.autocrlf` normalises line endings but not a BOM, and PowerShell's `>` adds one on this
+  host - the same Windows-redirection hazard `2026-08-13-creative-thinking-example-agents`
+  recorded as its D-8 and this dossier's sibling avoided for the locale files. Re-exported
+  through `cmd /c` redirection, which writes the bytes verbatim; the committed blob now starts
+  `{` like every previous version.
 - **D-8**: **The docstring correction was an API contract change and was not treated as one.**
   FastAPI publishes a route handler's docstring as the operation `description`, so rewriting
   `delete_platform_activity_type`'s docstring (AC-6) changed `backend/openapi.json` and the
