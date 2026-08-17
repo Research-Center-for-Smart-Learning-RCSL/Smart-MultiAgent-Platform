@@ -199,6 +199,49 @@ class TestPromptConstraints:
         assert "複製" in da.system_prompt
 
 
+class TestTheAnalystAsksOnlyWhatItsInputSupports:
+    """A prompt may not ask for a report its context cannot ground.
+
+    AC-9/10/11 above stop a prompt *over-claiming* a capability. This is the
+    other half: the activity block is a bounded, newest-first list of submission
+    *events* (``ActivityContextProvider``, capped at ``DEFAULT_ACTIVITY_WINDOW``)
+    carrying no roster, so "who has not submitted" is a set difference against
+    data no block delivers. Worse than merely unanswerable: past the cap the
+    early submitters are actively absent, so the most natural reading of the
+    visible evidence is the false one, and the answer would be invented
+    participation data about minors.
+
+    The two checks are a pair on purpose. The absence check alone is brittle --
+    a reword reintroduces the same ask in different words -- so the positive one
+    pins the caveat that makes the removal safe. The prompt phrases its refusal
+    as 哪些人沒有做 rather than reusing the removed wording, which is what keeps
+    the literal phrase usable as a tripwire.
+    """
+
+    @pytest.fixture
+    def analyst(self) -> Any:
+        return next(a for _, a in SHIPPED_AGENTS if a.key == "aa-silent-analyst")
+
+    def test_it_is_not_asked_to_report_who_has_not_submitted(self, analyst: Any) -> None:
+        assert "還沒提交" not in analyst.system_prompt
+
+    def test_it_states_the_window_is_bounded_and_that_absence_proves_nothing(self, analyst: Any) -> None:
+        prompt = analyst.system_prompt
+
+        assert "有限視窗" in prompt, "the prompt does not say the activity block is bounded"
+        assert "不代表那個人沒有提交" in prompt, "the prompt does not say absence is not evidence"
+        assert "名冊" in prompt, "the prompt does not hand coverage questions back to the teacher"
+
+    def test_it_still_asks_for_what_the_row_shape_does_supply(self, analyst: Any) -> None:
+        """Attempt number and type key are on every row, so retry counts and
+        per-activity difficulty stay in scope; only the roster-dependent element
+        was removed."""
+        prompt = analyst.system_prompt
+
+        assert "誰反覆嘗試" in prompt
+        assert "哪個活動卡住的人最多" in prompt
+
+
 _BACKEND = pathlib.Path(__file__).resolve().parents[2]
 _AGENTS = _BACKEND / "contexts" / "agents"
 
