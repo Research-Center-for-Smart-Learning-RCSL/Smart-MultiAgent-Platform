@@ -293,6 +293,14 @@ To upgrade properly: **delete `mandala-9grid` and `six-hats-emotion-desk` from
 `/admin/activities` first**, then install the course again. Deleting a platform type ends
 its active activations across every tenant, so do it between classes.
 
+**Deleting also revokes every project's opt-in, and re-installing does not restore it.**
+Enabling an example is a per-project Project Owner act (see [Installing](#installing)), and
+the re-install creates a type with a **new id**, so the old opt-ins would not point at it
+even if they survived. Every project that had the example enabled must enable it again from
+`/projects/:projectId/activity-types`. Until they do, their facilitators get a bare 404 when
+starting the activity and the example shows as not enabled, with nothing on screen saying
+why it changed. Tell the affected Project Owners before deleting, not after.
+
 **The same trap applies to the agent packs, for the same reason.** Installing copies each
 pack agent into the project, and install is idempotent by agent name, so re-installing
 never rewrites an agent that already exists. A project that installed
