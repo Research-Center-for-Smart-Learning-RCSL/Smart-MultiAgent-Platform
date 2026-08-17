@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { renderView } from '../../../../tests/utils'
+import ActivityHost from '../components/ActivityHost.vue'
 import ActivityPanel from '../components/ActivityPanel.vue'
 import { useActivitiesStore } from '../stores/activities'
 import type { ActivityTypePublic } from '../types'
@@ -345,6 +346,28 @@ describe('ActivityPanel — completion declaration (AC-1, AC-5)', () => {
     await flushPromises()
 
     expect(setActivationCompletionMock).toHaveBeenLastCalledWith('c1', 'act_1', false)
+    expect(doneButton(wrapper)?.text()).toContain('activities.panel.markDone')
+  })
+
+  it('follows the server when answering again retracts the declaration', async () => {
+    // The server clears `completed_at` on any submission ([R30.22]). If the
+    // toggle did not follow, it would read "Keep working" for someone the server
+    // considers unfinished — and the next click would send `false`, a no-op, so
+    // re-declaring would cost two clicks with the wrong label in between.
+    sessionMe.value = { id: 'u2' }
+    getActiveActivationMock.mockResolvedValue(activeActivation())
+    listActivityTypesMock.mockResolvedValue([])
+    getOwnRoundSessionMock.mockResolvedValue({ completed_at: '2026-08-17T00:00:00Z' })
+
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+    expect(doneButton(wrapper)?.text()).toContain('activities.panel.markDoneUndo')
+
+    wrapper.findComponent(ActivityHost).vm.$emit('submitted')
+    await flushPromises()
+
     expect(doneButton(wrapper)?.text()).toContain('activities.panel.markDone')
   })
 })

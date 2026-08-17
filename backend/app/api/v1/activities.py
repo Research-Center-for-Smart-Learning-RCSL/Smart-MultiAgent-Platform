@@ -985,6 +985,15 @@ async def _dispatch_submission(
         await ConversationFacade(db).note_room_activity(chatroom_id=chatroom_id)
     except Exception:
         _log.warning("silence-clock re-arm failed for activity submission %s", submission.id, exc_info=True)
+    # A submission moves the facilitator's counts in two ways and neither used to
+    # be broadcast: the first one opens the subject's session (in_progress 0 -> 1),
+    # and any submission retracts an "I am finished" declaration
+    # (``SubmissionService.submit``), which moves a participant back out of the
+    # completed column. Without this the panel would keep showing a class as
+    # finished while it carried on working -- and the count is what a facilitator
+    # decides to move on from. Unconditional rather than gated on "did anything
+    # change": the route cannot know without asking, and asking IS the read.
+    await _dispatch_room_activation_progress(ActivitiesFacade(db), chatroom_id)
 
 
 async def _dispatch_activation_started(
@@ -1005,6 +1014,25 @@ async def _dispatch_activation_started(
         _log.error("realtime publish failed for activity activation %s", activation.id, exc_info=True)
 
 
+async def _dispatch_room_activation_progress(facade: ActivitiesFacade, chatroom_id: uuid.UUID) -> None:
+    """As :func:`_dispatch_activation_progress`, for a caller holding the room
+    rather than the round.
+
+    The submit path is the case: it has committed by the time it reaches here, so
+    re-reading the active activation is both cheaper and less fragile than
+    threading it out through ``submit``'s return. ``None`` means the facilitator
+    ended the round in between, which is exactly when there is nothing to report.
+    """
+    try:
+        activation = await facade.get_active_activation(chatroom_id)
+    except Exception:
+        _log.warning("activity progress lookup failed for room %s", chatroom_id, exc_info=True)
+        return
+    if activation is None:
+        return
+    await _dispatch_activation_progress(facade, activation)
+
+
 async def _dispatch_activation_progress(facade: ActivitiesFacade, activation: ActivityActivation) -> None:
     """Tell the facilitator who started this round that its progress moved.
 
@@ -1013,9 +1041,15 @@ async def _dispatch_activation_progress(facade: ActivitiesFacade, activation: Ac
     and in a two-person group "1 finished" identifies the other participant.
 
     Post-commit and best-effort in both halves -- the count read as much as the
-    publish. The declaration is already durable, so neither a stale count nor a
-    Redis hiccup may surface as a failed request; the facilitator's panel seeds
-    from the progress GET and polls, so a dropped event self-heals.
+    publish. The write is already durable, so neither a stale count nor a Redis
+    hiccup may surface as a failed request.
+
+    A dropped event does NOT self-heal for the starter: they are the only viewer
+    this targets and they have no poll (``useActivationProgress`` polls only the
+    viewers who cannot receive it), so they hold a stale count until the next
+    event or a remount. That is the accepted cost of keeping per-round counts off
+    the room channel -- and the reason every writer that moves the counts has to
+    call this, the submit path included.
     """
     try:
         completed, in_progress = await facade.count_activation_sessions(
