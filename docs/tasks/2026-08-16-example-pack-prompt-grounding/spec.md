@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-08-16
 requirements: [R15.02, R30.27, R30.35]
 depends_on: []
@@ -233,24 +233,27 @@ claim otherwise. §4's manual check goes in the dry-run checklist.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The test from §8.1 fails before the fix and passes after: the AA prompt no longer
-  instructs the agent to report who has not submitted.
-- [ ] AC-2: The AA prompt states that the activity block is a bounded recent window and that a
+- [x] AC-1: The test from §8.1 fails before the fix and passes after: the AA prompt no longer
+  instructs the agent to report who has not submitted. Verified failing first.
+- [x] AC-2: The AA prompt states that the activity block is a bounded recent window and that a
   participant's absence from it is not evidence they did not submit, asserted over the parsed
-  shipped pack (§8.2).
-- [ ] AC-3: The AA prompt still asks only for what the block supports - retry counts and
-  per-activity difficulty remain, since both are derivable from the row shape.
-- [ ] AC-4: AC-9, AC-10 and AC-11 of the source dossier still hold: no quoting of submission text,
+  shipped pack (§8.2). Three anchors: 有限視窗, 不代表那個人沒有提交, and 名冊 for the hand-back.
+- [x] AC-3: The AA prompt still asks only for what the block supports - retry counts and
+  per-activity difficulty remain, since both are derivable from the row shape. Pinned by its own
+  test, which passed before the edit and still passes, so it is a guard rather than a claim.
+- [x] AC-4: AC-9, AC-10 and AC-11 of the source dossier still hold: no quoting of submission text,
   no claim to score 變通力 / 獨創力 / 精進力, the `filled_count` sentence intact, and the unit-4
-  boundary clause intact in TA and SA.
-- [ ] AC-5: `for_course` and every `binds_activity_types` key still resolve (§8.4).
-- [ ] AC-6: `docs/examples/creative-thinking-course.md` describes AA's amended scope, states the
+  boundary clause intact in TA and SA. All pass unmodified; the diff is confined to three clauses
+  of the one `system_prompt` string.
+- [x] AC-5: `for_course` and every `binds_activity_types` key still resolve (§8.4).
+- [x] AC-6: `docs/examples/creative-thinking-course.md` describes AA's amended scope, states the
   window bound, and tells an operator who already installed the pack that existing AA agents keep
   the old prompt and must be edited or re-created.
-- [ ] AC-7: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`. No
-  frontend gates apply.
-- [ ] AC-8: The manual check from §4 is added to the pre-deployment dry-run checklist that OQ-1
-  of the source dossier requires.
+- [x] AC-7: `ruff check .`, `ruff format --check .` and `mypy .` are green. `pytest -q` is green
+  for the **unit tier only** (6889 passed, 6 skipped) - see D-2 for why the other tiers did not
+  run. No frontend gates apply.
+- [x] AC-8: The manual check from §4 is added to the pre-deployment dry-run checklist that OQ-1
+  of the source dossier requires - see D-3, which records that the checklist had to be created.
 
 ## 11. SRS Delta
 
@@ -260,7 +263,33 @@ prompt ungroundable. This corrects shipped content against requirements that alr
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — the prompt describes the window's size in words, not as a number.** §7.2 asked the
+  prompt to say the block holds only the most recent events; it now says 數十筆 rather than
+  naming 30. A literal 30 in the prompt would be a second copy of `DEFAULT_ACTIVITY_WINDOW`
+  (`activity_context_provider.py:31`) with nothing to keep the two in step, so changing the
+  constant would silently make the shipped prompt lie to the agent about its own input. The
+  number is stated in the walkthrough instead, next to the constant's name and file, where a
+  reader can check it. The property the fix depends on - bounded, newest-first, absence is not
+  evidence - is stated exactly and is what the tests pin.
+- **D-2 — `pytest -q` was not run to completion.** The `integration`, `db` and `wiring` tiers
+  need a live PostgreSQL and Docker was unavailable on the implementing host; the full run
+  reached 4% in 25 minutes, erroring at connect, and was stopped. The `unit` tier - which holds
+  every test this dossier touches, and the entire pack-content suite - is green at 6889 passed,
+  6 skipped. Nothing in this diff is reachable from the other tiers: it is one JSON string, one
+  unit test module, and a Markdown file.
+- **D-3 — AC-8's dry-run checklist did not exist and was created rather than extended.** OQ-1
+  of the source dossier requires a dry-run, and `docs/examples/creative-thinking-course.md`
+  stated that requirement in one sentence under Privacy and ethics, but no checklist existed
+  anywhere to add an item to (searched `docs/` for both spellings). Adding a single free-floating
+  item would have left the other three prompt constraints - the ones the same paragraph says a
+  test cannot establish - still uncovered, so the section now carries all five checks. The new
+  one is the third: run past the window, then ask AA who has not submitted.
+- **D-4 — no behavioural verification (gate 4 of the Definition of Done).** Docker was
+  unavailable, so no room was run and AA was never asked the question the fix exists to make it
+  decline. This dossier states plainly in §8.5 that the behavioural half is not statically
+  assertable, so the gap is the whole point of AC-8's checklist item rather than an oversight -
+  but it does mean the prompt's effect is reasoned, not observed. The dry-run OQ-1 already
+  mandates is what closes it.
 
 ## 13. Follow-ups
 
@@ -286,3 +315,9 @@ Appended by /build.
   means no agent can connect a submission to a speaker, which quietly bounds what any
   activity-aware prompt can ask. Worth stating in the pack-authoring guidance rather than leaving
   each prompt author to rediscover.
+- **FU-5**: **Nothing ties the prompt's description of the window to the window.** Per D-1 the
+  prompt says 數十筆 rather than a number, which is true for `DEFAULT_ACTIVITY_WINDOW = 30` and
+  would still be true at 20 or 80 - but not at 5, and not at 500, where the caveat would either
+  overstate or understate what AA is missing. FU-1's truncation marker would close this properly
+  by making the block state its own bounds at runtime, which is the reason to prefer it over any
+  test that pins prose against a constant.

@@ -22,20 +22,15 @@ Thirteen dossiers from `docs/audits/2026-08-16-example-activities-and-agent-pack
 (18 findings, grouped by blast radius so concurrent builds cannot produce conflicting diffs).
 Every one is `depends_on: []`; the five majors are listed first. Three file-overlap pairs are
 noted below — these are **not** sequenced, but whoever builds second must rebase rather than
-assume. Seven are now implemented and removed (see the notes below the In progress list).
+assume. Eleven are now implemented and removed (see the notes below the In progress list); the
+two below are what remains.
 
 - `2026-08-16-platform-type-delete-optin-lifecycle` (bugfix, approved) — F-9. The type delete is
   soft, so the FK cascade never fires and every project's opt-in outlives its type; two docstrings
   and migration 0076's index comment all assume otherwise.
-- `2026-08-16-example-pack-prompt-grounding` (bugfix, approved) — F-12. The shipped AA prompt asks
-  who has not submitted, against a 30-row window with no roster. Prompt content only; note the fix
-  does not reach agents already installed copy-on-import.
 - `2026-08-16-shared-common-i18n-namespace` (bugfix, approved) — F-15. The `common.*` namespace
   exists in no bundle, so 17 call sites render their English default arguments. Two JSON files; no
   call site changes.
-- `2026-08-16-mandala-center-fallback` (bugfix, approved) — F-18. The mandala promotes the first
-  property to the centre when none is named `center`, against [R30.36]. The rule conflict with an
-  older AC-8 was triaged in [R30.36]'s favour on 2026-08-16.
 
 ### Other ready work
 
@@ -52,6 +47,30 @@ assume. Seven are now implemented and removed (see the notes below the In progre
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-17 after implementation: `2026-08-16-mandala-center-fallback` (the mandala
+grid resolves `center` as a named opt-in, so a nine-field schema declaring none renders in its
+declared order instead of having its first field promoted to the middle). Nothing lists it in
+`depends_on`, so no row moved out of Blocked. **Two things a later reader needs.** **D-1** — a
+schema naming no centre now renders with *no* highlighted cell, because `isCenter` returns false
+for every field once `centerField` is null; that is correct but was not stated in the spec, so
+the test asserts the absence rather than leaving it implied. And **D-3** — no behavioural
+verification (Docker unavailable), though the exposure is narrower than usual: the shipped course
+declares `center`, so no shipped type changed and only projects reusing the `mandala-9grid` key
+with their own centre-less schema see any difference.
+Removed on 2026-08-17 after implementation: `2026-08-16-example-pack-prompt-grounding` (the AA
+prompt no longer asks who has not submitted, states that its activity block is a bounded recent
+window whose gaps are not evidence, and refuses coverage questions back to the teacher). Nothing
+lists it in `depends_on`, so no row moved out of Blocked. **Three things a later reader needs.**
+**D-1** — the prompt says 數十筆 rather than naming 30, because a literal number would be a second
+uncoupled copy of `DEFAULT_ACTIVITY_WINDOW` that would silently start lying if the constant
+moved; the figure lives in the walkthrough next to the constant instead, and **FU-5** records
+that nothing ties the two. **D-3** — AC-8's dry-run checklist did not exist, so it was created
+covering all five behavioural checks rather than adding one free-floating item to nothing. And
+the operational point that outlives the diff: **the fix does not reach an installed deployment**
+— pack agents are copied on import and install is idempotent by name, so any project that
+already installed `creative-thinking-room` still holds an AA carrying the old prompt and must
+edit or re-create that one agent by hand. Observations the old prompt already produced are not
+retracted.
 Removed on 2026-08-16 after implementation: `2026-08-16-example-dialog-pending-and-optout`
 (both example surfaces now gate every action button on "is anything in flight" read off the
 mutations themselves, and the hand-maintained `pendingId`/`installingKey` refs are gone along

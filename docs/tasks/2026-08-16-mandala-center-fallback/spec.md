@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-08-16
 requirements: [R30.18, R30.36]
 depends_on: []
@@ -212,22 +212,27 @@ nine-field-no-centre path only.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The rewritten test from §8.1 fails before the fix and passes after.
-- [ ] AC-2: A nine-field schema with no property named `center` renders all nine fields in the
+- [x] AC-1: The rewritten test from §8.1 fails before the fix and passes after. Verified in both
+  directions: against the pre-fix component it failed with `mandala-f1` at index 4.
+- [x] AC-2: A nine-field schema with no property named `center` renders all nine fields in the
   3x3 grid in declared order, with no field promoted, displaced, or dropped, and the grid is
-  **not** empty.
-- [ ] AC-3: A nine-field schema that *does* declare `center` places it in the middle cell with
+  **not** empty. The test asserts `toHaveLength(9)` explicitly, which is what would catch the
+  `cells` null branch left returning `[]`.
+- [x] AC-3: A nine-field schema that *does* declare `center` places it in the middle cell with
   the other eight around it, exactly as today; `MandalaGrid.test.ts:88-108` passes unmodified.
-- [ ] AC-4: Declared order is honoured via `x-order` even when the schema's object key order
-  differs from it (§8.2).
-- [ ] AC-5: A schema that is not nine fields still renders as a single column;
+- [x] AC-4: Declared order is honoured via `x-order` even when the schema's object key order
+  differs from it (§8.2). The added case declares its keys in the exact reverse of its
+  `x-order`.
+- [x] AC-5: A schema that is not nine fields still renders as a single column;
   `MandalaGrid.test.ts:120-124` passes unmodified.
-- [ ] AC-6: The comment above `centerField` states that `center` is a named opt-in and cites
+- [x] AC-6: The comment above `centerField` states that `center` is a named opt-in and cites
   [R30.36].
-- [ ] AC-7: The shipped `mandala-9grid` type renders the worksheet layout unchanged
-  (家/工作/具備能力 top row, 想對30歲的自己說…/自由發揮/人際關係 bottom row).
-- [ ] AC-8: Gates green: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`,
-  `pnpm run check:bundle-size`, `pnpm run check:type-coverage`,
+- [x] AC-7: The shipped `mandala-9grid` type renders the worksheet layout unchanged
+  (家/工作/具備能力 top row, 想對30歲的自己說…/自由發揮/人際關係 bottom row) — the jsonb-ordered
+  worksheet test passes unmodified, since the shipped schema declares `center` and takes the
+  `find` arm.
+- [x] AC-8: Gates green: `pnpm lint`, `pnpm typecheck`, `pnpm test` (181 files, 1134 tests),
+  `pnpm build`, `pnpm run check:bundle-size`, `pnpm run check:type-coverage`,
   `pnpm run check:boundaries-enforced`.
 
 ## 11. SRS Delta
@@ -243,7 +248,25 @@ supersession is recorded in §2 of this spec and in the rewritten test's comment
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — a schema naming no centre now renders with no highlighted cell.** §7.2 said
+  `displayFields` needs no change and did not discuss `isCenter` (`MandalaGrid.vue:60-62`),
+  which returns false for every field once `centerField` is null. The nine cells therefore
+  render with uniform borders and none carries `data-testid="mandala-cell-center"`. That is
+  the correct reading of "no field promoted" — a schema that named no centre should not have
+  one styled — but it is a visible consequence the spec did not state, so the rewritten test
+  asserts the absence of a centre cell rather than leaving it implied.
+- **D-2 — the test module's header comment was rewritten, not only the one test's.** §8.1
+  asked for a comment on the rewritten case naming the superseded AC-8. The file's header
+  also claimed to cover "AC-8" with no dossier named, which is exactly FU-3's complaint; since
+  the header would otherwise contradict the test below it, it now names
+  `2026-08-08-creative-thinking-course-example` and the [R30.36] supersession. This retires
+  FU-3 for this one file only — the repo-wide sweep FU-3 actually asks for is untouched.
+- **D-3 — no behavioural verification (gate 4 of the Definition of Done).** Docker was
+  unavailable on the implementing host, so the app was never launched and the corrected grid
+  has not been seen in a browser. The exposure is narrower than the usual instance of this
+  gap: no shipped activity type is affected (Q-4), so the only surface that changed belongs to
+  projects reusing the `mandala-9grid` key with their own centre-less schema. This is the
+  sixth consecutive dossier in this series to record the same gap.
 
 ## 13. Follow-ups
 
