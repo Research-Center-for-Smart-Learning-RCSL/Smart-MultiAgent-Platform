@@ -85,6 +85,25 @@
         "title": "ActivityActivationOut",
         "type": "object"
       },
+      "ActivityActivationProgressOut": {
+        "description": "How one round is going, as its facilitator sees it ([R30.22]).\n\nCounts only. Naming who has finished is a separate privacy decision that the\nroom-creator gate does not by itself authorize, so it is not in this model\nand must not be added to it without one.",
+        "properties": {
+          "completed": {
+            "title": "Completed",
+            "type": "integer"
+          },
+          "in_progress": {
+            "title": "In Progress",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "completed",
+          "in_progress"
+        ],
+        "title": "ActivityActivationProgressOut",
+        "type": "object"
+      },
       "ActivityActivationStartIn": {
         "properties": {
           "activity_type_id": {
@@ -224,6 +243,31 @@
         "title": "ActivityPolicyPublicOut",
         "type": "object"
       },
+      "ActivitySessionCompletionIn": {
+        "properties": {
+          "completed": {
+            "title": "Completed",
+            "type": "boolean"
+          },
+          "subject_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject User Id"
+          }
+        },
+        "required": [
+          "completed"
+        ],
+        "title": "ActivitySessionCompletionIn",
+        "type": "object"
+      },
       "ActivitySessionOpenIn": {
         "properties": {
           "activity_type_id": {
@@ -252,6 +296,18 @@
       },
       "ActivitySessionOut": {
         "properties": {
+          "activation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activation Id"
+          },
           "activity_type_id": {
             "format": "uuid",
             "title": "Activity Type Id",
@@ -272,6 +328,17 @@
               }
             ],
             "title": "Closed At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
           },
           "created_at": {
             "anyOf": [
@@ -304,9 +371,11 @@
           "activity_type_id",
           "chatroom_id",
           "subject_user_id",
+          "activation_id",
           "status",
           "created_at",
-          "closed_at"
+          "closed_at",
+          "completed_at"
         ],
         "title": "ActivitySessionOut",
         "type": "object"
@@ -16463,6 +16532,70 @@
         ]
       }
     },
+    "/api/chatrooms/{chatroom_id}/activity-activations/{activation_id}/completion": {
+      "patch": {
+        "description": "A participant declares themselves finished with the running activity, or\nundoes it ([R30.22]).\n\nKeyed on the activation rather than on a session id: participants no longer\nopen sessions, so a client legitimately has no session id to send -- the\nserver resolves or creates the one for this round. ``ensure_can_send``\nbecause this writes; the subject is forced to the caller inside the service\n(the admin arm passes ``caller_user_id=None``, as the session open does).",
+        "operationId": "set_activity_session_completion_api_chatrooms__chatroom_id__activity_activations__activation_id__completion_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "activation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Activation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivitySessionCompletionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivitySessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Activity Session Completion",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
     "/api/chatrooms/{chatroom_id}/activity-activations/{activation_id}/end": {
       "patch": {
         "operationId": "end_activity_activation_api_chatrooms__chatroom_id__activity_activations__activation_id__end_patch",
@@ -16511,6 +16644,60 @@
           }
         },
         "summary": "End Activity Activation",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/activity-activations/{activation_id}/progress": {
+      "get": {
+        "description": "How many participants have declared themselves finished ([R30.22]).\n\n``ensure_room_creator``, not the send floor: this is the facilitator's view\nof the class, and a participant learning how many peers have finished is a\ndifferent decision nobody has made.",
+        "operationId": "get_activity_activation_progress_api_chatrooms__chatroom_id__activity_activations__activation_id__progress_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "activation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Activation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityActivationProgressOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Activity Activation Progress",
         "tags": [
           "activities"
         ]

@@ -45,6 +45,7 @@ from contexts.conversation.interfaces.access import (
     resolve_room_access,
 )
 from contexts.conversation.interfaces.facade import ConversationFacade
+from contexts.identity.interfaces import user_channel
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
@@ -175,9 +176,32 @@ class ActivitySessionOut(BaseModel):
     activity_type_id: uuid.UUID
     chatroom_id: uuid.UUID
     subject_user_id: uuid.UUID
+    # The round this session was answered under (0077). Null only on a pre-0077
+    # row, which no live surface can reach.
+    activation_id: uuid.UUID | None
     status: str
     created_at: str | None
     closed_at: str | None
+    # When the subject declared themselves finished; null while they have not,
+    # have undone it, or have submitted since ([R30.22]).
+    completed_at: str | None
+
+
+class ActivitySessionCompletionIn(BaseModel):
+    completed: bool
+    subject_user_id: uuid.UUID | None = None
+
+
+class ActivityActivationProgressOut(BaseModel):
+    """How one round is going, as its facilitator sees it ([R30.22]).
+
+    Counts only. Naming who has finished is a separate privacy decision that the
+    room-creator gate does not by itself authorize, so it is not in this model
+    and must not be added to it without one.
+    """
+
+    completed: int
+    in_progress: int
 
 
 class ActivitySubmissionIn(BaseModel):
@@ -244,9 +268,11 @@ def _session_out(s: ActivitySession) -> ActivitySessionOut:
         activity_type_id=s.activity_type_id,
         chatroom_id=s.chatroom_id,
         subject_user_id=s.subject_user_id,
+        activation_id=s.activation_id,
         status=s.status.value,
         created_at=s.created_at.isoformat() if s.created_at else None,
         closed_at=s.closed_at.isoformat() if s.closed_at else None,
+        completed_at=s.completed_at.isoformat() if s.completed_at else None,
     )
 
 
@@ -719,6 +745,65 @@ async def get_active_activity_activation(
     return _activation_out(activation, activity_type)
 
 
+@chatroom_router.patch("/{chatroom_id}/activity-activations/{activation_id}/completion")
+async def set_activity_session_completion(
+    body: ActivitySessionCompletionIn,
+    chatroom_id: uuid.UUID = Path(...),
+    activation_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ActivitySessionOut:
+    """A participant declares themselves finished with the running activity, or
+    undoes it ([R30.22]).
+
+    Keyed on the activation rather than on a session id: participants no longer
+    open sessions, so a client legitimately has no session id to send -- the
+    server resolves or creates the one for this round. ``ensure_can_send``
+    because this writes; the subject is forced to the caller inside the service
+    (the admin arm passes ``caller_user_id=None``, as the session open does).
+    """
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_send(access, is_admin=principal.is_admin)
+    facade = ActivitiesFacade(db)
+    result = await facade.set_session_completion(
+        project_id=access.project_id,
+        chatroom_id=chatroom_id,
+        activation_id=activation_id,
+        subject_user_id=body.subject_user_id or principal.user_id,
+        caller_user_id=None if principal.is_admin else principal.user_id,
+        completed=body.completed,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    if result.transitioned:
+        await _dispatch_activation_progress(facade, result.activation)
+    return _session_out(result.session)
+
+
+@chatroom_router.get("/{chatroom_id}/activity-activations/{activation_id}/progress")
+async def get_activity_activation_progress(
+    chatroom_id: uuid.UUID = Path(...),
+    activation_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ActivityActivationProgressOut:
+    """How many participants have declared themselves finished ([R30.22]).
+
+    ``ensure_room_creator``, not the send floor: this is the facilitator's view
+    of the class, and a participant learning how many peers have finished is a
+    different decision nobody has made.
+    """
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_room_creator(access, principal=principal)
+    completed, in_progress = await ActivitiesFacade(db).count_activation_sessions(
+        chatroom_id=chatroom_id, activation_id=activation_id
+    )
+    return ActivityActivationProgressOut(completed=completed, in_progress=in_progress)
+
+
 @chatroom_router.post("/{chatroom_id}/activity-sessions")
 async def open_activity_session(
     body: ActivitySessionOpenIn,
@@ -892,6 +977,35 @@ async def _dispatch_activation_started(
         await Publisher(room_channel(activation.chatroom_id)).emit("activity.activation.started", payload)
     except Exception:
         _log.error("realtime publish failed for activity activation %s", activation.id, exc_info=True)
+
+
+async def _dispatch_activation_progress(facade: ActivitiesFacade, activation: ActivityActivation) -> None:
+    """Tell the facilitator who started this round that its progress moved.
+
+    Addressed to that one user's channel, never the room's ([R28.13] does the
+    same for observations): the counts are the facilitator's view of the class,
+    and in a two-person group "1 finished" identifies the other participant.
+
+    Post-commit and best-effort in both halves -- the count read as much as the
+    publish. The declaration is already durable, so neither a stale count nor a
+    Redis hiccup may surface as a failed request; the facilitator's panel seeds
+    from the progress GET and polls, so a dropped event self-heals.
+    """
+    try:
+        completed, in_progress = await facade.count_activation_sessions(
+            chatroom_id=activation.chatroom_id, activation_id=activation.id
+        )
+        await Publisher(user_channel(activation.started_by_user_id)).emit(
+            "activity.session.completion",
+            {
+                "chatroom_id": str(activation.chatroom_id),
+                "activation_id": str(activation.id),
+                "completed": completed,
+                "in_progress": in_progress,
+            },
+        )
+    except Exception:
+        _log.warning("activity progress publish failed for activation %s", activation.id, exc_info=True)
 
 
 async def dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid.UUID) -> None:
