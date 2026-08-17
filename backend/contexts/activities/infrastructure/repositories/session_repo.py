@@ -1,8 +1,13 @@
-"""Async repository for ``activity_sessions`` (Chapter §30, R30.01, §5.4).
+"""Async repository for ``activity_sessions`` (Chapter §30, R30.01, R30.22, §5.4).
 
-Encapsulates the lazy-open concurrency handling: a partial-unique index closes
-the two-concurrent-first-submissions race, and ``FOR UPDATE`` on the resolved
-session row serializes ``attempt_no`` assignment.
+Encapsulates the lazy-open concurrency handling: the ``(activation_id,
+subject_user_id)`` unique closes the two-concurrent-first-submissions race, and
+``FOR UPDATE`` on the resolved session row serializes ``attempt_no`` assignment.
+
+Every row written here carries an ``activation_id``; 0077 made the column
+nullable only because pre-0077 rows have no round to point at, so "a live session
+belongs to exactly one round" is an invariant of these writers rather than of the
+schema.
 """
 
 from __future__ import annotations
@@ -24,9 +29,11 @@ _SESSION_COLS = (
     t.activity_sessions.c.activity_type_id,
     t.activity_sessions.c.chatroom_id,
     t.activity_sessions.c.subject_user_id,
+    t.activity_sessions.c.activation_id,
     t.activity_sessions.c.status,
     t.activity_sessions.c.created_at,
     t.activity_sessions.c.closed_at,
+    t.activity_sessions.c.completed_at,
 )
 
 
@@ -39,6 +46,8 @@ def _row_to_session(row: object) -> ActivitySession:
         status=SessionStatus(row.status),  # type: ignore[attr-defined]
         created_at=row.created_at,  # type: ignore[attr-defined]
         closed_at=row.closed_at,  # type: ignore[attr-defined]
+        activation_id=row.activation_id,  # type: ignore[attr-defined]
+        completed_at=row.completed_at,  # type: ignore[attr-defined]
     )
 
 
@@ -52,22 +61,23 @@ class ActivitySessionRepository:
         ).first()
         return _row_to_session(row) if row is not None else None
 
-    async def get_open(
-        self, *, activity_type_id: uuid.UUID, chatroom_id: uuid.UUID, subject_user_id: uuid.UUID
+    async def get_for_activation(
+        self, *, activation_id: uuid.UUID, subject_user_id: uuid.UUID
     ) -> ActivitySession | None:
-        """The single open session for (type, room, subject), or ``None``.
+        """This subject's session for one round, or ``None``.
 
-        Backed by the ``uq_activity_sessions_open`` partial-unique, so at most
-        one row can match.
+        Backed by the ``uq_activity_sessions_activation_subject`` unique (0077),
+        so at most one row can match. Deliberately status-blind: a participant
+        who declared themselves done, or whose round the facilitator has since
+        ended, must resolve to the SAME row rather than silently acquiring a
+        second one with its own ``attempt_no`` sequence.
         """
         row = (
             await self._db.execute(
                 sa.select(*_SESSION_COLS).where(
                     sa.and_(
-                        t.activity_sessions.c.activity_type_id == activity_type_id,
-                        t.activity_sessions.c.chatroom_id == chatroom_id,
+                        t.activity_sessions.c.activation_id == activation_id,
                         t.activity_sessions.c.subject_user_id == subject_user_id,
-                        t.activity_sessions.c.status == SessionStatus.OPEN.value,
                     )
                 )
             )
@@ -75,13 +85,18 @@ class ActivitySessionRepository:
         return _row_to_session(row) if row is not None else None
 
     async def create_open(
-        self, *, activity_type_id: uuid.UUID, chatroom_id: uuid.UUID, subject_user_id: uuid.UUID
+        self,
+        *,
+        activity_type_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        subject_user_id: uuid.UUID,
+        activation_id: uuid.UUID,
     ) -> uuid.UUID | None:
-        """Open a session, or return ``None`` if a concurrent open already won.
+        """Open a session for one round, or ``None`` if a concurrent open won.
 
-        ``ON CONFLICT DO NOTHING`` against the partial-unique makes the losing
-        side of a two-concurrent-first-submissions race a no-op; the caller then
-        re-selects the winning open session via :meth:`get_open`.
+        ``ON CONFLICT DO NOTHING`` against the (activation, subject) unique makes
+        the losing side of a two-concurrent-first-submissions race a no-op; the
+        caller then re-selects the winner via :meth:`get_for_activation`.
         """
         result = await self._db.execute(
             pg_insert(t.activity_sessions)
@@ -89,6 +104,7 @@ class ActivitySessionRepository:
                 activity_type_id=activity_type_id,
                 chatroom_id=chatroom_id,
                 subject_user_id=subject_user_id,
+                activation_id=activation_id,
                 status=SessionStatus.OPEN.value,
             )
             .on_conflict_do_nothing()
@@ -96,6 +112,68 @@ class ActivitySessionRepository:
         )
         row = result.first()
         return row.id if row is not None else None
+
+    async def set_completed(self, session_id: uuid.UUID, *, completed: bool) -> bool:
+        """Set or clear the subject's "I am finished" declaration.
+
+        Guarded on the current value so a repeat call is a no-op (0 rows) and the
+        caller can audit only real transitions -- the same shape as :meth:`close`.
+        Never touches ``status``: whether the session can still take submissions
+        is the facilitator's decision, not the participant's.
+        """
+        guard = (
+            t.activity_sessions.c.completed_at.is_(None)
+            if completed
+            else t.activity_sessions.c.completed_at.is_not(None)
+        )
+        result = await self._db.execute(
+            t.activity_sessions.update()
+            .where(sa.and_(t.activity_sessions.c.id == session_id, guard))
+            .values(completed_at=now() if completed else None)
+        )
+        return bool(rowcount(result))
+
+    async def close_open_for_activation(self, activation_id: uuid.UUID) -> int:
+        """Close every open session of one round, returning the count.
+
+        The per-round counterpart of :meth:`close_open_for_type`: bounded by one
+        activation, so it is safe on the facilitator's ordinary end-of-activity
+        rather than only on a type going away. ``completed_at`` is left alone --
+        the facilitator ending the round says nothing about who finished.
+        """
+        result = await self._db.execute(
+            t.activity_sessions.update()
+            .where(
+                sa.and_(
+                    t.activity_sessions.c.activation_id == activation_id,
+                    t.activity_sessions.c.status == SessionStatus.OPEN.value,
+                )
+            )
+            .values(status=SessionStatus.CLOSED.value, closed_at=now())
+        )
+        return rowcount(result)
+
+    async def count_for_activation(self, activation_id: uuid.UUID) -> tuple[int, int]:
+        """``(completed, in_progress)`` for one round, from a single query.
+
+        Splits on ``completed_at``, not on ``status``: once the facilitator ends
+        the round every session is closed, and reporting the whole class as
+        finished at that moment would be a lie.
+
+        Uses an aggregate ``FILTER`` clause, which is PostgreSQL-specific and
+        therefore carries a ``db``-tier test (backend/CLAUDE.md).
+        """
+        row = (
+            await self._db.execute(
+                sa.select(
+                    sa.func.count()
+                    .filter(t.activity_sessions.c.completed_at.is_not(None))
+                    .label("completed"),
+                    sa.func.count().filter(t.activity_sessions.c.completed_at.is_(None)).label("in_progress"),
+                ).where(t.activity_sessions.c.activation_id == activation_id)
+            )
+        ).one()
+        return int(row.completed), int(row.in_progress)
 
     async def lock_for_update(self, session_id: uuid.UUID) -> ActivitySession | None:
         """Load a session under ``SELECT ... FOR UPDATE`` to serialize

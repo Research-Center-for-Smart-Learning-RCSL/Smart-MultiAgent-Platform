@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from contexts.activities.application import activation_service
 from contexts.activities.application.activation_service import ActivationService
 from contexts.activities.domain.errors import ActivityAlreadyActive, ActivityTypeNotFound
 from contexts.activities.domain.models import (
@@ -139,6 +140,7 @@ class TestActivationService:
                 type_repo=MagicMock(),
             )
         )
+        svc._session_repo = MagicMock(close_open_for_activation=AsyncMock(return_value=0))
 
         result = await svc.end(
             chatroom_id=room_id,
@@ -148,3 +150,57 @@ class TestActivationService:
         )
 
         assert result == ActivityActivationEndResult(activation=activation, transitioned=False)
+        # A double-end changed nothing, so it must not re-close sessions either —
+        # a second sweep would restamp closed_at on rows this call did not end.
+        svc._session_repo.close_open_for_activation.assert_not_awaited()
+
+    async def test_end_closes_the_rounds_sessions_and_records_the_count(self) -> None:
+        """AC-4: ending a round leaves nothing answered under it open ([R30.22]).
+
+        This is the whole of the cascade: the facilitator's route, a type delete,
+        an admin platform-type delete and a project opt-out all end activations
+        through this method, so none of them needs its own copy.
+        """
+        room_id, type_id = uuid.uuid4(), uuid.uuid4()
+        activation = _activation(room_id, type_id)
+        repo = MagicMock(
+            get=AsyncMock(side_effect=[activation, activation]), end=AsyncMock(return_value=True)
+        )
+        svc = _no_policy(ActivationService(MagicMock(), activation_repo=repo, type_repo=MagicMock()))
+        svc._session_repo = MagicMock(close_open_for_activation=AsyncMock(return_value=3))
+
+        with patch.object(activation_service.audit, "emit", new=AsyncMock()) as emit:
+            result = await svc.end(
+                chatroom_id=room_id,
+                activation_id=activation.id,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        assert result.transitioned is True
+        svc._session_repo.close_open_for_activation.assert_awaited_once_with(activation.id)
+        assert emit.await_args.args[1].metadata["sessions_closed"] == "3"
+
+    async def test_end_closes_sessions_before_it_audits(self) -> None:
+        """The count on the trail is a fact about what happened, not a prediction:
+        if the close raised, no event claiming a number may have been written."""
+        room_id, type_id = uuid.uuid4(), uuid.uuid4()
+        activation = _activation(room_id, type_id)
+        repo = MagicMock(get=AsyncMock(return_value=activation), end=AsyncMock(return_value=True))
+        svc = _no_policy(ActivationService(MagicMock(), activation_repo=repo, type_repo=MagicMock()))
+        svc._session_repo = MagicMock(
+            close_open_for_activation=AsyncMock(side_effect=RuntimeError("close blew up"))
+        )
+
+        with (
+            patch.object(activation_service.audit, "emit", new=AsyncMock()) as emit,
+            pytest.raises(RuntimeError, match="close blew up"),
+        ):
+            await svc.end(
+                chatroom_id=room_id,
+                activation_id=activation.id,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        emit.assert_not_awaited()

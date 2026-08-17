@@ -72,9 +72,22 @@ activity_sessions = sa.Table(
         sa.ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     ),
+    # The round this session was answered under -- 0077. NULL only for
+    # pre-0077 rows; every writer sets it, which is a writer invariant rather
+    # than a schema one (a NOT NULL would need activations invented for history).
+    sa.Column(
+        "activation_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("activity_activations.id", ondelete="CASCADE"),
+        nullable=True,
+    ),
     sa.Column("status", _session_status, nullable=False, server_default=sa.text("'open'::session_status")),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("closed_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    # The subject's own "I am finished" declaration -- 0077. Deliberately not
+    # `status`, which answers whether the session can still take submissions and
+    # is driven by the facilitator ending the round.
+    sa.Column("completed_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
 
 activity_activations = sa.Table(

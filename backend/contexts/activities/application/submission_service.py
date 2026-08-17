@@ -33,6 +33,7 @@ from contexts.activities.domain.errors import (
     SubmissionPayloadInvalid,
 )
 from contexts.activities.domain.models import (
+    ActivityActivation,
     ActivitySession,
     ActivitySubmission,
     ActivityType,
@@ -108,11 +109,16 @@ class SubmissionService:
             raise SubmissionPayloadInvalid("; ".join(errors[:_MAX_ECHO_ERRORS]))
 
         session = await self._resolve_session(
-            activity_type_id=activity_type_id,
-            chatroom_id=chatroom_id,
+            activation=activation,
             subject_user_id=subject_user_id,
             session_id=session_id,
         )
+        # Answering again retracts "I am finished" ([R30.22]): a participant who
+        # declared themselves done and then kept working is not done, and making
+        # them un-click first would be a second thing to get wrong. Guarded so the
+        # ordinary submit costs no extra UPDATE.
+        if session.completed_at is not None:
+            await self._session_repo.set_completed(session.id, completed=False)
         # Serialize attempt numbering for concurrent submits to this session.
         locked = await self._session_repo.lock_for_update(session.id)
         if locked is None:  # pragma: no cover — resolved above in the same txn
@@ -358,37 +364,47 @@ class SubmissionService:
     async def _resolve_session(
         self,
         *,
-        activity_type_id: uuid.UUID,
-        chatroom_id: uuid.UUID,
+        activation: ActivityActivation,
         subject_user_id: uuid.UUID,
         session_id: uuid.UUID | None,
     ) -> ActivitySession:
+        """This subject's session for the round being submitted to (0077).
+
+        Keyed on the activation rather than on ``(type, room, subject)``: with the
+        old key, a facilitator re-running the same activity in one room had every
+        second-round submission land in the still-open first-round session and
+        continue its ``attempt_no``, merging two rounds into one history.
+        """
         if session_id is not None:
             session = await self._session_repo.get(session_id)
             if (
                 session is None
-                or session.activity_type_id != activity_type_id
-                or session.chatroom_id != chatroom_id
+                or session.activation_id != activation.id
+                or session.activity_type_id != activation.activity_type_id
+                or session.chatroom_id != activation.chatroom_id
                 or session.subject_user_id != subject_user_id
                 or session.status.value != "open"
             ):
                 raise SessionNotFound(str(session_id))
             return session
 
-        existing = await self._session_repo.get_open(
-            activity_type_id=activity_type_id, chatroom_id=chatroom_id, subject_user_id=subject_user_id
+        existing = await self._session_repo.get_for_activation(
+            activation_id=activation.id, subject_user_id=subject_user_id
         )
         if existing is not None:
             return existing
         new_id = await self._session_repo.create_open(
-            activity_type_id=activity_type_id, chatroom_id=chatroom_id, subject_user_id=subject_user_id
+            activity_type_id=activation.activity_type_id,
+            chatroom_id=activation.chatroom_id,
+            subject_user_id=subject_user_id,
+            activation_id=activation.id,
         )
         if new_id is not None:
             opened = await self._session_repo.get(new_id)
             if opened is not None:
                 return opened
-        winner = await self._session_repo.get_open(
-            activity_type_id=activity_type_id, chatroom_id=chatroom_id, subject_user_id=subject_user_id
+        winner = await self._session_repo.get_for_activation(
+            activation_id=activation.id, subject_user_id=subject_user_id
         )
         if winner is None:  # pragma: no cover — a winner must exist post-conflict
             raise SessionNotFound("could not open or resolve a session")

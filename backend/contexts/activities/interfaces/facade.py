@@ -92,7 +92,7 @@ class ActivitiesFacade:
             type_repo=self._type_repo,
             optin_repo=self._optin_repo,
         )
-        self._sessions = ActivitySessionService(db)
+        self._sessions = ActivitySessionService(db, activation_repo=activation_repo)
         self._submissions = SubmissionService(db, activation_repo=activation_repo)
         self._aggregation = AggregationService(db)
         self._examples = ActivityExampleService(db)
@@ -605,6 +605,42 @@ class ActivitiesFacade:
 
     async def get_session(self, session_id: uuid.UUID) -> ActivitySession | None:
         return await self._sessions.get_session(session_id)
+
+    async def set_session_completion(
+        self,
+        *,
+        project_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        activation_id: uuid.UUID,
+        subject_user_id: uuid.UUID,
+        caller_user_id: uuid.UUID | None,
+        completed: bool,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> tuple[ActivitySession, bool]:
+        """Set or clear a participant's "I am finished" declaration ([R30.22]).
+        Returns the session and whether this call changed anything, so the route
+        can skip its broadcast on a repeat."""
+        return await self._sessions.set_completion(
+            project_id=project_id,
+            chatroom_id=chatroom_id,
+            activation_id=activation_id,
+            subject_user_id=subject_user_id,
+            caller_user_id=caller_user_id,
+            completed=completed,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def count_activation_sessions(
+        self, *, chatroom_id: uuid.UUID, activation_id: uuid.UUID
+    ) -> tuple[int, int]:
+        """``(completed, in_progress)`` for one round — the facilitator's progress
+        read ([R30.22]). Counts only; the per-subject roster is a separate
+        privacy decision the room-creator gate does not by itself authorize."""
+        return await self._sessions.count_for_activation(chatroom_id=chatroom_id, activation_id=activation_id)
 
     # -- Submissions --------------------------------------------------------
 

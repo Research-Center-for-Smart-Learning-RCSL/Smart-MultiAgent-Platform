@@ -25,6 +25,7 @@ from contexts.activities.application.validators.schema import (
     validate_schema_wellformed,
 )
 from contexts.activities.domain.errors import (
+    ActivityActivationNotFound,
     ActivityNotActive,
     ActivityTypeNotFound,
     PayloadSchemaInvalid,
@@ -909,31 +910,34 @@ class TestActivityValidatorRegistrationWiring:
 def _wire_submission_service(
     activity_type: ActivityType,
 ) -> tuple[SubmissionService, MagicMock, ActivitySession]:
+    chatroom_id = uuid.uuid4()
+    subject_user_id = uuid.uuid4()
+    activation = ActivityActivation(
+        id=uuid.uuid4(),
+        chatroom_id=chatroom_id,
+        activity_type_id=activity_type.id,
+        started_by_user_id=subject_user_id,
+        status=ActivationStatus.ACTIVE,
+        created_at=_NOW,
+    )
     session = ActivitySession(
         id=uuid.uuid4(),
         activity_type_id=activity_type.id,
-        chatroom_id=uuid.uuid4(),
-        subject_user_id=uuid.uuid4(),
+        chatroom_id=chatroom_id,
+        subject_user_id=subject_user_id,
         status=SessionStatus.OPEN,
         created_at=_NOW,
+        activation_id=activation.id,
     )
     activation_repo = MagicMock()
     svc = SubmissionService(MagicMock(), activation_repo=activation_repo)
     svc._type_repo = MagicMock()
     svc._type_repo.get = AsyncMock(return_value=activity_type)
     svc._session_repo = MagicMock()
-    svc._session_repo.get_open = AsyncMock(return_value=session)
+    svc._session_repo.get_for_activation = AsyncMock(return_value=session)
+    svc._session_repo.set_completed = AsyncMock(return_value=True)
     svc._session_repo.lock_for_update = AsyncMock(return_value=session)
-    activation_repo.get_active_for_update = AsyncMock(
-        return_value=ActivityActivation(
-            id=uuid.uuid4(),
-            chatroom_id=session.chatroom_id,
-            activity_type_id=activity_type.id,
-            started_by_user_id=session.subject_user_id,
-            status=ActivationStatus.ACTIVE,
-            created_at=_NOW,
-        )
-    )
+    activation_repo.get_active_for_update = AsyncMock(return_value=activation)
     sub_id = uuid.uuid4()
     svc._sub_repo = MagicMock()
     svc._sub_repo.next_attempt_no = AsyncMock(return_value=1)
@@ -959,6 +963,141 @@ def _wire_submission_service(
         )
     )
     return svc, svc._sub_repo, session
+
+
+class TestSubmitSessionResolution:
+    """A submission belongs to the round it was answered under (0077, AC-3)."""
+
+    def teardown_method(self) -> None:
+        registry.clear_registry()
+
+    @staticmethod
+    def _passing_scorer() -> None:
+        registry.register_in_process_validator(
+            "vid", lambda payload, at, *, db: ValidationResult(is_valid=True)
+        )
+
+    async def _submit(self, svc: SubmissionService, session: ActivitySession, at: ActivityType) -> None:
+        with (
+            patch.object(ss, "ConversationFacade") as conv,
+            patch.object(ss.audit, "emit", new=AsyncMock()),
+        ):
+            conv.return_value.insert_system_message = AsyncMock()
+            await svc.submit(
+                project_id=at.project_id,
+                activity_type_id=at.id,
+                chatroom_id=session.chatroom_id,
+                producer_user_id=session.subject_user_id,
+                subject_user_id=session.subject_user_id,
+                caller_user_id=session.subject_user_id,
+                payload={"answer": "x"},
+                actor_user_id=session.subject_user_id,
+                actor_ip=None,
+            )
+
+    async def test_a_second_round_opens_its_own_session(self) -> None:
+        """The defect this migration exists to end: before 0077 the key omitted
+        the activation, so a facilitator re-running one activity in one room had
+        every second-round submission land in the first round's still-open
+        session and continue its attempt_no."""
+        self._passing_scorer()
+        activity_type = _make_type(project_id=uuid.uuid4())
+        svc, _sub_repo, session = _wire_submission_service(activity_type)
+        activation = await svc._activation_repo.get_active_for_update(session.chatroom_id)
+        # Nobody has answered this round yet.
+        svc._session_repo.get_for_activation = AsyncMock(return_value=None)
+        fresh_id = uuid.uuid4()
+        svc._session_repo.create_open = AsyncMock(return_value=fresh_id)
+        fresh = ActivitySession(
+            id=fresh_id,
+            activity_type_id=activity_type.id,
+            chatroom_id=session.chatroom_id,
+            subject_user_id=session.subject_user_id,
+            status=SessionStatus.OPEN,
+            created_at=_NOW,
+            activation_id=activation.id,
+        )
+        svc._session_repo.get = AsyncMock(return_value=fresh)
+        svc._session_repo.lock_for_update = AsyncMock(return_value=fresh)
+
+        await self._submit(svc, session, activity_type)
+
+        svc._session_repo.create_open.assert_awaited_once_with(
+            activity_type_id=activity_type.id,
+            chatroom_id=session.chatroom_id,
+            subject_user_id=session.subject_user_id,
+            activation_id=activation.id,
+        )
+
+    async def test_answering_again_retracts_a_completion_declaration(self) -> None:
+        """AC-5: declared done and still working is not a state worth keeping, so
+        the submit clears it rather than the UI nagging the participant to."""
+        self._passing_scorer()
+        activity_type = _make_type(project_id=uuid.uuid4())
+        svc, _sub_repo, session = _wire_submission_service(activity_type)
+        declared_done = ActivitySession(
+            id=session.id,
+            activity_type_id=session.activity_type_id,
+            chatroom_id=session.chatroom_id,
+            subject_user_id=session.subject_user_id,
+            status=SessionStatus.OPEN,
+            created_at=_NOW,
+            activation_id=session.activation_id,
+            completed_at=_NOW,
+        )
+        svc._session_repo.get_for_activation = AsyncMock(return_value=declared_done)
+        svc._session_repo.lock_for_update = AsyncMock(return_value=declared_done)
+
+        await self._submit(svc, session, activity_type)
+
+        svc._session_repo.set_completed.assert_awaited_once_with(session.id, completed=False)
+
+    async def test_an_ordinary_submit_costs_no_extra_update(self) -> None:
+        self._passing_scorer()
+        activity_type = _make_type(project_id=uuid.uuid4())
+        svc, _sub_repo, session = _wire_submission_service(activity_type)
+
+        await self._submit(svc, session, activity_type)
+
+        svc._session_repo.set_completed.assert_not_awaited()
+
+    async def test_a_session_id_from_another_round_is_rejected(self) -> None:
+        """A client may still name a session explicitly; naming one from a round
+        that is not the live one must not be honoured."""
+        self._passing_scorer()
+        activity_type = _make_type(project_id=uuid.uuid4())
+        svc, sub_repo, session = _wire_submission_service(activity_type)
+        stale = ActivitySession(
+            id=uuid.uuid4(),
+            activity_type_id=activity_type.id,
+            chatroom_id=session.chatroom_id,
+            subject_user_id=session.subject_user_id,
+            status=SessionStatus.OPEN,
+            created_at=_NOW,
+            activation_id=uuid.uuid4(),  # a previous round
+        )
+        svc._session_repo.get = AsyncMock(return_value=stale)
+
+        with (
+            patch.object(ss, "ConversationFacade") as conv,
+            patch.object(ss.audit, "emit", new=AsyncMock()),
+        ):
+            conv.return_value.insert_system_message = AsyncMock()
+            with pytest.raises(SessionNotFound):
+                await svc.submit(
+                    project_id=activity_type.project_id,
+                    activity_type_id=activity_type.id,
+                    chatroom_id=session.chatroom_id,
+                    producer_user_id=session.subject_user_id,
+                    subject_user_id=session.subject_user_id,
+                    caller_user_id=session.subject_user_id,
+                    payload={"answer": "x"},
+                    session_id=stale.id,
+                    actor_user_id=session.subject_user_id,
+                    actor_ip=None,
+                )
+
+        sub_repo.insert.assert_not_awaited()
 
 
 class TestSubmitInProcess:
@@ -1067,7 +1206,7 @@ class TestSubmitInProcess:
                 actor_ip=None,
             )
 
-        svc._session_repo.get_open.assert_not_awaited()
+        svc._session_repo.get_for_activation.assert_not_awaited()
         sub_repo.insert.assert_not_awaited()
 
     async def test_in_process_scorer_exception_recorded_as_error(self) -> None:
@@ -1441,6 +1580,17 @@ class TestRecordValidationDigest:
         assert kwargs["agent_digest"] is None
 
 
+def _active_activation(*, chatroom_id: uuid.UUID, activity_type_id: uuid.UUID) -> ActivityActivation:
+    return ActivityActivation(
+        id=uuid.uuid4(),
+        chatroom_id=chatroom_id,
+        activity_type_id=activity_type_id,
+        started_by_user_id=uuid.uuid4(),
+        status=ActivationStatus.ACTIVE,
+        created_at=_NOW,
+    )
+
+
 class TestOpenSessionTenantIsolation:
     async def test_cross_project_type_rejected(self) -> None:
         from contexts.activities.application.session_service import ActivitySessionService
@@ -1451,7 +1601,9 @@ class TestOpenSessionTenantIsolation:
         # Type belongs to a different project than the caller's room project.
         svc._type_repo.get = AsyncMock(return_value=_make_type(project_id=uuid.uuid4()))
         svc._repo = MagicMock()
-        svc._repo.get_open = AsyncMock()
+        svc._repo.get_for_activation = AsyncMock()
+        svc._activation_repo = MagicMock()
+        svc._activation_repo.get_active = AsyncMock()
 
         with pytest.raises(ActivityTypeNotFound):
             await svc.open_session(
@@ -1461,46 +1613,106 @@ class TestOpenSessionTenantIsolation:
                 subject_user_id=uuid.uuid4(),
                 caller_user_id=uuid.uuid4(),
             )
-        # Never touched the session table for a foreign type.
-        svc._repo.get_open.assert_not_awaited()
+        # Never touched the session table for a foreign type — and never read the
+        # room's activation either, so a cross-tenant probe learns nothing about
+        # whether an activity is running there.
+        svc._repo.get_for_activation.assert_not_awaited()
+        svc._activation_repo.get_active.assert_not_awaited()
 
-    async def test_opening_a_session_for_another_subject_is_refused(self) -> None:
-        """T-2: a room member may not open a session naming a foreign subject."""
+    async def test_opening_a_session_with_no_active_round_is_refused(self) -> None:
+        """AC-8: a session that no round owns can never receive a submission
+        ([R30.22]) yet the next round would adopt it — so it is never created."""
         activity_type = _make_type()
         svc = ActivitySessionService(MagicMock())
         svc._type_repo = MagicMock()
         svc._type_repo.get = AsyncMock(return_value=activity_type)
         svc._repo = MagicMock()
-        svc._repo.get_open = AsyncMock()
+        svc._repo.get_for_activation = AsyncMock()
         svc._repo.create_open = AsyncMock()
+        svc._activation_repo = MagicMock()
+        svc._activation_repo.get_active = AsyncMock(return_value=None)
+
+        with pytest.raises(ActivityNotActive):
+            await svc.open_session(
+                project_id=activity_type.project_id,
+                activity_type_id=activity_type.id,
+                chatroom_id=uuid.uuid4(),
+                subject_user_id=uuid.uuid4(),
+                caller_user_id=None,
+            )
+        svc._repo.create_open.assert_not_awaited()
+
+    async def test_opening_a_session_against_a_different_running_type_is_refused(self) -> None:
+        """A live round for another type is not this type's round (AC-8)."""
+        activity_type = _make_type()
+        chatroom_id = uuid.uuid4()
+        svc = ActivitySessionService(MagicMock())
+        svc._type_repo = MagicMock()
+        svc._type_repo.get = AsyncMock(return_value=activity_type)
+        svc._repo = MagicMock()
+        svc._repo.create_open = AsyncMock()
+        svc._activation_repo = MagicMock()
+        svc._activation_repo.get_active = AsyncMock(
+            return_value=_active_activation(chatroom_id=chatroom_id, activity_type_id=uuid.uuid4())
+        )
+
+        with pytest.raises(ActivityNotActive):
+            await svc.open_session(
+                project_id=activity_type.project_id,
+                activity_type_id=activity_type.id,
+                chatroom_id=chatroom_id,
+                subject_user_id=uuid.uuid4(),
+                caller_user_id=None,
+            )
+        svc._repo.create_open.assert_not_awaited()
+
+    async def test_opening_a_session_for_another_subject_is_refused(self) -> None:
+        """T-2: a room member may not open a session naming a foreign subject."""
+        activity_type = _make_type()
+        chatroom_id = uuid.uuid4()
+        svc = ActivitySessionService(MagicMock())
+        svc._type_repo = MagicMock()
+        svc._type_repo.get = AsyncMock(return_value=activity_type)
+        svc._repo = MagicMock()
+        svc._repo.get_for_activation = AsyncMock()
+        svc._repo.create_open = AsyncMock()
+        svc._activation_repo = MagicMock()
+        svc._activation_repo.get_active = AsyncMock(
+            return_value=_active_activation(chatroom_id=chatroom_id, activity_type_id=activity_type.id)
+        )
 
         with pytest.raises(SessionNotFound):
             await svc.open_session(
                 project_id=activity_type.project_id,
                 activity_type_id=activity_type.id,
-                chatroom_id=uuid.uuid4(),
+                chatroom_id=chatroom_id,
                 subject_user_id=uuid.uuid4(),  # subject B
                 caller_user_id=uuid.uuid4(),  # caller A != B
             )
         # Rejected before any session resolution.
-        svc._repo.get_open.assert_not_awaited()
+        svc._repo.get_for_activation.assert_not_awaited()
 
     async def test_admin_may_open_a_session_for_any_subject(self) -> None:
         """T-4 (open arm): caller_user_id=None (admin) skips the subject check."""
         activity_type = _make_type()
+        chatroom_id = uuid.uuid4()
+        activation = _active_activation(chatroom_id=chatroom_id, activity_type_id=activity_type.id)
         session = ActivitySession(
             id=uuid.uuid4(),
             activity_type_id=activity_type.id,
-            chatroom_id=uuid.uuid4(),
+            chatroom_id=chatroom_id,
             subject_user_id=uuid.uuid4(),
             status=SessionStatus.OPEN,
             created_at=_NOW,
+            activation_id=activation.id,
         )
         svc = ActivitySessionService(MagicMock())
         svc._type_repo = MagicMock()
         svc._type_repo.get = AsyncMock(return_value=activity_type)
         svc._repo = MagicMock()
-        svc._repo.get_open = AsyncMock(return_value=session)
+        svc._repo.get_for_activation = AsyncMock(return_value=session)
+        svc._activation_repo = MagicMock()
+        svc._activation_repo.get_active = AsyncMock(return_value=activation)
 
         opened = await svc.open_session(
             project_id=activity_type.project_id,
@@ -1510,6 +1722,165 @@ class TestOpenSessionTenantIsolation:
             caller_user_id=None,
         )
         assert opened is session
+        svc._repo.get_for_activation.assert_awaited_once_with(
+            activation_id=activation.id, subject_user_id=session.subject_user_id
+        )
+
+
+class TestSessionCompletion:
+    """The participant's reversible "I am finished" declaration ([R30.22], AC-5)."""
+
+    @staticmethod
+    def _wire(
+        *, completed_at: dt.datetime | None = None, transitioned: bool = True
+    ) -> tuple[ActivitySessionService, ActivityActivation, ActivitySession, ActivityType]:
+        activity_type = _make_type()
+        chatroom_id = uuid.uuid4()
+        activation = _active_activation(chatroom_id=chatroom_id, activity_type_id=activity_type.id)
+        session = ActivitySession(
+            id=uuid.uuid4(),
+            activity_type_id=activity_type.id,
+            chatroom_id=chatroom_id,
+            subject_user_id=uuid.uuid4(),
+            status=SessionStatus.OPEN,
+            created_at=_NOW,
+            activation_id=activation.id,
+            completed_at=completed_at,
+        )
+        svc = ActivitySessionService(MagicMock(), activation_repo=MagicMock())
+        svc._type_repo = MagicMock(get=AsyncMock(return_value=activity_type))
+        svc._activation_repo.get = AsyncMock(return_value=activation)
+        svc._repo = MagicMock()
+        svc._repo.get_for_activation = AsyncMock(return_value=session)
+        svc._repo.set_completed = AsyncMock(return_value=transitioned)
+        svc._repo.get = AsyncMock(return_value=session)
+        return svc, activation, session, activity_type
+
+    async def _call(
+        self,
+        svc: ActivitySessionService,
+        activation: ActivityActivation,
+        session: ActivitySession,
+        activity_type: ActivityType,
+        *,
+        completed: bool,
+        caller_user_id: uuid.UUID | None = ...,  # type: ignore[assignment]
+    ) -> tuple[ActivitySession, bool]:
+        caller = session.subject_user_id if caller_user_id is ... else caller_user_id
+        with patch.object(sess_svc.audit, "emit", new=AsyncMock()):
+            return await svc.set_completion(
+                project_id=activity_type.project_id,
+                chatroom_id=activation.chatroom_id,
+                activation_id=activation.id,
+                subject_user_id=session.subject_user_id,
+                caller_user_id=caller,
+                completed=completed,
+                actor_user_id=session.subject_user_id,
+                actor_ip=None,
+            )
+
+    async def test_declaring_done_never_touches_the_session_status(self) -> None:
+        """Completion is a separate column precisely so the facilitator's
+        end-of-round cannot be read as the class finishing, and vice versa."""
+        svc, activation, session, activity_type = self._wire()
+
+        _, transitioned = await self._call(svc, activation, session, activity_type, completed=True)
+
+        assert transitioned is True
+        svc._repo.set_completed.assert_awaited_once_with(session.id, completed=True)
+        svc._repo.close.assert_not_called()
+
+    async def test_it_is_reversible(self) -> None:
+        svc, activation, session, activity_type = self._wire(completed_at=_NOW)
+
+        await self._call(svc, activation, session, activity_type, completed=False)
+
+        svc._repo.set_completed.assert_awaited_once_with(session.id, completed=False)
+
+    async def test_a_repeat_declaration_reports_no_transition(self) -> None:
+        """So the route can skip a broadcast that would tell the facilitator a
+        count changed when it did not."""
+        svc, activation, session, activity_type = self._wire(completed_at=_NOW, transitioned=False)
+
+        with patch.object(sess_svc.audit, "emit", new=AsyncMock()) as emit:
+            _, transitioned = await svc.set_completion(
+                project_id=activity_type.project_id,
+                chatroom_id=activation.chatroom_id,
+                activation_id=activation.id,
+                subject_user_id=session.subject_user_id,
+                caller_user_id=session.subject_user_id,
+                completed=True,
+                actor_user_id=session.subject_user_id,
+                actor_ip=None,
+            )
+
+        assert transitioned is False
+        emit.assert_not_awaited()
+
+    async def test_declaring_for_another_subject_is_refused(self) -> None:
+        """AC-7: the same 404 collapse every other per-subject path uses."""
+        svc, activation, session, activity_type = self._wire()
+
+        with pytest.raises(SessionNotFound):
+            await self._call(
+                svc,
+                activation,
+                session,
+                activity_type,
+                completed=True,
+                caller_user_id=uuid.uuid4(),
+            )
+
+        svc._repo.set_completed.assert_not_awaited()
+
+    async def test_an_activation_from_another_room_is_not_found(self) -> None:
+        """AC-7: the activation id comes from the client, so the room guard is
+        server-side — an id alone must not reach another room's round."""
+        svc, activation, session, activity_type = self._wire()
+
+        with pytest.raises(ActivityActivationNotFound):
+            await svc.set_completion(
+                project_id=activity_type.project_id,
+                chatroom_id=uuid.uuid4(),  # not the activation's room
+                activation_id=activation.id,
+                subject_user_id=session.subject_user_id,
+                caller_user_id=session.subject_user_id,
+                completed=True,
+                actor_user_id=session.subject_user_id,
+                actor_ip=None,
+            )
+
+        svc._repo.get_for_activation.assert_not_awaited()
+
+    async def test_declaring_done_on_an_ended_round_is_refused(self) -> None:
+        svc, activation, session, activity_type = self._wire()
+        svc._activation_repo.get = AsyncMock(
+            return_value=ActivityActivation(
+                id=activation.id,
+                chatroom_id=activation.chatroom_id,
+                activity_type_id=activation.activity_type_id,
+                started_by_user_id=activation.started_by_user_id,
+                status=ActivationStatus.ENDED,
+                created_at=_NOW,
+                ended_at=_NOW,
+            )
+        )
+
+        with pytest.raises(ActivityNotActive):
+            await self._call(svc, activation, session, activity_type, completed=True)
+
+        svc._repo.set_completed.assert_not_awaited()
+
+    async def test_the_progress_count_is_room_guarded(self) -> None:
+        svc, activation, _session, _type = self._wire()
+        svc._repo.count_for_activation = AsyncMock(return_value=(2, 5))
+
+        assert await svc.count_for_activation(
+            chatroom_id=activation.chatroom_id, activation_id=activation.id
+        ) == (2, 5)
+
+        with pytest.raises(ActivityActivationNotFound):
+            await svc.count_for_activation(chatroom_id=uuid.uuid4(), activation_id=activation.id)
 
 
 def _wire_session_service(

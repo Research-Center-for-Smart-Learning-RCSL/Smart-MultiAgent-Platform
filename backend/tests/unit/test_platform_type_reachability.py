@@ -194,11 +194,13 @@ def _start_activation(*, activity_type: ActivityType, project_id: uuid.UUID, opt
 
 
 def _open_session(*, activity_type: ActivityType, project_id: uuid.UUID, opted_in: bool) -> _Entry:
-    probe = AsyncMock(return_value=MagicMock(id=uuid.uuid4()))
-    svc = ActivitySessionService(MagicMock())
+    # The probe is the room's activation read, which is the first thing
+    # ``open_session`` does once the reachability gate lets it through (0077).
+    probe = AsyncMock(return_value=None)
+    svc = ActivitySessionService(MagicMock(), activation_repo=MagicMock(get_active=probe))
     svc._type_repo = MagicMock(get=AsyncMock(return_value=activity_type))
     svc._optin_repo = _optin_reader(opted_in=opted_in)
-    svc._repo = MagicMock(get_open=probe)
+    svc._repo = MagicMock()
 
     subject = uuid.uuid4()
 
