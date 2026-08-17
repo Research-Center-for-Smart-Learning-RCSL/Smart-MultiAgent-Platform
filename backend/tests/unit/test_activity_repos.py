@@ -20,6 +20,9 @@ from sqlalchemy.exc import IntegrityError
 from contexts.activities.domain.errors import ActivityTypeKeyConflict
 from contexts.activities.domain.models import ActivityTypeScope, ValidatorKind
 from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
+from contexts.activities.infrastructure.repositories.optin_repo import (
+    ProjectActivityTypeOptInRepository,
+)
 from contexts.activities.infrastructure.repositories.submission_repo import (
     ActivitySubmissionRepository,
 )
@@ -443,6 +446,49 @@ class TestPlatformScopedTypeQueries:
                 expose_payload_to_agent=True,
                 echo_includes_content=False,
             )
+
+
+class TestOptInRepoDeleteByType:
+    """AC-5: the shape of the delete an admin type-delete runs.
+
+    Unbounded by project on purpose — the type is going away for everyone — which
+    is exactly why the predicate has to be pinned. A stray project bound would
+    make the admin delete silently leave most projects orphaned; no predicate at
+    all would wipe every project's opt-in for every type.
+    """
+
+    async def _run(self, type_id: uuid.UUID) -> str:
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = []
+        db.execute.return_value = result
+        await ProjectActivityTypeOptInRepository(db).remove_all_for_type(type_id)
+        return _compiled(db.execute.await_args_list[0].args[0])
+
+    async def test_remove_all_for_type_filters_on_the_type_and_nothing_else(self) -> None:
+        type_id = uuid.uuid4()
+        compiled = await self._run(type_id)
+
+        assert compiled.startswith("DELETE FROM project_activity_type_optins")
+        assert "WHERE" in compiled
+        assert f"activity_type_id = '{type_id}'" in compiled
+        # Not project-scoped: an admin delete revokes the type for every tenant.
+        assert "project_activity_type_optins.project_id =" not in compiled
+
+    async def test_remove_all_for_type_returns_the_projects_it_revoked(self) -> None:
+        """The RETURNING clause is what makes the audit count possible."""
+        compiled = await self._run(uuid.uuid4())
+
+        assert "RETURNING project_activity_type_optins.project_id" in compiled
+
+    async def test_remove_all_for_type_reads_the_returned_project_ids(self) -> None:
+        db = AsyncMock()
+        result = MagicMock()
+        revoked = [uuid.uuid4(), uuid.uuid4()]
+        result.scalars.return_value.all.return_value = revoked
+        db.execute.return_value = result
+
+        assert list(await ProjectActivityTypeOptInRepository(db).remove_all_for_type(uuid.uuid4())) == revoked
 
 
 class TestTypeRepoScoping:
