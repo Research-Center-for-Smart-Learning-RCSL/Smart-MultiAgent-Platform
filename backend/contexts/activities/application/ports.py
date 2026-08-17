@@ -24,6 +24,17 @@ class ActivityTypeOptInReader(Protocol):
     async def exists(self, *, project_id: uuid.UUID, activity_type_id: uuid.UUID) -> bool: ...
 
 
+class ActivitySessionCloser(Protocol):
+    """The one session write ending a round performs ([R30.22]).
+
+    Deliberately a single method rather than the whole session repository:
+    ``ActivationService`` has no business reading or opening sessions, and a
+    wider contract here would let it grow that way without anyone noticing.
+    """
+
+    async def close_open_for_activation(self, activation_id: uuid.UUID) -> int: ...
+
+
 class ActivityActivationRepository(Protocol):
     async def get(self, activation_id: uuid.UUID) -> ActivityActivation | None: ...
 
@@ -44,4 +55,9 @@ class ActivityActivationRepository(Protocol):
     async def end(self, activation_id: uuid.UUID) -> bool: ...
 
 
-__all__ = ["ActivityActivationRepository", "ActivityTypeOptInReader", "ActivityTypeReader"]
+__all__ = [
+    "ActivityActivationRepository",
+    "ActivitySessionCloser",
+    "ActivityTypeOptInReader",
+    "ActivityTypeReader",
+]

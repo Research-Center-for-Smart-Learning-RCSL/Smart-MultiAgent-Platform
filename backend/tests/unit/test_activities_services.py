@@ -1765,9 +1765,12 @@ class TestSessionCompletion:
         activity_type: ActivityType,
         *,
         completed: bool,
-        caller_user_id: uuid.UUID | None = ...,  # type: ignore[assignment]
+        as_caller: uuid.UUID | None = None,
     ) -> ActivitySessionCompletionResult:
-        caller = session.subject_user_id if caller_user_id is ... else caller_user_id
+        """``as_caller`` defaults to the subject themselves, which is the only
+        case a room member can produce; a test passing someone else is exercising
+        the refusal."""
+        caller = as_caller or session.subject_user_id
         with patch.object(sess_svc.audit, "emit", new=AsyncMock()):
             return await svc.set_completion(
                 project_id=activity_type.project_id,
@@ -1830,7 +1833,7 @@ class TestSessionCompletion:
                 session,
                 activity_type,
                 completed=True,
-                caller_user_id=uuid.uuid4(),
+                as_caller=uuid.uuid4(),
             )
 
         svc._repo.set_completed.assert_not_awaited()

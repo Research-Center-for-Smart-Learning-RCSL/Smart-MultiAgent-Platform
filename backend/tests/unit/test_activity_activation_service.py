@@ -133,14 +133,15 @@ class TestActivationService:
         room_id, type_id = uuid.uuid4(), uuid.uuid4()
         activation = _activation(room_id, type_id)
         repo = MagicMock(get=AsyncMock(return_value=activation), end=AsyncMock(return_value=False))
+        closer = MagicMock(close_open_for_activation=AsyncMock(return_value=0))
         svc = _no_policy(
             ActivationService(
                 MagicMock(),
                 activation_repo=repo,
                 type_repo=MagicMock(),
+                session_repo=closer,
             )
         )
-        svc._session_repo = MagicMock(close_open_for_activation=AsyncMock(return_value=0))
 
         result = await svc.end(
             chatroom_id=room_id,
@@ -152,7 +153,7 @@ class TestActivationService:
         assert result == ActivityActivationEndResult(activation=activation, transitioned=False)
         # A double-end changed nothing, so it must not re-close sessions either —
         # a second sweep would restamp closed_at on rows this call did not end.
-        svc._session_repo.close_open_for_activation.assert_not_awaited()
+        closer.close_open_for_activation.assert_not_awaited()
 
     async def test_end_closes_the_rounds_sessions_and_records_the_count(self) -> None:
         """AC-4: ending a round leaves nothing answered under it open ([R30.22]).
@@ -166,8 +167,10 @@ class TestActivationService:
         repo = MagicMock(
             get=AsyncMock(side_effect=[activation, activation]), end=AsyncMock(return_value=True)
         )
-        svc = _no_policy(ActivationService(MagicMock(), activation_repo=repo, type_repo=MagicMock()))
-        svc._session_repo = MagicMock(close_open_for_activation=AsyncMock(return_value=3))
+        closer = MagicMock(close_open_for_activation=AsyncMock(return_value=3))
+        svc = _no_policy(
+            ActivationService(MagicMock(), activation_repo=repo, type_repo=MagicMock(), session_repo=closer)
+        )
 
         with patch.object(activation_service.audit, "emit", new=AsyncMock()) as emit:
             result = await svc.end(
@@ -178,7 +181,7 @@ class TestActivationService:
             )
 
         assert result.transitioned is True
-        svc._session_repo.close_open_for_activation.assert_awaited_once_with(activation.id)
+        closer.close_open_for_activation.assert_awaited_once_with(activation.id)
         assert emit.await_args.args[1].metadata["sessions_closed"] == "3"
 
     async def test_end_closes_sessions_before_it_audits(self) -> None:
@@ -187,9 +190,9 @@ class TestActivationService:
         room_id, type_id = uuid.uuid4(), uuid.uuid4()
         activation = _activation(room_id, type_id)
         repo = MagicMock(get=AsyncMock(return_value=activation), end=AsyncMock(return_value=True))
-        svc = _no_policy(ActivationService(MagicMock(), activation_repo=repo, type_repo=MagicMock()))
-        svc._session_repo = MagicMock(
-            close_open_for_activation=AsyncMock(side_effect=RuntimeError("close blew up"))
+        closer = MagicMock(close_open_for_activation=AsyncMock(side_effect=RuntimeError("close blew up")))
+        svc = _no_policy(
+            ActivationService(MagicMock(), activation_repo=repo, type_repo=MagicMock(), session_repo=closer)
         )
 
         with (

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.activities.application.policy_service import ActivityPolicyService
 from contexts.activities.application.ports import (
     ActivityActivationRepository,
+    ActivitySessionCloser,
     ActivityTypeOptInReader,
     ActivityTypeReader,
 )
@@ -33,6 +34,7 @@ class ActivationService:
         activation_repo: ActivityActivationRepository,
         type_repo: ActivityTypeReader,
         optin_repo: ActivityTypeOptInReader | None = None,
+        session_repo: ActivitySessionCloser | None = None,
     ) -> None:
         self._db = db
         self._repo = activation_repo
@@ -42,8 +44,9 @@ class ActivationService:
         # the opt-in table is read only for platform-scoped types.
         self._optin_repo = optin_repo or ProjectActivityTypeOptInRepository(db)
         # Ending a round closes the sessions answered under it, so this service
-        # owns a session repo. Defaulted for the same reason as the opt-in one.
-        self._session_repo = ActivitySessionRepository(db)
+        # owns a session writer -- narrowed to that one method (see the port), and
+        # defaulted for the same reason as the opt-in reader above.
+        self._session_repo: ActivitySessionCloser = session_repo or ActivitySessionRepository(db)
         self._policy = ActivityPolicyService(db)
 
     async def start(
