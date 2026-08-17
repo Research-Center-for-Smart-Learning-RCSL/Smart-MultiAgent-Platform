@@ -34,15 +34,20 @@ const fields = computed<SchemaField[]>(() => fieldsFromSchema(props.schema))
 // back to one (R30.34).
 const isGrid = computed(() => fields.value.length === GRID_SIZE)
 
+// `center` is a *named opt-in* to centre placement, never a positional guess. A
+// schema declaring no such property renders in declared order (R30.36): promoting
+// its first field would move a cell the author put first, and an author cannot
+// see that rule from their own schema.
 const centerField = computed<SchemaField | null>(() => {
   if (!isGrid.value) return null
-  return fields.value.find((f) => f.name === CENTER_PROPERTY) ?? fields.value[0] ?? null
+  return fields.value.find((f) => f.name === CENTER_PROPERTY) ?? null
 })
 
-/** Ring cells in declaration order with the centre spliced into the middle. */
+/** Ring cells in declaration order with the centre spliced into the middle, or
+ *  the declared order untouched when the schema names no centre. */
 const cells = computed<SchemaField[]>(() => {
   const center = centerField.value
-  if (!center) return []
+  if (!center) return fields.value
   const ring = fields.value.filter((f) => f.name !== center.name)
   return [...ring.slice(0, CENTER_INDEX), center, ...ring.slice(CENTER_INDEX)]
 })
