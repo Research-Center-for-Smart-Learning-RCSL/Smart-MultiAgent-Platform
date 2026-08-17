@@ -27,13 +27,6 @@ list). This section is kept as the record of what that audit produced.
 
 ### Other ready work
 
-- `2026-08-17-activity-participant-lifecycle` (feature, approved) — `depends_on: []`. Removes the
-  participant's self-serve session start/finish from the chatroom Activity rail, binds an
-  `ActivitySession` to the `ActivityActivation` it was answered under (so a re-run of the same
-  activity in one room is a separate attempt history), closes a round's sessions when the
-  facilitator ends it (the deferred FU-2 of `2026-07-13-activities-activation-ux`), and adds a
-  reversible participant "I'm done" signal the facilitator reads as a completed/in-progress
-  count. Migration 0077.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
@@ -47,6 +40,21 @@ list). This section is kept as the record of what that audit produced.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-17 after implementation: `2026-08-17-activity-participant-lifecycle` (the
+participant's self-serve session start/finish is gone from the chatroom Activity rail, an
+`ActivitySession` belongs to the `ActivityActivation` it was answered under, ending a round
+closes its sessions, and a reversible "I'm done" signal feeds a facilitator-only
+completed/in-progress count). Nothing lists it in `depends_on`, so no row moved out of Blocked.
+It **applied an SRS Delta** amending [R30.01] and [R30.22]. **Three things a later reader
+needs.** **Migration 0077 has never been applied anywhere** (D-7): no Docker and no local
+PostgreSQL, so the `integration`/`db`/`wiring` tiers never ran, and **AC-3 and AC-9 are left
+unticked rather than claimed** — the tests exist and are CI's to close. No browser check either,
+so every user-facing change here has been reasoned to work and not seen to; that is now six
+consecutive dossiers in this area with the same gap. **D-3** is a defect in the approved spec
+worth learning from: seeding the participant's done-toggle from the PATCH response alone loses
+it on every reload, because the client holds no session id — a symmetric GET was added.
+And **FU-5** (this dossier's OQ-1): `close_open_for_type` and `close_open_for_type_in_rooms`
+now only reach pre-0077 rows, so they can retire once none can be created.
 Removed on 2026-08-17 after implementation: `2026-08-16-platform-type-delete-optin-lifecycle`
 (an admin platform-type delete now removes every project's opt-in explicitly and records the
 count on the `activity_type.deleted` event, instead of relying on an FK cascade that a soft

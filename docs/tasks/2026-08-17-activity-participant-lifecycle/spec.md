@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-08-17
 requirements: [R30.01, R30.21, R30.22, R30.26, R30.33]
 depends_on: []
@@ -444,34 +444,64 @@ Touches room authZ, WebSocket, and user-input processing.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: With an activation live, a participant (including a guest) sees the worksheet with no
+- [x] AC-1: With an activation live, a participant (including a guest) sees the worksheet with no
   button press; a refresh or a rail-tab switch re-renders it without one either.
-- [ ] AC-2: A participant's first submission creates exactly one session, bound to the active
+  (`ActivityPanel.test.ts` — the form renders and neither retired key appears.)
+- [x] AC-2: A participant's first submission creates exactly one session, bound to the active
   activation, with `attempt_no = 1`.
+  (`test_activities_services.py::TestSubmitSessionResolution` + the existing attempt-numbering
+  assertions in `TestSubmitInProcess`.)
 - [ ] AC-3: Facilitator starts type T, participant submits twice, facilitator ends, facilitator
   starts T again in the same room, participant submits again → the third submission is in a
   **different** session with `attempt_no = 1`, and the first session holds exactly two.
-- [ ] AC-4: Ending an activation closes every session bound to it, through all four end paths
+  **Left unticked: the test exists but has never executed** — this claim is about rows a real
+  PostgreSQL holds, and the `db` tier could not run here (D-7).
+  `tests/integration/test_activity_session_activation.py::test_two_rounds_give_one_subject_two_sessions`
+  is the mapped test. The unit half (submit resolves through the round) passes.
+- [x] AC-4: Ending an activation closes every session bound to it, through all four end paths
   (facilitator end, project type delete, admin platform-type delete, project opt-out), and the
   `activity.activation_ended` audit event records the count.
-- [ ] AC-5: A participant can mark themselves done and undo it; neither transition blocks a
+  (`test_activity_activation_service.py::test_end_closes_the_rounds_sessions_and_records_the_count`
+  proves the choke point; the four paths reaching it is a structural fact — `facade._cascade_delete`
+  and `example_service.opt_out` both call `ActivationService.end` and nothing else ends an
+  activation. The `db`-tier boundedness test is CI-pending, as AC-3.)
+- [x] AC-5: A participant can mark themselves done and undo it; neither transition blocks a
   subsequent submission, and a submission after marking done clears the mark.
-- [ ] AC-6: The facilitator sees `{completed, in_progress}` for the running activation, seeded by
+  (`TestSessionCompletion`, `TestSubmitSessionResolution::test_answering_again_retracts_a_completion_declaration`,
+  `ActivityPanel.test.ts::is reversible`.)
+- [x] AC-6: The facilitator sees `{completed, in_progress}` for the running activation, seeded by
   the GET on panel mount and updated without a refetch when the activation's starter is the
   viewer; a non-starter facilitator (admin) converges within one poll interval.
-- [ ] AC-7: A non-creator receives 403 from the progress GET; a room member cannot set another
+  (`ActivityPanel.test.ts` covers the render, the WS update with no refetch, and that a
+  participant never asks. The poll branch itself is untested — FU-6.)
+- [x] AC-7: A non-creator receives 403 from the progress GET; a room member cannot set another
   subject's completion (404, the `SessionNotFound` collapse of `_ensure_subject_is_caller`); a
   cross-tenant type id still 404s before any activation state is revealed.
-- [ ] AC-8: `POST .../activity-sessions` with no matching active activation returns 409
+  (`test_activity_activation_routes.py::TestProgressRoute` pins the gate and that the send floor
+  is *not* it; `TestSessionCompletion` covers the subject and room refusals;
+  `test_cross_project_type_rejected` asserts the activation read never happens for a foreign type.)
+- [x] AC-8: `POST .../activity-sessions` with no matching active activation returns 409
   `ActivityNotActive`; with one, the returned session carries that `activation_id`.
+  (`TestOpenSessionTenantIsolation` — no round, wrong round, and the admin arm.)
 - [ ] AC-9: `alembic upgrade head` applies and `downgrade` reverses cleanly; the new unique
   constraint and index exist, the old partial-unique is gone, and `tables.py` matches the
   migration. An open session whose room has a matching active activation is backfilled; one
   without is closed.
-- [ ] AC-10: No two buttons in the Activity panel share a label in either locale; `panel.join`,
+  **Left unticked: unverified.** No Docker and no local PostgreSQL (D-7), so 0077 has never been
+  applied anywhere. `tests/integration/test_migration_0077_index_swap.py` (schema, scratch DB) and
+  `test_activity_session_activation.py::TestMigrationDataSteps` (the migration's own backfill SQL)
+  are the mapped tests and are CI's to run.
+- [x] AC-10: No two buttons in the Activity panel share a label in either locale; `panel.join`,
   `panel.finish`, `panel.finishFailed` are absent from both bundles and from `src/`.
-- [ ] AC-11: Gates green — backend `pytest`/`ruff`/`mypy`; frontend `pnpm lint`/`typecheck`/
+  (`i18n.panel.test.ts`.)
+- [x] AC-11: Gates green — backend `pytest`/`ruff`/`mypy`; frontend `pnpm lint`/`typecheck`/
   `test`/`build`; `gen:api` rerun and `check:openapi-drift` clean.
+  Backend unit tier 6875 passed / 6 skipped (with D-8's exclusion), `ruff check` and
+  `ruff format --check` clean, `mypy` clean over 940 files. Frontend `pnpm lint`, `typecheck`,
+  `test` (183 files / 1155 tests), `build`, `check:bundle-size` and `check:type-coverage` (98.57%)
+  all pass. `gen:api` rerun; `check:openapi-drift` itself cannot run on this host (its bash
+  wrapper calls `python`, which is not on the MSYS PATH) so drift was verified equivalently by
+  re-exporting the spec and comparing file hashes — identical.
 
 ## 12. Test Plan
 
@@ -523,7 +553,72 @@ Amend `REQUIREMENTS.md:2181` **[R30.22]**, replacing the final sentence:
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- **D-1 (§6.1 step 6, dropped): no separate `ix_activity_sessions_activation`.**
+  The spec listed a single-column index alongside the new unique. A btree on
+  `(activation_id, subject_user_id)` is already usable for a `WHERE activation_id = ?` scan, so
+  the per-round count and close are served by the unique itself; a second index would be pure
+  write cost. Noted in the migration next to the `CREATE UNIQUE INDEX`.
+
+- **D-2 (§6.1, structure): the two data statements are module-level constants.**
+  `BACKFILL_ACTIVATION_SQL` and `CLOSE_UNCLAIMED_SQL` are named at module level rather than
+  inlined into `upgrade()`, so `TestMigrationDataSteps` executes *the migration's own SQL*
+  against a real PostgreSQL without running DDL against the shared `db`-tier database. The
+  shape 0076 uses for `assert_no_platform_types`. A hand-copied duplicate in the test would
+  have proved nothing about what the migration does.
+
+- **D-3 (addition, and a defect in the approved spec): a completion GET.**
+  §6.6 said the participant's toggle state would be "seeded from the PATCH response". That is
+  only true until the first reload: the client holds no session id, so a participant who had
+  already declared themselves finished would come back to a toggle reading "not done", and
+  every rail-tab remount would do the same. `GET .../activity-activations/{id}/completion`
+  (gated `ensure_can_read`, subject forced to the caller, creates nothing) closes it, with
+  `ActivitiesFacade.get_session_for_round` and `ActivitySessionService.get_for_round` behind
+  it. Unlike `set_completion` it does not require the round to still be running — reading back
+  what you declared during a round the facilitator just ended is harmless, and refusing it
+  would blank the surface at the moment it is being torn down anyway.
+
+- **D-4 (§6.4, shape): `set_completion` returns a result object, not a tuple.**
+  `ActivitySessionCompletionResult{session, activation, transitioned}` (`domain/models.py`),
+  mirroring `ActivityActivationEndResult`. The route needs the round to address its post-commit
+  broadcast at the facilitator who started it; returning it here avoids a second lookup after
+  the commit, on a path where a re-read would also be racing the very state it just wrote.
+
+- **D-5 (quality gate, fixed in-build): `ActivationService` takes an `ActivitySessionCloser`.**
+  The first cut had it instantiate the concrete `ActivitySessionRepository` with no seam, which
+  is a step back from the injection its three other collaborators already use. It now depends on
+  a one-method Protocol in `application/ports.py` — deliberately one method, because ending a
+  round has no business reading or opening sessions and a wider contract would let it grow that
+  way unnoticed. The unit tests inject through the constructor rather than patching a private
+  attribute.
+
+- **D-6 (quality gate, fixed in-build): the progress wiring is a composable.**
+  §6.6 put the WebSocket subscription, its teardown and the poll fallback inside
+  `ActivityPanel.vue`, on top of the rendering and the two other fetches it already owned. They
+  moved to `composables/useActivationProgress.ts`; the panel reads one ref. This also replaced a
+  second generation counter with a guard on the activation id itself, which is the real
+  identity.
+
+- **D-7 (verification gap): no Docker on the implementing host, so three tiers never ran.**
+  `integration`, `db` and `wiring` fail at connect; `alembic upgrade head` was never executed,
+  so **migration 0077 has never been applied anywhere**; and no behavioural check was performed
+  in a browser, so the entire participant-facing change — the worksheet mounting with no button,
+  the done toggle, the facilitator's counts — has been reasoned to work and not seen to.
+  AC-3 and AC-9 are unticked for this reason and are CI's to close. This is the sixth
+  consecutive dossier in this area to record the same gap (`BOARD.md`, the removal notes from
+  2026-08-16); it is now the normal state of this host, not an incident.
+
+- **D-8 (verification gap): `pytest -q` was not run to completion.**
+  `tests/unit/test_graphrag_builder.py` hangs indefinitely on this host, in isolation as well as
+  in the tier — a pre-existing, already-recorded defect (D-7 of
+  `2026-08-16-platform-type-delete-optin-lifecycle`) unrelated to this diff. The unit tier ran
+  with that one file excluded: 6875 passed, 6 skipped.
+
+- **D-9 (self-inflicted, corrected): a UTF-8 BOM shipped in a test file.**
+  `Set-Content -Encoding utf8` on this Windows host writes a BOM and `core.autocrlf` does not
+  normalise it, so `test_activity_activation_routes.py` was committed with one and `ruff format`
+  stripped it on the next run. Fixed in its own commit. Same trap the openapi.json regeneration
+  carries (`BOARD.md`, D-10 of the migration-0076 dossier); the working defence is to write
+  files through the editor rather than through PowerShell redirection.
 
 ## 16. Follow-ups
 
@@ -531,5 +626,16 @@ Appended by /build. Empty means the implementation matches this spec exactly.
   many). A different privacy decision from the counts this task ships; see Non-goals.
 - **FU-2**: Move `ActivityPanel`'s remaining component-local server state into
   `useActivitiesStore`/`queries` so the panel survives an unmount without a refetch (§9).
+  D-6 took the largest piece; `completed`, `types` and `fetchedType` are what is left.
 - **FU-3**: A roster-based denominator ("12 of 18 students") once a room-membership read is
   available to the activities context without breaking [R30.09].
+- **FU-4**: The get-or-create-with-race-retry block is duplicated between
+  `session_service._resolve_for_activation` and `submission_service._resolve_session` (~18 lines
+  each, and it was duplicated before this task too). Deduping means one service importing
+  another's internals, which is exactly the cross-service private import §9 says not to add a
+  second of — so the fix is to give the pair a shared home, not to import across them.
+- **FU-5**: Retire `close_open_for_type` / `close_open_for_type_in_rooms` once no session can
+  carry a NULL `activation_id`. Every end path now closes its round's sessions, so their only
+  remaining reach is pre-0077 rows. This is §14's OQ-1, restated as work.
+- **FU-6**: `useActivationProgress`'s poll branch (the non-starter facilitator) has no test —
+  the WS branch and the seed do. A fake-timer test would close AC-6's last uncovered path.
