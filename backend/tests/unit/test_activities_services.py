@@ -37,6 +37,7 @@ from contexts.activities.domain.models import (
     ActivationStatus,
     ActivityActivation,
     ActivitySession,
+    ActivitySessionCompletionResult,
     ActivitySubmission,
     ActivityType,
     ActivityTypeScope,
@@ -1765,7 +1766,7 @@ class TestSessionCompletion:
         *,
         completed: bool,
         caller_user_id: uuid.UUID | None = ...,  # type: ignore[assignment]
-    ) -> tuple[ActivitySession, bool]:
+    ) -> ActivitySessionCompletionResult:
         caller = session.subject_user_id if caller_user_id is ... else caller_user_id
         with patch.object(sess_svc.audit, "emit", new=AsyncMock()):
             return await svc.set_completion(
@@ -1784,9 +1785,10 @@ class TestSessionCompletion:
         end-of-round cannot be read as the class finishing, and vice versa."""
         svc, activation, session, activity_type = self._wire()
 
-        _, transitioned = await self._call(svc, activation, session, activity_type, completed=True)
+        result = await self._call(svc, activation, session, activity_type, completed=True)
 
-        assert transitioned is True
+        assert result.transitioned is True
+        assert result.activation is activation
         svc._repo.set_completed.assert_awaited_once_with(session.id, completed=True)
         svc._repo.close.assert_not_called()
 
@@ -1803,7 +1805,7 @@ class TestSessionCompletion:
         svc, activation, session, activity_type = self._wire(completed_at=_NOW, transitioned=False)
 
         with patch.object(sess_svc.audit, "emit", new=AsyncMock()) as emit:
-            _, transitioned = await svc.set_completion(
+            result = await svc.set_completion(
                 project_id=activity_type.project_id,
                 chatroom_id=activation.chatroom_id,
                 activation_id=activation.id,
@@ -1814,7 +1816,7 @@ class TestSessionCompletion:
                 actor_ip=None,
             )
 
-        assert transitioned is False
+        assert result.transitioned is False
         emit.assert_not_awaited()
 
     async def test_declaring_for_another_subject_is_refused(self) -> None:

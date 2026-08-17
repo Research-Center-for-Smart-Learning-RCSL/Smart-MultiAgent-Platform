@@ -39,6 +39,7 @@ from contexts.activities.domain.models import (
     ActivityAggregate,
     ActivityPolicy,
     ActivitySession,
+    ActivitySessionCompletionResult,
     ActivitySubmission,
     ActivityType,
     ActivityTypeScope,
@@ -64,6 +65,7 @@ __all__ = [
     "ActivityActivationEndResult",
     "ActivityAggregate",
     "ActivitySession",
+    "ActivitySessionCompletionResult",
     "ActivitySubmission",
     "ActivityType",
     "ActivityTypeScope",
@@ -618,10 +620,11 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> tuple[ActivitySession, bool]:
+    ) -> ActivitySessionCompletionResult:
         """Set or clear a participant's "I am finished" declaration ([R30.22]).
-        Returns the session and whether this call changed anything, so the route
-        can skip its broadcast on a repeat."""
+        The result carries the round, so the route can address its post-commit
+        broadcast without a second lookup, and whether anything changed, so a
+        repeat click does not replay an event claiming the count moved."""
         return await self._sessions.set_completion(
             project_id=project_id,
             chatroom_id=chatroom_id,

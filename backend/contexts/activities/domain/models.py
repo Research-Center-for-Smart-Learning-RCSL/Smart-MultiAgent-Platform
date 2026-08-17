@@ -209,6 +209,21 @@ class ActivityActivationEndResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ActivitySessionCompletionResult:
+    """The outcome of a participant's "I am finished" toggle.
+
+    Carries the ``activation`` so the route can address its post-commit broadcast
+    at the facilitator who started the round without a second lookup, and
+    ``transitioned`` so a repeat click does not replay an event claiming the
+    count moved (the shape :class:`ActivityActivationEndResult` already uses).
+    """
+
+    session: ActivitySession
+    activation: ActivityActivation
+    transitioned: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ActivitySubmission:
     id: uuid.UUID
     session_id: uuid.UUID
@@ -303,6 +318,7 @@ __all__ = [
     "ActivityAggregate",
     "ActivityPolicy",
     "ActivitySession",
+    "ActivitySessionCompletionResult",
     "ActivitySubmission",
     "ActivityType",
     "ActivityTypeScope",

@@ -3,8 +3,10 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { ActivityActivationOut } from '../models/ActivityActivationOut';
+import type { ActivityActivationProgressOut } from '../models/ActivityActivationProgressOut';
 import type { ActivityActivationStartIn } from '../models/ActivityActivationStartIn';
 import type { ActivityPolicyPublicOut } from '../models/ActivityPolicyPublicOut';
+import type { ActivitySessionCompletionIn } from '../models/ActivitySessionCompletionIn';
 import type { ActivitySessionOpenIn } from '../models/ActivitySessionOpenIn';
 import type { ActivitySessionOut } from '../models/ActivitySessionOut';
 import type { ActivitySubmissionIn } from '../models/ActivitySubmissionIn';
@@ -96,6 +98,42 @@ export class ActivitiesService {
         });
     }
     /**
+     * Set Activity Session Completion
+     * A participant declares themselves finished with the running activity, or
+     * undoes it ([R30.22]).
+     *
+     * Keyed on the activation rather than on a session id: participants no longer
+     * open sessions, so a client legitimately has no session id to send -- the
+     * server resolves or creates the one for this round. ``ensure_can_send``
+     * because this writes; the subject is forced to the caller inside the service
+     * (the admin arm passes ``caller_user_id=None``, as the session open does).
+     * @returns ActivitySessionOut Successful Response
+     * @throws ApiError
+     */
+    public static setActivitySessionCompletionApiChatroomsChatroomIdActivityActivationsActivationIdCompletionPatch({
+        chatroomId,
+        activationId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        activationId: string,
+        requestBody: ActivitySessionCompletionIn,
+    }): CancelablePromise<ActivitySessionOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/chatrooms/{chatroom_id}/activity-activations/{activation_id}/completion',
+            path: {
+                'chatroom_id': chatroomId,
+                'activation_id': activationId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * End Activity Activation
      * @returns ActivityActivationOut Successful Response
      * @throws ApiError
@@ -110,6 +148,35 @@ export class ActivitiesService {
         return __request(OpenAPI, {
             method: 'PATCH',
             url: '/api/chatrooms/{chatroom_id}/activity-activations/{activation_id}/end',
+            path: {
+                'chatroom_id': chatroomId,
+                'activation_id': activationId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Activity Activation Progress
+     * How many participants have declared themselves finished ([R30.22]).
+     *
+     * ``ensure_room_creator``, not the send floor: this is the facilitator's view
+     * of the class, and a participant learning how many peers have finished is a
+     * different decision nobody has made.
+     * @returns ActivityActivationProgressOut Successful Response
+     * @throws ApiError
+     */
+    public static getActivityActivationProgressApiChatroomsChatroomIdActivityActivationsActivationIdProgressGet({
+        chatroomId,
+        activationId,
+    }: {
+        chatroomId: string,
+        activationId: string,
+    }): CancelablePromise<ActivityActivationProgressOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/activity-activations/{activation_id}/progress',
             path: {
                 'chatroom_id': chatroomId,
                 'activation_id': activationId,

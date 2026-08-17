@@ -25,7 +25,12 @@ from contexts.activities.domain.errors import (
     ActivityNotActive,
     SessionNotFound,
 )
-from contexts.activities.domain.models import ActivationStatus, ActivityActivation, ActivitySession
+from contexts.activities.domain.models import (
+    ActivationStatus,
+    ActivityActivation,
+    ActivitySession,
+    ActivitySessionCompletionResult,
+)
 from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
 from contexts.activities.infrastructure.repositories.optin_repo import (
     ProjectActivityTypeOptInRepository,
@@ -107,13 +112,14 @@ class ActivitySessionService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> tuple[ActivitySession, bool]:
+    ) -> ActivitySessionCompletionResult:
         """Set or clear this subject's "I am finished" declaration ([R30.22]).
 
-        Returns the session and whether this call changed anything, so the route
-        can skip its broadcast on a repeat. Reversible by design: an accidental
-        click must not lock a participant out of the rest of the lesson, and the
-        declaration never gates submission -- a later submit clears it
+        Returns the session, the round it belongs to, and whether this call
+        changed anything, so the route can address its broadcast and skip it on a
+        repeat. Reversible by design: an accidental click must not lock a
+        participant out of the rest of the lesson, and the declaration never
+        gates submission -- a later submit clears it
         (``SubmissionService.submit``).
         """
         activation = await self._resolve_active_activation(
@@ -145,8 +151,12 @@ class ActivitySessionService:
             )
             refreshed = await self._repo.get(session.id)
             if refreshed is not None:
-                return refreshed, True
-        return session, transitioned
+                return ActivitySessionCompletionResult(
+                    session=refreshed, activation=activation, transitioned=True
+                )
+        return ActivitySessionCompletionResult(
+            session=session, activation=activation, transitioned=transitioned
+        )
 
     async def close_session(
         self,
