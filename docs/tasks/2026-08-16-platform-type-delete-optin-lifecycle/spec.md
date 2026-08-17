@@ -324,6 +324,14 @@ new dossier, not an amendment smuggled in here - see §14.
   (an admin delete now revokes opt-ins, and two surfaces describe it accurately) but the
   end-to-end flow - delete a platform type, observe the projects lose the example - has not been
   seen in a browser. Confirm on the first deployed build.
+- **D-8**: **The docstring correction was an API contract change and was not treated as one.**
+  FastAPI publishes a route handler's docstring as the operation `description`, so rewriting
+  `delete_platform_activity_type`'s docstring (AC-6) changed `backend/openapi.json` and the
+  generated `AdminService.ts` - and the committed copies still carried the sentence about the FK
+  cascade that AC-6 exists to delete. `frontend-gate-openapi-drift` (`ci.yml:868`) would have
+  failed the push. Caught by `/code-review` after the push; spec and client regenerated in a
+  follow-up commit. The rule this cost: on this codebase a route **docstring** is part of the
+  published contract, so `make openapi-types` is required for it, not only for signature changes.
 - **D-7**: `pytest -q` over `tests/unit` was run as `--ignore=tests/unit/test_graphrag_builder.py`.
   That file **hangs indefinitely on this host**, in isolation as well as in the tier (confirmed
   twice, at the same point both times, with the process idle rather than working). It is
@@ -358,6 +366,17 @@ new dossier, not an amendment smuggled in here - see §14.
   dossier, the same question left open twice. Resolving it once for courses and packs together
   would remove the upgrade procedure this dossier is documenting the hazards of.
 
+- **FU-6**: **A concurrent opt-in can re-create the orphan row this dossier exists to remove.**
+  `opt_in` reads the live type (`example_service.py:279-290`) and then inserts; under READ
+  COMMITTED nothing serializes that against `delete_platform_type`. A Project Owner clicking
+  Enable while an admin deletes can have its `get()` succeed, then the delete's
+  `remove_all_for_type` + soft-delete commit, then the `ON CONFLICT DO NOTHING` insert commit -
+  leaving exactly the orphan the fix removes. Same inert impact as the original defect (every
+  read filters `deleted_at IS NULL`), and the window is small, but it is unbounded in time and
+  the fix does not close it. Two candidate fixes: a `FOR UPDATE` on the type row at the top of
+  both paths, or ordering the opt-in DELETE *after* the type soft-delete so the insert's type
+  read is the one that loses. Found by `/code-review` after close, not by this dossier's
+  analysis - §5 reasoned about the delete path alone and never asked what else writes the table.
 - **FU-5**: `remove_all_for_type` carries no guard of its own - it will wipe every project's
   opt-in for whatever id it is handed. Safe today (one caller, admin-gated, scope-checked two
   lines above it, and pinned by a negative test), and pushing the scope check down would put a
