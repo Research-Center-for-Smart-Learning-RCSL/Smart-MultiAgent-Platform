@@ -27,7 +27,7 @@ list). This section is kept as the record of what that audit produced.
 
 ### Other ready work
 
-- `2026-08-17-activity-participant-lifecycle` (feature, draft) — `depends_on: []`. Removes the
+- `2026-08-17-activity-participant-lifecycle` (feature, approved) — `depends_on: []`. Removes the
   participant's self-serve session start/finish from the chatroom Activity rail, binds an
   `ActivitySession` to the `ActivityActivation` it was answered under (so a re-run of the same
   activity in one room is a separate attempt history), closes a round's sessions when the
