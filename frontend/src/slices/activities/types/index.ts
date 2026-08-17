@@ -2,6 +2,7 @@
 // slice adds the `ActivityOutcome` view-model the store and outcome badge key on.
 
 import type {
+  ActivityActivationProgressOut,
   ActivitySessionOut,
   ActivitySubmissionOut,
   ActivityTypeOut,
@@ -17,6 +18,9 @@ export type ActivityTypePublic = ActivityTypePublicOut
 export type ActivitySubmission = ActivitySubmissionOut
 export type ActivitySession = ActivitySessionOut
 export type ActivityActivation = ActivityActivationOut
+/** Counts only ([R30.22]) — the facilitator's view of one round. There is
+ *  deliberately no per-subject roster behind this. */
+export type ActivityActivationProgress = ActivityActivationProgressOut
 
 /** Compact activation state used by HTTP hydration and the ids-only room WS events. */
 export interface ActivationView {

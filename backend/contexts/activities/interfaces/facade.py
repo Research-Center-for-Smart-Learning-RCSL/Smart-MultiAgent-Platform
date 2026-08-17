@@ -637,6 +637,26 @@ class ActivitiesFacade:
             request_id=request_id,
         )
 
+    async def get_session_for_round(
+        self,
+        *,
+        project_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        activation_id: uuid.UUID,
+        subject_user_id: uuid.UUID,
+        caller_user_id: uuid.UUID | None,
+    ) -> ActivitySession | None:
+        """A subject's session for one round, or ``None`` — the read counterpart
+        of :meth:`set_session_completion`, and how a reloading participant learns
+        they had already declared themselves finished. Creates nothing."""
+        return await self._sessions.get_for_round(
+            project_id=project_id,
+            chatroom_id=chatroom_id,
+            activation_id=activation_id,
+            subject_user_id=subject_user_id,
+            caller_user_id=caller_user_id,
+        )
+
     async def count_activation_sessions(
         self, *, chatroom_id: uuid.UUID, activation_id: uuid.UUID
     ) -> tuple[int, int]:

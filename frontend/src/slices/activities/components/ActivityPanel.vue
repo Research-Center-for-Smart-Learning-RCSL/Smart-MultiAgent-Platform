@@ -1,21 +1,27 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiError } from '@shared/errors'
 import { SButton, SEmptyState, SSelect } from '@shared/ui'
+import { wsManager, type ChannelEvent } from '@shared/transport'
 import { useSessionStore } from '@shared/stores/session'
 import {
-  closeActivitySession,
   endActivation,
+  getActivationProgress,
   getActiveActivation,
+  getOwnRoundSession,
   getRoomActivityType,
   listActivityTypes,
-  openActivitySession,
+  setActivationCompletion,
   startActivation,
 } from '../api'
 import { usePolicyRefusal } from '../composables/usePolicyRefusal'
 import { useActivitiesStore } from '../stores/activities'
-import type { ActivitySession, ActivityType, ActivityTypePublic } from '../types'
+import type {
+  ActivityActivationProgress,
+  ActivityType,
+  ActivityTypePublic,
+} from '../types'
 import ActivityHost from './ActivityHost.vue'
 
 const props = defineProps<{
@@ -30,7 +36,6 @@ const session = useSessionStore()
 const store = useActivitiesStore()
 const types = ref<ActivityType[]>([])
 const selectedTypeId = ref<string | null>(null)
-const activitySession = ref<ActivitySession | null>(null)
 const loading = ref(false)
 const actionPending = ref(false)
 const errorMessage = ref<string | null>(null)
@@ -38,6 +43,11 @@ const errorMessage = ref<string | null>(null)
 // broadcast or a store reset (Q-1/AC-6). Keyed so a stale fetch for a since-
 // ended activation is never rendered.
 const fetchedType = ref<ActivityTypePublic | null>(null)
+// The participant's own "I am finished" declaration for the current round, and
+// the facilitator's view of the class. Both are per-activation, so both reset
+// in the activation watcher below.
+const completed = ref(false)
+const progress = ref<ActivityActivationProgress | null>(null)
 
 const activation = computed(() => store.getActivation(props.chatroomId) ?? null)
 const activeType = computed(() => activation.value?.activityType ?? fetchedType.value)
@@ -157,41 +167,119 @@ async function endForRoom(): Promise<void> {
   }
 }
 
-async function startSession(): Promise<void> {
-  if (!activeType.value || !session.me?.id) return
+/** Declare finished, or undo it. Reversible on purpose: a mis-click must not
+ *  cost a participant the rest of the lesson, and answering again clears the
+ *  declaration server-side anyway ([R30.22]). */
+async function toggleCompleted(): Promise<void> {
+  const act = activation.value
+  if (!act) return
+  const next = !completed.value
   actionPending.value = true
   errorMessage.value = null
   try {
-    activitySession.value = await openActivitySession(props.chatroomId, {
-      activity_type_id: activeType.value.id,
-      subject_user_id: session.me.id,
-    })
+    const updated = await setActivationCompletion(props.chatroomId, act.id, next)
+    completed.value = updated.completed_at !== null
   } catch (err) {
-    errorMessage.value = err instanceof ApiError ? err.message : t('activities.panel.startFailed')
+    errorMessage.value = err instanceof ApiError ? err.message : t('activities.panel.markDoneFailed')
   } finally {
     actionPending.value = false
   }
 }
 
-async function finishSession(): Promise<void> {
-  if (!activitySession.value) return
-  actionPending.value = true
-  errorMessage.value = null
+// Generation-guarded for the same reason as the type fetch: the activation can
+// change twice before a slower read for the older round resolves.
+let roundReadGeneration = 0
+
+/** Seed both per-round reads for the activation now in force.
+ *
+ *  The completion read is what a reloading participant needs — the client holds
+ *  no session id, so without it the toggle would render "not done" for someone
+ *  who already declared themselves finished. The progress read is the
+ *  facilitator's and 403s for everyone else, which is the expected answer rather
+ *  than a failure, so it never touches `errorMessage`. */
+async function loadRoundState(): Promise<void> {
+  const act = activation.value
+  if (!act) return
+  const generation = ++roundReadGeneration
   try {
-    await closeActivitySession(props.chatroomId, activitySession.value.id)
-    activitySession.value = null
-  } catch (err) {
-    errorMessage.value = err instanceof ApiError ? err.message : t('activities.panel.finishFailed')
-  } finally {
-    actionPending.value = false
+    const own = await getOwnRoundSession(props.chatroomId, act.id)
+    if (generation !== roundReadGeneration) return
+    completed.value = own?.completed_at != null
+  } catch {
+    // A failed read leaves the toggle at its default; the participant can still
+    // declare, and the server is the authority on what that does.
+  }
+  if (props.isCreator) await refreshProgress(generation)
+}
+
+async function refreshProgress(generation = roundReadGeneration): Promise<void> {
+  const act = activation.value
+  if (!act || !props.isCreator) return
+  try {
+    const next = await getActivationProgress(props.chatroomId, act.id)
+    if (generation !== roundReadGeneration) return
+    progress.value = next
+  } catch {
+    // Room-creator-gated: a 403 is the expected answer for an admin viewing a
+    // room they do not own, and a transient failure must not blank a count that
+    // was correct a moment ago.
   }
 }
+
+// ---- live progress over /ws/user/{id} ---------------------------------------
+// The completion event is addressed to the facilitator who started the round
+// ([R30.22]), never the room channel — the counts would otherwise tell every
+// participant how many peers had finished. A viewer who passes the room-creator
+// gate without being the starter (an admin, a moderator on a legacy
+// NULL-creator room) receives nothing, so they poll, exactly as the observer
+// panel does for the same reason.
+const POLL_MS = 30_000
+const unsubs: Array<() => void> = []
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+function teardownLive(): void {
+  for (const u of unsubs.splice(0)) u()
+  if (pollTimer !== null) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+watch(
+  () => [session.me?.id, props.isCreator, activation.value?.id, activation.value?.startedByUserId],
+  ([userId, isCreator, activationId, startedBy]) => {
+    teardownLive()
+    if (!userId || !isCreator || !activationId) return
+    if (startedBy === userId) {
+      const channel = wsManager.channel(`/user/${userId}`)
+      unsubs.push(
+        channel.subscribe('activity.session.completion', (ev: ChannelEvent) => {
+          if (ev.chatroom_id !== props.chatroomId || ev.activation_id !== activationId) return
+          progress.value = {
+            completed: Number(ev.completed ?? 0),
+            in_progress: Number(ev.in_progress ?? 0),
+          }
+        }),
+      )
+      // Idempotent — ban-kick / notifications likely connected it already.
+      channel.connect()
+    } else {
+      pollTimer = setInterval(() => void refreshProgress(), POLL_MS)
+    }
+  },
+  { immediate: true },
+)
+
+onScopeDispose(teardownLive)
 
 watch(() => props.projectId, loadTypes, { immediate: true })
 watch(activation, (next, previous) => {
-  if (previous && next?.id !== previous.id) activitySession.value = null
-  if (!next) activitySession.value = null
+  if (!next || (previous && next.id !== previous.id)) {
+    completed.value = false
+    progress.value = null
+  }
   void ensureActiveTypeLoaded()
+  void loadRoundState()
 }, { immediate: true })
 onMounted(() => {
   if (store.getActivation(props.chatroomId) === undefined) void hydrate()
@@ -212,30 +300,26 @@ onMounted(() => {
       <p class="activity-panel__name">
         {{ activeType?.name ?? t('activities.panel.active') }}
       </p>
+      <p
+        v-if="isCreator && progress"
+        class="activity-panel__progress"
+      >
+        {{ t('activities.panel.progress', { completed: progress.completed, working: progress.in_progress }) }}
+      </p>
       <template v-if="activeType">
-        <template v-if="activitySession">
-          <ActivityHost
-            :chatroom-id="chatroomId"
-            :activity-type="activeType"
-            :session-id="activitySession.id"
-            :subject-user-id="session.me?.id ?? null"
-          />
-          <SButton
-            variant="secondary"
-            :loading="actionPending"
-            @click="finishSession"
-          >
-            {{ t('activities.panel.finish') }}
-          </SButton>
-        </template>
+        <ActivityHost
+          :chatroom-id="chatroomId"
+          :activity-type="activeType"
+          :session-id="null"
+          :subject-user-id="session.me?.id ?? null"
+        />
         <SButton
-          v-else
-          variant="primary"
+          variant="secondary"
           :loading="actionPending"
           :disabled="!session.me?.id"
-          @click="startSession"
+          @click="toggleCompleted"
         >
-          {{ t('activities.panel.join') }}
+          {{ completed ? t('activities.panel.markDoneUndo') : t('activities.panel.markDone') }}
         </SButton>
       </template>
       <SButton
@@ -287,6 +371,11 @@ onMounted(() => {
 .activity-panel__name {
   margin: 0;
   font-weight: var(--weight-semibold);
+}
+.activity-panel__progress {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
 }
 .activity-panel__error {
   margin: 0;

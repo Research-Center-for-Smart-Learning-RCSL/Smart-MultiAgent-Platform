@@ -158,6 +158,36 @@ class ActivitySessionService:
             session=session, activation=activation, transitioned=transitioned
         )
 
+    async def get_for_round(
+        self,
+        *,
+        project_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        activation_id: uuid.UUID,
+        subject_user_id: uuid.UUID,
+        caller_user_id: uuid.UUID | None,
+    ) -> ActivitySession | None:
+        """This subject's session for one round, or ``None`` if they have none.
+
+        The read counterpart of :meth:`set_completion`, and the only way a
+        reloading participant can learn they had already declared themselves
+        finished -- their client holds no session id to ask with. Creates
+        nothing: opening a session is what a submission does, and a participant
+        merely looking at the panel has not answered anything.
+
+        Unlike ``set_completion`` this does not require the round to still be
+        running: reading back what you declared during a round the facilitator
+        has just ended is harmless, and refusing it would blank the surface at
+        exactly the moment it is being torn down anyway.
+        """
+        activation = await self._resolve_activation(
+            project_id=project_id, chatroom_id=chatroom_id, activation_id=activation_id
+        )
+        _ensure_subject_is_caller(subject_user_id, caller_user_id)
+        return await self._repo.get_for_activation(
+            activation_id=activation.id, subject_user_id=subject_user_id
+        )
+
     async def close_session(
         self,
         *,
@@ -224,14 +254,13 @@ class ActivitySessionService:
         """
         return await self._repo.close_open_for_type(activity_type_id)
 
-    async def _resolve_active_activation(
+    async def _resolve_activation(
         self, *, project_id: uuid.UUID, chatroom_id: uuid.UUID, activation_id: uuid.UUID
     ) -> ActivityActivation:
-        """The named activation, proven to be this room's and still running.
+        """The named activation, proven to be this room's and this project's.
 
-        A 404 for the wrong room (it is not this caller's to see) and a 409 once it
-        has ended (the request was legal when the client rendered it; what changed
-        is the room's state).
+        A 404 for the wrong room: the id came from the client, and an activation
+        in someone else's room is not this caller's to confirm.
         """
         activation = await self._activation_repo.get(activation_id)
         if activation is None or activation.chatroom_id != chatroom_id:
@@ -244,6 +273,19 @@ class ActivitySessionService:
             optin_reader=self._optin_repo,
             activity_type_id=activation.activity_type_id,
             project_id=project_id,
+        )
+        return activation
+
+    async def _resolve_active_activation(
+        self, *, project_id: uuid.UUID, chatroom_id: uuid.UUID, activation_id: uuid.UUID
+    ) -> ActivityActivation:
+        """As :meth:`_resolve_activation`, and still running.
+
+        A 409 once it has ended rather than a 404: the request was legal when the
+        client rendered it, and what changed is the room's state.
+        """
+        activation = await self._resolve_activation(
+            project_id=project_id, chatroom_id=chatroom_id, activation_id=activation_id
         )
         if activation.status is not ActivationStatus.ACTIVE:
             raise ActivityNotActive(str(activation.activity_type_id))
