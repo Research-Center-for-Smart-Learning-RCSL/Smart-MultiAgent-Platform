@@ -14,11 +14,16 @@ import zhTW from '../locales/zh-TW.json'
 
 const REQUIRED = ['close', 'edit', 'delete', 'cancel', 'save'] as const
 
+// `common` is optional on purpose. Typing it as required would turn a deleted
+// namespace into a compile error in this file, and a test that cannot run is not
+// a test that fails -- the assertions below have to be the thing that breaks.
 type Bundle = { common?: Record<string, string> }
 
+const enBundle = en as Bundle
+const zhBundle = zhTW as Bundle
 const bundles: [string, Bundle][] = [
-  ['en', en as Bundle],
-  ['zh-TW', zhTW as Bundle],
+  ['en', enBundle],
+  ['zh-TW', zhBundle],
 ]
 
 describe('shared locales: the common namespace', () => {
@@ -38,7 +43,7 @@ describe('shared locales: the common namespace', () => {
   it('en and zh-TW declare identical key sets', () => {
     // A key present in one bundle only is the same failure in a narrower form:
     // the locale that lacks it silently renders the English default.
-    expect(Object.keys(en.common ?? {}).sort()).toEqual(Object.keys(zhTW.common ?? {}).sort())
+    expect(Object.keys(enBundle.common ?? {}).sort()).toEqual(Object.keys(zhBundle.common ?? {}).sort())
   })
 })
 
@@ -67,7 +72,7 @@ describe('shared locales: every referenced common key resolves', () => {
 
   it('has every referenced key in both bundles', () => {
     const missing = [...referenced.entries()]
-      .filter(([key]) => !(key in (en.common ?? {})) || !(key in (zhTW.common ?? {})))
+      .filter(([key]) => !(key in (enBundle.common ?? {})) || !(key in (zhBundle.common ?? {})))
       .map(([key, files]) => `${key} (${files.join(', ')})`)
     expect(missing).toEqual([])
   })

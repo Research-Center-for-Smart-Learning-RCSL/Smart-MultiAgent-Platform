@@ -22,15 +22,8 @@ Thirteen dossiers from `docs/audits/2026-08-16-example-activities-and-agent-pack
 (18 findings, grouped by blast radius so concurrent builds cannot produce conflicting diffs).
 Every one is `depends_on: []`; the five majors are listed first. Three file-overlap pairs are
 noted below — these are **not** sequenced, but whoever builds second must rebase rather than
-assume. Eleven are now implemented and removed (see the notes below the In progress list); the
-two below are what remains.
-
-- `2026-08-16-platform-type-delete-optin-lifecycle` (bugfix, approved) — F-9. The type delete is
-  soft, so the FK cascade never fires and every project's opt-in outlives its type; two docstrings
-  and migration 0076's index comment all assume otherwise.
-- `2026-08-16-shared-common-i18n-namespace` (bugfix, approved) — F-15. The `common.*` namespace
-  exists in no bundle, so 17 call sites render their English default arguments. Two JSON files; no
-  call site changes.
+assume. All thirteen are now implemented and removed (see the notes below the In progress
+list). This section is kept as the record of what that audit produced.
 
 ### Other ready work
 
@@ -47,6 +40,33 @@ two below are what remains.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-17 after implementation: `2026-08-16-platform-type-delete-optin-lifecycle`
+(an admin platform-type delete now removes every project's opt-in explicitly and records the
+count on the `activity_type.deleted` event, instead of relying on an FK cascade that a soft
+delete can never fire). Nothing lists it in `depends_on`, so no row moved out of Blocked.
+**Three things a later reader needs.** **AC-1 has never been executed** (D-4): no Docker and no
+local PostgreSQL on the implementing host, so the `db`-tier test that is the dossier's empirical
+proof rests on reasoning until the `backend-db` CI job runs it. Its checkbox is deliberately left
+unticked and OQ-2 says what happens either way — sixth consecutive dossier in this series with
+the same gap, and D-5 records that no behavioural verification happened for the same reason.
+**D-3** — the db test does more than the spec asked, because `check-quality` found that nothing
+in the change exercised the real cursor: the unit tier mocks `result.scalars().all()`, so a
+misread `RETURNING` clause would delete correctly, pass everything, and write
+`optins_removed: "0"` forever; the test now reads the audit row back. And **D-7**, which outlives
+this task: `tests/unit/test_graphrag_builder.py` **hangs indefinitely on this host**, in
+isolation as well as in the tier, so 48 tests are silently unrunnable locally and only CI covers
+them. Unrelated to this diff (last changed in `1c3bad6`), but somebody should chase it.
+Removed on 2026-08-17 after implementation: `2026-08-16-shared-common-i18n-namespace` (the
+`common.*` namespace now exists in both shared bundles, so all seventeen call sites resolve
+instead of rendering their English default arguments). Nothing lists it in `depends_on`, so no
+row moved out of Blocked. **Two things a later reader needs.** **FU-4** — the reason no test
+caught this and the reason the next one will not either: `renderView` mounts the shared i18n
+singleton with **no** bundle loaded at all, so all 182 component test files assert raw keys or
+English defaults. A key deleted from `zh-TW.json` only is invisible to the entire suite the same
+way; the cheap fix is a per-slice bundle-parity test, not a harness rewrite. And **D-2** — the
+recurrence guard scans `src/` for `t('common.X')` and asserts every hit resolves, but it excludes
+`__tests__/` and asserts the scan finds at least one call site, so a glob that silently stops
+matching fails loudly rather than passing vacuously.
 Removed on 2026-08-17 after implementation: `2026-08-16-mandala-center-fallback` (the mandala
 grid resolves `center` as a named opt-in, so a nine-field schema declaring none renders in its
 declared order instead of having its first field promoted to the middle). Nothing lists it in

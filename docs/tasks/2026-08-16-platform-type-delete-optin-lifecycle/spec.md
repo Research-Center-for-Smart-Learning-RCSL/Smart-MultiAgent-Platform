@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-08-16
 requirements: [R30.32, R30.33]
 depends_on: []
@@ -262,23 +262,26 @@ dossier must continue to hold, since this fix must not blur the two delete paths
 
 - [ ] AC-1: The `db`-tier test from §8.3 fails before the fix and passes after: after deleting a
   platform type, `project_activity_type_optins` holds no row for it.
-- [ ] AC-2: `delete_platform_type` removes every project's opt-in for the type and passes the
+- [x] AC-2: `delete_platform_type` removes every project's opt-in for the type and passes the
   count into the `activity_type.deleted` audit metadata as `optins_removed`.
-- [ ] AC-3: No `activity_type.opted_out` event is emitted by the delete path (Q-2).
-- [ ] AC-4: A **project-scoped** delete calls no opt-in removal at all, and the project-bounded
+- [x] AC-3: No `activity_type.opted_out` event is emitted by the delete path (Q-2).
+- [x] AC-4: A **project-scoped** delete calls no opt-in removal at all, and the project-bounded
   opt-out cascade is unchanged - AC-10 of the platform-example dossier still holds.
-- [ ] AC-5: `remove_all_for_type` filters on `activity_type_id` only, pinned by the compiled-SQL
+- [x] AC-5: `remove_all_for_type` filters on `activity_type_id` only, pinned by the compiled-SQL
   test in §8.4.
-- [ ] AC-6: The two docstrings (`facade.py:487-488`, `admin_activities.py:434-435`) describe
+- [x] AC-6: The two docstrings (`facade.py:487-488`, `admin_activities.py:434-435`) describe
   what the code does, including that the cascade does not fire and that a re-install mints a new
   id.
-- [ ] AC-7: `docs/examples/creative-thinking-course.md:252-254` states that deleting revokes
+- [x] AC-7: `docs/examples/creative-thinking-course.md:252-254` states that deleting revokes
   every project's opt-in and that re-installing does not restore it, so Project Owners must
   re-enable.
-- [ ] AC-8: `optin_repo.py`'s module docstring explains why a delete-by-type does not widen the
+- [x] AC-8: `optin_repo.py`'s module docstring explains why a delete-by-type does not widen the
   reachability answer its narrowness protects.
-- [ ] AC-9: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`;
+- [x] AC-9: Gates green: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`;
   `db` and `integration` tiers on CI, which is authoritative per the project's remote-CI rule.
+  (`ruff`: clean, 943 files formatted. `mypy`: no issues in 938 files. `pytest`: 6852 passed,
+  6 skipped - see D-7 for the one pre-existing file excluded, and D-4 for the tiers this host
+  cannot run at all.)
 
 ## 11. SRS Delta
 
@@ -293,7 +296,46 @@ new dossier, not an amendment smuggled in here - see §14.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1**: §7.3 gave `soft_delete` the `extra_metadata` parameter but did not say how it would
+  reach it - the facade calls `soft_delete` through `_cascade_delete`, which both delete paths
+  share. `_cascade_delete` therefore gained a pass-through `extra_metadata` parameter of its own,
+  defaulting to `None`. The Q-3 placement decision is unchanged and is now visible in the
+  signatures: only `delete_platform_type` ever passes a value, and the project path's audit
+  record is byte-identical to before (pinned by
+  `TestPlatformDeleteAuditRecord::test_a_project_type_delete_writes_no_optin_count`).
+- **D-2**: §8.5 asked for an assertion that the event carries the count; the test built for it
+  drives a **real** `ActivityTypeService` over a mocked repository rather than asserting on a
+  mocked `soft_delete` call, so the metadata dict asserted is the one the service actually
+  builds - including that `scope` and `key` survive the merge. The mock-level assertion exists
+  too (`test_the_delete_event_records_how_many_optins_were_revoked`); they fail for different
+  reasons, which is the point of keeping both.
+- **D-3**: The `db`-tier test does more than §8.3 asked. `check-quality` found that nothing in
+  the change exercised the one part that depends on real cursor semantics: the unit tier mocks
+  `result.scalars().all()`, so a wrong way of reading `RETURNING project_id` would still delete
+  the rows correctly, still pass every test, and silently write `optins_removed: "0"` into the
+  audit trail forever. The db test now reads the `activity_type.deleted` row back out of
+  `audit_logs` and asserts the count, not only that the join table is empty.
+- **D-4**: **AC-1 has not been executed anywhere.** Docker is unavailable on this host and no
+  local PostgreSQL is listening on 5432, so the `db`/`integration` tiers cannot run here at all;
+  the test is written and is the empirical proof the dossier calls for, but it rests on reasoning
+  until the `backend-db` CI job runs it. This is the sixth consecutive dossier in this series to
+  record the same gap. AC-1's checkbox stays unticked deliberately - see §14 OQ-2.
+- **D-5**: No behavioural verification (same cause as D-4). The user-visible change is small
+  (an admin delete now revokes opt-ins, and two surfaces describe it accurately) but the
+  end-to-end flow - delete a platform type, observe the projects lose the example - has not been
+  seen in a browser. Confirm on the first deployed build.
+- **D-7**: `pytest -q` over `tests/unit` was run as `--ignore=tests/unit/test_graphrag_builder.py`.
+  That file **hangs indefinitely on this host**, in isolation as well as in the tier (confirmed
+  twice, at the same point both times, with the process idle rather than working). It is
+  pre-existing and outside this diff - it last changed in `1c3bad6`, an unrelated ruff bump, and
+  nothing in `contexts/activities/` reaches it. Excluding it, the tier is **6852 passed, 6
+  skipped**. Recorded rather than chased because it is not this task's defect, but somebody
+  should chase it: 48 tests are silently unrunnable locally, and only CI is covering them.
+- **D-6**: §7.5 said the upgrade note "must gain the opt-in loss and the new-id consequence, and
+  say to tell the affected Project Owners before deleting". It also gained what the affected
+  facilitators will actually see (a bare 404 from activation, and the example showing as not
+  enabled with no explanation), because that is the symptom an operator will be asked about and
+  the reason the warning has to be given *before* rather than after.
 
 ## 13. Follow-ups
 
@@ -316,7 +358,18 @@ Appended by /build.
   dossier, the same question left open twice. Resolving it once for courses and packs together
   would remove the upgrade procedure this dossier is documenting the hazards of.
 
+- **FU-5**: `remove_all_for_type` carries no guard of its own - it will wipe every project's
+  opt-in for whatever id it is handed. Safe today (one caller, admin-gated, scope-checked two
+  lines above it, and pinned by a negative test), and pushing the scope check down would put a
+  type read in the infrastructure layer, which is why it was not done. Recorded by
+  `check-security` as hardening so a future second caller knows the method is unguarded.
+
 ## 14. Open Questions
+
+- **OQ-2**: AC-1 is unverified (D-4): no host in this environment can run the `db` tier. The
+  dossier is complete in every other respect. Either the `backend-db` CI job runs it green - at
+  which point AC-1 is ticked and nothing else changes - or it fails, and §8.3's test is the thing
+  that tells us so. Nothing downstream depends on the answer.
 
 - **OQ-1**: Q-2 assumes no compliance stance requires per-project auditability of access lost to
   an admin delete. If one does, the honest artifact is a new action string
