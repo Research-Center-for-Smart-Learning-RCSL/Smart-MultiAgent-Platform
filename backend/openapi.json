@@ -1,4 +1,4 @@
-{
+﻿{
   "components": {
     "schemas": {
       "AcceptByTokenIn": {
@@ -10802,7 +10802,7 @@
     },
     "/api/admin/activity-types/{type_id}": {
       "delete": {
-        "description": "Remove an installed example ([R30.32]).\n\nThe cascade legitimately spans every tenant: the type is going away for\neveryone, so every active activation ends and every open session closes, and\nthe opt-in rows go with it through the FK cascade. Durable-commit before the\nfan-out, so no room is told its activation ended before it is.",
+        "description": "Remove an installed example ([R30.32]).\n\nThe cascade legitimately spans every tenant: the type is going away for\neveryone, so every active activation ends, every open session closes, and\nevery project's opt-in is revoked. Durable-commit before the fan-out, so no\nroom is told its activation ended before it is.\n\nRe-installing the course mints a new type id, so every project that had\nenabled this example must enable it again \u2014 the revocation is not undone.",
         "operationId": "delete_platform_activity_type_api_admin_activity_types__type_id__delete",
         "parameters": [
           {
