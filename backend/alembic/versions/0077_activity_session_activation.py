@@ -23,10 +23,25 @@ THE NEW UNIQUE IS PLAIN, NOT PARTIAL. One session per (activation, subject),
 whatever its status -- so a participant who declares themselves done and then
 answers again keeps one continuous attempt sequence, and a second round is
 structurally a different row instead of depending on the first having been
-closed. That is also why `uq_activity_sessions_open` has to go: it would forbid
-the legitimate second-round row. PostgreSQL treats NULLs as distinct in a unique
-index, so the legacy rows left with a NULL `activation_id` are unconstrained by
-it, which is correct -- step 2 has already closed every one of them.
+closed. PostgreSQL treats NULLs as distinct in a unique index, so the legacy rows
+left with a NULL `activation_id` are unconstrained by it, which is correct --
+step 2 has already closed every one of them.
+
+`uq_activity_sessions_open` IS DELIBERATELY LEFT IN PLACE. It is redundant under
+the new design and the obvious move is to drop it here, but that would break the
+forward-compatibility rule this repo holds migrations to (backend/CLAUDE.md: old
+code runs on new schema). Pre-0077 `create_open` relies on that index for its
+`ON CONFLICT DO NOTHING`; with the index gone it inserts `activation_id = NULL`,
+NULLs are distinct under the new unique, and two concurrent first submissions in
+the window between `alembic upgrade` and the app restart would produce two open
+sessions for one subject -- the very split this migration exists to prevent.
+
+Keeping it costs nothing, because the new design already satisfies it: ending a
+round closes its sessions (`ActivationService.end`), so a subject never holds two
+*open* sessions for one (type, room) even across rounds. Dropping it is the
+contract half of an expand/contract pair and belongs in a later migration, once
+this one's code is deployed -- recorded as FU-7 of
+`docs/tasks/2026-08-17-activity-participant-lifecycle`.
 
 BOTH DIRECTIONS ARE A SINGLE TRANSACTION, with no autocommit block and no
 CONCURRENTLY, for the reasons 0076 spells out at length;
@@ -98,7 +113,6 @@ def upgrade() -> None:
     op.execute(BACKFILL_ACTIVATION_SQL)
     op.execute(CLOSE_UNCLAIMED_SQL)
 
-    op.execute("DROP INDEX IF EXISTS uq_activity_sessions_open")
     # Serves the per-round count and close as well as the identity lookup: a
     # btree on (activation_id, subject_user_id) is usable for a WHERE on its
     # leading column, so no separate single-column index is warranted.
@@ -109,29 +123,15 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverses cleanly and unconditionally.
+
+    Nothing to restore and nothing to de-duplicate: `uq_activity_sessions_open`
+    was never dropped (see the module docstring), and it is what has been keeping
+    a subject to one open session per (type, room) throughout. The only
+    irreversible part of this migration is upgrade step 2, which closed sessions
+    no round claimed -- a `status` flip on rows that could not receive a
+    submission either way. No submission row is touched in either direction.
+    """
     op.execute("DROP INDEX IF EXISTS uq_activity_sessions_activation_subject")
-
-    # Two rounds may legitimately have left one subject two open sessions, which
-    # the partial-unique being restored below forbids. Keep the newest and close
-    # the rest rather than failing the downgrade: the alternative is an
-    # unreversible migration, and no submission row is touched either way.
-    op.execute(
-        "UPDATE activity_sessions SET status = 'closed', closed_at = now() "
-        "WHERE id IN ("
-        "  SELECT id FROM ("
-        "    SELECT id, row_number() OVER ("
-        "      PARTITION BY activity_type_id, chatroom_id, subject_user_id "
-        "      ORDER BY created_at DESC, id DESC"
-        "    ) AS rn"
-        "    FROM activity_sessions WHERE status = 'open'"
-        "  ) ranked WHERE rn > 1"
-        ")"
-    )
-    op.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_activity_sessions_open "
-        "ON activity_sessions (activity_type_id, chatroom_id, subject_user_id) "
-        "WHERE status = 'open'"
-    )
-
     op.drop_column("activity_sessions", "completed_at")
     op.drop_column("activity_sessions", "activation_id")
