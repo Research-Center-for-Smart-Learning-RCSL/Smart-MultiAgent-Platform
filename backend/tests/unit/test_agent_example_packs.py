@@ -232,6 +232,17 @@ class TestTheAnalystAsksOnlyWhatItsInputSupports:
         assert "不代表那個人沒有提交" in prompt, "the prompt does not say absence is not evidence"
         assert "名冊" in prompt, "the prompt does not hand coverage questions back to the teacher"
 
+    def test_it_states_the_window_skews_between_activity_types(self, analyst: Any) -> None:
+        """Newest-first truncation does not merely shrink the sample, it tilts it:
+        run two types in sequence and the later one owns most of the window by
+        construction, so counting rows per type ranks recency and calls it
+        difficulty. The one clause AC-3 keeps (哪個活動卡住的人最多) is a
+        cross-activity comparison, so it needs this bound stated beside it."""
+        prompt = analyst.system_prompt
+
+        assert "新的在前" in prompt, "the prompt does not say the window is newest-first"
+        assert "不是難度" in prompt, "the prompt does not warn against ranking types by row count"
+
     def test_it_still_asks_for_what_the_row_shape_does_supply(self, analyst: Any) -> None:
         """Attempt number and type key are on every row, so retry counts and
         per-activity difficulty stay in scope; only the roster-dependent element
