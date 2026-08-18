@@ -181,6 +181,59 @@ describe('AgentActivityControl', () => {
     expect(wrapper.text()).not.toContain('conversation.activityControl.noTypes')
   })
 
+  it('claims nothing about the selection when the listing failed', async () => {
+    // An empty `activityTypes` from a *failure* makes every stored entry look
+    // unresolved, so an unguarded count would tell the teacher their whole
+    // selection had been deleted — off one network hiccup.
+    const wrapper = await renderView(AgentActivityControl, {
+      props: {
+        agent: boundAgent({
+          may_control_activities: true,
+          activity_type_allowlist: ['at_1', 'at_2'],
+        }),
+        activityTypes: [],
+        activityTypesFailed: true,
+        busy: false,
+      },
+    })
+
+    expect(wrapper.text()).not.toContain('conversation.activityControl.unresolved')
+  })
+
+  it('does not offer to apply anything when the listing failed', async () => {
+    // The draft narrows to nothing, so Apply would emit save(true, []) and be
+    // refused by the client guard for want of a selection never offered.
+    const wrapper = await renderView(AgentActivityControl, {
+      props: {
+        agent: boundAgent({ may_control_activities: true, activity_type_allowlist: ['at_1'] }),
+        activityTypes: [],
+        activityTypesFailed: true,
+        busy: false,
+      },
+    })
+
+    expect(applyButton(wrapper)?.attributes('disabled')).toBeDefined()
+    // And flipping the switch does not make an unanswerable form answerable.
+    await wrapper.find('button[role="switch"]').trigger('click')
+    expect(applyButton(wrapper)?.attributes('disabled')).toBeDefined()
+    expect(wrapper.emitted('save')).toBeUndefined()
+  })
+
+  it('does not offer to apply a grant with nothing ticked', async () => {
+    const wrapper = await renderView(AgentActivityControl, {
+      props: {
+        agent: boundAgent({ may_control_activities: true, activity_type_allowlist: ['at_1'] }),
+        activityTypes: [activityType()],
+        activityTypesFailed: false,
+        busy: false,
+      },
+    })
+
+    await wrapper.find('input[type="checkbox"]').setValue(false)
+
+    expect(applyButton(wrapper)?.attributes('disabled')).toBeDefined()
+  })
+
   it('says so when the project has no activity types to delegate', async () => {
     const wrapper = await renderView(AgentActivityControl, {
       props: {
