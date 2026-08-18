@@ -166,7 +166,21 @@ test.describe('Delegated activity control', () => {
     })
 
     await page.getByRole('switch', { name: GRANT_LABEL }).click()
-    // Nothing ticked, so the draft is granted-with-an-empty-allowlist.
+
+    // Flipping the switch on is not enough to reach the state under test: a
+    // revoke leaves the stored allowlist in place server-side (so a re-grant
+    // keeps the teacher's selection), and the draft is seeded from it — so the
+    // boxes come back already ticked from whatever was granted before. Clear
+    // them, through the label for the reason the first test gives.
+    const allowlist = page.getByRole('group', { name: /Activities this agent may run/ })
+    await expect(allowlist).toBeVisible()
+    const rows = allowlist.locator('label')
+    for (let i = 0; i < (await rows.count()); i++) {
+      const row = rows.nth(i)
+      if (await row.getByRole('checkbox').isChecked()) await row.click()
+      await expect(row.getByRole('checkbox')).not.toBeChecked()
+    }
+
     await page.getByRole('button', { name: APPLY }).click()
     await page.waitForTimeout(500)
 
