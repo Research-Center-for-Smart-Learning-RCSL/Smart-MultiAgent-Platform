@@ -116,10 +116,30 @@ class AgentRef(BaseModel):
     # is dropped from serialization when None. Request-side (POST body):
     # optional, defaults to a normal binding.
     role: Literal["normal", "observer"] | None = None
+    # Delegated activity control ([R30.37]), creator-only for exactly the reason
+    # `role` is: a non-creator must not learn the room's delegation layout any more
+    # than it learns its observer layout ([R28.10]). `None` means "you are not
+    # told" and is dropped from serialization; the request body never carries
+    # either — granting is its own route.
+    may_control_activities: bool | None = None
+    activity_type_allowlist: list[uuid.UUID] | None = None
 
 
 class AgentRolePatchIn(BaseModel):
     role: Literal["normal", "observer"]
+
+
+class AgentActivityControlIn(BaseModel):
+    """Grant or revoke one bound agent's activity start/end authority ([R30.37]).
+
+    ``activity_type_ids`` is required whenever ``granted`` is true and is validated
+    against the room's project before anything is written — an unresolvable id is a
+    422, never a silently dropped entry. On a revoke it is ignored: the stored
+    allowlist is left in place so the teacher's selection survives a re-grant.
+    """
+
+    granted: bool
+    activity_type_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 class ChatroomMemberOut(BaseModel):
@@ -454,7 +474,18 @@ async def list_chatroom_agents(
     if not creator:
         rows = [r for r in rows if r.role is ChatroomAgentRole.NORMAL]
     rows = rows[pagination.offset : pagination.offset + pagination.limit]
-    return [AgentRef(agent_id=r.agent_id, role=r.role.value if creator else None) for r in rows]
+    return [
+        AgentRef(
+            agent_id=r.agent_id,
+            role=r.role.value if creator else None,
+            # [R30.37] / [R28.10]: the delegation layout is the creator's to see.
+            # `None` for everyone else, which `response_model_exclude_none` drops,
+            # so a non-creator's response is shape-identical to the pre-grant API.
+            may_control_activities=r.may_control_activities if creator else None,
+            activity_type_allowlist=list(r.activity_type_allowlist) if creator else None,
+        )
+        for r in rows
+    ]
 
 
 @chatroom_router.post(
@@ -528,6 +559,84 @@ async def patch_chatroom_agent_role(
     )
     if not changed:
         raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
+
+
+@chatroom_router.patch(
+    "/{chatroom_id}/agents/{agent_id}/activity-control",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def patch_chatroom_agent_activity_control(
+    body: AgentActivityControlIn,
+    chatroom_id: uuid.UUID = Path(...),
+    agent_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """Delegate activity start/end authority in this room to a bound agent ([R30.37]).
+
+    ``ensure_room_creator``, matching every other authority decision about this
+    room's bindings — and matching the gate on starting a round itself, which is
+    the authority being handed out. Nobody who cannot start an activity may grant
+    the power to.
+
+    Every type id is resolved for the room's own project before anything is
+    written. That check has to live here: the conversation context stores the
+    allowlist but cannot see an activity type ([R30.05]), so the route is the only
+    layer that can perform it — the same shape as ``_assert_mcp_binding_in_project``
+    in ``activities.py``. Resolving before writing is what keeps a cross-project or
+    deleted id a 422 rather than a stored id that quietly resolves to nothing later.
+    """
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_room_creator(access, principal=principal)
+    if body.granted:
+        # Mirrors ck_chatroom_agents_activity_grant: authority over nothing still
+        # reads as authority in every listing, so it is refused at both ends.
+        if not body.activity_type_ids:
+            raise HTTPException(
+                status_code=422,
+                detail="activity_type_ids must name at least one type when granted is true",
+            )
+        await _assert_activity_types_in_project(db, access.project_id, body.activity_type_ids)
+    written = await ConversationFacade(db).set_agent_activity_grant(
+        chatroom_id=chatroom_id,
+        agent_id=agent_id,
+        granted=body.granted,
+        activity_type_ids=body.activity_type_ids,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    if not written:
+        raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
+    await db.commit()
+
+
+async def _assert_activity_types_in_project(
+    db: AsyncSession, project_id: uuid.UUID, type_ids: list[uuid.UUID]
+) -> None:
+    """Refuse a grant naming a type this room's project may not use ([R30.33]).
+
+    Duplicates are collapsed first so a list repeating one id costs one lookup.
+    Every refusal is the same 422 with the same detail, whatever the reason the id
+    did not resolve — missing, soft-deleted, another project's, or a platform type
+    this project never opted into — because ``resolve_reachable_type`` deliberately
+    collapses those four, and re-separating them here would rebuild the
+    cross-tenant enumeration oracle it exists to prevent.
+    """
+    from contexts.activities.domain.errors import ActivityTypeNotFound
+    from contexts.activities.interfaces.facade import ActivitiesFacade
+
+    facade = ActivitiesFacade(db)
+    for type_id in dict.fromkeys(type_ids):
+        try:
+            await facade.resolve_type_for_project(project_id=project_id, activity_type_id=type_id)
+        except ActivityTypeNotFound:
+            raise HTTPException(
+                status_code=422,
+                detail="activity type is not usable in this chatroom's project",
+            ) from None
 
 
 @chatroom_router.delete(

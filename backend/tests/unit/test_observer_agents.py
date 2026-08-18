@@ -16,6 +16,7 @@ from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy.dialects import postgresql
 
 import contexts.agents.application.runtime.turn_engine as te
@@ -143,6 +144,271 @@ def test_to_out_hides_observer_fields_from_pure_guests() -> None:
 
 
 _CTX = SimpleNamespace(actor_ip=None, request_id=None)
+
+
+# --------------------------------------------------------------------------- #
+# Delegated activity control ([R30.37]) — the grant route and its listing
+# --------------------------------------------------------------------------- #
+
+
+def _bound_agent(agent_id, *, role=None, granted=False, allowlist=()):
+    from contexts.conversation.domain.models import ChatroomAgent
+
+    return ChatroomAgent(
+        chatroom_id=uuid.uuid4(),
+        agent_id=agent_id,
+        role=role or ChatroomAgentRole.NORMAL,
+        may_control_activities=granted,
+        activity_type_allowlist=tuple(allowlist),
+    )
+
+
+def _wire_grant_route(monkeypatch, *, access, written=True, resolves=True):
+    """Stub everything the grant route reaches except the decision under test."""
+    import app.api.v1.chatrooms as chatrooms_mod
+    from contexts.activities.domain.errors import ActivityTypeNotFound
+
+    calls: dict[str, list] = {"grant": [], "resolved": []}
+
+    async def _resolve(db, *, principal, chatroom_id):
+        return access
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def set_agent_activity_grant(self, **kw):
+            calls["grant"].append(kw)
+            return written
+
+        async def resolve_type_for_project(self, *, project_id, activity_type_id):
+            calls["resolved"].append(activity_type_id)
+            if not resolves:
+                raise ActivityTypeNotFound(str(activity_type_id))
+            return object()
+
+    monkeypatch.setattr(chatrooms_mod, "resolve_room_access", _resolve)
+    monkeypatch.setattr(chatrooms_mod, "ConversationFacade", _Facade)
+    monkeypatch.setattr(
+        "contexts.activities.interfaces.facade.ActivitiesFacade",
+        _Facade,
+    )
+    return chatrooms_mod, calls
+
+
+@pytest.mark.asyncio
+async def test_creator_may_grant_activity_control(monkeypatch) -> None:
+    """AC-1: the room creator writes the grant, and every named type is resolved
+    for the room's own project *before* anything is stored."""
+    uid = uuid.uuid4()
+    type_ids = [uuid.uuid4(), uuid.uuid4()]
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod, calls = _wire_grant_route(monkeypatch, access=access)
+    db = SimpleNamespace(commit=AsyncMock())
+
+    await mod.patch_chatroom_agent_activity_control(
+        body=mod.AgentActivityControlIn(granted=True, activity_type_ids=type_ids),
+        chatroom_id=uuid.uuid4(),
+        agent_id=uuid.uuid4(),
+        ctx=_CTX,
+        principal=_principal(uid),
+        db=db,
+    )
+
+    assert calls["resolved"] == type_ids
+    assert calls["grant"][0]["granted"] is True
+    assert calls["grant"][0]["activity_type_ids"] == type_ids
+    assert calls["grant"][0]["actor_user_id"] == uid
+    db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_non_creator_cannot_write_the_grant(monkeypatch) -> None:
+    """AC-2's write half: a project owner who is not the creator is refused, and
+    nothing is resolved or written before the refusal."""
+    access = _access(created_by=uuid.uuid4(), roles=frozenset({Role.PROJECT_OWNER}))
+    mod, calls = _wire_grant_route(monkeypatch, access=access)
+    db = SimpleNamespace(commit=AsyncMock())
+
+    with pytest.raises(NotRoomCreator):
+        await mod.patch_chatroom_agent_activity_control(
+            body=mod.AgentActivityControlIn(granted=True, activity_type_ids=[uuid.uuid4()]),
+            chatroom_id=uuid.uuid4(),
+            agent_id=uuid.uuid4(),
+            ctx=_CTX,
+            principal=_principal(),
+            db=db,
+        )
+
+    assert calls == {"grant": [], "resolved": []}
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_guest_cannot_write_the_grant(monkeypatch) -> None:
+    """AC-2, the pure-guest arm: `is_room_creator` excludes guests explicitly."""
+    access = _access(created_by=None, roles=frozenset(), is_guest=True)
+    mod, _calls = _wire_grant_route(monkeypatch, access=access)
+
+    with pytest.raises(NotRoomCreator):
+        await mod.patch_chatroom_agent_activity_control(
+            body=mod.AgentActivityControlIn(granted=False),
+            chatroom_id=uuid.uuid4(),
+            agent_id=uuid.uuid4(),
+            ctx=_CTX,
+            principal=_principal(),
+            db=SimpleNamespace(commit=AsyncMock()),
+        )
+
+
+@pytest.mark.asyncio
+async def test_granting_with_an_empty_allowlist_is_refused(monkeypatch) -> None:
+    """AC-3's route half — the same state ck_chatroom_agents_activity_grant
+    refuses in the DB. Authority over nothing still reads as authority."""
+    uid = uuid.uuid4()
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod, calls = _wire_grant_route(monkeypatch, access=access)
+
+    with pytest.raises(HTTPException) as exc:
+        await mod.patch_chatroom_agent_activity_control(
+            body=mod.AgentActivityControlIn(granted=True, activity_type_ids=[]),
+            chatroom_id=uuid.uuid4(),
+            agent_id=uuid.uuid4(),
+            ctx=_CTX,
+            principal=_principal(uid),
+            db=SimpleNamespace(commit=AsyncMock()),
+        )
+
+    assert exc.value.status_code == 422
+    assert calls["grant"] == []
+
+
+@pytest.mark.asyncio
+async def test_an_unreachable_type_id_is_refused_before_any_write(monkeypatch) -> None:
+    """AC-4: another project's type, or a soft-deleted one, is a 422. The four
+    reasons a type does not resolve collapse into one message on purpose."""
+    uid = uuid.uuid4()
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod, calls = _wire_grant_route(monkeypatch, access=access, resolves=False)
+    db = SimpleNamespace(commit=AsyncMock())
+
+    with pytest.raises(HTTPException) as exc:
+        await mod.patch_chatroom_agent_activity_control(
+            body=mod.AgentActivityControlIn(granted=True, activity_type_ids=[uuid.uuid4()]),
+            chatroom_id=uuid.uuid4(),
+            agent_id=uuid.uuid4(),
+            ctx=_CTX,
+            principal=_principal(uid),
+            db=db,
+        )
+
+    assert exc.value.status_code == 422
+    assert calls["grant"] == []
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_revoking_needs_no_type_ids_and_resolves_none(monkeypatch) -> None:
+    """AC-13's revoke half. A revoke names no types — the stored allowlist stays
+    put so the teacher's selection survives a re-grant — so there is nothing to
+    resolve and an empty list must not be refused here."""
+    uid = uuid.uuid4()
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod, calls = _wire_grant_route(monkeypatch, access=access)
+
+    await mod.patch_chatroom_agent_activity_control(
+        body=mod.AgentActivityControlIn(granted=False),
+        chatroom_id=uuid.uuid4(),
+        agent_id=uuid.uuid4(),
+        ctx=_CTX,
+        principal=_principal(uid),
+        db=SimpleNamespace(commit=AsyncMock()),
+    )
+
+    assert calls["resolved"] == []
+    assert calls["grant"][0]["granted"] is False
+
+
+@pytest.mark.asyncio
+async def test_granting_to_an_unbound_agent_is_404(monkeypatch) -> None:
+    uid = uuid.uuid4()
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod, _calls = _wire_grant_route(monkeypatch, access=access, written=False)
+    db = SimpleNamespace(commit=AsyncMock())
+
+    with pytest.raises(HTTPException) as exc:
+        await mod.patch_chatroom_agent_activity_control(
+            body=mod.AgentActivityControlIn(granted=True, activity_type_ids=[uuid.uuid4()]),
+            chatroom_id=uuid.uuid4(),
+            agent_id=uuid.uuid4(),
+            ctx=_CTX,
+            principal=_principal(uid),
+            db=db,
+        )
+
+    assert exc.value.status_code == 404
+    db.commit.assert_not_awaited()
+
+
+def _wire_agent_listing(monkeypatch, *, access, rows):
+    import app.api.v1.chatrooms as chatrooms_mod
+
+    async def _resolve(db, *, principal, chatroom_id):
+        return access
+
+    class _Service:
+        def __init__(self, db) -> None:
+            pass
+
+        async def list_agents(self, chatroom_id):
+            return rows
+
+    monkeypatch.setattr(chatrooms_mod, "resolve_room_access", _resolve)
+    monkeypatch.setattr(chatrooms_mod, "ChatroomService", _Service)
+    return chatrooms_mod
+
+
+@pytest.mark.asyncio
+async def test_the_listing_shows_the_grant_to_the_creator(monkeypatch) -> None:
+    """AC-1's round-trip half."""
+    uid, agent_id, type_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    rows = [_bound_agent(agent_id, granted=True, allowlist=(type_id,))]
+    mod = _wire_agent_listing(monkeypatch, access=access, rows=rows)
+
+    out = await mod.list_chatroom_agents(
+        chatroom_id=uuid.uuid4(),
+        pagination=SimpleNamespace(offset=0, limit=50),
+        principal=_principal(uid),
+        db=object(),
+    )
+
+    assert out[0].may_control_activities is True
+    assert out[0].activity_type_allowlist == [type_id]
+
+
+@pytest.mark.asyncio
+async def test_the_listing_hides_the_grant_from_a_non_creator(monkeypatch) -> None:
+    """AC-2's read half ([R28.10]): a non-creator must not learn the room's
+    delegation layout. `None` is dropped by `response_model_exclude_none`, so the
+    response stays shape-identical to the pre-grant API."""
+    agent_id, type_id = uuid.uuid4(), uuid.uuid4()
+    access = _access(created_by=uuid.uuid4(), roles=frozenset({Role.PROJECT_MEMBER}))
+    rows = [_bound_agent(agent_id, granted=True, allowlist=(type_id,))]
+    mod = _wire_agent_listing(monkeypatch, access=access, rows=rows)
+
+    out = await mod.list_chatroom_agents(
+        chatroom_id=uuid.uuid4(),
+        pagination=SimpleNamespace(offset=0, limit=50),
+        principal=_principal(),
+        db=object(),
+    )
+
+    assert out[0].may_control_activities is None
+    assert out[0].activity_type_allowlist is None
+    dumped = out[0].model_dump(exclude_none=True)
+    assert "may_control_activities" not in dumped
+    assert "activity_type_allowlist" not in dumped
 
 
 @pytest.mark.asyncio
