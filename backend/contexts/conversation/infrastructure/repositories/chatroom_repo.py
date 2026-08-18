@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.errors import VersionMismatch
 from contexts.conversation.domain.models import (
+    ActivityControlGrant,
     Chatroom,
     ChatroomAgent,
     ChatroomAgentRole,
@@ -21,6 +22,27 @@ from contexts.conversation.domain.models import (
 )
 from contexts.conversation.infrastructure import tables as t
 from shared_kernel.auth.clients import now
+
+
+def _allowlist_from_json(value: Any) -> tuple[uuid.UUID, ...]:
+    """Parse the stored ``activity_type_allowlist`` into type ids.
+
+    Total, and lossy on purpose. The column is `jsonb` with no per-element schema,
+    so an entry that is not a UUID string is dropped rather than raised on: the
+    write route validates every id before it lands, and if something ever bypasses
+    that, "this type is not offered" is the safe reading — the failure mode of
+    raising here would be an agent's whole turn, or a room's whole settings page,
+    lost to one bad row.
+    """
+    if not isinstance(value, list):
+        return ()
+    out: list[uuid.UUID] = []
+    for item in value:
+        try:
+            out.append(uuid.UUID(str(item)))
+        except (AttributeError, TypeError, ValueError):
+            continue
+    return tuple(out)
 
 
 def _row_to_chatroom(row: Any) -> Chatroom:
@@ -318,6 +340,9 @@ class ChatroomAgentRepository:
                 chatroom_id=r.chatroom_id,
                 agent_id=r.agent_id,
                 role=ChatroomAgentRole(r.role),
+                may_control_activities=bool(r.may_control_activities),
+                activity_type_allowlist=_allowlist_from_json(r.activity_type_allowlist),
+                granted_by_user_id=r.granted_by_user_id,
             )
             for r in rows
         ]
@@ -417,6 +442,78 @@ class ChatroomAgentRepository:
             .values(role=role.value)
         )
         return bool(result.rowcount)
+
+    async def set_activity_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        granted: bool,
+        activity_type_ids: Sequence[uuid.UUID],
+        granted_by_user_id: uuid.UUID,
+    ) -> bool:
+        """Write one binding's delegated activity grant ([R30.37]).
+
+        Returns whether a binding was actually updated, so the caller can answer 404
+        for an agent that is not bound to this room rather than reporting a grant it
+        never wrote.
+
+        A revoke clears neither the allowlist nor the grantor: keeping them preserves
+        the teacher's selection across a revoke and re-grant, and every read path
+        gates on ``may_control_activities`` first, so the residue is a remembered
+        setting rather than latent authority. The DB CHECKs permit exactly this
+        state and refuse its two inverses (0078).
+        """
+        values: dict[str, Any] = {"may_control_activities": granted}
+        if granted:
+            values["activity_type_allowlist"] = [str(i) for i in activity_type_ids]
+            values["granted_by_user_id"] = granted_by_user_id
+        result = await self._db.execute(
+            t.chatroom_agents.update()
+            .where(
+                sa.and_(
+                    t.chatroom_agents.c.chatroom_id == chatroom_id,
+                    t.chatroom_agents.c.agent_id == agent_id,
+                )
+            )
+            .values(**values)
+        )
+        return bool(result.rowcount)
+
+    async def activity_control_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+    ) -> ActivityControlGrant | None:
+        """The live grant for one binding, or ``None`` ([R30.37]).
+
+        ``None`` covers every non-granted case uniformly: no binding, the switch
+        off, or a row whose grantor is somehow absent. A caller may therefore treat
+        a returned grant as authorization without re-checking anything, and the
+        turn engine's fail-closed posture is a plain ``if grant is None``.
+        """
+        row = (
+            await self._db.execute(
+                sa.select(
+                    t.chatroom_agents.c.may_control_activities,
+                    t.chatroom_agents.c.activity_type_allowlist,
+                    t.chatroom_agents.c.granted_by_user_id,
+                ).where(
+                    sa.and_(
+                        t.chatroom_agents.c.chatroom_id == chatroom_id,
+                        t.chatroom_agents.c.agent_id == agent_id,
+                    )
+                )
+            )
+        ).first()
+        if row is None or not row.may_control_activities or row.granted_by_user_id is None:
+            return None
+        return ActivityControlGrant(
+            agent_id=agent_id,
+            granted_by_user_id=row.granted_by_user_id,
+            activity_type_ids=_allowlist_from_json(row.activity_type_allowlist),
+        )
 
     async def rooms_with_observers(
         self,

@@ -90,6 +90,36 @@ class ChatroomAgent:
     chatroom_id: uuid.UUID
     agent_id: uuid.UUID
     role: ChatroomAgentRole = ChatroomAgentRole.NORMAL
+    # Delegated activity control ([R30.37]). Defaulted so the construction sites
+    # that predate the grant keep describing the case they describe: an ordinary
+    # binding holds no authority, which is exactly what these defaults say.
+    #
+    # A non-empty allowlist with `may_control_activities` false is a legal and
+    # deliberate state — the teacher's selection, remembered across a revoke. Read
+    # `may_control_activities` first; never infer the grant from the allowlist.
+    may_control_activities: bool = False
+    activity_type_allowlist: tuple[uuid.UUID, ...] = ()
+    granted_by_user_id: uuid.UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityControlGrant:
+    """A live delegation of activity start/end authority in one room ([R30.37]).
+
+    Only ever constructed for a binding whose ``may_control_activities`` is true, so
+    holding one *is* the authorization — there is no "granted: false" variant to
+    check. ``granted_by_user_id`` is the user on whose authority the agent acts and
+    is what an activation started under this grant records as its starting user.
+
+    ``activity_type_ids`` is the stored allowlist, unresolved: an id here may point
+    at a type that was since deleted or became unreachable from the room's project.
+    Every consumer resolves each id through the activities facade before offering or
+    acting on it.
+    """
+
+    agent_id: uuid.UUID
+    granted_by_user_id: uuid.UUID
+    activity_type_ids: tuple[uuid.UUID, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +190,7 @@ class MessageAttachment:
 
 
 __all__ = [
+    "ActivityControlGrant",
     "AgentObservation",
     "AttachmentExtractionStatus",
     "AttachmentStatus",

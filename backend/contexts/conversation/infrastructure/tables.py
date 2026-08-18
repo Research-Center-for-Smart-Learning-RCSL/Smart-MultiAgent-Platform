@@ -76,6 +76,29 @@ chatroom_agents = sa.Table(
         nullable=False,
         server_default=sa.text("'normal'::chatroom_agent_role"),
     ),
+    # Delegated activity control ([R30.37], migration 0078). Two CHECK constraints
+    # in the DB keep a live grant from being empty or unattributable; they are not
+    # declared here because SQLAlchemy Core would then try to create them, and the
+    # migration owns the schema. `pg.JSONB`/`sa.Boolean` match 0078 exactly, per the
+    # ORM/migration type rule above.
+    sa.Column(
+        "may_control_activities",
+        sa.Boolean,
+        nullable=False,
+        server_default=sa.text("false"),
+    ),
+    sa.Column(
+        "activity_type_allowlist",
+        pg.JSONB,
+        nullable=False,
+        server_default=sa.text("'[]'::jsonb"),
+    ),
+    sa.Column(
+        "granted_by_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
 )
 
 agent_observations = sa.Table(

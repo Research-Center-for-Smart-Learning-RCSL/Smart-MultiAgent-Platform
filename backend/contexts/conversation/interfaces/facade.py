@@ -15,6 +15,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.models import (
+    ActivityControlGrant,
     AttachmentExtractionStatus,
     AttachmentStatus,
     Chatroom,
@@ -153,6 +154,57 @@ class ConversationFacade:
         return await self._room_agents.is_registered(
             chatroom_id=chatroom_id,
             agent_id=agent_id,
+        )
+
+    async def activity_control_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+    ) -> ActivityControlGrant | None:
+        """The room's live delegation of activity control to this agent ([R30.37]).
+
+        On the facade rather than left to the caller's own repository because the
+        turn engine is in another context: the agents runtime asks this question once
+        per room turn and must not reach into ``conversation.infrastructure`` to do
+        it (the existing `role_of` call site that does is FU-1 of this feature's
+        dossier, deliberately not widened here).
+
+        ``None`` means "no authority", for every reason — unbound, revoked, or
+        unattributable. Callers fail closed on it, and on any exception.
+        """
+        return await self._room_agents.activity_control_grant(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+        )
+
+    async def set_agent_activity_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        granted: bool,
+        activity_type_ids: Sequence[uuid.UUID],
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Write the grant ([R30.37]); ``False`` when the agent is not bound here.
+
+        The caller owns commit, and owns having validated every id in
+        ``activity_type_ids`` against the room's project first — this context cannot
+        resolve an activity type ([R30.05]).
+        """
+        from contexts.conversation.application.chatroom_service import ChatroomService
+
+        return await ChatroomService(self._db).set_agent_activity_grant(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+            granted=granted,
+            activity_type_ids=activity_type_ids,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
         )
 
     async def list_messages(
@@ -368,6 +420,7 @@ class ConversationFacade:
 
 
 __all__ = [
+    "ActivityControlGrant",
     "AttachmentExtractionStatus",
     "AttachmentStatus",
     "ConversationFacade",
