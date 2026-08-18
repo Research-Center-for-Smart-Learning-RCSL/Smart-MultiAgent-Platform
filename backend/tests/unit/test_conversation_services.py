@@ -477,6 +477,81 @@ class TestChatroomSetAgentRole:
         _audit.assert_not_awaited()
 
 
+class TestChatroomSetAgentActivityGrant:
+    """AC-1 / AC-13 at the service seam ([R30.37])."""
+
+    @patch("contexts.conversation.application.chatroom_service.audit.emit", new_callable=AsyncMock)
+    async def test_grant_writes_and_audits(self, _audit) -> None:
+        agents_repo = AsyncMock()
+        agents_repo.set_activity_grant.return_value = True
+        svc = _make_chatroom_service(agents=agents_repo)
+        type_id = uuid.uuid4()
+
+        written = await svc.set_agent_activity_grant(
+            chatroom_id=_ROOM,
+            agent_id=_AGENT,
+            granted=True,
+            activity_type_ids=[type_id],
+            actor_user_id=_USER,
+            actor_ip=None,
+        )
+
+        assert written is True
+        agents_repo.set_activity_grant.assert_awaited_once_with(
+            chatroom_id=_ROOM,
+            agent_id=_AGENT,
+            granted=True,
+            activity_type_ids=[type_id],
+            granted_by_user_id=_USER,
+        )
+        event = _audit.call_args[0][1]
+        assert event.action == "chatroom.agent_activity_grant_updated"
+        assert event.metadata["granted"] is True
+        assert event.metadata["activity_type_ids"] == [str(type_id)]
+
+    @patch("contexts.conversation.application.chatroom_service.audit.emit", new_callable=AsyncMock)
+    async def test_revoke_audits_an_empty_type_list(self, _audit) -> None:
+        """The stored allowlist survives a revoke; the event must not echo it as
+        authority the agent no longer holds."""
+        agents_repo = AsyncMock()
+        agents_repo.set_activity_grant.return_value = True
+        svc = _make_chatroom_service(agents=agents_repo)
+
+        await svc.set_agent_activity_grant(
+            chatroom_id=_ROOM,
+            agent_id=_AGENT,
+            granted=False,
+            activity_type_ids=[uuid.uuid4()],
+            actor_user_id=_USER,
+            actor_ip=None,
+        )
+
+        event = _audit.call_args[0][1]
+        assert event.metadata["granted"] is False
+        assert event.metadata["activity_type_ids"] == []
+
+    async def test_unbound_agent_returns_false_without_audit(self) -> None:
+        agents_repo = AsyncMock()
+        agents_repo.set_activity_grant.return_value = False
+        svc = _make_chatroom_service(agents=agents_repo)
+
+        with patch(
+            "contexts.conversation.application.chatroom_service.audit.emit",
+            new_callable=AsyncMock,
+        ) as _audit:
+            written = await svc.set_agent_activity_grant(
+                chatroom_id=_ROOM,
+                agent_id=_AGENT,
+                granted=True,
+                activity_type_ids=[uuid.uuid4()],
+                actor_user_id=_USER,
+                actor_ip=None,
+            )
+
+        assert written is False
+        _audit.assert_not_awaited()
+
+
 # ===========================================================================
 # MessageService
 # ===========================================================================

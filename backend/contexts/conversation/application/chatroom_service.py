@@ -370,6 +370,63 @@ class ChatroomService:
             return True
         return False
 
+    async def set_agent_activity_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        granted: bool,
+        activity_type_ids: Sequence[uuid.UUID],
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Grant or revoke one bound agent's activity start/end authority ([R30.37]).
+
+        Returns whether a binding was updated; ``False`` means the agent is not bound
+        to this room and nothing was written.
+
+        No CAS loop, unlike ``set_agent_role``: that one exists because the audit
+        event names the *transition* (`old_role -> new_role`), which two racing
+        writers off one stale read would both claim. This event records the state
+        written, which is true of the winner whatever it raced with — last write
+        wins, and the audit trail says so honestly.
+
+        ``activity_type_ids`` must already be validated against the room's project by
+        the caller: this context cannot resolve an activity type, and the route is the
+        only layer that may reach across to the activities facade.
+        """
+        written = await self._agents.set_activity_grant(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+            granted=granted,
+            activity_type_ids=activity_type_ids,
+            granted_by_user_id=actor_user_id,
+        )
+        if not written:
+            return False
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="chatroom.agent_activity_grant_updated",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="chatroom_agent",
+                resource_id=chatroom_id,
+                metadata={
+                    "agent_id": str(agent_id),
+                    "granted": granted,
+                    # Recorded on a revoke as well, as the empty list it effectively
+                    # becomes: the stored allowlist survives a revoke, and an event
+                    # echoing the residue would read as authority the agent no longer
+                    # holds.
+                    "activity_type_ids": [str(i) for i in activity_type_ids] if granted else [],
+                },
+                request_id=request_id,
+            ),
+        )
+        return True
+
     async def remove_agent(
         self,
         *,
