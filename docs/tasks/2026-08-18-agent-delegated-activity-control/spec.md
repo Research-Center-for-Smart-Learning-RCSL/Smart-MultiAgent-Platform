@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-08-18
 requirements: [R30.21, R30.22, R30.09, R30.30, R30.33, R30.35, R28.02, R15.06]
 depends_on: []
@@ -648,7 +648,7 @@ and the `SMAP_SCRATCH_DATABASE_URL` gate that dossier's D-7 wired into CI covers
 
 ## 13. SRS Delta
 
-Apply on approval.
+**Applied to `REQUIREMENTS.md` on 2026-08-18 at approval.** Recorded below as written.
 
 **Amend [R30.21]** (`REQUIREMENTS.md:2180`) — replace the final sentence
 *"Starting is gated by room-creator capability — strictly stronger than the send-message
