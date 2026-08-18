@@ -461,6 +461,11 @@ class ExamplePackAgentOut(BaseModel):
     room_role: Literal["normal", "observer"] | None
     preferred_model_hint: str
     binds_activity_types: list[str]
+    # Whether this agent's prompt is written to hold delegated activity control
+    # ([R30.37], [R30.35]). Advisory, exactly like `room_role` above: installing
+    # binds no room, so there is nothing to grant it on — the room creator grants
+    # it per room after binding, and the install dialog says so.
+    may_control_activities: bool
     installed: bool
 
 
@@ -550,6 +555,7 @@ async def list_agent_example_packs(
                     room_role=a.room_role,
                     preferred_model_hint=a.preferred_model_hint.value,
                     binds_activity_types=list(a.binds_activity_types),
+                    may_control_activities=a.may_control_activities,
                     installed=a.installed,
                 )
                 for a in pack.agents
