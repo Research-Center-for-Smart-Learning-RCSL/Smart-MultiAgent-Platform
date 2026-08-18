@@ -40,7 +40,9 @@
       "groupCreated": "已建立 Agent 群組「{group}」。",
       "nothingNewButGroupCreated": "沒有建立任何 Agent，這個組合的 Agent 專案裡都已經有了。它們已被加入新建的 Agent 群組「{group}」。",
       "nothingToInstall": "這個組合的 Agent 專案裡都已經有了。",
-      "installFailed": "無法安裝這個組合。"
+      "installFailed": "無法安裝這個組合。",
+      "controlsActivities": "設計上會執行活動",
+      "activityControlNotice": "其中一個代理的設計是為班級開始與結束活動。安裝並不會授予這項權限：代理包不會建立討論室，也不會建立任何綁定，所以要由討論室的建立者在綁定代理後，逐一討論室、逐一代理地授權。"
     },
     "list": {
       "title": "AI Agents",

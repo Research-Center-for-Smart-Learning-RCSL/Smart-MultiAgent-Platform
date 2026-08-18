@@ -33,7 +33,10 @@ export type {
 
 export { activitiesRoutes } from './routes'
 export { activityKeys } from './queries'
-export { getActiveActivation, getRoomActivityType } from './api'
+// `listActivityTypes` is re-exported for the chatroom settings view, which needs
+// the project's usable types to offer a delegated-control allowlist ([R30.37]).
+// Same one-way direction as everything else here: conversation imports activities.
+export { getActiveActivation, getRoomActivityType, listActivityTypes } from './api'
 export type {
   ActivityActivation,
   ActivityOutcome,

@@ -21,7 +21,8 @@
       "markDoneFailed": "Could not update your status. Please try again.",
       "policyRefused": "The platform activity policy will not allow this activity to start. A project owner must edit the activity type before it can be used.",
       "policyRefusedField": "The platform activity policy will not allow this activity to start, because of its '{field}' setting. A project owner must edit the activity type before it can be used.",
-      "platformTypeOption": "{name} (platform example)"
+      "platformTypeOption": "{name} (platform example)",
+      "startedByAgent": "Started by {agent}"
     },
     "outcome": {
       "pending": "Validating…",

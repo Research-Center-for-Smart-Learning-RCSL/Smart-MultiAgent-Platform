@@ -282,7 +282,9 @@
       "saved": "設定已儲存。",
       "saveFailed": "儲存設定失敗。",
       "versionConflict": "此聊天室已在他處變更。請檢查您的編輯後重新儲存。",
-      "deleteFailed": "刪除聊天室失敗。"
+      "deleteFailed": "刪除聊天室失敗。",
+      "activityControlFailed": "無法更新這個代理的活動控制設定。",
+      "activityControlNeedsTypes": "授權前請至少勾選一個活動。"
     },
     "conceptMap": {
       "settings": "概念圖",
@@ -306,6 +308,15 @@
       "invalidToken": "此連結已失效。聊天室可能已被刪除，或訪客存取已停用。",
       "networkError": "無法連線。請檢查您的網路連線後再試一次。",
       "retry": "再試一次"
+    },
+    "activityControl": {
+      "label": "可以開始與結束活動",
+      "help": "讓這個代理在這間討論室開始與結束你勾選的活動。你自己隨時仍可以開始或結束任何活動，也隨時可以收回這項授權。",
+      "allowlist": "這個代理可以執行的活動",
+      "apply": "套用",
+      "noTypes": "這個專案還沒有任何活動類型。請先建立活動類型，再授權活動控制。",
+      "unresolved": "有 {count} 個先前選取的活動已不在這個專案可用的範圍內，不會提供給代理。",
+      "observerNote": "這個代理是觀察者：全班看不到它發言，但開始或結束一輪活動是全班都看得見的動作。"
     }
   }
 }

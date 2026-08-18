@@ -40,7 +40,9 @@
       "groupCreated": "Created the agent group \"{group}\".",
       "nothingNewButGroupCreated": "No agent was created -- this pack's agents are all in the project already. They have been put in a new agent group \"{group}\".",
       "nothingToInstall": "Every agent in this pack is already in the project.",
-      "installFailed": "The pack could not be installed."
+      "installFailed": "The pack could not be installed.",
+      "controlsActivities": "written to run activities",
+      "activityControlNotice": "One of these agents is written to start and end activities for a class. Installing does not grant that: a pack creates no chatroom and no room binding, so the room's creator has to delegate it per room, per agent, after binding the agent."
     },
     "list": {
       "title": "AI Agents",

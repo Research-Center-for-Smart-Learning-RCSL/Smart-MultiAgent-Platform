@@ -63,6 +63,29 @@
             "title": "Id",
             "type": "string"
           },
+          "started_by_agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started By Agent Id"
+          },
+          "started_by_agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started By Agent Name"
+          },
           "started_by_user_id": {
             "format": "uuid",
             "title": "Started By User Id",
@@ -1472,6 +1495,28 @@
         "title": "AdminPromoteIn",
         "type": "object"
       },
+      "AgentActivityControlIn": {
+        "description": "Grant or revoke one bound agent's activity start/end authority ([R30.37]).\n\n``activity_type_ids`` is required whenever ``granted`` is true and is validated\nagainst the room's project before anything is written \u2014 an unresolvable id is a\n422, never a silently dropped entry. On a revoke it is ignored: the stored\nallowlist is left in place so the teacher's selection survives a re-grant.",
+        "properties": {
+          "activity_type_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Activity Type Ids",
+            "type": "array"
+          },
+          "granted": {
+            "title": "Granted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "granted"
+        ],
+        "title": "AgentActivityControlIn",
+        "type": "object"
+      },
       "AgentConceptMapCoverageEntryOut": {
         "description": "One Concept Map covering an agent (Phase 4\u03b1 R11.09, read-only).",
         "properties": {
@@ -2359,10 +2404,36 @@
       },
       "AgentRef": {
         "properties": {
+          "activity_type_allowlist": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activity Type Allowlist"
+          },
           "agent_id": {
             "format": "uuid",
             "title": "Agent Id",
             "type": "string"
+          },
+          "may_control_activities": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "May Control Activities"
           },
           "role": {
             "anyOf": [
@@ -4443,6 +4514,10 @@
             "title": "Key",
             "type": "string"
           },
+          "may_control_activities": {
+            "title": "May Control Activities",
+            "type": "boolean"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -4473,6 +4548,7 @@
           "room_role",
           "preferred_model_hint",
           "binds_activity_types",
+          "may_control_activities",
           "installed"
         ],
         "title": "ExamplePackAgentOut",
@@ -17291,6 +17367,63 @@
           }
         },
         "summary": "Patch Chatroom Agent Role",
+        "tags": [
+          "chatrooms"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/agents/{agent_id}/activity-control": {
+      "patch": {
+        "description": "Delegate activity start/end authority in this room to a bound agent ([R30.37]).\n\n``ensure_room_creator``, matching every other authority decision about this\nroom's bindings \u2014 and matching the gate on starting a round itself, which is\nthe authority being handed out. Nobody who cannot start an activity may grant\nthe power to.\n\nEvery type id is resolved for the room's own project before anything is\nwritten. That check has to live here: the conversation context stores the\nallowlist but cannot see an activity type ([R30.05]), so the route is the only\nlayer that can perform it \u2014 the same shape as ``_assert_mcp_binding_in_project``\nin ``activities.py``. Resolving before writing is what keeps a cross-project or\ndeleted id a 422 rather than a stored id that quietly resolves to nothing later.",
+        "operationId": "patch_chatroom_agent_activity_control_api_chatrooms__chatroom_id__agents__agent_id__activity_control_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentActivityControlIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Chatroom Agent Activity Control",
         "tags": [
           "chatrooms"
         ]

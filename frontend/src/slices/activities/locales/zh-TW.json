@@ -21,7 +21,8 @@
       "markDoneFailed": "無法更新完成狀態，請再試一次。",
       "policyRefused": "平台活動政策不允許啟用這個活動。需要由專案擁有者修改該活動類型後才能使用。",
       "policyRefusedField": "平台活動政策不允許啟用這個活動，原因是它的「{field}」設定。需要由專案擁有者修改該活動類型後才能使用。",
-      "platformTypeOption": "{name}（平台範例）"
+      "platformTypeOption": "{name}（平台範例）",
+      "startedByAgent": "由 {agent} 開始"
     },
     "outcome": {
       "pending": "驗證中…",

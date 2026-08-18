@@ -36,6 +36,7 @@ import { DlqViewer } from '@slices/workflow'
 import { ConceptMapPanel } from '@slices/agents'
 import { useChatroomSettings } from '../composables/useChatroomSettings'
 import { useChatroomBindings } from '../composables/useChatroomBindings'
+import AgentActivityControl from '../components/AgentActivityControl.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -73,9 +74,11 @@ const {
   boundAgents,
   availableAgents,
   orphanAgentIds,
+  activityTypes,
   loadBindings,
   onAddAgent,
   onRemoveAgent,
+  onSetActivityControl,
   onSetRole,
   saveWakeupConfig,
 } = useChatroomBindings(chatroomId, () => room.value)
@@ -525,6 +528,16 @@ watchEffect(() => {
             >
               {{ t('conversation.observers.observerRoleHelp') }}
             </p>
+            <!-- Delegated activity control ([R30.37]). Creator-only, like the role
+                 picker above and for the same reason: it is an authority decision
+                 about this room, and a non-creator is not even told the layout. -->
+            <AgentActivityControl
+              v-if="isCreator"
+              :agent="agent"
+              :activity-types="activityTypes"
+              :busy="bindingBusy"
+              @save="(granted, typeIds) => onSetActivityControl(agent.id, granted, typeIds)"
+            />
             <SWakeupEditor
               :model-value="agent.wakeup_config"
               @update:model-value="(v) => saveWakeupConfig(agent.id, v)"

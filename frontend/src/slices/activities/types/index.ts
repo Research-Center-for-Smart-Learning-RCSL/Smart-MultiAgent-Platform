@@ -26,11 +26,18 @@ export type ActivityActivationProgress = ActivityActivationProgressOut
 export interface ActivationView {
   id: string
   activityTypeId: string
+  /** Always the human whose authority the round runs on — the facilitator for an
+   *  ordinary round, the granting teacher for a delegated one ([R30.37]). */
   startedByUserId: string | null
   /** Embedded rendering contract (Q-1); `null` when the broadcast/read carried
    *  none (missed event, cross-project type) — the panel falls back to a
    *  room-scoped fetch in that case. */
   activityType: ActivityTypePublic | null
+  /** The agent that started this round, when one did ([R30.37]). Both are absent
+   *  for a human-started round; the name alone can also be absent if the agent has
+   *  since been deleted, which is why they are two fields and not one. */
+  startedByAgentId?: string | null
+  startedByAgentName?: string | null
 }
 
 export type { ActivityValidationStatus, ActivitySubmissionResult } from '../sdk/types'

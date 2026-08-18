@@ -65,6 +65,7 @@ function packAgent(over: Record<string, unknown> = {}) {
     room_role: 'normal',
     preferred_model_hint: 'claude',
     binds_activity_types: ['mandala-9grid'],
+    may_control_activities: false,
     installed: false,
     ...over,
   }
@@ -141,6 +142,33 @@ describe('AgentPackInstallDialog', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('agents.examplePacks.observerNotice')
+  })
+
+  it('marks an agent written to run activities, and says installing grants nothing', async () => {
+    // AC-16 ([R30.35], [R30.37]). The badge alone reads as a granted capability;
+    // the notice is what says the grant is a separate, per-room act by the room
+    // creator — installing creates no chatroom and no binding to attach one to.
+    listPacksMock.mockResolvedValue([
+      pack({ agents: [packAgent({ may_control_activities: true })] }),
+    ])
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('agents.examplePacks.controlsActivities')
+    expect(wrapper.text()).toContain('agents.examplePacks.activityControlNotice')
+    // And the install itself is unchanged — still no room, still no grant.
+    expect(installMock).not.toHaveBeenCalled()
+  })
+
+  it('says nothing about activity control when no pack agent is written for it', async () => {
+    listPacksMock.mockResolvedValue([pack()])
+
+    const wrapper = await mountDialog()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('agents.examplePacks.controlsActivities')
+    expect(wrapper.text()).not.toContain('agents.examplePacks.activityControlNotice')
   })
 
   it('omits the observer warning when no pack has one', async () => {

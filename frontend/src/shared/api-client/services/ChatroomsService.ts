@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { AgentActivityControlIn } from '../models/AgentActivityControlIn';
 import type { AgentRef } from '../models/AgentRef';
 import type { AgentRolePatchIn } from '../models/AgentRolePatchIn';
 import type { ApprovalWithVotesOut } from '../models/ApprovalWithVotesOut';
@@ -188,6 +189,47 @@ export class ChatroomsService {
         return __request(OpenAPI, {
             method: 'PATCH',
             url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}',
+            path: {
+                'chatroom_id': chatroomId,
+                'agent_id': agentId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Patch Chatroom Agent Activity Control
+     * Delegate activity start/end authority in this room to a bound agent ([R30.37]).
+     *
+     * ``ensure_room_creator``, matching every other authority decision about this
+     * room's bindings — and matching the gate on starting a round itself, which is
+     * the authority being handed out. Nobody who cannot start an activity may grant
+     * the power to.
+     *
+     * Every type id is resolved for the room's own project before anything is
+     * written. That check has to live here: the conversation context stores the
+     * allowlist but cannot see an activity type ([R30.05]), so the route is the only
+     * layer that can perform it — the same shape as ``_assert_mcp_binding_in_project``
+     * in ``activities.py``. Resolving before writing is what keeps a cross-project or
+     * deleted id a 422 rather than a stored id that quietly resolves to nothing later.
+     * @returns void
+     * @throws ApiError
+     */
+    public static patchChatroomAgentActivityControlApiChatroomsChatroomIdAgentsAgentIdActivityControlPatch({
+        chatroomId,
+        agentId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        agentId: string,
+        requestBody: AgentActivityControlIn,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/activity-control',
             path: {
                 'chatroom_id': chatroomId,
                 'agent_id': agentId,
