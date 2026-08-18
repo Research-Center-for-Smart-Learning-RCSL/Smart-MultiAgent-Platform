@@ -660,6 +660,21 @@ Amend `REQUIREMENTS.md:2181` **[R30.22]**, replacing the final sentence:
   satisfies by itself — so AC-7's route half was uncovered. It now passes a foreign uuid and
   asserts both values reach the service; the no-subject case became its own test.
 
+- **D-14 (CI fix, the other half of D-12): two `db`-tier tests ended a round the way nothing
+  in production ends one.**
+  D-7 records that the `db` tier never ran on the implementing host; its first real run
+  (CI, run 32100427158) failed `test_two_rounds_give_one_subject_two_sessions` and
+  `test_the_close_is_bounded_to_its_own_round`. Both ended the first round through
+  `ActivationRepository.end` alone, leaving a subject holding an *open* session in a
+  finished round. `ActivationService.end` never leaves that state — it closes the round's
+  sessions in the same call — and `uq_activity_sessions_open`, which D-12 keeps, rejects it,
+  so `create_open`'s untargeted `ON CONFLICT DO NOTHING` swallowed the second round's insert
+  and returned `None`. AC-3 now ends the round the way the service does. AC-4 needs two
+  concurrently open rounds, which one room cannot hold (one active activation per room, and
+  ending a round closes its sessions), so it runs the same type in two rooms for the same
+  participant — a shape that also fails a close widened to the type. **Nothing about the
+  schema or the repository was wrong; the tests asserted against an unreachable state.**
+
 ## 16. Follow-ups
 
 - **FU-1**: A per-subject completion roster for the facilitator (who has finished, not just how

@@ -813,6 +813,21 @@ and the activity type keys it is written for"*, insert:
   from `agent.project_id`; and `agent_role_in_chatroom` was needed by D-6's disclosure rule.
   Both go through the facade rather than widening the direct-repository call FU-1 records.
 
+- **D-14 (CI fix): D-5's e2e spec authenticated its fixture calls with a cookie jar that
+  carries no credential.** Its first real run (CI, run 32100427158) failed both cases with
+  `401 Authentication required` on `POST /api/projects/{id}/activity-types`. The spec built
+  its fixtures through `page.request` on the premise that the page's cookies authenticate
+  it; only the *refresh* token is a cookie, while the access token lives in the SPA's memory
+  and rides in `Authorization` (`shared/transport/axios.ts`), so every setup call was
+  anonymous — the type listing 401'd into a silently empty list and the creation 401'd
+  loudly. Setup now goes through Playwright's own `request` context with a bearer for the
+  same seeded user (`bearerFor` in `e2e/fixtures/auth.ts`, reusable by later specs), which
+  keeps the calls under the authorization the UI would hit. Logging in on the page's context
+  instead would rotate the refresh cookie the live UI session is using, which the backend
+  treats as reuse and answers by revoking the family. The listing result is now asserted
+  rather than defaulted to an empty list, so the next failure of this class cannot
+  masquerade as "no types yet". **The feature itself is not implicated.**
+
 ## 16. Follow-ups
 
 - FU-1: `turn_engine.py:2284` reaches into `contexts.conversation.infrastructure` directly;
