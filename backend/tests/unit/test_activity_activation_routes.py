@@ -18,6 +18,7 @@ from contexts.activities.domain.models import (
     ActivitySessionCompletionResult,
     SessionStatus,
 )
+from contexts.activities.interfaces import broadcast
 
 
 @pytest.mark.parametrize(("transitioned", "expected_dispatches"), [(False, 0), (True, 1)])
@@ -114,7 +115,7 @@ class TestCompletionRoute:
             AsyncMock(return_value=SimpleNamespace(project_id=uuid.uuid4())),
         )
         monkeypatch.setattr(activities, "ensure_can_send", MagicMock())
-        monkeypatch.setattr(activities, "_dispatch_activation_progress", dispatch)
+        monkeypatch.setattr(activities, "dispatch_activation_progress", dispatch)
         return facade, dispatch, activation, session, subject
 
     async def test_a_member_may_only_declare_for_themselves(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -214,10 +215,10 @@ class TestCompletionRoute:
         facade.count_activation_sessions = AsyncMock(return_value=(2, 3))
         publisher = MagicMock()
         publisher.return_value.emit = AsyncMock()
-        monkeypatch.setattr(activities, "Publisher", publisher)
-        monkeypatch.setattr(activities, "user_channel", lambda uid: f"ws:user:{uid}")
+        monkeypatch.setattr(broadcast, "Publisher", publisher)
+        monkeypatch.setattr(broadcast, "user_channel", lambda uid: f"ws:user:{uid}")
 
-        await activities._dispatch_activation_progress(facade, activation)
+        await broadcast.dispatch_activation_progress(facade, activation)
 
         assert publisher.call_args.args[0] == f"ws:user:{activation.started_by_user_id}"
         event, payload = publisher.return_value.emit.await_args.args
@@ -234,7 +235,81 @@ class TestCompletionRoute:
         facade = MagicMock()
         facade.count_activation_sessions = AsyncMock(side_effect=RuntimeError("redis down"))
 
-        await activities._dispatch_activation_progress(facade, activation)
+        await broadcast.dispatch_activation_progress(facade, activation)
+
+    async def test_an_agent_started_round_still_reports_to_the_granting_teacher(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """AC-11 ([R30.37]). The delegated path is exactly the case that could have
+        blinded the facilitator's panel: had `started_by_user_id` become
+        agent-valued or null, this event would have had no addressable recipient
+        and there is no poll to recover it (see the function's docstring)."""
+        granter = uuid.uuid4()
+        activation = ActivityActivation(
+            id=uuid.uuid4(),
+            chatroom_id=uuid.uuid4(),
+            activity_type_id=uuid.uuid4(),
+            started_by_user_id=granter,
+            status=ActivationStatus.ACTIVE,
+            created_at=_NOW,
+            started_by_agent_id=uuid.uuid4(),
+        )
+        facade = MagicMock()
+        facade.count_activation_sessions = AsyncMock(return_value=(1, 4))
+        publisher = MagicMock()
+        publisher.return_value.emit = AsyncMock()
+        monkeypatch.setattr(broadcast, "Publisher", publisher)
+        monkeypatch.setattr(broadcast, "user_channel", lambda uid: f"ws:user:{uid}")
+
+        await broadcast.dispatch_activation_progress(facade, activation)
+
+        assert publisher.call_args.args[0] == f"ws:user:{granter}"
+        _event, payload = publisher.return_value.emit.await_args.args
+        assert (payload["completed"], payload["in_progress"]) == (1, 4)
+
+
+class TestActivationStartedBroadcast:
+    """What the room is told when a round begins ([R30.26], [R30.37])."""
+
+    @staticmethod
+    def _capture(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+        publisher = MagicMock()
+        publisher.return_value.emit = AsyncMock()
+        monkeypatch.setattr(broadcast, "Publisher", publisher)
+        monkeypatch.setattr(broadcast, "room_channel", lambda rid: f"ws:room:{rid}")
+        return publisher
+
+    async def test_a_delegated_round_names_the_agent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        agent_id = uuid.uuid4()
+        activation = ActivityActivation(
+            id=uuid.uuid4(),
+            chatroom_id=uuid.uuid4(),
+            activity_type_id=uuid.uuid4(),
+            started_by_user_id=uuid.uuid4(),
+            status=ActivationStatus.ACTIVE,
+            created_at=_NOW,
+            started_by_agent_id=agent_id,
+        )
+        publisher = self._capture(monkeypatch)
+
+        await broadcast.dispatch_activation_started(activation, None, started_by_agent_name="TA")
+
+        assert publisher.call_args.args[0] == f"ws:room:{activation.chatroom_id}"
+        _event, payload = publisher.return_value.emit.await_args.args
+        assert payload["started_by_agent_id"] == str(agent_id)
+        assert payload["started_by_agent_name"] == "TA"
+        # The granting teacher is still the round's starting user.
+        assert payload["started_by"] == str(activation.started_by_user_id)
+
+    async def test_a_human_round_carries_neither_agent_field(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        activation = _activation(uuid.uuid4(), started_by=uuid.uuid4())
+        publisher = self._capture(monkeypatch)
+
+        await broadcast.dispatch_activation_started(activation, None)
+
+        _event, payload = publisher.return_value.emit.await_args.args
+        assert "started_by_agent_id" not in payload
+        assert "started_by_agent_name" not in payload
 
 
 class TestProgressRoute:

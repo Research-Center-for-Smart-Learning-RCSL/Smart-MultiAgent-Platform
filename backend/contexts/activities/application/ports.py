@@ -50,6 +50,7 @@ class ActivityActivationRepository(Protocol):
         chatroom_id: uuid.UUID,
         activity_type_id: uuid.UUID,
         started_by_user_id: uuid.UUID,
+        started_by_agent_id: uuid.UUID | None = None,
     ) -> uuid.UUID | None: ...
 
     async def end(self, activation_id: uuid.UUID) -> bool: ...

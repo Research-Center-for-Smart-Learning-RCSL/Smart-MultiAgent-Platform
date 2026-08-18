@@ -8,6 +8,7 @@ directly. Keeps the import graph acyclic.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -132,6 +133,16 @@ class AgentsFacade:
 
     async def get_agent(self, agent_id: uuid.UUID, *, include_deleted: bool = False) -> Agent | None:
         return await self._agents.get(agent_id, include_deleted=include_deleted)
+
+    async def agent_names(self, agent_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Batch-resolve ``agent_id -> name`` for a display attribute ([R30.31]).
+
+        The cross-context way to *name* agents without joining ``agents`` from
+        another context's query ([R30.09]) — the activities read model uses it to
+        label a delegated round's initiator. Unknown ids are simply absent, and
+        soft-deleted agents are included, so history labels correctly.
+        """
+        return await self._agents.names_for_ids(list(agent_ids))
 
     async def list_agents_for_project(
         self,

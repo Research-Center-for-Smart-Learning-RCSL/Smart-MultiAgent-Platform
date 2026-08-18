@@ -36,7 +36,15 @@ from contexts.activities.domain.models import (
     ActivityTypeScope,
     ValidatorKind,
 )
+from contexts.activities.interfaces.broadcast import (
+    activity_type_public_payload,
+    dispatch_activation_ended,
+    dispatch_activation_progress,
+    dispatch_activation_started,
+    dispatch_room_activation_progress,
+)
 from contexts.activities.interfaces.facade import ActivitiesFacade
+from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.interfaces import room_channel
 from contexts.conversation.interfaces.access import (
     ensure_can_read,
@@ -45,7 +53,6 @@ from contexts.conversation.interfaces.access import (
     resolve_room_access,
 )
 from contexts.conversation.interfaces.facade import ConversationFacade
-from contexts.identity.interfaces import user_channel
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
@@ -169,6 +176,12 @@ class ActivityActivationOut(BaseModel):
     # (Q-1); `None` only when the type row is missing or cross-project, same
     # as a null activation would be treated.
     activity_type: ActivityTypePublicOut | None = None
+    # Set only when a delegated agent started this round ([R30.37]); `started_by_user_id`
+    # above still names the teacher whose authority it acted on. The name is resolved
+    # through the agents facade, never joined ([R30.09]), and is `None` when the agent
+    # has since been deleted.
+    started_by_agent_id: uuid.UUID | None = None
+    started_by_agent_name: str | None = None
 
 
 class ActivitySessionOut(BaseModel):
@@ -259,7 +272,14 @@ def _type_out(t: ActivityType, *, include_validator_config: bool = True) -> Acti
 
 
 def _type_public_out(t: ActivityType) -> ActivityTypePublicOut:
-    return ActivityTypePublicOut(id=t.id, key=t.key, name=t.name, payload_schema=t.payload_schema)
+    """The HTTP face of the participant rendering contract ([R30.26]).
+
+    Built **from** ``activity_type_public_payload`` rather than beside it, so this
+    response and the room broadcast that carries the same contract cannot drift:
+    a field added to one and not the other is a validation error here, not a
+    client that silently stops receiving it.
+    """
+    return ActivityTypePublicOut(**activity_type_public_payload(t))
 
 
 def _session_out(s: ActivitySession) -> ActivitySessionOut:
@@ -276,7 +296,12 @@ def _session_out(s: ActivitySession) -> ActivitySessionOut:
     )
 
 
-def _activation_out(a: ActivityActivation, activity_type: ActivityType | None) -> ActivityActivationOut:
+def _activation_out(
+    a: ActivityActivation,
+    activity_type: ActivityType | None,
+    *,
+    started_by_agent_name: str | None = None,
+) -> ActivityActivationOut:
     return ActivityActivationOut(
         id=a.id,
         chatroom_id=a.chatroom_id,
@@ -286,7 +311,27 @@ def _activation_out(a: ActivityActivation, activity_type: ActivityType | None) -
         created_at=a.created_at.isoformat() if a.created_at else None,
         ended_at=a.ended_at.isoformat() if a.ended_at else None,
         activity_type=_type_public_out(activity_type) if activity_type is not None else None,
+        started_by_agent_id=a.started_by_agent_id,
+        started_by_agent_name=started_by_agent_name,
     )
+
+
+async def _resolve_starting_agent_name(db: AsyncSession, activation: ActivityActivation) -> str | None:
+    """Name the agent that started a delegated round, or ``None`` ([R30.37]).
+
+    A single batch facade read ([R30.31]), never a join ([R30.09]), and skipped
+    entirely for the overwhelmingly common human-started round. Degrades to ``None``
+    rather than propagating: the id is already on the response, and a name lookup
+    failing must not turn a working activation read into a 500.
+    """
+    if activation.started_by_agent_id is None:
+        return None
+    try:
+        names = await AgentsFacade(db).agent_names([activation.started_by_agent_id])
+    except Exception:
+        _log.warning("agent name resolution failed for activation %s", activation.id, exc_info=True)
+        return None
+    return names.get(activation.started_by_agent_id)
 
 
 async def _resolve_activation_type(
@@ -696,8 +741,12 @@ async def start_activity_activation(
     activity_type = await _resolve_activation_type(
         facade, project_id=access.project_id, activation=activation
     )
-    await _dispatch_activation_started(activation, activity_type)
-    return _activation_out(activation, activity_type)
+    # `None` on this path by construction: the HTTP start is a human's, so the
+    # lookup short-circuits. Threaded anyway so the broadcast and the response
+    # carry the same two fields whichever path produced the activation.
+    agent_name = await _resolve_starting_agent_name(db, activation)
+    await dispatch_activation_started(activation, activity_type, started_by_agent_name=agent_name)
+    return _activation_out(activation, activity_type, started_by_agent_name=agent_name)
 
 
 @chatroom_router.patch("/{chatroom_id}/activity-activations/{activation_id}/end")
@@ -724,7 +773,11 @@ async def end_activity_activation(
     activity_type = await _resolve_activation_type(
         facade, project_id=access.project_id, activation=result.activation
     )
-    return _activation_out(result.activation, activity_type)
+    return _activation_out(
+        result.activation,
+        activity_type,
+        started_by_agent_name=await _resolve_starting_agent_name(db, result.activation),
+    )
 
 
 @chatroom_router.get("/{chatroom_id}/activity-activations/active")
@@ -742,7 +795,11 @@ async def get_active_activity_activation(
     activity_type = await _resolve_activation_type(
         facade, project_id=access.project_id, activation=activation
     )
-    return _activation_out(activation, activity_type)
+    return _activation_out(
+        activation,
+        activity_type,
+        started_by_agent_name=await _resolve_starting_agent_name(db, activation),
+    )
 
 
 @chatroom_router.patch("/{chatroom_id}/activity-activations/{activation_id}/completion")
@@ -779,7 +836,7 @@ async def set_activity_session_completion(
     )
     await db.commit()
     if result.transitioned:
-        await _dispatch_activation_progress(facade, result.activation)
+        await dispatch_activation_progress(facade, result.activation)
     return _session_out(result.session)
 
 
@@ -993,92 +1050,7 @@ async def _dispatch_submission(
     # finished while it carried on working -- and the count is what a facilitator
     # decides to move on from. Unconditional rather than gated on "did anything
     # change": the route cannot know without asking, and asking IS the read.
-    await _dispatch_room_activation_progress(ActivitiesFacade(db), chatroom_id)
-
-
-async def _dispatch_activation_started(
-    activation: ActivityActivation, activity_type: ActivityType | None
-) -> None:
-    try:
-        payload: dict[str, Any] = {
-            "activation_id": str(activation.id),
-            "activity_type_id": str(activation.activity_type_id),
-            "started_by": str(activation.started_by_user_id),
-        }
-        if activity_type is not None:
-            # Same participant projection as the HTTP reads (R30.26) — no
-            # validator_config on any realtime payload.
-            payload["activity_type"] = _type_public_out(activity_type).model_dump(mode="json")
-        await Publisher(room_channel(activation.chatroom_id)).emit("activity.activation.started", payload)
-    except Exception:
-        _log.error("realtime publish failed for activity activation %s", activation.id, exc_info=True)
-
-
-async def _dispatch_room_activation_progress(facade: ActivitiesFacade, chatroom_id: uuid.UUID) -> None:
-    """As :func:`_dispatch_activation_progress`, for a caller holding the room
-    rather than the round.
-
-    The submit path is the case: it has committed by the time it reaches here, so
-    re-reading the active activation is both cheaper and less fragile than
-    threading it out through ``submit``'s return. ``None`` means the facilitator
-    ended the round in between, which is exactly when there is nothing to report.
-    """
-    try:
-        activation = await facade.get_active_activation(chatroom_id)
-    except Exception:
-        _log.warning("activity progress lookup failed for room %s", chatroom_id, exc_info=True)
-        return
-    if activation is None:
-        return
-    await _dispatch_activation_progress(facade, activation)
-
-
-async def _dispatch_activation_progress(facade: ActivitiesFacade, activation: ActivityActivation) -> None:
-    """Tell the facilitator who started this round that its progress moved.
-
-    Addressed to that one user's channel, never the room's ([R28.13] does the
-    same for observations): the counts are the facilitator's view of the class,
-    and in a two-person group "1 finished" identifies the other participant.
-
-    Post-commit and best-effort in both halves -- the count read as much as the
-    publish. The write is already durable, so neither a stale count nor a Redis
-    hiccup may surface as a failed request.
-
-    A dropped event does NOT self-heal for the starter: they are the only viewer
-    this targets and they have no poll (``useActivationProgress`` polls only the
-    viewers who cannot receive it), so they hold a stale count until the next
-    event or a remount. That is the accepted cost of keeping per-round counts off
-    the room channel -- and the reason every writer that moves the counts has to
-    call this, the submit path included.
-    """
-    try:
-        completed, in_progress = await facade.count_activation_sessions(
-            chatroom_id=activation.chatroom_id, activation_id=activation.id
-        )
-        await Publisher(user_channel(activation.started_by_user_id)).emit(
-            "activity.session.completion",
-            {
-                "chatroom_id": str(activation.chatroom_id),
-                "activation_id": str(activation.id),
-                "completed": completed,
-                "in_progress": in_progress,
-            },
-        )
-    except Exception:
-        _log.warning("activity progress publish failed for activation %s", activation.id, exc_info=True)
-
-
-async def dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid.UUID) -> None:
-    """Tell one room its activation ended. Public because three routes across two
-    modules end activations — the owner delete and the project opt-out here, and
-    the admin delete in ``admin_activities`` — and each must broadcast the same
-    event after its own commit."""
-    try:
-        await Publisher(room_channel(chatroom_id)).emit(
-            "activity.activation.ended", {"activation_id": str(activation_id)}
-        )
-    except Exception:
-        _log.error("realtime publish failed for ended activity activation %s", activation_id, exc_info=True)
+    await dispatch_room_activation_progress(ActivitiesFacade(db), chatroom_id)
 
 
 __all__ = [
