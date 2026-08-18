@@ -64,6 +64,38 @@ def _tool(
     )
 
 
+def _activity_control() -> object:
+    """A minimal live delegated-control grant, for the drift guard above."""
+    from contexts.activities.domain.models import ActivityType, ValidatorKind
+    from contexts.agents.application.runtime.activity_tools import ActivityControlContext
+    from contexts.conversation.domain.models import ActivityControlGrant
+
+    type_id, project_id = uuid.uuid4(), uuid.uuid4()
+    return ActivityControlContext(
+        chatroom_id=uuid.uuid4(),
+        project_id=project_id,
+        grant=ActivityControlGrant(
+            agent_id=uuid.uuid4(),
+            granted_by_user_id=uuid.uuid4(),
+            activity_type_ids=(type_id,),
+        ),
+        allowed_types=(
+            ActivityType(
+                id=type_id,
+                project_id=project_id,
+                key="unit2",
+                name="Unit 2",
+                payload_schema={},
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config={"validator_id": "filled_count"},
+                retention_days=None,
+                version=1,
+                created_at=_NOW,
+            ),
+        ),
+    )
+
+
 def _singletons(
     *,
     web_search: bool = True,
@@ -156,9 +188,15 @@ def test_hosted_builtin_names_are_all_reserved() -> None:
         agent=_agent(),
         tools=_singletons(web_search=True, code_exec=True, file=True, file_search=True),
         deps=_deps(),
+        # The two delegated activity-control tools come from a room grant rather
+        # than an `agent_tools` row ([R30.37]), so they are invisible to a build
+        # that passes only rows — and the drift guard would silently stop covering
+        # them. Their source differs; the namespace they occupy does not.
+        activity_control=_activity_control(),
     )
     hosted = [t.name for t in tools if not t.name.startswith("mcp__")]
     assert hosted, "expected hosted built-in tools to be built"
+    assert {"start_activity", "end_activity"} <= set(hosted)
     for name in hosted:
         assert name in BUILTIN_TOOL_NAMES, f"built-in {name!r} not in BUILTIN_TOOL_NAMES (drift)"
 

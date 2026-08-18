@@ -156,6 +156,25 @@ class ConversationFacade:
             agent_id=agent_id,
         )
 
+    async def project_id_for_chatroom(self, chatroom_id: uuid.UUID) -> uuid.UUID | None:
+        """The project a live room belongs to, or ``None`` if the chain is broken.
+
+        Rooms carry only a ``workspace_id``, so "which tenant is this" is two reads
+        everywhere it is needed. Exposed here because a cross-context caller — the
+        agent runtime, resolving a delegated activity grant — needs the room's
+        project to run the reachability gate against, and must not walk the tables
+        itself.
+
+        ``None`` rather than raising: every caller of this treats an unresolvable
+        room as "no authority", and an exception would have to be caught and turned
+        back into exactly that.
+        """
+        room = await self._rooms.get(chatroom_id)
+        if room is None:
+            return None
+        workspace = await self._workspaces.get(room.workspace_id)
+        return workspace.project_id if workspace is not None else None
+
     async def activity_control_grant(
         self,
         *,
