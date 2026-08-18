@@ -27,7 +27,9 @@ list). This section is kept as the record of what that audit produced.
 
 ### Other ready work
 
-- `2026-08-18-agent-delegated-activity-control` (feature, draft) — `depends_on: []`. Lets a
+- `2026-08-18-agent-delegated-activity-control` (feature, approved) — `depends_on: []`.
+  **Applied an SRS Delta on approval**: amends [R30.21], [R30.22] and [R30.35] and adds
+  [R30.37]. Lets a
   room creator delegate activity start/end to a bound agent, per room, scoped to an
   allowlist of activity types, exercised only through a tool call. Touches
   `builtin_tools.py` / `turn_engine.py`, which `2026-07-19-large-artifacts-silently-dropped`
