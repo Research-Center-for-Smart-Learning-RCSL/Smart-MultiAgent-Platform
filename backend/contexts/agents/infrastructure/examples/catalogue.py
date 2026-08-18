@@ -50,6 +50,7 @@ _AGENT_FIELDS = frozenset(
         "temperature",
         "wakeup_config",
         "binds_activity_types",
+        "may_control_activities",
     }
 )
 
@@ -95,6 +96,14 @@ class PackAgent:
     temperature: float | None
     wakeup_config: dict[str, Any]
     binds_activity_types: tuple[str, ...]
+    # Whether this agent's prompt is written to hold delegated activity control
+    # ([R30.37], [R30.35]). **Advisory metadata, never an applied grant**: installing
+    # a pack creates no chatroom and no room binding, so there is nothing to grant
+    # it on. The room creator grants it per room, per agent, after binding.
+    # Required rather than defaulted, for the reason `room_role` is: whether an
+    # agent is written to start and end rounds in front of a class is not a
+    # default's decision to make.
+    may_control_activities: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +135,18 @@ def _require_str(source: str, where: str, data: dict[str, Any], key: str) -> str
     value = data[key]
     if not isinstance(value, str) or not value.strip():
         raise _fail(source, f"{where}.{key}", "must be a non-empty string")
+    return value
+
+
+def _require_bool(source: str, where: str, data: dict[str, Any], key: str) -> bool:
+    """Mirrors the course catalogue's helper of the same name.
+
+    Strictly ``bool``: JSON's ``0``/``1`` and ``"false"`` are all truthy-or-falsy
+    in Python and none of them is what the field means.
+    """
+    value = data[key]
+    if not isinstance(value, bool):
+        raise _fail(source, f"{where}.{key}", "must be true or false")
     return value
 
 
@@ -215,6 +236,7 @@ def _parse_agent(source: str, index: int, data: Any) -> PackAgent:
         temperature=_parse_temperature(source, where, data["temperature"]),
         wakeup_config=_parse_wakeup_config(source, where, data["wakeup_config"]),
         binds_activity_types=_parse_binds(source, where, data["binds_activity_types"]),
+        may_control_activities=_require_bool(source, where, data, "may_control_activities"),
     )
 
 

@@ -68,6 +68,10 @@ class CatalogueAgent:
     room_role: str | None
     preferred_model_hint: AgentModelHint
     binds_activity_types: tuple[str, ...]
+    # Advisory metadata, never an applied grant ([R30.35], [R30.37]) — installing
+    # a pack creates no chatroom and no room binding, so nothing here confers any
+    # authority. The install dialog states that.
+    may_control_activities: bool
     installed: bool
 
 
@@ -157,6 +161,7 @@ class AgentExampleService:
                         room_role=agent.room_role,
                         preferred_model_hint=agent.preferred_model_hint,
                         binds_activity_types=agent.binds_activity_types,
+                        may_control_activities=agent.may_control_activities,
                         installed=agent.name in existing,
                     )
                     for agent in pack.agents
