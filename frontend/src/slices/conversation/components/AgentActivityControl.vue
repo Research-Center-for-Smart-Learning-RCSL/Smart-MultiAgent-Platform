@@ -79,20 +79,21 @@ watch(
   { immediate: true },
 )
 
-// Compared against the *raw* stored allowlist, while the draft is seeded from the
-// narrowed one. The asymmetry is the point: a row still carrying an id the project
-// cannot use reads as dirty on load, so Apply is enabled and one click rewrites it
-// without the dead entry. Comparing against the narrowed list instead would agree
-// with the draft, disable the button, and leave the note pointing at something the
-// teacher has no way to act on.
 const dirty = computed(() => {
+  if (granted.value !== storedDraft.value.granted) return true
+  // A revoke writes no allowlist — the server keeps the stored one so the
+  // teacher's selection survives a re-grant — so while the draft is off there is
+  // nothing Apply could act on, and enabling it would be a button that lies.
+  if (!granted.value) return false
+  // Compared against the *raw* stored list, while the draft was seeded from the
+  // narrowed one. The asymmetry is the point: a live grant still carrying an id
+  // the project cannot use reads as dirty on load, so Apply is enabled and one
+  // click rewrites the row without the dead entry. Comparing against the narrowed
+  // list would agree with the draft, disable the button, and leave
+  // `unresolvedCount`'s note pointing at something the teacher cannot act on.
   const stored = [...(props.agent.activity_type_allowlist ?? [])].sort()
   const draft = [...selected.value].sort()
-  return (
-    granted.value !== storedDraft.value.granted ||
-    stored.length !== draft.length ||
-    stored.some((id, i) => id !== draft[i])
-  )
+  return stored.length !== draft.length || stored.some((id, i) => id !== draft[i])
 })
 
 const showObserverNote = computed(() => granted.value && props.agent.role === 'observer')

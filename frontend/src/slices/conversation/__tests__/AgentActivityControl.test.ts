@@ -147,6 +147,24 @@ describe('AgentActivityControl', () => {
     expect(wrapper.emitted('save')).toEqual([[true, ['at_1']]])
   })
 
+  it('does not offer to apply a leftover on an ungranted binding', async () => {
+    // A revoke writes no allowlist, so the stale entry cannot be repaired while
+    // the grant is off — an enabled Apply here would be a button that lies.
+    const wrapper = await renderView(AgentActivityControl, {
+      props: {
+        agent: boundAgent({
+          may_control_activities: false,
+          activity_type_allowlist: ['at_1', 'at_gone'],
+        }),
+        activityTypes: [activityType()],
+        activityTypesFailed: false,
+        busy: false,
+      },
+    })
+
+    expect(applyButton(wrapper)?.attributes('disabled')).toBeDefined()
+  })
+
   it('tells a failed type listing apart from a project that has none', async () => {
     // "Register one before delegating control" is an instruction; giving it when
     // the listing merely failed sends the teacher to create what already exists.
