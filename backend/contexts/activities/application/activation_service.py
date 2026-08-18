@@ -25,6 +25,26 @@ from contexts.activities.infrastructure.repositories.optin_repo import (
 from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
 from shared_kernel import audit
 
+# What tells a delegated activation event apart from a facilitator's in the audit
+# trail ([R30.37]). `via` is spelled out rather than left implicit in the presence
+# of an agent id, so one stable key filters both actions.
+_VIA_AGENT_TOOL = "agent_tool"
+
+
+def _delegation_metadata(key: str, agent_id: uuid.UUID | None) -> dict[str, str]:
+    """The two audit keys a delegated activation carries, or nothing at all.
+
+    ``key`` differs per action on purpose. An agent holding the grant may end a
+    round a *teacher* started, so recording that agent under `started_by_agent_id`
+    on the ended event would assert something false about who started it; the ended
+    event says `ended_by_agent_id` instead. Emitting nothing at all on the
+    facilitator path keeps the historical rows honest — they were written by code
+    that made no claim either way.
+    """
+    if agent_id is None:
+        return {}
+    return {key: str(agent_id), "via": _VIA_AGENT_TOOL}
+
 
 class ActivationService:
     def __init__(
@@ -58,7 +78,15 @@ class ActivationService:
         started_by_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        started_by_agent_id: uuid.UUID | None = None,
     ) -> ActivityActivation:
+        """Start a round. ``started_by_agent_id`` marks a delegated start ([R30.37]).
+
+        The delegated path differs only in what is *recorded*: both gates below run
+        identically for it, in the same order, on this same method — there is no
+        second code path an agent could take. ``started_by_user_id`` is the granting
+        teacher either way.
+        """
         # Tenant isolation ([R30.09], [R30.33]): the caller supplies the type id,
         # so this is the gate — not the picker the facilitator chose it from.
         activity_type = await resolve_reachable_type(
@@ -79,6 +107,7 @@ class ActivationService:
             chatroom_id=chatroom_id,
             activity_type_id=activity_type_id,
             started_by_user_id=started_by_user_id,
+            started_by_agent_id=started_by_agent_id,
         )
         if activation_id is None:
             active = await self._repo.get_active(chatroom_id)
@@ -99,7 +128,15 @@ class ActivationService:
                 actor_ip=actor_ip,
                 resource_type="activity_activation",
                 resource_id=activation.id,
-                metadata={"chatroom_id": str(chatroom_id), "activity_type_id": str(activity_type_id)},
+                metadata={
+                    "chatroom_id": str(chatroom_id),
+                    "activity_type_id": str(activity_type_id),
+                    # Absent, not null, on a human-started round: the two keys are
+                    # what makes a delegated round distinguishable in the trail
+                    # (AC-12), and a `via: "facilitator"` on every historical row
+                    # would be a claim this code never made about them.
+                    **_delegation_metadata("started_by_agent_id", started_by_agent_id),
+                },
                 request_id=request_id,
             ),
         )
@@ -113,7 +150,14 @@ class ActivationService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        ended_by_agent_id: uuid.UUID | None = None,
     ) -> ActivityActivationEndResult:
+        """End a round. ``ended_by_agent_id`` marks a delegated end ([R30.37]).
+
+        Recorded on the audit event only — the ended activation keeps
+        ``started_by_agent_id`` as the record of who *started* it, which is a
+        different fact and must not be overwritten by whoever ended it.
+        """
         activation = await self._repo.get(activation_id)
         if activation is None or activation.chatroom_id != chatroom_id:
             raise ActivityActivationNotFound(str(activation_id))
@@ -137,6 +181,7 @@ class ActivationService:
                         "chatroom_id": str(chatroom_id),
                         "activity_type_id": str(activation.activity_type_id),
                         "sessions_closed": str(sessions_closed),
+                        **_delegation_metadata("ended_by_agent_id", ended_by_agent_id),
                     },
                     request_id=request_id,
                 ),

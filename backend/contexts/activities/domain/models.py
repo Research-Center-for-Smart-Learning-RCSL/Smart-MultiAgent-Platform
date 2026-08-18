@@ -194,10 +194,17 @@ class ActivityActivation:
     id: uuid.UUID
     chatroom_id: uuid.UUID
     activity_type_id: uuid.UUID
+    # Always a user, even for a delegated round ([R30.37]): an agent acts on a
+    # granting teacher's authority, and that teacher is both the answerable party
+    # and the recipient the per-round progress event is addressed to.
     started_by_user_id: uuid.UUID
     status: ActivationStatus
     created_at: dt.datetime
     ended_at: dt.datetime | None = None
+    # The agent that called `start_activity`, or None for a human-started round.
+    # A bare id: this context may not import the agents context ([R30.05]), so it
+    # resolves to a name only at the route.
+    started_by_agent_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)

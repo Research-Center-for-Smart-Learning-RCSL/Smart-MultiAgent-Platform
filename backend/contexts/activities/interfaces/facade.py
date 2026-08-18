@@ -416,7 +416,14 @@ class ActivitiesFacade:
         started_by_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        started_by_agent_id: uuid.UUID | None = None,
     ) -> ActivityActivation:
+        """Start a round; ``started_by_agent_id`` marks a delegated start ([R30.37]).
+
+        The delegated caller is the agent runtime's ``start_activity`` tool, and it
+        reaches the same service method the HTTP route does — so type reachability
+        and the governance policy are enforced once, for both.
+        """
         return await self._activation.start(
             project_id=project_id,
             chatroom_id=chatroom_id,
@@ -424,6 +431,7 @@ class ActivitiesFacade:
             started_by_user_id=started_by_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            started_by_agent_id=started_by_agent_id,
         )
 
     async def end_activation(
@@ -434,6 +442,7 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        ended_by_agent_id: uuid.UUID | None = None,
     ) -> ActivityActivationEndResult:
         return await self._activation.end(
             chatroom_id=chatroom_id,
@@ -441,6 +450,7 @@ class ActivitiesFacade:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            ended_by_agent_id=ended_by_agent_id,
         )
 
     async def get_active_activation(self, chatroom_id: uuid.UUID) -> ActivityActivation | None:

@@ -33,6 +33,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import app.api.v1.activities as activities_api
+from contexts.activities.interfaces import broadcast
 
 
 @pytest.fixture
@@ -56,7 +57,7 @@ def _silence_the_other_concerns(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(activities_api, "Publisher", _Publisher)
     monkeypatch.setattr(activities_api, "room_channel", lambda _r: "room")
-    monkeypatch.setattr(activities_api, "_dispatch_room_activation_progress", AsyncMock())
+    monkeypatch.setattr(activities_api, "dispatch_room_activation_progress", AsyncMock())
 
 
 class TestSubmissionReArmsTheSilenceClock:
@@ -140,7 +141,7 @@ class TestSubmissionRepublishesTheFacilitatorCounts:
     ) -> None:
         _silence_the_other_concerns(monkeypatch)
         progress = AsyncMock()
-        monkeypatch.setattr(activities_api, "_dispatch_room_activation_progress", progress)
+        monkeypatch.setattr(activities_api, "dispatch_room_activation_progress", progress)
         monkeypatch.setattr(activities_api, "enqueue", AsyncMock())
         monkeypatch.setattr(activities_api, "ConversationFacade", lambda _db: AsyncMock())
         monkeypatch.setattr(activities_api, "ActivitiesFacade", lambda _db: "facade")
@@ -156,11 +157,11 @@ class TestSubmissionRepublishesTheFacilitatorCounts:
         """The facilitator ending the round between commit and dispatch is
         precisely when there is nothing to report."""
         publisher = AsyncMock()
-        monkeypatch.setattr(activities_api, "Publisher", publisher)
+        monkeypatch.setattr(broadcast, "Publisher", publisher)
         facade = AsyncMock()
         facade.get_active_activation.return_value = None
 
-        await activities_api._dispatch_room_activation_progress(facade, uuid.uuid4())
+        await broadcast.dispatch_room_activation_progress(facade, uuid.uuid4())
 
         publisher.assert_not_called()
 
@@ -168,11 +169,11 @@ class TestSubmissionRepublishesTheFacilitatorCounts:
         """The submission is already committed; a progress read that cannot run
         must not turn it into a failed request."""
         publisher = AsyncMock()
-        monkeypatch.setattr(activities_api, "Publisher", publisher)
+        monkeypatch.setattr(broadcast, "Publisher", publisher)
         facade = AsyncMock()
         facade.get_active_activation.side_effect = RuntimeError("db gone")
 
-        await activities_api._dispatch_room_activation_progress(facade, uuid.uuid4())
+        await broadcast.dispatch_room_activation_progress(facade, uuid.uuid4())
 
         publisher.assert_not_called()
 

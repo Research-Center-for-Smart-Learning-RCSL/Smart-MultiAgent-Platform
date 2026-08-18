@@ -120,6 +120,12 @@ activity_activations = sa.Table(
     ),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("ended_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    # Delegated activity control ([R30.37], migration 0078). Deliberately NO
+    # ForeignKey to `agents`: this context must not couple to the agents context,
+    # in imports ([R30.05], pinned by tests/unit/test_activities_no_agents_import.py)
+    # or in the schema. A deleted agent leaves an id that resolves to nothing,
+    # which is the correct reading of "the agent that started this is gone".
+    sa.Column("started_by_agent_id", pg.UUID(as_uuid=True), nullable=True),
 )
 
 activity_submissions = sa.Table(

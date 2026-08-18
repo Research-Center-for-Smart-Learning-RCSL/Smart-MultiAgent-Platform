@@ -22,6 +22,7 @@ _ACTIVATION_COLS = (
     t.activity_activations.c.status,
     t.activity_activations.c.created_at,
     t.activity_activations.c.ended_at,
+    t.activity_activations.c.started_by_agent_id,
 )
 
 
@@ -34,6 +35,7 @@ def _row_to_activation(row: object) -> ActivityActivation:
         status=ActivationStatus(row.status),  # type: ignore[attr-defined]
         created_at=row.created_at,  # type: ignore[attr-defined]
         ended_at=row.ended_at,  # type: ignore[attr-defined]
+        started_by_agent_id=row.started_by_agent_id,  # type: ignore[attr-defined]
     )
 
 
@@ -71,7 +73,12 @@ class ActivationRepository:
         return _row_to_activation(row) if row is not None else None
 
     async def create_active(
-        self, *, chatroom_id: uuid.UUID, activity_type_id: uuid.UUID, started_by_user_id: uuid.UUID
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        activity_type_id: uuid.UUID,
+        started_by_user_id: uuid.UUID,
+        started_by_agent_id: uuid.UUID | None = None,
     ) -> uuid.UUID | None:
         result = await self._db.execute(
             pg_insert(t.activity_activations)
@@ -79,6 +86,7 @@ class ActivationRepository:
                 chatroom_id=chatroom_id,
                 activity_type_id=activity_type_id,
                 started_by_user_id=started_by_user_id,
+                started_by_agent_id=started_by_agent_id,
                 status=ActivationStatus.ACTIVE.value,
             )
             .on_conflict_do_nothing()

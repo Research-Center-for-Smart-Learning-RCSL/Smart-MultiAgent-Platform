@@ -22,6 +22,7 @@ from contexts.activities.domain.models import (
     ActivityType,
     ValidatorKind,
 )
+from contexts.activities.interfaces import broadcast
 
 _NOW = dt.datetime(2026, 7, 28, tzinfo=dt.UTC)
 _SCHEMA = {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}
@@ -102,11 +103,11 @@ async def test_activation_started_broadcast_carries_public_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _PublisherSpy.emitted = []
-    monkeypatch.setattr(activities, "Publisher", _PublisherSpy)
+    monkeypatch.setattr(broadcast, "Publisher", _PublisherSpy)
     activity_type = _make_type()
     activation = _make_activation(activity_type.id)
 
-    await activities._dispatch_activation_started(activation, activity_type)
+    await broadcast.dispatch_activation_started(activation, activity_type)
 
     assert len(_PublisherSpy.emitted) == 1
     _channel, event, payload = _PublisherSpy.emitted[0]
@@ -154,11 +155,13 @@ async def test_activation_started_broadcast_survives_type_projection_failure(
     """The whole dispatch (including payload construction) is best-effort: it
     must never propagate and fail a request whose write already committed."""
     _PublisherSpy.emitted = []
-    monkeypatch.setattr(activities, "Publisher", _PublisherSpy)
-    monkeypatch.setattr(activities, "_type_public_out", MagicMock(side_effect=RuntimeError("bad projection")))
+    monkeypatch.setattr(broadcast, "Publisher", _PublisherSpy)
+    monkeypatch.setattr(
+        broadcast, "activity_type_public_payload", MagicMock(side_effect=RuntimeError("bad projection"))
+    )
     activity_type = _make_type()
     activation = _make_activation(activity_type.id)
 
-    await activities._dispatch_activation_started(activation, activity_type)
+    await broadcast.dispatch_activation_started(activation, activity_type)
 
     assert _PublisherSpy.emitted == []

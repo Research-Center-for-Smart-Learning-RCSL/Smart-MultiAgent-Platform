@@ -207,3 +207,144 @@ class TestActivationService:
             )
 
         emit.assert_not_awaited()
+
+
+class TestDelegatedActivation:
+    """Delegated start/end recording ([R30.37]) — AC-7 and AC-12."""
+
+    async def test_a_delegated_start_records_both_the_granter_and_the_agent(self) -> None:
+        """AC-7: the row names the granting teacher as its starting user *and* the
+        agent that called the tool. The first keeps the facilitator's progress
+        events addressable; the second is what makes the round distinguishable."""
+        project_id, room_id, type_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        granter, agent_id = uuid.uuid4(), uuid.uuid4()
+        created = ActivityActivation(
+            id=uuid.uuid4(),
+            chatroom_id=room_id,
+            activity_type_id=type_id,
+            started_by_user_id=granter,
+            status=ActivationStatus.ACTIVE,
+            created_at=_NOW,
+            started_by_agent_id=agent_id,
+        )
+        repo = MagicMock(
+            create_active=AsyncMock(return_value=created.id),
+            get=AsyncMock(return_value=created),
+        )
+        svc = _no_policy(
+            ActivationService(
+                MagicMock(),
+                activation_repo=repo,
+                type_repo=MagicMock(get=AsyncMock(return_value=_type(project_id, type_id))),
+            )
+        )
+
+        with patch.object(activation_service.audit, "emit", new=AsyncMock()) as emit:
+            result = await svc.start(
+                project_id=project_id,
+                chatroom_id=room_id,
+                activity_type_id=type_id,
+                started_by_user_id=granter,
+                actor_ip=None,
+                started_by_agent_id=agent_id,
+            )
+
+        assert result.started_by_user_id == granter
+        assert result.started_by_agent_id == agent_id
+        assert repo.create_active.await_args.kwargs["started_by_agent_id"] == agent_id
+        # AC-12: the trail names the agent and says how it acted.
+        metadata = emit.await_args.args[1].metadata
+        assert metadata["started_by_agent_id"] == str(agent_id)
+        assert metadata["via"] == "agent_tool"
+        # The actor stays the delegating human: the agent is not an audit principal.
+        assert emit.await_args.args[1].actor_user_id == granter
+
+    async def test_a_human_start_records_neither_key(self) -> None:
+        """AC-12's negative half. `via` absent, not "facilitator": historical rows
+        carry no such claim and this code must not start inventing one."""
+        project_id, room_id, type_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        created = _activation(room_id, type_id)
+        repo = MagicMock(
+            create_active=AsyncMock(return_value=created.id), get=AsyncMock(return_value=created)
+        )
+        svc = _no_policy(
+            ActivationService(
+                MagicMock(),
+                activation_repo=repo,
+                type_repo=MagicMock(get=AsyncMock(return_value=_type(project_id, type_id))),
+            )
+        )
+
+        with patch.object(activation_service.audit, "emit", new=AsyncMock()) as emit:
+            await svc.start(
+                project_id=project_id,
+                chatroom_id=room_id,
+                activity_type_id=type_id,
+                started_by_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        metadata = emit.await_args.args[1].metadata
+        assert "started_by_agent_id" not in metadata
+        assert "via" not in metadata
+        assert repo.create_active.await_args.kwargs["started_by_agent_id"] is None
+
+    async def test_a_delegated_end_names_the_ending_agent_not_the_starting_one(self) -> None:
+        """An agent may end a round a teacher started, so the ended event must not
+        claim that agent started it (D-1 of this feature's dossier)."""
+        room_id, type_id = uuid.uuid4(), uuid.uuid4()
+        agent_id = uuid.uuid4()
+        activation = _activation(room_id, type_id)
+        repo = MagicMock(
+            get=AsyncMock(side_effect=[activation, activation]), end=AsyncMock(return_value=True)
+        )
+        closer = MagicMock(close_open_for_activation=AsyncMock(return_value=0))
+        svc = _no_policy(
+            ActivationService(MagicMock(), activation_repo=repo, type_repo=MagicMock(), session_repo=closer)
+        )
+
+        with patch.object(activation_service.audit, "emit", new=AsyncMock()) as emit:
+            await svc.end(
+                chatroom_id=room_id,
+                activation_id=activation.id,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+                ended_by_agent_id=agent_id,
+            )
+
+        metadata = emit.await_args.args[1].metadata
+        assert metadata["ended_by_agent_id"] == str(agent_id)
+        assert metadata["via"] == "agent_tool"
+        assert "started_by_agent_id" not in metadata
+
+    async def test_ending_does_not_overwrite_who_started_the_round(self) -> None:
+        """The stored `started_by_agent_id` is a different fact from who ended it."""
+        room_id, type_id = uuid.uuid4(), uuid.uuid4()
+        starter_agent = uuid.uuid4()
+        activation = ActivityActivation(
+            id=uuid.uuid4(),
+            chatroom_id=room_id,
+            activity_type_id=type_id,
+            started_by_user_id=uuid.uuid4(),
+            status=ActivationStatus.ACTIVE,
+            created_at=_NOW,
+            started_by_agent_id=starter_agent,
+        )
+        repo = MagicMock(
+            get=AsyncMock(side_effect=[activation, activation]), end=AsyncMock(return_value=True)
+        )
+        closer = MagicMock(close_open_for_activation=AsyncMock(return_value=0))
+        svc = _no_policy(
+            ActivationService(MagicMock(), activation_repo=repo, type_repo=MagicMock(), session_repo=closer)
+        )
+
+        with patch.object(activation_service.audit, "emit", new=AsyncMock()):
+            result = await svc.end(
+                chatroom_id=room_id,
+                activation_id=activation.id,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+                ended_by_agent_id=uuid.uuid4(),
+            )
+
+        assert result.activation.started_by_agent_id == starter_agent
