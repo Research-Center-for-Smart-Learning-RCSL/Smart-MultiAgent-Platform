@@ -118,7 +118,14 @@ async def _resolve_allowed_types(
     A single unresolvable id is logged and dropped rather than failing the set: the
     teacher's other selections are still legitimate, and the alternative is one
     deleted worksheet silently costing an agent every activity it may run.
+
+    Only ``ActivityTypeNotFound`` is treated that way. Catching everything here
+    would make the log line a diagnosis this code has not established — a database
+    outage would emit one "not reachable from project" per id, with no stack and at
+    INFO. Anything else propagates to :func:`resolve_activity_control`, which is
+    still fail-closed (no tools) but records what actually happened.
     """
+    from contexts.activities.domain.errors import ActivityTypeNotFound
     from contexts.activities.interfaces.facade import ActivitiesFacade
 
     facade = ActivitiesFacade(db)
@@ -128,7 +135,7 @@ async def _resolve_allowed_types(
             resolved.append(
                 await facade.resolve_type_for_project(project_id=project_id, activity_type_id=type_id)
             )
-        except Exception:
+        except ActivityTypeNotFound:
             logger.info(
                 "allowlisted activity type %s is not reachable from project %s; not offering it",
                 type_id,
@@ -188,6 +195,29 @@ def build_activity_control_tools(
     ]
 
 
+def _start_failure(exc: Exception) -> str:
+    """A refusal the model can act on (AC-8).
+
+    Interpolating the exception alone is not enough for the two cases that
+    actually happen. ``ActivityAlreadyActive`` carries only an activation UUID, so
+    a bare render tells the model "start_activity failed: 3f2a…" and it has no way
+    to work out that the fix is to end the running round first. ``ActivityTypeViolatesPolicy``
+    does carry a sentence, and it is passed through.
+
+    Anything else falls back to the exception text, which is safe here because
+    ``_reraise_if_infrastructure`` has already taken the class of error whose
+    message could carry SQL, table names or parameter values.
+    """
+    from contexts.activities.domain.errors import ActivityAlreadyActive
+
+    if isinstance(exc, ActivityAlreadyActive):
+        return (
+            "A different activity is already running in this room, and a room runs one at "
+            "a time. End the current one before starting this one."
+        )
+    return f"start_activity failed: {exc}"
+
+
 def _build_start_tool(
     db: AsyncSession,
     *,
@@ -240,7 +270,7 @@ def _build_start_tool(
             # here, and both are things the model can act on (AC-8). No activation,
             # audit row or broadcast was produced, because the service checks
             # before it inserts.
-            return ToolResult(content=f"start_activity failed: {exc}", is_error=True)
+            return ToolResult(content=_start_failure(exc), is_error=True)
 
         recorded = await _audit_activity_tool(
             db, agent=agent, tool_name="start_activity", chatroom_id=control.chatroom_id, ok=True
