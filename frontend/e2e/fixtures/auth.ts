@@ -1,4 +1,4 @@
-import { test as base, expect, type Page } from '@playwright/test'
+import { test as base, expect, type APIRequestContext, type Page } from '@playwright/test'
 
 export interface TestUser {
   email: string
@@ -80,6 +80,33 @@ async function login(page: Page, user: TestUser): Promise<void> {
     return
   }
   throw new Error(`login for ${user.email} did not succeed after 6 attempts (mount race or lockout)`)
+}
+
+/**
+ * A `Bearer` header for `user`, for setup calls a spec makes through
+ * Playwright's own `request` context.
+ *
+ * `page.request` is NOT a substitute, however much it looks like one: only the
+ * refresh token is a cookie, while the access token lives in the SPA's memory
+ * and rides in `Authorization` (`src/shared/transport/axios.ts`). A call made
+ * through the page's cookie jar therefore reaches the API unauthenticated and
+ * 401s.
+ *
+ * Logging in on the page's own context is not a substitute either — that
+ * rotates the refresh cookie the live UI session is using, and the backend
+ * treats a reused refresh token as an attack and revokes the family. Hence a
+ * separate context: same user, same authorization, its own jar.
+ */
+export async function bearerFor(
+  api: APIRequestContext,
+  user: TestUser = seedUser,
+): Promise<Record<string, string>> {
+  const resp = await api.post('/api/auth/login', { data: user })
+  if (!resp.ok()) {
+    throw new Error(`API login failed with status ${resp.status()} for ${user.email}`)
+  }
+  const { access_token: token } = (await resp.json()) as { access_token: string }
+  return { Authorization: `Bearer ${token}` }
 }
 
 export const test = base.extend<{ authedPage: Page; adminPage: Page }>({

@@ -1,6 +1,6 @@
-import type { Page } from '@playwright/test'
+import type { APIRequestContext, Page } from '@playwright/test'
 
-import { test, expect } from './fixtures/auth'
+import { test, expect, bearerFor } from './fixtures/auth'
 import { env } from './fixtures/seed'
 
 /**
@@ -45,21 +45,36 @@ async function openSettings(page: Page, chatroomId: string) {
 /**
  * Ensure the room binds the seeded agent and the project has one activity type.
  *
- * Through `page.request`, which carries the page's own session cookies — so these
- * calls are made as the same room creator the UI is driven as, and hit the same
- * authorization the UI would. Both are idempotent enough to re-run: a repeat bind
- * is `ON CONFLICT DO NOTHING`, and a repeat type registration is refused on the
+ * Made as the seeded user — the same room creator the UI is driven as, so these
+ * hit the same authorization the UI would — but through Playwright's own
+ * `request` context and a bearer token, not `page.request`: the page's cookie
+ * jar holds only the refresh token, so a call made on it is anonymous (see
+ * `bearerFor`). Both calls are idempotent enough to re-run: a repeat bind is
+ * `ON CONFLICT DO NOTHING`, and a repeat type registration is refused on the
  * key, which is fine because the listing below is what the test actually needs.
  */
-async function ensureFixtures(page: Page, chatroomId: string, projectId: string, agentId: string) {
-  await page.request.post(`/api/chatrooms/${chatroomId}/agents`, {
+async function ensureFixtures(
+  api: APIRequestContext,
+  chatroomId: string,
+  projectId: string,
+  agentId: string,
+) {
+  const headers = await bearerFor(api)
+  const bound = await api.post(`/api/chatrooms/${chatroomId}/agents`, {
+    headers,
     data: { agent_id: agentId },
   })
-  const listed = await page.request.get(`/api/projects/${projectId}/activity-types`)
-  const existing: Array<{ id: string; name: string }> = listed.ok() ? await listed.json() : []
+  expect(bound.ok(), `agent bind failed: ${await bound.text()}`).toBeTruthy()
+
+  const listed = await api.get(`/api/projects/${projectId}/activity-types`, { headers })
+  // Asserted, not defaulted to `[]`: a failure here used to look like "no types
+  // yet" and surfaced only as a confusing failure on the creation below.
+  expect(listed.ok(), `activity type listing failed: ${await listed.text()}`).toBeTruthy()
+  const existing = (await listed.json()) as Array<{ id: string; name: string }>
   if (existing.length > 0) return existing[0]!
 
-  const created = await page.request.post(`/api/projects/${projectId}/activity-types`, {
+  const created = await api.post(`/api/projects/${projectId}/activity-types`, {
+    headers,
     data: {
       key: 'e2e-delegated-control',
       name: 'E2E delegated control worksheet',
@@ -81,8 +96,9 @@ test.describe('Delegated activity control', () => {
 
   test('a room creator grants, the grant survives a reload, and a revoke sticks', async ({
     authedPage: page,
+    request,
   }) => {
-    const activityType = await ensureFixtures(page, CHATROOM_ID!, PROJECT_ID!, AGENT_ID!)
+    const activityType = await ensureFixtures(request, CHATROOM_ID!, PROJECT_ID!, AGENT_ID!)
 
     // --- grant -----------------------------------------------------------
     const toggle = await openSettings(page, CHATROOM_ID!)
@@ -123,10 +139,11 @@ test.describe('Delegated activity control', () => {
 
   test('granting with nothing selected is refused before it reaches the server', async ({
     authedPage: page,
+    request,
   }) => {
     // The server answers 422 and the DB CHECK refuses the same state; the client
     // refusing first is what turns an opaque error into a usable one.
-    await ensureFixtures(page, CHATROOM_ID!, PROJECT_ID!, AGENT_ID!)
+    await ensureFixtures(request, CHATROOM_ID!, PROJECT_ID!, AGENT_ID!)
     const toggle = await openSettings(page, CHATROOM_ID!)
     if ((await toggle.getAttribute('aria-checked')) === 'true') {
       // Leave the room in the ungranted state this case needs, whatever the
