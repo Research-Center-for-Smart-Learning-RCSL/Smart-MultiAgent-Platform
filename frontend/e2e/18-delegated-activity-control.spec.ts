@@ -185,6 +185,13 @@ test.describe('Delegated activity control', () => {
     await page.waitForTimeout(500)
 
     expect(wrote).toBe(false)
-    await expect(page.getByRole('alert')).toContainText(/at least one activity/i)
+    // Filtered rather than `getByRole('alert')` alone: the settings page carries
+    // a standing informational alert of its own (the Concept Map access notice),
+    // so the bare role matches two. What has to hold is that the refusal is
+    // announced as an alert, which is how a screen reader learns Apply did
+    // nothing.
+    await expect(
+      page.getByRole('alert').filter({ hasText: /at least one activity/i }),
+    ).toBeVisible()
   })
 })
