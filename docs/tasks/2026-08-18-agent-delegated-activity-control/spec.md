@@ -591,9 +591,12 @@ a room is already named on every message it sends.
   the grant round-trips through `GET /api/chatrooms/{id}/agents`.
 - [x] AC-2: A non-creator (project member, moderator, guest) cannot write the grant, and does
   not see `may_control_activities` or `activity_type_allowlist` in the agents listing.
-- [ ] AC-3: `granted: true` with an empty `activity_type_ids` is rejected (422), and the DB
+- [x] AC-3: `granted: true` with an empty `activity_type_ids` is rejected (422), and the DB
   CHECK rejects the same state written directly.
-  **Route half verified** (`test_granting_with_an_empty_allowlist_is_refused`); the DB CHECK half is written (`tests/integration/test_activity_grant_constraints.py`) but has never been executed — no PostgreSQL on the implementing host. Left unticked rather than claimed; see FU-9.
+  Route half by `test_granting_with_an_empty_allowlist_is_refused`; the DB CHECK half by
+  `tests/integration/test_activity_grant_constraints.py`, executed against a real PostgreSQL
+  in CI run 32125870306 (`backend-db`, 89 passed) with 0078 applied — which is what FU-9 was
+  waiting for.
 - [x] AC-4: A type id from another project, or a soft-deleted type, is rejected (422) by the
   grant route.
 - [x] AC-5: A granted agent's turn carries `start_activity` and `end_activity`; an ungranted
@@ -828,6 +831,30 @@ and the activity type keys it is written for"*, insert:
   rather than defaulted to an empty list, so the next failure of this class cannot
   masquerade as "no types yet". **The feature itself is not implicated.**
 
+- **D-15 (CI fix): `SToggle`'s switch had no accessible name.** With D-14's 401 out of the
+  way, the spec could not find the grant control at all: `SToggle` renders `role="switch"` on
+  its `<button>` while the default-slot label renders as a *sibling* `<span>`, with nothing
+  tying them together, so the switch's accessible name was empty. A screen reader announced
+  "switch, off" and nothing about what it controls; the component's own unit tests query it
+  as `button[role="switch"]`, which is why five gates and a review missed it. The label now
+  carries a per-instance id (`useId`, because the toggle renders once per bound agent) and
+  the button points at it with `aria-labelledby`. **A real accessibility defect, found by an
+  e2e spec written the way a user finds a control — not a test-only fix.** Toggles whose
+  caller keeps the label outside the component are still nameless: **FU-11**.
+
+- **D-16 (CI fix): three more things the spec's first real run found, all in the spec.**
+  (a) `.check()` on an `SCheckbox` never lands — the native input is screen-reader-only
+  (absolutely positioned, 1px, clipped) under the styled box, and Playwright's hit-target
+  test accepts only a hit on the target or a descendant of it, so it waits out its timeout on
+  "intercepts pointer events". Ticking now goes through the label, which is what a user
+  clicks, and the checkbox state is asserted afterwards. (b) The empty-allowlist case flipped
+  the switch on and expected an empty draft, but a revoke deliberately leaves the stored
+  allowlist alone so a re-grant keeps the teacher's selection (§5) — the panel seeds its draft
+  from it, so the boxes came back ticked and Apply sent a perfectly valid PATCH. The ticks are
+  now cleared first. (c) `getByRole('alert')` matched two elements, because the settings page
+  carries a standing Concept Map notice; the assertion now filters for the refusal it is
+  about. CI green at run 32125870306 (55 e2e specs passed).
+
 ## 16. Follow-ups
 
 - FU-1: `turn_engine.py:2284` reaches into `contexts.conversation.infrastructure` directly;
@@ -857,16 +884,20 @@ and the activity type keys it is written for"*, insert:
 - FU-8: `ConversationFacade` is at 28 methods spanning rooms, guests, messages,
   attachments and retention. It was past coherence before this change (25) and this took it
   further. Split by subdomain.
-- FU-9: **The `db` / `integration` tier has never been executed for this task.** No Docker
-  and no local PostgreSQL on the implementing host, so
-  `tests/integration/test_activity_grant_constraints.py` (both CHECK constraints, the
-  `jsonb` round trip) and `tests/integration/test_migration_0078_atomicity.py` are unrun,
-  and **migration 0078 has never been applied anywhere** — the same standing caveat 0077
-  carries. AC-3 is left unticked for that reason rather than claimed. The 0078 atomicity
-  tests also depend on `SMAP_SCRATCH_DATABASE_URL`, which `ci.yml` sets (D-7 of
-  `2026-08-16-migration-0076-retry-safety`); if that step is ever removed they go quiet
-  rather than red.
+- FU-9: ~~The `db` / `integration` tier has never been executed for this task.~~ **Closed.**
+  It was unrun for want of Docker and PostgreSQL on the implementing host; CI has since run
+  it (run 32125870306): 0078 applied (`0077_activity_session_activation ->
+  0078_agent_delegated_activity_control`), `test_activity_grant_constraints.py` and
+  `test_migration_0078_atomicity.py` both selected and green, so AC-3 is now ticked on
+  evidence. The 0078 atomicity tests still depend on `SMAP_SCRATCH_DATABASE_URL`, which
+  `ci.yml` sets (D-7 of `2026-08-16-migration-0076-retry-safety`); if that step is ever
+  removed they go quiet rather than red.
 - FU-10: Nothing prunes an allowlist entry whose activity type was later deleted. It is
   inert (dropped at turn assembly, and the settings panel reports the count and offers a
   one-click repair on the next Apply), but a project that deletes a type leaves stale ids
   in every room that granted it. A sweep on type delete would close it.
+- FU-11: Every `SToggle` whose caller renders the label outside the component is still a
+  switch with no accessible name — the chatroom settings page alone has two (guest links,
+  observer disclosure), and D-15 only fixed the default-slot case. Give the component an
+  `aria-label`/`labelled-by` prop and sweep the call sites, and consider why the a11y gate
+  did not see it: `vuejs-accessibility` has no rule for a nameless `role="switch"`.
