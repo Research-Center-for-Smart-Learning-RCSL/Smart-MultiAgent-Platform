@@ -17,11 +17,21 @@ soft delete and would not answer the cross-project question either.
 empty allowlist with the switch on is authority over nothing that still reads as
 authority in every listing.
 
-`ck_chatroom_agents_activity_grantor` — a live grant must name its grantor. This is
-what makes `granted_by_user_id`'s `ON DELETE SET NULL` safe: deleting a granting
-user does not silently produce an unattributable grant, it fails the CHECK loudly.
-User deletion is already an admin operation, and a grant that cannot name the person
-answerable for it must not run.
+THERE IS DELIBERATELY NO CHECK REQUIRING A LIVE GRANT TO NAME ITS GRANTOR, and the
+reason is worth keeping. Such a constraint is the obvious partner to the one above,
+and it was in the first draft of this migration. It makes `ON DELETE SET NULL`
+**unsafe**: `AdminService.hard_delete_user` issues `DELETE FROM users`, PostgreSQL
+performs the SET NULL, and the constraint then aborts the whole GDPR erasure with an
+IntegrityError naming a table the admin has no reason to connect to the request.
+`prepare_hard_delete` clears the other FK RESTRICT references but knows nothing about
+this column, and a room whose creator is soft-deleted keeps its grant with nobody able
+to revoke it, so the erasure could never be made to succeed.
+
+The invariant it was protecting is enforced where it belongs instead:
+`ChatroomAgentRepository.activity_control_grant` returns ``None`` when the grantor is
+null, so a grant that cannot name the person answerable for it confers nothing and
+supplies no tools. `SET NULL` therefore means exactly "the granter is gone, so this
+grant is inert", which is the correct reading — and it fails closed.
 
 The reverse state — the switch off with an allowlist left behind — is deliberately
 permitted. It preserves the teacher's selection across a revoke and re-grant; every
@@ -64,13 +74,11 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 GRANT_CHECK_NAME = "ck_chatroom_agents_activity_grant"
-GRANTOR_CHECK_NAME = "ck_chatroom_agents_activity_grantor"
 
 # `jsonb_array_length` is PostgreSQL-specific and only evaluable against a real
 # server, which is why the constraint has a `db`-tier test rather than a unit one
 # (backend/CLAUDE.md). Written out here so that test can quote the exact predicate.
 GRANT_CHECK_SQL = "may_control_activities = false OR jsonb_array_length(activity_type_allowlist) > 0"
-GRANTOR_CHECK_SQL = "may_control_activities = false OR granted_by_user_id IS NOT NULL"
 
 
 def upgrade() -> None:
@@ -102,7 +110,6 @@ def upgrade() -> None:
         ),
     )
     op.create_check_constraint(GRANT_CHECK_NAME, "chatroom_agents", sa.text(GRANT_CHECK_SQL))
-    op.create_check_constraint(GRANTOR_CHECK_NAME, "chatroom_agents", sa.text(GRANTOR_CHECK_SQL))
 
     op.add_column(
         "activity_activations",
@@ -120,7 +127,6 @@ def downgrade() -> None:
     intended meaning of downgrading past the feature that defines them.
     """
     op.drop_column("activity_activations", "started_by_agent_id")
-    op.drop_constraint(GRANTOR_CHECK_NAME, "chatroom_agents", type_="check")
     op.drop_constraint(GRANT_CHECK_NAME, "chatroom_agents", type_="check")
     op.drop_column("chatroom_agents", "granted_by_user_id")
     op.drop_column("chatroom_agents", "activity_type_allowlist")

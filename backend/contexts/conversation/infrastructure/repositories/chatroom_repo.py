@@ -466,7 +466,12 @@ class ChatroomAgentRepository:
         """
         values: dict[str, Any] = {"may_control_activities": granted}
         if granted:
-            values["activity_type_allowlist"] = [str(i) for i in activity_type_ids]
+            # Deduplicated on the way in, order preserved. The route dedupes only to
+            # bound its validation loop, so without this a direct API call repeating
+            # an id would store it twice — costing a repeated resolution on every
+            # turn, and leaving the settings panel permanently "dirty" because its
+            # draft holds each id once.
+            values["activity_type_allowlist"] = [str(i) for i in dict.fromkeys(activity_type_ids)]
             values["granted_by_user_id"] = granted_by_user_id
         result = await self._db.execute(
             t.chatroom_agents.update()
@@ -489,9 +494,17 @@ class ChatroomAgentRepository:
         """The live grant for one binding, or ``None`` ([R30.37]).
 
         ``None`` covers every non-granted case uniformly: no binding, the switch
-        off, or a row whose grantor is somehow absent. A caller may therefore treat
-        a returned grant as authorization without re-checking anything, and the
-        turn engine's fail-closed posture is a plain ``if grant is None``.
+        off, or a row whose grantor is gone. A caller may therefore treat a returned
+        grant as authorization without re-checking anything, and the turn engine's
+        fail-closed posture is a plain ``if grant is None``.
+
+        **The null-grantor arm is load-bearing, not defensive.** It is the only thing
+        enforcing "a grant that cannot name the person answerable for it confers
+        nothing" — 0078 deliberately ships no CHECK for that, because
+        ``granted_by_user_id`` is ``ON DELETE SET NULL`` and such a constraint would
+        abort an admin's GDPR hard-delete of any user who had ever granted activity
+        control, with no way to clear the grant first. Deleting the granter makes the
+        grant inert here instead. Do not "simplify" this branch away.
         """
         row = (
             await self._db.execute(

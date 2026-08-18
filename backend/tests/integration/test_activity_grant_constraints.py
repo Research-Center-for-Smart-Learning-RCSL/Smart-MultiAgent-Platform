@@ -1,4 +1,4 @@
-"""0078's two CHECK constraints, against a real PostgreSQL (AC-3, [R30.37]).
+"""0078's grant invariants, against a real PostgreSQL (AC-3, [R30.37]).
 
 WHY THIS CANNOT BE A UNIT TEST
 ------------------------------
@@ -9,21 +9,21 @@ created" and "the constraint was never created" are indistinguishable there
 (``backend/CLAUDE.md``). The route-level refusal has its own unit test; this is the
 half that proves a direct write cannot get around it.
 
-WHAT EACH ONE IS FOR
---------------------
+WHAT IS ENFORCED WHERE
+----------------------
 The grant lives on ``chatroom_agents`` as three loose columns rather than in a
-companion table, which admits three inconsistent states. Two are closed here:
+companion table, which admits three inconsistent states. They are closed in three
+different places, and which place matters:
 
-- *granted with an empty allowlist* — authority over nothing that still reads as
-  authority in every listing.
-- *granted with no grantor* — an activation started under it would have nobody to
-  attribute it to, and ``granted_by_user_id`` is ``ON DELETE SET NULL``, so without
-  this CHECK deleting the granting user would silently produce exactly that.
-
-The third — the switch off with an allowlist left behind — is deliberately legal
-and is asserted here as such, because it is what preserves a teacher's selection
-across a revoke and re-grant. An accidental "tidy-up" CHECK on it would be a
-regression, not a hardening.
+- *granted with an empty allowlist* — closed by ``ck_chatroom_agents_activity_grant``.
+  Authority over nothing still reads as authority in every listing.
+- *granted with no grantor* — closed at **read time**, not by a constraint. A CHECK
+  here would abort an admin's GDPR hard-delete of any user who had ever granted
+  activity control; see the test below, which is the regression for it.
+- *not granted, allowlist left behind* — deliberately legal, and asserted here as
+  such, because it is what preserves a teacher's selection across a revoke and
+  re-grant. An accidental "tidy-up" CHECK on it would be a regression, not a
+  hardening.
 """
 
 from __future__ import annotations
@@ -135,25 +135,56 @@ class TestActivityGrantConstraints:
                 )
             await session.rollback()
 
-    async def test_a_grant_with_no_grantor_is_rejected(
+    async def test_deleting_the_granter_makes_the_grant_inert_rather_than_blocking(
         self,
         sessionmaker: async_sessionmaker[AsyncSession],
         binding: tuple[uuid.UUID, uuid.UUID, uuid.UUID],
     ) -> None:
-        """The second CHECK, and what makes ``ON DELETE SET NULL`` safe: a grant
-        that cannot name the person answerable for it must not run."""
+        """The regression test for the constraint 0078 deliberately does **not** ship.
+
+        A CHECK requiring a live grant to name its grantor is the obvious partner to
+        the allowlist one, and it makes ``ON DELETE SET NULL`` unsafe:
+        ``AdminService.hard_delete_user`` issues ``DELETE FROM users``, the SET NULL
+        fires, and the constraint aborts the whole GDPR erasure — for any user who
+        ever granted activity control, with no way to clear the grant first, because
+        revoking is the room creator's act and that account is already soft-deleted.
+
+        So the delete must succeed, and the grant must go inert. Both halves are
+        asserted: the second is what makes the first safe.
+        """
+        from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
+        from contexts.identity.infrastructure.tables import users as users_t
+
         chatroom_id, agent_id, _user_id = binding
+        granter = uuid.uuid4()
         async with sessionmaker() as session:
-            with pytest.raises(IntegrityError, match="ck_chatroom_agents_activity_grantor"):
-                await _grant(
-                    session,
-                    chatroom_id,
-                    agent_id,
-                    may_control_activities=True,
-                    activity_type_allowlist=[str(uuid.uuid4())],
-                    granted_by_user_id=None,
+            await session.execute(
+                users_t.insert().values(
+                    id=granter, email=f"granter-{granter}@test.invalid", password_hash="x"
                 )
-            await session.rollback()
+            )
+            repo = ChatroomAgentRepository(session)
+            assert await repo.set_activity_grant(
+                chatroom_id=chatroom_id,
+                agent_id=agent_id,
+                granted=True,
+                activity_type_ids=[uuid.uuid4()],
+                granted_by_user_id=granter,
+            )
+            await session.commit()
+            assert (await repo.activity_control_grant(chatroom_id=chatroom_id, agent_id=agent_id)) is not None
+
+            # The step that used to raise.
+            await session.execute(users_t.delete().where(users_t.c.id == granter))
+            await session.commit()
+
+            rows = await repo.list(chatroom_id)
+            # The binding survives — erasing a user must not unbind an agent — and
+            # the switch is still on, because nothing rewrote it...
+            assert rows[0].may_control_activities is True
+            assert rows[0].granted_by_user_id is None
+            # ...but the grant no longer resolves, so it supplies no tools.
+            assert (await repo.activity_control_grant(chatroom_id=chatroom_id, agent_id=agent_id)) is None
 
     async def test_a_revoked_grant_may_keep_its_allowlist(
         self,

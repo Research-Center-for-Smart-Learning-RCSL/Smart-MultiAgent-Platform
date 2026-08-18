@@ -771,9 +771,6 @@ async def start_activity_activation(
     )
     # `None` on this path by construction: the HTTP start is a human's, so the
     # lookup short-circuits. Threaded anyway so the broadcast and the response
-    # carry the same two fields whichever path produced the activation.
-    # `None` on this path by construction: the HTTP start is a human's, so the
-    # lookup short-circuits. Threaded anyway so the broadcast and the response
     # carry the same attribution whichever path produced the activation.
     initiating_agent = await _resolve_initiating_agent(db, activation)
     await dispatch_activation_started(activation, activity_type, initiating_agent=initiating_agent)

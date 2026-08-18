@@ -123,8 +123,13 @@ class AgentRef(BaseModel):
     # Delegated activity control ([R30.37]), creator-only for exactly the reason
     # `role` is: a non-creator must not learn the room's delegation layout any more
     # than it learns its observer layout ([R28.10]). `None` means "you are not
-    # told" and is dropped from serialization; the request body never carries
-    # either — granting is its own route.
+    # told" and is dropped from serialization.
+    #
+    # **Response-side only.** This model doubles as the POST body, and
+    # `add_chatroom_agent` reads neither field — granting is its own route, because
+    # it is a different authority decision with a different gate. A bind that sends
+    # them succeeds and grants nothing. Splitting the request model from the
+    # response model is FU-6 of the delegated-activity-control dossier.
     may_control_activities: bool | None = None
     activity_type_allowlist: list[uuid.UUID] | None = None
 

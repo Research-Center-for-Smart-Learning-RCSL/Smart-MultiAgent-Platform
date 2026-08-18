@@ -155,7 +155,6 @@ class TestUpgradeAtomicity:
         assert not _column_exists(scratch_conn, "chatroom_agents", "granted_by_user_id")
         assert not _column_exists(scratch_conn, "activity_activations", "started_by_agent_id")
         assert not _constraint_exists(scratch_conn, migration_0078.GRANT_CHECK_NAME)
-        assert not _constraint_exists(scratch_conn, migration_0078.GRANTOR_CHECK_NAME)
 
 
 class TestDowngradeAtomicity:
@@ -175,9 +174,8 @@ class TestDowngradeAtomicity:
                 migration_0078.downgrade()
         trans.rollback()
 
-        # The constraints dropped before the failure came back with the rollback.
+        # The constraint dropped before the failure came back with the rollback.
         assert _constraint_exists(scratch_conn, migration_0078.GRANT_CHECK_NAME)
-        assert _constraint_exists(scratch_conn, migration_0078.GRANTOR_CHECK_NAME)
         assert _column_exists(scratch_conn, "activity_activations", "started_by_agent_id")
 
     def test_the_downgrade_reverses_the_upgrade_completely(self, scratch_conn: sa.engine.Connection) -> None:
@@ -193,4 +191,3 @@ class TestDowngradeAtomicity:
         assert not _column_exists(scratch_conn, "chatroom_agents", "granted_by_user_id")
         assert not _column_exists(scratch_conn, "activity_activations", "started_by_agent_id")
         assert not _constraint_exists(scratch_conn, migration_0078.GRANT_CHECK_NAME)
-        assert not _constraint_exists(scratch_conn, migration_0078.GRANTOR_CHECK_NAME)
