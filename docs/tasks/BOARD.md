@@ -27,15 +27,6 @@ list). This section is kept as the record of what that audit produced.
 
 ### Other ready work
 
-- `2026-08-18-agent-delegated-activity-control` (feature, approved) — `depends_on: []`.
-  **Applied an SRS Delta on approval**: amends [R30.21], [R30.22] and [R30.35] and adds
-  [R30.37]. Lets a
-  room creator delegate activity start/end to a bound agent, per room, scoped to an
-  allowlist of activity types, exercised only through a tool call. Touches
-  `builtin_tools.py` / `turn_engine.py`, which `2026-07-19-large-artifacts-silently-dropped`
-  also names — that is **not** a dependency: its code landed (`d038814`..`19ab5ce`) and only
-  its AC-2 (a Docker-dependent behavioural check) is unticked, so there is no concurrent
-  build to conflict with. See its Q-7.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
@@ -49,6 +40,32 @@ list). This section is kept as the record of what that audit produced.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-18 after implementation: `2026-08-18-agent-delegated-activity-control`
+(a room creator can delegate activity start/end to one bound agent, per room, scoped to an
+allowlist of activity types, exercised only through a structured tool call). Nothing lists
+it in `depends_on`, so no row moved out of Blocked. It **applied an SRS Delta** at approval,
+amending [R30.21], [R30.22] and [R30.35] and adding [R30.37]. **Four things a later reader
+needs.** **D-6 is a real defect in the approved spec, found by the security gate and not by
+review**: §5 justified naming the initiating agent to the whole room with "an agent bound to
+a room is already named on every message it sends", which is true of a `normal` agent and
+**false of an observer** — one sends no messages and is filtered out of every non-creator's
+roster ([R28.10]) — so the broadcast would have been the single channel that outs a granted
+observer to the class. Both attribution fields are now withheld for an observer-started
+round. If you extend this attribution anywhere, carry that rule with it. **FU-9**: the
+`db`/`integration` tier has never run for this task and **migration 0078 has never been
+applied anywhere** (no Docker, no local PostgreSQL) — AC-3 is left **unticked** rather than
+claimed, and the 0078 atomicity tests plus the CHECK-constraint tests are CI's to close.
+**D-5**: AC-19's manual browser pass was converted, with the user's agreement, into
+`frontend/e2e/18-delegated-activity-control.spec.ts`; it covers the grant lifecycle end to
+end but deliberately does **not** drive an agent calling the tool (a live provider key and a
+model that chooses to call it — §10 R-2's untestable half), and **it has not been executed**,
+so AC-19 is unticked too. That is now seven consecutive dossiers in this area with no
+behavioural verification. And the trade worth not undoing: **the platform imposes no pacing
+on a delegated agent at all** (Q-2) — no cooldown, no rate limit, no refusal to end a round
+while participants are still working. The shipped TA runs at `every_n_messages: n=1`, so
+that is not hypothetical; the dry-run checklist in `docs/examples/creative-thinking-course.md`
+now carries the two items that probe it, including the prompt-injection probe, because the
+prompt is the only thing standing in front of it.
 Removed on 2026-08-17 after implementation: `2026-08-17-activity-participant-lifecycle` (the
 participant's self-serve session start/finish is gone from the chatroom Activity rail, an
 `ActivitySession` belongs to the `ActivityActivation` it was answered under, ending a round
