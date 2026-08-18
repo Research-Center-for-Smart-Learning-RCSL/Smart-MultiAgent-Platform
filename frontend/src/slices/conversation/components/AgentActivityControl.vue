@@ -41,8 +41,14 @@ const selected = ref<string[]>([])
  *  The server drops these at turn-assembly time rather than at write time, so the
  *  teacher's selection can outlive a deleted worksheet. Rendering the count is
  *  what turns "the agent quietly runs fewer activities than I picked" into
- *  something visible. */
+ *  something visible.
+ *
+ *  Zero when the listing failed, and that guard is the whole point of the flag: an
+ *  empty `activityTypes` from a failure makes *every* stored entry look unresolved,
+ *  so without it one network hiccup tells the teacher their entire selection has
+ *  been deleted. A count is only meaningful against a list we actually have. */
 const unresolvedCount = computed(() => {
+  if (props.activityTypesFailed) return 0
   const known = new Set(props.activityTypes.map((a) => a.id))
   return (props.agent.activity_type_allowlist ?? []).filter((id) => !known.has(id)).length
 })
@@ -80,11 +86,20 @@ watch(
 )
 
 const dirty = computed(() => {
+  // Nothing on this panel is actionable without the type list: the draft would be
+  // narrowed to nothing, so Apply would emit `save(true, [])` and be refused by the
+  // client guard for want of a selection the teacher was never offered. Checked
+  // before the toggle comparison, because flipping the switch does not make an
+  // unanswerable form answerable.
+  if (props.activityTypesFailed) return false
   if (granted.value !== storedDraft.value.granted) return true
   // A revoke writes no allowlist — the server keeps the stored one so the
   // teacher's selection survives a re-grant — so while the draft is off there is
   // nothing Apply could act on, and enabling it would be a button that lies.
   if (!granted.value) return false
+  // Same for a grant the teacher cannot express: an empty draft is refused
+  // client-side, so offering Apply would promise a write that cannot happen.
+  if (!selected.value.length) return false
   // Compared against the *raw* stored list, while the draft was seeded from the
   // narrowed one. The asymmetry is the point: a live grant still carrying an id
   // the project cannot use reads as dirty on load, so Apply is enabled and one

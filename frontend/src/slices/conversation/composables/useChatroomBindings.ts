@@ -128,9 +128,10 @@ export function useChatroomBindings(
       activityTypes.value = await listActivityTypes(projectId)
       activityTypesFailed.value = false
     } catch {
-      // Swallowed rather than raised: the endpoint is project-owner gated, so a
-      // 403 is the expected answer for a room creator who is not one, and neither
-      // that nor a transient failure may take down the whole bindings panel.
+      // Swallowed rather than raised: a room creator who is not a project member
+      // legitimately cannot list the project's types (the endpoint is
+      // membership-gated), and neither that nor a transient failure may take down
+      // the whole bindings panel.
       activityTypes.value = []
       activityTypesFailed.value = true
     }
