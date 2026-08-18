@@ -125,6 +125,12 @@ BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
         "code_exec",
         "file",
         "file_search",
+        # Delegated activity control ([R30.37]). These two are the only names here
+        # that no `agent_tools` row can produce — they come from a per-room grant
+        # instead — but they are reserved on exactly the same terms, because what
+        # this set bounds is the runtime namespace, not the configuration table.
+        "start_activity",
+        "end_activity",
     }
 )
 

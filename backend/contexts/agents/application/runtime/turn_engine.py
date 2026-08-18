@@ -1385,6 +1385,7 @@ class TurnEngine:
         *,
         chatroom_id: uuid.UUID | None = None,
         artifact_sink: list[dict[str, Any]] | None = None,
+        activation_event_sink: list[dict[str, Any]] | None = None,
     ) -> list[Tool]:
         """Assemble the sandbox (``code_exec`` / ``file``) + ``web_search`` built-in
         tools and the agent's bound MCP tools for this turn (K.5).
@@ -1397,6 +1398,14 @@ class TurnEngine:
         ``artifact_sink`` collects any artifacts it produces; both are ``None``
         for headless A2A turns (no room, no kernel, no artifact surface).
 
+        ``activation_event_sink`` collects the delegated activity-control events
+        ([R30.37]) for the post-commit drain. The grant is resolved here, through
+        ``ConversationFacade`` rather than ``ChatroomAgentRepository``: the existing
+        binding read in ``run_turn`` reaches into another context's infrastructure
+        directly, and this deliberately does not widen that (FU-1 of this feature's
+        dossier). A headless turn has no room, so it resolves nothing and gets no
+        activity tools at all.
+
         Best-effort: a wiring fault (no Docker daemon in a dev run, etc.) must
         not abort the turn — the agent simply runs without those tools. Each
         tool's own ``invoke`` already degrades a runtime fault to an ``is_error``
@@ -1404,11 +1413,22 @@ class TurnEngine:
         try:
             from dataclasses import replace as _replace
 
+            from contexts.agents.application.runtime.activity_tools import resolve_activity_control
             from contexts.agents.application.runtime.builtin_tools import (
                 build_agent_tools,
                 default_builtin_deps,
             )
 
+            # Fails closed on its own (returns None on any error), so a grant that
+            # cannot be read yields no tools rather than an exception this method's
+            # catch-all would turn into "no tools at all", MCP bindings included.
+            activity_control = (
+                None
+                if chatroom_id is None
+                else await resolve_activity_control(
+                    self._db, chatroom_id=chatroom_id, agent_id=agent.id
+                )
+            )
             # `runner=self._sandbox()` so the tools and this engine share one
             # sandbox: `_hydrate_oversized` fetches through `deps.runner` while
             # `_persist_artifacts` falls back through `_sandbox()`, and an
@@ -1426,10 +1446,43 @@ class TurnEngine:
                 deps=deps,
                 chatroom_id=chatroom_id,
                 artifact_sink=artifact_sink,
+                activity_control=activity_control,
+                activation_event_sink=activation_event_sink,
             )
         except Exception:
             _log.warning("agent tool assembly failed for agent %s", agent.id, exc_info=True)
             return []
+
+    async def _drain_activation_events(
+        self, agent: Agent, activation_events: list[dict[str, Any]]
+    ) -> None:
+        """Publish the rounds this turn started or ended ([R30.37]).
+
+        Called only from inside a ``_post_commit`` scope, and only after the commit
+        that made those activations durable: a room must never be told about an
+        activation still inside an open transaction, and the failure path rolls
+        back with the sink undrained, so nothing is published for a turn that did
+        not happen.
+
+        Drained destructively so a caller that reaches two commit points cannot
+        publish one event twice.
+        """
+        from contexts.activities.interfaces.broadcast import (
+            dispatch_activation_ended,
+            dispatch_activation_started,
+        )
+        from contexts.agents.application.runtime.activity_tools import EVENT_ENDED, EVENT_STARTED
+
+        for event in list(activation_events):
+            activation_events.remove(event)
+            if event.get("kind") == EVENT_STARTED:
+                await dispatch_activation_started(
+                    event["activation"],
+                    event.get("activity_type"),
+                    started_by_agent_name=agent.name,
+                )
+            elif event.get("kind") == EVENT_ENDED:
+                await dispatch_activation_ended(event["chatroom_id"], event["activation_id"])
 
     async def _resolve_agent_tools(self, agent: Agent) -> list[AgentTool]:
         """Resolve the agent's configured tools once per turn.
@@ -2425,8 +2478,16 @@ class TurnEngine:
             # code_exec artifacts (charts/files) produced this turn land here and
             # are attached to the reply after it's persisted (Code Interpreter).
             artifact_sink: list[dict[str, Any]] = []
+            # Rounds a delegated agent started or ended this turn ([R30.37]),
+            # published after the commit that made them durable. Same sink shape
+            # and same reason as `artifact_sink` above.
+            activation_events: list[dict[str, Any]] = []
             extra_tools = extra_tools + await self._builtin_tools(
-                agent, agent_tools, chatroom_id=chatroom_id, artifact_sink=artifact_sink
+                agent,
+                agent_tools,
+                chatroom_id=chatroom_id,
+                artifact_sink=artifact_sink,
+                activation_event_sink=activation_events,
             )
             # Resolved once and shared by both consumers below so they see the
             # same snapshot (see _resolve_trigger_attachments docstring).
@@ -2821,6 +2882,10 @@ class TurnEngine:
                             "observation.failed" if outcome.synthesis_failed else "observation.skipped",
                             {"kind": skip_reason},
                         )
+                # A turn can start or end a round and then say nothing — that is an
+                # ordinary shape for a pacing agent — so the room must still be told.
+                async with _post_commit("activity activation events (empty reply)"):
+                    await self._drain_activation_events(agent, activation_events)
                 # The provider was reached and the drained notes were in its context
                 # (rendering is delivery for notify/released_observation, R9.16/R28.07),
                 # but an approval ballot is only consumed once cast — re-arm it if the
@@ -2885,6 +2950,11 @@ class TurnEngine:
                             "created_at": obs.created_at.isoformat() if obs.created_at else None,
                         },
                     )
+                # An observer is silent to the class but its activations are not
+                # ([R30.37] Q-6 permits a granted observer, and states the
+                # asymmetry): the round is class-visible however quiet the agent is.
+                async with _post_commit("activity activation events (observer)"):
+                    await self._drain_activation_events(agent, activation_events)
                 async with _post_commit("settle pending approvals (observer)"):
                     await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
                 return TurnResult(
@@ -2920,6 +2990,10 @@ class TurnEngine:
             # reply BEFORE the WS event so the client's refetch hydrates them.
             async with _post_commit("persist artifacts"):
                 await self._persist_artifacts(agent, chatroom_id, msg.id, artifact_sink)
+            # Before `message.created`, so a client hydrating on the reply already
+            # sees the round the reply is talking about.
+            async with _post_commit("activity activation events"):
+                await self._drain_activation_events(agent, activation_events)
             # Publish AFTER commit so a client's refetch sees the committed row
             # (agent replies have no optimistic echo, unlike user sends).
             # `room is not None` always holds here (the observer branch returned

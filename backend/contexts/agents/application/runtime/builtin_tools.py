@@ -23,7 +23,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from hashlib import sha256
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +40,12 @@ from contexts.agents.application.runtime.tool_registry import (
 from contexts.agents.domain.mcp import SearchResult
 from contexts.agents.domain.models import Agent, AgentTool, AgentToolType
 from shared_kernel.db.faults import is_infrastructure_error
+
+if TYPE_CHECKING:
+    # Type-only: `activity_tools` imports this module's result-shaping helpers at
+    # call time, so a runtime import here would be a cycle. `from __future__ import
+    # annotations` keeps the signature below a string.
+    from contexts.agents.application.runtime.activity_tools import ActivityControlContext
 
 logger = logging.getLogger(__name__)
 
@@ -862,10 +868,25 @@ def build_agent_tools(
     deps: BuiltinToolDeps,
     chatroom_id: uuid.UUID | None = None,
     artifact_sink: list[dict[str, Any]] | None = None,
+    activity_control: ActivityControlContext | None = None,
+    activation_event_sink: list[dict[str, Any]] | None = None,
 ) -> list[Tool]:
-    """Assemble the agent's enabled tools from the unified ``agent_tools`` table.
+    """Assemble the agent's enabled tools for one turn.
 
-    Dispatches by ``tool_type``; disabled rows and ``local_shell`` are skipped.
+    Dispatches by ``tool_type`` over the ``agent_tools`` table; disabled rows and
+    ``local_shell`` are skipped.
+
+    ``activity_control`` is the one exception to "every tool comes from an
+    ``agent_tools`` row" ([R30.37] Q-5): ``start_activity`` and ``end_activity``
+    are supplied by a **per-room grant** the room's creator wrote, resolved by the
+    caller. The authorising actor for them is the teacher who owns the room, not
+    whoever may edit the agent, which is the whole point — and it is why the grant
+    confers nothing in any other room the same agent joins. They are otherwise
+    ordinary ``Tool`` objects: same registry, same reserved names
+    (``BUILTIN_TOOL_NAMES``), same per-turn tool-round cap.
+
+    ``activation_event_sink`` mirrors ``artifact_sink`` — the tools append, the
+    turn engine drains after its commit.
     """
     out: list[Tool] = []
     # User LOCAL_FUNCTION tools are collected separately and appended LAST, so the
@@ -913,6 +934,20 @@ def build_agent_tools(
                 functions.append(_build_function_tool(db, agent=agent, tool=t, deps=deps))
             case AgentToolType.LOCAL_SHELL:
                 continue
+    if activity_control is not None:
+        # Imported here rather than at module scope: `activity_tools` reuses this
+        # module's result-shaping helpers, so a top-level import would close the
+        # cycle. Same shape as the `CodeExecTool` import above.
+        from contexts.agents.application.runtime.activity_tools import build_activity_control_tools
+
+        out.extend(
+            build_activity_control_tools(
+                db,
+                agent=agent,
+                control=activity_control,
+                event_sink=activation_event_sink,
+            )
+        )
     return out + functions
 
 

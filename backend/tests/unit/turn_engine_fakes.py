@@ -79,6 +79,9 @@ class PublisherSpy:
 def make_agent() -> SimpleNamespace:
     return SimpleNamespace(
         id=uuid.uuid4(),
+        # Read by the delegated activity-control drain, which names the initiating
+        # agent to the room ([R30.37]).
+        name="TA",
         key_group_id=uuid.uuid4(),
         project_id=uuid.uuid4(),
         system_prompt="prompt",
