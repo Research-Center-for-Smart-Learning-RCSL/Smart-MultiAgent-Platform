@@ -229,6 +229,15 @@ onMounted(() => {
     </p>
 
     <template v-if="activation">
+      <!-- Named to everyone, not just the facilitator ([R30.37]): an agent bound
+           to a room is already named on every message it sends, so this discloses
+           nothing new — and a round nobody can attribute is worse. -->
+      <p
+        v-if="activation.startedByAgentName"
+        class="activity-panel__initiator"
+      >
+        {{ t('activities.panel.startedByAgent', { agent: activation.startedByAgentName }) }}
+      </p>
       <p class="activity-panel__name">
         {{ activeType?.name ?? t('activities.panel.active') }}
       </p>
@@ -307,6 +316,11 @@ onMounted(() => {
 .activity-panel__name {
   margin: 0;
   font-weight: var(--weight-semibold);
+}
+.activity-panel__initiator {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
 }
 .activity-panel__progress {
   margin: 0;

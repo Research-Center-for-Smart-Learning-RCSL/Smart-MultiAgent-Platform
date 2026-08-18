@@ -125,10 +125,13 @@ export async function listProjectAgents(projectId: string): Promise<Agent[]> {
 }
 
 // `role` is present only for the room creator (R28.10) — never default it
-// client-side; its absence means "you are not told".
+// client-side; its absence means "you are not told". `may_control_activities` and
+// `activity_type_allowlist` are creator-only on exactly the same terms ([R30.37]).
 export interface BoundAgentRef {
   agent_id: string
   role?: ChatroomAgentRole
+  may_control_activities?: boolean
+  activity_type_allowlist?: string[]
 }
 
 export async function listChatroomAgents(
@@ -137,12 +140,42 @@ export async function listChatroomAgents(
   const refs = await ChatroomsService.listChatroomAgentsApiChatroomsChatroomIdAgentsGet({
     chatroomId,
   })
-  // Generated AgentRef.role is `... | null`; BoundAgentRef.role is optional and
-  // never null (absence, not null, is the "you are not the creator" signal).
+  // Generated AgentRef fields are `... | null`; the BoundAgentRef ones are
+  // optional and never null (absence, not null, is the "you are not the creator"
+  // signal). `may_control_activities` is compared against null rather than
+  // truth-tested, because `false` is a real answer a creator gets and dropping it
+  // would render an ungranted binding as "you are not told".
   return refs.map((r) => ({
     agent_id: r.agent_id,
     ...(r.role ? { role: r.role } : {}),
+    ...(r.may_control_activities != null
+      ? { may_control_activities: r.may_control_activities }
+      : {}),
+    ...(r.activity_type_allowlist != null
+      ? { activity_type_allowlist: r.activity_type_allowlist }
+      : {}),
   }))
+}
+
+/** Grant or revoke one bound agent's activity start/end authority ([R30.37]).
+ *
+ *  Room-creator gated server-side. `activityTypeIds` must name at least one type
+ *  when granting (422 otherwise, matching the DB CHECK); on a revoke it is
+ *  ignored, and the server keeps the stored allowlist so the selection survives a
+ *  re-grant. */
+export async function setChatroomAgentActivityControl(
+  chatroomId: string,
+  agentId: string,
+  granted: boolean,
+  activityTypeIds: string[],
+): Promise<void> {
+  await ChatroomsService.patchChatroomAgentActivityControlApiChatroomsChatroomIdAgentsAgentIdActivityControlPatch(
+    {
+      chatroomId,
+      agentId,
+      requestBody: { granted, activity_type_ids: activityTypeIds },
+    },
+  )
 }
 
 // Human participants (message authors + guests) with their resolved display

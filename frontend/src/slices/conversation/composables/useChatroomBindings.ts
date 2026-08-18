@@ -11,9 +11,11 @@ import {
   listChatroomAgents,
   listProjectAgents,
   removeChatroomAgent,
+  setChatroomAgentActivityControl,
   setChatroomAgentRole,
 } from '../api'
 import { patchAgentWakeupConfig } from '@slices/workflow'
+import { listActivityTypes, type ActivityType } from '@slices/activities'
 import { normalizeWakeupConfig, type WakeupConfig } from '@shared/types/workflow'
 import type { Agent } from '@slices/agents'
 import type { Chatroom, ChatroomAgentRole } from '../types'
@@ -24,6 +26,11 @@ export interface BoundAgent {
   wakeup_config: WakeupConfig
   // Present only when the caller is the room creator (R28.10).
   role?: ChatroomAgentRole
+  // Delegated activity control ([R30.37]), creator-only on the same terms as
+  // `role`. `undefined` means "you are not told", which is a different state from
+  // `false` ("told, and this agent holds nothing").
+  may_control_activities?: boolean
+  activity_type_allowlist?: string[]
 }
 
 export function useChatroomBindings(
@@ -38,6 +45,12 @@ export function useChatroomBindings(
   const boundAgentIds = ref<string[]>([])
   // agent_id → role, populated only for the creator (server omits it otherwise).
   const boundRoles = ref<Record<string, ChatroomAgentRole | undefined>>({})
+  // agent_id → delegated activity grant, creator-only for the same reason.
+  const boundGrants = ref<Record<string, { granted: boolean; typeIds: string[] } | undefined>>({})
+  // The project's usable activity types, for the grant multi-select. Loaded once
+  // with the bindings; a failure leaves it empty and the control says so rather
+  // than offering an allowlist it cannot populate.
+  const activityTypes = ref<ActivityType[]>([])
   const selectedAgentId = ref('')
   const selectedRole = ref<ChatroomAgentRole>('normal')
   const bindingBusy = ref(false)
@@ -49,11 +62,16 @@ export function useChatroomBindings(
       .filter((a): a is Agent => a != null)
       .map((a) => {
         const role = boundRoles.value[a.id]
+        const grant = boundGrants.value[a.id]
         return {
           id: a.id,
           name: a.name,
           wakeup_config: normalizeWakeupConfig(a.wakeup_config),
           ...(role !== undefined && { role }),
+          ...(grant !== undefined && {
+            may_control_activities: grant.granted,
+            activity_type_allowlist: grant.typeIds,
+          }),
         }
       }),
   )
@@ -84,8 +102,28 @@ export function useChatroomBindings(
       projectAgents.value = agents
       boundAgentIds.value = bound.map((b) => b.agent_id)
       boundRoles.value = Object.fromEntries(bound.map((b) => [b.agent_id, b.role]))
+      boundGrants.value = Object.fromEntries(
+        bound.map((b) => [
+          b.agent_id,
+          b.may_control_activities === undefined
+            ? undefined
+            : { granted: b.may_control_activities, typeIds: b.activity_type_allowlist ?? [] },
+        ]),
+      )
+      // Separate from the two loads above: a project with no activity types is
+      // ordinary, and so is a viewer who cannot list them, so neither may fail
+      // the whole bindings panel.
+      await loadActivityTypes(ws.project_id)
     } catch {
       bindingError.value = 'conversation.settings.bindingsLoadFailed'
+    }
+  }
+
+  async function loadActivityTypes(projectId: string): Promise<void> {
+    try {
+      activityTypes.value = await listActivityTypes(projectId)
+    } catch {
+      activityTypes.value = []
     }
   }
 
@@ -118,6 +156,38 @@ export function useChatroomBindings(
       await loadBindings()
     } catch {
       bindingError.value = 'conversation.settings.roleChangeFailed'
+    } finally {
+      bindingBusy.value = false
+    }
+  }
+
+  /** Grant or revoke delegated activity control for one bound agent ([R30.37]).
+   *
+   *  Follows `onSetRole`'s busy-guard shape and reloads rather than patching the
+   *  local map, so the panel always shows what the server stored — which matters
+   *  here because the server keeps the allowlist across a revoke and the client
+   *  must not invent its own version of that.
+   *
+   *  Granting with an empty selection is refused client-side too: the server
+   *  returns 422 and the DB CHECK refuses the same state, so letting the request
+   *  go out would trade a clear message for an opaque one. */
+  async function onSetActivityControl(
+    agentId: string,
+    granted: boolean,
+    typeIds: string[],
+  ): Promise<void> {
+    if (bindingBusy.value) return
+    if (granted && typeIds.length === 0) {
+      bindingError.value = 'conversation.settings.activityControlNeedsTypes'
+      return
+    }
+    bindingBusy.value = true
+    bindingError.value = null
+    try {
+      await setChatroomAgentActivityControl(chatroomId, agentId, granted, typeIds)
+      await loadBindings()
+    } catch {
+      bindingError.value = 'conversation.settings.activityControlFailed'
     } finally {
       bindingBusy.value = false
     }
@@ -177,6 +247,7 @@ export function useChatroomBindings(
   return {
     projectAgents,
     boundAgentIds,
+    activityTypes,
     selectedAgentId,
     selectedRole,
     bindingBusy,
@@ -187,6 +258,7 @@ export function useChatroomBindings(
     loadBindings,
     onAddAgent,
     onRemoveAgent,
+    onSetActivityControl,
     onSetRole,
     saveWakeupConfig,
   }

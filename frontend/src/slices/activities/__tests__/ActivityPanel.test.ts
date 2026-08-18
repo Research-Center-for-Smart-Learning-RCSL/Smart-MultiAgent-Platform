@@ -285,6 +285,55 @@ describe('ActivityPanel — participant surface (Q-1, AC-2)', () => {
   })
 })
 
+describe('ActivityPanel — delegated round attribution (AC-17, [R30.37])', () => {
+  it('names the agent that started an agent-started round, to everyone', async () => {
+    // Participant-visible on purpose: an agent bound to a room is already named
+    // on every message it sends, so this discloses nothing the class cannot see.
+    sessionMe.value = { id: 'u2' }
+    getActiveActivationMock.mockResolvedValue(
+      activeActivation({ started_by_agent_id: 'ag_1', started_by_agent_name: 'TA' }),
+    )
+    listActivityTypesMock.mockResolvedValue([])
+
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('activities.panel.startedByAgent')
+  })
+
+  it('shows nothing extra for a human-started round', async () => {
+    sessionMe.value = { id: 'u2' }
+    getActiveActivationMock.mockResolvedValue(activeActivation())
+    listActivityTypesMock.mockResolvedValue([])
+
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('activities.panel.startedByAgent')
+  })
+
+  it('shows nothing when the starting agent has since been deleted', async () => {
+    // The id survives the agent; the name does not. Two fields rather than one is
+    // what lets the panel stay quiet instead of rendering a blank attribution.
+    sessionMe.value = { id: 'u2' }
+    getActiveActivationMock.mockResolvedValue(
+      activeActivation({ started_by_agent_id: 'ag_gone', started_by_agent_name: null }),
+    )
+    listActivityTypesMock.mockResolvedValue([])
+
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('activities.panel.startedByAgent')
+  })
+})
+
 describe('ActivityPanel — completion declaration (AC-1, AC-5)', () => {
   function doneButton(wrapper: { findAll: (s: string) => Array<{ text: () => string }> }) {
     return wrapper

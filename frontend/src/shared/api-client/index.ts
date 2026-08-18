@@ -40,6 +40,7 @@ export type { AdminInstallReportOut } from './models/AdminInstallReportOut';
 export type { AdminPlatformActivityTypeIn } from './models/AdminPlatformActivityTypeIn';
 export type { AdminPolicyImpactOut } from './models/AdminPolicyImpactOut';
 export type { AdminPromoteIn } from './models/AdminPromoteIn';
+export type { AgentActivityControlIn } from './models/AgentActivityControlIn';
 export type { AgentConceptMapCoverageEntryOut } from './models/AgentConceptMapCoverageEntryOut';
 export type { AgentConceptMapCoverageOut } from './models/AgentConceptMapCoverageOut';
 export type { AgentCreateIn } from './models/AgentCreateIn';

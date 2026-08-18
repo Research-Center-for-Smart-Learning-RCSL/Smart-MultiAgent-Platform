@@ -482,6 +482,10 @@ export function useChatroomSocket(roomId: string) {
             activityTypeId,
             startedByUserId: (ev.started_by as string) ?? null,
             activityType: (ev.activity_type as ActivityTypePublic | undefined) ?? null,
+            // Present only for a delegated round ([R30.37]); the panel names the
+            // agent so the class can see who paced it.
+            startedByAgentId: (ev.started_by_agent_id as string | undefined) ?? null,
+            startedByAgentName: (ev.started_by_agent_name as string | undefined) ?? null,
           })
         }
         break

@@ -282,7 +282,9 @@
       "saved": "Settings saved.",
       "saveFailed": "Failed to save settings.",
       "versionConflict": "This chatroom changed elsewhere. Review your edits and save again.",
-      "deleteFailed": "Failed to delete chatroom."
+      "deleteFailed": "Failed to delete chatroom.",
+      "activityControlFailed": "Could not update activity control for this agent.",
+      "activityControlNeedsTypes": "Pick at least one activity before granting control."
     },
     "conceptMap": {
       "settings": "Concept Map",
@@ -306,6 +308,15 @@
       "invalidToken": "This link is no longer valid. The chatroom may have been deleted or guest access may have been disabled.",
       "networkError": "Could not connect. Please check your connection and try again.",
       "retry": "Try Again"
+    },
+    "activityControl": {
+      "label": "May start and end activities",
+      "help": "Lets this agent start and end the activities you tick below, in this room only. You can still start and end anything yourself, and you can revoke this at any time.",
+      "allowlist": "Activities this agent may run",
+      "apply": "Apply",
+      "noTypes": "This project has no activity types yet. Register one before delegating control.",
+      "unresolved": "{count} previously selected activity is no longer available to this project and will not be offered to the agent.",
+      "observerNote": "This agent is an observer: the class never sees it speak, but starting or ending a round is something the whole class sees."
     }
   }
 }

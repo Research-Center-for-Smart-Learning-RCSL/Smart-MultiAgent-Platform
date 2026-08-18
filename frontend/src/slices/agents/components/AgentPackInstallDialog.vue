@@ -17,6 +17,7 @@ import {
   EyeSlashIcon,
   InformationCircleIcon,
   PencilSquareIcon,
+  PlayCircleIcon,
   PuzzlePieceIcon,
   UserGroupIcon,
 } from '@heroicons/vue/24/outline'
@@ -110,6 +111,14 @@ const anyObserver = computed(() =>
  *  teacher's own room, and applying a draft is a manual copy and paste. */
 const anyDesignAgent = computed(() =>
   packs.value.some((p) => p.agents.some((a) => a.room_role === null)),
+)
+
+/** Any pack carrying an agent written to hold delegated activity control
+ *  ([R30.37]). Advisory metadata, never an applied grant: installing creates no
+ *  chatroom and no room binding, so there is nothing here to grant it on. The
+ *  notice says so, because the badge alone reads as a granted capability. */
+const anyActivityController = computed(() =>
+  packs.value.some((p) => p.agents.some((a) => a.may_control_activities)),
 )
 
 const installMutation = useMutation({
@@ -232,6 +241,20 @@ function roleLabel(role: string | null): string {
           </p>
         </div>
 
+        <!-- Shown before anything is installed, because the badge below is easy to
+             read as a capability the install confers. It is not: installing binds
+             no room, so there is nothing for a grant to attach to ([R30.35]). -->
+        <div
+          v-if="anyActivityController"
+          class="flex gap-2 rounded-md border border-[var(--color-border)] p-3"
+          role="note"
+        >
+          <PlayCircleIcon class="w-5 h-5 shrink-0 text-[var(--color-muted)]" />
+          <p class="text-sm text-[var(--color-fg)]">
+            {{ t('agents.examplePacks.activityControlNotice') }}
+          </p>
+        </div>
+
         <SFormField
           name="pack-key-group"
           :label="t('agents.examplePacks.keyGroup')"
@@ -317,6 +340,13 @@ function roleLabel(role: string | null): string {
                       provider: agent.preferred_model_hint,
                     })
                   }}
+                </SBadge>
+                <SBadge
+                  v-if="agent.may_control_activities"
+                  size="sm"
+                  variant="neutral"
+                >
+                  {{ t('agents.examplePacks.controlsActivities') }}
                 </SBadge>
                 <SBadge
                   v-if="agent.installed"
