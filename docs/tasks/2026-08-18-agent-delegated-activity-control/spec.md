@@ -209,6 +209,12 @@ What that gives up, stated plainly:
 
 ### The grant record
 
+> **Amended at implementation — see D-11.** `ck_chatroom_agents_activity_grantor` is
+> **not shipped**: it would abort an admin's GDPR hard-delete of any user who had ever
+> granted activity control, with no way to clear the grant first. The invariant is
+> enforced at read time instead. The paragraph below is kept as written for the record;
+> read D-11 with it.
+
 Migration `0078`, on `chatroom_agents`:
 
 ```
@@ -769,6 +775,38 @@ and the activity type keys it is written for"*, insert:
   second time, so the HTTP response and the realtime payload cannot drift into carrying
   different fields — a field added to one and not the other is a Pydantic error at the
   route rather than a client that silently stops receiving it.
+- **D-11 — `ck_chatroom_agents_activity_grantor` is not shipped.** Found by
+  `/code-review` after the audit gates had passed. §5 specified it and argued that
+  `ON DELETE SET NULL` plus the CHECK "cannot leave a live grant with a null grantor:
+  the delete would violate the CHECK. Deleting a granting user therefore fails loudly
+  rather than silently producing an unattributable grant — acceptable because user
+  deletion is already an admin operation." **The last clause is wrong**, and the
+  consequence is severe: `AdminService.hard_delete_user`
+  (`identity/application/admin_service.py:259`) issues `DELETE FROM users`, PostgreSQL
+  performs the SET NULL, and the CHECK aborts the entire GDPR erasure with an
+  IntegrityError naming a table the admin has no reason to connect to the request.
+  `prepare_hard_delete` clears the other FK RESTRICT references but knows nothing about
+  this column, and it only hard-deletes *soft-deleted* orgs and projects — so a room in
+  a project the user merely belonged to survives with its grant intact, and revoking is
+  the room creator's act, which that soft-deleted account can no longer perform. The
+  erasure could never be made to succeed. The constraint is dropped from 0078 (never
+  applied anywhere, so edited in place rather than reversed by a 0079). The invariant it
+  protected is enforced where it already was: `activity_control_grant` returns `None`
+  for a null grantor, so `SET NULL` now means "the granter is gone, so this grant is
+  inert" — which is both the correct reading and fail-closed. The db-tier test that
+  asserted the constraint is replaced by the regression for the deletion path.
+- **D-12 — the panel stands down entirely when the type listing fails.** Two defects in
+  the fix for the quality gate's own finding, both found by `/code-review`. With
+  `activityTypesFailed` true, `activityTypes` is empty, so `unresolvedCount` counted
+  *every* stored entry as deleted and told the teacher their whole selection was gone
+  off one network hiccup; and `dirty` compared the raw stored list against a draft
+  narrowed to nothing, leaving Apply enabled on a write the client guard would always
+  refuse for want of a selection never offered. Both now return early on the flag, and
+  a grant with nothing ticked is not offered for Apply either.
+- **D-13 — the allowlist is deduplicated on write.** The route deduplicated only to
+  bound its validation loop; the repository wrote the raw list, so a direct API call
+  repeating an id stored it twice — a repeated resolution on every turn, and a settings
+  panel permanently "dirty" because its draft holds each id once.
 - **D-10 — two extra `ConversationFacade` methods.** §6 named `activity_control_grant` and
   `set_agent_activity_grant`. `project_id_for_chatroom` was also needed, because the tool
   assembly must run the reachability gate against *the room's* project rather than infer it
