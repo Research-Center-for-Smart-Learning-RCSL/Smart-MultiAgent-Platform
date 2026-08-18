@@ -51,29 +51,37 @@ migration_0077 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(migration_0077)
 
 
+async def _make_room(session: AsyncSession, project_id: uuid.UUID, created_by: uuid.UUID) -> uuid.UUID:
+    """A workspace + chatroom under ``project_id``, uncommitted.
+
+    No teardown of its own: cleanup rides the ``project`` fixture, since
+    workspaces cascade from the project and chatrooms from the workspace.
+    """
+    workspace_id, chatroom_id = uuid.uuid4(), uuid.uuid4()
+    await session.execute(
+        t.workspaces.insert().values(id=workspace_id, project_id=project_id, name="act-itest")
+    )
+    await session.execute(
+        t.chatrooms.insert().values(
+            id=chatroom_id,
+            workspace_id=workspace_id,
+            name="act-itest",
+            guest_token=str(uuid.uuid4()),
+            created_by_user_id=created_by,
+        )
+    )
+    return chatroom_id
+
+
 @pytest.fixture
 async def room(
     sessionmaker: async_sessionmaker[AsyncSession],
     project: tuple[uuid.UUID, uuid.UUID],
 ) -> uuid.UUID:
-    """A chatroom to hang activations off. No teardown of its own: cleanup rides
-    the ``project`` fixture, since workspaces cascade from the project and
-    chatrooms from the workspace."""
+    """A chatroom to hang activations off."""
     project_id, user_id = project
-    workspace_id, chatroom_id = uuid.uuid4(), uuid.uuid4()
     async with sessionmaker() as session:
-        await session.execute(
-            t.workspaces.insert().values(id=workspace_id, project_id=project_id, name="act-itest")
-        )
-        await session.execute(
-            t.chatrooms.insert().values(
-                id=chatroom_id,
-                workspace_id=workspace_id,
-                name="act-itest",
-                guest_token=str(uuid.uuid4()),
-                created_by_user_id=user_id,
-            )
-        )
+        chatroom_id = await _make_room(session, project_id, user_id)
         await session.commit()
     return chatroom_id
 
@@ -109,9 +117,17 @@ class TestRoundScopedIdentity:
         project: tuple[uuid.UUID, uuid.UUID],
         room: uuid.UUID,
     ) -> None:
-        """AC-3. Under the partial-unique this replaced, the second round could
-        not have its own row while the first was open -- which is exactly why the
-        second round's submissions used to land in the first round's session."""
+        """AC-3. Pre-0077 the key held nothing about *which* run a session
+        belonged to, so the second round's submissions continued the first
+        round's row and its attempt_no sequence. Keyed on the activation, the
+        second round is structurally its own row and each resolves to itself.
+
+        The round is ended the way ``ActivationService.end`` ends one -- the
+        activation *and* its sessions, in that order. Ending only the activation
+        would leave a subject holding an open session in a finished round, which
+        no production path produces and which ``uq_activity_sessions_open``
+        (kept by 0077 for forward compatibility, dropped in FU-7) rejects.
+        """
         project_id, user_id = project
         async with sessionmaker() as session:
             repo = ActivitySessionRepository(session)
@@ -126,6 +142,7 @@ class TestRoundScopedIdentity:
                 activation_id=first,
             )
             await activations.end(first)
+            await repo.close_open_for_activation(first)
 
             second = await _start_round(session, room, type_id, user_id)
             second_session = await repo.create_open(
@@ -264,12 +281,23 @@ class TestProgressAndCascade:
         project: tuple[uuid.UUID, uuid.UUID],
         room: uuid.UUID,
     ) -> None:
-        """AC-4: ending one round must not reach into another one's sessions."""
+        """AC-4: ending one round must not reach into another one's sessions.
+
+        Two rooms running the same type for the same participant, because that
+        is the only shape two concurrently-open rounds can take: one activation
+        per room is active at a time (``uq_activity_activations_active``) and
+        ending a round closes its own sessions, so within a room the second
+        round never overlaps the first.
+
+        The same type in both on purpose -- a close that widened to the type
+        (the shape of :meth:`close_open_for_type`) would still pass a
+        one-room test and fails this one.
+        """
         project_id, user_id = project
         async with sessionmaker() as session:
             repo = ActivitySessionRepository(session)
-            activations = ActivationRepository(session)
             type_id = await _make_type(session, project_id)
+            other_room = await _make_room(session, project_id, user_id)
 
             first = await _start_round(session, room, type_id, user_id)
             first_session = await repo.create_open(
@@ -278,11 +306,10 @@ class TestProgressAndCascade:
                 subject_user_id=user_id,
                 activation_id=first,
             )
-            await activations.end(first)
-            second = await _start_round(session, room, type_id, user_id)
+            second = await _start_round(session, other_room, type_id, user_id)
             second_session = await repo.create_open(
                 activity_type_id=type_id,
-                chatroom_id=room,
+                chatroom_id=other_room,
                 subject_user_id=user_id,
                 activation_id=second,
             )
@@ -296,6 +323,7 @@ class TestProgressAndCascade:
             still_open = await repo.get(first_session)
             assert still_open is not None
             assert still_open.status is SessionStatus.OPEN
+            assert still_open.closed_at is None
 
     async def test_the_declaration_is_guarded_and_reversible(
         self,
