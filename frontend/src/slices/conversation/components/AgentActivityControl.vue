@@ -20,6 +20,10 @@ import type { BoundAgent } from '../composables/useChatroomBindings'
 const props = defineProps<{
   agent: BoundAgent
   activityTypes: ActivityType[]
+  // Whether the type listing failed, as opposed to coming back empty. The two
+  // need different copy: one is an instruction the teacher can act on, the other
+  // is not their doing.
+  activityTypesFailed: boolean
   busy: boolean
 }>()
 
@@ -32,18 +36,6 @@ const { t } = useI18n()
 const granted = ref(false)
 const selected = ref<string[]>([])
 
-// Re-seeded whenever the stored grant changes — including after a save, since the
-// parent reloads the bindings rather than patching its local copy. Seeding from a
-// fresh array keeps the draft from aliasing the stored one.
-watch(
-  () => [props.agent.may_control_activities, props.agent.activity_type_allowlist] as const,
-  ([stored, allowlist]) => {
-    granted.value = stored === true
-    selected.value = [...(allowlist ?? [])]
-  },
-  { immediate: true },
-)
-
 /** A stored allowlist entry whose type this project can no longer use.
  *
  *  The server drops these at turn-assembly time rather than at write time, so the
@@ -55,12 +47,49 @@ const unresolvedCount = computed(() => {
   return (props.agent.activity_type_allowlist ?? []).filter((id) => !known.has(id)).length
 })
 
+/** The stored grant, reduced to the types this project can still use.
+ *
+ *  The narrowing is load-bearing, not cosmetic. An id the project can no longer
+ *  reach has no checkbox, so seeding the draft with it would make it unremovable
+ *  through this UI — and the grant route validates every id it is sent, so every
+ *  later Apply would 422 with no way for the teacher to see which entry did it.
+ *  Dropping it here means the next Apply also repairs the stored row, and
+ *  `unresolvedCount` above is what says so rather than leaving it silent. */
+const storedDraft = computed(() => {
+  const known = new Set(props.activityTypes.map((a) => a.id))
+  return {
+    granted: props.agent.may_control_activities === true,
+    typeIds: (props.agent.activity_type_allowlist ?? []).filter((id) => known.has(id)),
+  }
+})
+
+// Re-seeded whenever the stored grant changes — including after a save, since the
+// parent reloads the bindings rather than patching its local copy.
+//
+// Keyed on the *values*, not on `props.agent`'s identity: `boundAgents` rebuilds
+// every element on each `loadBindings()`, so an identity watch would reset a draft
+// the teacher is still filling in whenever some unrelated write (another agent's
+// role, a bind, an unbind) reloads the panel.
+watch(
+  () => `${storedDraft.value.granted}|${storedDraft.value.typeIds.join(',')}`,
+  () => {
+    granted.value = storedDraft.value.granted
+    selected.value = [...storedDraft.value.typeIds]
+  },
+  { immediate: true },
+)
+
+// Compared against the *raw* stored allowlist, while the draft is seeded from the
+// narrowed one. The asymmetry is the point: a row still carrying an id the project
+// cannot use reads as dirty on load, so Apply is enabled and one click rewrites it
+// without the dead entry. Comparing against the narrowed list instead would agree
+// with the draft, disable the button, and leave the note pointing at something the
+// teacher has no way to act on.
 const dirty = computed(() => {
-  const storedGranted = props.agent.may_control_activities === true
   const stored = [...(props.agent.activity_type_allowlist ?? [])].sort()
   const draft = [...selected.value].sort()
   return (
-    granted.value !== storedGranted ||
+    granted.value !== storedDraft.value.granted ||
     stored.length !== draft.length ||
     stored.some((id, i) => id !== draft[i])
   )
@@ -90,13 +119,20 @@ function toggleType(typeId: string, checked: boolean): void {
 
     <template v-if="granted">
       <p
-        v-if="!activityTypes.length"
+        v-if="activityTypesFailed"
+        class="access-row__desc activity-control__warn"
+        role="alert"
+      >
+        {{ t('conversation.activityControl.typesLoadFailed') }}
+      </p>
+      <p
+        v-else-if="!activityTypes.length"
         class="access-row__desc activity-control__warn"
       >
         {{ t('conversation.activityControl.noTypes') }}
       </p>
       <fieldset
-        v-else
+        v-if="activityTypes.length"
         class="activity-control__types"
       >
         <legend class="activity-control__legend">

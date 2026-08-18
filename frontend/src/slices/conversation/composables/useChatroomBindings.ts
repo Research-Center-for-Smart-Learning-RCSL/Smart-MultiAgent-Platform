@@ -48,9 +48,13 @@ export function useChatroomBindings(
   // agent_id → delegated activity grant, creator-only for the same reason.
   const boundGrants = ref<Record<string, { granted: boolean; typeIds: string[] } | undefined>>({})
   // The project's usable activity types, for the grant multi-select. Loaded once
-  // with the bindings; a failure leaves it empty and the control says so rather
-  // than offering an allowlist it cannot populate.
+  // with the bindings.
   const activityTypes = ref<ActivityType[]>([])
+  // Tracked separately from `activityTypes.length` because the two states need
+  // different copy: "this project has no activity types yet, register one" is a
+  // instruction the teacher can act on, and telling them that when the listing
+  // merely failed sends them to create something that already exists.
+  const activityTypesFailed = ref(false)
   const selectedAgentId = ref('')
   const selectedRole = ref<ChatroomAgentRole>('normal')
   const bindingBusy = ref(false)
@@ -122,8 +126,13 @@ export function useChatroomBindings(
   async function loadActivityTypes(projectId: string): Promise<void> {
     try {
       activityTypes.value = await listActivityTypes(projectId)
+      activityTypesFailed.value = false
     } catch {
+      // Swallowed rather than raised: the endpoint is project-owner gated, so a
+      // 403 is the expected answer for a room creator who is not one, and neither
+      // that nor a transient failure may take down the whole bindings panel.
       activityTypes.value = []
+      activityTypesFailed.value = true
     }
   }
 
@@ -248,6 +257,7 @@ export function useChatroomBindings(
     projectAgents,
     boundAgentIds,
     activityTypes,
+    activityTypesFailed,
     selectedAgentId,
     selectedRole,
     bindingBusy,

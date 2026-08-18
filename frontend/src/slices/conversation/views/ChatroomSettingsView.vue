@@ -75,6 +75,7 @@ const {
   availableAgents,
   orphanAgentIds,
   activityTypes,
+  activityTypesFailed,
   loadBindings,
   onAddAgent,
   onRemoveAgent,
@@ -535,6 +536,7 @@ watchEffect(() => {
               v-if="isCreator"
               :agent="agent"
               :activity-types="activityTypes"
+              :activity-types-failed="activityTypesFailed"
               :busy="bindingBusy"
               @save="(granted, typeIds) => onSetActivityControl(agent.id, granted, typeIds)"
             />
