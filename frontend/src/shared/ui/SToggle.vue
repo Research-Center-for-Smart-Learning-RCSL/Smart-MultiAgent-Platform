@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
 
 const props = withDefaults(defineProps<{
   modelValue?: boolean
@@ -23,6 +23,12 @@ const emit = defineEmits<{
 // forbids.
 const idAttrs = computed(() => (props.id !== undefined ? { id: props.id } : {}))
 
+// The slot label sits outside the button (it must, for the layout), so without
+// this the switch has no accessible name at all — a screen reader announces
+// "switch, off" and nothing else. Unique per instance because the toggle renders
+// once per bound agent in some views.
+const labelId = useId()
+
 function toggle() {
   if (props.disabled) return
   emit('update:modelValue', !props.modelValue)
@@ -39,6 +45,7 @@ function toggle() {
       type="button"
       role="switch"
       :aria-checked="props.modelValue"
+      :aria-labelledby="$slots.default ? labelId : undefined"
       :disabled="props.disabled"
       class="s-toggle__track"
       :class="[
@@ -129,6 +136,7 @@ function toggle() {
     </button>
     <span
       v-if="$slots.default"
+      :id="labelId"
       class="s-toggle__label"
     >
       <slot />
