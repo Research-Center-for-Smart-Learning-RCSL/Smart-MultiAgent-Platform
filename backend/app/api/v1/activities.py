@@ -37,6 +37,7 @@ from contexts.activities.domain.models import (
     ValidatorKind,
 )
 from contexts.activities.interfaces.broadcast import (
+    InitiatingAgent,
     activity_type_public_payload,
     dispatch_activation_ended,
     dispatch_activation_progress,
@@ -45,6 +46,7 @@ from contexts.activities.interfaces.broadcast import (
 )
 from contexts.activities.interfaces.facade import ActivitiesFacade
 from contexts.agents.interfaces.facade import AgentsFacade
+from contexts.conversation.domain.models import ChatroomAgentRole
 from contexts.conversation.interfaces import room_channel
 from contexts.conversation.interfaces.access import (
     ensure_can_read,
@@ -176,10 +178,13 @@ class ActivityActivationOut(BaseModel):
     # (Q-1); `None` only when the type row is missing or cross-project, same
     # as a null activation would be treated.
     activity_type: ActivityTypePublicOut | None = None
-    # Set only when a delegated agent started this round ([R30.37]); `started_by_user_id`
-    # above still names the teacher whose authority it acted on. The name is resolved
-    # through the agents facade, never joined ([R30.09]), and is `None` when the agent
-    # has since been deleted.
+    # Set only when a delegated agent started this round **and may be named to this
+    # reader** ([R30.37]); `started_by_user_id` above still names the teacher whose
+    # authority it acted on. Both are withheld for an observer-started round, since
+    # this read is not creator-gated and an observer is invisible to non-creators
+    # ([R28.10]) — see `_resolve_initiating_agent`. The name is resolved through the
+    # agents facade, never joined ([R30.09]), and is `None` when the agent has since
+    # been deleted.
     started_by_agent_id: uuid.UUID | None = None
     started_by_agent_name: str | None = None
 
@@ -300,7 +305,7 @@ def _activation_out(
     a: ActivityActivation,
     activity_type: ActivityType | None,
     *,
-    started_by_agent_name: str | None = None,
+    initiating_agent: InitiatingAgent | None = None,
 ) -> ActivityActivationOut:
     return ActivityActivationOut(
         id=a.id,
@@ -311,27 +316,50 @@ def _activation_out(
         created_at=a.created_at.isoformat() if a.created_at else None,
         ended_at=a.ended_at.isoformat() if a.ended_at else None,
         activity_type=_type_public_out(activity_type) if activity_type is not None else None,
-        started_by_agent_id=a.started_by_agent_id,
-        started_by_agent_name=started_by_agent_name,
+        # Both fields ride the one disclosure decision the caller made; see
+        # `_resolve_initiating_agent`. Never read straight off the activation row —
+        # the row records who started it, which is a different question from who
+        # this reader may be told about.
+        started_by_agent_id=initiating_agent.agent_id if initiating_agent else None,
+        started_by_agent_name=initiating_agent.name if initiating_agent else None,
     )
 
 
-async def _resolve_starting_agent_name(db: AsyncSession, activation: ActivityActivation) -> str | None:
-    """Name the agent that started a delegated round, or ``None`` ([R30.37]).
+async def _resolve_initiating_agent(
+    db: AsyncSession, activation: ActivityActivation
+) -> InitiatingAgent | None:
+    """The agent to name as this round's initiator, or ``None`` ([R30.37]).
 
-    A single batch facade read ([R30.31]), never a join ([R30.09]), and skipped
-    entirely for the overwhelmingly common human-started round. Degrades to ``None``
-    rather than propagating: the id is already on the response, and a name lookup
-    failing must not turn a working activation read into a 500.
+    ``None`` for a human-started round, and also for one started by an **observer**:
+    an observer binding is withheld from every non-creator ([R28.02], [R28.10]) and
+    the agent sends no messages, so this read is reachable by any room member —
+    guests included — and would be the single channel that outs it. The room-scoped
+    reads here are not creator-gated, so the suppression has to happen at the value,
+    not at the caller.
+
+    Two bounded facade reads, both skipped entirely for the overwhelmingly common
+    human-started round, and neither a join ([R30.09], [R30.31]). Degrades to
+    ``None`` rather than propagating: a lookup failing must not turn a working
+    activation read into a 500, and withholding is the safe direction.
     """
     if activation.started_by_agent_id is None:
         return None
+    agent_id = activation.started_by_agent_id
     try:
-        names = await AgentsFacade(db).agent_names([activation.started_by_agent_id])
+        role = await ConversationFacade(db).agent_role_in_chatroom(
+            chatroom_id=activation.chatroom_id, agent_id=agent_id
+        )
+        if role is ChatroomAgentRole.OBSERVER:
+            return None
+        names = await AgentsFacade(db).agent_names([agent_id])
     except Exception:
-        _log.warning("agent name resolution failed for activation %s", activation.id, exc_info=True)
+        _log.warning("initiating agent resolution failed for activation %s", activation.id, exc_info=True)
         return None
-    return names.get(activation.started_by_agent_id)
+    # An unbound agent (`role is None`) was unbound after starting the round. It is
+    # named: it was a normal agent when it acted, its messages are still in the
+    # transcript under its name, and dropping the attribution would make a round
+    # nobody can account for.
+    return InitiatingAgent(agent_id=agent_id, name=names.get(agent_id))
 
 
 async def _resolve_activation_type(
@@ -744,9 +772,12 @@ async def start_activity_activation(
     # `None` on this path by construction: the HTTP start is a human's, so the
     # lookup short-circuits. Threaded anyway so the broadcast and the response
     # carry the same two fields whichever path produced the activation.
-    agent_name = await _resolve_starting_agent_name(db, activation)
-    await dispatch_activation_started(activation, activity_type, started_by_agent_name=agent_name)
-    return _activation_out(activation, activity_type, started_by_agent_name=agent_name)
+    # `None` on this path by construction: the HTTP start is a human's, so the
+    # lookup short-circuits. Threaded anyway so the broadcast and the response
+    # carry the same attribution whichever path produced the activation.
+    initiating_agent = await _resolve_initiating_agent(db, activation)
+    await dispatch_activation_started(activation, activity_type, initiating_agent=initiating_agent)
+    return _activation_out(activation, activity_type, initiating_agent=initiating_agent)
 
 
 @chatroom_router.patch("/{chatroom_id}/activity-activations/{activation_id}/end")
@@ -776,7 +807,7 @@ async def end_activity_activation(
     return _activation_out(
         result.activation,
         activity_type,
-        started_by_agent_name=await _resolve_starting_agent_name(db, result.activation),
+        initiating_agent=await _resolve_initiating_agent(db, result.activation),
     )
 
 
@@ -798,7 +829,7 @@ async def get_active_activity_activation(
     return _activation_out(
         activation,
         activity_type,
-        started_by_agent_name=await _resolve_starting_agent_name(db, activation),
+        initiating_agent=await _resolve_initiating_agent(db, activation),
     )
 
 

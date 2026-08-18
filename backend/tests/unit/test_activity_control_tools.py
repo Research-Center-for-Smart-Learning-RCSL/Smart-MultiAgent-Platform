@@ -370,7 +370,26 @@ class TestStartActivity:
         result = await tools["start_activity"].invoke({"activity_type_key": "unit2"})
 
         assert result.is_error is True
-        assert "start_activity failed" in result.content
+        # The policy error carries a sentence naming the offending field, so it is
+        # passed through rather than replaced.
+        assert "the platform policy forbids it" in result.content
+        assert sink == []
+
+    async def test_an_already_running_activity_says_what_to_do_about_it(self) -> None:
+        """AC-8's "readable" half. `ActivityAlreadyActive` carries only an activation
+        UUID, so rendering the exception alone would tell the model
+        "start_activity failed: 3f2a…" and leave it no way to infer that the fix is
+        to end the running round first."""
+        from contexts.activities.domain.errors import ActivityAlreadyActive
+
+        _FakeActivitiesFacade.start_error = ActivityAlreadyActive(str(uuid.uuid4()))
+        sink: list[dict[str, Any]] = []
+        tools = _tools_for(_control(_type("unit2")), sink=sink)
+
+        result = await tools["start_activity"].invoke({"activity_type_key": "unit2"})
+
+        assert result.is_error is True
+        assert "End the current one" in result.content
         assert sink == []
 
     async def test_an_infrastructure_fault_fails_the_turn(self) -> None:
@@ -658,6 +677,86 @@ class TestPostCommitDrain:
 
         assert result.status == "completed"
         assert published == ["activity.activation.started"]
+
+    async def test_a_granted_observer_is_never_named_to_the_room(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """[R28.10]. An observer is filtered out of every non-creator's agent
+        roster and sends no messages, so the room channel — a blind relay that
+        reaches chatroom guests — must not become the one thing that outs it. The
+        round is still announced; only the initiator is withheld."""
+        import contexts.agents.application.runtime.turn_engine as te
+        from contexts.activities.interfaces import broadcast
+        from contexts.agents.application.runtime.turn_engine import ToolLoopOutcome
+        from contexts.conversation.domain.models import ChatroomAgentRole
+        from tests.unit.turn_engine_fakes import make_agent, run_locked, wire_engine
+
+        agent = make_agent()
+        engine, _trace = wire_engine(monkeypatch, agent, note={}, role=ChatroomAgentRole.OBSERVER)
+        payloads: list[dict] = []
+
+        class _Publisher:
+            def __init__(self, channel: str) -> None:
+                pass
+
+            async def emit(self, event: str, payload: dict) -> None:
+                payloads.append(payload)
+
+        monkeypatch.setattr(broadcast, "Publisher", _Publisher)
+        monkeypatch.setattr(broadcast, "room_channel", lambda rid: f"ws:room:{rid}")
+
+        class _ObservationService:
+            def __init__(self, db: object) -> None:
+                pass
+
+            async def record(self, **kw: Any) -> SimpleNamespace:
+                return SimpleNamespace(id=uuid.uuid4(), created_at=_NOW)
+
+        monkeypatch.setattr(te, "ObservationService", _ObservationService)
+
+        async def _emit_observation_event(*a: Any, **k: Any) -> None:
+            return None
+
+        engine._emit_observation_event = _emit_observation_event
+
+        activation = ActivityActivation(
+            id=uuid.uuid4(),
+            chatroom_id=_ROOM,
+            activity_type_id=uuid.uuid4(),
+            started_by_user_id=_GRANTER,
+            status=ActivationStatus.ACTIVE,
+            created_at=_NOW,
+            started_by_agent_id=agent.id,
+        )
+
+        async def _builtin_tools(
+            agent_: object,
+            agent_tools: object,
+            *,
+            chatroom_id: uuid.UUID | None = None,
+            artifact_sink: list[dict[str, Any]] | None = None,
+            activation_event_sink: list[dict[str, Any]] | None = None,
+        ) -> list[Any]:
+            assert activation_event_sink is not None
+            activation_event_sink.append(
+                {"kind": act.EVENT_STARTED, "activation": activation, "activity_type": None}
+            )
+            return []
+
+        engine._builtin_tools = _builtin_tools
+
+        async def _stream(**kw: Any) -> ToolLoopOutcome:
+            return ToolLoopOutcome(text="a quiet observation", rounds=1)
+
+        engine._stream_with_tools = _stream
+        await run_locked(engine, _ROOM, agent)
+
+        # The round is announced...
+        assert len(payloads) == 1
+        # ...and carries neither field, so it is indistinguishable from a
+        # teacher-started round on the wire.
+        assert "started_by_agent_id" not in payloads[0]
+        assert "started_by_agent_name" not in payloads[0]
 
     async def test_a_failed_turn_publishes_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The failure path rolls back, so the activation no longer exists — telling

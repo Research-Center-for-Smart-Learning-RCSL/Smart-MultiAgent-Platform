@@ -1451,7 +1451,9 @@ class TurnEngine:
             _log.warning("agent tool assembly failed for agent %s", agent.id, exc_info=True)
             return []
 
-    async def _drain_activation_events(self, agent: Agent, activation_events: list[dict[str, Any]]) -> None:
+    async def _drain_activation_events(
+        self, agent: Agent, activation_events: list[dict[str, Any]], *, is_observer: bool
+    ) -> None:
         """Publish the rounds this turn started or ended ([R30.37]).
 
         Called only from inside a ``_post_commit`` scope, and only after the commit
@@ -1460,22 +1462,34 @@ class TurnEngine:
         back with the sink undrained, so nothing is published for a turn that did
         not happen.
 
-        Drained destructively so a caller that reaches two commit points cannot
-        publish one event twice.
+        ``is_observer`` decides whether the agent may be **named** in the broadcast.
+        An observer is invisible to every non-creator ([R28.02], [R28.10]) and sends
+        no messages, so naming it on the room channel — a blind relay that reaches
+        chatroom guests — would be the one thing that outs it. The round itself is
+        still announced, because a round is class-visible whoever started it.
+
+        Drained by clearing the sink up front rather than removing per event: the
+        descriptors are dicts holding frozen dataclasses and two of them can
+        legitimately compare equal (a repeat ``start_activity`` for the same type
+        returns the same activation), so an equality-based removal would rest on
+        ``list.remove`` semantics rather than on intent.
         """
         from contexts.activities.interfaces.broadcast import (
+            InitiatingAgent,
             dispatch_activation_ended,
             dispatch_activation_started,
         )
         from contexts.agents.application.runtime.activity_tools import EVENT_ENDED, EVENT_STARTED
 
-        for event in list(activation_events):
-            activation_events.remove(event)
+        drained = list(activation_events)
+        activation_events.clear()
+        initiator = None if is_observer else InitiatingAgent(agent_id=agent.id, name=agent.name)
+        for event in drained:
             if event.get("kind") == EVENT_STARTED:
                 await dispatch_activation_started(
                     event["activation"],
                     event.get("activity_type"),
-                    started_by_agent_name=agent.name,
+                    initiating_agent=initiator,
                 )
             elif event.get("kind") == EVENT_ENDED:
                 await dispatch_activation_ended(event["chatroom_id"], event["activation_id"])
@@ -2881,7 +2895,7 @@ class TurnEngine:
                 # A turn can start or end a round and then say nothing — that is an
                 # ordinary shape for a pacing agent — so the room must still be told.
                 async with _post_commit("activity activation events (empty reply)"):
-                    await self._drain_activation_events(agent, activation_events)
+                    await self._drain_activation_events(agent, activation_events, is_observer=is_observer)
                 # The provider was reached and the drained notes were in its context
                 # (rendering is delivery for notify/released_observation, R9.16/R28.07),
                 # but an approval ballot is only consumed once cast — re-arm it if the
@@ -2950,7 +2964,7 @@ class TurnEngine:
                 # ([R30.37] Q-6 permits a granted observer, and states the
                 # asymmetry): the round is class-visible however quiet the agent is.
                 async with _post_commit("activity activation events (observer)"):
-                    await self._drain_activation_events(agent, activation_events)
+                    await self._drain_activation_events(agent, activation_events, is_observer=is_observer)
                 async with _post_commit("settle pending approvals (observer)"):
                     await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
                 return TurnResult(
@@ -2989,7 +3003,7 @@ class TurnEngine:
             # Before `message.created`, so a client hydrating on the reply already
             # sees the round the reply is talking about.
             async with _post_commit("activity activation events"):
-                await self._drain_activation_events(agent, activation_events)
+                await self._drain_activation_events(agent, activation_events, is_observer=is_observer)
             # Publish AFTER commit so a client's refetch sees the committed row
             # (agent replies have no optimistic echo, unlike user sends).
             # `room is not None` always holds here (the observer branch returned

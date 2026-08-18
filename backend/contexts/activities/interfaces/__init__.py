@@ -7,6 +7,7 @@ short import path is what keeps the second one from growing its own copy.
 """
 
 from contexts.activities.interfaces.broadcast import (
+    InitiatingAgent,
     activity_type_public_payload,
     dispatch_activation_ended,
     dispatch_activation_progress,
@@ -15,6 +16,7 @@ from contexts.activities.interfaces.broadcast import (
 )
 
 __all__ = [
+    "InitiatingAgent",
     "activity_type_public_payload",
     "dispatch_activation_ended",
     "dispatch_activation_progress",
