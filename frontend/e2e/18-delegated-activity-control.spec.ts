@@ -107,7 +107,13 @@ test.describe('Delegated activity control', () => {
 
     const allowlist = page.getByRole('group', { name: /Activities this agent may run/ })
     await expect(allowlist).toBeVisible()
-    await allowlist.getByRole('checkbox', { name: activityType.name }).check()
+    // Ticked through the label, which is what a user clicks: `SCheckbox`'s native
+    // input is screen-reader-only (absolutely positioned, 1px, clipped) and sits
+    // under the styled box, so `.check()` on it never gets past Playwright's
+    // hit-target test — the box on top is a sibling, not its descendant.
+    const worksheet = allowlist.getByRole('checkbox', { name: activityType.name })
+    await allowlist.getByText(activityType.name, { exact: true }).click()
+    await expect(worksheet).toBeChecked()
 
     const grantWrite = page.waitForResponse(
       (r) => r.url().includes('/activity-control') && r.request().method() === 'PATCH',
