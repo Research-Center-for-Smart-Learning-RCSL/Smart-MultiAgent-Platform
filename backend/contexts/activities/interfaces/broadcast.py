@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from contexts.activities.domain.models import ActivityActivation, ActivityType
@@ -27,6 +28,30 @@ if TYPE_CHECKING:
     from contexts.activities.interfaces.facade import ActivitiesFacade
 
 _log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class InitiatingAgent:
+    """The agent to name as a round's initiator, when it may be named at all.
+
+    A single optional value rather than two loose fields, because whether to
+    disclose the agent is **one decision** and both fields must follow it. The
+    caller owns that decision and passes ``None`` to withhold.
+
+    Withholding is not hypothetical. An ``observer`` binding is deliberately
+    invisible to everyone but the room creator ([R28.02], [R28.10]) — it is
+    filtered out of a non-creator's agent roster, and ``disclose_observers``
+    exists so a room can decide whether the class is even told one is present. An
+    observer sends no messages, so unlike a ``normal`` agent it has no other way
+    of becoming known; naming it here would be the one channel that outs it.
+
+    ``name`` may still be ``None`` for a disclosable agent whose name lookup
+    failed or that has since been deleted — that is a different thing from
+    "do not disclose", which is why it is nested rather than parallel.
+    """
+
+    agent_id: uuid.UUID
+    name: str | None
 
 
 def activity_type_public_payload(activity_type: ActivityType) -> dict[str, Any]:
@@ -52,14 +77,18 @@ async def dispatch_activation_started(
     activation: ActivityActivation,
     activity_type: ActivityType | None,
     *,
-    started_by_agent_name: str | None = None,
+    initiating_agent: InitiatingAgent | None = None,
 ) -> None:
     """Tell one room a round began.
 
-    ``started_by_agent_name`` is resolved by the caller (the agents context is not
-    importable from here, [R30.05]) and is absent for a facilitator-started round.
-    Naming the agent to the whole room is not a disclosure: an agent bound to a room
-    is already named on every message it sends.
+    This channel is a blind relay to every participant, chatroom guests included,
+    so ``initiating_agent`` is the disclosure decision and the caller owns it — see
+    :class:`InitiatingAgent`. ``None`` covers both "a human started this" and "an
+    agent did, and must not be named here"; the payload then carries neither field,
+    so the two are indistinguishable on the wire, which is the point.
+
+    The agent is resolved by the caller because this context cannot import the
+    agents context ([R30.05]).
     """
     try:
         payload: dict[str, Any] = {
@@ -67,10 +96,10 @@ async def dispatch_activation_started(
             "activity_type_id": str(activation.activity_type_id),
             "started_by": str(activation.started_by_user_id),
         }
-        if activation.started_by_agent_id is not None:
-            payload["started_by_agent_id"] = str(activation.started_by_agent_id)
-        if started_by_agent_name is not None:
-            payload["started_by_agent_name"] = started_by_agent_name
+        if initiating_agent is not None:
+            payload["started_by_agent_id"] = str(initiating_agent.agent_id)
+            if initiating_agent.name is not None:
+                payload["started_by_agent_name"] = initiating_agent.name
         if activity_type is not None:
             # Same participant projection as the HTTP reads (R30.26) — no
             # validator_config on any realtime payload.
@@ -151,6 +180,7 @@ async def dispatch_room_activation_progress(facade: ActivitiesFacade, chatroom_i
 
 
 __all__ = [
+    "InitiatingAgent",
     "activity_type_public_payload",
     "dispatch_activation_ended",
     "dispatch_activation_progress",

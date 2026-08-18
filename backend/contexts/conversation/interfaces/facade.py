@@ -19,6 +19,7 @@ from contexts.conversation.domain.models import (
     AttachmentExtractionStatus,
     AttachmentStatus,
     Chatroom,
+    ChatroomAgentRole,
     ChatroomGuest,
     Message,
     MessageAttachment,
@@ -174,6 +175,22 @@ class ConversationFacade:
             return None
         workspace = await self._workspaces.get(room.workspace_id)
         return workspace.project_id if workspace is not None else None
+
+    async def agent_role_in_chatroom(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+    ) -> ChatroomAgentRole | None:
+        """One agent's binding role in a room, or ``None`` if it is not bound.
+
+        Exposed because the role is a **disclosure rule**, not just a routing one:
+        an ``observer`` binding is withheld from every non-creator ([R28.10]), so
+        any surface that might name an agent to a room has to be able to ask. The
+        activities read model uses it to decide whether a delegated round may name
+        its initiator.
+        """
+        return await self._room_agents.role_of(chatroom_id=chatroom_id, agent_id=agent_id)
 
     async def activity_control_grant(
         self,

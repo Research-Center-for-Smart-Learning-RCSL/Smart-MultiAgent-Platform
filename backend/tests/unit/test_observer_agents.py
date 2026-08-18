@@ -329,6 +329,25 @@ async def test_revoking_needs_no_type_ids_and_resolves_none(monkeypatch) -> None
     assert calls["grant"][0]["granted"] is False
 
 
+def test_the_allowlist_is_bounded() -> None:
+    """Every id costs a reachability query at the route AND another on every turn
+    of the granted agent, so an unbounded list is not a one-off cost but a
+    permanent per-turn one on an agent that may wake on every message."""
+    import pydantic
+
+    import app.api.v1.chatrooms as chatrooms_mod
+
+    over = [uuid.uuid4() for _ in range(chatrooms_mod._MAX_ACTIVITY_ALLOWLIST + 1)]
+    with pytest.raises(pydantic.ValidationError):
+        chatrooms_mod.AgentActivityControlIn(granted=True, activity_type_ids=over)
+
+    # The ceiling itself is accepted — this bounds abuse, it is not a working limit.
+    at_cap = chatrooms_mod.AgentActivityControlIn(
+        granted=True, activity_type_ids=over[: chatrooms_mod._MAX_ACTIVITY_ALLOWLIST]
+    )
+    assert len(at_cap.activity_type_ids) == chatrooms_mod._MAX_ACTIVITY_ALLOWLIST
+
+
 @pytest.mark.asyncio
 async def test_granting_to_an_unbound_agent_is_404(monkeypatch) -> None:
     uid = uuid.uuid4()

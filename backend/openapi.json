@@ -1503,6 +1503,7 @@
               "format": "uuid",
               "type": "string"
             },
+            "maxItems": 100,
             "title": "Activity Type Ids",
             "type": "array"
           },

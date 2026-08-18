@@ -51,6 +51,10 @@ from shared_kernel.db.session import db_session
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["chatrooms"])
 chatroom_router = APIRouter(prefix="/api/chatrooms", tags=["chatrooms"])
 
+# Ceiling on one room's delegated activity allowlist ([R30.37]). See
+# `AgentActivityControlIn.activity_type_ids` for why this is bounded at all.
+_MAX_ACTIVITY_ALLOWLIST = 100
+
 
 # --------------------------------------------------------------------------- #
 # Schemas
@@ -139,7 +143,12 @@ class AgentActivityControlIn(BaseModel):
     """
 
     granted: bool
-    activity_type_ids: list[uuid.UUID] = Field(default_factory=list)
+    # Bounded because every id costs a reachability query here AND another on
+    # every turn of the granted agent (`activity_tools._resolve_allowed_types`),
+    # so an oversized list is not a one-off cost but a permanent per-turn one on
+    # an agent that may wake on every message. A project's type count is small;
+    # this is a ceiling, not a working limit.
+    activity_type_ids: list[uuid.UUID] = Field(default_factory=list, max_length=_MAX_ACTIVITY_ALLOWLIST)
 
 
 class ChatroomMemberOut(BaseModel):

@@ -292,7 +292,9 @@ class TestActivationStartedBroadcast:
         )
         publisher = self._capture(monkeypatch)
 
-        await broadcast.dispatch_activation_started(activation, None, started_by_agent_name="TA")
+        await broadcast.dispatch_activation_started(
+            activation, None, initiating_agent=broadcast.InitiatingAgent(agent_id=agent_id, name="TA")
+        )
 
         assert publisher.call_args.args[0] == f"ws:room:{activation.chatroom_id}"
         _event, payload = publisher.return_value.emit.await_args.args
@@ -310,6 +312,170 @@ class TestActivationStartedBroadcast:
         _event, payload = publisher.return_value.emit.await_args.args
         assert "started_by_agent_id" not in payload
         assert "started_by_agent_name" not in payload
+
+    async def test_a_withheld_agent_is_indistinguishable_from_a_human_start(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The observer case ([R28.10]). The activation row records the agent, but
+        this channel is a blind relay reaching chatroom guests, so an agent the
+        platform hides from non-creators must not be named on it. Withholding has to
+        drop *both* fields: leaving the id would still out the agent's existence,
+        which is the half the roster filter exists to protect."""
+        activation = ActivityActivation(
+            id=uuid.uuid4(),
+            chatroom_id=uuid.uuid4(),
+            activity_type_id=uuid.uuid4(),
+            started_by_user_id=uuid.uuid4(),
+            status=ActivationStatus.ACTIVE,
+            created_at=_NOW,
+            started_by_agent_id=uuid.uuid4(),
+        )
+        publisher = self._capture(monkeypatch)
+
+        await broadcast.dispatch_activation_started(activation, None, initiating_agent=None)
+
+        _event, payload = publisher.return_value.emit.await_args.args
+        assert "started_by_agent_id" not in payload
+        assert "started_by_agent_name" not in payload
+
+    async def test_a_disclosable_agent_with_no_name_still_carries_its_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ "Deleted since" is a different state from "must not be named", which is
+        why the name is nested inside the disclosure decision rather than beside it."""
+        agent_id = uuid.uuid4()
+        activation = ActivityActivation(
+            id=uuid.uuid4(),
+            chatroom_id=uuid.uuid4(),
+            activity_type_id=uuid.uuid4(),
+            started_by_user_id=uuid.uuid4(),
+            status=ActivationStatus.ACTIVE,
+            created_at=_NOW,
+            started_by_agent_id=agent_id,
+        )
+        publisher = self._capture(monkeypatch)
+
+        await broadcast.dispatch_activation_started(
+            activation, None, initiating_agent=broadcast.InitiatingAgent(agent_id=agent_id, name=None)
+        )
+
+        _event, payload = publisher.return_value.emit.await_args.args
+        assert payload["started_by_agent_id"] == str(agent_id)
+        assert "started_by_agent_name" not in payload
+
+
+class TestInitiatingAgentDisclosure:
+    """Who a room-scoped activation read may name ([R30.37], [R28.10]).
+
+    The reads that carry this are gated on `ensure_can_read`, which admits a
+    chatroom guest, so the suppression has to live in the value rather than in a
+    caller-side gate.
+    """
+
+    @staticmethod
+    def _wire(monkeypatch: pytest.MonkeyPatch, *, role, names: dict) -> None:
+        from contexts.conversation.domain.models import ChatroomAgentRole  # noqa: F401
+
+        class _Conversation:
+            def __init__(self, db) -> None:
+                pass
+
+            async def agent_role_in_chatroom(self, *, chatroom_id, agent_id):
+                return role
+
+        class _Agents:
+            def __init__(self, db) -> None:
+                pass
+
+            async def agent_names(self, ids):
+                return names
+
+        monkeypatch.setattr(activities, "ConversationFacade", _Conversation)
+        monkeypatch.setattr(activities, "AgentsFacade", _Agents)
+
+    @staticmethod
+    def _agent_started(agent_id: uuid.UUID) -> ActivityActivation:
+        return ActivityActivation(
+            id=uuid.uuid4(),
+            chatroom_id=uuid.uuid4(),
+            activity_type_id=uuid.uuid4(),
+            started_by_user_id=uuid.uuid4(),
+            status=ActivationStatus.ACTIVE,
+            created_at=_NOW,
+            started_by_agent_id=agent_id,
+        )
+
+    async def test_a_normal_agent_is_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from contexts.conversation.domain.models import ChatroomAgentRole
+
+        agent_id = uuid.uuid4()
+        self._wire(monkeypatch, role=ChatroomAgentRole.NORMAL, names={agent_id: "TA"})
+
+        resolved = await activities._resolve_initiating_agent(MagicMock(), self._agent_started(agent_id))
+
+        assert resolved is not None
+        assert (resolved.agent_id, resolved.name) == (agent_id, "TA")
+
+    async def test_an_observer_is_withheld(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An observer sends no messages and is filtered out of a non-creator's
+        agent roster, so this read would be the single channel that outs it."""
+        from contexts.conversation.domain.models import ChatroomAgentRole
+
+        agent_id = uuid.uuid4()
+        self._wire(monkeypatch, role=ChatroomAgentRole.OBSERVER, names={agent_id: "AA"})
+
+        resolved = await activities._resolve_initiating_agent(MagicMock(), self._agent_started(agent_id))
+
+        assert resolved is None
+
+    async def test_a_human_round_resolves_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """And costs no reads at all, which is the overwhelmingly common path."""
+        called: list[str] = []
+
+        class _Boom:
+            def __init__(self, db) -> None:
+                called.append("constructed")
+
+        monkeypatch.setattr(activities, "ConversationFacade", _Boom)
+        monkeypatch.setattr(activities, "AgentsFacade", _Boom)
+
+        resolved = await activities._resolve_initiating_agent(
+            MagicMock(), _activation(uuid.uuid4(), started_by=uuid.uuid4())
+        )
+
+        assert resolved is None
+        assert called == []
+
+    async def test_a_failed_lookup_withholds_rather_than_raising(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Withholding is the safe direction, and an already-committed activation
+        read must not become a 500 over a display attribute."""
+
+        class _Boom:
+            def __init__(self, db) -> None:
+                pass
+
+            async def agent_role_in_chatroom(self, **kw):
+                raise RuntimeError("db gone")
+
+        monkeypatch.setattr(activities, "ConversationFacade", _Boom)
+
+        resolved = await activities._resolve_initiating_agent(MagicMock(), self._agent_started(uuid.uuid4()))
+
+        assert resolved is None
+
+    async def test_an_unbound_agent_is_still_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Unbound after the fact is not the same as hidden: it was a normal agent
+        when it acted and its messages are still in the transcript under its name,
+        so dropping the attribution would leave a round nobody can account for."""
+        agent_id = uuid.uuid4()
+        self._wire(monkeypatch, role=None, names={agent_id: "TA"})
+
+        resolved = await activities._resolve_initiating_agent(MagicMock(), self._agent_started(agent_id))
+
+        assert resolved is not None
+        assert resolved.name == "TA"
 
 
 class TestProgressRoute:
