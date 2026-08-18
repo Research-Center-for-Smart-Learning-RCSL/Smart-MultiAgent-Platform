@@ -1425,9 +1425,7 @@ class TurnEngine:
             activity_control = (
                 None
                 if chatroom_id is None
-                else await resolve_activity_control(
-                    self._db, chatroom_id=chatroom_id, agent_id=agent.id
-                )
+                else await resolve_activity_control(self._db, chatroom_id=chatroom_id, agent_id=agent.id)
             )
             # `runner=self._sandbox()` so the tools and this engine share one
             # sandbox: `_hydrate_oversized` fetches through `deps.runner` while
@@ -1453,9 +1451,7 @@ class TurnEngine:
             _log.warning("agent tool assembly failed for agent %s", agent.id, exc_info=True)
             return []
 
-    async def _drain_activation_events(
-        self, agent: Agent, activation_events: list[dict[str, Any]]
-    ) -> None:
+    async def _drain_activation_events(self, agent: Agent, activation_events: list[dict[str, Any]]) -> None:
         """Publish the rounds this turn started or ended ([R30.37]).
 
         Called only from inside a ``_post_commit`` scope, and only after the commit
