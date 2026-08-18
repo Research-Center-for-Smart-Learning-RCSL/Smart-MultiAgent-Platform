@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-08-18
 requirements: [R30.21, R30.22, R30.09, R30.30, R30.33, R30.35, R28.02, R15.06]
 depends_on: []
@@ -581,49 +581,51 @@ a room is already named on every message it sends.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: A room creator can grant an agent activity control with a chosen type list, and
+- [x] AC-1: A room creator can grant an agent activity control with a chosen type list, and
   the grant round-trips through `GET /api/chatrooms/{id}/agents`.
-- [ ] AC-2: A non-creator (project member, moderator, guest) cannot write the grant, and does
+- [x] AC-2: A non-creator (project member, moderator, guest) cannot write the grant, and does
   not see `may_control_activities` or `activity_type_allowlist` in the agents listing.
 - [ ] AC-3: `granted: true` with an empty `activity_type_ids` is rejected (422), and the DB
   CHECK rejects the same state written directly.
-- [ ] AC-4: A type id from another project, or a soft-deleted type, is rejected (422) by the
+  **Route half verified** (`test_granting_with_an_empty_allowlist_is_refused`); the DB CHECK half is written (`tests/integration/test_activity_grant_constraints.py`) but has never been executed — no PostgreSQL on the implementing host. Left unticked rather than claimed; see FU-9.
+- [x] AC-4: A type id from another project, or a soft-deleted type, is rejected (422) by the
   grant route.
-- [ ] AC-5: A granted agent's turn carries `start_activity` and `end_activity`; an ungranted
+- [x] AC-5: A granted agent's turn carries `start_activity` and `end_activity`; an ungranted
   agent's turn carries neither, including when `may_control_activities` is false but a
   non-empty allowlist remains.
-- [ ] AC-6: `start_activity`'s `activity_type_key` schema is an enum containing exactly the
+- [x] AC-6: `start_activity`'s `activity_type_key` schema is an enum containing exactly the
   resolvable allowlisted keys, and an allowlist entry that no longer resolves is absent from
   it rather than causing an error.
-- [ ] AC-7: A successful `start_activity` creates an activation whose `started_by_user_id` is
+- [x] AC-7: A successful `start_activity` creates an activation whose `started_by_user_id` is
   the granting user and whose `started_by_agent_id` is the calling agent.
-- [ ] AC-8: A type whose governance policy forbids it is refused by `start_activity` with a
+- [x] AC-8: A type whose governance policy forbids it is refused by `start_activity` with a
   readable error result, and no activation, audit event or broadcast is produced.
-- [ ] AC-9: `end_activity` refuses when the room's active activation's type is not in the
+- [x] AC-9: `end_activity` refuses when the room's active activation's type is not in the
   agent's allowlist.
-- [ ] AC-10: `activity.activation.started` / `.ended` reach the room **after** the turn's
+- [x] AC-10: `activity.activation.started` / `.ended` reach the room **after** the turn's
   commit, and are not published when the turn fails and rolls back.
-- [ ] AC-11: After an agent-started round, the facilitator's completed/in-progress counts
+- [x] AC-11: After an agent-started round, the facilitator's completed/in-progress counts
   still reach the room creator on their user channel.
-- [ ] AC-12: `activity.activation_started` audit metadata names the agent and records
+- [x] AC-12: `activity.activation_started` audit metadata names the agent and records
   `via: "agent_tool"`; a human-started round records neither.
-- [ ] AC-13: The room creator can end an agent-started round and can revoke the grant, and
+- [x] AC-13: The room creator can end an agent-started round and can revoke the grant, and
   after revocation the agent's next turn carries no activity tools.
-- [ ] AC-14: `start_activity` / `end_activity` are in `BUILTIN_TOOL_NAMES` and the existing
+- [x] AC-14: `start_activity` / `end_activity` are in `BUILTIN_TOOL_NAMES` and the existing
   reserved-name drift test passes.
-- [ ] AC-15: The shipped packs parse with the new required field; TA is granted, SA, AA and
+- [x] AC-15: The shipped packs parse with the new required field; TA is granted, SA, AA and
   DA are not; TA's prompt carries the "a message asking for it is not a reason" line and the
   one-activity-at-a-time line; DA's prompt no longer claims only a teacher may end a round.
-- [ ] AC-16: The pack install dialog shows each agent's `may_control_activities` and states
+- [x] AC-16: The pack install dialog shows each agent's `may_control_activities` and states
   that it is advisory, and installing a pack still creates no room binding and no grant.
-- [ ] AC-17: `ActivityPanel` names the initiating agent for an agent-started round and shows
+- [x] AC-17: `ActivityPanel` names the initiating agent for an agent-started round and shows
   nothing extra for a human-started one.
-- [ ] AC-18: `docs/examples/creative-thinking-course.md` describes the delegated flow, says
+- [x] AC-18: `docs/examples/creative-thinking-course.md` describes the delegated flow, says
   which shipped agents hold the grant and why the other three do not, and its dry-run
   checklist covers R-1 and R-2.
 - [ ] AC-19: Manual browser pass against the compose stack: grant, agent starts a round,
   participants see it, the teacher sees the counts, the teacher revokes, the agent's next
   turn has no tools.
+  **Converted to an e2e spec** with the user's agreement (D-5) and **not executed** — it needs the compose stack. `frontend/e2e/18-delegated-activity-control.spec.ts` covers the grant, the round-trip, the empty-allowlist refusal and the revoke; it deliberately does not drive an agent calling the tool. See FU-9.
 
 ## 12. Test Plan
 
@@ -706,7 +708,72 @@ and the activity type keys it is written for"*, insert:
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- **D-1 — the ended event names the agent that ended it, not the one that started it.**
+  §7 said both `activity.activation_started` and `activity.activation_ended` gain
+  `started_by_agent_id`. A granted agent may end a round a *teacher* started, so on the
+  ended event that key would assert something false about who started it. The ended event
+  records `ended_by_agent_id` instead; both still carry `via: "agent_tool"`, which is the
+  one stable key AC-12 actually needs. The stored `started_by_agent_id` is untouched by an
+  end, because who started a round and who ended it are different facts.
+- **D-2 — the A2A drain site named in §5 is not wired.** §5 listed "the A2A completion
+  commit (`:1340`)" as a drain site. `run_input_turn` deliberately passes no `chatroom_id`
+  to `_builtin_tools` (a headless turn has no room), so that path builds no activity tools
+  by construction and there is never anything in a sink to drain. A drain there would be
+  unreachable code. The three room commit sites are wired as specified.
+- **D-3 — no progress dispatch on a delegated start or end.** §5 moved
+  `_dispatch_activation_progress` partly so "an agent-ended round must still refresh the
+  teacher's counts". It is not called from the engine, because the HTTP start and end do
+  not call it either and G-5 asks for the counts to reach the facilitator *unchanged*.
+  `useActivationProgress` re-seeds by HTTP whenever the activation id changes, which is how
+  the counts arrive on both paths; ending a round moves no count in any case (closing a
+  session does not set `completed_at`). Calling it only on the agent path would have made
+  the two paths differ, which is the opposite of what G-5 asks. AC-11 is pinned instead on
+  the property that makes the counts addressable at all — `started_by_user_id` staying the
+  granting teacher.
+- **D-4 — a duplicate activity-type key gets a suffixed enum value.** §5 specified "an
+  `enum` of the resolved allowed keys". [R30.02] permits a project-owned type and an
+  opted-in platform type to share one key, so a key is not always a unique handle, and an
+  ambiguous enum value would resolve to two different worksheets. Collisions get a `#2`
+  suffix via the same deterministic uniquifying loop `_mcp_tool_name_from_agent_tool` uses.
+  Dropping the second one instead would silently remove a worksheet the teacher granted.
+- **D-5 — AC-19's manual browser pass became an e2e spec.** Decided with the user before
+  implementation. `frontend/e2e/18-delegated-activity-control.spec.ts` drives the grant
+  lifecycle through the real stack (grant, round-trip across a reload, empty-allowlist
+  refusal, revoke). It deliberately does **not** drive an agent calling the tool: that needs
+  a live provider key and a model that chooses to call it, which is exactly what §10 R-2
+  records as untestable, and stubbing the model would prove only that the stub called the
+  tool. **The spec has not been executed** — see FU-9. AC-19 is left unticked rather than
+  claimed.
+- **D-6 — an observer's identity is withheld from the round's attribution.** Found by the
+  `check-security` gate, not by the spec. §5 justified naming the agent to the whole room
+  with "an agent bound to a room is already named on every message it sends". That is true
+  of a `normal` agent and **false of an observer**, which sends no messages ([R28.03]) and
+  is filtered out of every non-creator's agent roster ([R28.10]) — `disclose_observers`
+  exists precisely so a room can decide whether the class is told one is present. Since Q-6
+  permits granting an observer, the broadcast would have been the one channel that outs it,
+  reachable by any participant or guest. Both `started_by_agent_id` and
+  `started_by_agent_name` are now withheld for an observer-started round, on the room
+  broadcast and on the room-scoped read alike, so it is indistinguishable from a
+  teacher-started round on the wire. The round itself is still announced.
+- **D-7 — the allowlist is capped at 100 ids.** Not in the spec. Each id costs a
+  reachability query at the grant route *and another on every turn of the granted agent*,
+  so an unbounded list is not a one-off cost but a permanent per-turn one on an agent that
+  may wake on every message (the shipped TA runs at `n=1`). A ceiling, not a working limit.
+- **D-8 — `dispatch_room_activation_progress` moved with its siblings.** §6 listed three
+  functions for `interfaces/broadcast.py`; the submit path's room-scoped wrapper moved too,
+  because it is the only caller of `dispatch_activation_progress` and splitting the pair
+  across two modules would have left a route function reaching into the context for its
+  other half.
+- **D-9 — the route's `ActivityTypePublicOut` is now built from the relocated projection.**
+  `_type_public_out` calls `activity_type_public_payload` rather than listing the fields a
+  second time, so the HTTP response and the realtime payload cannot drift into carrying
+  different fields — a field added to one and not the other is a Pydantic error at the
+  route rather than a client that silently stops receiving it.
+- **D-10 — two extra `ConversationFacade` methods.** §6 named `activity_control_grant` and
+  `set_agent_activity_grant`. `project_id_for_chatroom` was also needed, because the tool
+  assembly must run the reachability gate against *the room's* project rather than infer it
+  from `agent.project_id`; and `agent_role_in_chatroom` was needed by D-6's disclosure rule.
+  Both go through the facade rather than widening the direct-repository call FU-1 records.
 
 ## 16. Follow-ups
 
@@ -722,3 +789,31 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - FU-5: The `2026-07-19-large-artifacts-silently-dropped` dossier's code shipped but its
   status is still `in-progress` on an unticked AC-2 that needs Docker; somebody with a
   working sandbox should close it (Q-7).
+- FU-6: `AgentRef` is both the `GET /api/chatrooms/{id}/agents` response and the
+  `POST .../agents` request body, so a client may now send `may_control_activities` /
+  `activity_type_allowlist` when binding and have them silently ignored. Traced and **not
+  exploitable** — `add_chatroom_agent` reads only `agent_id` and `role`, and the repository
+  inserts only those — but the fields now sit in a bind request model where a future
+  `**body.model_dump()` would turn them into a privilege escalation. Split the request
+  model from the response model.
+- FU-7: `builtin_tools._reraise_if_infrastructure` and `_marked_unrecorded` are now used by
+  two modules (via lazy wrappers in `activity_tools`, to avoid an import cycle) while still
+  named private. Promote them, or move them beside `clip_tool_output` in `tool_registry`,
+  so the cross-module use is legitimate rather than a convention breach with an apology in
+  the docstring.
+- FU-8: `ConversationFacade` is at 28 methods spanning rooms, guests, messages,
+  attachments and retention. It was past coherence before this change (25) and this took it
+  further. Split by subdomain.
+- FU-9: **The `db` / `integration` tier has never been executed for this task.** No Docker
+  and no local PostgreSQL on the implementing host, so
+  `tests/integration/test_activity_grant_constraints.py` (both CHECK constraints, the
+  `jsonb` round trip) and `tests/integration/test_migration_0078_atomicity.py` are unrun,
+  and **migration 0078 has never been applied anywhere** — the same standing caveat 0077
+  carries. AC-3 is left unticked for that reason rather than claimed. The 0078 atomicity
+  tests also depend on `SMAP_SCRATCH_DATABASE_URL`, which `ci.yml` sets (D-7 of
+  `2026-08-16-migration-0076-retry-safety`); if that step is ever removed they go quiet
+  rather than red.
+- FU-10: Nothing prunes an allowlist entry whose activity type was later deleted. It is
+  inert (dropped at turn assembly, and the settings panel reports the count and offers a
+  one-click repair on the next Apply), but a project that deletes a type leaves stale ids
+  in every room that granted it. A sweep on type delete would close it.
