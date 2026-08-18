@@ -27,6 +27,13 @@ list). This section is kept as the record of what that audit produced.
 
 ### Other ready work
 
+- `2026-08-18-agent-delegated-activity-control` (feature, draft) — `depends_on: []`. Lets a
+  room creator delegate activity start/end to a bound agent, per room, scoped to an
+  allowlist of activity types, exercised only through a tool call. Touches
+  `builtin_tools.py` / `turn_engine.py`, which `2026-07-19-large-artifacts-silently-dropped`
+  also names — that is **not** a dependency: its code landed (`d038814`..`19ab5ce`) and only
+  its AC-2 (a Docker-dependent behavioural check) is unticked, so there is no concurrent
+  build to conflict with. See its Q-7.
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
