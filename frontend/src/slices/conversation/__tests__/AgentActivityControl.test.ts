@@ -1,4 +1,4 @@
-// The delegation control in the chatroom settings ([R30.37]).
+﻿// The delegation control in the chatroom settings ([R30.37]).
 //
 // The test i18n harness echoes keys (bundles load lazily), so assert on structure
 // and the exact key rather than translated copy.
@@ -48,7 +48,7 @@ function applyButton(wrapper: { findAll: (s: string) => Array<{ text: () => stri
 describe('AgentActivityControl', () => {
   it('offers no allowlist until the grant is switched on', async () => {
     const wrapper = await renderView(AgentActivityControl, {
-      props: { agent: boundAgent(), activityTypes: [activityType()], busy: false },
+      props: { agent: boundAgent(), activityTypes: [activityType()], activityTypesFailed: false, busy: false },
     })
 
     expect(wrapper.text()).toContain('conversation.activityControl.label')
@@ -60,6 +60,7 @@ describe('AgentActivityControl', () => {
       props: {
         agent: boundAgent({ may_control_activities: true, activity_type_allowlist: ['at_1'] }),
         activityTypes: [activityType()],
+        activityTypesFailed: false,
         busy: false,
       },
     })
@@ -75,7 +76,7 @@ describe('AgentActivityControl', () => {
     // Toggle and checkboxes are two halves of one state the server accepts or
     // refuses together, so they are drafted locally and sent together.
     const wrapper = await renderView(AgentActivityControl, {
-      props: { agent: boundAgent(), activityTypes: [activityType()], busy: false },
+      props: { agent: boundAgent(), activityTypes: [activityType()], activityTypesFailed: false, busy: false },
     })
 
     await wrapper.find('button[role="switch"]').trigger('click')
@@ -90,7 +91,7 @@ describe('AgentActivityControl', () => {
     // to the class ([R28.02]) while starting a round is not.
     const observer = boundAgent({ role: 'observer' })
     const off = await renderView(AgentActivityControl, {
-      props: { agent: observer, activityTypes: [activityType()], busy: false },
+      props: { agent: observer, activityTypes: [activityType()], activityTypesFailed: false, busy: false },
     })
     expect(off.text()).not.toContain('conversation.activityControl.observerNote')
 
@@ -98,6 +99,7 @@ describe('AgentActivityControl', () => {
       props: {
         agent: boundAgent({ role: 'observer', may_control_activities: true, activity_type_allowlist: ['at_1'] }),
         activityTypes: [activityType()],
+        activityTypesFailed: false,
         busy: false,
       },
     })
@@ -114,6 +116,7 @@ describe('AgentActivityControl', () => {
           activity_type_allowlist: ['at_1', 'at_gone'],
         }),
         activityTypes: [activityType()],
+        activityTypesFailed: false,
         busy: false,
       },
     })
@@ -121,11 +124,51 @@ describe('AgentActivityControl', () => {
     expect(wrapper.text()).toContain('conversation.activityControl.unresolved')
   })
 
+  it('drops an unusable entry from the draft so applying repairs the row', async () => {
+    // An unusable id has no checkbox, so keeping it in the draft would make it
+    // unremovable — and the grant route validates every id it is sent, so every
+    // later Apply would 422 with nothing on screen saying which entry did it.
+    const wrapper = await renderView(AgentActivityControl, {
+      props: {
+        agent: boundAgent({
+          may_control_activities: true,
+          activity_type_allowlist: ['at_1', 'at_gone'],
+        }),
+        activityTypes: [activityType()],
+        activityTypesFailed: false,
+        busy: false,
+      },
+    })
+
+    // Enabled on load precisely because the stored row still carries the dead id.
+    expect(applyButton(wrapper)?.attributes('disabled')).toBeUndefined()
+    await applyButton(wrapper)!.trigger('click')
+
+    expect(wrapper.emitted('save')).toEqual([[true, ['at_1']]])
+  })
+
+  it('tells a failed type listing apart from a project that has none', async () => {
+    // "Register one before delegating control" is an instruction; giving it when
+    // the listing merely failed sends the teacher to create what already exists.
+    const wrapper = await renderView(AgentActivityControl, {
+      props: {
+        agent: boundAgent({ may_control_activities: true, activity_type_allowlist: ['at_1'] }),
+        activityTypes: [],
+        activityTypesFailed: true,
+        busy: false,
+      },
+    })
+
+    expect(wrapper.text()).toContain('conversation.activityControl.typesLoadFailed')
+    expect(wrapper.text()).not.toContain('conversation.activityControl.noTypes')
+  })
+
   it('says so when the project has no activity types to delegate', async () => {
     const wrapper = await renderView(AgentActivityControl, {
       props: {
         agent: boundAgent({ may_control_activities: true, activity_type_allowlist: ['at_1'] }),
         activityTypes: [],
+        activityTypesFailed: false,
         busy: false,
       },
     })
@@ -136,7 +179,7 @@ describe('AgentActivityControl', () => {
 
   it('disables everything while a write is in flight', async () => {
     const wrapper = await renderView(AgentActivityControl, {
-      props: { agent: boundAgent(), activityTypes: [activityType()], busy: true },
+      props: { agent: boundAgent(), activityTypes: [activityType()], activityTypesFailed: false, busy: true },
     })
 
     expect(wrapper.find('button[role="switch"]').attributes('disabled')).toBeDefined()

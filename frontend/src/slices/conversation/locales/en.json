@@ -316,7 +316,8 @@
       "apply": "Apply",
       "noTypes": "This project has no activity types yet. Register one before delegating control.",
       "unresolved": "{count} previously selected activity is no longer available to this project and will not be offered to the agent.",
-      "observerNote": "This agent is an observer: the class never sees it speak, but starting or ending a round is something the whole class sees."
+      "observerNote": "This agent is an observer: the class never sees it speak, but starting or ending a round is something the whole class sees.",
+      "typesLoadFailed": "Could not load this project's activity types, so there is nothing to pick from. Reload the page; if it keeps failing, you may not have permission to list them."
     }
   }
 }
