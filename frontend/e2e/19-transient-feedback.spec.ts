@@ -4,7 +4,7 @@ test.describe('Transient feedback channels', () => {
   test('profile success toast is a fixed token-layer overlay inside the viewport', async ({
     authedPage: page,
   }) => {
-    await page.goto('/profile')
+    await page.goto('/account/profile')
     await expect(page.getByRole('heading', { name: 'Profile' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Save', exact: true }).click()
