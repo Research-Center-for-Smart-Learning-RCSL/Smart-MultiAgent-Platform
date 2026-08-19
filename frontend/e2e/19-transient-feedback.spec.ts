@@ -14,30 +14,29 @@ test.describe('Transient feedback channels', () => {
     await expect(toaster).toHaveAttribute('data-y-position', 'top')
     await expect(toaster).toHaveAttribute('data-x-position', 'right')
     const toastBox = page.locator('[data-sonner-toast]').filter({ hasText: 'Profile updated.' })
+    const viewport = page.viewportSize()!
+    await expect.poll(async () => {
+      const rect = await toastBox.boundingBox()
+      return rect !== null
+        && rect.x >= 0
+        && rect.y >= 0
+        && rect.x + rect.width <= viewport.width
+        && rect.y + rect.height <= viewport.height
+    }).toBe(true)
+
     const geometry = await toastBox.evaluate((element) => {
       const style = getComputedStyle(element)
       const toasterStyle = getComputedStyle(element.closest('[data-sonner-toaster]')!)
-      const rect = element.getBoundingClientRect()
       return {
         position: toasterStyle.position,
         zIndex: toasterStyle.zIndex,
         toastPosition: style.position,
-        top: rect.top,
-        right: rect.right,
-        bottom: rect.bottom,
-        left: rect.left,
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight,
       }
     })
 
     expect(geometry.position).toBe('fixed')
     expect(geometry.zIndex).toBe('500')
     expect(geometry.toastPosition).toBe('absolute')
-    expect(geometry.top).toBeGreaterThanOrEqual(0)
-    expect(geometry.left).toBeGreaterThanOrEqual(0)
-    expect(geometry.right).toBeLessThanOrEqual(geometry.viewportWidth)
-    expect(geometry.bottom).toBeLessThanOrEqual(geometry.viewportHeight)
   })
 
   test('toast status colors resolve from the light and dark theme tokens', async ({ page }) => {

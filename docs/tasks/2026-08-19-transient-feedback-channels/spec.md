@@ -391,6 +391,10 @@ documentation, not a new requirement.
   first full-stack run reached the app's 404 because the live identity route is
   `/account/profile`; the E2E now drives that authoritative route. The browser-computed theme
   matrix in the same spec passed on that run.
+- **D-10 (CI fix) — toast geometry is sampled after the entrance transition settles.** The
+  second full-stack run proved fixed positioning and z-index, but the immediate bounding box
+  was still translated about 25px upward by vue-sonner's mount animation. T-1 now polls the
+  actual toast box until the complete rectangle is inside the viewport.
 
 ## 13. Follow-ups
 
