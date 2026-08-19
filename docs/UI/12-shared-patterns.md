@@ -35,7 +35,7 @@ All forms use vee-validate + Zod for validation. Every form field wraps its inpu
 
 **Validation flow**:
 1. **Client-side**: Zod schema validates on blur and submit
-2. **Server-side**: RFC 7807 `detail.field_errors` mapped to vee-validate via `useServerErrors()`
+2. **Server-side**: RFC 7807 top-level `field_errors` extension member mapped to vee-validate via `useServerErrors()`
 3. **Display**: error message appears below the field in `--color-danger`, field border turns danger
 4. **Clearing**: field error clears when user modifies the value
 
@@ -295,7 +295,7 @@ All API errors return RFC 7807 `application/problem+json`. The transport layer (
 | `auth/token-expired` | Silent refresh, retry original request |
 | `auth/invalid-credentials` | Field error on login form |
 | `auth/account-locked` | SAlert danger: "Account locked, try in X minutes" |
-| `validation-error` | Map `detail.field_errors` to form fields |
+| `validation-error` | Map the top-level `field_errors` extension member to form fields |
 | `not-found` | Toast error or redirect to 404 |
 | `forbidden` | Toast error: "You don't have permission" |
 | `conflict` | Toast warning: "Resource was modified, please refresh" |
