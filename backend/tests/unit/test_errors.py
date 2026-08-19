@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.main import create_app
 from shared_kernel.errors import NotImplementedProblem, SmapError, problem_type
 from shared_kernel.errors.handlers import register_exception_handlers
+from shared_kernel.errors.openapi import install_validation_problem_openapi
 
 
 def _app_raising(exc: Exception) -> FastAPI:
@@ -151,6 +152,20 @@ def test_root_validation_error_is_not_claimed_as_a_field_error() -> None:
     assert response.json()["field_errors"] == []
 
 
+def test_malformed_json_offset_is_not_claimed_as_a_field_error() -> None:
+    client = TestClient(_validation_app())
+    response = client.post(
+        "/validation/1?limit=1",
+        headers={"content-type": "application/json", "x-count": "1"},
+        cookies={"session_id": "1"},
+        content="{bad",
+    )
+
+    assert response.status_code == 422
+    assert response.json()["field_errors"] == []
+    assert "{bad" not in response.text
+
+
 def test_openapi_advertises_the_runtime_validation_problem_contract() -> None:
     schema = create_app().openapi()
     response = schema["paths"]["/api/auth/login"]["post"]["responses"]["422"]
@@ -162,6 +177,7 @@ def test_openapi_advertises_the_runtime_validation_problem_contract() -> None:
     field_error = schema["components"]["schemas"]["ValidationFieldError"]
     assert set(field_error["properties"]) == {"path", "message"}
     assert set(field_error["required"]) == {"path", "message"}
+    assert field_error["additionalProperties"] is False
     validation_problem = schema["components"]["schemas"]["ValidationProblem"]
     assert set(validation_problem["required"]) == {
         "type",
@@ -169,5 +185,30 @@ def test_openapi_advertises_the_runtime_validation_problem_contract() -> None:
         "status",
         "detail",
         "field_errors",
+        "instance",
     }
     assert "HTTPValidationError" not in schema["components"]["schemas"]
+
+
+def test_openapi_preserves_an_explicit_custom_422_response() -> None:
+    app = FastAPI()
+
+    @app.get(
+        "/custom/{item_id}",
+        responses={
+            422: {
+                "description": "Domain-specific response",
+                "content": {"application/problem+json": {"schema": {"type": "object"}}},
+            }
+        },
+    )
+    def _custom(item_id: int) -> int:
+        return item_id
+
+    install_validation_problem_openapi(app)
+    response = app.openapi()["paths"]["/custom/{item_id}"]["get"]["responses"]["422"]
+
+    assert response == {
+        "description": "Domain-specific response",
+        "content": {"application/problem+json": {"schema": {"type": "object"}}},
+    }

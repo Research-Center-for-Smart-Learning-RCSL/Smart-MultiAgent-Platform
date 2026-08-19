@@ -9,7 +9,7 @@ import type { ValidationFieldError } from './ValidationFieldError';
 export type ValidationProblem = {
     detail: string;
     field_errors: Array<ValidationFieldError>;
-    instance?: (string | null);
+    instance: string;
     status: 422;
     title: string;
     type: string;

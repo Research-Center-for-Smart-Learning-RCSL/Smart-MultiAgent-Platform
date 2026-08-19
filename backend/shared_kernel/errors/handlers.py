@@ -72,6 +72,8 @@ def _normalise_validation_errors(errors: Sequence[Any]) -> list[dict[str, str]]:
     for error in errors:
         if not isinstance(error, Mapping):
             continue
+        if error.get("type") == "json_invalid":
+            continue
         path = _validation_path(error.get("loc"))
         message = error.get("msg")
         if path is None or not isinstance(message, str) or not message:

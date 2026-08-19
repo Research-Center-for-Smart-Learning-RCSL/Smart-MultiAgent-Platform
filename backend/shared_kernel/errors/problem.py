@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 _PROBLEM_BASE = "https://smap.local/problems"
 
@@ -59,6 +59,8 @@ class Problem(BaseModel):
 class ValidationFieldError(BaseModel):
     """One request-validation failure safe to expose on the public wire."""
 
+    model_config = ConfigDict(extra="forbid")
+
     path: str = Field(min_length=1)
     message: str = Field(min_length=1)
 
@@ -70,7 +72,7 @@ class ValidationProblem(BaseModel):
     title: str
     status: Literal[422]
     detail: str
-    instance: str | None = None
+    instance: str
     field_errors: list[ValidationFieldError]
 
 
