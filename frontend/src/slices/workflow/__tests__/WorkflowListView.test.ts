@@ -67,6 +67,6 @@ describe('WorkflowListView', () => {
     await flushPromises()
 
     expect(sonner.error).toHaveBeenCalledOnce()
-    expect(wrapper.findComponent({ name: 'STable' }).exists()).toBe(true)
+    expect(wrapper.findComponent(WorkflowListView).exists()).toBe(true)
   })
 })

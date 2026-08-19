@@ -46,8 +46,11 @@ describe('global error feedback', () => {
     expect(toast.error).not.toHaveBeenCalledWith(expect.stringContaining('attacker-controlled'))
   })
 
-  it('localizes rate limits and unexpected errors', () => {
-    i18n.global.locale.value = 'en'
+  it.each([
+    ['en', 'Too many requests. Please retry in 2s.', 'An unexpected error occurred. Please try again.'],
+    ['zh-TW', '請求過於頻繁，請於 2 秒後再試。', '發生未預期的錯誤，請再試一次。'],
+  ] as const)('localizes rate limits and unexpected errors in %s', (locale, rateLimited, unexpected) => {
+    i18n.global.locale.value = locale
     const app = createApp({})
     installErrorHandler(app)
 
@@ -56,10 +59,10 @@ describe('global error feedback', () => {
       title: 'Rate limited',
       status: 429,
     }, 1_500), null, 'test')
-    expect(toast.warning).toHaveBeenCalledWith('Too many requests. Please retry in 2s.')
+    expect(toast.warning).toHaveBeenCalledWith(rateLimited)
 
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     app.config.errorHandler?.(new Error('boom'), null, 'test')
-    expect(toast.error).toHaveBeenCalledWith('An unexpected error occurred. Please try again.')
+    expect(toast.error).toHaveBeenCalledWith(unexpected)
   })
 })

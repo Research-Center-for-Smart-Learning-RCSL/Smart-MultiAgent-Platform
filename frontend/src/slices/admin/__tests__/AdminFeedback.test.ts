@@ -1,17 +1,17 @@
-/* eslint-disable vue/one-component-per-file -- Inline harnesses expose composables through a real Vue setup context. */
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, h } from 'vue'
-import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type * as SharedComposables from '@shared/composables'
 
 import { ApiError } from '@shared/errors'
 import { i18n } from '@shared/i18n'
+import { setAccessToken } from '@shared/transport'
 import { renderView } from '../../../../tests/utils'
 import { adminApi } from '../api/admin'
 import { useAdminActions } from '../composables/useAdminActions'
-import { useImpersonation } from '../composables/useImpersonation'
 import AdminAdminsView from '../views/AdminAdminsView.vue'
+import AdminImpersonateLauncher from '../views/AdminImpersonateLauncher.vue'
 import AdminOpsView from '../views/AdminOpsView.vue'
 
 const sonner = vi.hoisted(() => ({
@@ -22,6 +22,16 @@ const sonner = vi.hoisted(() => ({
 }))
 
 vi.mock('vue-sonner', () => ({ toast: sonner }))
+vi.mock('@shared/composables', async () => {
+  const actual = await vi.importActual<typeof SharedComposables>('@shared/composables')
+  return {
+    ...actual,
+    useConfirmDialog: () => ({
+      confirm: vi.fn().mockResolvedValue(true),
+      prompt: vi.fn(),
+    }),
+  }
+})
 
 function problem(type: string): ApiError {
   return new ApiError({
@@ -32,6 +42,7 @@ function problem(type: string): ApiError {
 }
 
 afterEach(() => {
+  setAccessToken(null)
   vi.restoreAllMocks()
   vi.clearAllMocks()
 })
@@ -50,10 +61,6 @@ describe('admin feedback ownership', () => {
       global: {
         plugins: [
           i18n,
-          createRouter({
-            history: createMemoryHistory(),
-            routes: [{ path: '/', component: { template: '<div />' } }],
-          }),
           [VueQueryPlugin, { queryClient: new QueryClient() }],
         ],
       },
@@ -87,22 +94,56 @@ describe('admin feedback ownership', () => {
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 
+  it('uses a success toast and no standing alert for GraphRAG reset', async () => {
+    vi.spyOn(adminApi, 'resetGraphrag').mockResolvedValue(undefined)
+    const wrapper = await renderView(AdminOpsView)
+    const resetForm = wrapper.findAll('form')[0]
+    await resetForm.get('input').setValue('cfg_1')
+    await resetForm.trigger('submit')
+    await flushPromises()
+
+    expect(sonner.success).toHaveBeenCalledWith(
+      'admin.ops.graphragResetSuccess',
+      expect.any(Object),
+    )
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  })
+
   it('leaves impersonation failure feedback to its composable', async () => {
     vi.spyOn(adminApi, 'impersonate').mockRejectedValue(problem('admin/impersonation-failed'))
-    let impersonation!: ReturnType<typeof useImpersonation>
-    const Harness = defineComponent({
-      setup() {
-        impersonation = useImpersonation()
-        return () => h('div')
-      },
-    })
-    mount(Harness, {
-      global: {
-        plugins: [i18n, [VueQueryPlugin, { queryClient: new QueryClient() }]],
-      },
-    })
+    const wrapper = await renderView(AdminImpersonateLauncher)
+    await wrapper.get('form input').setValue('u_1')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
 
-    await expect(impersonation.startImpersonation.mutateAsync('u_1')).rejects.toBeInstanceOf(ApiError)
     expect(sonner.error).toHaveBeenCalledOnce()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it('leaves end-impersonation failure feedback to its composable', async () => {
+    const claims = btoa(JSON.stringify({ sub: 'u_1', impersonated_by: 'admin_1' }))
+    setAccessToken(`header.${claims}.signature`)
+    vi.spyOn(adminApi, 'endImpersonate').mockRejectedValue(problem('admin/impersonation-failed'))
+    const wrapper = await renderView(AdminImpersonateLauncher)
+    await wrapper.get('.admin-impersonate__active button').trigger('click')
+    await flushPromises()
+
+    expect(sonner.error).toHaveBeenCalledOnce()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it.each([
+    ['reset', 'resetGraphrag', 0],
+    ['restore', 'restoreResource', 1],
+  ] as const)('keeps %s failures in one toast with no standing alert', async (_name, method, formIndex) => {
+    vi.spyOn(adminApi, method).mockRejectedValue(problem(`admin/${method}-failed`))
+    const wrapper = await renderView(AdminOpsView)
+    const form = wrapper.findAll('form')[formIndex]
+    await form.get('input').setValue('resource_1')
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(sonner.error).toHaveBeenCalledOnce()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 })
