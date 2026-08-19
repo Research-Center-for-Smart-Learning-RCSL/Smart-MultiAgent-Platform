@@ -9846,6 +9846,7 @@
         "type": "object"
       },
       "ValidationFieldError": {
+        "additionalProperties": false,
         "description": "One request-validation failure safe to expose on the public wire.",
         "properties": {
           "message": {
@@ -9881,16 +9882,8 @@
             "type": "array"
           },
           "instance": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Instance"
+            "title": "Instance",
+            "type": "string"
           },
           "status": {
             "const": 422,
@@ -9914,6 +9907,7 @@
           "title",
           "status",
           "detail",
+          "instance",
           "field_errors"
         ],
         "title": "ValidationProblem",
