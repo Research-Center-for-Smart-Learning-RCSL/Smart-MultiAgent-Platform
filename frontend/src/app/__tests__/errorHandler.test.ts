@@ -1,3 +1,4 @@
+/* eslint-disable vue/one-component-per-file -- Each createApp root isolates one handler invocation. */
 import { createApp } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 

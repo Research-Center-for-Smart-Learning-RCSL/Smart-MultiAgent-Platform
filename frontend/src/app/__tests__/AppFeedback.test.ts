@@ -1,3 +1,4 @@
+/* eslint-disable vue/one-component-per-file, vue/require-default-prop -- Inline test doubles keep the host-prop contract visible. */
 import { shallowMount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'

@@ -1,3 +1,4 @@
+/* eslint-disable vue/one-component-per-file -- Inline harnesses expose composables through a real Vue setup context. */
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, h } from 'vue'
