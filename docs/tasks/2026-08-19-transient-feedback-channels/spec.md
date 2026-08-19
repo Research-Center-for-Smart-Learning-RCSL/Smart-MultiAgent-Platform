@@ -387,6 +387,10 @@ documentation, not a new requirement.
   is excluded from validation responses; no authentication, authorization, tenancy, persistence,
   secret-storage, or HTML-sanitization path changed. The quality review's runtime and coverage
   findings are recorded above and were fixed before publication.
+- **D-9 (CI fix) — the deterministic toast trigger used the obsolete `/profile` path.** The
+  first full-stack run reached the app's 404 because the live identity route is
+  `/account/profile`; the E2E now drives that authoritative route. The browser-computed theme
+  matrix in the same spec passed on that run.
 
 ## 13. Follow-ups
 
