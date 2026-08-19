@@ -6,6 +6,7 @@ canonical ``https://smap.local/problems/…`` prefix (R19.06).
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -17,6 +18,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from shared_kernel.errors.problem import Problem, SmapError, problem_type
 
 _PROBLEM_MEDIA_TYPE = "application/problem+json"
+_REQUEST_LOCATION_PREFIXES = frozenset({"body", "query", "path", "header", "cookie"})
 
 
 def problem_response(
@@ -60,9 +62,42 @@ async def _validation_handler(request: Request, exc: RequestValidationError) -> 
         title="Validation Failed",
         status=422,
         detail="Request validation failed.",
-        extras={"field_errors": exc.errors()},
+        extras={"field_errors": _normalise_validation_errors(exc.errors())},
     )
     return _respond(problem, request)
+
+
+def _normalise_validation_errors(errors: Sequence[Any]) -> list[dict[str, str]]:
+    field_errors: list[dict[str, str]] = []
+    for error in errors:
+        if not isinstance(error, Mapping):
+            continue
+        path = _validation_path(error.get("loc"))
+        message = error.get("msg")
+        if path is None or not isinstance(message, str) or not message:
+            continue
+        field_errors.append({"path": path, "message": message})
+    return field_errors
+
+
+def _validation_path(raw_location: object) -> str | None:
+    if not isinstance(raw_location, (list, tuple)):
+        return None
+    location = list(raw_location)
+    if location and location[0] in _REQUEST_LOCATION_PREFIXES:
+        location.pop(0)
+
+    path = ""
+    for segment in location:
+        if isinstance(segment, bool):
+            return None
+        if isinstance(segment, int):
+            path += f"[{segment}]"
+        elif isinstance(segment, str) and segment:
+            path += f".{segment}" if path else segment
+        else:
+            return None
+    return path or None
 
 
 async def _http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:

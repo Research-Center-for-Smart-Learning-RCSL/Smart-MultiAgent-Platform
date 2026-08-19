@@ -7,7 +7,7 @@ for type-only references (guarded by TYPE_CHECKING).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -54,6 +54,24 @@ class Problem(BaseModel):
                 continue  # never let extras overwrite reserved members
             body[k] = v
         return body
+
+
+class ValidationFieldError(BaseModel):
+    """One request-validation failure safe to expose on the public wire."""
+
+    path: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+
+
+class ValidationProblem(BaseModel):
+    """Published schema for the global request-validation Problem response."""
+
+    type: str
+    title: str
+    status: Literal[422]
+    detail: str
+    instance: str | None = None
+    field_errors: list[ValidationFieldError]
 
 
 class SmapError(Exception):

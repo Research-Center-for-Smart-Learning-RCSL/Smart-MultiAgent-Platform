@@ -34,8 +34,15 @@ export function useServerErrors(setErrors: (fields: Record<string, string>) => v
 
     const mapped: Record<string, string> = {}
     for (const fe of err.fieldErrors) {
+      if (
+        typeof fe.path !== 'string' || fe.path.length === 0 ||
+        typeof fe.message !== 'string' || fe.message.length === 0
+      ) {
+        continue
+      }
       mapped[fe.path] = fe.message
     }
+    if (Object.keys(mapped).length === 0) return false
     setErrors(mapped)
     return true
   }

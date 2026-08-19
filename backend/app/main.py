@@ -52,6 +52,7 @@ from contexts.workflow.interfaces import error_mapping as workflow_errors
 from shared_kernel.auth.clients import close_redis
 from shared_kernel.db.session import dispose as dispose_db
 from shared_kernel.errors.handlers import register_exception_handlers
+from shared_kernel.errors.openapi import install_validation_problem_openapi
 from shared_kernel.observability.metrics import mount_metrics_middleware
 from shared_kernel.observability.otel import install_otel
 
@@ -166,6 +167,8 @@ def create_app() -> FastAPI:
         if entry.condition is not None and not entry.condition():
             continue
         app.include_router(entry.router)
+
+    install_validation_problem_openapi(app)
 
     return app
 

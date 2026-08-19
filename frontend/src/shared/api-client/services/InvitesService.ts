@@ -37,7 +37,7 @@ export class InvitesService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -62,7 +62,7 @@ export class InvitesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -83,7 +83,7 @@ export class InvitesService {
                 'invite_id': inviteId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -104,7 +104,7 @@ export class InvitesService {
                 'invite_id': inviteId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
