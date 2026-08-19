@@ -42,6 +42,12 @@ first, but building them serially avoids the conflict.
   it can run in parallel with all four others. Carries an SRS/spec delta: `07-conversation.md:513`
   claims a cache prevents per-token markdown re-rendering, which the audit disproved, and the
   spec's page size disagrees with the code (50 vs 100).
+- `2026-08-19-shared-overlay-and-shell-defects` (bugfix, draft) - unblocked by the completed
+  `2026-08-19-transient-feedback-channels`. Fixes the shared overlay primitives: `STable`'s
+  sticky header is inert, `SDropdown` has no flip or height cap (and measures before the menu
+  exists), `ErrorBoundary` wraps the whole layout so a render error blanks the shell, and the
+  404 route has no `meta`. Its impersonation-banner z-index decision must retain the completed
+  predecessor's toaster contract at `--z-toast: 500`.
 
 ### Other ready work
 
@@ -57,12 +63,6 @@ first, but building them serially avoids the conflict.
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
 overlap, so each unblocks as soon as its predecessor is `implemented`.
 
-- `2026-08-19-shared-overlay-and-shell-defects` (bugfix, draft) - waiting on
-  `2026-08-19-transient-feedback-channels`. Both edit `App.vue`, and this dossier's
-  impersonation-banner z-index decision must agree with that one's Q-6, which puts the toaster
-  on `--z-toast: 500`. Fixes the shared overlay primitives: `STable`'s sticky header is inert,
-  `SDropdown` has no flip or height cap (and measures before the menu exists), `ErrorBoundary`
-  wraps the whole layout so a render error blanks the shell, and the 404 route has no `meta`.
 - `2026-08-19-content-area-spacing-and-scroll-contract` (bugfix, draft) - waiting on
   `2026-08-19-shared-overlay-and-shell-defects`. Both edit `AppShell.vue`, `router.ts` and
   `AgentDetailView.vue`. Strips the duplicated padding from 34 view roots (and the nested
@@ -76,9 +76,6 @@ overlap, so each unblocks as soon as its predecessor is `implemented`.
 
 ## In progress
 
-- `2026-08-19-transient-feedback-channels` (bugfix) — `depends_on: []`. Restores the global
-  toast layer and the runtime/OpenAPI 422 field-error contract, then consolidates transient
-  feedback ownership across app, admin, identity, workflow, prompt-studio, and skills.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-08-18 after implementation: `2026-08-18-agent-delegated-activity-control`
 (a room creator can delegate activity start/end to one bound agent, per room, scoped to an

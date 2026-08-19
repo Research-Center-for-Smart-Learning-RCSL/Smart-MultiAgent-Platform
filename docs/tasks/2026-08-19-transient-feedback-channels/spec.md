@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-08-19
 requirements: [R24.25]
 depends_on: []
@@ -278,10 +278,12 @@ Written first, failing against current code.
   AdminOps operations, and assert no standing success alert remains.
 - **T-8 (F-20)** focused error-handler tests assert translated permission, rate-limit, and
   generic fallback messages in both locales and prove backend `detail` is ignored.
-- **T-9 (F-32/F-36)** component tests cover network-banner geometry on app and auth/public
-  layouts, plus translated toaster container and nested close-button labels in both locales.
-- **Manual M-1 (F-1 theming)** in a browser, verify success/error/warning/info computed
-  background, foreground, and border tokens in light and dark themes.
+- **T-9 (F-32/F-36)** component tests cover app/auth/public banner-host routing and the
+  below-topbar modifier, while source assertions cover the `68px` app-shell and `12px`
+  auth/public offsets. A real `vue-sonner` mount verifies translated toaster container and
+  nested close-button labels in both locales.
+- **T-10 (F-1 theming)** Playwright verifies browser-computed background, foreground, and
+  border colors for success/error/warning/info against their tokens in light and dark themes.
 
 `frontend/e2e/11-mcp.spec.ts:57`'s comment recording the suppressed toast as accepted
 behaviour must be removed, and its assertion extended to cover the 422 path.
@@ -313,32 +315,32 @@ behaviour must be removed, and its assertion extended to cover the 422 path.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: T-1 fails before the fix and passes after; a toast renders `position: fixed`
+- [x] AC-1: T-1 fails before the fix and passes after; a toast renders `position: fixed`
       inside the viewport on the configured corner.
-- [ ] AC-2: `vue-sonner/style.css` is imported once, before `main.css`, and M-1 confirms the
+- [x] AC-2: `vue-sonner/style.css` is imported once, before `main.css`, and T-10 confirms the
       token-tinting overrides apply to all four types in both themes.
-- [ ] AC-3: T-1 resolves the toaster's computed z-index to `500` from `--z-toast`, not
+- [x] AC-3: T-1 resolves the toaster's computed z-index to `500` from `--z-toast`, not
       `999999999`.
-- [ ] AC-4: T-2 fails before the fix and passes after; top-level `field_errors` matches R24.25,
+- [x] AC-4: T-2 fails before the fix and passes after; top-level `field_errors` matches R24.25,
       covers every source prefix plus exact nested/indexed formatting, and carries no `input`.
-- [ ] AC-5: the regenerated OpenAPI schema and frontend client are committed and
+- [x] AC-5: the regenerated OpenAPI schema and frontend client are committed and
       T-2b plus `pnpm run check:openapi-drift` pass.
-- [ ] AC-6: T-3 passes; `applyServerErrors` returns `false` when no structurally valid item maps, and the
+- [x] AC-6: T-3 passes; `applyServerErrors` returns `false` when no structurally valid item maps, and the
       caller's fallback toast fires.
-- [ ] AC-7: a request-validation 422 on the Add MCP server dialog produces a visible message
+- [x] AC-7: a request-validation 422 on the Add MCP server dialog produces a visible message
       inline for its two inline paths, in the form-level alert for other valid paths, or by
       fallback toast for an invalid/empty path.
-- [ ] AC-8: T-4 passes; covered admin and impersonation actions produce one message each,
+- [x] AC-8: T-4 passes; covered admin and impersonation actions produce one message each,
       including the specific `last-admin` explanation, never a toast plus standing banner.
-- [ ] AC-9: T-5 passes; a failed workflow create leaves the list rendered.
-- [ ] AC-10: no user-visible string in `errorHandler.ts` is an English literal or a raw
+- [x] AC-9: T-5 passes; a failed workflow create leaves the list rendered.
+- [x] AC-10: no user-visible string in `errorHandler.ts` is an English literal or a raw
       backend `detail`; all resolve in both `en` and `zh-TW`.
-- [ ] AC-11: T-9 proves `SNetworkBanner` clears the top bar on app layouts without a phantom
-      top-bar gap on auth/public layouts.
-- [ ] AC-12: T-9 proves toaster container and close-button accessible labels resolve through
+- [x] AC-11: T-9 proves app/auth/public host routing and the correct layout-specific offset
+      rules, so the banner clears the top bar without a phantom auth/public gap.
+- [x] AC-12: T-9 proves toaster container and close-button accessible labels resolve through
       `$t()` in `en` and `zh-TW`.
-- [ ] AC-13: T-6 and T-7 pass.
-- [ ] AC-14: `frontend/e2e/11-mcp.spec.ts`'s accepted-behaviour comment is gone and the 422
+- [x] AC-13: T-6 and T-7 pass.
+- [x] AC-14: `frontend/e2e/11-mcp.spec.ts`'s accepted-behaviour comment is gone and the 422
       path is asserted.
 
 ## 11. SRS Delta
@@ -355,7 +357,36 @@ documentation, not a new requirement.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — the backend contract fix required a published-schema policy, not only a handler
+  rewrite.** Freshness review proved FastAPI's generated 422 schema was unrelated to the
+  runtime Problem response. The build added a narrow global OpenAPI postprocessor, a typed
+  validation Problem, a negative test preserving explicit custom 422 responses, and regenerated
+  every affected client description.
+- **D-2 — malformed JSON is deliberately not an inline field error.** FastAPI reports a parser
+  character offset as an integer `loc` segment. Publishing that as `[n]` would falsely claim a
+  form collection index, so `json_invalid` remains a form-level/fallback 422 with an empty
+  `field_errors` list.
+- **D-3 — the generated field item is closed and `instance` is required.** Independent quality
+  review found that the first schema admitted extra item keys and nullable/optional `instance`
+  despite the stricter runtime. The schema and contract tests now match the wire exactly.
+- **D-4 — the installed vue-sonner API nests the close-button label.** The approved draft named
+  a nonexistent top-level Toaster prop. The implementation passes `containerAriaLabel` directly
+  and `closeButtonAriaLabel` through `toastOptions`, verified with a real Toaster mount.
+- **D-5 — M-1 became a repeatable E2E gate.** The requested eight-case browser matrix is now
+  T-10, which compares computed toast background, foreground, and border colors with their
+  light/dark design tokens in Playwright.
+- **D-6 — sibling coverage expanded during the build.** The admin sweep included impersonation
+  start/end, reset/restore failures, and GraphRAG reset success. Workflow containment moved to
+  an app-layer harness using the real `ErrorBoundary`; global error fallbacks now run in both
+  locales.
+- **D-7 — local shell limitations were delegated to clean CI.** Direct frontend lint,
+  typecheck, build and focused tests passed, but the Windows-to-WSL typecheck self-test and
+  OpenAPI shell wrapper could not locate their opposite-platform runtimes. Remote CI supplied
+  the authoritative typecheck self-test and OpenAPI drift results.
+- **D-8 — independent review found no remaining security or quality defect.** Raw request input
+  is excluded from validation responses; no authentication, authorization, tenancy, persistence,
+  secret-storage, or HTML-sanitization path changed. The quality review's runtime and coverage
+  findings are recorded above and were fixed before publication.
 
 ## 13. Follow-ups
 
