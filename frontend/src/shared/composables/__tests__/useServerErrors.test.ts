@@ -95,5 +95,20 @@ describe('useServerErrors', () => {
         }),
       ),
     ).toBe(false)
+
+    // A runtime contract drift must not let `{undefined: undefined}` count as
+    // visible inline feedback and suppress the caller's fallback toast.
+    expect(
+      applyServerErrors(
+        new ValidationError({
+          type: 'https://smap.local/problems/validation',
+          title: 'Validation Error',
+          status: 422,
+          field_errors: [
+            { loc: ['body', 'name'], msg: 'Invalid value', type: 'value_error' },
+          ] as unknown as Array<{ path: string; message: string }>,
+        }),
+      ),
+    ).toBe(false)
   })
 })
