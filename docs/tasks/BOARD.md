@@ -37,7 +37,7 @@ The chain `transient-feedback-channels` -> `shared-overlay-and-shell-defects` ->
 `AgentDetailView.vue`, and concurrent builds would conflict. Any of them could technically go
 first, but building them serially avoids the conflict.
 
-- `2026-08-19-transient-feedback-channels` (bugfix, draft) - `depends_on: []`. Carries both
+- `2026-08-19-transient-feedback-channels` (bugfix, approved) - `depends_on: []`. Carries both
   criticals. F-1: vue-sonner 2.x moved its CSS to a separate export and nothing imports it, so
   every toast in the product renders unstyled in document flow below a `100vh` shell. F-2: the
   backend emits raw Pydantic `exc.errors()` where R24.25 and the whole frontend expect
