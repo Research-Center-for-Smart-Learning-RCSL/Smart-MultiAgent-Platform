@@ -67,6 +67,7 @@ async function renderApp(path: string, locale: 'en' | 'zh-TW') {
     routes: [
       { path: '/app', component: { template: '<div />' }, meta: { layout: 'app' } },
       { path: '/login', component: { template: '<div />' }, meta: { layout: 'auth' } },
+      { path: '/public', component: { template: '<div />' }, meta: { layout: 'public' } },
     ],
   })
   await router.push(path)
@@ -90,5 +91,7 @@ describe('App feedback hosts', () => {
     expect(app.getComponent({ name: 'SNetworkBanner' }).props('belowTopbar')).toBe(true)
     const auth = await renderApp('/login', 'en')
     expect(auth.getComponent({ name: 'SNetworkBanner' }).props('belowTopbar')).toBe(false)
+    const publicPage = await renderApp('/public', 'en')
+    expect(publicPage.getComponent({ name: 'SNetworkBanner' }).props('belowTopbar')).toBe(false)
   })
 })
