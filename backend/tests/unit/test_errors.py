@@ -162,4 +162,12 @@ def test_openapi_advertises_the_runtime_validation_problem_contract() -> None:
     field_error = schema["components"]["schemas"]["ValidationFieldError"]
     assert set(field_error["properties"]) == {"path", "message"}
     assert set(field_error["required"]) == {"path", "message"}
+    validation_problem = schema["components"]["schemas"]["ValidationProblem"]
+    assert set(validation_problem["required"]) == {
+        "type",
+        "title",
+        "status",
+        "detail",
+        "field_errors",
+    }
     assert "HTTPValidationError" not in schema["components"]["schemas"]

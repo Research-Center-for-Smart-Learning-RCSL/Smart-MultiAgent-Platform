@@ -42,7 +42,7 @@ export class WorkspacesService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -67,7 +67,7 @@ export class WorkspacesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -88,7 +88,7 @@ export class WorkspacesService {
                 'workspace_id': workspaceId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -109,7 +109,7 @@ export class WorkspacesService {
                 'workspace_id': workspaceId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -139,7 +139,7 @@ export class WorkspacesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

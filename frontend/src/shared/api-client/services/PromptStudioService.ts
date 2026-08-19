@@ -52,7 +52,7 @@ export class PromptStudioService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -72,7 +72,7 @@ export class PromptStudioService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -93,7 +93,7 @@ export class PromptStudioService {
                 'file_id': fileId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -124,7 +124,7 @@ export class PromptStudioService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -145,7 +145,7 @@ export class PromptStudioService {
                 'template_id': templateId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -175,7 +175,7 @@ export class PromptStudioService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -211,7 +211,7 @@ export class PromptStudioService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -231,7 +231,7 @@ export class PromptStudioService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -252,7 +252,7 @@ export class PromptStudioService {
                 'file_id': fileId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -283,7 +283,7 @@ export class PromptStudioService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -304,7 +304,7 @@ export class PromptStudioService {
                 'template_id': templateId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -334,7 +334,7 @@ export class PromptStudioService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -355,7 +355,7 @@ export class PromptStudioService {
                 'org_id': orgId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -385,7 +385,7 @@ export class PromptStudioService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -410,7 +410,7 @@ export class PromptStudioService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -434,7 +434,7 @@ export class PromptStudioService {
                 'file_id': fileId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -455,7 +455,7 @@ export class PromptStudioService {
                 'org_id': orgId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -480,7 +480,7 @@ export class PromptStudioService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -504,7 +504,7 @@ export class PromptStudioService {
                 'template_id': templateId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -537,7 +537,7 @@ export class PromptStudioService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -558,7 +558,7 @@ export class PromptStudioService {
                 'project_id': projectId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -579,7 +579,7 @@ export class PromptStudioService {
                 'project_id': projectId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -600,7 +600,7 @@ export class PromptStudioService {
                 'project_id': projectId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -621,7 +621,7 @@ export class PromptStudioService {
                 'session_id': sessionId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -646,7 +646,7 @@ export class PromptStudioService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

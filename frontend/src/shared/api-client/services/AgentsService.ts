@@ -38,7 +38,7 @@ export class AgentsService {
                 'If-Match': ifMatch,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -59,7 +59,7 @@ export class AgentsService {
                 'agent_id': agentId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -89,7 +89,7 @@ export class AgentsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -124,7 +124,7 @@ export class AgentsService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -149,7 +149,7 @@ export class AgentsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -173,7 +173,7 @@ export class AgentsService {
                 'tool_id': toolId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -201,7 +201,7 @@ export class AgentsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -225,7 +225,7 @@ export class AgentsService {
                 'tool_id': toolId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -260,7 +260,7 @@ export class AgentsService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -285,7 +285,7 @@ export class AgentsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -311,7 +311,7 @@ export class AgentsService {
                 'project_id': projectId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -345,7 +345,7 @@ export class AgentsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

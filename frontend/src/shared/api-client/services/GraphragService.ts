@@ -37,7 +37,7 @@ export class GraphragService {
                 'agent_id': agentId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -69,7 +69,7 @@ export class GraphragService {
                 'config_id': configId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -90,7 +90,7 @@ export class GraphragService {
                 'config_id': configId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -118,7 +118,7 @@ export class GraphragService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -139,7 +139,7 @@ export class GraphragService {
                 'config_id': configId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -170,7 +170,7 @@ export class GraphragService {
                 'limit': limit,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -191,7 +191,7 @@ export class GraphragService {
                 'config_id': configId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -226,7 +226,7 @@ export class GraphragService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -251,7 +251,7 @@ export class GraphragService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -273,7 +273,7 @@ export class GraphragService {
                 'project_id': projectId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

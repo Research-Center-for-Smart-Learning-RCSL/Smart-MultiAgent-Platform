@@ -5436,19 +5436,6 @@
         "title": "GuestLinkOut",
         "type": "object"
       },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "title": "Detail",
-            "type": "array"
-          }
-        },
-        "title": "HTTPValidationError",
-        "type": "object"
-      },
       "IdentityOut": {
         "properties": {
           "created_at": {
@@ -9858,44 +9845,78 @@
         "title": "ValidateOut",
         "type": "object"
       },
-      "ValidationError": {
+      "ValidationFieldError": {
+        "description": "One request-validation failure safe to expose on the public wire.",
         "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "title": "Location",
-            "type": "array"
-          },
-          "msg": {
+          "message": {
+            "minLength": 1,
             "title": "Message",
             "type": "string"
           },
-          "type": {
-            "title": "Error Type",
+          "path": {
+            "minLength": 1,
+            "title": "Path",
             "type": "string"
           }
         },
         "required": [
-          "loc",
-          "msg",
-          "type"
+          "path",
+          "message"
         ],
-        "title": "ValidationError",
+        "title": "ValidationFieldError",
+        "type": "object"
+      },
+      "ValidationProblem": {
+        "description": "Published schema for the global request-validation Problem response.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "field_errors": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationFieldError"
+            },
+            "title": "Field Errors",
+            "type": "array"
+          },
+          "instance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Instance"
+          },
+          "status": {
+            "const": 422,
+            "enum": [
+              422
+            ],
+            "title": "Status",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "field_errors"
+        ],
+        "title": "ValidationProblem",
         "type": "object"
       },
       "ValidatorKind": {
@@ -10665,13 +10686,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List All Active Activations",
@@ -10737,13 +10758,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Install Activity Example",
@@ -10819,13 +10840,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Put Activity Policy",
@@ -10862,13 +10883,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Preview Activity Policy Impact",
@@ -10930,13 +10951,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List All Activity Types",
@@ -10968,13 +10989,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Platform Activity Type",
@@ -11021,13 +11042,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Update Platform Activity Type",
@@ -11087,13 +11108,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Promote Admin",
@@ -11124,13 +11145,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Demote Admin",
@@ -11336,13 +11357,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Query Audit",
@@ -11523,13 +11544,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Export Audit",
@@ -11579,13 +11600,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Reset",
@@ -11643,13 +11664,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Add Ban",
@@ -11679,13 +11700,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Remove Ban",
@@ -11735,13 +11756,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Reset",
@@ -11823,13 +11844,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Orgs",
@@ -11860,13 +11881,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Force Delete Org",
@@ -11916,13 +11937,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Force Transfer Oc",
@@ -12010,13 +12031,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Projects",
@@ -12089,13 +12110,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Put Config",
@@ -12130,13 +12151,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Upload File",
@@ -12166,13 +12187,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Delete File",
@@ -12230,13 +12251,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Create Template",
@@ -12266,13 +12287,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Delete Template",
@@ -12326,13 +12347,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Patch Template",
@@ -12390,13 +12411,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Rate Limits",
@@ -12443,13 +12464,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Patch Rate Limit",
@@ -12504,13 +12525,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Restore Resource",
@@ -12575,13 +12596,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin List Skills",
@@ -12614,13 +12635,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Create Skill",
@@ -12655,13 +12676,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Import Bundle",
@@ -12729,13 +12750,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Delete Skill",
@@ -12770,13 +12791,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Get Skill",
@@ -12837,13 +12858,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Patch Skill",
@@ -12890,13 +12911,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Copy Skill",
@@ -12933,13 +12954,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Export Bundle",
@@ -12980,13 +13001,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin List Files",
@@ -13031,13 +13052,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Create File",
@@ -13084,13 +13105,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Upload File",
@@ -13130,13 +13151,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Delete File",
@@ -13191,13 +13212,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Patch File",
@@ -13234,13 +13255,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Admin Restore Skill",
@@ -13333,13 +13354,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Users",
@@ -13377,13 +13398,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get User",
@@ -13424,13 +13445,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Ban User",
@@ -13461,13 +13482,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Soft Delete User",
@@ -13498,13 +13519,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "End Impersonate",
@@ -13535,13 +13556,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Hard Delete User",
@@ -13579,13 +13600,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Impersonate",
@@ -13616,13 +13637,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Unban User",
@@ -13654,13 +13675,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Group",
@@ -13696,13 +13717,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get Group",
@@ -13748,13 +13769,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Rename Group",
@@ -13802,13 +13823,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Set Concept Map Enabled",
@@ -13845,13 +13866,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Members",
@@ -13896,13 +13917,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Add Member",
@@ -13942,13 +13963,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Remove Member",
@@ -13987,13 +14008,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Agent",
@@ -14028,13 +14049,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Agent",
@@ -14088,13 +14109,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Patch Agent",
@@ -14132,13 +14153,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Agent Concept Map Coverage",
@@ -14179,13 +14200,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Bindings",
@@ -14225,13 +14246,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Unbind Skill",
@@ -14270,13 +14291,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Bind Skill",
@@ -14350,13 +14371,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Agent List Skills",
@@ -14401,13 +14422,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Agent Create Skill",
@@ -14454,13 +14475,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Agent Import Bundle",
@@ -14516,13 +14537,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Agent Delete Skill",
@@ -14567,13 +14588,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Agent Get Skill",
@@ -14644,13 +14665,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Agent Patch Skill",
@@ -14707,13 +14728,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Agent Copy Skill",
@@ -14760,13 +14781,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Agent Export Bundle",
@@ -14817,13 +14838,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Agent List Files",
@@ -14878,13 +14899,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Agent Create File",
@@ -14941,13 +14962,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Agent Upload File",
@@ -14997,13 +15018,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Agent Delete File",
@@ -15068,13 +15089,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Agent Patch File",
@@ -15121,13 +15142,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Agent Restore Skill",
@@ -15195,13 +15216,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Agent Tools",
@@ -15246,13 +15267,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Add Agent Tool",
@@ -15292,13 +15313,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Agent Tool",
@@ -15353,13 +15374,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Patch Agent Tool",
@@ -15406,13 +15427,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Test Agent Tool",
@@ -15453,13 +15474,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Workspace Files",
@@ -15504,13 +15525,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Upload Workspace File",
@@ -15550,13 +15571,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Workspace File",
@@ -15593,13 +15614,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Attachment",
@@ -15649,13 +15670,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Change Email",
@@ -15683,13 +15704,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Change Password",
@@ -15776,13 +15797,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Google Callback",
@@ -15878,13 +15899,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Login",
@@ -15912,13 +15933,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Logout",
@@ -15947,13 +15968,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Account",
@@ -16005,13 +16026,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Update Me",
@@ -16046,13 +16067,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Refresh",
@@ -16091,13 +16112,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Register",
@@ -16130,13 +16151,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Request Password Reset",
@@ -16164,13 +16185,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Reset Password",
@@ -16250,13 +16271,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Sessions",
@@ -16286,13 +16307,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Revoke Session",
@@ -16331,13 +16352,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Verify Email",
@@ -16389,13 +16410,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Chatroom",
@@ -16430,13 +16451,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Chatroom",
@@ -16490,13 +16511,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Patch Chatroom",
@@ -16543,13 +16564,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Start Activity Activation",
@@ -16594,13 +16615,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get Active Activity Activation",
@@ -16656,13 +16677,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get Activity Session Completion",
@@ -16718,13 +16739,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Set Activity Session Completion",
@@ -16771,13 +16792,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "End Activity Activation",
@@ -16825,13 +16846,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get Activity Activation Progress",
@@ -16878,13 +16899,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Open Activity Session",
@@ -16931,13 +16952,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Close Activity Session",
@@ -17035,13 +17056,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Activity Submissions",
@@ -17086,13 +17107,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Submit Activity",
@@ -17140,13 +17161,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get Room Activity Type",
@@ -17214,13 +17235,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Chatroom Agents",
@@ -17258,13 +17279,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Add Chatroom Agent",
@@ -17304,13 +17325,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Remove Chatroom Agent",
@@ -17358,13 +17379,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Patch Chatroom Agent Role",
@@ -17415,13 +17436,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Patch Chatroom Agent Activity Control",
@@ -17490,13 +17511,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List approval gates raised in a chatroom",
@@ -17543,13 +17564,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Single Shot",
@@ -17591,13 +17612,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Force context compaction for active agents in this room (G.10)",
@@ -17651,13 +17672,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Export",
@@ -17694,13 +17715,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Guest Link",
@@ -17742,13 +17763,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Chatroom Members",
@@ -17835,13 +17856,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Messages",
@@ -17886,13 +17907,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Send Message",
@@ -17962,13 +17983,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Observations",
@@ -18008,13 +18029,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Observation",
@@ -18071,13 +18092,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Release Observation",
@@ -18114,13 +18135,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Snapshot of users currently present via WebSocket",
@@ -18192,13 +18213,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Search Messages",
@@ -18249,13 +18270,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get Export",
@@ -18286,13 +18307,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Config",
@@ -18327,13 +18348,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Config",
@@ -18379,13 +18400,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Update Config",
@@ -18422,13 +18443,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Trigger Build",
@@ -18478,13 +18499,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Graph",
@@ -18521,13 +18542,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Status",
@@ -18578,13 +18599,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Enroll Guest",
@@ -18657,13 +18678,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Inbox",
@@ -18699,13 +18720,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Accept By Token",
@@ -18742,13 +18763,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Accept",
@@ -18785,13 +18806,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Reject",
@@ -18821,13 +18842,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Group",
@@ -18862,13 +18883,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Group",
@@ -18906,13 +18927,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Rename Group",
@@ -18959,13 +18980,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Add Member",
@@ -19005,13 +19026,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Remove Member",
@@ -19059,13 +19080,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Patch Member",
@@ -19105,13 +19126,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Reorder Members",
@@ -19170,13 +19191,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List My Keys",
@@ -19210,13 +19231,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Upload Key",
@@ -19247,13 +19268,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Key",
@@ -19289,13 +19310,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get My Key",
@@ -19337,13 +19358,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Key Projects",
@@ -19381,13 +19402,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Retest Key",
@@ -19418,13 +19439,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Knowmap Config",
@@ -19459,13 +19480,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Knowmap Config",
@@ -19510,13 +19531,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Patch Knowmap Config",
@@ -19584,13 +19605,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Knowmap Documents",
@@ -19635,13 +19656,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Upload Knowmap Document",
@@ -19691,13 +19712,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Knowmap Graph",
@@ -19735,13 +19756,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Rebuild Knowmap Config",
@@ -19772,13 +19793,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Knowmap Document",
@@ -19826,13 +19847,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Set Knowmap Document Agents",
@@ -19904,13 +19925,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Me Put Config",
@@ -19945,13 +19966,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Me Upload File",
@@ -19981,13 +20002,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Me Delete File",
@@ -20045,13 +20066,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Me Create Template",
@@ -20081,13 +20102,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Me Delete Template",
@@ -20141,13 +20162,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Me Patch Template",
@@ -20177,13 +20198,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Message",
@@ -20218,13 +20239,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Message",
@@ -20278,13 +20299,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Edit Message",
@@ -20365,13 +20386,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Notifications",
@@ -20406,13 +20427,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Mark Read",
@@ -20474,13 +20495,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read A2A DLQ entries for an agent",
@@ -20517,13 +20538,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get approval gate with votes",
@@ -20591,13 +20612,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List all instructions in a chain",
@@ -20665,13 +20686,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List live sub-agents for a parent instance",
@@ -20708,13 +20729,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get a single instruction record",
@@ -20782,13 +20803,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List approvals for a workflow run",
@@ -20856,13 +20877,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List sub-agents spawned during a workflow run",
@@ -20920,13 +20941,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Orgs",
@@ -20959,13 +20980,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Org",
@@ -20995,13 +21016,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Org",
@@ -21036,13 +21057,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Org",
@@ -21096,13 +21117,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Rename Org",
@@ -21149,13 +21170,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Invite",
@@ -21223,13 +21244,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Members",
@@ -21269,13 +21290,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Remove Member",
@@ -21334,13 +21355,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Patch Member",
@@ -21408,13 +21429,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Transfer List",
@@ -21459,13 +21480,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Transfer Initiate",
@@ -21505,13 +21526,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Transfer Cancel",
@@ -21558,13 +21579,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Transfer Accept",
@@ -21604,13 +21625,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Transfer Reject",
@@ -21647,13 +21668,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Get Config",
@@ -21714,13 +21735,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Put Config",
@@ -21767,13 +21788,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Upload File",
@@ -21813,13 +21834,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Delete File",
@@ -21860,13 +21881,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org List Templates",
@@ -21911,13 +21932,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Create Template",
@@ -21957,13 +21978,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Delete Template",
@@ -22027,13 +22048,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Patch Template",
@@ -22070,13 +22091,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get Org Quotas",
@@ -22106,13 +22127,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Restore Org",
@@ -22186,13 +22207,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org List Skills",
@@ -22237,13 +22258,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Create Skill",
@@ -22290,13 +22311,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Import Bundle",
@@ -22352,13 +22373,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Delete Skill",
@@ -22403,13 +22424,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Get Skill",
@@ -22480,13 +22501,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Patch Skill",
@@ -22543,13 +22564,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Copy Skill",
@@ -22596,13 +22617,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Export Bundle",
@@ -22653,13 +22674,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org List Files",
@@ -22714,13 +22735,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Create File",
@@ -22777,13 +22798,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Upload File",
@@ -22833,13 +22854,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Delete File",
@@ -22904,13 +22925,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Patch File",
@@ -22957,13 +22978,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Org Restore Skill",
@@ -23058,13 +23079,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Projects",
@@ -23097,13 +23118,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Project",
@@ -23133,13 +23154,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Project",
@@ -23174,13 +23195,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Project",
@@ -23234,13 +23255,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Rename Project",
@@ -23282,13 +23303,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Platform Activity Examples",
@@ -23336,13 +23357,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Opt Project Into Activity Type",
@@ -23383,13 +23404,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Opt Project Out Of Activity Type",
@@ -23431,13 +23452,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Activity Types",
@@ -23482,13 +23503,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Register Activity Type",
@@ -23528,13 +23549,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Activity Type",
@@ -23589,13 +23610,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Update Activity Type",
@@ -23664,13 +23685,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Groups",
@@ -23715,13 +23736,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Group",
@@ -23789,13 +23810,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Project Agents",
@@ -23840,13 +23861,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Agent",
@@ -23888,13 +23909,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Agent Example Packs",
@@ -23952,13 +23973,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Install Agent Example Pack",
@@ -24026,13 +24047,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Configs",
@@ -24077,13 +24098,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Config",
@@ -24125,13 +24146,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Owner Options",
@@ -24182,13 +24203,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Project Invite",
@@ -24256,13 +24277,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Groups",
@@ -24307,13 +24328,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Group",
@@ -24381,13 +24402,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Carried Keys",
@@ -24425,13 +24446,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Carry Key",
@@ -24471,13 +24492,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Withdraw Key",
@@ -24540,13 +24561,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Usage",
@@ -24614,13 +24635,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Knowmap Configs",
@@ -24665,13 +24686,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Knowmap Config",
@@ -24712,13 +24733,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Allowlist",
@@ -24763,13 +24784,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Add Allowlist Entry",
@@ -24818,13 +24839,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Replace Allowlist",
@@ -24865,13 +24886,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Remove Allowlist Entry",
@@ -24939,13 +24960,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Members",
@@ -24985,13 +25006,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Remove Project Member",
@@ -25050,13 +25071,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Patch Project Member",
@@ -25093,13 +25114,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project Resolved Assistant",
@@ -25136,13 +25157,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Session",
@@ -25183,13 +25204,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project Merged Templates",
@@ -25257,13 +25278,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Rag Configs",
@@ -25308,13 +25329,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Rag Config",
@@ -25344,13 +25365,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Restore Project",
@@ -25418,13 +25439,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Search Keys",
@@ -25469,13 +25490,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Upload Search Key",
@@ -25515,13 +25536,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Search Key",
@@ -25561,13 +25582,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Activate Search Key",
@@ -25614,13 +25635,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Retest Search Key",
@@ -25694,13 +25715,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project List Skills",
@@ -25745,13 +25766,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project Create Skill",
@@ -25798,13 +25819,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project Import Bundle",
@@ -25860,13 +25881,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project Delete Skill",
@@ -25911,13 +25932,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project Get Skill",
@@ -25988,13 +26009,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project Patch Skill",
@@ -26051,13 +26072,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project Copy Skill",
@@ -26104,13 +26125,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project Export Bundle",
@@ -26161,13 +26182,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project List Files",
@@ -26222,13 +26243,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project Create File",
@@ -26285,13 +26306,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project Upload File",
@@ -26341,13 +26362,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project Delete File",
@@ -26412,13 +26433,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project Patch File",
@@ -26465,13 +26486,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Project Restore Skill",
@@ -26539,13 +26560,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Workspaces",
@@ -26590,13 +26611,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Workspace",
@@ -26633,13 +26654,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get Session",
@@ -26684,13 +26705,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Post Message",
@@ -26721,13 +26742,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Rag Config",
@@ -26762,13 +26783,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Rag Config",
@@ -26813,13 +26834,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Patch Rag Config",
@@ -26887,13 +26908,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Documents",
@@ -26938,13 +26959,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Upload Document",
@@ -26975,13 +26996,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Rag Document",
@@ -27029,13 +27050,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Set Document Agents",
@@ -27073,13 +27094,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get Export Status",
@@ -27117,13 +27138,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get Import Status",
@@ -27193,13 +27214,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Tus Create",
@@ -27238,13 +27259,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Tus Terminate",
@@ -27286,13 +27307,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Tus Head",
@@ -27352,13 +27373,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Tus Patch",
@@ -27395,13 +27416,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Get Run",
@@ -27442,13 +27463,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Cancel Run",
@@ -27489,13 +27510,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Steps",
@@ -27525,13 +27546,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Workflow",
@@ -27585,13 +27606,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Patch Workflow",
@@ -27642,13 +27663,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Dry Run",
@@ -27729,13 +27750,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Runs",
@@ -27784,13 +27805,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Trigger Run",
@@ -27858,13 +27879,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Workflows",
@@ -27909,13 +27930,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Workflow",
@@ -27962,13 +27983,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Validate Workflow",
@@ -27998,13 +28019,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Delete Workspace",
@@ -28039,13 +28060,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Read Workspace",
@@ -28113,13 +28134,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "List Chatrooms",
@@ -28164,13 +28185,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Create Chatroom",
@@ -28218,13 +28239,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationProblem"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request Validation Problem"
           }
         },
         "summary": "Set Concept Map Enabled",

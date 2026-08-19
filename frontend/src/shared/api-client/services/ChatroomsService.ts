@@ -33,7 +33,7 @@ export class ChatroomsService {
                 'chatroom_id': chatroomId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -54,7 +54,7 @@ export class ChatroomsService {
                 'chatroom_id': chatroomId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -84,7 +84,7 @@ export class ChatroomsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -119,7 +119,7 @@ export class ChatroomsService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -144,7 +144,7 @@ export class ChatroomsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -168,7 +168,7 @@ export class ChatroomsService {
                 'agent_id': agentId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -196,7 +196,7 @@ export class ChatroomsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -237,7 +237,7 @@ export class ChatroomsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -280,7 +280,7 @@ export class ChatroomsService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -307,7 +307,7 @@ export class ChatroomsService {
                 'chatroom_id': chatroomId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -328,7 +328,7 @@ export class ChatroomsService {
                 'chatroom_id': chatroomId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -358,7 +358,7 @@ export class ChatroomsService {
                 'chatroom_id': chatroomId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -379,7 +379,7 @@ export class ChatroomsService {
                 'chatroom_id': chatroomId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -414,7 +414,7 @@ export class ChatroomsService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -439,7 +439,7 @@ export class ChatroomsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

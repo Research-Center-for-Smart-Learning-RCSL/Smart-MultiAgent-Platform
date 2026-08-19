@@ -54,7 +54,7 @@ export class AdminService {
                 'limit': limit,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -93,7 +93,7 @@ export class AdminService {
                 'course_key': courseKey,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -137,7 +137,7 @@ export class AdminService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -161,7 +161,7 @@ export class AdminService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -186,7 +186,7 @@ export class AdminService {
                 'limit': limit,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -216,7 +216,7 @@ export class AdminService {
                 'type_id': typeId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -245,7 +245,7 @@ export class AdminService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -276,7 +276,7 @@ export class AdminService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -297,7 +297,7 @@ export class AdminService {
                 'user_id': userId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -348,7 +348,7 @@ export class AdminService {
                 'limit': limit,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -394,7 +394,7 @@ export class AdminService {
                 'request_id': requestId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -425,7 +425,7 @@ export class AdminService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -446,7 +446,7 @@ export class AdminService {
                 'ban_id': banId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -481,7 +481,7 @@ export class AdminService {
                 'limit': limit,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -502,7 +502,7 @@ export class AdminService {
                 'org_id': orgId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -527,7 +527,7 @@ export class AdminService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -577,7 +577,7 @@ export class AdminService {
                 'limit': limit,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -607,7 +607,7 @@ export class AdminService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -632,7 +632,7 @@ export class AdminService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -656,7 +656,7 @@ export class AdminService {
                 'resource_id': resourceId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -686,7 +686,7 @@ export class AdminService {
                 'limit': limit,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -707,7 +707,7 @@ export class AdminService {
                 'user_id': userId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -732,7 +732,7 @@ export class AdminService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -753,7 +753,7 @@ export class AdminService {
                 'user_id': userId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -774,7 +774,7 @@ export class AdminService {
                 'user_id': userId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -795,7 +795,7 @@ export class AdminService {
                 'user_id': userId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -816,7 +816,7 @@ export class AdminService {
                 'user_id': userId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -837,7 +837,7 @@ export class AdminService {
                 'user_id': userId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

@@ -30,7 +30,7 @@ export class ExportsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -51,7 +51,7 @@ export class ExportsService {
                 'job_id': jobId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
