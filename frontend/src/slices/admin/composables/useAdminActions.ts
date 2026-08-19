@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 import { useConfirmDialog, useToast } from '@shared/composables'
+import { isProblemWithType } from '@shared/transport'
 import { adminApi, type RestoreResourceType } from '../api/admin'
 import { adminKeys } from '../queries'
 
@@ -62,7 +63,11 @@ export function useAdminActions() {
   const demoteAdmin = useMutation({
     mutationFn: (userId: string) => adminApi.demoteAdmin(userId),
     onSuccess: () => qc.invalidateQueries({ queryKey: adminKeys.admins() }),
-    onError: () => toast.error(t('admin.actionErrors.demoteFailed')),
+    onError: (err) => toast.error(t(
+      isProblemWithType(err, 'admin/last-admin')
+        ? 'admin.users.lastAdminDemote'
+        : 'admin.actionErrors.demoteFailed',
+    )),
   })
 
   const forceDeleteOrg = useMutation({
