@@ -1,6 +1,6 @@
----
+﻿---
 type: audit
-status: draft
+status: reviewed
 created: 2026-08-19
 requirements: [R24.25]
 ---
@@ -19,8 +19,8 @@ requirements: [R24.25]
   `docs/UI/02-layout-shell.md` (shell grid, content area, route-layout table),
   `docs/UI/06-agents.md`, `docs/UI/07-conversation.md`, `docs/UI/08-workflow.md`,
   `docs/UI/11-responsive-a11y.md` (breakpoint matrix, ARIA table, browser floor),
-  `docs/UI/12-shared-patterns.md` (error hierarchy §4, loading §5, empty states §6, toast
-  rules §9), plus `REQUIREMENTS.md` R24.25 for the `field_errors` wire contract. These are
+  `docs/UI/12-shared-patterns.md` (error hierarchy 禮4, loading 禮5, empty states 禮6, toast
+  rules 禮9), plus `REQUIREMENTS.md` R24.25 for the `field_errors` wire contract. These are
   detailed and current, so most findings below are code-versus-intent, not merely internal
   inconsistency. Where the intent documents contradict each other, that is recorded as such
   rather than blamed on the code.
@@ -61,7 +61,7 @@ was checked only where the frontend contract depended on it (F-2).
 
 **Deliberately excluded**: colour contrast, typography, iconography, motion design, and
 copy. Structural quality issues (duplication, layering) and pure accessibility gaps are
-recorded in §6 and routed elsewhere rather than counted as findings.
+recorded in 禮6 and routed elsewhere rather than counted as findings.
 
 ## 3. Findings
 
@@ -101,8 +101,8 @@ Ordered by severity. Never renumber.
   user. This single defect accounts for three of the four symptoms that prompted this audit:
   messages appearing at the bottom of the page, blank space at the bottom of the page, and a
   scrollbar that appears and disappears for no visible reason.
-- **Intent source**: `docs/UI/12-shared-patterns.md` §4.1 (the Toast row of the error
-  hierarchy) and §9 (the whole toast-pattern section), both of which presuppose a visible,
+- **Intent source**: `docs/UI/12-shared-patterns.md` 禮4.1 (the Toast row of the error
+  hierarchy) and 禮9 (the whole toast-pattern section), both of which presuppose a visible,
   auto-dismissing, corner-anchored toast channel.
 - **Why tests miss it**: e2e assertions match text only, and Playwright's `toBeVisible()` is
   satisfied by any non-empty box regardless of viewport position, e.g.
@@ -140,8 +140,8 @@ Ordered by severity. Never renumber.
   `useKeyGroups.ts:22`, `useSearchKeys.ts:21`, `useProjectKeys.ts:18`, `useKeyProjects.ts:25`),
   which are GETs, so this needs a 422 on a GET: real but rarer.
 - **Blast radius**: every form in the product that can receive a request-validation 422.
-- **Intent source**: `REQUIREMENTS.md:1942` (R24.25); `docs/UI/12-shared-patterns.md` §4.2
-  (`validation-error` maps `detail.field_errors` to form fields) and §4.1 (Field level).
+- **Intent source**: `REQUIREMENTS.md:1942` (R24.25); `docs/UI/12-shared-patterns.md` 禮4.2
+  (`validation-error` maps `detail.field_errors` to form fields) and 禮4.1 (Field level).
 - **Why tests miss it**: `frontend/src/shared/composables/__tests__/useServerErrors.test.ts:42`
   hand-writes a `{path, message}` fixture, so the unit test pins the contract the backend
   never sends. `frontend/e2e/11-mcp.spec.ts:57` records the symptom as accepted behaviour in
@@ -154,9 +154,11 @@ Ordered by severity. Never renumber.
 - **Verdict**: confirmed
 - **Evidence**: the shell owns content padding at `frontend/src/app/layouts/AppShell.vue:188`
   (24px), `:207-209` (16px below 1024px), `:216-218` (8px below 480px). Enumerating all 74
-  `**/views/*.vue` template roots: 34 add a second padded root (28 use `p-6` = 24px, 5 use
+  `**/views/*.vue` template roots: 34 add a second padded root (26 use `p-6` = 24px, 7 use
   `p-4` = 16px, and `slices/notifications/views/NotificationsView.vue:13` uses
-  `px-4 py-4 sm:p-6`), 40 do not. `p-6` = 24px is explicit in `shared/styles/main.css:5-6`.
+  `px-4 py-4 sm:p-6`), 40 do not. The 26/7/1 split supersedes the 28/5/1 first reported; it
+  was re-counted while writing `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/`.
+  F-40's 23 nested `<main>` roots are a subset of these 34. `p-6` = 24px is explicit in `shared/styles/main.css:5-6`.
   Only two routes opt out of shell padding (`slices/workflow/routes.ts:14`,
   `slices/conversation/routes.ts:26`) and neither view is in the padded set, so all 34 stack.
   Representative padded roots: `slices/agents/views/AgentListView.vue:244`,
@@ -173,9 +175,9 @@ Ordered by severity. Never renumber.
   four times the documented gutter, on the device with the least room.
 - **Blast radius**: 34 of 74 views, at every breakpoint. This is the main structural cause of
   the "too much empty space at the bottom" complaint that survives after F-1.
-- **Intent source**: `docs/UI/02-layout-shell.md` §3.3 ("Padding: 24px on desktop, 16px on
-  mobile") and the §9 route table, which lists 24px for every non-immersive app route;
-  `docs/UI/11-responsive-a11y.md` §2.1 breakpoint matrix.
+- **Intent source**: `docs/UI/02-layout-shell.md` 禮3.3 ("Padding: 24px on desktop, 16px on
+  mobile") and the 禮9 route table, which lists 24px for every non-immersive app route;
+  `docs/UI/11-responsive-a11y.md` 禮2.1 breakpoint matrix.
 
 ### F-4: Nothing resets the scroll position on navigation, so the previous page's scroll offset carries into the next view
 
@@ -201,8 +203,8 @@ Ordered by severity. Never renumber.
   effect of the new content being too short to sustain the old offset, not a designed reset.
 - **Blast radius**: every navigation between two authenticated routes whose target content is
   taller than the retained offset. Most visible on the long admin and audit tables.
-- **Intent source**: `docs/UI/02-layout-shell.md` §3.3 designates the content area as the
-  scroll owner without a corresponding reset rule, and `docs/UI/12-shared-patterns.md` §8.3
+- **Intent source**: `docs/UI/02-layout-shell.md` 禮3.3 designates the content area as the
+  scroll owner without a corresponding reset rule, and `docs/UI/12-shared-patterns.md` 禮8.3
   requires detail pages to be reachable without browser-back dependency. Internal
   inconsistency: the shell defines a scroll container that the routing layer has no contract
   with.
@@ -233,8 +235,8 @@ Ordered by severity. Never renumber.
   paints over an open modal's top edge and over any toast.
 - **Blast radius**: the whole impersonation session, which is exactly the flow the banner
   exists to support.
-- **Intent source**: `docs/UI/02-layout-shell.md` §4.3 (top bar at 56px, `--z-topbar`, sticky
-  top 0) versus §1, whose integration diagram places the banner "fixed top" over the same
+- **Intent source**: `docs/UI/02-layout-shell.md` 禮4.3 (top bar at 56px, `--z-topbar`, sticky
+  top 0) versus 禮1, whose integration diagram places the banner "fixed top" over the same
   strip with no reconciliation; `docs/UI/01-design-system.md` z-index scale.
 
 ### F-6: A caught render error replaces the entire shell, not the failed view
@@ -256,7 +258,7 @@ Ordered by severity. Never renumber.
   the retry button remains.
 - **Blast radius**: every uncaught render error, plus every unhandled rejection from a native
   event handler (see F-21), which routes through the same boundary.
-- **Intent source**: `docs/UI/12-shared-patterns.md` §4.1 assigns ErrorBoundary the Global
+- **Intent source**: `docs/UI/12-shared-patterns.md` 禮4.1 assigns ErrorBoundary the Global
   level with "Retry button + fallback UI", meaning a fallback for the failed subtree;
   contradicted by the component's own docstring.
 
@@ -277,8 +279,8 @@ Ordered by severity. Never renumber.
   window, with the only navigation being the "Go Home" button and the logo link.
 - **Blast radius**: every 404 reached by an authenticated user, including mistyped deep links
   and stale bookmarks.
-- **Intent source**: `docs/UI/02-layout-shell.md` §7 ("Uses `AppShell` if authenticated,
-  `AuthLayout` if not") and the §9 route table row for `/:pathMatch(.*)*`.
+- **Intent source**: `docs/UI/02-layout-shell.md` 禮7 ("Uses `AppShell` if authenticated,
+  `AuthLayout` if not") and the 禮9 route table row for `/:pathMatch(.*)*`.
 - **Why tests miss it**: `frontend/src/app/__tests__/NotFound.test.ts` mounts the view in
   isolation and pins no layout.
 
@@ -288,7 +290,7 @@ Ordered by severity. Never renumber.
 - **Verdict**: confirmed
 - **Evidence**: `frontend/src/shared/ui/STable.vue:465-468` declares
   `.s-table-wrap { width: 100%; overflow-x: auto }` and never declares `overflow-y`. Per CSS
-  Overflow 3 §3.1, when one axis is not `visible` the other computes to `auto`, so the wrapper
+  Overflow 3 禮3.1, when one axis is not `visible` the other computes to `auto`, so the wrapper
   is a scroll container in both axes and becomes the nearest scrollport for the sticky
   `<thead>` at `:488-492` (`position: sticky; top: 0; z-index: 10`). Nothing ever gives the
   wrapper a height: grepping `s-table-wrap` across `src/slices` and `src/shared/styles`
@@ -303,7 +305,7 @@ Ordered by severity. Never renumber.
   scrolling back up.
 - **Blast radius**: both `sticky-header` consumers today, and any future one: the prop looks
   wired and does nothing.
-- **Intent source**: `docs/UI/06-agents.md` §1.4 ("**Component**: `STable` with
+- **Intent source**: `docs/UI/06-agents.md` 禮1.4 ("**Component**: `STable` with
   `stickyHeader`"); internal inconsistency with the prop's own name and default
   (`STable.vue:49,60`).
 
@@ -327,8 +329,12 @@ Ordered by severity. Never renumber.
   `slices/agents/views/AgentListView.vue:378`, `slices/keys/views/KeyListView.vue:206`,
   `slices/conversation/views/ChatroomListView.vue:307` and elsewhere.
 - **Blast radius**: every list view with row actions, worst on short viewports and long lists.
-- **Intent source**: `docs/UI/11-responsive-a11y.md` §5.3 (arrow-key navigation presumes every
-  item is reachable) and §4 (40px minimum dropdown item as a usable touch target).
+- **Deeper cause found during triage**: `updateMenuPosition` runs *before* `nextTick`, so at
+  the moment it measures, the menu element does not yet exist. Any flip-or-clamp logic added
+  without reordering that call would have nothing to measure against. Recorded in
+  `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/`.
+- **Intent source**: `docs/UI/11-responsive-a11y.md` 禮5.3 (arrow-key navigation presumes every
+  item is reachable) and 禮4 (40px minimum dropdown item as a usable touch target).
 - **Secondary**: `--z-dropdown` (300) is below `--z-modal` (400), so a dropdown opened inside
   a modal paints under the panel. Latent today, since no such nesting currently exists.
 
@@ -354,7 +360,7 @@ Ordered by severity. Never renumber.
   F-3, and the `3.5rem` literal silently assumes a 16px root font size instead of reading
   `--topbar-height`.
 - **Blast radius**: the two graph routes.
-- **Intent source**: `docs/UI/02-layout-shell.md` §3.1 and §3.3; the view double-counts the
+- **Intent source**: `docs/UI/02-layout-shell.md` 禮3.1 and 禮3.3; the view double-counts the
   shell's own sizing contract.
 
 ### F-11: "Load earlier" restores the wrong scroll position, discarding the user's offset
@@ -371,7 +377,7 @@ Ordered by severity. Never renumber.
 - **Failure scenario**: `/chatrooms/:id` at 1440x900. The "Load earlier" control is the first
   `<li>` of the feed (`ChatroomView.vue:54-59`), so it only has to be in view, not flush at
   the top: a user can click it at `scrollTop = 240`. After the older page prepends, the
-  restore sets `scrollTop = ΔH` instead of `ΔH + 240`, so the feed jumps 240px upward toward
+  restore sets `scrollTop = ?H` instead of `?H + 240`, so the feed jumps 240px upward toward
   older content and the message the user was reading moves down out of view. The error is
   bounded by roughly one viewport height and compounds across successive clicks.
 - **Blast radius**: every history load in every chatroom.
@@ -508,7 +514,7 @@ Ordered by severity. Never renumber.
   selection is required. Picking a run then swaps about 20px of text for a multi-hundred-pixel
   trace, jumping four sections at once.
 - **Blast radius**: every visit to the backstage view.
-- **Intent source**: `docs/UI/12-shared-patterns.md` §6.1 (contextual empty state) and §5.1
+- **Intent source**: `docs/UI/12-shared-patterns.md` 禮6.1 (contextual empty state) and 禮5.1
   (structural skeleton, not a text placeholder).
 
 ### F-18: `AgentDetailView`'s mobile action bar is `fixed` with no reserved space and permanently covers the end of the form
@@ -527,8 +533,8 @@ Ordered by severity. Never renumber.
   about 56px (the bar is roughly 72px, minus the shell's 16px bottom padding at this
   breakpoint). On the Knowledge tab the final select's help text is unreachable.
 - **Blast radius**: the agent detail view on every viewport below 768px.
-- **Intent source**: `docs/UI/11-responsive-a11y.md` §3.1 ("Action buttons: stacked vertically
-  on mobile instead of horizontal row") describes an in-flow bar, and §7.2's manual checklist
+- **Intent source**: `docs/UI/11-responsive-a11y.md` 禮3.1 ("Action buttons: stacked vertically
+  on mobile instead of horizontal row") describes an in-flow bar, and 禮7.2's manual checklist
   requires no content overlap.
 
 ### F-19: Two admin views report the same failure twice, on two channels, with two different messages, and the banner never clears
@@ -551,7 +557,7 @@ Ordered by severity. Never renumber.
   "Promotion failed". The toast expires; the banner stays indefinitely, so a later successful
   promotion still shows a standing error.
 - **Blast radius**: four admin actions across two views.
-- **Intent source**: `docs/UI/12-shared-patterns.md:550` ("One toast per action") and §4.1,
+- **Intent source**: `docs/UI/12-shared-patterns.md:550` ("One toast per action") and 禮4.1,
   which assigns exactly one level per error.
 
 ### F-20: The global error handler emits hardcoded English and raw backend `detail` into toasts
@@ -572,8 +578,8 @@ Ordered by severity. Never renumber.
   the API author wrote in `detail`.
 - **Blast radius**: every rate limit, every permission error and every uncaught error.
 - **Intent source**: project rule "All user-facing strings go through `$t()` (vue-i18n)";
-  `docs/UI/12-shared-patterns.md` §4.2 specifies a fixed UI string for `forbidden`, not the
-  problem's `detail`, and §9 requires a brief description rather than raw server text.
+  `docs/UI/12-shared-patterns.md` 禮4.2 specifies a fixed UI string for `forbidden`, not the
+  problem's `detail`, and 禮9 requires a brief description rather than raw server text.
 
 ### F-21: An unguarded `mutateAsync` in `WorkflowListView` trips the error boundary and replaces the whole list
 
@@ -593,7 +599,7 @@ Ordered by severity. Never renumber.
   omission that could recur.
 - **Intent source**: internal inconsistency with every other mutation call site.
 - **Note**: this candidate was originally reported as a duplicate toast via
-  `window.onunhandledrejection`. That mechanism was refuted (see §4); the real consequence is
+  `window.onunhandledrejection`. That mechanism was refuted (see 禮4); the real consequence is
   worse.
 
 ### F-22: `SAlert` hardcodes `role="alert"`, so static informational panels interrupt screen readers on page load
@@ -672,8 +678,8 @@ Ordered by severity. Never renumber.
   strip where iOS intercepts the swipe gesture, so taps near the send button either miss or
   trigger the system gesture.
 - **Blast radius**: notched mobile devices, chatroom and any future bottom-anchored UI.
-- **Intent source**: `docs/UI/11-responsive-a11y.md` §4 (44x44px minimum usable hit area) and
-  §3.2 ("Composer | Fixed bottom").
+- **Intent source**: `docs/UI/11-responsive-a11y.md` 禮4 (44x44px minimum usable hit area) and
+  禮3.2 ("Composer | Fixed bottom").
 
 ### F-26: Three detail views gate the entire page behind a bare inline spinner, so first load shows a thin line over a blank viewport
 
@@ -689,7 +695,7 @@ Ordered by severity. Never renumber.
   those 400ms the entire 796px content area is blank except a 24px spinner row at the top
   left; then the header and cards appear at once.
 - **Blast radius**: three detail views on cold load.
-- **Intent source**: `docs/UI/12-shared-patterns.md` §5.1 ("First load of any page shows
+- **Intent source**: `docs/UI/12-shared-patterns.md` 禮5.1 ("First load of any page shows
   skeleton layout matching the page structure ... This avoids layout shift when data loads").
 - **Corrected during verification**: four of the seven originally cited views do not match.
   `AdminHomeView.vue:3`, `AdminMetricsView.vue:3` and `OrgTransferView.vue:185-188` render
@@ -713,7 +719,7 @@ Ordered by severity. Never renumber.
   264px collapses to about 60px, a 200px jump that pulls the page header's neighbours up under
   the cursor.
 - **Blast radius**: three views on every cold load.
-- **Intent source**: `docs/UI/12-shared-patterns.md` §5.1; `docs/UI/06-agents.md` §2.10.
+- **Intent source**: `docs/UI/12-shared-patterns.md` 禮5.1; `docs/UI/06-agents.md` 禮2.10.
 
 ### F-28: Two views centre their content inside an arbitrary box, parking it in the upper part of the page
 
@@ -731,7 +737,7 @@ Ordered by severity. Never renumber.
 - **Blast radius**: the 404 page and the invite-acceptance flow.
 - **Intent source**: internal inconsistency; both are viewport- or pixel-relative heights
   inside a container that is already viewport-derived, contradicting
-  `docs/UI/02-layout-shell.md` §3.3.
+  `docs/UI/02-layout-shell.md` 禮3.3.
 
 ### F-29: The chatroom has no 1024-1279px layout and shows the agent rail where the spec calls for a drawer
 
@@ -771,7 +777,7 @@ Ordered by severity. Never renumber.
   empty state.
 - **Blast radius**: any consumer that stretches the component; the same root cause as F-23.
 - **Intent source**: `docs/UI/07-conversation.md:1018` is explicit about vertical centring;
-  `docs/UI/12-shared-patterns.md` §6.1 only says "contextual empty state" and does not, so the
+  `docs/UI/12-shared-patterns.md` 禮6.1 only says "contextual empty state" and does not, so the
   intent is strong for the chatroom case and weaker elsewhere.
 
 ### F-31: The workflow editor never re-fits its canvas when the conditional bars above it appear
@@ -790,8 +796,8 @@ Ordered by severity. Never renumber.
   canvas shrinks by 24px with no viewport adjustment, and the bottom-most node clips below the
   fold. A save conflict adds a further 36px.
 - **Blast radius**: the workflow editor, on every validation run.
-- **Intent source**: `docs/UI/08-workflow.md` §2.1 (the bars are conditional zones in the flex
-  column with the canvas at `flex: 1`) and §2.9 (`fit-view-on-init` viewport contract).
+- **Intent source**: `docs/UI/08-workflow.md` 禮2.1 (the bars are conditional zones in the flex
+  column with the canvas at `flex: 1`) and 禮2.9 (`fit-view-on-init` viewport contract).
 - **Narrowed during verification**: the tablet notice is static at mount and cannot crop. The
   three dynamic bars are the real triggers, and lint is the common one.
 
@@ -833,8 +839,8 @@ Ordered by severity. Never renumber.
   `:loading="loading"`: `loading` at `:39` belongs to `useProjectKeys` (the carried query), and
   `useMyKeys`'s own `loading` is never destructured at `:38`.
 - **Blast radius**: one tab of one view.
-- **Intent source**: `docs/UI/12-shared-patterns.md` §2.4 (loading table shows skeleton rows)
-  and §6.1 (the empty state is for a settled empty result).
+- **Intent source**: `docs/UI/12-shared-patterns.md` 禮2.4 (loading table shows skeleton rows)
+  and 禮6.1 (the empty state is for a settled empty result).
 
 ### F-34: `SkillWorkbench` passes a prop `SEmptyState` does not declare, so the empty-state body copy never renders
 
@@ -851,7 +857,7 @@ Ordered by severity. Never renumber.
   or create one." is dropped. The same call also passes no `:icon`, so the halo is skipped too,
   leaving one line of text in an otherwise empty bordered panel.
 - **Blast radius**: the skills workbench empty state, in all three of its mounts.
-- **Intent source**: `docs/UI/12-shared-patterns.md` §2.3 and §6.1 (empty state carries icon,
+- **Intent source**: `docs/UI/12-shared-patterns.md` 禮2.3 and 禮6.1 (empty state carries icon,
   title and description).
 
 ### F-35: `--z-toast` is declared and never consumed
@@ -871,7 +877,7 @@ Ordered by severity. Never renumber.
   (`main.css:82-84`).
 - **Blast radius**: the whole z-index contract; latent until F-1 is fixed, at which point it
   becomes live.
-- **Intent source**: `docs/UI/01-design-system.md` §z-index scale.
+- **Intent source**: `docs/UI/01-design-system.md` 禮z-index scale.
 
 ### F-36: The toast live region announces itself in English regardless of locale
 
@@ -904,7 +910,7 @@ Ordered by severity. Never renumber.
   message. Different diagnosis for identical mechanics.
 - **Blast radius**: the prompt-studio and skills editors.
 - **Intent source**: `docs/UI/12-shared-patterns.md:546` (warning, 5s, "version conflict") and
-  §4.3.
+  禮4.3.
 - **Tightening**: not all of these are 409. `useSkillEditor.ts:95` documents a 412, and
   prompt-studio keys on a typed `*/version-mismatch` problem rather than a status code. The
   severity inconsistency for the same semantic class holds regardless.
@@ -925,7 +931,7 @@ Ordered by severity. Never renumber.
 - **Intent source**: `docs/UI/12-shared-patterns.md:544` (success is a 4s toast) and `:554`
   ("Never use toast for persistent states"), whose inverse applies here.
 
-### F-39: Fifteen media queries use an inclusive breakpoint value, applying the smaller layout one pixel early
+### F-39: Seventeen media-query blocks use an inclusive breakpoint value, applying the smaller layout one pixel early
 
 - **Severity**: minor
 - **Verdict**: confirmed
@@ -947,8 +953,9 @@ Ordered by severity. Never renumber.
   wrapper `max-width: none`) and `SAuthCard.vue:63-68` strips the border radius and shadow, so
   the user gets the edge-to-edge phone card at the width where the spec says the 420px shadowed
   card should already apply, while `useBreakpoint()` reports `sm`.
-- **Blast radius**: a one-pixel band at two breakpoints, across 15 files.
-- **Intent source**: `docs/UI/11-responsive-a11y.md` §1 breakpoint table and §2.3 (card is
+- **Blast radius**: a one-pixel band at two breakpoints. Re-counted during dossier writing as
+  17 blocks across 14 files, superseding the "15 files" first reported.
+- **Intent source**: `docs/UI/11-responsive-a11y.md` 禮1 breakpoint table and 禮2.3 (card is
   420px at `sm+`).
 
 ### F-40: Twenty-three slice views nest a second `<main>` landmark inside the shell's
@@ -990,8 +997,8 @@ Ordered by severity. Never renumber.
   767px into the full-screen branch.
 - **Blast radius**: landscape phones and tablets, and roughly 250-300% zoom on wide short
   displays. The `aria-labelledby` target (the title) is what goes off-screen.
-- **Intent source**: `docs/UI/11-responsive-a11y.md` §8 (the centred modal variant is required
-  to remain fully visible) and §7.2 ("Verify at 200% zoom (no content overflow or overlap)").
+- **Intent source**: `docs/UI/11-responsive-a11y.md` 禮8 (the centred modal variant is required
+  to remain fully visible) and 禮7.2 ("Verify at 200% zoom (no content overflow or overlap)").
 
 ### F-42: The mobile sidebar drawer is 320px where the spec says 280px, and overflows below 362px viewport width
 
@@ -1013,6 +1020,11 @@ Ordered by severity. Never renumber.
 - **Intent source**: `docs/UI/11-responsive-a11y.md:58-59`. The z-index deviation is arguably
   the better behaviour, since the drawer is modal with a backdrop and a focus trap, so only the
   width is unambiguously wrong.
+- **Correction found during triage**: adopting the spec's `min(280px, 85vw)` on its own would
+  make this *worse*, not better. The 260px sidebar plus 48px of drawer padding needs 308px of
+  panel, which 280px never provides, so the overflow would become unconditional instead of
+  appearing below about 362px. The width change must ship together with a `max-width: 100%`
+  on the sidebar. Recorded in `docs/tasks/2026-08-19-mobile-viewport-and-breakpoints/`.
 
 ### F-43: The mobile bulk-action bottom sheet does not exist
 
@@ -1025,11 +1037,14 @@ Ordered by severity. Never renumber.
   in card mode. `isMobile` is consumed at `:74,80` only for the card-list switch. A
   case-insensitive grep for `bottom.?sheet|BottomSheet|s-sheet` across `frontend/src` returns
   zero hits.
-- **Failure scenario**: `/keys` at 375x812 with 30 keys. Select five keys near the bottom of
-  the card list; the bulk-action bar is at the very top, scrolled off-screen. The user must
-  scroll back up to find the destructive action, then scroll down again to verify the
-  selection.
-- **Blast radius**: every selectable table on mobile.
+- **Failure scenario**: none reachable today. **Corrected after triage**: writing
+  `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` established that no `STable`
+  consumer anywhere in the tree passes `selectable`, so the bulk bar has never rendered and
+  the originally reported scenario (selecting keys on a phone and losing the action bar
+  off-screen) cannot occur. What remains is a spec'd affordance that does not exist, not a
+  broken one.
+- **Blast radius**: none today; it becomes live for every selectable table on mobile the
+  moment any view opts into `selectable`.
 - **Intent source**: `docs/UI/12-shared-patterns.md:194` and `docs/UI/11-responsive-a11y.md:394`.
 
 ### F-44: Two admin sections add padding no sibling has, and short sections leave a tall blank column
@@ -1049,7 +1064,7 @@ Ordered by severity. Never renumber.
   plus an `auto-fit` stat grid of roughly 175px against a 568px nav, leaving about 390px of
   blank to the right of the lower nav.
 - **Blast radius**: the admin console.
-- **Intent source**: `docs/UI/02-layout-shell.md` §9 route table (`/admin/*` at one padding
+- **Intent source**: `docs/UI/02-layout-shell.md` 禮9 route table (`/admin/*` at one padding
   value); internal inconsistency with the 13 sibling sections.
 
 ### F-45: The app shell is sized in `vh` where every other layout uses `dvh`
@@ -1170,7 +1185,7 @@ Ordered by severity. Never renumber.
   placed in a container that does not clip it.
 - **Intent source**: `docs/UI/01-design-system.md` z-index scale.
 - **Note**: the stronger claim that a first-row table tooltip is clipped to nothing was
-  refuted; see §4.
+  refuted; see 禮4.
 
 ### F-51: `AgentDetailView`'s sticky prompt panel is sized with a constant that under-fills the viewport
 
@@ -1199,7 +1214,7 @@ Ordered by severity. Never renumber.
   spans roughly 1830px; the detail page's cards collapse to 672px hugging the left edge,
   leaving about 1150px of empty white to the right, including a member table that now wraps.
 - **Why plausible rather than confirmed**: the original spec citation was misapplied.
-  `docs/UI/02-layout-shell.md` §3.3's "Max-width: none" describes `AppShell`'s own content
+  `docs/UI/02-layout-shell.md` 禮3.3's "Max-width: none" describes `AppShell`'s own content
   region, not a prohibition on views constraining themselves, and constrained content is
   common here (`SessionsView.vue:213-215`, `InboxInvitesView.vue:225,232`,
   `OrgTransferView.vue:386`, `InviteAcceptView.vue:114`, `AdminPromptStudioView.vue:12`).
@@ -1252,76 +1267,91 @@ Kept because each refutation is itself worth not re-discovering.
 
 ## 5. Hand-off
 
+Triaged 2026-08-19. The user elected to act on all findings, so every one is assigned rather
+than sampled. The five dossiers are grouped by blast radius so that concurrent builds cannot
+produce conflicting diffs; their `depends_on` chain
+(feedback-channels, then shared-overlay, then content-area-spacing, then mobile-viewport)
+encodes **file overlap**, not logical sequencing. `chatroom-scroll-and-composer` is
+independent and can be built in parallel with the whole chain (its Q-11 records the file-by-file
+overlap check that justifies `depends_on: []`).
+
+Two findings are not fixed by a bugfix dossier and say so explicitly rather than leaving a
+blank row: **F-43** is a spec'd affordance that was never built and whose failure scenario is
+unreachable today, so it is routed out to a feature dossier that does not yet exist;
+**F-52** is deferred, because verification withdrew its intent source and it is a width-policy
+question for `docs/UI/12-shared-patterns.md` rather than a shell-contract violation. This audit
+therefore stays at `reviewed` rather than `closed`: F-43 has a decision but no linked dossier.
+
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | pending triage | |
-| F-2 | pending triage | |
-| F-3 | pending triage | |
-| F-4 | pending triage | |
-| F-5 | pending triage | |
-| F-6 | pending triage | |
-| F-7 | pending triage | |
-| F-8 | pending triage | |
-| F-9 | pending triage | |
-| F-10 | pending triage | |
-| F-11 | pending triage | |
-| F-12 | pending triage | |
-| F-13 | pending triage | |
-| F-14 | pending triage | |
-| F-15 | pending triage | |
-| F-16 | pending triage | |
-| F-17 | pending triage | |
-| F-18 | pending triage | |
-| F-19 | pending triage | |
-| F-20 | pending triage | |
-| F-21 | pending triage | |
-| F-22 | pending triage | |
-| F-23 | pending triage | |
-| F-24 | pending triage | |
-| F-25 | pending triage | |
-| F-26 | pending triage | |
-| F-27 | pending triage | |
-| F-28 | pending triage | |
-| F-29 | pending triage | |
-| F-30 | pending triage | |
-| F-31 | pending triage | |
-| F-32 | pending triage | |
-| F-33 | pending triage | |
-| F-34 | pending triage | |
-| F-35 | pending triage | |
-| F-36 | pending triage | |
-| F-37 | pending triage | |
-| F-38 | pending triage | |
-| F-39 | pending triage | |
-| F-40 | pending triage | |
-| F-41 | pending triage | |
-| F-42 | pending triage | |
-| F-43 | pending triage | |
-| F-44 | pending triage | |
-| F-45 | pending triage | |
-| F-46 | pending triage | |
-| F-47 | pending triage | |
-| F-48 | pending triage | |
-| F-49 | pending triage | |
-| F-50 | pending triage | |
-| F-51 | pending triage | |
-| F-52 | pending triage | |
+| F-1 | fix | `docs/tasks/2026-08-19-transient-feedback-channels/` |
+| F-2 | fix | `docs/tasks/2026-08-19-transient-feedback-channels/` |
+| F-3 | fix | `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` |
+| F-4 | fix | `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` |
+| F-5 | fix | `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` |
+| F-6 | fix | `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` |
+| F-7 | fix | `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` |
+| F-8 | fix | `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` |
+| F-9 | fix | `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` |
+| F-10 | fix | `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` |
+| F-11 | fix | `docs/tasks/2026-08-19-chatroom-scroll-and-composer/` |
+| F-12 | fix | `docs/tasks/2026-08-19-chatroom-scroll-and-composer/` |
+| F-13 | fix | `docs/tasks/2026-08-19-chatroom-scroll-and-composer/` |
+| F-14 | fix | `docs/tasks/2026-08-19-chatroom-scroll-and-composer/` |
+| F-15 | fix | `docs/tasks/2026-08-19-chatroom-scroll-and-composer/` |
+| F-16 | fix | `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` |
+| F-17 | fix | `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` |
+| F-18 | fix | `docs/tasks/2026-08-19-mobile-viewport-and-breakpoints/` |
+| F-19 | fix | `docs/tasks/2026-08-19-transient-feedback-channels/` |
+| F-20 | fix | `docs/tasks/2026-08-19-transient-feedback-channels/` |
+| F-21 | fix | `docs/tasks/2026-08-19-transient-feedback-channels/` |
+| F-22 | fix | `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` |
+| F-23 | fix | `docs/tasks/2026-08-19-chatroom-scroll-and-composer/` |
+| F-24 | fix | `docs/tasks/2026-08-19-chatroom-scroll-and-composer/` |
+| F-25 | fix | `docs/tasks/2026-08-19-mobile-viewport-and-breakpoints/` |
+| F-26 | fix | `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` |
+| F-27 | fix | `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` |
+| F-28 | fix | `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` |
+| F-29 | fix | `docs/tasks/2026-08-19-chatroom-scroll-and-composer/` |
+| F-30 | fix | `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` |
+| F-31 | fix | `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` |
+| F-32 | fix | `docs/tasks/2026-08-19-transient-feedback-channels/` |
+| F-33 | fix | `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` |
+| F-34 | fix | `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` |
+| F-35 | fix | `docs/tasks/2026-08-19-transient-feedback-channels/` |
+| F-36 | fix | `docs/tasks/2026-08-19-transient-feedback-channels/` |
+| F-37 | fix | `docs/tasks/2026-08-19-transient-feedback-channels/` |
+| F-38 | fix | `docs/tasks/2026-08-19-transient-feedback-channels/` |
+| F-39 | fix | `docs/tasks/2026-08-19-mobile-viewport-and-breakpoints/` |
+| F-40 | fix | `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` |
+| F-41 | fix | `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` |
+| F-42 | fix | `docs/tasks/2026-08-19-mobile-viewport-and-breakpoints/` |
+| F-43 | route out as a feature; failure scenario unreachable today (no `STable` consumer passes `selectable`) | none yet; see `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` Q-row and AC-12 |
+| F-44 | fix | `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` |
+| F-45 | fix | `docs/tasks/2026-08-19-mobile-viewport-and-breakpoints/` |
+| F-46 | fix | `docs/tasks/2026-08-19-mobile-viewport-and-breakpoints/` |
+| F-47 | fix | `docs/tasks/2026-08-19-chatroom-scroll-and-composer/` |
+| F-48 | fix | `docs/tasks/2026-08-19-chatroom-scroll-and-composer/` |
+| F-49 | fix | `docs/tasks/2026-08-19-chatroom-scroll-and-composer/` |
+| F-50 | fix | `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` |
+| F-51 | fix | `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` |
+| F-52 | defer; intent source withdrawn on verification | deferral recorded in `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` (Q-15, AC-13, FU-4) |
 
 ## 6. Out-of-scope Observations
 
 - **FU-1** - `AppShell.vue:18-23` hardcodes `/\/workflows\/[^/]+\/edit$/` and the chatroom path
   regex, duplicating the `sidebarCollapsed` / `contentPadding` meta that
   `slices/workflow/routes.ts:14` and `slices/conversation/routes.ts:26` already declare, against
-  `docs/UI/02-layout-shell.md` §9's statement that meta is the single source. Not a present-day
+  `docs/UI/02-layout-shell.md` 禮9's statement that meta is the single source. Not a present-day
   visual defect, but a divergence hazard and the reason the two graph routes (F-10) got neither
   treatment. Route to `check-quality`.
-- **FU-2** - `docs/UI/02-layout-shell.md` §6 and §9 say `/` redirects an authenticated user to
+- **FU-2** - `docs/UI/02-layout-shell.md` 禮6 and 禮9 say `/` redirects an authenticated user to
   `/orgs`, but `app/router.ts:26-30` gives it `layout: 'public'` and `app/views/Landing.vue:190-215`
   renders an authenticated hero. Verification concluded the code is the better intent: the hero
   offers a resume-last-chatroom deep link (`:199-206`) that a blind redirect would destroy, and
   `app/__tests__/Landing.test.ts:58` deliberately pins it. File as a spec update, not a code fix.
-- **FU-3** - `docs/UI/11-responsive-a11y.md` §2.1 specifies four content-padding tiers
-  (24/24/16/12/8) while `docs/UI/02-layout-shell.md` §3.3 and §8 specify three (24/16/8). The
+- **FU-3** - `docs/UI/11-responsive-a11y.md` 禮2.1 specifies four content-padding tiers
+  (24/24/16/12/8) while `docs/UI/02-layout-shell.md` 禮3.3 and 禮8 specify three (24/16/8). The
   implementation faithfully follows the latter; the two documents disagree only in the 480-767px
   band. Doc fix, not a code defect.
 - **FU-4** - `docs/UI/11-responsive-a11y.md:118` calls the `md` chatroom layout "2-column" while

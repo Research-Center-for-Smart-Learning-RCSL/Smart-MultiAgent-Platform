@@ -25,6 +25,33 @@ noted below — these are **not** sequenced, but whoever builds second must reba
 assume. All thirteen are now implemented and removed (see the notes below the In progress
 list). This section is kept as the record of what that audit produced.
 
+### From the 2026-08-19 page-presentation audit
+
+Five dossiers from `docs/audits/2026-08-19-page-presentation-scroll-and-feedback/findings.md`
+(52 findings, all triaged, grouped by blast radius). Two of them are ready now; the other
+three are in Blocked below.
+
+The chain `transient-feedback-channels` -> `shared-overlay-and-shell-defects` ->
+`content-area-spacing-and-scroll-contract` -> `mobile-viewport-and-breakpoints` is an
+**overlap** chain, not a logical one: they share `App.vue`, `AppShell.vue`, `router.ts` and
+`AgentDetailView.vue`, and concurrent builds would conflict. Any of them could technically go
+first, but building them serially avoids the conflict.
+
+- `2026-08-19-transient-feedback-channels` (bugfix, draft) - `depends_on: []`. Carries both
+  criticals. F-1: vue-sonner 2.x moved its CSS to a separate export and nothing imports it, so
+  every toast in the product renders unstyled in document flow below a `100vh` shell. F-2: the
+  backend emits raw Pydantic `exc.errors()` where R24.25 and the whole frontend expect
+  `{path, message}`, so a request-validation 422 produces no inline error and no toast. **Build
+  this first**: F-1 is the reported user complaint's primary cause, and fixing it makes the
+  z-index and banner overlaps in the other dossiers observable rather than theoretical. Note
+  Q-3 requires an OpenAPI regeneration, so `frontend-gate-openapi-drift` is in play, with the
+  Windows UTF-8 BOM hazard that caught `2026-08-16-platform-type-delete-optin-lifecycle` (D-10).
+- `2026-08-19-chatroom-scroll-and-composer` (bugfix, draft) - `depends_on: []`. Independent of
+  the chain; its Q-11 records the file-by-file overlap check that justifies the empty list, so
+  it can run in parallel with all four others. Carries an SRS/spec delta: `07-conversation.md:513`
+  claims a cache prevents per-token markdown re-rendering, which the audit disproved, and the
+  spec's page size disagrees with the code (50 vs 100).
+
 ### Other ready work
 
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
@@ -36,6 +63,25 @@ list). This section is kept as the record of what that audit produced.
 
 ## Blocked
 
+From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
+overlap, so each unblocks as soon as its predecessor is `implemented`.
+
+- `2026-08-19-shared-overlay-and-shell-defects` (bugfix, draft) - waiting on
+  `2026-08-19-transient-feedback-channels`. Both edit `App.vue`, and this dossier's
+  impersonation-banner z-index decision must agree with that one's Q-6, which puts the toaster
+  on `--z-toast: 500`. Fixes the shared overlay primitives: `STable`'s sticky header is inert,
+  `SDropdown` has no flip or height cap (and measures before the menu exists), `ErrorBoundary`
+  wraps the whole layout so a render error blanks the shell, and the 404 route has no `meta`.
+- `2026-08-19-content-area-spacing-and-scroll-contract` (bugfix, draft) - waiting on
+  `2026-08-19-shared-overlay-and-shell-defects`. Both edit `AppShell.vue`, `router.ts` and
+  `AgentDetailView.vue`. Strips the duplicated padding from 34 view roots (and the nested
+  `<main>` from 23 of them), and gives navigation a scroll-reset contract, which today does not
+  exist: `main.scrollTop` persists into the next view.
+- `2026-08-19-mobile-viewport-and-breakpoints` (bugfix, draft) - waiting on
+  `2026-08-19-content-area-spacing-and-scroll-contract`. Both edit `AppShell.vue` and
+  `AgentDetailView.vue`. **Read its §7 item 1 before starting**: the `100vh` line this dossier
+  targets is relocated by `shared-overlay-and-shell-defects`, so the element carrying the
+  viewport height depends on what has already landed.
 
 ## In progress
 
