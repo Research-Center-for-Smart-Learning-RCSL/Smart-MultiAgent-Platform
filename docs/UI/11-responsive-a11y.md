@@ -48,7 +48,7 @@ Use Tailwind responsive prefixes (`sm:`, `md:`, `lg:`, `xl:`) for layout changes
 |---------|-----------|--------------|---------------|----------------|-------------|
 | **Sidebar** | Drawer | Drawer | Drawer | 260px fixed | 260px fixed |
 | **Top bar** | Minimal | Compact | Full | Full | Full |
-| **Content padding** | 8px | 12px | 16px | 24px | 24px |
+| **Content padding** | 8px | 16px | 16px | 24px | 24px |
 | **Sidebar trigger** | Hamburger | Hamburger | Hamburger | Toggle | Toggle |
 
 **Sidebar as Drawer (< 1024px)**:
@@ -115,13 +115,22 @@ The most responsive-critical view:
 
 | Element | xs (<480) | sm (480-767) | md (768-1023) | lg+ (>=1024) |
 |---------|-----------|--------------|---------------|--------------|
-| **Layout** | Single pane | Single pane | 2-column | 3-column |
-| **Message area** | Full width | Full width | Main column | Main column |
-| **Presence panel** | Drawer | Drawer | Hidden | 240px sidebar |
+| **Layout** | Single pane | Single pane | Single pane | 3-column |
+| **Message area** | Full width | Full width | Full width | Main column |
+| **Presence panel** | Drawer | Drawer | Drawer | 240px sidebar |
 | **Agent list** | Drawer | Drawer | Drawer | In presence panel |
 | **Composer** | Fixed bottom | Fixed bottom | Fixed bottom | Fixed bottom |
 | **Search** | Full overlay | Full overlay | Top panel | Top panel |
 | **Header** | Compact | Standard | Standard | Standard |
+
+The `md` column previously read "2-column" with the presence panel hidden, which
+contradicted both `07-conversation.md` §3.1 ("below 1024px the view is a single column and
+the side panels are drawers") and the Agent list row of this same table. `md` is a single
+pane with drawer-based panels; the rails appear only at `lg+`.
+
+Within `lg+`, the 1024-1279 band is not the full three-column layout: per
+`07-conversation.md` §3.1 both rails collapse by default there and expand as overlay panels
+from header toggles. The `lg+` column above describes `xl` (>=1280).
 
 **Mobile chatroom specifics**:
 - Composer sticks to bottom above virtual keyboard (uses `visualViewport` API)
