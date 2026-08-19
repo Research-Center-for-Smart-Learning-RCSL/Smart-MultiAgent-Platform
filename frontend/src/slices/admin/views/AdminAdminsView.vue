@@ -20,16 +20,6 @@
       </SButton>
     </form>
 
-    <SAlert
-      v-if="promoteError"
-      variant="danger"
-      focus-on-mount
-      class="mt-2"
-      role="alert"
-    >
-      {{ promoteError }}
-    </SAlert>
-
     <SQueryError
       v-if="query.isError.value"
       class="mt-4"
@@ -89,7 +79,6 @@ import {
   STable,
   SButton,
   SInput,
-  SAlert,
   SQueryError,
   SEmptyState,
 } from '@shared/ui'
@@ -100,13 +89,11 @@ import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useConfirmDialog } from '@shared/composables'
 import { useAdminActions } from '../composables/useAdminActions'
-import { isProblemWithType } from '@shared/transport'
 import type { AdminEntry } from '../types'
 
 const { t } = useI18n()
 const { confirm } = useConfirmDialog()
 const promoteUserId = ref('')
-const promoteError = ref<string | null>(null)
 
 const columns = computed<Column[]>(() => [
   { key: 'user_id', label: t('admin.admins.userId') },
@@ -130,17 +117,15 @@ const rows = computed<AdminRow[]>(() => (query.data.value ?? []) as unknown as A
 const actions = useAdminActions()
 
 async function onPromote(): Promise<void> {
-  promoteError.value = null
   try {
     await actions.promoteAdmin.mutateAsync(promoteUserId.value.trim())
     promoteUserId.value = ''
   } catch {
-    promoteError.value = t('admin.users.promotionFailed')
+    // The mutation owns the single failure toast.
   }
 }
 
 async function onDemote(userId: string): Promise<void> {
-  promoteError.value = null
   const ok = await confirm({
     title: t('admin.admins.demoteTitle'),
     message: t('admin.admins.demoteMessage'),
@@ -151,12 +136,8 @@ async function onDemote(userId: string): Promise<void> {
   if (!ok) return
   try {
     await actions.demoteAdmin.mutateAsync(userId)
-  } catch (e) {
-    if (isProblemWithType(e, 'admin/last-admin')) {
-      promoteError.value = t('admin.users.lastAdminDemote')
-    } else {
-      promoteError.value = t('admin.users.demotionFailed')
-    }
+  } catch {
+    // The mutation owns the single, problem-aware failure toast.
   }
 }
 </script>

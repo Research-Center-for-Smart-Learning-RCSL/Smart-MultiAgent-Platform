@@ -1,8 +1,10 @@
 import type { App } from 'vue'
-import { toast } from 'vue-sonner'
 import { AuthError, PermissionError, ValidationError, RateLimitError, NetworkError } from '@shared/errors'
-import { TOAST_DURATION_MS } from '@shared/composables'
+import { useToast } from '@shared/composables'
+import { i18n } from '@shared/i18n'
 import { router } from './router'
+
+const toast = useToast()
 
 function handleError(err: unknown): boolean {
   if (err instanceof AuthError) {
@@ -10,7 +12,7 @@ function handleError(err: unknown): boolean {
     return true
   }
   if (err instanceof PermissionError) {
-    toast.error(err.detail ?? err.title, { duration: TOAST_DURATION_MS.error })
+    toast.error(i18n.global.t('shared.errors.forbidden'))
     return true
   }
   if (err instanceof ValidationError) {
@@ -18,9 +20,7 @@ function handleError(err: unknown): boolean {
   }
   if (err instanceof RateLimitError) {
     const seconds = Math.ceil(err.retryAfterMs / 1000)
-    toast.warning(`Rate limited. Please retry in ${seconds}s.`, {
-      duration: TOAST_DURATION_MS.warning,
-    })
+    toast.warning(i18n.global.t('shared.errors.rateLimited', { seconds }))
     return true
   }
   if (err instanceof NetworkError) {
@@ -36,9 +36,7 @@ export function installErrorHandler(app: App): void {
   app.config.errorHandler = (err) => {
     if (handleError(err)) return
 
-    toast.error('An unexpected error occurred. Please try again.', {
-      duration: TOAST_DURATION_MS.error,
-    })
+    toast.error(i18n.global.t('shared.errors.unexpected'))
 
     if (import.meta.env.PROD) {
       reportError(err)

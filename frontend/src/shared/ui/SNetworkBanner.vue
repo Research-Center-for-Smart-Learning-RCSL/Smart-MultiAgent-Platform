@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Global connection-recovery banner (§12 Shared Patterns §4.4). Fixed to the
-// top of the viewport, it appears only while the app is offline and offers an
+// top of its host layout, it appears only while the app is offline and offers an
 // immediate "Retry Now" alongside the automatic backoff probe.
 import { useI18n } from 'vue-i18n'
 import { useNetworkStatus } from '@shared/composables'
@@ -9,6 +9,8 @@ import SButton from './SButton.vue'
 
 const { t } = useI18n()
 const { online, retryNow } = useNetworkStatus()
+
+defineProps<{ belowTopbar?: boolean }>()
 </script>
 
 <template>
@@ -16,6 +18,7 @@ const { online, retryNow } = useNetworkStatus()
     <div
       v-if="!online"
       class="s-net-banner"
+      :class="{ 's-net-banner--below-topbar': belowTopbar }"
     >
       <SAlert
         variant="warning"
@@ -40,12 +43,15 @@ const { online, retryNow } = useNetworkStatus()
 <style scoped>
 .s-net-banner {
   position: fixed;
-  top: 0;
+  top: 12px;
   left: 50%;
   transform: translateX(-50%);
   z-index: var(--z-banner, 350);
   width: min(640px, calc(100vw - 32px));
-  margin-top: 12px;
+}
+
+.s-net-banner--below-topbar {
+  top: calc(var(--topbar-height) + 12px);
 }
 
 .s-net-banner__alert {

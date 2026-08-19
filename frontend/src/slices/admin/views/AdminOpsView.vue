@@ -24,14 +24,6 @@
           {{ $t('admin.ops.reset') }}
         </SButton>
       </form>
-      <SAlert
-        v-if="resetResult"
-        :variant="resetResult.ok ? 'success' : 'danger'"
-        class="mt-2"
-        focus-on-mount
-      >
-        {{ resetResult.text }}
-      </SAlert>
     </SCard>
 
     <SCard class="admin-ops__section">
@@ -63,14 +55,6 @@
           {{ $t('admin.ops.restoreAction') }}
         </SButton>
       </form>
-      <SAlert
-        v-if="restoreResult"
-        :variant="restoreResult.ok ? 'success' : 'danger'"
-        class="mt-2"
-        focus-on-mount
-      >
-        {{ restoreResult.text }}
-      </SAlert>
     </SCard>
   </section>
 </template>
@@ -78,23 +62,17 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { SPageHeader, SCard, SInput, SSelect, SButton, SAlert } from '@shared/ui'
-import { useConfirmDialog } from '@shared/composables'
+import { SPageHeader, SCard, SInput, SSelect, SButton } from '@shared/ui'
+import { useConfirmDialog, useToast } from '@shared/composables'
 import type { RestoreResourceType } from '../api/admin'
 import { useAdminActions } from '../composables/useAdminActions'
 
-interface OpResult {
-  text: string
-  ok: boolean
-}
-
 const { t } = useI18n()
+const toast = useToast()
 
 const graphragConfigId = ref('')
-const resetResult = ref<OpResult | null>(null)
 const restoreType = ref<RestoreResourceType>('org')
 const restoreId = ref('')
-const restoreResult = ref<OpResult | null>(null)
 
 const restoreTypeOptions = computed(() => [
   { value: 'user', label: t('admin.ops.typeUser') },
@@ -109,7 +87,6 @@ const { confirm } = useConfirmDialog()
 const actions = useAdminActions()
 
 async function onResetGraphrag(): Promise<void> {
-  resetResult.value = null
   const ok = await confirm({
     title: t('admin.ops.resetConfirmTitle'),
     message: t('admin.ops.resetConfirmMessage'),
@@ -120,10 +97,10 @@ async function onResetGraphrag(): Promise<void> {
   if (!ok) return
   try {
     await actions.resetGraphrag.mutateAsync(graphragConfigId.value.trim())
-    resetResult.value = { text: t('admin.ops.graphragResetSuccess'), ok: true }
+    toast.success(t('admin.ops.graphragResetSuccess'))
     graphragConfigId.value = ''
   } catch {
-    resetResult.value = { text: t('admin.ops.resetFailed'), ok: false }
+    // The mutation owns the single failure toast.
   }
 }
 
@@ -134,13 +111,12 @@ function onRestoreTypeChange(value: string | number): void {
 }
 
 async function onRestore(): Promise<void> {
-  restoreResult.value = null
   try {
     await actions.restoreResource.mutateAsync({ type: restoreType.value, id: restoreId.value.trim() })
-    restoreResult.value = { text: t('admin.ops.restoreSuccess'), ok: true }
+    toast.success(t('admin.ops.restoreSuccess'))
     restoreId.value = ''
   } catch {
-    restoreResult.value = { text: t('admin.ops.restoreFailed'), ok: false }
+    // The mutation owns the single failure toast.
   }
 }
 </script>

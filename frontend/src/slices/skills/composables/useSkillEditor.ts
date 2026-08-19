@@ -98,7 +98,7 @@ export function useSkillEditor(scope: SkillScopeRef, skillId: MaybeRefOrGetter<s
           const current = Number(err.extra.current_version)
           if (Number.isFinite(current)) version.value = current
         }
-        toast.error(t('skills.editor.conflict'))
+        toast.warning(t('skills.editor.conflict'))
       } else if (isProblemWithType(err, 'skills/index-budget-exceeded')) {
         toast.error(t('skills.editor.indexBudget'))
       } else if (isProblemWithType(err, 'skills/requires-tool-missing')) {
@@ -136,7 +136,7 @@ export function useSkillEditor(scope: SkillScopeRef, skillId: MaybeRefOrGetter<s
       toast.success(t('skills.editor.restored'))
     } catch (err) {
       if (isProblemWithType(err, 'skills/restore-conflict')) {
-        toast.error(t('skills.editor.restoreConflict'))
+        toast.warning(t('skills.editor.restoreConflict'))
       } else {
         toast.error(t('skills.editor.restoreFailed'))
       }

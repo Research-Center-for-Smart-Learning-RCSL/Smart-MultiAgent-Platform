@@ -3,6 +3,7 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { SPageHeader, SCard, SFormField, SInput, SButton, SAlert } from '@shared/ui'
+import { useToast } from '@shared/composables'
 import { isProblemWithType } from '@shared/transport'
 import { authApi, type Identity } from '../api/auth'
 import { useSessionStore } from '../stores/session'
@@ -12,10 +13,10 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
+const toast = useToast()
 
 const displayName = ref('')
 const serverError = ref<string | null>(null)
-const saved = ref(false)
 const submitting = ref(false)
 const fieldErrors = ref<Record<string, string | undefined>>({})
 const inputRef = ref<InstanceType<typeof SInput> | null>(null)
@@ -98,7 +99,6 @@ function validateDisplayName(): boolean {
 
 async function submit(): Promise<void> {
   serverError.value = null
-  saved.value = false
   if (!validateDisplayName()) return
 
   submitting.value = true
@@ -108,7 +108,7 @@ async function submit(): Promise<void> {
     // Reflect the server-normalised value (control chars stripped, re-trimmed).
     session.setMe(updated)
     displayName.value = updated.display_name ?? ''
-    saved.value = true
+    toast.success(t('identity.profile.saved'))
   } catch {
     serverError.value = t('identity.errors.generic')
   } finally {
@@ -145,18 +145,9 @@ async function submit(): Promise<void> {
             :maxlength="DISPLAY_NAME_MAX_LENGTH"
             :disabled="submitting"
             :error="!!fieldErrors.displayName"
-            @input="saved = false"
             @blur="validateDisplayName"
           />
         </SFormField>
-
-        <SAlert
-          v-if="saved"
-          variant="success"
-          focus-on-mount
-        >
-          {{ $t('identity.profile.saved') }}
-        </SAlert>
 
         <SAlert
           v-if="serverError"
