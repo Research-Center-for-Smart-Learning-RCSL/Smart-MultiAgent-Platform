@@ -37,15 +37,6 @@ The chain `transient-feedback-channels` -> `shared-overlay-and-shell-defects` ->
 `AgentDetailView.vue`, and concurrent builds would conflict. Any of them could technically go
 first, but building them serially avoids the conflict.
 
-- `2026-08-19-transient-feedback-channels` (bugfix, approved) - `depends_on: []`. Carries both
-  criticals. F-1: vue-sonner 2.x moved its CSS to a separate export and nothing imports it, so
-  every toast in the product renders unstyled in document flow below a `100vh` shell. F-2: the
-  backend emits raw Pydantic `exc.errors()` where R24.25 and the whole frontend expect
-  `{path, message}`, so a request-validation 422 produces no inline error and no toast. **Build
-  this first**: F-1 is the reported user complaint's primary cause, and fixing it makes the
-  z-index and banner overlaps in the other dossiers observable rather than theoretical. Note
-  Q-3 requires an OpenAPI regeneration, so `frontend-gate-openapi-drift` is in play, with the
-  Windows UTF-8 BOM hazard that caught `2026-08-16-platform-type-delete-optin-lifecycle` (D-10).
 - `2026-08-19-chatroom-scroll-and-composer` (bugfix, draft) - `depends_on: []`. Independent of
   the chain; its Q-11 records the file-by-file overlap check that justifies the empty list, so
   it can run in parallel with all four others. Carries an SRS/spec delta: `07-conversation.md:513`
@@ -85,6 +76,9 @@ overlap, so each unblocks as soon as its predecessor is `implemented`.
 
 ## In progress
 
+- `2026-08-19-transient-feedback-channels` (bugfix) — `depends_on: []`. Restores the global
+  toast layer and the runtime/OpenAPI 422 field-error contract, then consolidates transient
+  feedback ownership across app, admin, identity, workflow, prompt-studio, and skills.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-08-18 after implementation: `2026-08-18-agent-delegated-activity-control`
 (a room creator can delegate activity start/end to one bound agent, per room, scoped to an
