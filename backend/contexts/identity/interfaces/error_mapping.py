@@ -37,6 +37,11 @@ _MAP: ErrorMap = {
     errors.GoogleEmailUnverified: ("auth/oauth-email-unverified", 403, "Google email not verified"),
     errors.OAuthIdentityConflict: ("auth/oauth-identity-conflict", 409, "Google account already linked"),
     errors.LastCredentialError: ("auth/last-credential", 409, "Set a password before unlinking"),
+    errors.ActivationLinkRateLimited: (
+        "admin/activation-links-rate-limited",
+        429,
+        "Too many activation-link requests for this account",
+    ),
     errors.OriginalCreatorSelfDeleteBlocked: (
         "tenancy/original-creator-self-delete-blocked",
         409,
@@ -47,7 +52,7 @@ _MAP: ErrorMap = {
 
 def _extras(exc: Exception) -> dict[str, Any]:
     extras: dict[str, Any] = {}
-    if isinstance(exc, errors.Lockout):
+    if isinstance(exc, errors.Lockout | errors.ActivationLinkRateLimited):
         extras["retry_after_seconds"] = exc.retry_after_seconds
     if isinstance(exc, errors.OriginalCreatorSelfDeleteBlocked):
         extras["blocked_org_ids"] = exc.blocked_orgs

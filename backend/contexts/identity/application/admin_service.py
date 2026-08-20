@@ -16,21 +16,52 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
+from contexts.identity.application.auth_email_service import password_reset_url, verify_email_url
+
+# Private-by-convention reuse within one layer of one context: normalisation and
+# the two TTLs must be identical to the self-registration path or a provisioned
+# account is validated by different rules than a self-registered one (R6.18).
+from contexts.identity.application.auth_service import (
+    _RESET_TTL,
+    _VERIFY_TTL,
+    _normalise_display_name,
+    _normalise_email,
+)
+from contexts.identity.domain.errors import (
+    ActivationLinkRateLimited,
+    EmailAlreadyRegistered,
+    EmailDomainDenied,
+)
 from contexts.identity.domain.models import User, UserStatus
+from contexts.identity.infrastructure import email_domain_policy
 from contexts.identity.infrastructure import tables as t
 from contexts.identity.infrastructure.channels import user_channel
+from contexts.identity.infrastructure.email import recipient_digest
 from contexts.identity.infrastructure.repositories import (
     AdminRepository,
+    EmailVerifyTokenRepository,
+    PasswordResetTokenRepository,
     SessionRepository,
     UserRepository,
     row_to_user,
 )
 from contexts.notification.interfaces.facade import NotificationFacade, NotificationKind
 from shared_kernel import audit
-from shared_kernel.auth import tokens
+from shared_kernel.auth import ratelimit, tokens
 from shared_kernel.auth.clients import now
 from shared_kernel.db.restore import raise_restore_conflict
 from shared_kernel.realtime.pubsub import Publisher
+
+# Per-target-user cap on activation-link mints (§8). Same shape as the
+# per-recipient invite and password-reset caps.
+_ACTIVATION_LINK_WINDOW_SEC = 600
+_ACTIVATION_LINK_MAX = 5
+
+
+def _default_public_origin() -> str:
+    # Single origin (§19a.07); mirrors app.api.v1.auth._public_origin.
+    origins = get_settings().security.cors_origins
+    return (origins[0] if origins else "http://localhost:8080").rstrip("/")
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +79,21 @@ class UserDetail:
     project_ids: list[uuid.UUID]
 
 
+@dataclass(frozen=True, slots=True)
+class ActivationLinks:
+    """The two links an Admin hands to a provisioned account holder (R6.18).
+
+    Both are single-use bearer credentials — the set-password one is equivalent
+    to the password itself — so they may be returned to the minting Admin and to
+    nobody else: never logged, never audited, never carried by a read endpoint.
+    """
+
+    set_password_url: str
+    verify_email_url: str
+    set_password_expires_at: datetime
+    verify_email_expires_at: datetime
+
+
 class LastAdminError(Exception):
     pass
 
@@ -57,11 +103,152 @@ class SelfTargetError(ValueError):
 
 
 class AdminService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, *, public_origin: str | None = None) -> None:
         self._db = db
         self._users = UserRepository(db)
         self._admins = AdminRepository(db)
         self._sessions = SessionRepository(db)
+        self._verify = EmailVerifyTokenRepository(db)
+        self._reset = PasswordResetTokenRepository(db)
+        self._public_origin = (public_origin or _default_public_origin()).rstrip("/")
+
+    # ----- provisioning (R6.18) -------------------------------------------
+
+    async def create_user(
+        self,
+        *,
+        email: str,
+        display_name: str | None,
+        admin_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> tuple[User, ActivationLinks]:
+        """Provision an account for someone who cannot self-register (R6.18).
+
+        The account is created exactly as a self-registered one would be —
+        ``pending``, unverified, and with no password — so none of R6.02's gates
+        are weakened: it still cannot log in, create an Org, or accept an invite
+        until the holder verifies. No membership row is written anywhere; consent
+        is preserved (Q-1), and the only thing the Admin gains is two links to
+        hand over.
+
+        The email-domain policy of R19a.13 applies here too. Skipping it would
+        make this endpoint a bypass of a control the operator deliberately set.
+        """
+        email = _normalise_email(email)
+        if not await email_domain_policy.is_allowed(email):
+            raise EmailDomainDenied(f"domain not allowed: {email!r}")
+        if await self._users.get_active_by_email(email) is not None:
+            raise EmailAlreadyRegistered(email)
+        try:
+            user = await self._users.insert(
+                email=email,
+                password_hash=None,
+                status=UserStatus.PENDING,
+                display_name=_normalise_display_name(display_name),
+            )
+        except IntegrityError as exc:
+            # `uq_users_email_active` — the check above is advisory, the
+            # constraint is the decision. Closes the TOCTOU window between them.
+            raise EmailAlreadyRegistered(email) from exc
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="user.created",
+                actor_user_id=admin_user_id,
+                actor_ip=actor_ip,
+                resource_type="user",
+                resource_id=user.id,
+                metadata={"email_digest": recipient_digest(email), "provisioned_by_admin": True},
+                request_id=request_id,
+            ),
+        )
+        links = await self._mint_activation_links(
+            user,
+            admin_user_id=admin_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+        return user, links
+
+    async def issue_activation_links(
+        self,
+        *,
+        target_user_id: uuid.UUID,
+        admin_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> ActivationLinks:
+        """Re-mint both activation links for an account that still needs them.
+
+        Exists because the set-password token lives 30 minutes (R6.05) and an
+        Admin should not be racing that timer: they click this when they are
+        actually with the person, rather than at provisioning time.
+
+        Refused once the account is fully activated (has a password *and* a
+        verified address). A set-password link for a live account is a persistent
+        takeover primitive, and "re-issue activation links" is not the place to
+        put one — an Admin who needs to act as a user has impersonation, which is
+        bounded and separately audited.
+        """
+        user = await self._users.get_by_id(target_user_id)
+        if user is None or user.deleted_at is not None:
+            raise ValueError(f"user {target_user_id} not found")
+        if user.password_hash is not None and user.email_verified:
+            raise ValueError("account is already activated; use password reset or impersonation")
+        # SEC: cap the mint per target user so a compromised admin session cannot
+        # grind tokens at one account. Reported, not swallowed — see
+        # ActivationLinkRateLimited.
+        rl = await ratelimit.check_raw(
+            key=f"rl:actlink:u:{target_user_id}",
+            window_sec=_ACTIVATION_LINK_WINDOW_SEC,
+            max_count=_ACTIVATION_LINK_MAX,
+        )
+        if not rl.allowed:
+            raise ActivationLinkRateLimited(rl.retry_after_seconds)
+        return await self._mint_activation_links(
+            user,
+            admin_user_id=admin_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def _mint_activation_links(
+        self,
+        user: User,
+        *,
+        admin_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+    ) -> ActivationLinks:
+        # `issue` burns the target's earlier unused token of the same kind
+        # (SEC-L2), so a re-issue leaves exactly one live link per purpose. A
+        # token already *consumed* is untouched — this never undoes a completed
+        # step.
+        reset_token, _ = await self._reset.issue(user.id, _RESET_TTL)
+        verify_token, _ = await self._verify.issue(user.id, _VERIFY_TTL)
+        issued_at = now()
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="admin.user_activation_links_issued",
+                actor_user_id=admin_user_id,
+                actor_ip=actor_ip,
+                resource_type="user",
+                resource_id=user.id,
+                # Digest only. Neither token nor plaintext address may reach the
+                # audit log — the tokens are bearer credentials and the address
+                # is PII.
+                metadata={"recipient_digest": recipient_digest(user.email)},
+                request_id=request_id,
+            ),
+        )
+        return ActivationLinks(
+            set_password_url=password_reset_url(self._public_origin, reset_token),
+            verify_email_url=verify_email_url(self._public_origin, verify_token),
+            set_password_expires_at=issued_at + _RESET_TTL,
+            verify_email_expires_at=issued_at + _VERIFY_TTL,
+        )
 
     async def search_users(
         self,
@@ -443,4 +630,11 @@ class AdminService:
         await self._sessions.revoke_all_for_user(user_id)
 
 
-__all__ = ["AdminEntry", "AdminService", "LastAdminError", "SelfTargetError", "UserDetail"]
+__all__ = [
+    "ActivationLinks",
+    "AdminEntry",
+    "AdminService",
+    "LastAdminError",
+    "SelfTargetError",
+    "UserDetail",
+]

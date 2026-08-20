@@ -98,6 +98,22 @@ class LastCredentialError(IdentityError):
     code = "auth/last-credential"
 
 
+class ActivationLinkRateLimited(IdentityError):
+    """Too many activation-link mints for one provisioned account (R6.18). → 429.
+
+    Unlike the anti-enumeration limits on register/password-reset, this one is
+    reported rather than silently swallowed: the caller is an authenticated Admin
+    who needs to know the link was not re-issued, and there is no existence fact
+    to hide from them.
+    """
+
+    code = "admin/activation-links-rate-limited"
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(f"activation links rate-limited for {retry_after_seconds}s")
+        self.retry_after_seconds = retry_after_seconds
+
+
 class OriginalCreatorSelfDeleteBlocked(IdentityError):
     code = "tenancy/original-creator-self-delete-blocked"
 
@@ -110,6 +126,7 @@ __all__ = [
     "AccountBanned",
     "AccountDeleted",
     "AccountNotVerified",
+    "ActivationLinkRateLimited",
     "CaptchaRequired",
     "EmailAlreadyRegistered",
     "EmailDomainDenied",
