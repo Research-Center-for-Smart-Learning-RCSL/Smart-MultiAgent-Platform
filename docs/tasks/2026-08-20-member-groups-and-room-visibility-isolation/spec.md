@@ -840,6 +840,39 @@ before trusting the two gates above it.
   remain CI's to run. That is a pre-existing environment limitation, not a regression:
   nothing in this task touches either subsystem.
 
+- **D-16 (post-close) — a `/code-review` run on 2026-08-20, after this dossier reached
+  `implemented`, found three live defects in the group-binding UI. All three are fixed,
+  each with a mutation-probed test; the dossier stays `implemented` and no new dossier was
+  opened (the user's call).**
+
+  1. **A deleted group wedged the room's picker permanently.** `GET
+     /api/chatrooms/{id}/member-groups` returned raw binding rows "live and stale alike"
+     while the PUT refused a deleted id, and the settings view sends the GET's list
+     straight back on the next edit — so deleting a bound group made every later toggle
+     422, with no UI path to clear the stale binding because the picker only renders live
+     groups. The read now reports only live bindings. The stored row is still left alone
+     (the ACL ignores it, and the repository still does not read tenancy's `deleted_at`);
+     what changed is that a dead binding is no longer handed to a client that will send it
+     back. Both routes now go through one facade method, so the read and the write cannot
+     disagree again.
+  2. **Switching the group tier off closed the room to everyone.** `setFlag` paired
+     R13.04's exclusive flags only when switching one *on*. Turning `allow_member_groups`
+     off sent it alone, and since enabling it had already cleared
+     `allow_project_members`, the room landed with no member tier at all — every
+     non-moderator silently lost read and send. The comment above `setFlag` claimed the
+     room is never momentarily open to nobody, which was true only of the on-path. The
+     project tier is now restored in the same patch, but only when nothing else would
+     still admit members: an org-wide or owners-only room is narrower on purpose, and a
+     guest link does not count as a member tier.
+  3. **A group checkbox kept the user's click after a failed bind.** The input is
+     uncontrolled, so the browser flips `el.checked` and `:checked` re-applies only when
+     the rendered value changes — after a failure the confirmed set is unchanged, Vue
+     patches nothing, and the box shows a binding the server rejected under a toast saying
+     it failed. A nonce in the key forces the re-render an unchanged value cannot.
+
+  Defects 1 and 3 compound: the wedge from 1 makes every toggle fail, and 3 then displays
+  each of those failures as if it had worked.
+
 ## 16. Follow-ups
 
 - **FU-1** — Onboarding, decided with the user on 2026-08-20 and deliberately not in this
