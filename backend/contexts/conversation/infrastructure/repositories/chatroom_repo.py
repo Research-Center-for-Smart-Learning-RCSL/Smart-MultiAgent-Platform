@@ -631,6 +631,32 @@ class ChatroomGuestRepository:
         ).first()
         return row is not None
 
+    async def guest_room_ids(
+        self,
+        *,
+        user_id: uuid.UUID,
+        chatroom_ids: Sequence[uuid.UUID],
+    ) -> set[uuid.UUID]:
+        """Of `chatroom_ids`, the subset the user holds a guest row in (one query).
+
+        The batch form of :meth:`is_guest`, for the listing paths that must
+        evaluate the room flags over many rooms at once and cannot afford a
+        per-room round trip.
+        """
+        if not chatroom_ids:
+            return set()
+        rows = (
+            await self._db.execute(
+                sa.select(t.chatroom_guests.c.chatroom_id).where(
+                    sa.and_(
+                        t.chatroom_guests.c.user_id == user_id,
+                        t.chatroom_guests.c.chatroom_id.in_(list(chatroom_ids)),
+                    )
+                )
+            )
+        ).all()
+        return {r.chatroom_id for r in rows}
+
     async def list(self, chatroom_id: uuid.UUID) -> Sequence[ChatroomGuest]:
         rows = (
             await self._db.execute(
