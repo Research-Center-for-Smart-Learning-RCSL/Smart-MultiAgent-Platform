@@ -33,7 +33,7 @@ export class ObservationsService {
                 'limit': limit,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -57,7 +57,7 @@ export class ObservationsService {
                 'observation_id': observationId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -85,7 +85,7 @@ export class ObservationsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

@@ -32,7 +32,9 @@
       "invalidJson": "Invalid JSON"
     },
     "errors": {
-      "rateLimited": "Too many requests. Please retry in {seconds}s."
+      "forbidden": "You do not have permission to do that.",
+      "rateLimited": "Too many requests. Please retry in {seconds}s.",
+      "unexpected": "An unexpected error occurred. Please try again."
     }
   }
 }

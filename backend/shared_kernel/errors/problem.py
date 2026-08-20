@@ -7,9 +7,9 @@ for type-only references (guarded by TYPE_CHECKING).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 _PROBLEM_BASE = "https://smap.local/problems"
 
@@ -54,6 +54,46 @@ class Problem(BaseModel):
                 continue  # never let extras overwrite reserved members
             body[k] = v
         return body
+
+
+ValidationLocation = Literal["body", "query", "path", "header", "cookie"]
+
+
+class ValidationFieldError(BaseModel):
+    """One request-validation failure safe to expose on the public wire.
+
+    `path` is relative to `location`, not absolute: the request-part prefix that
+    FastAPI puts at the head of `loc` is carried in `location` instead. Without
+    the split, a path parameter and a body field of the same name are
+    indistinguishable, and a client mapping errors onto form fields attaches the
+    wrong one.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    location: ValidationLocation
+    path: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+
+
+class ValidationProblem(BaseModel):
+    """Published schema for a 422 Problem response.
+
+    Two producers share this status on the same operation: the global
+    request-validation handler, which always carries `field_errors`, and a
+    bounded context's domain error map (e.g. `auth/password-weak`), which never
+    does. `field_errors` is therefore optional here. Declaring it required
+    would publish a guarantee the domain path does not keep, and a client
+    trusting it would dereference a missing member. Distinguish the two by
+    `type`: only the request-validation problem uses `problems/validation`.
+    """
+
+    type: str
+    title: str
+    status: Literal[422]
+    detail: str
+    instance: str
+    field_errors: list[ValidationFieldError] | None = None
 
 
 class SmapError(Exception):

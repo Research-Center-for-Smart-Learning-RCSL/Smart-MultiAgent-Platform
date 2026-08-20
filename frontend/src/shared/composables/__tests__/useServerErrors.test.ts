@@ -15,7 +15,7 @@ vi.mock('vue-i18n', () => ({
   }),
 }))
 
-import { ApiError, RateLimitError, ValidationError } from '../../errors'
+import { ApiError, RateLimitError, ValidationError, type ValidationFieldError } from '../../errors'
 import { useServerErrors } from '../useServerErrors'
 
 const PROBLEM = {
@@ -39,13 +39,56 @@ describe('useServerErrors', () => {
         type: 'https://smap.local/problems/validation',
         title: 'Validation Error',
         status: 422,
-        field_errors: [{ path: 'config.reference', message: 'Not a valid URL.' }],
+        field_errors: [
+          { location: 'body', path: 'config.reference', message: 'Not a valid URL.' },
+        ],
       }),
     )
 
     expect(handled).toBe(true)
     expect(setErrors).toHaveBeenCalledWith({ 'config.reference': 'Not a valid URL.' })
     expect(toastMocks.warning).not.toHaveBeenCalled()
+  })
+
+  // A path/query/header failure can carry the same name as a field the user
+  // typed into. Attaching it would blame an input the user cannot fix, so these
+  // fall through to the caller's domain message instead.
+  it('attaches body failures only, and leaves the rest to the caller', () => {
+    const setErrors = vi.fn()
+    const { applyServerErrors } = useServerErrors(setErrors)
+
+    const handled = applyServerErrors(
+      new ValidationError({
+        type: 'https://smap.local/problems/validation',
+        title: 'Validation Error',
+        status: 422,
+        field_errors: [
+          { location: 'path', path: 'name', message: 'Not a valid UUID.' },
+          { location: 'query', path: 'limit', message: 'Not a valid integer.' },
+          { location: 'body', path: 'name', message: 'Too short.' },
+        ],
+      }),
+    )
+
+    expect(handled).toBe(true)
+    expect(setErrors).toHaveBeenCalledWith({ name: 'Too short.' })
+  })
+
+  it('does not claim a validation error that names no body field', () => {
+    const setErrors = vi.fn()
+    const { applyServerErrors } = useServerErrors(setErrors)
+
+    const handled = applyServerErrors(
+      new ValidationError({
+        type: 'https://smap.local/problems/validation',
+        title: 'Validation Error',
+        status: 422,
+        field_errors: [{ location: 'query', path: 'limit', message: 'Not a valid integer.' }],
+      }),
+    )
+
+    expect(handled).toBe(false)
+    expect(setErrors).not.toHaveBeenCalled()
   })
 
   // A 429 is not a fault in the submitted data. Letting it fall through to the
@@ -92,6 +135,21 @@ describe('useServerErrors', () => {
           type: 'https://smap.local/problems/validation',
           title: 'Validation Error',
           status: 422,
+        }),
+      ),
+    ).toBe(false)
+
+    // A runtime contract drift must not let `{undefined: undefined}` count as
+    // visible inline feedback and suppress the caller's fallback toast.
+    expect(
+      applyServerErrors(
+        new ValidationError({
+          type: 'https://smap.local/problems/validation',
+          title: 'Validation Error',
+          status: 422,
+          field_errors: [
+            { loc: ['body', 'name'], msg: 'Invalid value', type: 'value_error' },
+          ] as unknown as ValidationFieldError[],
         }),
       ),
     ).toBe(false)

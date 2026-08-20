@@ -51,7 +51,7 @@ export function useTemplateEditor(scope: ConfigScopeRef) {
       toast.success(t('promptStudio.templates.updated'))
     } catch (err) {
       if (isProblemWithType(err, 'prompt-studio/version-mismatch')) {
-        toast.error(t('promptStudio.templates.conflict'))
+        toast.warning(t('promptStudio.templates.conflict'))
       } else {
         toast.error(t('promptStudio.templates.saveFailed'))
       }

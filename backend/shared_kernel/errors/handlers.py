@@ -6,6 +6,7 @@ canonical ``https://smap.local/problems/…`` prefix (R19.06).
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -17,6 +18,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from shared_kernel.errors.problem import Problem, SmapError, problem_type
 
 _PROBLEM_MEDIA_TYPE = "application/problem+json"
+_REQUEST_LOCATION_PREFIXES = frozenset({"body", "query", "path", "header", "cookie"})
 
 
 def problem_response(
@@ -60,9 +62,54 @@ async def _validation_handler(request: Request, exc: RequestValidationError) -> 
         title="Validation Failed",
         status=422,
         detail="Request validation failed.",
-        extras={"field_errors": exc.errors()},
+        extras={"field_errors": _normalise_validation_errors(exc.errors())},
     )
     return _respond(problem, request)
+
+
+def _normalise_validation_errors(errors: Sequence[Any]) -> list[dict[str, str]]:
+    field_errors: list[dict[str, str]] = []
+    for error in errors:
+        if not isinstance(error, Mapping):
+            continue
+        if error.get("type") == "json_invalid":
+            continue
+        located = _validation_path(error.get("loc"))
+        message = error.get("msg")
+        if located is None or not isinstance(message, str) or not message:
+            continue
+        location, path = located
+        field_errors.append({"location": location, "path": path, "message": message})
+    return field_errors
+
+
+def _validation_path(raw_location: object) -> tuple[str, str] | None:
+    """Split pydantic's `loc` into the request part and a path relative to it.
+
+    Only `loc` values headed by a request part FastAPI produces are published;
+    anything else is dropped rather than guessed at, since a consumer mapping
+    these onto form fields has to know which part of the request they came from.
+    """
+    if not isinstance(raw_location, (list, tuple)):
+        return None
+    segments = list(raw_location)
+    if not segments or segments[0] not in _REQUEST_LOCATION_PREFIXES:
+        return None
+    location = str(segments.pop(0))
+
+    path = ""
+    for segment in segments:
+        if isinstance(segment, bool):
+            return None
+        if isinstance(segment, int):
+            path += f"[{segment}]"
+        elif isinstance(segment, str) and segment:
+            path += f".{segment}" if path else segment
+        else:
+            return None
+    if not path:
+        return None
+    return location, path
 
 
 async def _http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:

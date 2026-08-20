@@ -56,7 +56,7 @@ export class SkillsService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -76,7 +76,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -96,7 +96,7 @@ export class SkillsService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -142,7 +142,7 @@ export class SkillsService {
                 'If-Match': ifMatch,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -163,7 +163,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -193,7 +193,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -218,7 +218,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -239,7 +239,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -260,7 +260,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -285,7 +285,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -310,7 +310,7 @@ export class SkillsService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -334,7 +334,7 @@ export class SkillsService {
                 'file_id': fileId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -362,7 +362,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -383,7 +383,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -404,7 +404,7 @@ export class SkillsService {
                 'agent_id': agentId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -428,7 +428,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -457,7 +457,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -495,7 +495,7 @@ export class SkillsService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -520,7 +520,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -545,7 +545,7 @@ export class SkillsService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -574,7 +574,7 @@ export class SkillsService {
                 'If-Match': ifMatch,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -598,7 +598,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -631,7 +631,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -659,7 +659,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -683,7 +683,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -707,7 +707,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -735,7 +735,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -763,7 +763,7 @@ export class SkillsService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -790,7 +790,7 @@ export class SkillsService {
                 'file_id': fileId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -821,7 +821,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -845,7 +845,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -883,7 +883,7 @@ export class SkillsService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -908,7 +908,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -933,7 +933,7 @@ export class SkillsService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -962,7 +962,7 @@ export class SkillsService {
                 'If-Match': ifMatch,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -986,7 +986,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1019,7 +1019,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1047,7 +1047,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1071,7 +1071,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1095,7 +1095,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1123,7 +1123,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1151,7 +1151,7 @@ export class SkillsService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1178,7 +1178,7 @@ export class SkillsService {
                 'file_id': fileId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1209,7 +1209,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1233,7 +1233,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1271,7 +1271,7 @@ export class SkillsService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1296,7 +1296,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1321,7 +1321,7 @@ export class SkillsService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1350,7 +1350,7 @@ export class SkillsService {
                 'If-Match': ifMatch,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1374,7 +1374,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1407,7 +1407,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1435,7 +1435,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1459,7 +1459,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1483,7 +1483,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1511,7 +1511,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1539,7 +1539,7 @@ export class SkillsService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1566,7 +1566,7 @@ export class SkillsService {
                 'file_id': fileId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1597,7 +1597,7 @@ export class SkillsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1621,7 +1621,7 @@ export class SkillsService {
                 'skill_id': skillId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1647,7 +1647,7 @@ export class SkillsService {
                 'task_id': taskId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -1673,7 +1673,7 @@ export class SkillsService {
                 'task_id': taskId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

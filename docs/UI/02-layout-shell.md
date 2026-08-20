@@ -7,12 +7,13 @@
 
 ## 1. Layout Architecture
 
-The application uses two layout wrappers, selected by route metadata:
+The application uses three layout wrappers, selected by route metadata:
 
 | Layout | Routes | Description |
 |--------|--------|-------------|
-| `AuthLayout` | `/login`, `/register`, `/verify-email`, `/password-reset`, `/password-reset/confirm`, `/g/:chatroomId/:guestToken`, `/` (unauthenticated) | Centered card on plain background |
-| `AppShell` | All authenticated routes | Sidebar + top bar + content area |
+| `AuthLayout` | `/login`, `/register`, `/verify-email`, `/password-reset`, `/password-reset/confirm`, `/g/:chatroomId/:guestToken` | Centered card on plain background |
+| `PublicLayout` | `/` | Full-bleed passthrough for the marketing landing page (§6) |
+| `AppShell` | All authenticated routes, including the 404 catch-all when authenticated (§7) | Sidebar + top bar + content area |
 
 ### Route Meta Convention
 
@@ -98,7 +99,7 @@ App.vue
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;
   grid-template-rows: var(--topbar-height) 1fr;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -106,6 +107,13 @@ App.vue
   grid-template-columns: 0 1fr;
 }
 ```
+
+`100dvh`, not `100vh`. On mobile browsers `vh` resolves against the *large* viewport (URL
+bar hidden), so a `100vh` shell is taller than the visible area by the toolbar height and
+its bottom grid row, notably the chatroom composer, is below the fold on first paint. The
+dynamic unit is available across the whole supported range (see `11-responsive-a11y.md` §6:
+iOS Safari 16.2+, Chrome Android 110+; `dvh` shipped in Safari 15.4 and Chrome 108), and
+`AuthLayout`, `PublicLayout` and the landing view already use it.
 
 ### 3.2 Sidebar Auto-Collapse
 
@@ -319,14 +327,20 @@ Visible when a project is selected. Shows the most recent 10 chatrooms across al
 └─────────────────────────────────────────┘
 ```
 
-- Uses `AuthLayout` (centered)
+- Uses `PublicLayout` (full-bleed passthrough), not `AuthLayout`. The landing page is a
+  marketing surface with its own nav bar, orchestration hero and footer, so it is not
+  constrained to the 420px auth card.
 - "Get Started" (primary button) -> `/register`
 - "Log In" (secondary button) -> `/login`
-- No sidebar, no top bar
+- No sidebar, no app top bar
 
 ### When authenticated
 
-- Redirects to `/orgs` (the default dashboard view)
+- Renders a "welcome back" hero in the same `PublicLayout`, with an "Enter workspace" action
+  and a resume-last-chatroom deep link.
+- It does **not** redirect to `/orgs`. An earlier revision of this spec called for a blind
+  redirect; that was rejected because it destroys the resume deep link, which is the reason
+  the authenticated hero exists.
 
 ---
 
@@ -373,7 +387,7 @@ Visible when a project is selected. Shows the most recent 10 chatrooms across al
 
 | Route Pattern | Layout | Sidebar State | Content Padding |
 |---------------|--------|---------------|-----------------|
-| `/` | Auth or redirect | N/A | N/A |
+| `/` | Public | N/A | N/A |
 | `/login`, `/register`, `/verify-email`, `/password-reset/*` | Auth | N/A | N/A |
 | `/g/:chatroomId/:guestToken` | Auth | N/A | N/A |
 | `/orgs`, `/orgs/:id/*` | App | Normal | 24px |

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { Toaster } from 'vue-sonner'
 import { ImpersonationBanner } from '@slices/admin'
@@ -9,10 +10,12 @@ import ErrorBoundary from './ErrorBoundary.vue'
 import AuthLayout from './layouts/AuthLayout.vue'
 import AppShell from './layouts/AppShell.vue'
 import PublicLayout from './layouts/PublicLayout.vue'
+import { toasterProps } from './toasterProps'
 
 useBanKickGuard()
 
 const route = useRoute()
+const { t } = useI18n()
 
 const layoutComponent = computed(() => {
   const layout = route.meta.layout as string | undefined
@@ -24,7 +27,7 @@ const layoutComponent = computed(() => {
 </script>
 
 <template>
-  <SNetworkBanner />
+  <SNetworkBanner :below-topbar="layoutComponent === AppShell" />
   <ImpersonationBanner />
   <ErrorBoundary>
     <component :is="layoutComponent">
@@ -46,10 +49,7 @@ const layoutComponent = computed(() => {
   </ErrorBoundary>
   <!-- Toast visuals are token-themed in shared/styles/main.css (third-party
        overrides section) so they follow both themes; stock rich-colors is off. -->
-  <Toaster
-    position="top-right"
-    :duration="4000"
-  />
+  <Toaster v-bind="toasterProps(t)" />
   <SConfirmDialog />
   <SIdleDialog />
 </template>

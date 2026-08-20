@@ -41,11 +41,22 @@ export class PermissionError extends ApiError {
   }
 }
 
+/** Which part of the request a validation failure came from. `path` is relative
+ *  to it, so a path parameter and a body field of the same name stay distinct —
+ *  only `body` errors can be mapped onto a form field. */
+export type ValidationLocation = 'body' | 'query' | 'path' | 'header' | 'cookie'
+
+export interface ValidationFieldError {
+  location: ValidationLocation
+  path: string
+  message: string
+}
+
 export class ValidationError extends ApiError {
-  readonly fieldErrors: Array<{ path: string; message: string }>
+  readonly fieldErrors: ValidationFieldError[]
 
   constructor(problem: ConstructorParameters<typeof ApiError>[0] & {
-    field_errors?: Array<{ path: string; message: string }>
+    field_errors?: ValidationFieldError[]
   }) {
     super(problem)
     this.name = 'ValidationError'

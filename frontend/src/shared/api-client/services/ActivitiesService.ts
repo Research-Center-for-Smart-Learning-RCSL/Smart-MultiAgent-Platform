@@ -72,7 +72,7 @@ export class ActivitiesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -93,7 +93,7 @@ export class ActivitiesService {
                 'chatroom_id': chatroomId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -123,7 +123,7 @@ export class ActivitiesService {
                 'activation_id': activationId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -159,7 +159,7 @@ export class ActivitiesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -183,7 +183,7 @@ export class ActivitiesService {
                 'activation_id': activationId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -212,7 +212,7 @@ export class ActivitiesService {
                 'activation_id': activationId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -237,7 +237,7 @@ export class ActivitiesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -261,7 +261,7 @@ export class ActivitiesService {
                 'session_id': sessionId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -302,7 +302,7 @@ export class ActivitiesService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -327,7 +327,7 @@ export class ActivitiesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -356,7 +356,7 @@ export class ActivitiesService {
                 'type_id': typeId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -383,7 +383,7 @@ export class ActivitiesService {
                 'project_id': projectId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -413,7 +413,7 @@ export class ActivitiesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -442,7 +442,7 @@ export class ActivitiesService {
                 'type_id': typeId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -467,7 +467,7 @@ export class ActivitiesService {
                 'project_id': projectId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -492,7 +492,7 @@ export class ActivitiesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -516,7 +516,7 @@ export class ActivitiesService {
                 'type_id': typeId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -544,7 +544,7 @@ export class ActivitiesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

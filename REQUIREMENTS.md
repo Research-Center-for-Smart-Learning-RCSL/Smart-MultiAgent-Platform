@@ -1939,7 +1939,7 @@ Three tiers, clearly named:
 ### 24.8 Forms and validation
 
 - **[R24.24]** Every form uses **vee-validate** with **Zod** as the schema resolver. Schemas live in `slices/<n>/types/` and are reused for API request validation (client-side pre-flight).
-- **[R24.25]** Backend RFC 7807 errors with `detail.field_errors: [{path, message}]` are piped to vee-validate's `setErrors()` so server-side validation appears as inline form errors without ad-hoc plumbing.
+- **[R24.25]** Backend RFC 7807 errors with a top-level extension member `field_errors: [{location, path, message}]` are piped to vee-validate's `setErrors()` so server-side validation appears as inline or form-level errors without ad-hoc plumbing. `location` names the request part the failure came from (`body`, `query`, `path`, `header`, `cookie`) and `path` is relative to it; only `body` entries are attached to form fields, since a path or query failure can share a name with an input the user cannot correct.
 - **[R24.26]** A `<FormField>` wrapper component handles label, error message, help text, and ARIA wiring — components never hand-roll this markup.
 
 ### 24.9 Styling and design tokens

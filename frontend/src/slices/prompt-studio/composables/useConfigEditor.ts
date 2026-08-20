@@ -102,7 +102,7 @@ export function useConfigEditor(scope: ConfigScopeRef) {
       toast.success(t('promptStudio.config.saved'))
     } catch (err) {
       if (isProblemWithType(err, 'prompt-studio/version-mismatch')) {
-        toast.error(t('promptStudio.config.conflict'))
+        toast.warning(t('promptStudio.config.conflict'))
       } else if (isProblemWithType(err, 'prompt-studio/key-not-owned')) {
         toast.error(t('promptStudio.config.keyNotOwned'))
       } else if (isProblemWithType(err, 'prompt-studio/key-capability')) {
