@@ -11,7 +11,13 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
 
 import { wsManager, type ChannelEvent } from '@shared/transport'
-import { ApiError } from '@shared/api-client'
+// `@shared/errors`, NOT the generated client's same-named class: the axios
+// response interceptor converts every problem+json body into a `@shared/errors`
+// subclass and rejects with it, and the generated client rethrows that untouched
+// (its own `catchErrorCodes` never runs, because the rejected value carries no
+// `.response`). An `instanceof` against the generated `ApiError` is therefore
+// always false — both classes expose `.status`, which is what hid it.
+import { ApiError } from '@shared/errors'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
 import { getActiveActivation, useActivitiesStore } from '@slices/activities'
 import type { ActivityTypePublic } from '@slices/activities'
