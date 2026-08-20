@@ -266,6 +266,7 @@ async def _call_list_projects(
     candidates: list[SimpleNamespace],
     directly_visible: set[uuid.UUID],
     with_visible_room: set[uuid.UUID],
+    moderated: set[uuid.UUID] | None = None,
 ) -> tuple[list, AsyncMock]:
     service = AsyncMock()
     service.list_candidates_for_user = AsyncMock(
@@ -277,6 +278,10 @@ async def _call_list_projects(
     with (
         patch.object(projects_mod, "ProjectService", return_value=service),
         patch.object(projects_mod, "ConversationFacade", return_value=facade),
+        # `_moderated` builds a real role resolver against `db`; these tests are
+        # about which projects are *listed*, and the moderator bit each row
+        # carries is pinned by `test_moderated_project_ids.py`.
+        patch.object(projects_mod, "_moderated", AsyncMock(return_value=moderated or set())),
     ):
         out = await projects_mod.list_projects(
             scope=None,
@@ -286,6 +291,26 @@ async def _call_list_projects(
             db=AsyncMock(),
         )
     return out, facade
+
+
+@pytest.mark.asyncio
+async def test_each_listed_project_carries_the_callers_own_moderator_bit() -> None:
+    """The listing serializes the verdict per row, not one bit for the page.
+
+    The client reads this instead of scanning the member list, because ownership
+    is inherited and the member list cannot express that — see
+    `test_moderated_project_ids.py` and `useProjectRole`.
+    """
+    mine, theirs = _project("mine"), _project("theirs")
+
+    out, _ = await _call_list_projects(
+        candidates=[mine, theirs],
+        directly_visible={mine.id, theirs.id},
+        with_visible_room=set(),
+        moderated={theirs.id},
+    )
+
+    assert {p.name: p.is_moderator for p in out} == {"mine": False, "theirs": True}
 
 
 @pytest.mark.asyncio
@@ -357,6 +382,7 @@ async def _call_list_projects_scoped(
             "shared_kernel.auth.dependencies.get_role_resolver",
             AsyncMock(return_value=resolver),
         ),
+        patch.object(projects_mod, "_moderated", AsyncMock(return_value=set())),
     ):
         return await projects_mod.list_projects(
             scope="org",
