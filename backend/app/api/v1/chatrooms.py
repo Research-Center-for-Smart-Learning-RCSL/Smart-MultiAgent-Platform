@@ -247,8 +247,9 @@ async def list_chatrooms(
     db: AsyncSession = Depends(db_session),
 ) -> list[ChatroomOut]:
     project_id = await _project_id_for_workspace(db, workspace_id)
-    # Any member of the parent project may enumerate the rooms. Admin bypass
-    # lives in require_membership via principal.is_admin.
+    # Holding a role in the parent project is the price of admission to the
+    # listing at all; which rooms it then contains is the room ACL's answer, not
+    # this check's. Admin bypasses both.
     moderator = principal.is_admin
     if not principal.is_admin:
         resolver = await get_role_resolver(db)
@@ -259,12 +260,19 @@ async def list_chatrooms(
         if not roles:
             _raise_forbidden("caller is not a member of the project")
         moderator = is_moderator_roles(roles)
-    service = ChatroomService(db)
-    rows = await service.list_for_workspace(
-        workspace_id,
-        limit=pagination.limit,
-        offset=pagination.offset,
+    # R13.32 — enumeration follows confidentiality. This listing used to return
+    # every live room in the workspace to anyone holding any role in the parent
+    # project, which for an org-owned project is every member of the org
+    # (R5.03). Names, all four access flags and observer presence leaked for
+    # rooms the same caller was refused on open.
+    #
+    # Filtering happens before pagination, so `offset` counts visible rooms.
+    visible = await ConversationFacade(db).visible_rooms_in_workspace(
+        principal=principal,
+        workspace_id=workspace_id,
     )
+    rows = visible[pagination.offset : pagination.offset + pagination.limit]
+    service = ChatroomService(db)
     with_observers = await service.rooms_with_observers([r.id for r in rows])
     return [_to_out(r, has_observers=r.id in with_observers, is_moderator=moderator) for r in rows]
 
