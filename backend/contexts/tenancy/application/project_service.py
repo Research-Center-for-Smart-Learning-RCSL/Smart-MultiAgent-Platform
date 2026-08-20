@@ -123,11 +123,12 @@ class ProjectService:
     async def list_candidates_for_user(self, user_id: uuid.UUID) -> ProjectCandidates:
         """Every project the caller could conceivably see, split by why.
 
-        `projects` is the candidate set: projects the caller owns outright, plus
-        every project of every org they belong to. `directly_visible_ids` is the
-        subset whose visibility is already settled without looking at any room —
-        the caller owns the project, holds a `project_members` row in it, or owns
-        the parent org (R8.08 / R5.03 inheritance).
+        `projects` is the candidate set from three sources: projects the caller
+        owns outright, projects they hold a `project_members` row in, and every
+        project of every org they belong to. `directly_visible_ids` is the subset
+        whose visibility is already settled without looking at any room — the
+        first two sources, plus any project whose parent org the caller owns
+        (R8.08 / R5.03 inheritance).
 
         The remainder are projects the caller reaches only as a plain org member.
         Those are the ones R13.32 makes conditional on holding a room the caller
@@ -135,27 +136,30 @@ class ProjectService:
         returning the split rather than the answer keeps this context free of any
         knowledge of chat rooms.
 
-        Replaces `list_visible_for_user`, which returned every project of every
-        org the caller belonged to with no membership check at all, so `GET
-        /api/projects` disclosed the name of every project in the org.
+        Replaces `list_visible_for_user`, which had two defects pulling in
+        opposite directions. It returned every project of every org the caller
+        belonged to with no membership check, so `GET /api/projects` disclosed
+        the name of every project in the org. And it read only "owns it" and
+        "belongs to its org", so a user invited straight into an org-owned
+        project without being invited to the org — which
+        `create_project_invite` produces — never saw the project they had
+        accepted, even though the role resolver grants them PROJECT_MEMBER on it.
         """
         own = await self._projects.list_by_user(user_id)
+        member_ids = await self._members.list_project_ids_for_user(user_id)
+        member_projects = await self._projects.list_by_ids(list(member_ids))
         orgs = await OrgRepository(self._db).list_for_user(user_id)
         org_projects = await self._projects.list_by_orgs([org.id for org in orgs])
 
-        projects: list[Project] = list(own)
-        seen = {p.id for p in own}
-        for project in org_projects:
+        projects: list[Project] = []
+        seen: set[uuid.UUID] = set()
+        for project in (*own, *member_projects, *org_projects):
             if project.id not in seen:
                 seen.add(project.id)
                 projects.append(project)
 
         owned_org_ids = await self._org_members.owned_org_ids(user_id)
-        member_ids = await self._members.member_project_ids(
-            user_id=user_id,
-            project_ids=[p.id for p in projects],
-        )
-        directly_visible = {p.id for p in own} | member_ids
+        directly_visible = {p.id for p in own} | {p.id for p in member_projects}
         directly_visible |= {
             p.id for p in projects if p.owner_org_id is not None and p.owner_org_id in owned_org_ids
         }

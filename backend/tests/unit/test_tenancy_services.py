@@ -148,6 +148,145 @@ def _make_project_service(
     return svc
 
 
+class TestProjectCandidates:
+    """`list_candidates_for_user` — the input to the R13.32 project listing.
+
+    It returns the candidate set plus the subset whose visibility needs no room
+    lookup. The split is what keeps the tenancy context free of any knowledge of
+    chat rooms while still letting the route apply the room rule.
+    """
+
+    @staticmethod
+    def _service(
+        *,
+        own: list,
+        member_ids: list[uuid.UUID],
+        member_projects: list,
+        org_projects: list,
+        owned_org_ids: set[uuid.UUID],
+        orgs: list,
+    ):
+        projects = AsyncMock()
+        projects.list_by_user.return_value = own
+        projects.list_by_ids.return_value = member_projects
+        projects.list_by_orgs.return_value = org_projects
+        members = AsyncMock()
+        members.list_project_ids_for_user.return_value = member_ids
+        org_members = AsyncMock()
+        org_members.owned_org_ids.return_value = owned_org_ids
+        org_repo = AsyncMock()
+        org_repo.list_for_user.return_value = orgs
+        svc = _make_project_service(project_repo=projects, member_repo=members, org_member_repo=org_members)
+        return svc, org_repo
+
+    async def test_a_project_member_who_is_not_an_org_member_still_sees_the_project(self) -> None:
+        """The invite-straight-into-a-project case, which the old listing dropped.
+
+        `create_project_invite` writes a `project_members` row and no
+        `org_members` row, so neither "owns it" nor "belongs to its org" finds
+        the project — yet the role resolver grants PROJECT_MEMBER on it.
+        """
+        project = _make_project(project_id=uuid.uuid4())
+        svc, org_repo = self._service(
+            own=[],
+            member_ids=[project.id],
+            member_projects=[project],
+            org_projects=[],
+            owned_org_ids=set(),
+            orgs=[],
+        )
+
+        with patch("contexts.tenancy.application.project_service.OrgRepository", return_value=org_repo):
+            result = await svc.list_candidates_for_user(_USER_ID)
+
+        assert [p.id for p in result.projects] == [project.id]
+        assert result.directly_visible_ids == {project.id}
+
+    async def test_plain_org_membership_leaves_a_project_undecided(self) -> None:
+        """The whole point: an org member does not see a sibling project for free."""
+        sibling = _make_project(project_id=uuid.uuid4())
+        svc, org_repo = self._service(
+            own=[],
+            member_ids=[],
+            member_projects=[],
+            org_projects=[sibling],
+            owned_org_ids=set(),
+            orgs=[_make_org()],
+        )
+
+        with patch("contexts.tenancy.application.project_service.OrgRepository", return_value=org_repo):
+            result = await svc.list_candidates_for_user(_USER_ID)
+
+        assert [p.id for p in result.projects] == [sibling.id]
+        assert result.directly_visible_ids == set()
+
+    async def test_org_owner_reaches_every_project_of_that_org(self) -> None:
+        """R8.08 / R5.03 inheritance is settled without any room lookup."""
+        sibling = _make_project(project_id=uuid.uuid4(), owner_org_id=_ORG_ID)
+        svc, org_repo = self._service(
+            own=[],
+            member_ids=[],
+            member_projects=[],
+            org_projects=[sibling],
+            owned_org_ids={_ORG_ID},
+            orgs=[_make_org()],
+        )
+
+        with patch("contexts.tenancy.application.project_service.OrgRepository", return_value=org_repo):
+            result = await svc.list_candidates_for_user(_USER_ID)
+
+        assert result.directly_visible_ids == {sibling.id}
+
+    async def test_the_three_sources_are_deduplicated(self) -> None:
+        project = _make_project(project_id=uuid.uuid4())
+        svc, org_repo = self._service(
+            own=[project],
+            member_ids=[project.id],
+            member_projects=[project],
+            org_projects=[project],
+            owned_org_ids=set(),
+            orgs=[_make_org()],
+        )
+
+        with patch("contexts.tenancy.application.project_service.OrgRepository", return_value=org_repo):
+            result = await svc.list_candidates_for_user(_USER_ID)
+
+        assert [p.id for p in result.projects] == [project.id]
+
+    async def test_a_user_owned_project_is_directly_visible(self) -> None:
+        mine = _make_project(project_id=uuid.uuid4(), owner_user_id=_USER_ID, owner_org_id=None)
+        svc, org_repo = self._service(
+            own=[mine],
+            member_ids=[],
+            member_projects=[],
+            org_projects=[],
+            owned_org_ids=set(),
+            orgs=[],
+        )
+
+        with patch("contexts.tenancy.application.project_service.OrgRepository", return_value=org_repo):
+            result = await svc.list_candidates_for_user(_USER_ID)
+
+        assert result.directly_visible_ids == {mine.id}
+
+    async def test_org_projects_are_fetched_in_one_query_not_one_per_org(self) -> None:
+        """The old loop called `list_by_org` once per org on a hot route."""
+        svc, org_repo = self._service(
+            own=[],
+            member_ids=[],
+            member_projects=[],
+            org_projects=[],
+            owned_org_ids=set(),
+            orgs=[_make_org(org_id=uuid.uuid4()) for _ in range(4)],
+        )
+
+        with patch("contexts.tenancy.application.project_service.OrgRepository", return_value=org_repo):
+            await svc.list_candidates_for_user(_USER_ID)
+
+        svc._projects.list_by_orgs.assert_awaited_once()
+        svc._projects.list_by_org.assert_not_called()
+
+
 # ===========================================================================
 # OrgService
 # ===========================================================================
