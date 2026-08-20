@@ -9880,18 +9880,26 @@
         "type": "object"
       },
       "ValidationProblem": {
-        "description": "Published schema for the global request-validation Problem response.",
+        "description": "Published schema for a 422 Problem response.\n\nTwo producers share this status on the same operation: the global\nrequest-validation handler, which always carries `field_errors`, and a\nbounded context's domain error map (e.g. `auth/password-weak`), which never\ndoes. `field_errors` is therefore optional here. Declaring it required\nwould publish a guarantee the domain path does not keep, and a client\ntrusting it would dereference a missing member. Distinguish the two by\n`type`: only the request-validation problem uses `problems/validation`.",
         "properties": {
           "detail": {
             "title": "Detail",
             "type": "string"
           },
           "field_errors": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationFieldError"
-            },
-            "title": "Field Errors",
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ValidationFieldError"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Field Errors"
           },
           "instance": {
             "title": "Instance",
@@ -9919,8 +9927,7 @@
           "title",
           "status",
           "detail",
-          "instance",
-          "field_errors"
+          "instance"
         ],
         "title": "ValidationProblem",
         "type": "object"

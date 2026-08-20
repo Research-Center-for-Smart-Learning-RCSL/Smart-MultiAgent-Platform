@@ -427,6 +427,27 @@ documentation, not a new requirement.
   is treated as attacker-influenced and the test asserts it never reaches the toast. The
   localized-only behaviour is correct and was left alone.
 
+- **D-15 (review) — the localized close-button label had no button to label.** vue-sonner 2.0.9
+  declares `closeButton: { type: Boolean, default: false }` and renders the button only when it
+  is true, so `closeButtonAriaLabel` alone was inert and a keyboard user could not dismiss a 6s
+  error toast early. `ToasterAccessibility.test.ts` passed because it supplied its own
+  `closeButton: true`, a configuration the app did not ship, so the spec could not fail on this.
+  The Toaster configuration moved to `app/toasterProps.ts`, App.vue binds it, and the test now
+  mounts the app's own props.
+- **D-16 (review) — the toast layer sat under the impersonation banner.** `ImpersonationBanner`
+  carried a literal `z-index: 9999`, which outranks `--z-toast: 500`, and sonner's 24px top
+  offset puts the first top-right toast inside that bar's ~36px height. An impersonating admin
+  saw every toast clipped. The banner now uses `--z-banner`, the same layer as the connection
+  banner and the same rationale: above chrome, below modals and toasts.
+- **D-17 (review) — the published 422 promised `field_errors` the domain path never sends.**
+  The postprocessor rewrites every automatic 422 to `ValidationProblem`, but the same operations
+  also answer 422 from a context error map (`auth/password-weak`, `skills/*`, `activities/*`,
+  `workflow/*`, `prompt_studio/*`) via `context_handler`, whose body carries no `field_errors`.
+  With the member required, the generated client typed it non-optional and a consumer would have
+  dereferenced a missing value. `field_errors` is now optional on the schema, with a test that
+  validates a real domain 422 body against it. Every other member (`type`, `title`, `status`,
+  `detail`, `instance`) is genuinely emitted by both producers and stays required.
+
 ## 13. Follow-ups
 
 - **FU-1**: the e2e suite asserts toast text with `toBeVisible()`, which cannot distinguish a
