@@ -10,6 +10,7 @@ import ErrorBoundary from './ErrorBoundary.vue'
 import AuthLayout from './layouts/AuthLayout.vue'
 import AppShell from './layouts/AppShell.vue'
 import PublicLayout from './layouts/PublicLayout.vue'
+import { toasterProps } from './toasterProps'
 
 useBanKickGuard()
 
@@ -48,12 +49,7 @@ const layoutComponent = computed(() => {
   </ErrorBoundary>
   <!-- Toast visuals are token-themed in shared/styles/main.css (third-party
        overrides section) so they follow both themes; stock rich-colors is off. -->
-  <Toaster
-    position="top-right"
-    :duration="4000"
-    :container-aria-label="t('app.notifications.label')"
-    :toast-options="{ closeButtonAriaLabel: t('app.notifications.close') }"
-  />
+  <Toaster v-bind="toasterProps(t)" />
   <SConfirmDialog />
   <SIdleDialog />
 </template>
