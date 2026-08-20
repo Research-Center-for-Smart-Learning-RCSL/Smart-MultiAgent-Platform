@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.v1 import orchestration
 from app.api.v1.deps import PaginationParams
+from app.api.v1.orchestration import ApprovalWithVotesOut
 from contexts.agents.infrastructure import tables as agent_t
 from contexts.conversation.infrastructure import tables as conv_t
 from contexts.identity.infrastructure.tables import users as users_t
@@ -207,7 +208,9 @@ async def scenario(sessionmaker: async_sessionmaker[AsyncSession]) -> AsyncItera
             await cleanup.commit()
 
 
-async def _get_approval(session: AsyncSession, *, approval_id: uuid.UUID, user_id: uuid.UUID) -> object:
+async def _get_approval(
+    session: AsyncSession, *, approval_id: uuid.UUID, user_id: uuid.UUID
+) -> ApprovalWithVotesOut:
     return await orchestration.get_approval(
         approval_id=approval_id,
         db=session,
@@ -237,7 +240,7 @@ async def test_ac1_member_reads_an_approval_in_a_room_they_can_open(
 ) -> None:
     async with sessionmaker() as session:
         out = await _get_approval(session, approval_id=scenario.approval_open, user_id=scenario.member)
-    assert out.id == str(scenario.approval_open)  # type: ignore[attr-defined]
+    assert out.id == str(scenario.approval_open)
 
 
 async def test_ac1_member_cannot_read_an_owners_only_rooms_approval(
@@ -256,7 +259,7 @@ async def test_ac1_owner_reads_the_owners_only_rooms_approval(
 ) -> None:
     async with sessionmaker() as session:
         out = await _get_approval(session, approval_id=scenario.approval_owners, user_id=scenario.owner)
-    assert out.id == str(scenario.approval_owners)  # type: ignore[attr-defined]
+    assert out.id == str(scenario.approval_owners)
 
 
 async def test_ac1_outsider_reads_nothing(
@@ -334,7 +337,7 @@ async def test_ac5_deleting_the_room_makes_its_approval_backstage(
 
     async with sessionmaker() as session:
         out = await _get_approval(session, approval_id=scenario.approval_open, user_id=scenario.owner)
-    assert out.id == str(scenario.approval_open)  # type: ignore[attr-defined]
+    assert out.id == str(scenario.approval_open)
 
 
 async def test_ac5_soft_deleting_the_room_denies_rather_than_falling_back(
@@ -367,8 +370,8 @@ async def test_ac8_the_card_reconcile_call_still_works_for_an_ordinary_member(
     async with sessionmaker() as session:
         card = await _get_approval(session, approval_id=scenario.approval_open, user_id=scenario.member)
 
-    assert card.id == str(scenario.approval_open)  # type: ignore[attr-defined]
-    assert card.votes == []  # type: ignore[attr-defined]
+    assert card.id == str(scenario.approval_open)
+    assert card.votes == []
 
 
 async def test_ac8_the_room_scoped_listing_is_untouched(
