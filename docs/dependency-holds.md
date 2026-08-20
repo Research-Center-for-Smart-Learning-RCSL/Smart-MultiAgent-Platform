@@ -138,6 +138,47 @@ reach for the TS 6 side-by-side workaround upstream documents — running the
 linter against a different compiler than the build uses is the same
 two-sources-of-truth problem the Node hold above describes.
 
+## zod — held at 3.25.76 (latest 4.4.3)
+
+**Logged:** 2026-08-20 · **Blocks:** #158
+
+`@vee-validate/zod` has no zod 4 release. Its latest version, 4.15.1, declares
+`peerDependencies: { zod: "^3.24.0" }`, and every other dist-tag points at an
+older version still (`next` is 4.5.8). The ceiling is the adapter's, not ours.
+
+The adapter reads zod 3 internals directly. In zod 4 `_def.defaultValue` is the
+default value; in zod 3 it was a thunk, and the adapter still calls it, so every
+form built with `toTypedSchema` throws while vee-validate resolves its initial
+values:
+
+```
+TypeError: value._def.defaultValue is not a function
+  at @vee-validate/zod/dist/vee-validate-zod.mjs:158:37
+  at getDefaults (@vee-validate/zod/dist/vee-validate-zod.mjs:156:60)
+  at Object.cast (@vee-validate/zod/dist/vee-validate-zod.mjs:94:34)
+  at resolveInitialValues (vee-validate/dist/vee-validate.mjs:2170:29)
+```
+
+That is 12 view files — every form in the app — and it takes **82 tests across
+11 files** with it. The failure is at mount, so it is loud rather than silent.
+
+The call-site work zod 4 needs on our side is genuinely small and was verified
+separately: ten `z.record(valueType)` calls in
+`frontend/src/slices/agents/types/schemas.ts` need the 4.x two-argument form
+`z.record(z.string(), valueType)`, after which `pnpm typecheck` is clean. That
+change is worthless on its own and is deliberately **not** carried on a branch —
+the adapter is the blocker, and it may well ship a different migration.
+
+**Reproduction:** set `zod` to `4.4.3` in `frontend/package.json`,
+`pnpm install`, `pnpm test`. Expect `Tests 82 failed | 1095 passed (1177)` and
+the TypeError above in the first failing file.
+
+**Release when:** `@vee-validate/zod` ships a release whose `zod` peer range
+admits 4.x. Then bump both in one commit and apply the `z.record` change with
+them. Do not reach for a hand-written zod 4 adapter: the twelve call sites all
+go through `toTypedSchema`, and owning that shim means owning zod-internals
+compatibility forever.
+
 ## qdrant-client — held at 1.12.* (latest 1.19.x)
 
 **Logged:** 2026-08-14 · **Blocks:** #140
