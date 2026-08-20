@@ -83,6 +83,9 @@ class Chatroom:
     deleted_at: datetime | None
     created_by_user_id: uuid.UUID | None = None
     disclose_observers: bool = True
+    # §13.2a. Defaulted so every existing construction site — tests included —
+    # keeps compiling and keeps meaning "this room has no group tier".
+    allow_member_groups: bool = False
 
 
 @dataclass(frozen=True, slots=True)

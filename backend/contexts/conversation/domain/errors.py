@@ -41,6 +41,18 @@ class MessageImmutable(ConversationError):
     code = "conversation/message-immutable"
 
 
+class RoomAccessFlagsConflict(ConversationError):
+    """R13.04 — `allow_member_groups` and `allow_project_members` are exclusive.
+
+    The one refused flag pair, and the only one. Every other combination is a
+    valid subset. This pair is refused because it does not merely fail to add
+    meaning: it silently widens a room the operator has just restricted to named
+    groups, the binding still renders, and the whole project reads the room.
+    """
+
+    code = "conversation/room-access-flags-conflict"
+
+
 class ForbiddenInRoom(ConversationError):
     """Caller has no send/view rights in this room (per §21.1 flags)."""
 
@@ -175,6 +187,7 @@ __all__ = [
     "NotRoomCreator",
     "ObservationAlreadyReleased",
     "ObservationNotFound",
+    "RoomAccessFlagsConflict",
     "TusMetadataInvalid",
     "TusOffsetMismatch",
     "TusSizeMismatch",

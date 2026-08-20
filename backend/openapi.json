@@ -4080,6 +4080,11 @@
             "title": "Allow Guest Links",
             "type": "boolean"
           },
+          "allow_member_groups": {
+            "default": false,
+            "title": "Allow Member Groups",
+            "type": "boolean"
+          },
           "allow_org_members": {
             "default": false,
             "title": "Allow Org Members",
@@ -4106,6 +4111,38 @@
           "name"
         ],
         "title": "ChatroomCreateIn",
+        "type": "object"
+      },
+      "ChatroomMemberGroupsIn": {
+        "properties": {
+          "member_group_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Member Group Ids",
+            "type": "array"
+          }
+        },
+        "title": "ChatroomMemberGroupsIn",
+        "type": "object"
+      },
+      "ChatroomMemberGroupsOut": {
+        "properties": {
+          "member_group_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Member Group Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "member_group_ids"
+        ],
+        "title": "ChatroomMemberGroupsOut",
         "type": "object"
       },
       "ChatroomMemberOut": {
@@ -4138,6 +4175,10 @@
         "properties": {
           "allow_guest_links": {
             "title": "Allow Guest Links",
+            "type": "boolean"
+          },
+          "allow_member_groups": {
+            "title": "Allow Member Groups",
             "type": "boolean"
           },
           "allow_org_members": {
@@ -4224,6 +4265,7 @@
           "allow_project_members",
           "allow_project_owners_only",
           "allow_guest_links",
+          "allow_member_groups",
           "version",
           "created_at",
           "deleted_at",
@@ -4246,6 +4288,17 @@
               }
             ],
             "title": "Allow Guest Links"
+          },
+          "allow_member_groups": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Member Groups"
           },
           "allow_org_members": {
             "anyOf": [
@@ -6553,6 +6606,104 @@
           "marked"
         ],
         "title": "MarkReadOut",
+        "type": "object"
+      },
+      "MemberGroupCreateIn": {
+        "properties": {
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "MemberGroupCreateIn",
+        "type": "object"
+      },
+      "MemberGroupMemberIn": {
+        "properties": {
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ],
+        "title": "MemberGroupMemberIn",
+        "type": "object"
+      },
+      "MemberGroupMemberOut": {
+        "properties": {
+          "joined_at": {
+            "title": "Joined At",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "joined_at"
+        ],
+        "title": "MemberGroupMemberOut",
+        "type": "object"
+      },
+      "MemberGroupOut": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "version",
+          "created_at"
+        ],
+        "title": "MemberGroupOut",
+        "type": "object"
+      },
+      "MemberGroupPatchIn": {
+        "properties": {
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "MemberGroupPatchIn",
         "type": "object"
       },
       "MemberOut": {
@@ -17743,6 +17894,101 @@
         ]
       }
     },
+    "/api/chatrooms/{chatroom_id}/member-groups": {
+      "get": {
+        "operationId": "list_chatroom_member_groups_api_chatrooms__chatroom_id__member_groups_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatroomMemberGroupsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "List Chatroom Member Groups",
+        "tags": [
+          "chatrooms"
+        ]
+      },
+      "put": {
+        "description": "Replace this room's Member Group bindings (R13.29).\n\nSEC: every id is checked to belong to **this room's** project before it is\nwritten. Without that, an owner of project A could bind a group from project B\nto a room in A and hand B's members a room they have no standing in \u2014 a\ncross-project grant assembled entirely out of ids the caller is allowed to\nknow. The check reads the group rows rather than trusting the request.",
+        "operationId": "set_chatroom_member_groups_api_chatrooms__chatroom_id__member_groups_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatroomMemberGroupsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatroomMemberGroupsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Set Chatroom Member Groups",
+        "tags": [
+          "chatrooms"
+        ]
+      }
+    },
     "/api/chatrooms/{chatroom_id}/members": {
       "get": {
         "description": "Resolve human participants to display names so the client can label\nmessage authors (REST history + live WS messages share one map).\n\nOnly ``user_id`` + ``display_name`` is returned \u2014 never email \u2014 so a room\nmember (including a guest) cannot harvest other participants' login\nidentifiers. The id set is the union of distinct human message authors and\nenrolled guests; a guest's per-room display name takes precedence over their\naccount display name. Names left unset resolve to ``null`` and the client\nfalls back to a short id.",
@@ -20187,6 +20433,281 @@
         "summary": "Me Patch Template",
         "tags": [
           "prompt-studio"
+        ]
+      }
+    },
+    "/api/member-groups/{group_id}": {
+      "delete": {
+        "operationId": "delete_member_group_api_member_groups__group_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Delete Member Group",
+        "tags": [
+          "member-groups"
+        ]
+      },
+      "get": {
+        "operationId": "read_member_group_api_member_groups__group_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberGroupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Read Member Group",
+        "tags": [
+          "member-groups"
+        ]
+      },
+      "patch": {
+        "operationId": "rename_member_group_api_member_groups__group_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "title": "If-Match",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberGroupPatchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberGroupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Rename Member Group",
+        "tags": [
+          "member-groups"
+        ]
+      }
+    },
+    "/api/member-groups/{group_id}/members": {
+      "get": {
+        "description": "A member of the group may see who else is in it; anyone else cannot see\nthat the group exists at all (R13.31).",
+        "operationId": "list_member_group_members_api_member_groups__group_id__members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MemberGroupMemberOut"
+                  },
+                  "title": "Response List Member Group Members Api Member Groups  Group Id  Members Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "List Member Group Members",
+        "tags": [
+          "member-groups"
+        ]
+      },
+      "post": {
+        "operationId": "add_member_group_member_api_member_groups__group_id__members_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberGroupMemberIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Add Member Group Member",
+        "tags": [
+          "member-groups"
+        ]
+      }
+    },
+    "/api/member-groups/{group_id}/members/{user_id}": {
+      "delete": {
+        "operationId": "remove_member_group_member_api_member_groups__group_id__members__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Remove Member Group Member",
+        "tags": [
+          "member-groups"
         ]
       }
     },
@@ -24911,6 +25432,132 @@
         "summary": "Remove Allowlist Entry",
         "tags": [
           "mcp"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/member-groups": {
+      "get": {
+        "description": "R13.31 \u2014 a manager sees the project's groups, anyone else sees their own.",
+        "operationId": "list_member_groups_api_projects__project_id__member_groups_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max items to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "Max items to return",
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items to skip",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Number of items to skip",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MemberGroupOut"
+                  },
+                  "title": "Response List Member Groups Api Projects  Project Id  Member Groups Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "List Member Groups",
+        "tags": [
+          "member-groups"
+        ]
+      },
+      "post": {
+        "operationId": "create_member_group_api_projects__project_id__member_groups_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberGroupCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberGroupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Create Member Group",
+        "tags": [
+          "member-groups"
         ]
       }
     },

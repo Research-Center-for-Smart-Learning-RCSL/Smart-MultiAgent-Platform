@@ -43,6 +43,9 @@ chatrooms = sa.Table(
     sa.Column("allow_project_members", sa.Boolean, nullable=False, server_default=sa.text("true")),
     sa.Column("allow_project_owners_only", sa.Boolean, nullable=False, server_default=sa.text("false")),
     sa.Column("allow_guest_links", sa.Boolean, nullable=False, server_default=sa.text("false")),
+    # §13.2a tier. Independent of the binding rows: a bound room whose flag is off
+    # grants nothing, and the flag on with nothing bound admits nobody (R13.29).
+    sa.Column("allow_member_groups", sa.Boolean, nullable=False, server_default=sa.text("false")),
     sa.Column("guest_token", sa.Text, nullable=False, unique=True),
     sa.Column("version", sa.Integer, nullable=False, server_default=sa.text("1")),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
@@ -145,6 +148,23 @@ chatroom_guests = sa.Table(
     sa.Column("joined_via_token", sa.Text, nullable=False),
     sa.Column("display_name", sa.String(100), nullable=True),
     sa.Column("joined_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+)
+
+chatroom_member_groups = sa.Table(
+    "chatroom_member_groups",
+    metadata,
+    sa.Column(
+        "chatroom_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("chatrooms.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    sa.Column(
+        "member_group_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("member_groups.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 messages = sa.Table(
@@ -255,6 +275,7 @@ __all__ = [
     "agent_observations",
     "chatroom_agents",
     "chatroom_guests",
+    "chatroom_member_groups",
     "chatrooms",
     "message_attachments",
     "message_edits",

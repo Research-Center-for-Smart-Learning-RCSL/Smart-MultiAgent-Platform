@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +30,8 @@ from contexts.tenancy.domain.models import (
     Invite,
     InviteScope,
     InviteState,
+    MemberGroup,
+    MemberGroupMember,
     OCTransfer,
     OCTransferState,
     Org,
@@ -40,6 +43,19 @@ from contexts.tenancy.domain.models import (
 )
 from contexts.tenancy.infrastructure import tables as t
 from shared_kernel.auth.clients import now
+
+
+def _row_to_member_group(row: Any) -> MemberGroup:
+    return MemberGroup(
+        id=row.id,
+        project_id=row.project_id,
+        name=row.name,
+        created_by_user_id=row.created_by_user_id,
+        version=row.version,
+        created_at=row.created_at,
+        deleted_at=row.deleted_at,
+    )
+
 
 # ---------- Org ------------------------------------------------------------
 
@@ -586,6 +602,207 @@ def _hash_token(token: str) -> str:
 
 def _new_token() -> str:
     return secrets.token_urlsafe(32)
+
+
+class MemberGroupRepository:
+    """Member Groups and their membership (§13.2a).
+
+    Every read filters soft-deleted groups out. A binding or a membership row
+    surviving its group is not a state the schema forbids — `deleted_at` is a
+    column, not a delete — so "live" is this repository's responsibility and the
+    room ACL's correctness depends on it (R13.29: a binding to a deleted group
+    grants nothing).
+    """
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def create(
+        self,
+        *,
+        project_id: uuid.UUID,
+        name: str,
+        created_by_user_id: uuid.UUID | None,
+    ) -> MemberGroup:
+        try:
+            row = (
+                await self._db.execute(
+                    t.member_groups.insert()
+                    .values(
+                        project_id=project_id,
+                        name=name,
+                        created_by_user_id=created_by_user_id,
+                    )
+                    .returning(t.member_groups)
+                )
+            ).one()
+        except IntegrityError as exc:
+            raise NameTaken(name) from exc
+        return _row_to_member_group(row)
+
+    async def get(self, group_id: uuid.UUID, *, include_deleted: bool = False) -> MemberGroup | None:
+        predicate: sa.ColumnElement[bool] = t.member_groups.c.id == group_id
+        if not include_deleted:
+            predicate = sa.and_(predicate, t.member_groups.c.deleted_at.is_(None))
+        row = (await self._db.execute(t.member_groups.select().where(predicate))).first()
+        return _row_to_member_group(row) if row else None
+
+    async def list_for_project(self, project_id: uuid.UUID) -> Sequence[MemberGroup]:
+        rows = (
+            await self._db.execute(
+                t.member_groups.select()
+                .where(
+                    sa.and_(
+                        t.member_groups.c.project_id == project_id,
+                        t.member_groups.c.deleted_at.is_(None),
+                    )
+                )
+                .order_by(t.member_groups.c.created_at, t.member_groups.c.id)
+            )
+        ).all()
+        return [_row_to_member_group(r) for r in rows]
+
+    async def list_for_user_in_project(
+        self, *, project_id: uuid.UUID, user_id: uuid.UUID
+    ) -> Sequence[MemberGroup]:
+        """The groups in this project that `user_id` belongs to (R13.31).
+
+        A non-owner project member sees only these, and must not be able to learn
+        that the project's other groups exist.
+        """
+        rows = (
+            await self._db.execute(
+                t.member_groups.select()
+                .select_from(
+                    t.member_groups.join(
+                        t.member_group_members,
+                        t.member_group_members.c.member_group_id == t.member_groups.c.id,
+                    )
+                )
+                .where(
+                    sa.and_(
+                        t.member_groups.c.project_id == project_id,
+                        t.member_groups.c.deleted_at.is_(None),
+                        t.member_group_members.c.user_id == user_id,
+                    )
+                )
+                .order_by(t.member_groups.c.created_at, t.member_groups.c.id)
+            )
+        ).all()
+        return [_row_to_member_group(r) for r in rows]
+
+    async def group_ids_for_user(self, user_id: uuid.UUID) -> set[uuid.UUID]:
+        """Every live group the user belongs to, across every project (one query).
+
+        The room ACL intersects this with a room's bound groups rather than
+        querying per room, so one lookup serves both the single-room gate and the
+        batched listing.
+        """
+        rows = (
+            await self._db.execute(
+                sa.select(t.member_group_members.c.member_group_id)
+                .select_from(
+                    t.member_group_members.join(
+                        t.member_groups,
+                        t.member_groups.c.id == t.member_group_members.c.member_group_id,
+                    )
+                )
+                .where(
+                    sa.and_(
+                        t.member_group_members.c.user_id == user_id,
+                        t.member_groups.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).all()
+        return {r.member_group_id for r in rows}
+
+    async def rename(self, *, group_id: uuid.UUID, new_name: str, expected_version: int) -> MemberGroup:
+        stmt = (
+            t.member_groups.update()
+            .where(
+                sa.and_(
+                    t.member_groups.c.id == group_id,
+                    t.member_groups.c.version == expected_version,
+                    t.member_groups.c.deleted_at.is_(None),
+                )
+            )
+            .values(name=new_name)
+            .returning(t.member_groups)
+        )
+        try:
+            row = (await self._db.execute(stmt)).first()
+        except IntegrityError as exc:
+            raise NameTaken(new_name) from exc
+        if row is None:
+            raise VersionMismatch(f"member group {group_id} version mismatch or missing")
+        return _row_to_member_group(row)
+
+    async def soft_delete(self, group_id: uuid.UUID) -> bool:
+        result = await self._db.execute(
+            t.member_groups.update()
+            .where(
+                sa.and_(
+                    t.member_groups.c.id == group_id,
+                    t.member_groups.c.deleted_at.is_(None),
+                )
+            )
+            .values(deleted_at=now())
+        )
+        return bool(result.rowcount)
+
+    async def add_member(self, *, group_id: uuid.UUID, user_id: uuid.UUID) -> None:
+        await self._db.execute(
+            pg_insert(t.member_group_members)
+            .values(member_group_id=group_id, user_id=user_id)
+            .on_conflict_do_nothing()
+        )
+
+    async def remove_member(self, *, group_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+        result = await self._db.execute(
+            t.member_group_members.delete().where(
+                sa.and_(
+                    t.member_group_members.c.member_group_id == group_id,
+                    t.member_group_members.c.user_id == user_id,
+                )
+            )
+        )
+        return bool(result.rowcount)
+
+    async def list_members(self, group_id: uuid.UUID) -> Sequence[MemberGroupMember]:
+        rows = (
+            await self._db.execute(
+                t.member_group_members.select()
+                .where(t.member_group_members.c.member_group_id == group_id)
+                .order_by(t.member_group_members.c.joined_at)
+            )
+        ).all()
+        return [
+            MemberGroupMember(
+                member_group_id=r.member_group_id,
+                user_id=r.user_id,
+                joined_at=r.joined_at,
+            )
+            for r in rows
+        ]
+
+    async def remove_user_from_project_groups(self, *, user_id: uuid.UUID, project_id: uuid.UUID) -> int:
+        """R13.28 — losing project membership drops the user from that project's groups.
+
+        Scoped by project rather than blanket-deleting the user's rows: leaving one
+        project must not empty their groups in another.
+        """
+        result = await self._db.execute(
+            t.member_group_members.delete().where(
+                sa.and_(
+                    t.member_group_members.c.user_id == user_id,
+                    t.member_group_members.c.member_group_id.in_(
+                        sa.select(t.member_groups.c.id).where(t.member_groups.c.project_id == project_id)
+                    ),
+                )
+            )
+        )
+        return int(result.rowcount or 0)
 
 
 class InviteRepository:

@@ -54,6 +54,7 @@ def _row_to_chatroom(row: Any) -> Chatroom:
         allow_project_members=row.allow_project_members,
         allow_project_owners_only=row.allow_project_owners_only,
         allow_guest_links=row.allow_guest_links,
+        allow_member_groups=row.allow_member_groups,
         guest_token=row.guest_token,
         version=row.version,
         created_at=row.created_at,
@@ -89,6 +90,7 @@ class ChatroomRepository:
         allow_project_members: bool = True,
         allow_project_owners_only: bool = False,
         allow_guest_links: bool = False,
+        allow_member_groups: bool = False,
         created_by_user_id: uuid.UUID | None = None,
     ) -> Chatroom:
         token = _new_guest_token()
@@ -98,6 +100,7 @@ class ChatroomRepository:
                 .values(
                     workspace_id=workspace_id,
                     name=name,
+                    allow_member_groups=allow_member_groups,
                     allow_org_members=allow_org_members,
                     allow_project_members=allow_project_members,
                     allow_project_owners_only=allow_project_owners_only,
@@ -636,6 +639,70 @@ class ChatroomAgentRepository:
             )
         ).all()
         return [(r.agent_id, r.chatroom_id, ChatroomAgentRole(r.role)) for r in rows]
+
+
+class ChatroomMemberGroupRepository:
+    """Which Member Groups a room is bound to (§13.2a, R13.29).
+
+    Reads return raw binding rows, live and stale alike: a binding whose group was
+    soft-deleted is not filtered here, and does not need to be. The room ACL
+    intersects these ids with the caller's *live* group ids, so a dead group can
+    never match anybody. Filtering here as well would mean this context reading the
+    tenancy context's `deleted_at`, which is exactly the cross-context table read
+    the boundary exists to prevent.
+    """
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def list_for_room(self, chatroom_id: uuid.UUID) -> set[uuid.UUID]:
+        rows = (
+            await self._db.execute(
+                sa.select(t.chatroom_member_groups.c.member_group_id).where(
+                    t.chatroom_member_groups.c.chatroom_id == chatroom_id
+                )
+            )
+        ).all()
+        return {r.member_group_id for r in rows}
+
+    async def bound_group_ids(self, chatroom_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, set[uuid.UUID]]:
+        """Bindings for many rooms in one query, keyed by room id.
+
+        Rooms with no binding are absent from the mapping rather than mapped to an
+        empty set; callers reading it with `.get(room_id, frozenset())` treat the
+        two identically, and the sparse form keeps a listing of mostly-unbound rooms
+        from allocating a set per room.
+        """
+        if not chatroom_ids:
+            return {}
+        rows = (
+            await self._db.execute(
+                t.chatroom_member_groups.select().where(
+                    t.chatroom_member_groups.c.chatroom_id.in_(list(chatroom_ids))
+                )
+            )
+        ).all()
+        out: dict[uuid.UUID, set[uuid.UUID]] = {}
+        for row in rows:
+            out.setdefault(row.chatroom_id, set()).add(row.member_group_id)
+        return out
+
+    async def replace(self, *, chatroom_id: uuid.UUID, group_ids: Sequence[uuid.UUID]) -> None:
+        """Set the room's bindings to exactly `group_ids`.
+
+        Replace rather than add/remove: the settings UI edits the whole set, and a
+        partial API would let two concurrent editors each apply half of their intent
+        and leave a set neither of them chose.
+        """
+        await self._db.execute(
+            t.chatroom_member_groups.delete().where(t.chatroom_member_groups.c.chatroom_id == chatroom_id)
+        )
+        unique = list(dict.fromkeys(group_ids))
+        if unique:
+            await self._db.execute(
+                t.chatroom_member_groups.insert(),
+                [{"chatroom_id": chatroom_id, "member_group_id": gid} for gid in unique],
+            )
 
 
 class ChatroomGuestRepository:

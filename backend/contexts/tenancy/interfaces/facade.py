@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.tenancy.application.account_deletion_service import AccountDeletionService
 from contexts.tenancy.domain.models import Org, OrgMember, Project, ProjectMember
 from contexts.tenancy.infrastructure.repositories import (
+    MemberGroupRepository,
     OrgMemberRepository,
     OrgRepository,
     ProjectMemberRepository,
@@ -24,7 +25,18 @@ class TenancyFacade:
         self._projects = ProjectRepository(db)
         self._org_members = OrgMemberRepository(db)
         self._project_members = ProjectMemberRepository(db)
+        self._member_groups = MemberGroupRepository(db)
         self._account_deletion = AccountDeletionService(db)
+
+    async def member_group_ids_for_user(self, user_id: uuid.UUID) -> set[uuid.UUID]:
+        """Every live Member Group this user belongs to, across every project.
+
+        The conversation context's room ACL intersects this with a room's bound
+        groups. Deliberately shaped as "who is this user" rather than "may this
+        user read that room": the room question belongs to the room ACL, and this
+        context is not going to answer half of it (§13.2a, R13.30).
+        """
+        return await self._member_groups.group_ids_for_user(user_id)
 
     async def user_orgs(self, user_id: uuid.UUID) -> Sequence[Org]:
         return await self._orgs.list_for_user(user_id)
