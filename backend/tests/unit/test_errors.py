@@ -8,6 +8,7 @@ from app.main import create_app
 from shared_kernel.errors import NotImplementedProblem, SmapError, problem_type
 from shared_kernel.errors.handlers import register_exception_handlers
 from shared_kernel.errors.openapi import install_validation_problem_openapi
+from shared_kernel.errors.problem import ValidationProblem
 
 
 def _app_raising(exc: Exception) -> FastAPI:
@@ -195,15 +196,36 @@ def test_openapi_advertises_the_runtime_validation_problem_contract() -> None:
     ]
     assert field_error["additionalProperties"] is False
     validation_problem = schema["components"]["schemas"]["ValidationProblem"]
+    # `field_errors` is deliberately absent from `required`: a bounded context's
+    # domain error map answers 422 on these same operations without one.
     assert set(validation_problem["required"]) == {
         "type",
         "title",
         "status",
         "detail",
-        "field_errors",
         "instance",
     }
+    assert "field_errors" in validation_problem["properties"]
     assert "HTTPValidationError" not in schema["components"]["schemas"]
+
+
+def test_a_domain_422_validates_against_the_published_schema() -> None:
+    """The published 422 must describe the domain path, not only the validation one."""
+    from contexts.identity.domain import errors
+    from contexts.identity.interfaces import error_mapping
+
+    app = FastAPI()
+    error_mapping.register(app)
+
+    @app.get("/weak")
+    def _weak() -> None:
+        raise errors.PasswordPolicyViolation("Password is too common.")
+
+    body = TestClient(app).get("/weak").json()
+
+    assert body["status"] == 422
+    assert "field_errors" not in body
+    ValidationProblem.model_validate(body)
 
 
 def test_openapi_preserves_an_explicit_custom_422_response() -> None:
