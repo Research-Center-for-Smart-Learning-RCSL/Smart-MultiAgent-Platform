@@ -38,6 +38,19 @@ class TenancyFacade:
         """
         return await self._member_groups.get(group_id)
 
+    async def live_member_group_ids(
+        self, group_ids: Sequence[uuid.UUID], *, project_id: uuid.UUID
+    ) -> set[uuid.UUID]:
+        """Which of `group_ids` are live groups of `project_id` (R13.29).
+
+        The single answer both room-binding routes need: the PUT rejects anything
+        outside it, and the GET hides anything outside it. Splitting that question
+        across the two — validating on write while reading back raw rows — let a
+        deleted group's binding survive in the read and then be rejected on the
+        next write, wedging the picker with no way out.
+        """
+        return await self._member_groups.live_ids_in_project(group_ids, project_id=project_id)
+
     async def member_group_ids_for_user(self, user_id: uuid.UUID) -> set[uuid.UUID]:
         """Every live Member Group this user belongs to, across every project.
 

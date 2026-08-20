@@ -183,7 +183,11 @@ class TestCrossProjectBinding:
         service = AsyncMock()
         service.set_bound_groups = AsyncMock(return_value={g.id for g in groups})
         tenancy = AsyncMock()
-        tenancy.get_member_group = AsyncMock(side_effect=list(groups))
+        # The facade answers with the subset that is live *and* in this project;
+        # a foreign or deleted id is simply absent from it.
+        tenancy.live_member_group_ids = AsyncMock(
+            return_value={g.id for g in groups if g.project_id == _PROJECT_ID}
+        )
 
         with (
             patch.object(
@@ -229,7 +233,7 @@ class TestCrossProjectBinding:
         would write a row that grants nothing and reads as if it did."""
         service = AsyncMock()
         tenancy = AsyncMock()
-        tenancy.get_member_group = AsyncMock(return_value=None)
+        tenancy.live_member_group_ids = AsyncMock(return_value=set())
 
         with (
             patch.object(chatrooms_mod, "_project_id_for_chatroom", AsyncMock(return_value=_PROJECT_ID)),
@@ -247,3 +251,71 @@ class TestCrossProjectBinding:
             )
         assert exc.value.status_code == 422
         service.set_bound_groups.assert_not_called()
+
+
+class TestReadingBindingsAgreesWithWriting:
+    """The read and the write must answer the same question about a binding.
+
+    They used not to: the GET returned raw rows (live and stale alike) while the
+    PUT refused a deleted id. The settings UI sends the GET's list straight back
+    on the next edit, so deleting a bound group left every later toggle failing
+    with a 422 and no way to clear the stale binding from the UI.
+    """
+
+    @staticmethod
+    async def _get(*, bound: set[uuid.UUID], live: set[uuid.UUID]) -> object:
+        service = AsyncMock()
+        service.bound_group_ids = AsyncMock(return_value=bound)
+        tenancy = AsyncMock()
+        tenancy.live_member_group_ids = AsyncMock(return_value=live)
+
+        with (
+            patch.object(chatrooms_mod, "_project_id_for_chatroom", AsyncMock(return_value=_PROJECT_ID)),
+            patch.object(chatrooms_mod, "_require_project_cap", AsyncMock()),
+            patch.object(chatrooms_mod, "TenancyFacade", return_value=tenancy),
+            patch.object(chatrooms_mod, "ChatroomService", return_value=service),
+        ):
+            return await chatrooms_mod.list_chatroom_member_groups(
+                chatroom_id=_ROOM_ID,
+                principal=SimpleNamespace(user_id=_USER_ID, is_admin=False, email_verified=True),
+                db=AsyncMock(),
+            )
+
+    @pytest.mark.asyncio
+    async def test_a_binding_to_a_deleted_group_is_not_reported(self) -> None:
+        alive, dead = uuid.uuid4(), uuid.uuid4()
+        out = await self._get(bound={alive, dead}, live={alive})
+        assert out.member_group_ids == [alive]
+
+    @pytest.mark.asyncio
+    async def test_live_bindings_are_reported_unchanged(self) -> None:
+        a, b = uuid.uuid4(), uuid.uuid4()
+        out = await self._get(bound={a, b}, live={a, b})
+        assert sorted(out.member_group_ids) == sorted([a, b])
+
+    @pytest.mark.asyncio
+    async def test_the_read_back_list_is_accepted_by_the_write(self) -> None:
+        """The regression, end to end at the route layer: whatever the GET hands
+        the UI must survive being sent straight back."""
+        alive, dead = uuid.uuid4(), uuid.uuid4()
+        got = await self._get(bound={alive, dead}, live={alive})
+
+        service = AsyncMock()
+        service.set_bound_groups = AsyncMock(return_value=set(got.member_group_ids))
+        tenancy = AsyncMock()
+        tenancy.live_member_group_ids = AsyncMock(return_value={alive})
+
+        with (
+            patch.object(chatrooms_mod, "_project_id_for_chatroom", AsyncMock(return_value=_PROJECT_ID)),
+            patch.object(chatrooms_mod, "_require_project_cap", AsyncMock()),
+            patch.object(chatrooms_mod, "TenancyFacade", return_value=tenancy),
+            patch.object(chatrooms_mod, "ChatroomService", return_value=service),
+        ):
+            out = await chatrooms_mod.set_chatroom_member_groups(
+                body=chatrooms_mod.ChatroomMemberGroupsIn(member_group_ids=got.member_group_ids),
+                chatroom_id=_ROOM_ID,
+                ctx=SimpleNamespace(actor_ip=None, request_id=None),
+                principal=SimpleNamespace(user_id=_USER_ID, is_admin=False, email_verified=True),
+                db=AsyncMock(),
+            )
+        assert out.member_group_ids == [alive]

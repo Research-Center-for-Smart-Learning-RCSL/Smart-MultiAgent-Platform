@@ -336,6 +336,13 @@ export class ChatroomsService {
     }
     /**
      * List Chatroom Member Groups
+     * This room's live Member Group bindings (R13.29).
+     *
+     * A binding whose group was since deleted is omitted. The stored row is left
+     * alone — the ACL already ignores it, and the repository deliberately does not
+     * read tenancy's `deleted_at` — but it must not be *reported*, because the
+     * settings UI sends this list straight back on the next edit and the PUT
+     * refuses a deleted id. Reading raw rows here wedged the picker permanently.
      * @returns ChatroomMemberGroupsOut Successful Response
      * @throws ApiError
      */

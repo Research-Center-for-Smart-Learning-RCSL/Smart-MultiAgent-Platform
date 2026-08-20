@@ -450,10 +450,19 @@ async def list_chatroom_member_groups(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> ChatroomMemberGroupsOut:
+    """This room's live Member Group bindings (R13.29).
+
+    A binding whose group was since deleted is omitted. The stored row is left
+    alone — the ACL already ignores it, and the repository deliberately does not
+    read tenancy's `deleted_at` — but it must not be *reported*, because the
+    settings UI sends this list straight back on the next edit and the PUT
+    refuses a deleted id. Reading raw rows here wedged the picker permanently.
+    """
     project_id = await _project_id_for_chatroom(db, chatroom_id)
     await _require_member_group_manage(db, principal, project_id)
     bound = await ChatroomService(db).bound_group_ids(chatroom_id)
-    return ChatroomMemberGroupsOut(member_group_ids=sorted(bound))
+    live = await TenancyFacade(db).live_member_group_ids(sorted(bound), project_id=project_id)
+    return ChatroomMemberGroupsOut(member_group_ids=sorted(live))
 
 
 @chatroom_router.put("/{chatroom_id}/member-groups")
@@ -477,14 +486,12 @@ async def set_chatroom_member_groups(
 
     requested = list(dict.fromkeys(body.member_group_ids))
     if requested:
-        tenancy = TenancyFacade(db)
-        for group_id in requested:
-            group = await tenancy.get_member_group(group_id)
-            if group is None or group.project_id != project_id:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="member group does not belong to this chatroom's project",
-                )
+        valid = await TenancyFacade(db).live_member_group_ids(requested, project_id=project_id)
+        if set(requested) - valid:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="member group does not belong to this chatroom's project",
+            )
 
     bound = await ChatroomService(db).set_bound_groups(
         chatroom_id=chatroom_id,
