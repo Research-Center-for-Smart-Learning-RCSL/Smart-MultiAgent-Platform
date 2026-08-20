@@ -35,6 +35,7 @@ from contexts.tenancy.domain.models import (
 )
 from contexts.tenancy.infrastructure.repositories import (
     InviteRepository,
+    MemberGroupRepository,
     OCTransferRepository,
     OrgMemberRepository,
     OrgRepository,
@@ -283,6 +284,18 @@ class OrgService:
             user_id=target_user_id,
             project_ids=project_ids,
         )
+        # R13.28: the member groups go with the project memberships. The room ACL
+        # no longer depends on this happening — `group_ids_for_user` joins to
+        # `project_members` so a leftover row grants nothing — but leaving rows
+        # behind here would mean the group lists shown to a Project Owner still
+        # name someone who is no longer in the org.
+        member_groups = MemberGroupRepository(self._db)
+        dropped_groups = 0
+        for project_id in project_ids:
+            dropped_groups += await member_groups.remove_user_from_project_groups(
+                user_id=target_user_id,
+                project_id=project_id,
+            )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -296,6 +309,7 @@ class OrgService:
                     "cascade_projects": len(project_ids),
                     "carries_revoked": revoked,
                     "memberships_removed": removed,
+                    "member_groups_left": dropped_groups,
                 },
                 request_id=request_id,
             ),

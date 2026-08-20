@@ -326,6 +326,46 @@ async def test_leaving_the_project_drops_the_group_membership(
         assert await _can_open(session, user_id=scenario.member_a, room_id=scenario.room_a) is False
 
 
+async def test_a_removed_project_member_is_inert_even_with_a_leftover_group_row(
+    sessionmaker: async_sessionmaker[AsyncSession], scenario: GroupScenario
+) -> None:
+    """The hole the security gate found, closed at the ACL rather than at cleanup.
+
+    `OrgService.remove_member` deletes `project_members` rows straight at the
+    repository layer and knows nothing about groups. Before the fix, the leftover
+    `member_group_members` row still satisfied the tier and the removed member
+    kept reading the room. `group_ids_for_user` now joins to `project_members`,
+    so standing that has lapsed grants nothing no matter which path removed it —
+    including paths written after this one.
+
+    Deliberately deletes ONLY the project membership, leaving the group row, to
+    prove the ACL and not the cleanup is what closes it.
+    """
+    async with sessionmaker() as session:
+        assert await _can_open(session, user_id=scenario.member_a, room_id=scenario.room_a) is True
+        await session.execute(
+            ten_t.project_members.delete().where(
+                sa.and_(
+                    ten_t.project_members.c.project_id == scenario.project_id,
+                    ten_t.project_members.c.user_id == scenario.member_a,
+                )
+            )
+        )
+        await session.commit()
+
+    async with sessionmaker() as session:
+        still_there = (
+            await session.execute(
+                ten_t.member_group_members.select().where(
+                    ten_t.member_group_members.c.user_id == scenario.member_a
+                )
+            )
+        ).all()
+        assert len(still_there) == 1, "the group row must survive, or this proves nothing"
+        assert await _can_open(session, user_id=scenario.member_a, room_id=scenario.room_a) is False
+        assert await _visible(session, user_id=scenario.member_a, workspace_id=scenario.workspace_id) == set()
+
+
 async def test_leaving_one_project_does_not_empty_groups_in_another(
     sessionmaker: async_sessionmaker[AsyncSession], scenario: GroupScenario
 ) -> None:

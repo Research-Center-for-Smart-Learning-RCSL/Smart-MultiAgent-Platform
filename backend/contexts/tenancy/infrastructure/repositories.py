@@ -692,11 +692,27 @@ class MemberGroupRepository:
         return [_row_to_member_group(r) for r in rows]
 
     async def group_ids_for_user(self, user_id: uuid.UUID) -> set[uuid.UUID]:
-        """Every live group the user belongs to, across every project (one query).
+        """Every live group the user belongs to **and still has standing in**.
 
         The room ACL intersects this with a room's bound groups rather than
         querying per room, so one lookup serves both the single-room gate and the
         batched listing.
+
+        SEC: the join to `project_members` is load-bearing, not a tidiness filter.
+        R13.28 says group membership does not outlive project membership, and
+        services do delete the rows on the paths they own — but `project_members`
+        is also deleted straight at the repository layer by
+        `OrgService.remove_member`, which knows nothing about groups. Relying on
+        every current and future deletion path to remember the cleanup is how a
+        removed member keeps reading a room bound to a group they were in: the
+        tier asks "is this user in a bound group", and a leftover row says yes.
+        Asking the question this way makes a lapsed membership inert by
+        construction, exactly as filtering `deleted_at` here makes a deleted group
+        inert. The service-side cleanup stays as well, so the rows do not rot.
+
+        An org owner in a group has no `project_members` row (R5.03 grants their
+        project ownership) and so is filtered out here — with no effect, because a
+        moderator clears every tier before the group branch is ever reached.
         """
         rows = (
             await self._db.execute(
@@ -705,6 +721,12 @@ class MemberGroupRepository:
                     t.member_group_members.join(
                         t.member_groups,
                         t.member_groups.c.id == t.member_group_members.c.member_group_id,
+                    ).join(
+                        t.project_members,
+                        sa.and_(
+                            t.project_members.c.project_id == t.member_groups.c.project_id,
+                            t.project_members.c.user_id == t.member_group_members.c.user_id,
+                        ),
                     )
                 )
                 .where(
