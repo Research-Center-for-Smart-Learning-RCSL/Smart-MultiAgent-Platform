@@ -291,6 +291,8 @@
       "boundGroupsDesc": "所選分組的成員可以在此讀取與發言。",
       "boundGroupsSaved": "已更新存取權（{count} 個分組）",
       "boundGroupsFailed": "無法更新此聊天室的分組",
+      "boundGroupsLoadFailed": "無法載入此聊天室的分組存取設定，請重試後再編輯。",
+      "boundGroupsRetry": "重試",
       "noGroupsYet": "此專案尚未建立成員分組"
     },
     "conceptMap": {

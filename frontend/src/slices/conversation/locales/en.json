@@ -291,6 +291,8 @@
       "boundGroupsDesc": "Members of any selected group can read and send here.",
       "boundGroupsSaved": "Access updated ({count} groups)",
       "boundGroupsFailed": "Could not update the groups for this room",
+      "boundGroupsLoadFailed": "Could not load this room's group access. Retry before editing it.",
+      "boundGroupsRetry": "Retry",
       "noGroupsYet": "This project has no member groups yet"
     },
     "conceptMap": {
