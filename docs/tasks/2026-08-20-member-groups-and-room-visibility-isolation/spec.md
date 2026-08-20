@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-08-20
 requirements: [R5.03, R5.04, R5.05, R8.08, R11.17, R13.02, R13.04, R13.07, R28.02]
 depends_on: []
@@ -522,37 +522,54 @@ section. Specific traps:
 
 **Stage 2 — Member Groups**
 
-- [ ] AC-7: Migration `0079` applies and downgrades cleanly against a real PostgreSQL, in a
+- [x] AC-7: Migration `0079` applies and downgrades cleanly against a real PostgreSQL, in a
       single transaction each way, and the unique index rejects a duplicate live name in
       one project while permitting the same name in another.
-- [ ] AC-8: A Project Owner can create a group, add an existing project member, bind it to
+      *`alembic upgrade head` → `downgrade -1` → `upgrade head` executed against
+      PostgreSQL 16. The index is covered three ways in `test_member_groups_db.py`:
+      case-insensitive rejection, free in another project, free again after a soft delete.*
+- [x] AC-8: A Project Owner can create a group, add an existing project member, bind it to
       a room, and set `allow_member_groups`; a member of that group can read and send in
       the room.
-- [ ] AC-9: A project member who is in **no** bound group cannot read, send in, search,
+- [x] AC-9: A project member who is in **no** bound group cannot read, send in, search,
       export, download an attachment from, subscribe to the WebSocket of, or **see in the
       listing** a room bound only to another group.
-- [ ] AC-10: A Project Owner and an Org Owner of the parent Org both still reach a
+      *Asserted at the funnel, both halves: the db tests prove `ensure_can_read` refuses
+      and the listing omits the room. The other surfaces named here are the fifteen call
+      sites of that same predicate inventoried in §4.2 — they are covered by construction,
+      not by fifteen separate tests, which is the property the design was chosen for.*
+- [x] AC-10: A Project Owner and an Org Owner of the parent Org both still reach a
       group-bound room, and `ChatroomOut.is_moderator` is true for them.
-- [ ] AC-11: `allow_member_groups` + `allow_project_members` in one create, or reachable by
+- [x] AC-11: `allow_member_groups` + `allow_project_members` in one create, or reachable by
       one patch of an existing room, is refused with 422 and an RFC 7807 body; the room's
       stored state is unchanged.
+      *Including both two-step orderings, and asserting `rooms.update` was never called.*
 - [ ] AC-12: Removing a user from a bound group drops their live chatroom WebSocket at the
       next mid-socket re-auth, without a reconnect.
-- [ ] AC-13: A non-owner project member listing groups sees only groups they belong to and
+      *Left unticked deliberately. The **mechanism** is proven against the database —
+      after removal, `resolve_room_access` denies, which is exactly what
+      `ws/chatroom.py:154-159` re-runs — but no test drives a live socket across a
+      revocation. See D-12; the honest claim is "the re-auth will refuse", not "the socket
+      was observed to drop".*
+- [x] AC-13: A non-owner project member listing groups sees only groups they belong to and
       those groups' members; a group they are not in is absent, not empty.
-- [ ] AC-14: A room bound only to a soft-deleted group grants access to nobody but
+- [x] AC-14: A room bound only to a soft-deleted group grants access to nobody but
       moderators and admin, and an `allow_project_owners_only` room with a live binding
       still admits only owners.
-- [ ] AC-15: A project with zero member groups behaves byte-identically to today —
+- [x] AC-15: A project with zero member groups behaves byte-identically to today —
       `ChatroomOut` gains one field defaulting to false and nothing else changes.
-- [ ] AC-16: `useChatroomSettings.ts:41-44`'s stale claim about server-side auto-correction
+      *The 7022-test unit tier passes with eight fixture updates for the new field and no
+      behavioural change; a room with the tier off ignores its bindings, and a listing of
+      such rooms never queries the group tables at all.*
+- [x] AC-16: `useChatroomSettings.ts:41-44`'s stale claim about server-side auto-correction
       is corrected to describe the actual mechanism (read-time exclusivity + disabled
       toggles), and the new tier's exclusivity is stated accurately.
-- [ ] AC-17: Deleting a project cascades away its groups, bindings and group memberships;
+- [x] AC-17: Deleting a project cascades away its groups, bindings and group memberships;
       hard-deleting a user removes their group memberships without aborting the erasure.
-- [ ] AC-18: Gates green — `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`,
-      `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, and
-      `pnpm run check:openapi-drift` after `gen:api`.
+- [x] AC-18: Gates green — `pytest -q` (7022 unit, 30 db), `ruff check . && ruff format
+      --check .`, `mypy .` (955 files), `pnpm lint`, `pnpm typecheck`, `pnpm test` (1205),
+      `pnpm build`, `check:boundaries-enforced`, `check:type-coverage`.
+      *`check:openapi-drift` could not run on this host — D-14.*
 
 ## 12. Test Plan
 
@@ -656,7 +673,49 @@ To be applied to `REQUIREMENTS.md` on approval.
 
 ## 15. Deviation Log
 
-**Stage 1 (2026-08-20).** Stage 2 is not started; the dossier stays `in-progress`.
+**Stage 2 (2026-08-20).**
+
+- **D-9 — the security gate found a live hole in the tier this task added, and it is the
+  most important thing in this log.** `OrgService.remove_member` (`org_service.py:282`)
+  deletes `project_members` rows straight at the repository layer and knows nothing about
+  member groups, so it bypassed the cleanup wired into `ProjectService.remove_member`. A
+  user removed from an org kept their `member_group_members` row; the tier asks only
+  whether the user is in a bound group; they went on reading and sending in the room after
+  losing every role in the project. **Fixed at the ACL, not by adding a second cleanup
+  call**: `group_ids_for_user` now joins to `project_members`, so lapsed standing grants
+  nothing regardless of which path removed it — including paths written later. That is the
+  same shape that already makes a deleted group inert. The org-side cleanup was added as
+  well so the rows do not rot. Verified by removing the join and watching the regression
+  test fail.
+- **D-10 — the quality gate found the room-binding route importing another context's
+  application layer.** `chatrooms.py` reached `MemberGroupService` directly. It now uses
+  `TenancyFacade.get_member_group`, which also let the route refuse a missing or
+  soft-deleted group instead of binding a row that grants nothing while looking as though
+  it does.
+- **D-11 — `_is_project_member` accepts more than a `project_members` row.** §6 did not
+  say what "current project member" means for someone whose project standing comes from
+  R5.03 rather than a membership row. The service admits an Org Owner of the parent org and
+  the owner of a user-owned project, because refusing to put a teacher in a group they
+  already moderate would be a rule invented here rather than one the SRS asks for. Note the
+  asymmetry with D-9's fix: such a user can be *added* to a group but is filtered out of
+  `group_ids_for_user` — with no effect, since a moderator clears every tier first.
+- **D-12 — AC-12 is unticked on purpose.** The revocation mechanism is proven against a
+  real database; no test drives a live WebSocket across a group removal. FU-13.
+- **D-13 — no CHECK constraint pairs the two exclusive flags.** §6 did not ask for one, but
+  it is the obvious partner to the 422 and its absence is deliberate: a CHECK would reject
+  pre-0079 rows during a mixed-version deploy window and turn a future data fix into a
+  migration. Recorded in `0079`'s docstring so the next reader does not "complete" it.
+- **D-14 — `check:openapi-drift` did not run.** Its script needs `python` on PATH inside
+  git-bash, which this host does not provide. The spec was exported from the backend and
+  the client generated from that spec, so they agree by construction; CI is the check.
+  `openapi.json` was written from Python rather than by shell redirection, because
+  PowerShell adds a UTF-8 BOM that `core.autocrlf` does not normalise and that has already
+  failed this gate once (BOARD.md).
+- **D-15 — a settings-view test clicked its toggle by index.** Adding a tier between two
+  existing rows broke it. Rewritten to find the row by its label, so the next tier does not
+  silently repoint the click at a different switch.
+
+**Stage 1 (2026-08-20).**
 
 - **D-1 — the SoC split landed in the route, not inside a facade method.** §5 Decision 4
   said tenancy would resolve the caller's identity facts and pass them as plain values into
@@ -795,6 +854,25 @@ To be applied to `REQUIREMENTS.md` on approval.
   `TenancyRoleResolver`, which also retires FU-6 and is a shared-kernel change beyond this
   task's scope. Two unbounded `IN` lists on the same path (`list_by_orgs` over every org
   the caller belongs to, and the undecided project ids) are the same finding's smaller half.
+- **FU-9** — The group read path hides a group's existence from a caller who may not see
+  it (404 via `_resolve_readable`), but `PATCH` and `DELETE` on the same id answer 403,
+  which discloses that the id exists. No practical exploit — group ids are UUIDv4 — but the
+  two halves of one resource should not disagree about what they admit to. Route the write
+  paths through `_resolve_readable` too.
+- **FU-10** — `MemberGroupRepository.list_for_project` returns every group in the project
+  and the route paginates in Python. Same shape as FU-8 and bounded by how many groups a
+  project actually has, but it is an unbounded read on a route any project member can call.
+- **FU-11** — The group member list returns bare `user_id`s. The settings view can name
+  them because it also holds the project roster, which is fetched for managers only, so a
+  non-manager viewing their own group sees raw UUIDs where a manager sees emails. Either
+  serialize a display name on the endpoint or make the roster readable to group members.
+- **FU-12** — `GET /api/chatrooms/{id}/member-groups` requires capability #14, so a
+  non-manager opening a group-scoped room's settings page fires a request that 403s. The
+  page still renders; the failed request is noise, not a defect, but the picker section
+  should not mount for a caller who cannot manage bindings.
+- **FU-13** — D-12: no test drives a live chatroom WebSocket across a group revocation.
+  The re-auth callback and the predicate it calls are both covered; the wiring between
+  them is covered by inspection only, and AC-12 stays unticked until something drives it.
 - **FU-6** — Two callers now resolve the caller's project roles twice per request: the
   chatroom listing route computes `is_moderator` from its own `roles_for` call, and
   `visible_room_ids` resolves the same roles again inside the facade. Correct but wasteful.

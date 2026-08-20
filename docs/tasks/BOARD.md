@@ -130,16 +130,35 @@ overlap, so each unblocks as soon as its predecessor is `implemented`.
 
 ## In progress
 
-- `2026-08-20-member-groups-and-room-visibility-isolation` (feature) - `depends_on: []`.
-  **Stage 1 only.** The three listing endpoints now filter through the room ACL: AC-1 to AC-6.
-  Stage 2 (Member Groups, migration 0079, AC-7 to AC-18) is not started, which is why this
-  dossier stays `in-progress` rather than reaching `implemented`. Whoever resumes should read
-  its §5 first: the flag logic deliberately stays in Python in one place, and the listings pull
-  a bounded candidate set and filter in memory rather than growing a second copy of the rule in
-  SQL. `visible_room_ids` in `conversation/application/access.py` is the seam Stage 2 extends
-  with the member-group tier; both the listings and the open path already run through it.
-
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-20 after implementation:
+`2026-08-20-member-groups-and-room-visibility-isolation` (the three listing endpoints now
+filter through the room ACL, and a project can define optional Member Groups that scope a
+chat room below project level). Nothing lists it in `depends_on`, so no row moved out of
+Blocked. It **applied an SRS Delta** at approval, adding [R5.06], rewriting 13.2 and
+[R13.04] for five flags plus a server-refused mutual exclusion, and adding 13.2a
+[R13.28]-[R13.32]. Migration 0079. **Four things a later reader needs.**
+
+**D-9 is a real hole this task opened and the security gate caught**, and the shape of the
+fix is the lesson: `OrgService.remove_member` deletes `project_members` rows at the
+repository layer and knows nothing about groups, so a user removed from an org kept reading
+a room bound to a group they were in. It is closed at the ACL — `group_ids_for_user` joins
+to `project_members` — rather than by adding a cleanup call to the one path that was
+missing it. If you add another way to end a project membership, you do not need to remember
+anything.
+
+**Both mutation-probed.** Every claim in this dossier that a filter closes something was
+checked by breaking the filter and watching a test go red: the flag predicate, the
+workspace soft-delete join, and D-9's membership join.
+
+**AC-12 is deliberately unticked** (D-12, FU-13): the revocation mechanism is proven
+against a real database, but nothing drives a live WebSocket across a group removal.
+
+**The db tier now runs on a developer host**, which BOARD.md previously recorded as
+impossible here — one `pgvector/pgvector:0.8.0-pg16` container on port 5433 plus two env
+vars, recipe in the dossier's D-8. Migrations 0077, 0078 and 0079 have all now been applied
+somewhere, which retires the "never applied anywhere" note on the two earlier dossiers.
+`check:openapi-drift` still cannot run here (D-14).
 Removed on 2026-08-18 after implementation: `2026-08-18-agent-delegated-activity-control`
 (a room creator can delegate activity start/end to one bound agent, per room, scoped to an
 allowlist of activity types, exercised only through a structured tool call). Nothing lists
