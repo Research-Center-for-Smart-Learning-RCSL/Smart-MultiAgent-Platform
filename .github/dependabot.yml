@@ -55,6 +55,10 @@ updates:
       # ESLint-backed gate with it. Held until upstream supports it.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # @vee-validate/zod has no zod 4 release; its peer range stops at ^3.24.0
+      # and it calls zod 3 internals, so zod 4 throws in every form at mount.
+      - dependency-name: "zod"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "deps(frontend)"
 
