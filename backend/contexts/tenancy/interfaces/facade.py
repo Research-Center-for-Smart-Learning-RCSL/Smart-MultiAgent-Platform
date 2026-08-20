@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.tenancy.application.account_deletion_service import AccountDeletionService
-from contexts.tenancy.domain.models import Org, OrgMember, Project, ProjectMember
+from contexts.tenancy.domain.models import MemberGroup, Org, OrgMember, Project, ProjectMember
 from contexts.tenancy.infrastructure.repositories import (
     MemberGroupRepository,
     OrgMemberRepository,
@@ -27,6 +27,15 @@ class TenancyFacade:
         self._project_members = ProjectMemberRepository(db)
         self._member_groups = MemberGroupRepository(db)
         self._account_deletion = AccountDeletionService(db)
+
+    async def get_member_group(self, group_id: uuid.UUID) -> MemberGroup | None:
+        """One live Member Group, or None.
+
+        Exists so the conversation route that binds groups to a room can check
+        each id belongs to that room's project without importing this context's
+        application layer.
+        """
+        return await self._member_groups.get(group_id)
 
     async def member_group_ids_for_user(self, user_id: uuid.UUID) -> set[uuid.UUID]:
         """Every live Member Group this user belongs to, across every project.
