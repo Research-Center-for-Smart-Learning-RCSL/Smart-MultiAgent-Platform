@@ -413,6 +413,22 @@ existing precedent for placing a rule by topic rather than by number:**
   the same time**: the agents, agent-groups and conversation Concept Map owner panels read
   the same composable and were hiding their controls from Org Owners for the same reason.
 
+- **D-8 (post-close)** — **everything above is confirmed green on CI**, run
+  `32399720711` on `main`, 23/23 jobs, 58 passed / 5 skipped. Three things that settles,
+  because each was left open by a local limitation:
+
+  - **`frontend-gate-openapi-drift` passed**, which is D-4's gate. The hand-check recorded
+    there (regenerate `openapi.json` + `gen:api`, expect no diff) was the right check, and
+    the `ProjectOut.is_moderator` addition from D-7 is correctly reflected in the committed
+    spec and client.
+  - **`backend-db` passed in 2m34s.** The twelve db-tier failures on the implementing host
+    were Redis and Neo4j connection timeouts, as judged at the time, and not this work.
+  - **`backend-test` passed in 3m3s**, against a local tier that took 27 minutes when it
+    finished at all (FU-12). That is the whole argument for running full suites on CI.
+
+  `frontend-e2e` also passed, but note what that does **not** mean: no e2e spec drives the
+  in-room approval card, so it does not retroactively close AC-8's browser gap (D-2).
+
 - **D-6** — **The frontend guard covers more than §6's "the backstage views".** Once
   `workflows.py` became owner-only, four views had every request answering 403:
   `WorkflowListView`, `WorkflowRunsListView`, `WorkflowEditorView` and `WorkflowRunView`.
@@ -474,6 +490,16 @@ existing precedent for placing a rule by topic rather than by number:**
   them, but it is a duplicated round trip. Fixing it means a service method that returns
   the instance and its project together — a change inside the orchestration context, which
   §5 deliberately kept out of this dossier.
+
+- **FU-12** — **the full backend unit tier is unreliable on a developer host without
+  `-p no:randomly`.** Two attempts to run `pytest tests/unit -q` after the D-7 work hung:
+  twenty minutes of wall clock for sixty-five seconds of CPU, i.e. blocked rather than
+  slow. The run that completed earlier in this task, and the one that completes on CI, both
+  pin the ordering. This is almost certainly the `test_graphrag_builder.py` hang BOARD
+  already records, surfaced by a random order that reaches it differently — so the flag is
+  not a preference, it is the condition for the local tier terminating at all. Worth either
+  putting in `pytest.ini` for local runs or fixing the underlying hang; today it is folklore
+  that costs whoever hits it half an hour.
 
 - **FU-9** — `frontend/src/slices/agents/__tests__/AgentToolsView.test.ts` is **flaky**:
   "renders CodeMirror for the MCP config JSON field" failed in two separate full
