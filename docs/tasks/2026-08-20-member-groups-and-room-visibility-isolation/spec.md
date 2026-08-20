@@ -673,6 +673,43 @@ To be applied to `REQUIREMENTS.md` on approval.
 
 ## 15. Deviation Log
 
+**Post-implementation `/code-review` (2026-08-20).** Six findings, all verified real, five
+fixed here and one already recorded as FU-8. The review is the reason to read this section
+before trusting the two gates above it.
+
+- **D-16 — R13.32 was enforced on one branch of `GET /api/projects` and bypassable by a
+  query parameter.** `?scope=org&id=<org>` ran `list_by_org` behind a bare org-membership
+  check, so any org member received the name of every project in the org — the exact
+  disclosure `_list_visible` claims to close. Not theoretical: `ProjectListView.vue:52` and
+  `OrgProjectSwitcher.vue:37` both build that request, so the project list's per-org tab
+  was served by the unfiltered branch. `_list_visible` now takes an optional `org_id` that
+  narrows the result without widening the candidate set, and the org branch is a narrowing
+  of the same answer rather than a second way to ask. Admin keeps the unfiltered view.
+  **This is a miss in my own Stage 1 security trace**, which followed this endpoint through
+  one branch and read past the other two on the same screen. The lesson is structural: a
+  filter applied at a branch, rather than at the function every branch shares, is a filter
+  waiting to be walked around.
+- **D-17 — `list_candidates` did not filter `projects.deleted_at`.** `resolve_room_access`
+  refuses a room whose project is soft-deleted, and the role resolver reads projects with
+  `include_deleted=True`, so a member of a deleted project was handed its rooms by the
+  listing and then 404'd on open — the listable-but-unopenable split the shared predicate
+  exists to prevent. Third join added; the compile assertion now pins all three filters.
+- **D-18 — the candidate ceiling could delete whole containers, not just rooms.** The limit
+  applies to the union across containers ordered globally, so a workspace whose rooms
+  sorted after the cut was judged on none of them and vanished. Truncation now splits the
+  container set and re-asks, down to a single container; only a single container over the
+  ceiling on its own answers from a partial read. The warning text said "shortened list"
+  for a failure that was larger.
+- **D-19 — `toggleGroup` cleared its guard before the read-back landed.** The binding
+  endpoint replaces rather than patches, so a second click inside the window rebuilt its
+  payload from the stale set and dropped the group the first click added. The applied set
+  now goes straight into the query cache; the failure path refetches.
+- **D-20 — two CSS classes the group picker was written against did not exist.**
+  `access-row--stacked` and `group-picker` had no rules, so the checkbox list rendered
+  squeezed alongside its own label with default bullets.
+- The review's N+1 finding on `visible_room_ids` is FU-8, already recorded before the
+  review ran; it is unchanged and still open.
+
 **Stage 2 (2026-08-20).**
 
 - **D-9 — the security gate found a live hole in the tier this task added, and it is the
