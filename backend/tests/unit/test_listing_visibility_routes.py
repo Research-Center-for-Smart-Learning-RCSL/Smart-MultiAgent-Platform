@@ -20,9 +20,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.api.v1 import chatrooms as chatrooms_mod
+from app.api.v1 import projects as projects_mod
 from app.api.v1 import workspaces as workspaces_mod
 from app.api.v1.deps import PaginationParams
 from contexts.conversation.domain.models import Chatroom
+from contexts.tenancy.application.project_service import ProjectCandidates
 from shared_kernel.auth.permissions import Role
 
 _WORKSPACE_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
@@ -239,3 +241,106 @@ async def test_workspace_listing_is_empty_not_an_error_when_nothing_is_visible()
         with_visible_room=set(),
     )
     assert out == []
+
+
+# --------------------------------------------------------------------------- #
+# GET /api/projects
+# --------------------------------------------------------------------------- #
+
+
+def _project(name: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        name=name,
+        owner_org_id=uuid.uuid4(),
+        owner_user_id=None,
+        created_by_user_id=uuid.uuid4(),
+        version=1,
+        created_at=datetime.now(UTC),
+        deleted_at=None,
+    )
+
+
+async def _call_list_projects(
+    *,
+    candidates: list[SimpleNamespace],
+    directly_visible: set[uuid.UUID],
+    with_visible_room: set[uuid.UUID],
+) -> tuple[list, AsyncMock]:
+    service = AsyncMock()
+    service.list_candidates_for_user = AsyncMock(
+        return_value=ProjectCandidates(projects=candidates, directly_visible_ids=directly_visible)
+    )
+    facade = AsyncMock()
+    facade.project_ids_with_visible_room = AsyncMock(return_value=with_visible_room)
+
+    with (
+        patch.object(projects_mod, "ProjectService", return_value=service),
+        patch.object(projects_mod, "ConversationFacade", return_value=facade),
+    ):
+        out = await projects_mod.list_projects(
+            scope=None,
+            owner_id=None,
+            pagination=_pagination(),
+            principal=_principal(),
+            db=AsyncMock(),
+        )
+    return out, facade
+
+
+@pytest.mark.asyncio
+async def test_org_member_no_longer_sees_a_sibling_project_with_no_visible_room() -> None:
+    """The defect: any org member could enumerate every project of the org."""
+    mine, theirs = _project("mine"), _project("theirs")
+
+    out, _ = await _call_list_projects(
+        candidates=[mine, theirs],
+        directly_visible={mine.id},
+        with_visible_room=set(),
+    )
+
+    assert [p.name for p in out] == ["mine"]
+
+
+@pytest.mark.asyncio
+async def test_a_project_reachable_only_through_an_org_open_room_is_still_listed() -> None:
+    """Otherwise `allow_org_members` rooms would have no entry point at all."""
+    mine, open_to_org = _project("mine"), _project("open-to-org")
+
+    out, _ = await _call_list_projects(
+        candidates=[mine, open_to_org],
+        directly_visible={mine.id},
+        with_visible_room={open_to_org.id},
+    )
+
+    assert sorted(p.name for p in out) == ["mine", "open-to-org"]
+
+
+@pytest.mark.asyncio
+async def test_a_members_own_project_is_listed_even_with_no_readable_room() -> None:
+    """Standing in the project settles it; the room test is only for the rest."""
+    mine = _project("mine")
+
+    out, facade = await _call_list_projects(
+        candidates=[mine],
+        directly_visible={mine.id},
+        with_visible_room=set(),
+    )
+
+    assert [p.name for p in out] == ["mine"]
+    # Nothing was undecided, so the room query is never issued.
+    facade.project_ids_with_visible_room.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_only_undecided_projects_are_sent_to_the_room_query() -> None:
+    mine, theirs = _project("mine"), _project("theirs")
+
+    _, facade = await _call_list_projects(
+        candidates=[mine, theirs],
+        directly_visible={mine.id},
+        with_visible_room=set(),
+    )
+
+    facade.project_ids_with_visible_room.assert_awaited_once()
+    assert facade.project_ids_with_visible_room.await_args.kwargs["project_ids"] == [theirs.id]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Literal
 
 import sqlalchemy as sa
@@ -11,12 +12,14 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
+from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.tenancy.application.invite_service import InviteService
 from contexts.tenancy.application.project_service import (
     ProjectMemberRole,
     ProjectOwnerType,
     ProjectService,
 )
+from contexts.tenancy.domain.models import Project
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
@@ -83,6 +86,41 @@ def _to_out(p) -> ProjectOut:
     )
 
 
+async def _list_visible(
+    db: AsyncSession,
+    service: ProjectService,
+    principal: Principal,
+) -> list[Project]:
+    """The unscoped project list (R13.32).
+
+    It used to return every project of every org the caller belonged to, with no
+    project-membership check, so an org member could enumerate the name of every
+    project in the org and walk into its workspaces from there.
+
+    Now a candidate qualifies on one of two grounds: the caller's own standing in
+    it (owner, member, or owner of the parent org), or holding at least one chat
+    room the caller may read. The second test exists so that a room opened to the
+    whole org (`allow_org_members`) still has an entry point — navigation runs
+    project to workspace to room, and dropping non-member projects outright would
+    strand every such room with no way to reach it.
+
+    Composed here rather than inside either context: tenancy answers who the
+    caller is, conversation answers which rooms they may read, and neither needs
+    to learn the other's tables to do it.
+    """
+    candidates = await service.list_candidates_for_user(principal.user_id)
+    undecided = [p.id for p in candidates.projects if p.id not in candidates.directly_visible_ids]
+    with_visible_room: set[uuid.UUID] = set()
+    if undecided:
+        with_visible_room = await ConversationFacade(db).project_ids_with_visible_room(
+            principal=principal,
+            project_ids=undecided,
+        )
+    return [
+        p for p in candidates.projects if p.id in candidates.directly_visible_ids or p.id in with_visible_room
+    ]
+
+
 @router.get("")
 async def list_projects(
     scope: Literal["user", "org"] | None = Query(None),
@@ -92,8 +130,9 @@ async def list_projects(
     db: AsyncSession = Depends(db_session),
 ) -> list[ProjectOut]:
     service = ProjectService(db)
+    rows: Sequence[Project]
     if scope is None or owner_id is None:
-        rows = await service.list_visible_for_user(principal.user_id)
+        rows = await _list_visible(db, service, principal)
     elif scope == "user":
         if owner_id != principal.user_id and not principal.is_admin:
             raise HTTPException(

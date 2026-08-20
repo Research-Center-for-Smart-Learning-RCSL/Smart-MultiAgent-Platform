@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +32,17 @@ from contexts.tenancy.infrastructure.repositories import (
 )
 from shared_kernel import audit
 from shared_kernel.db.restore import raise_restore_conflict
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectCandidates:
+    """The project listing's inputs, split by what settles their visibility.
+
+    `directly_visible_ids` is always a subset of `projects` by id.
+    """
+
+    projects: list[Project]
+    directly_visible_ids: set[uuid.UUID]
 
 
 class ProjectService:
@@ -108,18 +120,46 @@ class ProjectService:
     async def list_by_org(self, org_id: uuid.UUID) -> Sequence[Project]:
         return await self._projects.list_by_org(org_id)
 
-    async def list_visible_for_user(self, user_id: uuid.UUID) -> Sequence[Project]:
-        """Own projects + all projects whose orgs the user belongs to."""
+    async def list_candidates_for_user(self, user_id: uuid.UUID) -> ProjectCandidates:
+        """Every project the caller could conceivably see, split by why.
+
+        `projects` is the candidate set: projects the caller owns outright, plus
+        every project of every org they belong to. `directly_visible_ids` is the
+        subset whose visibility is already settled without looking at any room —
+        the caller owns the project, holds a `project_members` row in it, or owns
+        the parent org (R8.08 / R5.03 inheritance).
+
+        The remainder are projects the caller reaches only as a plain org member.
+        Those are the ones R13.32 makes conditional on holding a room the caller
+        may read, and the route resolves them through the conversation facade;
+        returning the split rather than the answer keeps this context free of any
+        knowledge of chat rooms.
+
+        Replaces `list_visible_for_user`, which returned every project of every
+        org the caller belonged to with no membership check at all, so `GET
+        /api/projects` disclosed the name of every project in the org.
+        """
         own = await self._projects.list_by_user(user_id)
         orgs = await OrgRepository(self._db).list_for_user(user_id)
+        org_projects = await self._projects.list_by_orgs([org.id for org in orgs])
+
+        projects: list[Project] = list(own)
         seen = {p.id for p in own}
-        result = list(own)
-        for org in orgs:
-            for project in await self._projects.list_by_org(org.id):
-                if project.id not in seen:
-                    seen.add(project.id)
-                    result.append(project)
-        return result
+        for project in org_projects:
+            if project.id not in seen:
+                seen.add(project.id)
+                projects.append(project)
+
+        owned_org_ids = await self._org_members.owned_org_ids(user_id)
+        member_ids = await self._members.member_project_ids(
+            user_id=user_id,
+            project_ids=[p.id for p in projects],
+        )
+        directly_visible = {p.id for p in own} | member_ids
+        directly_visible |= {
+            p.id for p in projects if p.owner_org_id is not None and p.owner_org_id in owned_org_ids
+        }
+        return ProjectCandidates(projects=projects, directly_visible_ids=directly_visible)
 
     async def rename(
         self,
