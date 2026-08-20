@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-08-20
 requirements: [R6.01, R6.02, R6.05, R6.09, R6.10, R19a.12, R19a.13]
 depends_on: []
@@ -266,6 +266,10 @@ in `docs/operations.md`.
   (`admin_users.py:76-99`).
 - **The picker discloses nothing new** (Q-6). Its pool is a subset of
   `GET /api/orgs/{id}/members`, already readable by any member of that Org.
+  **This bullet, and Q-6's rationale, are wrong as written — see D-12.** Capability #14
+  does not imply membership of the parent Org, so the subset claim held only for callers
+  who happened to be Org members. Left in place as the approved record; the implementation
+  makes the claim true by scoping the query to the caller's own org membership.
 - **Domain policy applies to admin provisioning too.** Skipping it would make the Admin
   endpoint a bypass of a control the operator deliberately set.
 - **Rate limit the link mints.** `activation-links` re-mints a credential; cap it per
@@ -324,36 +328,56 @@ Q-4 declined, and without it the decision is undiscoverable.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `POST /api/orgs/{id}/invites` and `POST /api/projects/{id}/invites` return an
+- [x] AC-1: `POST /api/orgs/{id}/invites` and `POST /api/projects/{id}/invites` return an
       `accept_url` that redeems successfully through `POST /api/invites/accept-by-token`.
-- [ ] AC-2: The response is identical in shape and content whether or not the invitee's
+      (`test_onboarding_invite_links.py`; redeemed for real against Postgres in
+      `test_onboarding_without_smtp_db.py`.)
+- [x] AC-2: The response is identical in shape and content whether or not the invitee's
       address has an account — a test asserts both branches, including that no field, no
-      status code and no header differs.
-- [ ] AC-3: `accept_url` is absent from `GET /api/invites` and from every other invite
-      read path.
-- [ ] AC-4: `GET /api/projects/{id}/invitable-members` returns parent-Org members who are
+      status code and no header differs. (Byte-compared over `TestClient` on both routes,
+      plus a service-level test pinning that the *only* difference is the in-app
+      notification.)
+- [x] AC-3: `accept_url` is absent from `GET /api/invites` and from every other invite
+      read path. (`invites.InviteOut` has no such field; both create models default it to
+      `None`.)
+- [x] AC-4: `GET /api/projects/{id}/invitable-members` returns parent-Org members who are
       neither project members nor holders of a live pending invite; returns 200 with an
       empty list for a user-owned project; refuses a caller without capability #14.
-- [ ] AC-5: `POST /api/admin/users` creates a `pending`, unverified, password-less account,
+      (The two anti-joins and the path-derived project id are asserted on the compiled SQL;
+      the 403 runs the real §5.2 matrix. The pool is additionally empty for a caller who is
+      not a member of the parent Org — D-12 — proven against real rows.)
+- [x] AC-5: `POST /api/admin/users` creates a `pending`, unverified, password-less account,
       returns both links, and is refused for a non-admin.
-- [ ] AC-6: An address the deployment's email-domain policy denies is refused by
+- [x] AC-6: An address the deployment's email-domain policy denies is refused by
       `POST /api/admin/users`.
-- [ ] AC-7: Walking the returned links in order — set password, then verify — produces an
+- [x] AC-7: Walking the returned links in order — set password, then verify — produces an
       account that can log in and accept an invite. This is the end-to-end claim of the
-      dossier and must be executed, not reasoned.
-- [ ] AC-8: `POST /api/admin/users/{id}/activation-links` mints fresh, working tokens,
-      invalidates nothing already used, and is rate-limited per target user.
-- [ ] AC-9: No token appears in any audit row, log line, or error body — asserted by a
+      dossier and must be executed, not reasoned. (**Executed** against a real Postgres —
+      see D-11 for the container recipe and the mutation probes.)
+- [x] AC-8: `POST /api/admin/users/{id}/activation-links` mints fresh, working tokens,
+      invalidates nothing already used, and is rate-limited per target user. (The
+      already-consumed half is proven against the real token tables, not mocks.)
+- [x] AC-9: No token appears in any audit row, log line, or error body — asserted by a
       test that scans the emitted audit metadata and the captured log output for the
       plaintext token.
-- [ ] AC-10: Nothing writes an `org_members` or `project_members` row outside
+- [x] AC-10: Nothing writes an `org_members` or `project_members` row outside
       `_finalize_acceptance` — a test asserts the invariant so a future shortcut has to
-      break it deliberately.
-- [ ] AC-11: The two R6.11 citations at `invites.py:96` and `:129` are corrected to R6.02.
-- [ ] AC-12: `docs/operations.md` carries the closed-deployment recipe.
+      break it deliberately. (An AST sweep of `contexts/`, `app/` and `smap/` against a
+      four-entry allowlist: the accept path, the two self-consent create paths, and the
+      E2E fixture seeder.)
+- [x] AC-11: The two R6.11 citations at `invites.py:96` and `:129` are corrected to R6.02.
+      (Four in total — see D-3.)
+- [x] AC-12: `docs/operations.md` carries the closed-deployment recipe. (§7a.5, and §7a's
+      opening claim that mail-less installs cannot onboard is corrected to point at it.)
 - [ ] AC-13: Gates green — `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`,
       `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, and
       `pnpm run check:openapi-drift` after `gen:api`.
+      **Unticked, with three specifics.** `ruff`, `mypy`, `pnpm lint`, `pnpm typecheck` and
+      `pnpm build` are clean. `pytest -q` excludes one module that hangs on this host
+      (D-10); the rest of the unit tier is green. `pnpm test` has one failure in
+      `SCodeEditor.test.ts` that passes in isolation and is unrelated to this diff (FU-7).
+      `check:openapi-drift` cannot run here and was reproduced by hand (D-9). Left for CI
+      to close.
 
 ## 12. Test Plan
 
@@ -409,7 +433,93 @@ Two amendments; both describe an added path, neither weakens an existing rule.
 
 ## 15. Deviation Log
 
-Appended by `/build`. Empty means the implementation matches this spec exactly.
+**Scope of this pass.** The backend is complete; the frontend of §6 is deliberately not
+built (D-8). The dossier stays `in-progress` until it is.
+
+- **D-1** — §6 assumed both invite-create routes share `orgs.InviteOut`. They do not:
+  `POST /api/projects/{id}/invites` returned a bare `dict[str, str]` carrying only `id`
+  and `expires_at`. Rather than bolt `accept_url` onto an untyped dict, the route gained a
+  `ProjectInviteOut` mirroring the org shape. Additive at runtime; it also brings the route
+  back under the backend rule that a handler returns a Pydantic model, never a raw dict.
+- **D-2 — Q-4's rationale is factually wrong, and the decision survives anyway.** Q-4
+  declined an invite-only mode because "R19a.13 is already admin-tunable at runtime".
+  **No endpoint writes those keys.** `email_domain_policy` reads three Redis keys and
+  nothing in the repository sets them; the module docstring promised an "Admin PATCH
+  handler (Phase I)" that was never built. The decision is unaffected — the control does
+  exist and is tunable, just with `redis-cli` rather than an API — so §7a.5 of
+  `docs/operations.md` documents the real mechanism and the misleading docstring is
+  corrected in place. FU-6 carries the admin surface.
+- **D-3** — AC-11 named two stale R6.11 citations; there were four. The same error sits in
+  `invite_service.py`'s module docstring and in `accept_by_token`'s, both describing the
+  same gate. Fixing two and leaving two would have left a reader with contradictory
+  citations for one rule, so all four now say R6.02.
+- **D-4 — a tightening the spec did not ask for.** `POST /api/admin/users/{id}/activation-links`
+  refuses an account that is *fully* activated (has a password **and** a verified address),
+  with a 409. R6.18 says the links "may be re-issued on demand", which this preserves for
+  every account still mid-activation — but an unrestricted version would be a button that
+  mints a persistent account-takeover credential for any live user. An Admin who must act
+  as a user already has impersonation, which is bounded and separately audited.
+- **D-5** — §6 said `invitable_org_members` "reads only tenancy tables". It cannot: a live
+  pending invite is matched by **email**, because `invites.invitee_user_id` stays NULL
+  until acceptance, so excluding already-invited users requires `users`. The query joins
+  it directly, following the precedent `_notify_invitee` set (and its comment) rather than
+  importing the identity repository layer.
+- **D-6** — §8 said "rate limit the link mints" without saying how the refusal surfaces.
+  A new `ActivationLinkRateLimited` domain error maps to a 429 Problem carrying
+  `retry_after_seconds`. Deliberately *not* the silent-drop shape `register` and
+  `request_password_reset` use: those swallow the limit to avoid an enumeration oracle,
+  and here the caller is an authenticated Admin with nothing to be denied knowing.
+- **D-7** — `verify_email_url` / `password_reset_url` were lifted out of `AuthEmailService`
+  into module functions. §6 asked for links "built exactly as the mailers build them"; a
+  second copy of the f-string would have satisfied that on the day and drifted later into
+  a link the SPA cannot read.
+- **D-8 — the frontend is not built.** At the user's direction this pass covers §6 Backend,
+  the operator documentation, and the API contract only. `gen:api` was still rerun (the
+  contract changed, and leaving the generated client stale would break the drift gate for
+  the next person), so the new endpoints are typed and reachable from the client — but no
+  view calls them yet. FU-5 carries the UI.
+- **D-9** — `pnpm run check:openapi-drift` cannot execute on this host: the script shells
+  out to `python`, which is not on the bash PATH here (the same limitation BOARD.md records
+  for the member-groups dossier). The gate's actual assertion was reproduced by hand —
+  re-export the spec, re-run `gen:api`, confirm `git status` is clean for `openapi.json`
+  and `src/shared/api-client` — and came out clean.
+- **D-10** — the unit tier was run with `tests/unit/test_graphrag_builder.py` excluded. It
+  hangs indefinitely on this host, in isolation as well as in the tier; pre-existing and
+  unrelated (recorded as D-7 of `2026-08-16-platform-type-delete-optin-lifecycle`).
+- **D-11** — the `db` tier now runs here. One throwaway `pgvector/pgvector:0.8.0-pg16`
+  container on port 5433 plus a `redis:7-alpine` on 6380, `SMAP_DB_DSN` / `SMAP_REDIS_DSN`
+  pointed at them, `alembic upgrade head` (clean through 0079). Both containers were
+  removed afterwards. The only faked collaborator is Vault Transit's JWT signing, which is
+  a compose-tier dependency and is not what AC-7 asserts; every account-state gate `login`
+  applies runs for real. **Three mutation probes** — marking the provisioned account
+  verified at creation, corrupting the accept token, and breaking the org-membership
+  correlation of D-12 — each turned the relevant test red for the right reason.
+- **D-12 — the security gate found a real hole in this dossier's own reasoning, and it is
+  the most important entry here.** §8 and Q-6 both assert that the picker "discloses
+  nothing new" because its pool is a subset of `GET /api/orgs/{id}/members`, "already
+  readable by any member of that Org". **Capability #14 does not establish org
+  membership.** A user invited straight into an org-owned project as its Owner holds #14
+  and appears in no `org_members` row, so `GET /api/orgs/{id}/members` is closed to them —
+  and the endpoint as first written would have handed them every address in the parent
+  Org. That is precisely the disclosure §2 lists as a Goal not to introduce. The caller's
+  own org membership is now a predicate of the query (an Admin is exempt per R5.01), and a
+  caller outside the Org gets an empty pool: the same shape a user-owned project yields,
+  so the two cases are indistinguishable. Proven against real rows rather than compiled
+  SQL — the predicate is a correlated `EXISTS` over an aliased self-join, and a wrong
+  correlation renders as plausible-looking SQL.
+- **D-13** — the pool is bounded with `LIMIT`/`OFFSET` in SQL rather than fetched whole and
+  sliced in the route. §7 asked for `PaginationParams`, which the first version applied
+  only after loading every member row.
+- **D-14** — the quality gate replaced a string-matched status code. `issue_activation_links`
+  first raised a plain `ValueError` and the route chose 404 vs 409 by testing
+  `"not found" in str(exc)` — copied from `hard_delete_user`, and fragile in exactly the
+  way a reworded message exposes. It now raises `AccountAlreadyActivatedError`, and the
+  route branches on the type, matching `ban_user`'s existing shape.
+- **D-15** — a self-audit catch worth recording because the cause was a lint fix: silencing
+  ruff's `PLW0108` by replacing `lambda: AsyncMock()` with the bare `AsyncMock` class in a
+  test's FastAPI dependency override turned that class's constructor keywords into query
+  parameters, and every route test in that file started returning 422. The lesson is
+  mechanical — re-run the tests after a lint fix, not before it.
 
 ## 16. Follow-ups
 
@@ -425,3 +535,37 @@ Appended by `/build`. Empty means the implementation matches this spec exactly.
 - **FU-4** — `NotificationKind.APPROVAL_HUMAN_REQUESTED`
   (`notification/domain/models.py:16`) has no producer outside tests. Either wire it or
   delete it; an enum member that nothing emits reads as a working feature.
+- **FU-5** — **The frontend half of §6, which is the rest of this dossier** (D-8): the
+  picker over `GET /api/projects/{id}/invitable-members`, the copyable `accept_url` on both
+  member views, the admin create-user dialog and re-issue action, a `useClipboard` in
+  `@shared/composables` (three slices hand-roll `navigator.clipboard` today —
+  `useEntityLifecycle.ts:75`, `ChatroomSettingsView.vue:224`, `ChatroomView.vue:848`), the
+  new i18n keys in both locale files, the amended component tests, and the Playwright spec
+  of §12. Until it lands, the endpoints work and nothing in the UI reaches them.
+- **FU-6** — No API writes the email-domain policy of R19a.13 (D-2). An admin endpoint over
+  the three `config:email_domain:*` keys would retire the `redis-cli` step in
+  `docs/operations.md` §7a.5 and make Q-4's rationale true as written.
+- **FU-7** — `src/shared/ui/__tests__/SCodeEditor.test.ts` fails under full-suite load
+  ("CodeMirror not mounted yet") and passes in isolation. Unrelated to this diff — nothing
+  here touches that component — but it makes `pnpm test` non-deterministic locally.
+- **FU-8** — No search filter on the invitable pool. §7 allowed one "if an Org is large";
+  the pool is now `LIMIT`ed in SQL (D-13), so a large Org is bounded, but the picker has no
+  way to reach a member past the first page other than paging blindly.
+- **FU-9** (hardening, no attack path) — `issue_activation_links` does not refuse a
+  **banned** account that never set a password: it is "not fully activated", so links are
+  minted for it. Harmless today because both downstream gates refuse independently —
+  `login` raises `AccountBanned` after password verification, and `mark_verified` declines
+  to promote a banned row — but it offers "activation" for an account that can never
+  activate, and it becomes a real hole if either gate is ever relaxed.
+- **FU-10** (hardening, no attack path) — `POST /api/admin/users` has no per-actor cap
+  beyond the global middleware bucket, unlike the activation-link mint. Admin-only, so the
+  precondition for abuse is an admin account already lost, but a compromised admin session
+  can create accounts at request speed.
+- **FU-11** — **The email-domain allowlist fails open out of an LRU cache.** Its three keys
+  live in Redis with no TTL under `--maxmemory-policy allkeys-lru`
+  (`docker-compose.yml:254`), and an absent `mode` reads as `off`, which admits every
+  domain (`email_domain_policy.py`). Memory pressure, a flush, or a restored Redis
+  therefore reopens registration silently. Pre-existing and outside this dossier's scope,
+  but §7a.5 is the first place that tells an operator to depend on it, so the recipe now
+  carries the warning. The fix is either persistence (move the lists to Postgres and mirror
+  them, as the rate-limit policies already do) or a startup assertion.

@@ -72,7 +72,9 @@ first, but building them serially avoids the conflict.
   one's central claim is a confidentiality claim, so AC-1, AC-4, AC-9 and AC-12 must be
   executed against a real stack or left unticked.
 
-- `2026-08-20-onboarding-without-smtp` (feature, approved) - `depends_on: []`. Opened from the
+- (moved to In progress on 2026-08-20) `2026-08-20-onboarding-without-smtp`. The original entry,
+  kept here for the record:
+  `2026-08-20-onboarding-without-smtp` (feature, approved) - `depends_on: []`. Opened from the
   member-groups dossier's FU-1. **Read its §1 correction before scoping anything here**: SMTP is
   *not* required for an invitee who already has an account — `_notify_invitee`
   (`invite_service.py:159-183`) writes an in-app notification and the invite is listed at
@@ -131,6 +133,10 @@ overlap, so each unblocks as soon as its predecessor is `implemented`.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+- `2026-08-20-onboarding-without-smtp` (feature) — `depends_on: []`. Backend half first
+  (accept link, invitable-member pool, admin provisioning, the R6.11 citation fix and the
+  operator recipe); the frontend half is deliberately a later round, so the endpoints ship
+  before any view consumes them.
 Removed on 2026-08-20 after implementation:
 `2026-08-20-member-groups-and-room-visibility-isolation` (the three listing endpoints now
 filter through the room ACL, and a project can define optional Member Groups that scope a

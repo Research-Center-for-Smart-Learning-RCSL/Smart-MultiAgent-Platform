@@ -297,8 +297,10 @@ Any extra fields beyond the core RFC 7807 set are documented per-type in this ca
 
 Transactional mail covers email verification (R6.02), password reset (R6.05),
 email-change re-verification (R6.06), and org/project invites (R6.09–R6.11).
-Without a working SMTP transport **users cannot complete registration through the
-UI** — the verification link is never delivered.
+Without a working SMTP transport **a self-registering user cannot complete
+registration through the UI** — the verification link is never delivered. A
+deployment that will never have mail should onboard through §7a.5 instead, which
+hands every link over out of band.
 
 ### 7a.1 Configuration
 
@@ -330,7 +332,7 @@ keeps the dev `LoggingEmailSender`. This is deliberate — a self-hosted operato
 may run mail-less in a closed lab. **In `env=prod` with no `SMTP_HOST` the backend
 still boots** but logs exactly one warning at startup (`event=smtp_unconfigured`):
 registration, reset, and invites are silently undeliverable. Grep the boot logs
-for that event after any prod deploy.
+for that event after any prod deploy. If that is intentional, follow §7a.5.
 
 ### 7a.3 Smoke test (staging)
 
@@ -392,6 +394,59 @@ register page (the SPA caches `captcha-config` on mount).
 > `mode=off` seed) and `shared_kernel/auth/captcha.py` (default `mode=off`).
 > `_ensure_kv` never overwrites an existing secret, so a stack bootstrapped
 > before the fix must be corrected with the `vault kv put` above.
+
+### 7a.5 Closed deployment: onboarding with no outbound mail
+
+A self-hosted install with no SMTP relay can still register and enrol users. There is
+deliberately **no** `registration_mode=invite_only` switch; the two controls below do the
+same job with mechanisms that already exist, and every invite and provisioned account
+carries a copyable link so nothing depends on delivery.
+
+**1. Close registration to your own domains** (R19a.13). The policy lives in three Redis
+keys and there is no API that writes them, so set them directly. `mode=allow` denies every
+address outside the list; `mode=deny` blocks only the listed domains; `mode=off` (the
+default) applies no restriction. The gate re-reads Redis at most every 30 s, so a change
+takes effect within half a minute.
+
+```bash
+docker compose exec redis redis-cli SET config:email_domain:mode allow
+docker compose exec redis redis-cli SADD config:email_domain:allow example.edu dept.example.edu
+docker compose exec redis redis-cli SMEMBERS config:email_domain:allow   # verify
+```
+
+The list holds bare, lower-cased domains (no `@`), matched against the part after the last
+`@`. Subdomains are not implied: `example.edu` does not admit `dept.example.edu`.
+
+> **This control fails open, and it lives in an LRU cache.** An unset or evicted `mode`
+> key reads as `off`, which admits every domain. Redis runs with
+> `--maxmemory-policy allkeys-lru` and these three keys carry no TTL, so memory pressure
+> or a flushed/replaced Redis silently reopens registration. Re-assert the three keys after
+> any Redis restore or restart, and check `SMEMBERS`/`GET` as part of the same routine that
+> greps the boot log for `smtp_unconfigured`.
+
+**2. Turn the registration CAPTCHA off** if the install has no outbound internet — see
+§7a.4. `mode=off` needs no provider keys.
+
+**3. Hand links over instead of mailing them.**
+
+| Situation | What to do |
+| --- | --- |
+| The person already has an account | Nothing special. `POST /api/orgs/{id}/invites` and `POST /api/projects/{id}/invites` write an in-app notification, and the invite appears in their `/invites` inbox with no mail involved. |
+| The person has an account but you want to be sure | The invite-create response carries `accept_url`. Copy it to them over any channel. |
+| The person has no account | `POST /api/admin/users` provisions one and returns two links: a **set-password** link (30 min) and a **verify-email** link (24 h). Hand both over, then invite the account as usual. `POST /api/admin/users/{id}/activation-links` re-mints the pair, so click it when you are actually with the person rather than racing the 30-minute clock. |
+| They self-registered before you provisioned them | Self-registration still works, but nothing hands them the verification link. With `SMTP_HOST` unset the dev sender writes the whole message body — link included — to the backend log (`event=email_send`, `template=verify_email`), so an operator can recover it from there. Provisioning is the supported route; this is the fallback. |
+
+**Treat every one of these links as a credential.** Possession is authorisation: the accept
+link enrols whoever opens it, and the set-password link is equivalent to the account's
+password. They are single-use, they are returned only to the person who minted them, and no
+read endpoint will show them again — a lost invite link is recovered by revoking the invite
+and re-inviting, not by re-reading it.
+
+What provisioning does **not** do: it does not mark the address verified (the holder must
+still walk the verification link — an Admin handing it over out of band proves only that an
+Admin vouched, not that the address is theirs), it does not bypass the domain list above,
+and it does not place anyone in an Org or Project. Membership is still created only by the
+invitee accepting an invite.
 
 ---
 
