@@ -873,6 +873,40 @@ before trusting the two gates above it.
   Defects 1 and 3 compound: the wedge from 1 makes every toggle fail, and 3 then displays
   each of those failures as if it had worked.
 
+- **D-17 (post-close) — a second `/code-review`, on 2026-08-21, found two more. Both are
+  fixed with mutation-probed tests; the dossier stays `implemented` (the user's call).**
+
+  1. **A failed read let the picker wipe the room's bindings.** The picker rendered
+     whenever neither query was still *loading* — but a failed query also reports
+     `isLoading: false`, and `boundGroupIds` falls back to `[]` when there is no data. So a
+     transient failure on `GET /api/chatrooms/{id}/member-groups` drew the whole group list
+     with every box unchecked, and since the endpoint **replaces**, one click sent a set of
+     exactly one group and silently deleted every real binding the room had. The read-back
+     at the end of `toggleGroup` — the thing D-16.3 added to keep the client honest — then
+     wrote the truncated set into the cache as confirmed. It now renders only once both
+     queries have actually answered, offers a retry otherwise, and `toggleGroup` refuses to
+     build a payload from an unanswered set. This is the third defect in this one picker;
+     all three are the same shape, a control edited from a state that is merely the absence
+     of an answer.
+  2. **`list_for_user_in_project` never got D-9's `project_members` join.** D-9 closed the
+     lapsed-membership hole in `group_ids_for_user` and documented at length why the join
+     is load-bearing rather than tidiness. Its sibling was left as it was — and that
+     sibling is the **only** gate on `GET /api/member-groups/{id}` and `.../members`, which
+     are keyed by group id and therefore carry no `require_membership` dependency to fall
+     back on. So a member removed by any path that does not clean up groups
+     (`OrgService.remove_member` deletes `project_members` at the repository layer and
+     knows nothing about them) kept reading the group's name and its **full roster** in a
+     project they no longer belonged to, while the room ACL correctly refused them. D-9's
+     lesson was "close it at the predicate so no future deletion path has to remember" —
+     it was applied to one of the two predicates that needed it.
+
+  The `delete` docstring's restore claim went with it: it said the surviving bindings let
+  an accidentally deleted group be restored without re-binding every room. Nothing restores
+  a member group (`restore` exists for orgs and projects only), and D-16.1's own fix
+  guarantees the picker clears those rows on the first edit — the GET reports only live
+  ids, the UI sends that list back, and `replace()` deletes every row for the room. Two
+  comments in two contexts each describing half of that, neither noticing the other.
+
 ## 16. Follow-ups
 
 - **FU-1** — Onboarding, decided with the user on 2026-08-20 and deliberately not in this
