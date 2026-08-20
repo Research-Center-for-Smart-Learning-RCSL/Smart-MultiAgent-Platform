@@ -338,4 +338,45 @@ describe('ChatroomSettingsView', () => {
     const after = wrapper.find('.group-picker input[type="checkbox"]')
     expect((after.element as HTMLInputElement).checked).toBe(false)
   })
+
+  it('refuses to render the group picker when the bound set could not be read', async () => {
+    // A failed query reports `isLoading: false` with no data, and the bound set
+    // falls back to `[]`. Rendering on that drew every box unchecked, and since
+    // the endpoint REPLACES, one click would have wiped the room's real
+    // bindings — silently, and the write-back would have recorded the loss as
+    // confirmed. The picker must be unreachable from "no answer yet".
+    const room = makeChatroom({ allow_project_members: false, allow_member_groups: true })
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+      http.get('/api/workspaces/:id', () =>
+        HttpResponse.json({ id: 'ws_1', project_id: 'proj_1', name: 'WS' }),
+      ),
+      http.get('/api/projects/:id/member-groups', () =>
+        HttpResponse.json([
+          {
+            id: 'mg_1',
+            project_id: 'proj_1',
+            name: 'Group One',
+            version: 1,
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        ]),
+      ),
+      http.get('/api/chatrooms/:id/member-groups', () =>
+        HttpResponse.json(
+          { type: 'https://smap.local/problems/internal', title: 'Internal', status: 500 },
+          { status: 500 },
+        ),
+      ),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1/settings',
+      queryClient: seededClient([room]),
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.group-picker').exists()).toBe(false)
+    expect(wrapper.text()).toContain('conversation.settings.boundGroupsLoadFailed')
+  })
 })

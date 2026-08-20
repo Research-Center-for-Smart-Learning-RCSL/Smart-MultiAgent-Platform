@@ -129,7 +129,19 @@ const boundQuery = useQuery({
 
 const availableGroups = computed(() => groupsQuery.data.value ?? [])
 const boundGroupIds = computed(() => boundQuery.data.value ?? [])
-const groupsLoading = computed(() => groupsQuery.isLoading.value || boundQuery.isLoading.value)
+
+/** SEC: the picker may only render once BOTH queries have actually answered.
+ *
+ *  `isLoading` is false on a *failed* query too, and `boundGroupIds` falls back
+ *  to `[]` when there is no data — so gating on `!isLoading` alone drew the
+ *  whole list with every box unchecked after a transient failure. `toggleGroup`
+ *  then builds its payload from that empty set and the endpoint *replaces*, so
+ *  one click silently deleted every real binding the room had, and the
+ *  write-back at the end of `toggleGroup` recorded the truncated set as
+ *  confirmed. A room access control must not be editable from a state that is
+ *  merely the absence of an answer. */
+const groupsReady = computed(() => groupsQuery.isSuccess.value && boundQuery.isSuccess.value)
+const groupsFailed = computed(() => groupsQuery.isError.value || boundQuery.isError.value)
 const savingGroups = ref(false)
 
 /** Bumped whenever a toggle fails, and keyed into each checkbox so the input is
@@ -152,8 +164,16 @@ const pickerNonce = ref(0)
  *  and the replace silently drops the group the first click just added. The
  *  server already returns the applied set, so it is written straight into the
  *  query cache and no refetch has to be raced. */
+function reloadGroups(): void {
+  void groupsQuery.refetch()
+  void boundQuery.refetch()
+}
+
 async function toggleGroup(groupId: string): Promise<void> {
-  if (savingGroups.value) return
+  // Belt to the template's braces: the picker is not rendered unless both
+  // queries answered, and a payload built from an unanswered set would replace
+  // the room's real bindings with it.
+  if (savingGroups.value || !groupsReady.value) return
   const current = boundGroupIds.value
   const next = current.includes(groupId)
     ? current.filter((id) => id !== groupId)
@@ -463,7 +483,21 @@ watchEffect(() => {
                 {{ t('conversation.settings.boundGroupsDesc') }}
               </p>
             </div>
-            <SLoadingSpinner v-if="groupsLoading" />
+            <SAlert
+              v-if="groupsFailed"
+              variant="danger"
+            >
+              {{ t('conversation.settings.boundGroupsLoadFailed') }}
+              <template #actions>
+                <button
+                  class="underline"
+                  @click="reloadGroups()"
+                >
+                  {{ t('conversation.settings.boundGroupsRetry') }}
+                </button>
+              </template>
+            </SAlert>
+            <SLoadingSpinner v-else-if="!groupsReady" />
             <SEmptyState
               v-else-if="!availableGroups.length"
               :icon="UserGroupIcon"
