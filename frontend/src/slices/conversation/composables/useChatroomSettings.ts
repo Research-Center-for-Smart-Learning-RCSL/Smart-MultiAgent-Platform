@@ -225,7 +225,15 @@ export function useChatroomSettings(chatroomId: string) {
    *  unambiguous ("scope this room to groups" / "open it to the project"), and
    *  making them clear the old tier first would surface a validation error for a
    *  state they never asked to be in. Sending both in one request also means the
-   *  room is never momentarily open to nobody. */
+   *  room is never momentarily open to nobody.
+   *
+   *  Turning the group tier *off* needs the same care, and for the same reason:
+   *  switching it on already cleared `allow_project_members`, so sending
+   *  `{allow_member_groups: false}` alone lands the room with no member tier at
+   *  all and silently locks every non-moderator out. It is restored only when
+   *  nothing else would still admit members — a room that is also org-wide or
+   *  owners-only is narrower on purpose, and widening it to the whole project
+   *  would be its own unasked-for change. */
   async function setFlag(key: AccessFlag, value: boolean): Promise<void> {
     if (value && key === 'allow_member_groups') {
       await patchFlag({ allow_member_groups: true, allow_project_members: false })
@@ -235,7 +243,20 @@ export function useChatroomSettings(chatroomId: string) {
       await patchFlag({ allow_project_members: true, allow_member_groups: false })
       return
     }
+    if (!value && key === 'allow_member_groups' && !hasOtherMemberTier()) {
+      await patchFlag({ allow_member_groups: false, allow_project_members: true })
+      return
+    }
     await patchFlag({ [key]: value })
+  }
+
+  /** Would anything still admit *members* if the group tier were switched off?
+   *
+   *  `allow_guest_links` deliberately does not count: a guest link admits people
+   *  who hold the link, not the project's members, so a room left on guests alone
+   *  is still closed to everyone it was built for. */
+  function hasOtherMemberTier(): boolean {
+    return flags.value.allow_org_members || flags.value.allow_project_owners_only
   }
 
   /** Creator-only patch of just `disclose_observers` (R28.09). Kept as its own

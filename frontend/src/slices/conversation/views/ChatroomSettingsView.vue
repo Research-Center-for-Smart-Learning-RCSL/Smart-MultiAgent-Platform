@@ -132,6 +132,17 @@ const boundGroupIds = computed(() => boundQuery.data.value ?? [])
 const groupsLoading = computed(() => groupsQuery.isLoading.value || boundQuery.isLoading.value)
 const savingGroups = ref(false)
 
+/** Bumped whenever a toggle fails, and keyed into each checkbox so the input is
+ *  re-created with the server's answer.
+ *
+ *  The checkbox is uncontrolled: the browser flips `el.checked` on click, and
+ *  `:checked` only re-applies when the rendered value changes. After a failed
+ *  save the confirmed set is by definition unchanged, so Vue patches nothing and
+ *  the box keeps the click while the toast says it failed — a room access
+ *  control showing a binding that does not exist. Changing the key forces the
+ *  re-render that the unchanged value cannot. */
+const pickerNonce = ref(0)
+
 /** Toggle one group in or out of the room's binding set.
  *
  *  Sends the whole resulting set, because the endpoint replaces rather than
@@ -153,9 +164,11 @@ async function toggleGroup(groupId: string): Promise<void> {
     qc.setQueryData(['conversation', 'chatroomMemberGroups', chatroomId], applied)
     toast.success(t('conversation.settings.boundGroupsSaved', { count: applied.length }))
   } catch {
-    // The cache still holds the last confirmed set, so the checkboxes stay on
-    // the server's answer rather than on the click that failed.
+    // Re-read the server's answer, then force the picker to re-render onto it:
+    // the refetched set is usually identical, and an identical value patches no
+    // DOM (see `pickerNonce`), leaving the box on the click that failed.
     await boundQuery.refetch()
+    pickerNonce.value += 1
     toast.error(t('conversation.settings.boundGroupsFailed'))
   } finally {
     savingGroups.value = false
@@ -462,7 +475,7 @@ watchEffect(() => {
             >
               <li
                 v-for="g in availableGroups"
-                :key="g.id"
+                :key="`${g.id}:${pickerNonce}`"
               >
                 <label>
                   <input

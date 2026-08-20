@@ -226,6 +226,59 @@ describe('useChatroomSettings.setFlag', () => {
     expect(wrapper.vm.flags.allow_org_members).toBe(true)
     expect(wrapper.vm.saveError).toBe(null)
   })
+
+  // R13.04's exclusive pair has to move together in BOTH directions. Switching
+  // the group tier on already cleared `allow_project_members`, so switching it
+  // off on its own leaves the room with no member tier at all — every
+  // non-moderator silently loses read and send on a room they were in.
+  async function setUpGroupTierOff(
+    room: Partial<Chatroom>,
+  ): Promise<Record<string, unknown> | null> {
+    let body: Record<string, unknown> | null = null
+    server.use(
+      http.get('/api/chatrooms/:id', () =>
+        HttpResponse.json(
+          makeChatroom({ allow_project_members: false, allow_member_groups: true, ...room }),
+        ),
+      ),
+      http.patch('/api/chatrooms/:id', async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json(makeChatroom({ ...room, version: 2 }))
+      }),
+    )
+    const wrapper = await renderView(Host, { props: { chatroomId: 'cr_1' } })
+    await wrapper.vm.loadRoom()
+    await wrapper.vm.setFlag('allow_member_groups', false)
+    await flushPromises()
+    return body
+  }
+
+  it('restores the project tier when the group tier is switched off', async () => {
+    expect(await setUpGroupTierOff({})).toEqual({
+      allow_member_groups: false,
+      allow_project_members: true,
+    })
+  })
+
+  it('does not widen a room that another tier still admits members to', async () => {
+    // Org-wide and owners-only rooms are narrower on purpose; opening them to
+    // the whole project would be its own change, and one nobody asked for.
+    expect(await setUpGroupTierOff({ allow_org_members: true })).toEqual({
+      allow_member_groups: false,
+    })
+    expect(await setUpGroupTierOff({ allow_project_owners_only: true })).toEqual({
+      allow_member_groups: false,
+    })
+  })
+
+  it('does not count a guest link as a member tier', async () => {
+    // A guest link admits whoever holds it, not the project's members, so a room
+    // left on guests alone is still closed to everyone it was built for.
+    expect(await setUpGroupTierOff({ allow_guest_links: true })).toEqual({
+      allow_member_groups: false,
+      allow_project_members: true,
+    })
+  })
 })
 
 describe('useChatroomSettings.loadRoom', () => {
