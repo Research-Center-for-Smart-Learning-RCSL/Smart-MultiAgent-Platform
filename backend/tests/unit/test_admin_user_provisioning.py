@@ -104,11 +104,13 @@ def _patched(
     )
 
 
-def _with_token_repos(service: AdminService) -> AdminService:
+def _with_token_repos(service: AdminService, *, identities: list[object] | None = None) -> AdminService:
     service._reset = AsyncMock()
     service._reset.issue.return_value = (_RESET_TOKEN, "reset-hash")
     service._verify = AsyncMock()
     service._verify.issue.return_value = (_VERIFY_TOKEN, "verify-hash")
+    service._identities = AsyncMock()
+    service._identities.list_for_user.return_value = identities or []
     return service
 
 
@@ -285,6 +287,49 @@ async def test_reissue_refuses_a_fully_activated_account() -> None:
     with p_audit, p_domain, p_rl, pytest.raises(AccountAlreadyActivatedError):
         await service.issue_activation_links(target_user_id=_TARGET, admin_user_id=_ADMIN, actor_ip=None)
     service._reset.issue.assert_not_awaited()
+
+
+async def test_reissue_refuses_a_live_google_only_account() -> None:
+    """The account shape a password-only guard reads as "not yet activated".
+
+    A Google-provisioned account is created `password_hash=None`,
+    `status=ACTIVE`, `email_verified=True` (`auth_service.py:529-535`), and R6.16
+    neutralises the password of an account Google links to. Testing only for a
+    password hash therefore hands an Admin a working set-password link for a
+    fully live account — a persistent takeover of a user who has never had a
+    password, bypassing the bounded, separately audited impersonation path.
+    """
+    users = AsyncMock()
+    users.get_by_id.return_value = _user(status=UserStatus.ACTIVE, email_verified=True, password_hash=None)
+    service = _with_token_repos(
+        _service(AsyncMock()),
+        identities=[SimpleNamespace(provider="google", provider_subject="sub-1")],
+    )
+    service._users = users
+
+    p_audit, p_domain, p_rl = _patched()
+    with p_audit, p_domain, p_rl, pytest.raises(AccountAlreadyActivatedError):
+        await service.issue_activation_links(target_user_id=_TARGET, admin_user_id=_ADMIN, actor_ip=None)
+    # It must also not have burned the target's outstanding reset token on the
+    # way to refusing.
+    service._reset.issue.assert_not_awaited()
+    service._verify.issue.assert_not_awaited()
+
+
+async def test_reissue_still_serves_a_provisioned_account_that_verified_first() -> None:
+    """The case the credential test must not sweep up: walking the verify link
+    before the set-password link promotes the account to ACTIVE and verified, but
+    it holds no credential at all and still needs the second link."""
+    users = AsyncMock()
+    users.get_by_id.return_value = _user(status=UserStatus.ACTIVE, email_verified=True, password_hash=None)
+    service = _with_token_repos(_service(AsyncMock()), identities=[])
+    service._users = users
+
+    p_audit, p_domain, p_rl = _patched()
+    with p_audit, p_domain, p_rl:
+        assert await service.issue_activation_links(
+            target_user_id=_TARGET, admin_user_id=_ADMIN, actor_ip=None
+        )
 
 
 def test_reissue_route_maps_an_activated_account_to_409_and_a_missing_one_to_404() -> None:

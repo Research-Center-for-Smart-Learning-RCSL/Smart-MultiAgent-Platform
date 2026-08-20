@@ -40,6 +40,7 @@ from contexts.identity.infrastructure.channels import user_channel
 from contexts.identity.infrastructure.email import recipient_digest
 from contexts.identity.infrastructure.repositories import (
     AdminRepository,
+    AuthIdentityRepository,
     EmailVerifyTokenRepository,
     PasswordResetTokenRepository,
     SessionRepository,
@@ -119,6 +120,7 @@ class AdminService:
         self._sessions = SessionRepository(db)
         self._verify = EmailVerifyTokenRepository(db)
         self._reset = PasswordResetTokenRepository(db)
+        self._identities = AuthIdentityRepository(db)
         self._public_origin = (public_origin or _default_public_origin()).rstrip("/")
 
     # ----- provisioning (R6.18) -------------------------------------------
@@ -194,16 +196,27 @@ class AdminService:
         Admin should not be racing that timer: they click this when they are
         actually with the person, rather than at provisioning time.
 
-        Refused once the account is fully activated (has a password *and* a
-        verified address). A set-password link for a live account is a persistent
-        takeover primitive, and "re-issue activation links" is not the place to
-        put one — an Admin who needs to act as a user has impersonation, which is
-        bounded and separately audited.
+        Refused once the account can already authenticate: a verified address
+        *and* at least one usable credential. A set-password link for a live
+        account is a persistent takeover primitive, and "re-issue activation
+        links" is not the place to put one — an Admin who needs to act as a user
+        has impersonation, which is bounded and separately audited.
+
+        "Usable credential" has to mean a password **or** a linked identity, not
+        just a password. A Google-provisioned account is created with
+        ``password_hash=None`` and ``email_verified=True`` (R6.15,
+        ``auth_service.login_with_oauth``), and R6.16 neutralises the password of
+        an account Google links to — so a password-only test reads every Google
+        user as "still needs activation" and hands out a set-password link for a
+        fully live account. This is the same notion ``LastCredentialError``
+        already encodes for unlinking.
         """
         user = await self._users.get_by_id(target_user_id)
         if user is None or user.deleted_at is not None:
             raise ValueError(f"user {target_user_id} not found")
-        if user.password_hash is not None and user.email_verified:
+        identities = await self._identities.list_for_user(target_user_id)
+        has_credential = user.password_hash is not None or bool(identities)
+        if user.email_verified and has_credential:
             raise AccountAlreadyActivatedError(
                 "account is already activated; use password reset or impersonation"
             )
