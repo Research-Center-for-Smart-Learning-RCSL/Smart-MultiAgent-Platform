@@ -135,36 +135,26 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 
 import { SFormField, SPageHeader, SSelect, STATUS_BG_MAP } from '@shared/ui'
 import { getApproval, getInstruction, listApprovalsForRun, listRuns, listSteps } from '../api'
 import { wfKeys } from '../queries'
 import type { ApprovalWithVotes } from '../types'
 import { fetchProjectAgents } from '../utils/projectAgents'
-import { useProjectRole } from '../composables/useProjectRole'
+import { useBackstageGuard } from '../composables/useBackstageGuard'
 import ApprovalCard from '../components/ApprovalCard.vue'
 import InstructChainView from '../components/InstructChainView.vue'
 import SubagentTree from '../components/SubagentTree.vue'
 
 const route = useRoute()
-const router = useRouter()
 const workflowId = route.params.workflowId as string
 const workspaceId = route.params.workspaceId as string
 const selectedRunId = ref('')
 const agentNames = ref<Record<string, string>>({})
 
-// Authorization: platform admin OR project owner. Resolved per-project since
-// the route guard only knows the global admin flag; deny once decided.
-const { isAuthorized, decided } = useProjectRole(workspaceId)
-
-watch(
-  [decided, isAuthorized],
-  ([isDecided, ok]) => {
-    if (isDecided && !ok) router.replace({ name: 'root' })
-  },
-  { immediate: true },
-)
+// Authorization: platform admin OR project owner, redirecting once decided.
+const { isAuthorized } = useBackstageGuard(workspaceId)
 
 // All backstage reads are gated on authorization so an unauthorized visitor
 // (redirected by the watch above) never fires backend calls that just 403.

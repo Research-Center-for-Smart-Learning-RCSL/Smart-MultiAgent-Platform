@@ -317,7 +317,7 @@ import type { NodeChange, EdgeChange, NodeComponent, NodeTypesObject } from '@vu
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
-import { markRaw, ref } from 'vue'
+import { markRaw, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 
 import { useConfirmDialog, useToast } from '@shared/composables'
@@ -336,6 +336,7 @@ import { useWorkflowStore } from '../stores/workflow'
 import { NODE_TYPE_LABELS, NODE_PALETTE_GROUPS, UNAVAILABLE_NODE_TYPES } from '../constants'
 import NodeConfigPanel from '../components/NodeConfigPanel.vue'
 import WorkflowNodeComponent from '../components/WorkflowNodeComponent.vue'
+import { useBackstageGuard } from '../composables/useBackstageGuard'
 import { useWorkflowEditor } from '../composables/useWorkflowEditor'
 import { useWorkflowLint } from '../composables/useWorkflowLint'
 import { fetchProjectAgents } from '../utils/projectAgents'
@@ -361,6 +362,10 @@ const workspaceId = ref((route.params.workspaceId as string) || '')
 const workflow = ref<Workflow | null>(null)
 const loadError = ref<string | null>(null)
 const conflictDetected = ref(false)
+
+// Both halves of this view are owner-only now: saving always needed CHAT_CREATE,
+// and since [R14.10] the workflow read and the linter's validate call do too.
+const { isAuthorized, decided } = useBackstageGuard(workspaceId.value)
 
 // Data for config forms (agents + chatrooms in the project)
 const agents = ref<ProjectAgent[]>([])
@@ -475,9 +480,21 @@ async function loadContextData(): Promise<void> {
   }
 }
 
-void loadWorkflow().then(() => {
-  if (workspaceId.value) void loadContextData()
-})
+// Held until the per-project verdict lands. Loading first would paint a load
+// error at a visitor the guard is already redirecting away, which reads as a
+// broken editor rather than as "not yours".
+let initialLoadStarted = false
+watch(
+  [decided, isAuthorized],
+  ([isDecided, ok]) => {
+    if (!isDecided || !ok || initialLoadStarted) return
+    initialLoadStarted = true
+    void loadWorkflow().then(() => {
+      if (workspaceId.value) void loadContextData()
+    })
+  },
+  { immediate: true },
+)
 
 // Discard local edits and reload after a version conflict (mirrors the agent
 // editor): the only safe recovery is to take the latest server version.

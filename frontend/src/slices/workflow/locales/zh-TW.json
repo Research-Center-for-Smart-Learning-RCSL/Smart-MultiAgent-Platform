@@ -88,7 +88,9 @@
       "state": "狀態",
       "error": "錯誤",
       "noSteps": "尚無步驟紀錄。",
-      "cancelFailed": "取消執行失敗。"
+      "cancelFailed": "取消執行失敗。",
+      "forbiddenTitle": "無法檢視",
+      "forbiddenText": "工作流程執行紀錄僅限平台管理員及專案擁有者檢視。"
     },
     "backstage": {
       "title": "後台面板",

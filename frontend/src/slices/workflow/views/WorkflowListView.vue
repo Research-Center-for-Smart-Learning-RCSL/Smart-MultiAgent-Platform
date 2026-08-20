@@ -117,6 +117,7 @@ import { formatDate } from '@shared/utils/datetime'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '../api'
 import type { Workflow } from '../types'
 import { wfKeys } from '../queries'
+import { useBackstageGuard } from '../composables/useBackstageGuard'
 
 // STable's row generic does not infer through script-setup usage — pin the row
 // type explicitly so #cell-* slot props are typed (same workaround as
@@ -135,6 +136,10 @@ const qc = useQueryClient()
 const workspaceId = route.params.workspaceId as string
 const newName = ref('')
 
+// Listing workflows is a backstage read ([R14.10]); creating one has always
+// needed CHAT_CREATE, which is the same audience.
+const { isAuthorized } = useBackstageGuard(workspaceId)
+
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('workflow.list.name'), cellType: 'text' },
   { key: 'version', label: t('workflow.list.version'), cellType: 'badge' },
@@ -144,6 +149,7 @@ const columns = computed<Column[]>(() => [
 const query = useQuery({
   queryKey: wfKeys.workflows(workspaceId),
   queryFn: () => listWorkflows(workspaceId),
+  enabled: computed(() => isAuthorized.value),
 })
 const staggerClass = useListStagger(query.isLoading)
 

@@ -90,7 +90,9 @@
       "state": "State",
       "error": "Error",
       "noSteps": "No steps recorded.",
-      "cancelFailed": "Failed to cancel run."
+      "cancelFailed": "Failed to cancel run.",
+      "forbiddenTitle": "Not available to you",
+      "forbiddenText": "Workflow runs are visible to platform admins and project owners only."
     },
     "backstage": {
       "title": "Backstage Panel",
