@@ -51,6 +51,26 @@ first, but building them serially avoids the conflict.
 
 ### Other ready work
 
+- `2026-08-20-member-groups-and-room-visibility-isolation` (feature, approved) - `depends_on: []`.
+  Two staged deliverables in one dossier. **Stage 1 is a confidentiality fix and can ship on its
+  own**: `list_chatrooms` (`chatrooms.py:242-269`) is the one read surface that does not go
+  through `_satisfies_room_flags`, so any Org Member can enumerate the name, access flags and
+  observer status of every room in every project of that Org, and `list_visible_for_user`
+  (`project_service.py:111-122`) lists every project of every org the caller belongs to
+  regardless of project membership. Stage 2 adds an optional per-project Member Group layer
+  plus a fifth room flag `allow_member_groups`, evaluated as a tier inside
+  `_satisfies_room_flags` rather than as a seventh Role. It **applied an SRS Delta** at
+  approval, adding [R5.06], rewriting §13.2 and [R13.04] (five flags, plus a server-refused
+  mutual exclusion), and adding §13.2a [R13.28]-[R13.32]. Migration 0079. **Two things a
+  builder needs before starting.** Its Q-7 records a file overlap with the still-draft
+  `2026-08-19-content-area-spacing-and-scroll-contract`, which rewrites
+  `ChatroomSettingsView.vue:227`'s template root while this dossier edits the access-flag
+  block at `:320-395`: deliberately **not** a `depends_on`, so whoever builds second rebases.
+  And its §12 carries a verification constraint rather than a preference: the last seven
+  dossiers in this area closed with no `db`/`integration` run and no browser pass, and this
+  one's central claim is a confidentiality claim, so AC-1, AC-4, AC-9 and AC-12 must be
+  executed against a real stack or left unticked.
+
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
