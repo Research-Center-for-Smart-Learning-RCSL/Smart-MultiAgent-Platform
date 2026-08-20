@@ -129,10 +129,7 @@ async def test_hitting_the_ceiling_warns_and_names_what_was_dropped() -> None:
     with (
         patch.object(facade_mod, "ChatroomRepository", return_value=repo),
         patch.object(facade_mod, "logger", MagicMock(bind=MagicMock(return_value=bound_logger))),
-        patch(
-            "contexts.conversation.application.access.visible_room_ids",
-            AsyncMock(return_value=set()),
-        ),
+        patch.object(facade_mod, "visible_room_ids", AsyncMock(return_value=set())),
     ):
         await facade_mod.ConversationFacade(AsyncMock()).visible_rooms_in_workspace(
             principal=SimpleNamespace(user_id=uuid.uuid4(), is_admin=False, email_verified=True),

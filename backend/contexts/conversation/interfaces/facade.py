@@ -15,6 +15,7 @@ import sqlalchemy as sa
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.conversation.application.access import visible_room_ids
 from contexts.conversation.domain.models import (
     ActivityControlGrant,
     AttachmentExtractionStatus,
@@ -161,10 +162,6 @@ class ConversationFacade:
         principal: Principal,
         candidates: Sequence[tuple[uuid.UUID, Chatroom]],
     ) -> set[uuid.UUID]:
-        # Lazy import: `application.access` imports the tenancy interfaces, which
-        # would close a cycle through this module at import time.
-        from contexts.conversation.application.access import visible_room_ids
-
         return await visible_room_ids(self._db, principal=principal, rooms=candidates)
 
     async def get_chatroom(

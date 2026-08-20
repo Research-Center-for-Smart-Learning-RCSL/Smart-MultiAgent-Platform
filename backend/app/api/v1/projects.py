@@ -15,11 +15,11 @@ from app.api.v1.deps import PaginationParams
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.tenancy.application.invite_service import InviteService
 from contexts.tenancy.application.project_service import (
+    Project,
     ProjectMemberRole,
     ProjectOwnerType,
     ProjectService,
 )
-from contexts.tenancy.domain.models import Project
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
