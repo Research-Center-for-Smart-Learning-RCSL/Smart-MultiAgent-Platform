@@ -17,6 +17,7 @@ tenancy role resolver (no cross-context FK joins) and the room's own flags.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -145,6 +146,67 @@ def _satisfies_room_flags(access: RoomAccess) -> bool:
     return bool(room.allow_guest_links and access.is_guest)
 
 
+async def visible_room_ids(
+    db: AsyncSession,
+    *,
+    principal: Principal,
+    rooms: Sequence[tuple[uuid.UUID, Chatroom]],
+) -> set[uuid.UUID]:
+    """Which of these `(project_id, room)` pairs may `principal` read? (R13.32)
+
+    The batch form of `ensure_can_read`, for the three listing endpoints. It
+    resolves the same inputs `resolve_room_access` resolves — roles per project,
+    guest membership per room — but once per distinct project and once for the
+    whole room set, then runs each room through `_satisfies_room_flags`.
+
+    SEC: it deliberately calls that same private predicate rather than restating
+    the tier logic, because enumeration and access must agree by construction.
+    A second copy — in Python or in SQL — is how a room becomes listable but
+    unopenable, or worse, the reverse. `tests/unit/test_visible_room_ids.py`
+    pins the agreement over the full flag/role matrix.
+
+    Rooms are not deduplicated and the caller's order is not preserved: the
+    return value is a membership set, and callers filter their own ordered list
+    through it.
+    """
+    if principal.is_admin:
+        return {room.id for _, room in rooms}
+    if not rooms:
+        return set()
+
+    # Resolved once per project, not once per room. The role resolver answers a
+    # project/org question and ignores `Scope.chatroom_id` by design — its
+    # `is_chatroom_participant` refuses outright and points callers here for the
+    # room ACL (`tenancy/interfaces/role_resolver.py:74-86`). So the scope passed
+    # here omits the room rather than passing one room's id and reusing the answer
+    # for its siblings, which would read as a per-room result that it is not.
+    resolver = TenancyRoleResolver(db)
+    roles_by_project: dict[uuid.UUID, frozenset[Role]] = {}
+    for project_id, _room in rooms:
+        if project_id not in roles_by_project:
+            roles_by_project[project_id] = await resolver.roles_for(
+                principal,
+                Scope(project_id=project_id),
+            )
+
+    guest_ids = await ChatroomGuestRepository(db).guest_room_ids(
+        user_id=principal.user_id,
+        chatroom_ids=[room.id for _, room in rooms],
+    )
+
+    visible: set[uuid.UUID] = set()
+    for project_id, room in rooms:
+        access = RoomAccess(
+            chatroom=room,
+            project_id=project_id,
+            roles=roles_by_project[project_id],
+            is_guest=room.id in guest_ids,
+        )
+        if _satisfies_room_flags(access):
+            visible.add(room.id)
+    return visible
+
+
 def ensure_can_read(access: RoomAccess, *, is_admin: bool) -> None:
     """Read gate (R13.04 + §21.1).
 
@@ -239,4 +301,5 @@ __all__ = [
     "is_moderator_roles",
     "is_room_creator",
     "resolve_room_access",
+    "visible_room_ids",
 ]
