@@ -24934,7 +24934,7 @@
     },
     "/api/projects/{project_id}/invitable-members": {
       "get": {
-        "description": "Parent-Org members this project may still invite (R6.10, Q-6).\n\nA user-owned project has no parent Org, so the pool is empty; that is a 200\nwith `[]`, never a 404 \u2014 an empty pool is a state, not a missing resource.",
+        "description": "Parent-Org members this project may still invite (R6.10, Q-6).\n\nEmpty for a project with no parent Org, and empty for a caller who is not a\nmember of that Org \u2014 both are a 200 with `[]`, never a 404: an absent pool is\na state, not a missing resource, and the second case must not be\ndistinguishable from the first.",
         "operationId": "list_invitable_members_api_projects__project_id__invitable_members_get",
         "parameters": [
           {

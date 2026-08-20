@@ -278,7 +278,13 @@ def test_invitable_members_returns_the_pool_to_a_project_owner() -> None:
 
     assert response.status_code == 200
     assert [row["email"] for row in response.json()] == ["a@example.com", "b@example.com"]
-    facade.invitable_project_members.assert_awaited_once_with(_PROJECT)
+    kwargs = facade.invitable_project_members.await_args.kwargs
+    assert facade.invitable_project_members.await_args.args == (_PROJECT,)
+    # The caller's identity reaches the query: the pool is scoped to what this
+    # caller could already read, not merely to the project they may manage.
+    assert kwargs["caller_user_id"] == _INVITER
+    assert kwargs["caller_is_admin"] is False
+    assert (kwargs["limit"], kwargs["offset"]) == (100, 0)
 
 
 def test_invitable_members_is_200_and_empty_for_a_project_with_no_parent_org() -> None:
@@ -312,10 +318,9 @@ async def test_invitable_pool_query_excludes_members_and_live_pending_invites() 
     db.execute = AsyncMock(return_value=MagicMock(all=MagicMock(return_value=[])))
     svc = InviteService(db, email_sender=AsyncMock(), public_origin=_ORIGIN)
 
-    assert await svc.invitable_org_members(_PROJECT) == []
+    assert await svc.invitable_org_members(_PROJECT, caller_user_id=_INVITER) == []
 
-    stmt = db.execute.await_args.args[0]
-    sql = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+    sql = _compiled(db)
     assert "org_members" in sql
     assert "projects.owner_org_id = org_members.org_id" in sql
     assert sql.count("NOT (EXISTS") == 2
@@ -325,6 +330,50 @@ async def test_invitable_pool_query_excludes_members_and_live_pending_invites() 
     assert "lower(invites.invitee_email) = lower(users.email)" in sql
     # `literal_binds` renders a UUID without its dashes.
     assert f"projects.id = '{_PROJECT.hex}'" in sql
+
+
+def _compiled(db: AsyncMock) -> str:
+    return str(db.execute.await_args.args[0].compile(compile_kwargs={"literal_binds": True}))
+
+
+async def test_invitable_pool_is_scoped_to_what_the_caller_could_already_read() -> None:
+    """Capability #14 on the project does not imply membership of the parent Org:
+    a user invited straight into an org-owned project as its Owner holds #14 and
+    appears in no `org_members` row. Without this predicate the picker would hand
+    them the Org's whole member list — a disclosure the dossier promised not to
+    introduce (§8, Q-6)."""
+    db = AsyncMock()
+    db.execute = AsyncMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+    svc = InviteService(db, email_sender=AsyncMock(), public_origin=_ORIGIN)
+
+    await svc.invitable_org_members(_PROJECT, caller_user_id=_INVITER)
+    sql = _compiled(db)
+    assert "caller_om.org_id = projects.owner_org_id" in sql
+    assert f"caller_om.user_id = '{_INVITER.hex}'" in sql
+
+
+async def test_an_admin_reads_the_pool_without_the_membership_predicate() -> None:
+    """R5.01 — Admin wins over the role matrix, so the same exemption applies here
+    rather than forcing an Admin to join every Org to see a picker."""
+    db = AsyncMock()
+    db.execute = AsyncMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+    svc = InviteService(db, email_sender=AsyncMock(), public_origin=_ORIGIN)
+
+    await svc.invitable_org_members(_PROJECT, caller_user_id=_INVITER, caller_is_admin=True)
+    assert "caller_om" not in _compiled(db)
+
+
+async def test_invitable_pool_is_bounded_in_sql() -> None:
+    """An Org's member count is unbounded; slicing after the fetch would still
+    load every row on each open of the invite form."""
+    db = AsyncMock()
+    db.execute = AsyncMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+    svc = InviteService(db, email_sender=AsyncMock(), public_origin=_ORIGIN)
+
+    await svc.invitable_org_members(_PROJECT, caller_user_id=_INVITER, limit=25, offset=50)
+    sql = _compiled(db)
+    assert "LIMIT 25" in sql
+    assert "OFFSET 50" in sql
 
 
 async def test_invitable_pool_maps_rows_to_user_id_and_email() -> None:
@@ -337,7 +386,9 @@ async def test_invitable_pool_maps_rows_to_user_id_and_email() -> None:
     )
     svc = InviteService(db, email_sender=AsyncMock(), public_origin=_ORIGIN)
 
-    assert await svc.invitable_org_members(_PROJECT) == [InvitableMember(user_id=uid, email="a@example.com")]
+    assert await svc.invitable_org_members(_PROJECT, caller_user_id=_INVITER) == [
+        InvitableMember(user_id=uid, email="a@example.com")
+    ]
 
 
 # ---------------------------------------------------------------------------

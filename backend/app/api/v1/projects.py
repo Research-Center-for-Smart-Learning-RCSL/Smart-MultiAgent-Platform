@@ -419,6 +419,7 @@ async def patch_project_member(
 async def list_invitable_members(
     project_id: uuid.UUID = Path(...),
     pagination: PaginationParams = Depends(),
+    principal: Principal = Depends(current_principal),
     _=Depends(
         require(
             Capability.PROJECT_MEMBER_MANAGE,
@@ -429,12 +430,19 @@ async def list_invitable_members(
 ) -> list[InvitableMemberOut]:
     """Parent-Org members this project may still invite (R6.10, Q-6).
 
-    A user-owned project has no parent Org, so the pool is empty; that is a 200
-    with `[]`, never a 404 — an empty pool is a state, not a missing resource.
+    Empty for a project with no parent Org, and empty for a caller who is not a
+    member of that Org — both are a 200 with `[]`, never a 404: an absent pool is
+    a state, not a missing resource, and the second case must not be
+    distinguishable from the first.
     """
-    pool = await TenancyFacade(db).invitable_project_members(project_id)
-    page = pool[pagination.offset : pagination.offset + pagination.limit]
-    return [InvitableMemberOut(user_id=m.user_id, email=m.email) for m in page]
+    pool = await TenancyFacade(db).invitable_project_members(
+        project_id,
+        caller_user_id=principal.user_id,
+        caller_is_admin=principal.is_admin,
+        limit=pagination.limit,
+        offset=pagination.offset,
+    )
+    return [InvitableMemberOut(user_id=m.user_id, email=m.email) for m in pool]
 
 
 @router.post("/{project_id}/invites", status_code=status.HTTP_201_CREATED)
