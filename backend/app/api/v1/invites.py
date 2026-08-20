@@ -96,7 +96,7 @@ async def accept(
     if not principal.email_verified:
         from shared_kernel.auth.dependencies import _raise_forbidden
 
-        _raise_forbidden("email verification required (R6.11)")
+        _raise_forbidden("email verification required (R6.02)")
     profile = await _resolve_profile(db, principal.user_id)
     service = InviteService(db)
     updated = await service.accept(
@@ -123,13 +123,13 @@ async def accept_by_token(
     """Redeem an invite from its emailed token link (R6.09).
 
     The token authorises acceptance (it proves the holder received the invite
-    mail), so no email match is required — but the caller must still be logged
-    in AND email-verified (R6.11), same as the by-id accept path.
+    link), so no email match is required — but the caller must still be logged
+    in AND email-verified (R6.02), same as the by-id accept path.
     """
     if not principal.email_verified:
         from shared_kernel.auth.dependencies import _raise_forbidden
 
-        _raise_forbidden("email verification required (R6.11)")
+        _raise_forbidden("email verification required (R6.02)")
     service = InviteService(db)
     updated = await service.accept_by_token(
         token=body.token,
