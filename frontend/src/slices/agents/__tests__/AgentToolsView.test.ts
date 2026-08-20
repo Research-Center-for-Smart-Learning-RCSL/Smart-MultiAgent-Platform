@@ -208,7 +208,9 @@ describe('AgentToolsView — JSON field syntax highlighting (AC-1/AC-2/AC-3/AC-5
             title: 'Validation Error',
             status: 422,
             detail: 'Invalid tool config',
-            field_errors: [{ path: 'config.allowed_tools', message: 'Unknown tool name.' }],
+            field_errors: [
+              { location: 'body', path: 'config.allowed_tools', message: 'Unknown tool name.' },
+            ],
           },
           { status: 422, headers: { 'content-type': 'application/problem+json' } },
         ),

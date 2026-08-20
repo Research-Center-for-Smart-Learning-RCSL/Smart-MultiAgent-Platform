@@ -74,23 +74,31 @@ def _normalise_validation_errors(errors: Sequence[Any]) -> list[dict[str, str]]:
             continue
         if error.get("type") == "json_invalid":
             continue
-        path = _validation_path(error.get("loc"))
+        located = _validation_path(error.get("loc"))
         message = error.get("msg")
-        if path is None or not isinstance(message, str) or not message:
+        if located is None or not isinstance(message, str) or not message:
             continue
-        field_errors.append({"path": path, "message": message})
+        location, path = located
+        field_errors.append({"location": location, "path": path, "message": message})
     return field_errors
 
 
-def _validation_path(raw_location: object) -> str | None:
+def _validation_path(raw_location: object) -> tuple[str, str] | None:
+    """Split pydantic's `loc` into the request part and a path relative to it.
+
+    Only `loc` values headed by a request part FastAPI produces are published;
+    anything else is dropped rather than guessed at, since a consumer mapping
+    these onto form fields has to know which part of the request they came from.
+    """
     if not isinstance(raw_location, (list, tuple)):
         return None
-    location = list(raw_location)
-    if location and location[0] in _REQUEST_LOCATION_PREFIXES:
-        location.pop(0)
+    segments = list(raw_location)
+    if not segments or segments[0] not in _REQUEST_LOCATION_PREFIXES:
+        return None
+    location = str(segments.pop(0))
 
     path = ""
-    for segment in location:
+    for segment in segments:
         if isinstance(segment, bool):
             return None
         if isinstance(segment, int):
@@ -99,7 +107,9 @@ def _validation_path(raw_location: object) -> str | None:
             path += f".{segment}" if path else segment
         else:
             return None
-    return path or None
+    if not path:
+        return None
+    return location, path
 
 
 async def _http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:

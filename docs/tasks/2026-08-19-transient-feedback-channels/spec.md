@@ -345,11 +345,15 @@ behaviour must be removed, and its assertion extended to cover the 422 path.
 
 ## 11. SRS Delta
 
-Amend R24.25's location wording while preserving its intended item shape:
+Amend R24.25's location wording while preserving its intended item shape. Review then widened
+the item to carry its request part (D-12), so the shipped text is:
 
 > - **[R24.25]** Backend RFC 7807 errors with a top-level extension member
->   `field_errors: [{path, message}]` are piped to vee-validate's `setErrors()` so server-side
->   validation appears as inline or form-level errors without ad-hoc plumbing.
+>   `field_errors: [{location, path, message}]` are piped to vee-validate's `setErrors()` so
+>   server-side validation appears as inline or form-level errors without ad-hoc plumbing.
+>   `location` names the request part the failure came from (`body`, `query`, `path`, `header`,
+>   `cookie`) and `path` is relative to it; only `body` entries are attached to form fields,
+>   since a path or query failure can share a name with an input the user cannot correct.
 
 Also correct the two matching `detail.field_errors` references in
 `docs/UI/12-shared-patterns.md` to “top-level `field_errors` extension member” as contract
@@ -396,14 +400,41 @@ documentation, not a new requirement.
   was still translated about 25px upward by vue-sonner's mount animation. T-1 now polls the
   actual toast box until the complete rectangle is inside the viewport.
 
+- **D-11 (review) — four i18n keys were left orphaned by the ownership sweep.** Moving admin
+  promote/demote/reset/restore feedback onto the mutations retired
+  `admin.users.promotionFailed`, `admin.users.demotionFailed`, `admin.ops.resetFailed` and
+  `admin.ops.restoreFailed` without deleting them. No gate catches an unreferenced key, so they
+  were removed from both locales by hand. `admin.actionErrors.restoreFailed` is a distinct key
+  and is still live.
+- **D-12 (review) — the field-error item now carries its request part.** Stripping the
+  `body`/`query`/`path`/`header`/`cookie` prefix made a path parameter and a body field of the
+  same name indistinguishable, so a client mapping errors onto a form could blame an input the
+  user cannot correct. `ValidationFieldError` gained a required `location`, `path` stayed
+  relative to it, and `useServerErrors` attaches `body` entries only — a validation error naming
+  no body field now falls through to the caller's domain message. A `loc` with no recognised
+  request part is dropped rather than guessed at; FastAPI is the only producer and always emits
+  one. This closes FU-2 as a side effect: the item type is declared once in
+  `shared/errors/index.ts` and imported by `problem-json.ts`.
+- **D-13 (review) — the superseded 422 schemas are dropped only once nothing points at them.**
+  The postprocessor popped `HTTPValidationError` and `ValidationError` unconditionally whenever
+  any replacement happened. That is safe for the current spec (nothing else references them),
+  but an explicit 422 that survives the replacement — the case D-1's negative test already
+  covers — would have been left pointing at a deleted schema. The pop is now guarded by a
+  reference walk over the finished document, with a test for the surviving-reference case.
+- **D-14 (review, no change) — the 403 detail stays out of the toast.** Review initially
+  proposed carrying the server's `detail` as the toast description, since the localized line
+  cannot say which rule refused. `errorHandler.test.ts` shows that was deliberate: the message
+  is treated as attacker-influenced and the test asserts it never reaches the toast. The
+  localized-only behaviour is correct and was left alone.
+
 ## 13. Follow-ups
 
 - **FU-1**: the e2e suite asserts toast text with `toBeVisible()`, which cannot distinguish a
   positioned overlay from an in-flow block anywhere in the document. T-1 fixes one spec; a
   shared helper asserting toast geometry should replace the pattern across the suite. Route to
   `check-quality`.
-- **FU-2**: `frontend/src/shared/transport/problem-json.ts:16` duplicates the active `field_errors`
-  type declaration that `shared/errors/index.ts:47-53` also carries. One of them should own it.
+- ~~**FU-2**~~: closed by D-12 — the `field_errors` item type is now declared once, in
+  `shared/errors/index.ts`.
 - **FU-3**: the audit found no dependency-upgrade check that would catch a package moving from
   runtime style injection to a separate CSS export. Worth a note in
   `docs/dependency-holds.md` or the release checklist.
