@@ -31,6 +31,7 @@ from contexts.conversation.domain.errors import (
 from contexts.conversation.domain.models import Chatroom, ExportSenderScope
 from contexts.conversation.infrastructure.repositories import (
     ChatroomGuestRepository,
+    ChatroomMemberGroupRepository,
     ChatroomRepository,
     WorkspaceRepository,
 )
@@ -63,10 +64,15 @@ class RoomAccess:
     project_id: uuid.UUID
     roles: frozenset[Role]
     is_guest: bool
+    # §13.2a. Carried the way `is_guest` is, and for the same reason: membership of
+    # a Member Group bound to this room is a per-resource grant, not a role, so it
+    # has no place in `roles` and no cell in the §5.2 matrix (R5.06, R13.30).
+    # Defaulted so every existing construction site keeps meaning what it meant.
+    in_bound_group: bool = False
 
     @property
     def can_read(self) -> bool:
-        return bool(self.roles) or self.is_guest
+        return bool(self.roles) or self.is_guest or self.in_bound_group
 
     @property
     def is_moderator(self) -> bool:
@@ -114,23 +120,63 @@ async def resolve_room_access(
         project_id=project.id,
         roles=roles,
         is_guest=is_guest,
+        in_bound_group=await _in_bound_group(db, principal=principal, chatroom=chatroom),
     )
+
+
+async def _in_bound_group(
+    db: AsyncSession,
+    *,
+    principal: Principal,
+    chatroom: Chatroom,
+) -> bool:
+    """Is the caller in any Member Group bound to this room? (§13.2a)
+
+    Resolved here, per request, rather than cached on `RoomAccess` construction
+    elsewhere — the chatroom WebSocket re-runs `resolve_room_access` on its
+    mid-socket re-auth (`app/api/ws/chatroom.py`), so removing someone from a
+    group drops their live socket at the next window rather than at their next
+    reconnect. Anything that memoises this across a socket's lifetime silently
+    breaks revocation.
+
+    Short-circuits when the room does not have the tier on: an unbound or
+    tier-off room asks tenancy nothing.
+
+    Deleted groups: the bindings are not filtered, the caller's group ids are
+    (`MemberGroupRepository.group_ids_for_user` reads live rows only), so a
+    binding to a soft-deleted group can never intersect and grants nothing —
+    R13.29, enforced by the shape of the intersection rather than by a check that
+    could be forgotten.
+    """
+    if not chatroom.allow_member_groups:
+        return False
+    bound = await ChatroomMemberGroupRepository(db).list_for_room(chatroom.id)
+    if not bound:
+        return False
+    mine = await TenancyFacade(db).member_group_ids_for_user(principal.user_id)
+    return bool(bound & mine)
 
 
 def _satisfies_room_flags(access: RoomAccess) -> bool:
     """Does the caller satisfy at least one enabled §21.1 access tier?
 
     The single authoritative room-membership matrix, shared by read and send so
-    the four privacy flags gate *confidentiality*, not just sending:
+    the privacy flags gate *confidentiality*, not just sending:
 
       - allow_project_owners_only — ONLY project/org owners (exclusive: when set,
         no other flag widens access).
       - allow_project_members     — project owners + project members.
+      - allow_member_groups       — members of a Member Group bound to this room.
       - allow_org_members         — org owners + org members.
       - allow_guest_links         — users on chatroom_guests.
 
     Moderators (project/org owner, explicit or org-inherited per R5.03) sit in
     the most permissive tier and clear every subset.
+
+    SEC: the member-group tier sits *inside* the `allow_project_owners_only`
+    early return. Outside it, an owners-only room carrying a stale binding would
+    become group-readable — the exclusivity of that flag is the one property no
+    other tier may widen.
     """
     room = access.chatroom
     if access.is_moderator:
@@ -140,6 +186,8 @@ def _satisfies_room_flags(access: RoomAccess) -> bool:
     if room.allow_project_members and (
         Role.PROJECT_MEMBER in access.roles or Role.PROJECT_OWNER in access.roles
     ):
+        return True
+    if room.allow_member_groups and access.in_bound_group:
         return True
     if room.allow_org_members and (Role.ORG_MEMBER in access.roles or Role.ORG_OWNER in access.roles):
         return True
@@ -194,6 +242,17 @@ async def visible_room_ids(
         chatroom_ids=[room.id for _, room in rooms],
     )
 
+    # §13.2a, batched: the caller's live group ids once, the bindings of the rooms
+    # that actually have the tier on once. A room whose tier is off is not asked
+    # about, so a project using no groups pays nothing for the feature existing.
+    grouped_room_ids = [room.id for _, room in rooms if room.allow_member_groups]
+    bindings: dict[uuid.UUID, set[uuid.UUID]] = {}
+    my_group_ids: set[uuid.UUID] = set()
+    if grouped_room_ids:
+        bindings = await ChatroomMemberGroupRepository(db).bound_group_ids(grouped_room_ids)
+        if bindings:
+            my_group_ids = await TenancyFacade(db).member_group_ids_for_user(principal.user_id)
+
     visible: set[uuid.UUID] = set()
     for project_id, room in rooms:
         access = RoomAccess(
@@ -201,6 +260,7 @@ async def visible_room_ids(
             project_id=project_id,
             roles=roles_by_project[project_id],
             is_guest=room.id in guest_ids,
+            in_bound_group=bool(bindings.get(room.id, frozenset()) & my_group_ids),
         )
         if _satisfies_room_flags(access):
             visible.add(room.id)

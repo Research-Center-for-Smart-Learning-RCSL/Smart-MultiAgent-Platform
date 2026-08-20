@@ -92,6 +92,9 @@ def _build_registry() -> list[RouterEntry]:
         mcp as mcp_routes,
     )
     from app.api.v1 import (
+        member_groups as member_group_routes,
+    )
+    from app.api.v1 import (
         messages as message_routes,
     )
     from app.api.v1 import (
@@ -217,6 +220,9 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(knowmap_routes.admin_router),
         # MCP egress allowlist
         RouterEntry(mcp_routes.project_router),
+        # Member groups (§13.2a) — tenancy-owned, but read by the room ACL
+        RouterEntry(member_group_routes.project_router),
+        RouterEntry(member_group_routes.group_router),
         # Conversation
         RouterEntry(workspace_routes.project_router),
         RouterEntry(workspace_routes.workspace_router),

@@ -12,6 +12,7 @@ from contexts.conversation.infrastructure.repositories.attachment_repo import (
 from contexts.conversation.infrastructure.repositories.chatroom_repo import (
     ChatroomAgentRepository,
     ChatroomGuestRepository,
+    ChatroomMemberGroupRepository,
     ChatroomRepository,
     _new_guest_token,
 )
@@ -29,6 +30,7 @@ from contexts.conversation.infrastructure.repositories.workspace_repo import (
 __all__ = [
     "ChatroomAgentRepository",
     "ChatroomGuestRepository",
+    "ChatroomMemberGroupRepository",
     "ChatroomRepository",
     "MessageAttachmentRepository",
     "MessageEditRepository",

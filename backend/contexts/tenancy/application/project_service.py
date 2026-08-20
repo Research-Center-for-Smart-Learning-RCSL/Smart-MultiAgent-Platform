@@ -31,6 +31,7 @@ from contexts.tenancy.domain.models import (
     ProjectOwnerType as ProjectOwnerType,
 )
 from contexts.tenancy.infrastructure.repositories import (
+    MemberGroupRepository,
     OrgMemberRepository,
     OrgRepository,
     ProjectMemberRepository,
@@ -329,6 +330,14 @@ class ProjectService:
         if member is None:
             raise MemberNotFound(f"{target_user_id} in project {project_id}")
         await self._members.remove(project_id=project_id, user_id=target_user_id)
+        # R13.28: group membership does not outlive project membership. Without
+        # this, an ex-member keeps reading every room bound to a group they were
+        # in — the room ACL asks only "is this user in a bound group", and the
+        # group row would still say yes.
+        dropped_groups = await MemberGroupRepository(self._db).remove_user_from_project_groups(
+            user_id=target_user_id,
+            project_id=project_id,
+        )
         # R7.04 (security): revoke the keys this user had carried INTO the project
         # so the project can no longer consume the ex-member's provider keys. The
         # KeysFacade was built for exactly this fan-out but was never wired in.
@@ -352,6 +361,7 @@ class ProjectService:
                 metadata={
                     "target_user_id": str(target_user_id),
                     "carries_revoked": len(revoked),
+                    "member_groups_left": dropped_groups,
                 },
                 request_id=request_id,
             ),

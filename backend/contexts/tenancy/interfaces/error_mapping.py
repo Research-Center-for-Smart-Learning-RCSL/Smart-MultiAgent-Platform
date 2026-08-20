@@ -37,6 +37,16 @@ _MAP: ErrorMap = {
         409,
         "Individual project cannot be moved into an Org",
     ),
+    errors.MemberGroupNotFound: (
+        "tenancy/member-group-not-found",
+        404,
+        "Member group not found",
+    ),
+    errors.NotAProjectMember: (
+        "tenancy/not-a-project-member",
+        422,
+        "Only a member of the parent project may join its member groups",
+    ),
 }
 
 

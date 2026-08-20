@@ -32,6 +32,7 @@ from contexts.conversation.interfaces.author_labels import prefer_guest_label
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.interfaces.facade import IdentityFacade
 from contexts.orchestration.interfaces.facade import OrchestrationFacade
+from contexts.tenancy.application.member_group_service import MemberGroupService
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     _raise_forbidden,
@@ -55,6 +56,11 @@ chatroom_router = APIRouter(prefix="/api/chatrooms", tags=["chatrooms"])
 # `AgentActivityControlIn.activity_type_ids` for why this is bounded at all.
 _MAX_ACTIVITY_ALLOWLIST = 100
 
+# Same reasoning for a room's Member Group bindings (§13.2a). A classroom binds
+# one or a handful; a request naming hundreds is a mistake or an attack, and
+# either way the write should be refused rather than performed.
+_MAX_BOUND_GROUPS = 50
+
 
 # --------------------------------------------------------------------------- #
 # Schemas
@@ -67,6 +73,9 @@ class ChatroomCreateIn(BaseModel):
     allow_project_members: bool = True
     allow_project_owners_only: bool = False
     allow_guest_links: bool = False
+    # §13.2a. Mutually exclusive with allow_project_members (R13.04); the service
+    # refuses the pair with 422 rather than silently correcting either one.
+    allow_member_groups: bool = False
 
 
 class ChatroomPatchIn(BaseModel):
@@ -75,6 +84,7 @@ class ChatroomPatchIn(BaseModel):
     allow_project_members: bool | None = None
     allow_project_owners_only: bool | None = None
     allow_guest_links: bool | None = None
+    allow_member_groups: bool | None = None
     # R28.09 — creator-only (per-field gate in the handler; the capability
     # check above it covers the other fields).
     disclose_observers: bool | None = None
@@ -88,6 +98,7 @@ class ChatroomOut(BaseModel):
     allow_project_members: bool
     allow_project_owners_only: bool
     allow_guest_links: bool
+    allow_member_groups: bool
     version: int
     created_at: str
     deleted_at: str | None
@@ -182,6 +193,7 @@ def _to_out(
         allow_project_members=r.allow_project_members,
         allow_project_owners_only=r.allow_project_owners_only,
         allow_guest_links=r.allow_guest_links,
+        allow_member_groups=r.allow_member_groups,
         version=r.version,
         created_at=r.created_at.isoformat(),
         deleted_at=r.deleted_at.isoformat() if r.deleted_at else None,
@@ -298,6 +310,7 @@ async def create_chatroom(
         allow_project_members=body.allow_project_members,
         allow_project_owners_only=body.allow_project_owners_only,
         allow_guest_links=body.allow_guest_links,
+        allow_member_groups=body.allow_member_groups,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
@@ -410,6 +423,77 @@ async def patch_chatroom(
         has_observers=chatroom_id in with_observers,
         is_moderator=moderator,
     )
+
+
+class ChatroomMemberGroupsIn(BaseModel):
+    # Bounded for the same reason the activity allowlist is: an unbounded list is
+    # an unbounded write, and no room has a legitimate use for hundreds of groups.
+    member_group_ids: list[uuid.UUID] = Field(default_factory=list, max_length=_MAX_BOUND_GROUPS)
+
+
+class ChatroomMemberGroupsOut(BaseModel):
+    member_group_ids: list[uuid.UUID]
+
+
+async def _require_member_group_manage(
+    db: AsyncSession,
+    principal: Principal,
+    project_id: uuid.UUID,
+) -> None:
+    """R13.31 — binding a group to a room is member management, not room editing."""
+    await _require_project_cap(db, principal, project_id, Capability.PROJECT_MEMBER_MANAGE)
+
+
+@chatroom_router.get("/{chatroom_id}/member-groups")
+async def list_chatroom_member_groups(
+    chatroom_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ChatroomMemberGroupsOut:
+    project_id = await _project_id_for_chatroom(db, chatroom_id)
+    await _require_member_group_manage(db, principal, project_id)
+    bound = await ChatroomService(db).bound_group_ids(chatroom_id)
+    return ChatroomMemberGroupsOut(member_group_ids=sorted(bound))
+
+
+@chatroom_router.put("/{chatroom_id}/member-groups")
+async def set_chatroom_member_groups(
+    body: ChatroomMemberGroupsIn,
+    chatroom_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ChatroomMemberGroupsOut:
+    """Replace this room's Member Group bindings (R13.29).
+
+    SEC: every id is checked to belong to **this room's** project before it is
+    written. Without that, an owner of project A could bind a group from project B
+    to a room in A and hand B's members a room they have no standing in — a
+    cross-project grant assembled entirely out of ids the caller is allowed to
+    know. The check reads the group rows rather than trusting the request.
+    """
+    project_id = await _project_id_for_chatroom(db, chatroom_id)
+    await _require_member_group_manage(db, principal, project_id)
+
+    requested = list(dict.fromkeys(body.member_group_ids))
+    if requested:
+        service = MemberGroupService(db)
+        for group_id in requested:
+            group = await service.get(group_id)
+            if group.project_id != project_id:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="member group does not belong to this chatroom's project",
+                )
+
+    bound = await ChatroomService(db).set_bound_groups(
+        chatroom_id=chatroom_id,
+        group_ids=requested,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return ChatroomMemberGroupsOut(member_group_ids=sorted(bound))
 
 
 @chatroom_router.delete(

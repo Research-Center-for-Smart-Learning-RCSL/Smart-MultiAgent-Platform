@@ -85,6 +85,31 @@ class ProjectMember:
 
 
 @dataclass(frozen=True, slots=True)
+class MemberGroup:
+    """A named subset of one project's members (§13.2a).
+
+    Not a role: group membership confers no capability anywhere in the §5.2
+    matrix and is read only by the chat-room access check, the same way Guest
+    status is (R5.06, R13.30).
+    """
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    name: str
+    created_by_user_id: uuid.UUID | None
+    version: int
+    created_at: datetime
+    deleted_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class MemberGroupMember:
+    member_group_id: uuid.UUID
+    user_id: uuid.UUID
+    joined_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class Invite:
     id: uuid.UUID
     scope_type: InviteScope
@@ -116,6 +141,8 @@ __all__ = [
     "Invite",
     "InviteScope",
     "InviteState",
+    "MemberGroup",
+    "MemberGroupMember",
     "OCTransfer",
     "OCTransferState",
     "Org",

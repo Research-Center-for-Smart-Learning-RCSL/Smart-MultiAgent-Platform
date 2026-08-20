@@ -67,14 +67,26 @@ class CannotMigrateIndividualProject(TenancyError):
     code = "tenancy.cannot-migrate-individual-project"
 
 
+class MemberGroupNotFound(TenancyError):
+    code = "tenancy.member-group-not-found"
+
+
+class NotAProjectMember(TenancyError):
+    """R13.28 — only a current member of the parent project may join its groups."""
+
+    code = "tenancy.not-a-project-member"
+
+
 __all__ = [
     "CannotMigrateIndividualProject",
     "InviteDuplicate",
     "InviteExpired",
     "InviteNotForCaller",
     "InviteNotFound",
+    "MemberGroupNotFound",
     "MemberNotFound",
     "NameTaken",
+    "NotAProjectMember",
     "OrgNotFound",
     "OriginalCreatorConflict",
     "ProjectNotFound",

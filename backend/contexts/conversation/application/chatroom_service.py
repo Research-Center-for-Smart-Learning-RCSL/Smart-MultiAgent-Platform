@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.conversation.domain.errors import ChatroomNotFound
+from contexts.conversation.domain.errors import ChatroomNotFound, RoomAccessFlagsConflict
 from contexts.conversation.domain.models import (
     Chatroom,
     ChatroomAgent,
@@ -18,6 +18,7 @@ from contexts.conversation.domain.models import (
 from contexts.conversation.infrastructure.repositories import (
     ChatroomAgentRepository,
     ChatroomGuestRepository,
+    ChatroomMemberGroupRepository,
     ChatroomRepository,
     WorkspaceRepository,
 )
@@ -31,7 +32,15 @@ class ChatroomFlagsPatch:
     allow_project_members: bool | None = None
     allow_project_owners_only: bool | None = None
     allow_guest_links: bool | None = None
+    allow_member_groups: bool | None = None
     disclose_observers: bool | None = None
+
+
+def _assert_flag_exclusivity(*, allow_member_groups: bool, allow_project_members: bool) -> None:
+    """R13.04. Asserted here as well as at the route so a second caller cannot
+    bypass it by reaching the service directly."""
+    if allow_member_groups and allow_project_members:
+        raise RoomAccessFlagsConflict("allow_member_groups and allow_project_members are mutually exclusive")
 
 
 class ChatroomService:
@@ -41,6 +50,45 @@ class ChatroomService:
         self._workspaces = WorkspaceRepository(db)
         self._agents = ChatroomAgentRepository(db)
         self._guests = ChatroomGuestRepository(db)
+        self._member_groups = ChatroomMemberGroupRepository(db)
+
+    async def bound_group_ids(self, chatroom_id: uuid.UUID) -> set[uuid.UUID]:
+        return await self._member_groups.list_for_room(chatroom_id)
+
+    async def set_bound_groups(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        group_ids: Sequence[uuid.UUID],
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> set[uuid.UUID]:
+        """Replace this room's Member Group bindings (R13.29).
+
+        The audit row carries both sides, because "who could read this room on
+        that date" is a question the group list alone cannot answer after the fact.
+        """
+        before = await self._member_groups.list_for_room(chatroom_id)
+        await self._member_groups.replace(chatroom_id=chatroom_id, group_ids=group_ids)
+        after = await self._member_groups.list_for_room(chatroom_id)
+        if before != after:
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="chatroom.member_groups_bound",
+                    actor_user_id=actor_user_id,
+                    actor_ip=actor_ip,
+                    resource_type="chatroom",
+                    resource_id=chatroom_id,
+                    metadata={
+                        "before": sorted(str(g) for g in before),
+                        "after": sorted(str(g) for g in after),
+                    },
+                    request_id=request_id,
+                ),
+            )
+        return after
 
     # ---- queries ---------------------------------------------------------
 
@@ -79,10 +127,15 @@ class ChatroomService:
         allow_project_members: bool = True,
         allow_project_owners_only: bool = False,
         allow_guest_links: bool = False,
+        allow_member_groups: bool = False,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> Chatroom:
+        _assert_flag_exclusivity(
+            allow_member_groups=allow_member_groups,
+            allow_project_members=allow_project_members,
+        )
         room = await self._rooms.create(
             workspace_id=workspace_id,
             name=name,
@@ -90,6 +143,7 @@ class ChatroomService:
             allow_project_members=allow_project_members,
             allow_project_owners_only=allow_project_owners_only,
             allow_guest_links=allow_guest_links,
+            allow_member_groups=allow_member_groups,
             created_by_user_id=actor_user_id,
         )
         await audit.emit(
@@ -108,6 +162,7 @@ class ChatroomService:
                         "allow_project_members": allow_project_members,
                         "allow_project_owners_only": allow_project_owners_only,
                         "allow_guest_links": allow_guest_links,
+                        "allow_member_groups": allow_member_groups,
                     },
                 },
                 request_id=request_id,
@@ -125,6 +180,24 @@ class ChatroomService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> Chatroom:
+        # R13.04's one refused pair, evaluated against the state the patch would
+        # PRODUCE, not against the state it names. Checking only the fields present
+        # in the body would let a two-step widening through: set the group tier in
+        # one request, re-enable project members in the next, and neither request
+        # ever names both.
+        current = await self.get(chatroom_id)
+        _assert_flag_exclusivity(
+            allow_member_groups=(
+                patch.allow_member_groups
+                if patch.allow_member_groups is not None
+                else current.allow_member_groups
+            ),
+            allow_project_members=(
+                patch.allow_project_members
+                if patch.allow_project_members is not None
+                else current.allow_project_members
+            ),
+        )
         values: dict[str, object] = {}
         if patch.name is not None:
             values["name"] = patch.name
@@ -136,6 +209,8 @@ class ChatroomService:
             values["allow_project_owners_only"] = patch.allow_project_owners_only
         if patch.allow_guest_links is not None:
             values["allow_guest_links"] = patch.allow_guest_links
+        if patch.allow_member_groups is not None:
+            values["allow_member_groups"] = patch.allow_member_groups
         old_disclose: bool | None = None
         if patch.disclose_observers is not None:
             old_disclose = (await self.get(chatroom_id)).disclose_observers

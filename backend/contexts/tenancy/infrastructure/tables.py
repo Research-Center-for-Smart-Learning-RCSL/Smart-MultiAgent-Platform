@@ -75,6 +75,40 @@ project_members = sa.Table(
     sa.Column("joined_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )
 
+member_groups = sa.Table(
+    "member_groups",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "project_id", pg.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    ),
+    sa.Column("name", sa.Text, nullable=False),
+    sa.Column(
+        "created_by_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column("version", sa.Integer, nullable=False, server_default=sa.text("1")),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
+)
+
+member_group_members = sa.Table(
+    "member_group_members",
+    metadata,
+    sa.Column(
+        "member_group_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("member_groups.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    sa.Column(
+        "user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    ),
+    sa.Column("joined_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+)
+
 invites = sa.Table(
     "invites",
     metadata,
@@ -128,6 +162,8 @@ original_creator_transfers = sa.Table(
 
 __all__ = [
     "invites",
+    "member_group_members",
+    "member_groups",
     "org_members",
     "orgs",
     "original_creator_transfers",

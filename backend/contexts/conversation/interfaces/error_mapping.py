@@ -51,6 +51,11 @@ _MAP: ErrorMap = {
         403,
         "Forbidden in this chatroom",
     ),
+    errors.RoomAccessFlagsConflict: (
+        "conversation/room-access-flags-conflict",
+        422,
+        "A room open to member groups cannot also be open to all project members",
+    ),
     errors.GuestTokenInvalid: (
         "conversation/guest-token-invalid",
         404,
