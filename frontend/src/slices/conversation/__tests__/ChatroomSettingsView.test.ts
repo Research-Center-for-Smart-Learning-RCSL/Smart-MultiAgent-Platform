@@ -286,4 +286,56 @@ describe('ChatroomSettingsView', () => {
 
     expect(wrapper.text()).not.toContain('conversation.settings.guestLinkLabel')
   })
+
+  it('puts a group checkbox back on the server state when the bind fails', async () => {
+    // The checkbox is uncontrolled: the browser flips `el.checked` on click, and
+    // `:checked` re-applies only when the rendered value changes. After a failed
+    // bind the confirmed set is by definition unchanged, so nothing patched the
+    // DOM and the box kept the click — a room access control displaying a
+    // binding the server never accepted, under a toast saying it failed.
+    const room = makeChatroom({ allow_project_members: false, allow_member_groups: true })
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+      http.get('/api/workspaces/:id', () =>
+        HttpResponse.json({ id: 'ws_1', project_id: 'proj_1', name: 'WS' }),
+      ),
+      http.get('/api/projects/:id/member-groups', () =>
+        HttpResponse.json([
+          {
+            id: 'mg_1',
+            project_id: 'proj_1',
+            name: 'Group One',
+            version: 1,
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        ]),
+      ),
+      http.get('/api/chatrooms/:id/member-groups', () =>
+        HttpResponse.json({ member_group_ids: [] }),
+      ),
+      http.put('/api/chatrooms/:id/member-groups', () =>
+        HttpResponse.json(
+          { type: 'https://smap.local/problems/internal', title: 'Internal', status: 500 },
+          { status: 500 },
+        ),
+      ),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1/settings',
+      queryClient: seededClient([room]),
+    })
+    await flushPromises()
+
+    const box = wrapper.find('.group-picker input[type="checkbox"]')
+    expect(box.exists()).toBe(true)
+    expect((box.element as HTMLInputElement).checked).toBe(false)
+
+    await box.setValue(true)
+    await flushPromises()
+
+    // Re-query: the fix re-creates the input, so the original handle is detached.
+    const after = wrapper.find('.group-picker input[type="checkbox"]')
+    expect((after.element as HTMLInputElement).checked).toBe(false)
+  })
 })
