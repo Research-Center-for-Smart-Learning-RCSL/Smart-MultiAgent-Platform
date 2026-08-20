@@ -218,6 +218,9 @@ class TestChatroomPatch:
     async def test_patch_applies_changes(self, _audit) -> None:
         updated = _chatroom(version=2)
         rooms = AsyncMock()
+        # `patch` reads the current room first, to evaluate R13.04's flag
+        # exclusivity against the state the patch would produce.
+        rooms.get.return_value = _chatroom()
         rooms.update.return_value = updated
         svc = _make_chatroom_service(rooms=rooms)
 

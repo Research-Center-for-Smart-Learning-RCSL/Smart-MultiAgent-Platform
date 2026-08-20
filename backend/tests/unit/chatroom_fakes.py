@@ -22,6 +22,7 @@ def chatroom_row(*, created_by=None, disclose=True) -> SimpleNamespace:
         allow_project_members=True,
         allow_project_owners_only=False,
         allow_guest_links=True,
+        allow_member_groups=False,
         version=1,
         created_at=now,
         deleted_at=None,

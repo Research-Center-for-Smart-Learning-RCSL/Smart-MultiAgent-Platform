@@ -43,8 +43,8 @@ _ROLE_SETS: list[frozenset[Role]] = [
 ]
 
 
-def _room(flags: tuple[bool, bool, bool, bool]) -> Chatroom:
-    org, project, owners_only, guests = flags
+def _room(flags: tuple[bool, bool, bool, bool, bool]) -> Chatroom:
+    org, project, owners_only, guests, member_groups = flags
     return Chatroom(
         id=uuid.uuid4(),
         workspace_id=uuid.uuid4(),
@@ -53,6 +53,7 @@ def _room(flags: tuple[bool, bool, bool, bool]) -> Chatroom:
         allow_project_members=project,
         allow_project_owners_only=owners_only,
         allow_guest_links=guests,
+        allow_member_groups=member_groups,
         guest_token="t",
         version=1,
         created_at=datetime.now(UTC),
@@ -60,13 +61,24 @@ def _room(flags: tuple[bool, bool, bool, bool]) -> Chatroom:
     )
 
 
+_GROUP_ID = uuid.UUID("77777777-7777-7777-7777-777777777777")
+
+
 def _principal(*, is_admin: bool = False) -> SimpleNamespace:
     return SimpleNamespace(user_id=_USER_ID, is_admin=is_admin, email_verified=True)
 
 
-def _can_read(room: Chatroom, roles: frozenset[Role], *, is_guest: bool) -> bool:
+def _can_read(
+    room: Chatroom, roles: frozenset[Role], *, is_guest: bool, in_bound_group: bool = False
+) -> bool:
     """The single-room verdict, expressed through the public gate."""
-    access = RoomAccess(chatroom=room, project_id=_PROJECT_ID, roles=roles, is_guest=is_guest)
+    access = RoomAccess(
+        chatroom=room,
+        project_id=_PROJECT_ID,
+        roles=roles,
+        is_guest=is_guest,
+        in_bound_group=in_bound_group,
+    )
     try:
         ensure_can_read(access, is_admin=False)
     except ForbiddenInRoom:
@@ -79,13 +91,24 @@ async def _run(
     *,
     roles: frozenset[Role],
     guest_room_ids: set[uuid.UUID],
+    in_bound_group: bool = False,
     is_admin: bool = False,
 ) -> set[uuid.UUID]:
     resolver = SimpleNamespace(roles_for=AsyncMock(return_value=roles))
     guests = SimpleNamespace(guest_room_ids=AsyncMock(return_value=guest_room_ids))
+    bindings = SimpleNamespace(
+        bound_group_ids=AsyncMock(
+            return_value={room.id: {_GROUP_ID} for room in rooms if room.allow_member_groups}
+        )
+    )
+    tenancy = SimpleNamespace(
+        member_group_ids_for_user=AsyncMock(return_value={_GROUP_ID} if in_bound_group else set())
+    )
     with (
         patch.object(access_mod, "TenancyRoleResolver", return_value=resolver),
         patch.object(access_mod, "ChatroomGuestRepository", return_value=guests),
+        patch.object(access_mod, "ChatroomMemberGroupRepository", return_value=bindings),
+        patch.object(access_mod, "TenancyFacade", return_value=tenancy),
     ):
         return await visible_room_ids(
             AsyncMock(),
@@ -97,23 +120,86 @@ async def _run(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("roles", _ROLE_SETS, ids=lambda r: "+".join(sorted(x.value for x in r)) or "none")
 @pytest.mark.parametrize("is_guest", [False, True], ids=["not_guest", "guest"])
+@pytest.mark.parametrize("in_group", [False, True], ids=["not_in_group", "in_group"])
 async def test_agrees_with_ensure_can_read_over_the_full_flag_matrix(
-    roles: frozenset[Role], is_guest: bool
+    roles: frozenset[Role], is_guest: bool, in_group: bool
 ) -> None:
-    rooms = [_room(flags) for flags in itertools.product([False, True], repeat=4)]
+    """All 32 flag combinations crossed with every role set, guest bit and group bit.
+
+    This is the property the whole design rests on: the listing and the open path
+    must never disagree about a room, for any principal.
+    """
+    rooms = [_room(flags) for flags in itertools.product([False, True], repeat=5)]
     guest_ids = {room.id for room in rooms} if is_guest else set()
 
-    visible = await _run(rooms, roles=roles, guest_room_ids=guest_ids)
+    visible = await _run(rooms, roles=roles, guest_room_ids=guest_ids, in_bound_group=in_group)
 
-    expected = {room.id for room in rooms if _can_read(room, roles, is_guest=is_guest)}
+    expected = {
+        room.id
+        for room in rooms
+        if _can_read(
+            room,
+            roles,
+            is_guest=is_guest,
+            in_bound_group=in_group and room.allow_member_groups,
+        )
+    }
     assert visible == expected, (
-        f"listing and read gate disagree for roles={sorted(r.value for r in roles)} is_guest={is_guest}"
+        f"listing and read gate disagree for roles={sorted(r.value for r in roles)} "
+        f"is_guest={is_guest} in_group={in_group}"
     )
 
 
 @pytest.mark.asyncio
+async def test_a_room_without_the_group_tier_is_never_asked_about_groups() -> None:
+    """A project using no groups pays nothing for the feature existing."""
+    rooms = [_room((False, True, False, False, False)) for _ in range(3)]
+    bindings = SimpleNamespace(bound_group_ids=AsyncMock(return_value={}))
+    tenancy = SimpleNamespace(member_group_ids_for_user=AsyncMock(return_value=set()))
+    with (
+        patch.object(
+            access_mod,
+            "TenancyRoleResolver",
+            return_value=SimpleNamespace(roles_for=AsyncMock(return_value=frozenset({Role.PROJECT_MEMBER}))),
+        ),
+        patch.object(
+            access_mod,
+            "ChatroomGuestRepository",
+            return_value=SimpleNamespace(guest_room_ids=AsyncMock(return_value=set())),
+        ),
+        patch.object(access_mod, "ChatroomMemberGroupRepository", return_value=bindings),
+        patch.object(access_mod, "TenancyFacade", return_value=tenancy),
+    ):
+        visible = await visible_room_ids(
+            AsyncMock(),
+            principal=_principal(),
+            rooms=[(_PROJECT_ID, room) for room in rooms],
+        )
+
+    assert visible == {room.id for room in rooms}
+    bindings.bound_group_ids.assert_not_called()
+    tenancy.member_group_ids_for_user.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_an_owners_only_room_is_not_widened_by_a_group_binding() -> None:
+    """SEC: `allow_project_owners_only` is exclusive, and the group tier sits
+    inside its early return. A stale binding on such a room grants nothing."""
+    room = _room((False, False, True, False, True))
+
+    visible = await _run(
+        [room],
+        roles=frozenset({Role.PROJECT_MEMBER}),
+        guest_room_ids=set(),
+        in_bound_group=True,
+    )
+
+    assert visible == set()
+
+
+@pytest.mark.asyncio
 async def test_admin_sees_every_room_without_resolving_anything() -> None:
-    rooms = [_room((False, False, True, False)) for _ in range(3)]
+    rooms = [_room((False, False, True, False, False)) for _ in range(3)]
     resolver = SimpleNamespace(roles_for=AsyncMock())
     guests = SimpleNamespace(guest_room_ids=AsyncMock())
     with (
@@ -146,7 +232,7 @@ async def test_empty_input_short_circuits() -> None:
 @pytest.mark.asyncio
 async def test_roles_resolved_once_per_project_not_once_per_room() -> None:
     """A workspace of N rooms must not cost N role lookups."""
-    rooms = [_room((False, True, False, False)) for _ in range(5)]
+    rooms = [_room((False, True, False, False, False)) for _ in range(5)]
     resolver = SimpleNamespace(roles_for=AsyncMock(return_value=frozenset({Role.PROJECT_MEMBER})))
     guests = SimpleNamespace(guest_room_ids=AsyncMock(return_value=set()))
     with (
@@ -166,8 +252,8 @@ async def test_roles_resolved_once_per_project_not_once_per_room() -> None:
 async def test_distinct_projects_are_resolved_separately() -> None:
     """Cross-project listings must not reuse one project's role set for another."""
     other_project = uuid.uuid4()
-    open_room = _room((False, True, False, False))
-    closed_room = _room((False, True, False, False))
+    open_room = _room((False, True, False, False, False))
+    closed_room = _room((False, True, False, False, False))
 
     async def _roles_for(_principal_arg: object, scope: object) -> frozenset[Role]:
         project_id = getattr(scope, "project_id", None)

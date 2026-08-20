@@ -33,6 +33,7 @@ def _row() -> SimpleNamespace:
         allow_project_members=True,
         allow_project_owners_only=False,
         allow_guest_links=False,
+        allow_member_groups=False,
         guest_token="t",
         version=1,
         created_at=datetime.now(UTC),
