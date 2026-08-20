@@ -1,8 +1,12 @@
 """Email-domain allow/deny policy (R19a.13).
 
-The Admin tunes the lists at runtime. Storage is a small Redis key (so the
-gate check is sub-ms) refreshed every 30 s. The Admin PATCH handler (Phase
-I) writes the same keys.
+Storage is a small Redis key (so the gate check is sub-ms) refreshed every 30 s,
+which is also the worst-case lag between a change and its effect.
+
+**There is no API that writes these keys.** The lists are set directly in Redis
+today; `docs/operations.md` §7a.5 carries the operator recipe. An earlier version
+of this docstring promised an Admin PATCH handler that was never built — if one
+is added it must write exactly these three keys.
 """
 
 from __future__ import annotations
