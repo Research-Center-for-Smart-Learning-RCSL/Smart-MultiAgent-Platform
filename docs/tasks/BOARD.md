@@ -172,7 +172,19 @@ to keep out, and the existence oracle is unchanged either way.
 **`check:openapi-drift` still cannot run on this host** (D-4, same as the member-groups
 dossier): the bash script cannot find `python`. The check was done by hand — regenerating
 `openapi.json` and the client both produced zero diff, because this task changed module
-docstrings and gate internals, not route docstrings or response models.
+docstrings and gate internals, not route docstrings or response models. **That stopped
+being true at D-7**, which added `ProjectOut.is_moderator`; the spec and client were
+regenerated for it.
+
+**D-7 is the one to read before touching project authorization anywhere.** A post-close
+`/code-review` found that the new workflow guard locked out Org Owners: the client decided
+ownership from the `project_members` list, and ownership is *inherited*, so an owner of the
+parent org holds no such row while every server gate treats them as a project owner. Fixed
+by serializing the verdict (`ProjectOut.is_moderator`) from
+`TenancyRoleResolver.moderated_project_ids`, the batch form of the gates' own predicate,
+placed beside `roles_for` so the two cannot drift. **If you need "is this caller an owner"
+on the client, read that bit — do not read the member list.** The same fix corrected the
+agents, agent-groups and conversation Concept Map owner panels, which had the bug too.
 Removed on 2026-08-20 after implementation:
 `2026-08-20-member-groups-and-room-visibility-isolation` (the three listing endpoints now
 filter through the room ACL, and a project can define optional Member Groups that scope a

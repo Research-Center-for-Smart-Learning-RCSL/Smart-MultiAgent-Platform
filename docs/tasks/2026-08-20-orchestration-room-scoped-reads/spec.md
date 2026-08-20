@@ -383,6 +383,36 @@ existing precedent for placing a rule by topic rather than by number:**
   404 — that is precisely how a member who loses room access should see the card go away.
   Fixed with the covering test; the two sibling sites are FU-5.
 
+- **D-7 (post-close)** — **a `/code-review` on 2026-08-21 found that D-6's guard locked out
+  Org Owners, and the fix is a contract change this dossier did not scope.** Fixed; the
+  dossier stays `implemented` (the user's call).
+
+  `useProjectRole` decided ownership by scanning `GET /api/projects/{id}/members` for its
+  own `owner` row. That is not what any server gate decides: `roles_for` adds
+  `PROJECT_OWNER` to an owner of the parent org (`role_resolver.py:47-48`, R5.03) while
+  `ProjectService.list_members` returns only `project_members` rows. So an Org Owner who
+  never joined a project explicitly was admitted by `_require_moderator` and redirected by
+  the client — off the workflow list, the run list, the editor and the backstage, with both
+  nav entries hidden. **Before D-6 those four views had no guard at all, so this is a
+  regression this dossier introduced**, not merely a pre-existing mismatch widened: the old
+  `_require_member` accepted any non-empty role set, and that person has one.
+
+  Fixed by serializing the verdict rather than re-deriving it client-side, which is what
+  `ChatroomOut.is_moderator` already does (`chatrooms.py:274`, `:319-322`, whose comment is
+  explicitly about the POST and the GET not being allowed to disagree).
+  `TenancyRoleResolver.moderated_project_ids` is the batch form of
+  `is_moderator_roles(roles_for(...))` and lives beside it for the reason `visible_room_ids`
+  lives beside `ensure_can_read` — one predicate, so a listing and a gate cannot drift. It
+  resolves a whole page in two queries, so `GET /api/projects` does not pay a `roles_for`
+  round trip per row.
+
+  **Two things worth knowing.** This is an **API contract change** (`ProjectOut` gains
+  `is_moderator`) and it rewrites a composable used by six slices — by this repo's own
+  Step 1 rule it was spec-sized work, done here as a post-close fix on the user's
+  instruction, and flagged as such before starting. And it **fixes three other slices at
+  the same time**: the agents, agent-groups and conversation Concept Map owner panels read
+  the same composable and were hiding their controls from Org Owners for the same reason.
+
 - **D-6** — **The frontend guard covers more than §6's "the backstage views".** Once
   `workflows.py` became owner-only, four views had every request answering 403:
   `WorkflowListView`, `WorkflowRunsListView`, `WorkflowEditorView` and `WorkflowRunView`.
@@ -446,6 +476,18 @@ existing precedent for placing a rule by topic rather than by number:**
   §5 deliberately kept out of this dossier.
 
 - **FU-9** — `frontend/src/slices/agents/__tests__/AgentToolsView.test.ts` is **flaky**:
-  "renders CodeMirror for the MCP config JSON field" failed once in a full `pnpm test` run
-  (5.4 s for the file) and passed on re-run and in isolation. Untouched by this diff.
-  Somebody should chase it before it starts costing CI reruns.
+  "renders CodeMirror for the MCP config JSON field" failed in two separate full
+  `pnpm test` runs (5.1 s and 5.4 s for that file) and passed on re-run and in isolation
+  every time. Untouched by this diff. Two failures out of four full runs is not a rare
+  flake; somebody should chase it before it costs CI reruns.
+
+- **FU-10** — The `is_moderator` bit D-7 added is only on `ProjectOut`. `OrgOut` has the
+  same problem in miniature — nothing serializes whether the caller owns an org — and the
+  org-level views still infer it from the member list. Not reached here because no surface
+  this dossier touched needs it, but it is the same defect one level up.
+
+- **FU-11** — `list_projects` computes `moderated_project_ids` over the **page**, after
+  slicing, which is correct for what it serializes but means the two queries run on every
+  listing request even when no consumer reads the bit. Cheap (two indexed lookups) and not
+  worth conditioning today; noted because a future caller listing hundreds of projects per
+  request would want it batched across pages instead.
