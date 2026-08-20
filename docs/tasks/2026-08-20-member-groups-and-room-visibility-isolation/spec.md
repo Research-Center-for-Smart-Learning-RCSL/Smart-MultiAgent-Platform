@@ -490,7 +490,12 @@ section. Specific traps:
       *Verified by `tests/unit/test_visible_room_ids.py` (the flag/role matrix, asserted
       against `ensure_can_read` itself) and `tests/unit/test_listing_visibility_routes.py`
       (the route serves the filter's output and nothing else). See D-3 for why the
-      org-member scenario is asserted at the predicate rather than through the route.*
+      org-member scenario is asserted at the predicate rather than through the route.
+      **Executed against PostgreSQL** by
+      `tests/integration/test_room_listing_visibility_db.py`, where the named scenario —
+      an org member seeing the `allow_org_members` room and not the default one in the
+      same workspace — runs against real rows, and one test asserts the listing and the
+      open path agree room-for-room for all four principals (D-8).*
 - [x] AC-2: That listing's pagination is correct after filtering — a filtered page of the
       requested size is returned where enough visible rooms exist, and `offset` skips
       visible rooms rather than raw rows.
@@ -500,6 +505,10 @@ section. Specific traps:
       Orgs they own, and projects holding at least one room visible to them — and no
       others. A test proves an Org Member no longer sees a sibling project with no
       org-visible room.
+      *Unit: `test_listing_visibility_routes.py` and `test_tenancy_services.py`.
+      **Executed against PostgreSQL** by `test_room_listing_visibility_db.py`, which also
+      pins D-6's fix — a user holding only a `project_members` row, with no `org_members`
+      row anywhere, is a candidate and is directly visible.*
 - [x] AC-5: The candidate-room read in each of the three listings is bounded, and hitting
       the bound emits a warning log naming what was dropped. No silent truncation.
       *`tests/unit/test_room_listing_bound.py`, both halves: the repository fetches
@@ -692,12 +701,48 @@ To be applied to `REQUIREMENTS.md` on approval.
   by import, and `tenancy/interfaces/facade.py` imports nothing from conversation. A
   comment asserting a constraint that isn't real is worse than the indirection it excused;
   both are gone.
-- **D-5 — the `integration` tier has not been executed.** §12 states that AC-1, AC-4 and
-  AC-9 must be run against a real stack, and that leaving them unticked is preferable to
-  claiming them. AC-1 and AC-4 are ticked here on the strength of the unit tier only; the
-  integration tests §12 specifies are **not yet written**, which is recorded as FU-5 rather
-  than left implicit. This repeats the gap `docs/tasks/BOARD.md` records for the last seven
-  dossiers in this area, and for a confidentiality change it is the one that matters most.
+- **D-5 — the datastore tier was initially not executed; closed the same day.** §12 states
+  that AC-1 and AC-4 must be run against a real stack. They were first ticked on the unit
+  tier alone, with the gap recorded rather than hidden; D-8 records closing it.
+- **D-8 — the datastore tests landed in the `db` tier, not the `integration` tier, and
+  they were run.** §12 said "integration". That is the wrong tier: `ci.yml` states in
+  its own comment that `backend-integration` tests "exercise the HTTP/middleware boundary
+  with fakes, so they need no DB/Redis", and anything needing a real datastore carries
+  `pytest.mark.db` and runs in `backend-db` inside the compose network. The new module is
+  marked `db` accordingly and will be collected by `pytest -q -m db` there.
+
+  Three things the run produced that reasoning had not.
+
+  **The mutation probes.** A `db` test that has only ever been seen green is the exact
+  hazard `BOARD.md` records for `SMAP_SCRATCH_DATABASE_URL` — tests that had never executed
+  anywhere while the job reported passed. So both halves were deliberately broken and the
+  suite re-run: replacing `_satisfies_room_flags` with an unconditional allow killed 6
+  tests, and dropping the `workspaces.deleted_at` predicate from `list_candidates` killed
+  the soft-deleted-workspace test *and* the unit-tier compile assertion. Both were then
+  reverted.
+
+  **Migrations 0077 and 0078 have now been applied somewhere.** `BOARD.md` records both as
+  never applied in any environment. `alembic upgrade head` ran all 78 cleanly against
+  PostgreSQL 16. That is not a substitute for their own atomicity tests, but the "has never
+  been applied anywhere" note attached to those two dossiers is now out of date.
+
+  **Reproducing the database** takes one container, no compose stack, and does not touch
+  the ports the full stack uses:
+
+  ```
+  docker run -d --name smap_pg_local -e POSTGRES_USER=smap -e POSTGRES_PASSWORD=smap \
+    -e POSTGRES_DB=smap_test -p 5433:5432 \
+    -v "$PWD/deploy/compose/postgres/init:/docker-entrypoint-initdb.d:ro" \
+    pgvector/pgvector:0.8.0-pg16
+  cd backend && SMAP_APP_ENV=test \
+    SMAP_DB_DSN=postgresql+asyncpg://smap:smap@localhost:5433/smap_test alembic upgrade head
+  ```
+
+  Then run pytest with the same two env vars. The rest of the `db` tier still fails on this
+  host — `test_knowmap_neo4j_replacement` and `test_workflow_join_epoch` resolve the
+  `neo4j` and `redis` hostnames, which only exist inside the compose network — so those
+  remain CI's to run. That is a pre-existing environment limitation, not a regression:
+  nothing in this task touches either subsystem.
 
 ## 16. Follow-ups
 
@@ -729,13 +774,11 @@ To be applied to `REQUIREMENTS.md` on approval.
   (filtered) rather than 403 to an Org Member who is not a project member, so a guessed
   project id confirms the project exists. Closing it means revisiting the R5.03 role
   inheritance, which is a larger question than this dossier.
-- **FU-5** — The `integration` tests §12 specifies for AC-1, AC-4 and AC-12 do not exist
-  yet (D-5). Stage 1's three listings are covered only by the unit tier, which cannot see a
-  wrong SQL predicate or a wrong join: `list_candidates` joins `chatrooms` to `workspaces`
-  and filters `deleted_at` on both, and no executed test has ever run that statement against
-  PostgreSQL. `backend/CLAUDE.md` records exactly this failure mode — the unit tier compiles
-  with `literal_binds` and cannot see a parameter-type error. Write them with Stage 2, whose
-  migration needs a `db`-tier run anyway.
+- **FU-5** — ~~The datastore tests for AC-1, AC-3 and AC-4 do not exist.~~ **Closed
+  2026-08-20**: `tests/integration/test_room_listing_visibility_db.py`, 14 tests, executed
+  against a real PostgreSQL 16 and green. See D-8 for what running them proved and for the
+  one-line recipe that reproduces the database. AC-12 remains open because it belongs to
+  Stage 2 (there is no group membership to revoke yet).
 - **FU-7** — `GET /api/projects` paginates an unordered result. Neither `list_by_user`,
   `list_by_org`, `list_by_orgs` nor `list_by_ids` carries an `ORDER BY`, so PostgreSQL may
   return rows in a different order between two requests and a page boundary can drop or
