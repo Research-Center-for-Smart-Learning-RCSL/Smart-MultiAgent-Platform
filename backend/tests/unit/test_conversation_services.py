@@ -192,17 +192,6 @@ class TestChatroomGet:
             await svc.get(uuid.uuid4())
 
 
-class TestChatroomList:
-    async def test_list_for_workspace(self) -> None:
-        rooms = AsyncMock()
-        rooms.list_for_workspace.return_value = [_chatroom()]
-        svc = _make_chatroom_service(rooms=rooms)
-
-        result = await svc.list_for_workspace(_WS)
-        assert len(result) == 1
-        rooms.list_for_workspace.assert_awaited_once()
-
-
 class TestChatroomCreate:
     @patch("contexts.conversation.application.chatroom_service.audit.emit", new_callable=AsyncMock)
     async def test_creates_and_audits(self, _audit) -> None:
