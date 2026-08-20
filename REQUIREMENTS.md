@@ -169,6 +169,7 @@ Roles are scoped to resources, not global. One user may simultaneously be `OrgOw
 - **[R5.02]** The **Original Creator** flag on an Org is a separate, immutable bit, orthogonal to `OrgOwner`. The Original Creator is always an Org Owner and cannot demote, leave, or be removed.
 - **[R5.03]** Individuals can create projects without an Org; such projects are owned by the Individual (`owner_type = 'user'`). Org Owners are automatically Project Owners on every project in their Org (`OrgOwner → ProjectOwner` inheritance is computed, not stored, to avoid drift).
 - **[R5.04]** `Guest` is a registered Individual account that has been granted access to a specific Chat Room via an invite link. Guest status is per-Chat-Room; a Guest in Room A may be a full member elsewhere.
+- **[R5.06]** Member Group membership (§13.2a) is orthogonal to the role set. Like `Guest`, it is a per-resource grant evaluated by the chat-room access check, never a seventh role, and it confers no capability in the §5.2 matrix. The fixed role set of §5.1 is unchanged.
 
 ### 5.2 Permission matrix
 
@@ -673,14 +674,23 @@ Because Neo4j and Qdrant are independent systems, a naïve "write both" sequence
 
 ### 13.2 Access modes (Q43)
 
-Four composable flags per chat room:
+Five composable flags per chat room:
 
 - `allow_org_members` (project-owned + org-owned only)
 - `allow_project_members`
-- `allow_project_owners_only` (overrides the two above; if true, only Project Owners enter)
+- `allow_member_groups` (§13.2a — admits the members of every Member Group bound to this room)
+- `allow_project_owners_only` (overrides all of the above; if true, only Project Owners enter)
 - `allow_guest_links` (if true, Guest Link URL is active and shareable)
 
-**[R13.04]** These flags are independently togglable; any subset is valid. The UI prevents semantically useless combinations (e.g., `project_owners_only = true` while `project_members = true` is auto-corrected).
+**[R13.04]** The flags are independently togglable with one exception: `allow_member_groups` and `allow_project_members` are mutually exclusive, and the server refuses with 422 any create or patch whose resulting state sets both. The exception exists because that combination does not merely fail to add meaning — it silently widens a room the operator has just restricted to named groups, which no other pair does. Every other subset is valid. Semantically useless combinations are handled at read time and in the UI rather than by rewriting stored state: `allow_project_owners_only` overrides the other tiers wherever access is evaluated, and the UI disables the tiers it overrides.
+
+### 13.2a Member groups (optional, per project)
+
+- **[R13.28]** A Project may define **Member Groups**: named subsets of its own members, used to scope chat-room visibility below the project level. They are optional, and a project defining none behaves exactly as one defined before this section existed. A Member Group belongs to exactly one Project; a user may belong to any number of groups within a project; only current Project Members may be group members, and losing project membership removes the user from that project's groups.
+- **[R13.29]** A chat room may be bound to any number of Member Groups of its parent project. When `allow_member_groups` is set, membership of any bound group satisfies the room's access check for read and for send, exactly as `allow_project_members` does for project membership. Bindings on a room whose `allow_member_groups` is unset grant nothing, and a binding to a deleted group grants nothing.
+- **[R13.30]** Project Owners, and Org Owners of the parent Org, reach every room in the project regardless of group binding (R8.08, R5.03). Group membership never narrows an existing grant; it only widens a room that has opted into the tier.
+- **[R13.31]** Creating, renaming and deleting a Member Group, changing its membership, and binding it to a room all require capability #14 (Invite/remove Project Member). A Project Member who is not an Owner may read the groups they belong to and those groups' member lists, and must not be able to learn that other groups in the project exist.
+- **[R13.32]** Enumeration follows confidentiality. A chat-room listing returns only rooms the caller may read under §13.2; a workspace listing returns only workspaces containing at least one such room; a project listing returns only projects the caller is a member of, projects of Orgs they own, and projects containing at least one such room. A caller must not be able to learn the name or the existence of a room, workspace, or project they cannot open.
 
 ### 13.3 Guest links (Q18, Q43)
 
