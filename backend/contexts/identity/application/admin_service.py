@@ -1,7 +1,8 @@
 """Admin user-management service (I.1).
 
 Orchestrates user ban/unban/delete/restore, admin promote/demote with
-last-admin guard, and user search. Each write emits an audit event.
+last-admin guard, user search, and account provisioning (R6.18). Each write
+emits an audit event.
 """
 
 from __future__ import annotations
@@ -102,6 +103,14 @@ class SelfTargetError(ValueError):
     pass
 
 
+class AccountAlreadyActivatedError(ValueError):
+    """Activation links were requested for an account that no longer needs them.
+
+    A distinct type rather than a message the route pattern-matches: the 404/409
+    split must not depend on wording somebody may reasonably reword.
+    """
+
+
 class AdminService:
     def __init__(self, db: AsyncSession, *, public_origin: str | None = None) -> None:
         self._db = db
@@ -195,7 +204,9 @@ class AdminService:
         if user is None or user.deleted_at is not None:
             raise ValueError(f"user {target_user_id} not found")
         if user.password_hash is not None and user.email_verified:
-            raise ValueError("account is already activated; use password reset or impersonation")
+            raise AccountAlreadyActivatedError(
+                "account is already activated; use password reset or impersonation"
+            )
         # SEC: cap the mint per target user so a compromised admin session cannot
         # grind tokens at one account. Reported, not swallowed — see
         # ActivationLinkRateLimited.
@@ -631,6 +642,7 @@ class AdminService:
 
 
 __all__ = [
+    "AccountAlreadyActivatedError",
     "ActivationLinks",
     "AdminEntry",
     "AdminService",
