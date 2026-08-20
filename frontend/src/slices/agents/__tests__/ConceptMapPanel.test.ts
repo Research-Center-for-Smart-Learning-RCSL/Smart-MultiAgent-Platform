@@ -44,6 +44,12 @@ function seed(role: 'owner' | 'member'): void {
     http.get('/api/projects/proj_1/members', () =>
       HttpResponse.json([{ user_id: 'u_1', email: 'u@smap.test', role, joined_at: '2026-01-01T00:00:00Z' }]),
     ),
+    // `useProjectRole` reads the server's own verdict, not the member list:
+    // ownership is inherited (R5.03), so an Org Owner moderates a project while
+    // holding no membership row and the list cannot answer the question.
+    http.get('/api/projects/proj_1', () =>
+      HttpResponse.json({ id: 'proj_1', name: 'Test Project', is_moderator: role === 'owner' }),
+    ),
   )
 }
 

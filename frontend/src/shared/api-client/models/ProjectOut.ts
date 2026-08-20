@@ -8,6 +8,7 @@ export type ProjectOut = {
     created_by_user_id: string;
     deleted_at: (string | null);
     id: string;
+    is_moderator?: boolean;
     name: string;
     owner_id: string;
     owner_type: ProjectOwnerType;

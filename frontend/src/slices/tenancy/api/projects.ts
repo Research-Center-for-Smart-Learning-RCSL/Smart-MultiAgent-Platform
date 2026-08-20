@@ -21,6 +21,10 @@ export interface Project {
   version: number
   created_at: string
   deleted_at?: string | null
+  // Does the caller moderate this project (admin, project owner, or owner of
+  // the parent org)? Server-computed, because ownership is inherited and the
+  // member list therefore cannot answer it — see `useProjectRole`.
+  is_moderator?: boolean
 }
 
 export interface ProjectMember {

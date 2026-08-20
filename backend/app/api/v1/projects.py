@@ -54,6 +54,15 @@ class ProjectOut(BaseModel):
     version: int
     created_at: str
     deleted_at: str | None
+    # Does the caller moderate this project (R5.03 / R13.23)? Serialized for the
+    # same reason `ChatroomOut.is_moderator` is: the client cannot derive it.
+    # Ownership is inherited — an Org Owner moderates every project of that org
+    # without holding a `project_members` row — so a UI that reads the member
+    # list and looks for its own `owner` row concludes the opposite of what
+    # every server-side gate concludes, and hides or blocks surfaces the caller
+    # is entitled to. Computed by `moderated_project_ids`, the batch form of the
+    # gates' own predicate.
+    is_moderator: bool = False
 
 
 class ProjectMemberOut(BaseModel):
@@ -87,7 +96,7 @@ class InvitableMemberOut(BaseModel):
     email: str
 
 
-def _to_out(p) -> ProjectOut:
+def _to_out(p, *, is_moderator: bool = False) -> ProjectOut:
     owner_type = ProjectOwnerType.ORG if p.owner_org_id else ProjectOwnerType.USER
     owner_id = p.owner_org_id or p.owner_user_id
     return ProjectOut(
@@ -99,7 +108,26 @@ def _to_out(p) -> ProjectOut:
         version=p.version,
         created_at=p.created_at.isoformat(),
         deleted_at=p.deleted_at.isoformat() if p.deleted_at else None,
+        is_moderator=is_moderator,
     )
+
+
+async def _moderated(
+    db: AsyncSession,
+    principal: Principal,
+    projects: Sequence[Project],
+) -> set[uuid.UUID]:
+    """Which of `projects` the caller moderates, admin bypass applied.
+
+    One place, so every `ProjectOut` on every route answers the same question
+    the same way — a route that computed this itself would be the second copy
+    `moderated_project_ids` exists to prevent.
+    """
+    if principal.is_admin:
+        return {p.id for p in projects}
+    from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
+
+    return await TenancyRoleResolver(db).moderated_project_ids(principal, projects)
 
 
 async def _list_visible(
@@ -186,7 +214,8 @@ async def list_projects(
             else await _list_visible(db, service, principal, org_id=owner_id)
         )
     rows = rows[pagination.offset : pagination.offset + pagination.limit]
-    return [_to_out(r) for r in rows]
+    moderated = await _moderated(db, principal, rows)
+    return [_to_out(r, is_moderator=r.id in moderated) for r in rows]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -235,18 +264,24 @@ async def create_project(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    return _to_out(project)
+    # The creator moderates what they just created, and `_moderated` says so
+    # without a special case: a user-owned project matches `owner_user_id`, an
+    # org-owned one matches the org ownership the capability check above already
+    # required. Recomputing rather than hardcoding True is what keeps this
+    # response from disagreeing with the GET one request later.
+    return _to_out(project, is_moderator=project.id in await _moderated(db, principal, [project]))
 
 
 @router.get("/{project_id}")
 async def read_project(
     project_id: uuid.UUID = Path(...),
     _=Depends(require_membership(project_param="project_id")),
+    principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> ProjectOut:
     service = ProjectService(db)
     project = await service.get(project_id)
-    return _to_out(project)
+    return _to_out(project, is_moderator=project.id in await _moderated(db, principal, [project]))
 
 
 @router.patch("/{project_id}")
@@ -280,7 +315,7 @@ async def rename_project(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    return _to_out(project)
+    return _to_out(project, is_moderator=project.id in await _moderated(db, principal, [project]))
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)

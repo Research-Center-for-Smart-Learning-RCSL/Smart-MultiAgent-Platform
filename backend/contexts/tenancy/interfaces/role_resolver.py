@@ -9,10 +9,11 @@ it via `shared_kernel.auth.dependencies.get_role_resolver`.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.tenancy.domain.models import OrgMemberRole, ProjectMemberRole
+from contexts.tenancy.domain.models import OrgMemberRole, Project, ProjectMemberRole
 from contexts.tenancy.infrastructure.repositories import (
     OrgMemberRepository,
     ProjectMemberRepository,
@@ -66,6 +67,42 @@ class TenancyRoleResolver(RoleResolver):
         # capabilities and failing everything else closed — before it ever
         # calls this resolver. An empty scope here therefore yields no roles.
         return frozenset(roles)
+
+    async def moderated_project_ids(
+        self,
+        principal: Principal,
+        projects: Sequence[Project],
+    ) -> set[uuid.UUID]:
+        """Which of these projects does `principal` moderate? (R5.03, R13.23)
+
+        The batch form of ``is_moderator_roles(await roles_for(project_scope))``,
+        and it lives here for the reason ``visible_room_ids`` lives beside
+        ``ensure_can_read``: the answer a listing gives and the answer a gate
+        gives must agree by construction. A copy of this derivation anywhere
+        else is how a project starts listing as yours while its owner-only
+        surfaces refuse you, or the reverse.
+
+        It restates ``roles_for``'s three grounds for PROJECT_OWNER — owner of
+        the parent org, an explicit `owner` membership row, or a user-owned
+        project owned by the caller — in set form, resolved in two queries for
+        the whole page rather than three per project. ORG_OWNER needs no
+        separate branch: it is granted on exactly the projects whose parent org
+        the caller owns, which is already the first ground.
+
+        Admin is not considered here. It is a bypass the *route* applies, the
+        same way ``roles_for`` leaves ``principal.is_admin`` to its callers.
+        """
+        if not projects:
+            return set()
+        owned_org_ids = await self._org_members.owned_org_ids(principal.user_id)
+        owner_membership = await self._project_members.owned_project_ids_for_user(principal.user_id)
+        return {
+            p.id
+            for p in projects
+            if (p.owner_org_id is not None and p.owner_org_id in owned_org_ids)
+            or p.id in owner_membership
+            or p.owner_user_id == principal.user_id
+        }
 
     async def is_original_creator(self, *, user_id: uuid.UUID, org_id: uuid.UUID) -> bool:
         member = await self._org_members.get(org_id=org_id, user_id=user_id)
