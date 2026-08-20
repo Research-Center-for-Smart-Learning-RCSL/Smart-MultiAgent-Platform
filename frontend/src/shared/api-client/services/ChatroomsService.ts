@@ -7,6 +7,8 @@ import type { AgentRef } from '../models/AgentRef';
 import type { AgentRolePatchIn } from '../models/AgentRolePatchIn';
 import type { ApprovalWithVotesOut } from '../models/ApprovalWithVotesOut';
 import type { ChatroomCreateIn } from '../models/ChatroomCreateIn';
+import type { ChatroomMemberGroupsIn } from '../models/ChatroomMemberGroupsIn';
+import type { ChatroomMemberGroupsOut } from '../models/ChatroomMemberGroupsOut';
 import type { ChatroomMemberOut } from '../models/ChatroomMemberOut';
 import type { ChatroomOut } from '../models/ChatroomOut';
 import type { ChatroomPatchIn } from '../models/ChatroomPatchIn';
@@ -327,6 +329,59 @@ export class ChatroomsService {
             path: {
                 'chatroom_id': chatroomId,
             },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * List Chatroom Member Groups
+     * @returns ChatroomMemberGroupsOut Successful Response
+     * @throws ApiError
+     */
+    public static listChatroomMemberGroupsApiChatroomsChatroomIdMemberGroupsGet({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<ChatroomMemberGroupsOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/member-groups',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Set Chatroom Member Groups
+     * Replace this room's Member Group bindings (R13.29).
+     *
+     * SEC: every id is checked to belong to **this room's** project before it is
+     * written. Without that, an owner of project A could bind a group from project B
+     * to a room in A and hand B's members a room they have no standing in — a
+     * cross-project grant assembled entirely out of ids the caller is allowed to
+     * know. The check reads the group rows rather than trusting the request.
+     * @returns ChatroomMemberGroupsOut Successful Response
+     * @throws ApiError
+     */
+    public static setChatroomMemberGroupsApiChatroomsChatroomIdMemberGroupsPut({
+        chatroomId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        requestBody: ChatroomMemberGroupsIn,
+    }): CancelablePromise<ChatroomMemberGroupsOut> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/chatrooms/{chatroom_id}/member-groups',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },

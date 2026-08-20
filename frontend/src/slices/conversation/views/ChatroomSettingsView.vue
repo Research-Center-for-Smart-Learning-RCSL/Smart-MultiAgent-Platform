@@ -7,6 +7,7 @@ import {
   ClipboardDocumentIcon,
   TrashIcon,
   ArchiveBoxArrowDownIcon,
+  UserGroupIcon,
 } from '@heroicons/vue/24/outline'
 import {
   SPageHeader,
@@ -19,11 +20,13 @@ import {
   SAlert,
   SSkeleton,
   SDivider,
+  SEmptyState,
+  SLoadingSpinner,
   SWakeupEditor,
 } from '@shared/ui'
 import { useToast, useConfirmDialog } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
-import { tenancyKeys, projectsApi } from '@slices/tenancy'
+import { tenancyKeys, projectsApi, memberGroupsApi } from '@slices/tenancy'
 import { useQuery } from '@tanstack/vue-query'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
@@ -31,6 +34,8 @@ import {
   getGuestLink,
   getWorkspace,
   listChatrooms,
+  listChatroomMemberGroups,
+  setChatroomMemberGroups,
 } from '../api'
 import { DlqViewer } from '@slices/workflow'
 import { ConceptMapPanel } from '@slices/agents'
@@ -104,6 +109,50 @@ const membersQuery = useQuery({
   queryFn: () => projectsApi.listMembers(projectId.value!),
   enabled: computed(() => !!projectId.value && room.value?.created_by_user_id === null),
 })
+
+// ---- member-group bindings (section 13.2a) --------------------------------
+// Only fetched once the room actually has the tier on: a project that uses no
+// groups should not pay two requests on every visit to this page.
+
+const groupsQuery = useQuery({
+  queryKey: computed(() => tenancyKeys.memberGroups(projectId.value ?? '')),
+  queryFn: () => memberGroupsApi.list(projectId.value!),
+  enabled: computed(() => !!projectId.value && flags.value.allow_member_groups),
+})
+
+const boundQuery = useQuery({
+  queryKey: computed(() => ['conversation', 'chatroomMemberGroups', chatroomId] as const),
+  queryFn: () => listChatroomMemberGroups(chatroomId),
+  enabled: computed(() => flags.value.allow_member_groups),
+})
+
+const availableGroups = computed(() => groupsQuery.data.value ?? [])
+const boundGroupIds = computed(() => boundQuery.data.value ?? [])
+const groupsLoading = computed(() => groupsQuery.isLoading.value || boundQuery.isLoading.value)
+const savingGroups = ref(false)
+
+/** Toggle one group in or out of the room's binding set.
+ *
+ *  Sends the whole resulting set, because the endpoint replaces rather than
+ *  patches. The checkbox reads from the query data, so it only moves once the
+ *  server has confirmed — there is no local copy to leave out of step. */
+async function toggleGroup(groupId: string): Promise<void> {
+  if (savingGroups.value) return
+  const current = boundGroupIds.value
+  const next = current.includes(groupId)
+    ? current.filter((id) => id !== groupId)
+    : [...current, groupId]
+  savingGroups.value = true
+  try {
+    const applied = await setChatroomMemberGroups(chatroomId, next)
+    boundQuery.refetch()
+    toast.success(t('conversation.settings.boundGroupsSaved', { count: applied.length }))
+  } catch {
+    toast.error(t('conversation.settings.boundGroupsFailed'))
+  } finally {
+    savingGroups.value = false
+  }
+}
 
 const isCreator = computed<boolean>(() => {
   const me = session.me
@@ -354,6 +403,70 @@ watchEffect(() => {
               :disabled="flags.allow_project_owners_only || saving"
               @update:model-value="(v) => setFlag('allow_project_members', v)"
             />
+          </div>
+
+          <!--
+            Section 13.2a. Mutually exclusive with allow_project_members
+            (R13.04): `setFlag` moves both in one patch, so turning this on
+            visibly clears the row above rather than producing a 422.
+          -->
+          <div
+            class="access-row"
+            :class="{ 'access-row--dimmed': flags.allow_project_owners_only }"
+          >
+            <div class="access-row__text">
+              <p class="access-row__label">
+                {{ t('conversation.settings.allowMemberGroups') }}
+              </p>
+              <p class="access-row__desc">
+                {{ t('conversation.settings.allowMemberGroupsDesc') }}
+              </p>
+            </div>
+            <SToggle
+              :model-value="flags.allow_member_groups"
+              :disabled="flags.allow_project_owners_only || saving"
+              @update:model-value="(v) => setFlag('allow_member_groups', v)"
+            />
+          </div>
+
+          <!-- Which groups. Only meaningful while the tier above is on. -->
+          <div
+            v-if="flags.allow_member_groups && !flags.allow_project_owners_only"
+            class="access-row access-row--stacked"
+          >
+            <div class="access-row__text">
+              <p class="access-row__label">
+                {{ t('conversation.settings.boundGroups') }}
+              </p>
+              <p class="access-row__desc">
+                {{ t('conversation.settings.boundGroupsDesc') }}
+              </p>
+            </div>
+            <SLoadingSpinner v-if="groupsLoading" />
+            <SEmptyState
+              v-else-if="!availableGroups.length"
+              :icon="UserGroupIcon"
+              :title="t('conversation.settings.noGroupsYet')"
+            />
+            <ul
+              v-else
+              class="group-picker"
+            >
+              <li
+                v-for="g in availableGroups"
+                :key="g.id"
+              >
+                <label>
+                  <input
+                    type="checkbox"
+                    :checked="boundGroupIds.includes(g.id)"
+                    :disabled="savingGroups"
+                    @change="toggleGroup(g.id)"
+                  >
+                  <span>{{ g.name }}</span>
+                </label>
+              </li>
+            </ul>
           </div>
 
           <div class="access-row">

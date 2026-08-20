@@ -162,7 +162,35 @@
       "organizations": "Organizations",
       "projects": "Projects",
       "members": "Members",
-      "transfer": "Transfer"
+      "transfer": "Transfer",
+      "memberGroups": "Member groups"
+    },
+    "memberGroup": {
+      "subtitle": "Named subsets of this project's members. A chat room can be opened to specific groups instead of the whole project.",
+      "name": "Group name",
+      "namePlaceholder": "e.g. Team A",
+      "create": "Create group",
+      "created": "Group \"{name}\" created",
+      "createFailed": "Could not create the group. The name may already be taken.",
+      "deleteTitle": "Delete group",
+      "deleteBody": "Delete \"{name}\"? Rooms bound to it stop admitting its members.",
+      "deleteConfirm": "Delete group",
+      "deleted": "Group deleted",
+      "deleteFailed": "Could not delete the group",
+      "open": "Open",
+      "emptyOwner": "No member groups yet. Create one to scope a room to part of the project.",
+      "emptyMember": "You are not in any member group in this project.",
+      "loadError": "Could not load member groups",
+      "membersOf": "Members of \"{name}\"",
+      "addMember": "Add a project member",
+      "addMemberPlaceholder": "Select a project member",
+      "add": "Add",
+      "remove": "Remove",
+      "memberAdded": "Member added to the group",
+      "memberAddFailed": "Could not add the member. They must be a member of this project.",
+      "memberRemoved": "Member removed from the group",
+      "memberRemoveFailed": "Could not remove the member",
+      "noMembers": "This group has no members yet"
     }
   }
 }

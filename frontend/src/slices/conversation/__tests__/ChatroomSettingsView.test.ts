@@ -274,9 +274,14 @@ describe('ChatroomSettingsView', () => {
     })
     await flushPromises()
 
-    const toggles = wrapper.findAll('.access-row button[role="switch"]')
-    expect(toggles).toHaveLength(4) // non-creator: no disclosure toggle
-    await toggles[3]!.trigger('click') // Allow guest links
+    // Located by its label, not by index: the access section gains tiers over
+    // time (section 13.2a added one between these two), and a positional click
+    // silently starts exercising a different toggle when it does.
+    const guestRow = wrapper
+      .findAll('.access-row')
+      .find((row) => row.text().includes('conversation.settings.allowGuestLinks'))
+    expect(guestRow).toBeTruthy()
+    await guestRow!.find('button[role="switch"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('conversation.settings.guestLinkLabel')

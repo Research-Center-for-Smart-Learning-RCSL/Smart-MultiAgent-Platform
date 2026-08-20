@@ -284,7 +284,14 @@
       "versionConflict": "This chatroom changed elsewhere. Review your edits and save again.",
       "deleteFailed": "Failed to delete chatroom.",
       "activityControlFailed": "Could not update activity control for this agent.",
-      "activityControlNeedsTypes": "Pick at least one activity before granting control."
+      "activityControlNeedsTypes": "Pick at least one activity before granting control.",
+      "allowMemberGroups": "Specific member groups",
+      "allowMemberGroupsDesc": "Only members of the groups selected below. Turning this on closes the room to the rest of the project.",
+      "boundGroups": "Groups with access",
+      "boundGroupsDesc": "Members of any selected group can read and send here.",
+      "boundGroupsSaved": "Access updated ({count} groups)",
+      "boundGroupsFailed": "Could not update the groups for this room",
+      "noGroupsYet": "This project has no member groups yet"
     },
     "conceptMap": {
       "settings": "Concept Map",

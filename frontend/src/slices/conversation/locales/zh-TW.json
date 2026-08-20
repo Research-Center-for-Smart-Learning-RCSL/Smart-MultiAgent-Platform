@@ -284,7 +284,14 @@
       "versionConflict": "此聊天室已在他處變更。請檢查您的編輯後重新儲存。",
       "deleteFailed": "刪除聊天室失敗。",
       "activityControlFailed": "無法更新這個代理的活動控制設定。",
-      "activityControlNeedsTypes": "授權前請至少勾選一個活動。"
+      "activityControlNeedsTypes": "授權前請至少勾選一個活動。",
+      "allowMemberGroups": "指定成員分組",
+      "allowMemberGroupsDesc": "只有下方所選分組的成員。開啟此項會同時對專案其餘成員關閉此聊天室。",
+      "boundGroups": "可存取的分組",
+      "boundGroupsDesc": "所選分組的成員可以在此讀取與發言。",
+      "boundGroupsSaved": "已更新存取權（{count} 個分組）",
+      "boundGroupsFailed": "無法更新此聊天室的分組",
+      "noGroupsYet": "此專案尚未建立成員分組"
     },
     "conceptMap": {
       "settings": "概念圖",

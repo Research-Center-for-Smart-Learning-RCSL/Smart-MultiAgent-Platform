@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
@@ -20,6 +20,7 @@ import { useMemberActions } from '../composables/useMemberActions'
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const toast = useToast()
 const session = useSessionStore()
 const qc = useQueryClient()
@@ -123,7 +124,20 @@ const breadcrumbs = computed(() => [
     <SPageHeader
       :title="t('tenancy.breadcrumb.members')"
       :breadcrumbs="breadcrumbs"
-    />
+    >
+      <template #actions>
+        <SButton
+          variant="secondary"
+          size="sm"
+          @click="() => router.push({
+            name: 'tenancy.projectMemberGroups',
+            params: { id: projectId },
+          })"
+        >
+          {{ t('tenancy.breadcrumb.memberGroups') }}
+        </SButton>
+      </template>
+    </SPageHeader>
 
     <!-- Invite form -->
     <SCard

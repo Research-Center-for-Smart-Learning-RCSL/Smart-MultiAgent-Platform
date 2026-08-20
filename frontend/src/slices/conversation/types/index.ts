@@ -18,6 +18,7 @@ export interface Chatroom {
   allow_project_members: boolean
   allow_project_owners_only: boolean
   allow_guest_links: boolean
+  allow_member_groups: boolean
   version: number
   created_at: string
   created_by_user_id: string | null

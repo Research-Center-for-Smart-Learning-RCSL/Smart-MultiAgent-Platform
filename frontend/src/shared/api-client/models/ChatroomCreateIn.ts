@@ -4,6 +4,7 @@
 /* eslint-disable */
 export type ChatroomCreateIn = {
     allow_guest_links?: boolean;
+    allow_member_groups?: boolean;
     allow_org_members?: boolean;
     allow_project_members?: boolean;
     allow_project_owners_only?: boolean;
