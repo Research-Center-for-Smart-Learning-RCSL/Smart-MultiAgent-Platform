@@ -3,7 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { app__api__v1__projects__InviteCreateIn } from '../models/app__api__v1__projects__InviteCreateIn';
+import type { InvitableMemberOut } from '../models/InvitableMemberOut';
 import type { ProjectCreateIn } from '../models/ProjectCreateIn';
+import type { ProjectInviteOut } from '../models/ProjectInviteOut';
 import type { ProjectMemberOut } from '../models/ProjectMemberOut';
 import type { ProjectMemberPatchIn } from '../models/ProjectMemberPatchIn';
 import type { ProjectOut } from '../models/ProjectOut';
@@ -141,8 +143,47 @@ export class ProjectsService {
         });
     }
     /**
+     * List Invitable Members
+     * Parent-Org members this project may still invite (R6.10, Q-6).
+     *
+     * A user-owned project has no parent Org, so the pool is empty; that is a 200
+     * with `[]`, never a 404 — an empty pool is a state, not a missing resource.
+     * @returns InvitableMemberOut Successful Response
+     * @throws ApiError
+     */
+    public static listInvitableMembersApiProjectsProjectIdInvitableMembersGet({
+        projectId,
+        limit = 100,
+        offset,
+    }: {
+        projectId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<InvitableMemberOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/invitable-members',
+            path: {
+                'project_id': projectId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Create Project Invite
-     * @returns string Successful Response
+     * @returns ProjectInviteOut Successful Response
      * @throws ApiError
      */
     public static createProjectInviteApiProjectsProjectIdInvitesPost({
@@ -151,7 +192,7 @@ export class ProjectsService {
     }: {
         projectId: string,
         requestBody: app__api__v1__projects__InviteCreateIn,
-    }): CancelablePromise<Record<string, string>> {
+    }): CancelablePromise<ProjectInviteOut> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/projects/{project_id}/invites',

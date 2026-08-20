@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ActivationLinksOut } from '../models/ActivationLinksOut';
 import type { AdminActivityActivationOut } from '../models/AdminActivityActivationOut';
 import type { AdminActivityExampleOut } from '../models/AdminActivityExampleOut';
 import type { AdminActivityPolicyIn } from '../models/AdminActivityPolicyIn';
@@ -21,9 +22,11 @@ import type { IpBanOut } from '../models/IpBanOut';
 import type { MetricsOut } from '../models/MetricsOut';
 import type { OrgSummaryOut } from '../models/OrgSummaryOut';
 import type { ProjectSummaryOut } from '../models/ProjectSummaryOut';
+import type { ProvisionedUserOut } from '../models/ProvisionedUserOut';
 import type { RateLimitPatchIn } from '../models/RateLimitPatchIn';
 import type { RateLimitPolicyOut } from '../models/RateLimitPolicyOut';
 import type { RestoreOut } from '../models/RestoreOut';
+import type { UserCreateIn } from '../models/UserCreateIn';
 import type { UserDetailOut } from '../models/UserDetailOut';
 import type { UserSummaryOut } from '../models/UserSummaryOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -691,6 +694,31 @@ export class AdminService {
         });
     }
     /**
+     * Create User
+     * Provision an account without the holder present (R6.18).
+     *
+     * The 409 on an address that already has a live account is not an
+     * account-existence oracle: this route is admin-only and an Admin already holds
+     * `USER_READ_ANY`, so the same fact is one `GET /api/admin/users?q=` away.
+     * @returns ProvisionedUserOut Successful Response
+     * @throws ApiError
+     */
+    public static createUserApiAdminUsersPost({
+        requestBody,
+    }: {
+        requestBody: UserCreateIn,
+    }): CancelablePromise<ProvisionedUserOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/users',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Get User
      * @returns UserDetailOut Successful Response
      * @throws ApiError
@@ -703,6 +731,28 @@ export class AdminService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/admin/users/{user_id}',
+            path: {
+                'user_id': userId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Reissue Activation Links
+     * Re-mint both activation links for an account that still needs them (R6.18).
+     * @returns ActivationLinksOut Successful Response
+     * @throws ApiError
+     */
+    public static reissueActivationLinksApiAdminUsersUserIdActivationLinksPost({
+        userId,
+    }: {
+        userId: string,
+    }): CancelablePromise<ActivationLinksOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/users/{user_id}/activation-links',
             path: {
                 'user_id': userId,
             },

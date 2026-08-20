@@ -14,6 +14,35 @@
         "title": "AcceptByTokenIn",
         "type": "object"
       },
+      "ActivationLinksOut": {
+        "description": "The two links an Admin hands over (R6.18).\n\nBoth are bearer credentials and the set-password one is equivalent to the\npassword itself, so this model is returned only by the two mint endpoints and\nnever by a read path.",
+        "properties": {
+          "set_password_expires_at": {
+            "title": "Set Password Expires At",
+            "type": "string"
+          },
+          "set_password_url": {
+            "title": "Set Password Url",
+            "type": "string"
+          },
+          "verify_email_expires_at": {
+            "title": "Verify Email Expires At",
+            "type": "string"
+          },
+          "verify_email_url": {
+            "title": "Verify Email Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "set_password_url",
+          "verify_email_url",
+          "set_password_expires_at",
+          "verify_email_expires_at"
+        ],
+        "title": "ActivationLinksOut",
+        "type": "object"
+      },
       "ActivityActivationOut": {
         "properties": {
           "activity_type": {
@@ -5646,6 +5675,25 @@
         "title": "InstructionState",
         "type": "string"
       },
+      "InvitableMemberOut": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "email"
+        ],
+        "title": "InvitableMemberOut",
+        "type": "object"
+      },
       "InviteScope": {
         "enum": [
           "org",
@@ -7512,6 +7560,56 @@
         "title": "ProjectCreateIn",
         "type": "object"
       },
+      "ProjectInviteOut": {
+        "properties": {
+          "accept_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accept Url"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "invitee_email": {
+            "title": "Invitee Email",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "owner",
+              "member"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "scope_id": {
+            "format": "uuid",
+            "title": "Scope Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "scope_id",
+          "invitee_email",
+          "role",
+          "expires_at"
+        ],
+        "title": "ProjectInviteOut",
+        "type": "object"
+      },
       "ProjectMemberOut": {
         "properties": {
           "email": {
@@ -7705,6 +7803,22 @@
           "created_at"
         ],
         "title": "ProjectSummaryOut",
+        "type": "object"
+      },
+      "ProvisionedUserOut": {
+        "properties": {
+          "activation_links": {
+            "$ref": "#/components/schemas/ActivationLinksOut"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserSummaryOut"
+          }
+        },
+        "required": [
+          "user",
+          "activation_links"
+        ],
+        "title": "ProvisionedUserOut",
         "type": "object"
       },
       "RagConfigCreateIn": {
@@ -9736,6 +9850,32 @@
         "title": "UsageOut",
         "type": "object"
       },
+      "UserCreateIn": {
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "UserCreateIn",
+        "type": "object"
+      },
       "UserDetailOut": {
         "properties": {
           "banned_at": {
@@ -10641,6 +10781,17 @@
       },
       "app__api__v1__orgs__InviteOut": {
         "properties": {
+          "accept_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accept Url"
+          },
           "expires_at": {
             "title": "Expires At",
             "type": "string"
@@ -13532,6 +13683,47 @@
           "admin",
           "admin"
         ]
+      },
+      "post": {
+        "description": "Provision an account without the holder present (R6.18).\n\nThe 409 on an address that already has a live account is not an\naccount-existence oracle: this route is admin-only and an Admin already holds\n`USER_READ_ANY`, so the same fact is one `GET /api/admin/users?q=` away.",
+        "operationId": "create_user_api_admin_users_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvisionedUserOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Create User",
+        "tags": [
+          "admin",
+          "admin"
+        ]
       }
     },
     "/api/admin/users/{user_id}": {
@@ -13572,6 +13764,51 @@
           }
         },
         "summary": "Get User",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/users/{user_id}/activation-links": {
+      "post": {
+        "description": "Re-mint both activation links for an account that still needs them (R6.18).",
+        "operationId": "reissue_activation_links_api_admin_users__user_id__activation_links_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivationLinksOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Reissue Activation Links",
         "tags": [
           "admin",
           "admin"
@@ -18954,7 +19191,7 @@
     },
     "/api/invites/accept-by-token": {
       "post": {
-        "description": "Redeem an invite from its emailed token link (R6.09).\n\nThe token authorises acceptance (it proves the holder received the invite\nmail), so no email match is required \u2014 but the caller must still be logged\nin AND email-verified (R6.11), same as the by-id accept path.",
+        "description": "Redeem an invite from its emailed token link (R6.09).\n\nThe token authorises acceptance (it proves the holder received the invite\nlink), so no email match is required \u2014 but the caller must still be logged\nin AND email-verified (R6.02), same as the by-id accept path.",
         "operationId": "accept_by_token_api_invites_accept_by_token_post",
         "requestBody": {
           "content": {
@@ -24695,6 +24932,81 @@
         ]
       }
     },
+    "/api/projects/{project_id}/invitable-members": {
+      "get": {
+        "description": "Parent-Org members this project may still invite (R6.10, Q-6).\n\nA user-owned project has no parent Org, so the pool is empty; that is a 200\nwith `[]`, never a 404 \u2014 an empty pool is a state, not a missing resource.",
+        "operationId": "list_invitable_members_api_projects__project_id__invitable_members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max items to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "Max items to return",
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items to skip",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Number of items to skip",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InvitableMemberOut"
+                  },
+                  "title": "Response List Invitable Members Api Projects  Project Id  Invitable Members Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "List Invitable Members",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
     "/api/projects/{project_id}/invites": {
       "post": {
         "operationId": "create_project_invite_api_projects__project_id__invites_post",
@@ -24725,11 +25037,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Create Project Invite Api Projects  Project Id  Invites Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ProjectInviteOut"
                 }
               }
             },
