@@ -332,6 +332,100 @@ async def test_a_members_own_project_is_listed_even_with_no_readable_room() -> N
     facade.project_ids_with_visible_room.assert_not_called()
 
 
+async def _call_list_projects_scoped(
+    *,
+    candidates: list[SimpleNamespace],
+    directly_visible: set[uuid.UUID],
+    with_visible_room: set[uuid.UUID],
+    org_id: uuid.UUID,
+    is_admin: bool = False,
+) -> list:
+    """`GET /api/projects?scope=org&id=...` — the branch that used to bypass the filter."""
+    service = AsyncMock()
+    service.list_candidates_for_user = AsyncMock(
+        return_value=ProjectCandidates(projects=candidates, directly_visible_ids=directly_visible)
+    )
+    service.list_by_org = AsyncMock(return_value=candidates)
+    facade = AsyncMock()
+    facade.project_ids_with_visible_room = AsyncMock(return_value=with_visible_room)
+    resolver = SimpleNamespace(roles_for=AsyncMock(return_value=frozenset({Role.ORG_MEMBER})))
+
+    with (
+        patch.object(projects_mod, "ProjectService", return_value=service),
+        patch.object(projects_mod, "ConversationFacade", return_value=facade),
+        patch(
+            "shared_kernel.auth.dependencies.get_role_resolver",
+            AsyncMock(return_value=resolver),
+        ),
+    ):
+        return await projects_mod.list_projects(
+            scope="org",
+            owner_id=org_id,
+            pagination=_pagination(),
+            principal=_principal(is_admin=is_admin),
+            db=AsyncMock(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_the_org_scoped_listing_is_filtered_too() -> None:
+    """The query parameter must not be a second, unfiltered way to ask.
+
+    `?scope=org&id=...` previously ran `list_by_org` behind a bare org-membership
+    check, so any org member received the name of every project in the org — and
+    it is the branch the project list's per-org tab actually calls.
+    """
+    org_id = uuid.uuid4()
+    mine, theirs = _project("mine"), _project("theirs")
+    mine.owner_org_id = org_id
+    theirs.owner_org_id = org_id
+
+    out = await _call_list_projects_scoped(
+        candidates=[mine, theirs],
+        directly_visible={mine.id},
+        with_visible_room=set(),
+        org_id=org_id,
+    )
+
+    assert [p.id for p in out] == [mine.id]
+
+
+@pytest.mark.asyncio
+async def test_the_org_scoped_listing_excludes_other_orgs_projects() -> None:
+    """`org_id` narrows the result; it never widens the candidate set."""
+    org_id, other_org = uuid.uuid4(), uuid.uuid4()
+    here, elsewhere = _project("here"), _project("elsewhere")
+    here.owner_org_id = org_id
+    elsewhere.owner_org_id = other_org
+
+    out = await _call_list_projects_scoped(
+        candidates=[here, elsewhere],
+        directly_visible={here.id, elsewhere.id},
+        with_visible_room=set(),
+        org_id=org_id,
+    )
+
+    assert [p.id for p in out] == [here.id]
+
+
+@pytest.mark.asyncio
+async def test_admin_keeps_the_unfiltered_org_view() -> None:
+    org_id = uuid.uuid4()
+    a, b = _project("a"), _project("b")
+    a.owner_org_id = org_id
+    b.owner_org_id = org_id
+
+    out = await _call_list_projects_scoped(
+        candidates=[a, b],
+        directly_visible=set(),
+        with_visible_room=set(),
+        org_id=org_id,
+        is_admin=True,
+    )
+
+    assert sorted(p.id for p in out) == sorted([a.id, b.id])
+
+
 @pytest.mark.asyncio
 async def test_only_undecided_projects_are_sent_to_the_room_query() -> None:
     mine, theirs = _project("mine"), _project("theirs")
