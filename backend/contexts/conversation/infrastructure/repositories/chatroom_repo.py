@@ -222,6 +222,57 @@ class ChatroomRepository:
         ).all()
         return [_row_to_chatroom(r) for r in rows]
 
+    async def list_candidates(
+        self,
+        *,
+        workspace_ids: Sequence[uuid.UUID] | None = None,
+        project_ids: Sequence[uuid.UUID] | None = None,
+        limit: int,
+    ) -> tuple[list[tuple[uuid.UUID, Chatroom]], bool]:
+        """Live rooms under the given workspaces *or* projects, each with its
+        parent project id, for the visibility-filtered listings (R13.32).
+
+        Returns ``(rows, truncated)``. One extra row beyond `limit` is fetched so
+        truncation is detected rather than inferred from a full page; the caller
+        decides what to say about it. Silent truncation is the failure mode this
+        shape exists to prevent — a listing that quietly stops reads as "that is
+        all there is".
+
+        Ordering is ``(created_at, id)``. `created_at` alone is not a total order,
+        and the caller paginates *after* filtering, so a tie that reorders between
+        two requests would drop or duplicate a room across page boundaries.
+
+        Exactly one of `workspace_ids` / `project_ids` must be given: they select
+        different scopes and passing both would silently union them.
+        """
+        if workspace_ids is not None and project_ids is None:
+            scope_predicate: sa.ColumnElement[bool] = t.workspaces.c.id.in_(list(workspace_ids))
+            empty = not workspace_ids
+        elif project_ids is not None and workspace_ids is None:
+            scope_predicate = t.workspaces.c.project_id.in_(list(project_ids))
+            empty = not project_ids
+        else:
+            raise ValueError("pass exactly one of workspace_ids / project_ids")
+        if empty:
+            return [], False
+
+        stmt = (
+            sa.select(t.chatrooms, t.workspaces.c.project_id.label("parent_project_id"))
+            .select_from(t.chatrooms.join(t.workspaces, t.chatrooms.c.workspace_id == t.workspaces.c.id))
+            .where(
+                sa.and_(
+                    scope_predicate,
+                    t.chatrooms.c.deleted_at.is_(None),
+                    t.workspaces.c.deleted_at.is_(None),
+                )
+            )
+            .order_by(t.chatrooms.c.created_at, t.chatrooms.c.id)
+            .limit(limit + 1)
+        )
+        rows = (await self._db.execute(stmt)).all()
+        truncated = len(rows) > limit
+        return [(r.parent_project_id, _row_to_chatroom(r)) for r in rows[:limit]], truncated
+
     async def count_active_in_workspace(self, workspace_id: uuid.UUID) -> int:
         row = (
             await self._db.execute(

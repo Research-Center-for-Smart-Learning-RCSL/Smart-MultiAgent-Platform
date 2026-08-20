@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 from datetime import timedelta
 
 import sqlalchemy as sa
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.models import (
@@ -35,6 +36,31 @@ from contexts.conversation.infrastructure.repositories import (
     WorkspaceRepository,
 )
 from shared_kernel.auth.clients import now
+from shared_kernel.auth.permissions import Principal
+
+# Ceiling on the candidate rooms one visibility-filtered listing will read.
+#
+# The four access flags are evaluated in exactly one place — `_satisfies_room_flags`,
+# in Python — so the listings pull candidates and filter in memory rather than
+# keeping a second copy of the rule in SQL. That trade is only defensible while the
+# candidate set is bounded, and the bound has to be loud: a listing that silently
+# stops reads as "that is all there is", which for a confidentiality filter is the
+# worst possible failure. See the dossier's Decision 2 and FU-3.
+_MAX_LISTING_CANDIDATES = 2000
+
+
+def _warn_if_truncated(truncated: bool, *, scope: str, scope_id: uuid.UUID | None) -> None:
+    if not truncated:
+        return
+    logger.bind(
+        event="room_listing_truncated",
+        scope=scope,
+        scope_id=str(scope_id) if scope_id else None,
+        limit=_MAX_LISTING_CANDIDATES,
+    ).warning(
+        "room listing hit the candidate ceiling; rooms beyond it were not considered "
+        "for visibility and are absent from the response"
+    )
 
 
 class ConversationFacade:
@@ -76,6 +102,70 @@ class ConversationFacade:
         project_id: uuid.UUID,
     ) -> Sequence[Workspace]:
         return await self._workspaces.list_for_project(project_id)
+
+    # ---- visibility-filtered listings (R13.32) ---------------------------
+
+    async def visible_rooms_in_workspace(
+        self,
+        *,
+        principal: Principal,
+        workspace_id: uuid.UUID,
+    ) -> list[Chatroom]:
+        """Live rooms in this workspace the caller may read, in listing order."""
+        candidates, truncated = await self._rooms.list_candidates(
+            workspace_ids=[workspace_id],
+            limit=_MAX_LISTING_CANDIDATES,
+        )
+        _warn_if_truncated(truncated, scope="workspace", scope_id=workspace_id)
+        visible = await self._visible_ids(principal, candidates)
+        return [room for _, room in candidates if room.id in visible]
+
+    async def workspace_ids_with_visible_room(
+        self,
+        *,
+        principal: Principal,
+        workspace_ids: Sequence[uuid.UUID],
+    ) -> set[uuid.UUID]:
+        """Of `workspace_ids`, those holding at least one room the caller may read."""
+        candidates, truncated = await self._rooms.list_candidates(
+            workspace_ids=list(workspace_ids),
+            limit=_MAX_LISTING_CANDIDATES,
+        )
+        _warn_if_truncated(truncated, scope="workspace-set", scope_id=None)
+        visible = await self._visible_ids(principal, candidates)
+        return {room.workspace_id for _, room in candidates if room.id in visible}
+
+    async def project_ids_with_visible_room(
+        self,
+        *,
+        principal: Principal,
+        project_ids: Sequence[uuid.UUID],
+    ) -> set[uuid.UUID]:
+        """Of `project_ids`, those holding at least one room the caller may read.
+
+        Callers pass only the projects whose visibility is actually in question —
+        a project the caller is a member of is visible on that basis alone and
+        must not be routed through here, or a member with no readable room would
+        lose sight of their own project.
+        """
+        candidates, truncated = await self._rooms.list_candidates(
+            project_ids=list(project_ids),
+            limit=_MAX_LISTING_CANDIDATES,
+        )
+        _warn_if_truncated(truncated, scope="project-set", scope_id=None)
+        visible = await self._visible_ids(principal, candidates)
+        return {project_id for project_id, room in candidates if room.id in visible}
+
+    async def _visible_ids(
+        self,
+        principal: Principal,
+        candidates: Sequence[tuple[uuid.UUID, Chatroom]],
+    ) -> set[uuid.UUID]:
+        # Lazy import: `application.access` imports the tenancy interfaces, which
+        # would close a cycle through this module at import time.
+        from contexts.conversation.application.access import visible_room_ids
+
+        return await visible_room_ids(self._db, principal=principal, rooms=candidates)
 
     async def get_chatroom(
         self,
