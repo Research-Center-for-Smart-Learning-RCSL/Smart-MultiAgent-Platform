@@ -182,8 +182,8 @@ class TestCrossProjectBinding:
     async def _call(groups: list[MemberGroup]) -> object:
         service = AsyncMock()
         service.set_bound_groups = AsyncMock(return_value={g.id for g in groups})
-        mg_service = AsyncMock()
-        mg_service.get = AsyncMock(side_effect=list(groups))
+        tenancy = AsyncMock()
+        tenancy.get_member_group = AsyncMock(side_effect=list(groups))
 
         with (
             patch.object(
@@ -192,7 +192,7 @@ class TestCrossProjectBinding:
                 AsyncMock(return_value=_PROJECT_ID),
             ),
             patch.object(chatrooms_mod, "_require_project_cap", AsyncMock()),
-            patch.object(chatrooms_mod, "MemberGroupService", return_value=mg_service),
+            patch.object(chatrooms_mod, "TenancyFacade", return_value=tenancy),
             patch.object(chatrooms_mod, "ChatroomService", return_value=service),
         ):
             return await chatrooms_mod.set_chatroom_member_groups(
@@ -222,3 +222,28 @@ class TestCrossProjectBinding:
         groups = [_member_group(_PROJECT_ID), _member_group(_PROJECT_ID)]
         out = await self._call(groups)
         assert sorted(out.member_group_ids) == sorted(g.id for g in groups)
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_group_id_is_refused_rather_than_written(self) -> None:
+        """The facade answers None for a missing or soft-deleted group; binding it
+        would write a row that grants nothing and reads as if it did."""
+        service = AsyncMock()
+        tenancy = AsyncMock()
+        tenancy.get_member_group = AsyncMock(return_value=None)
+
+        with (
+            patch.object(chatrooms_mod, "_project_id_for_chatroom", AsyncMock(return_value=_PROJECT_ID)),
+            patch.object(chatrooms_mod, "_require_project_cap", AsyncMock()),
+            patch.object(chatrooms_mod, "TenancyFacade", return_value=tenancy),
+            patch.object(chatrooms_mod, "ChatroomService", return_value=service),
+            pytest.raises(HTTPException) as exc,
+        ):
+            await chatrooms_mod.set_chatroom_member_groups(
+                body=chatrooms_mod.ChatroomMemberGroupsIn(member_group_ids=[uuid.uuid4()]),
+                chatroom_id=_ROOM_ID,
+                ctx=SimpleNamespace(actor_ip=None, request_id=None),
+                principal=SimpleNamespace(user_id=_USER_ID, is_admin=False, email_verified=True),
+                db=AsyncMock(),
+            )
+        assert exc.value.status_code == 422
+        service.set_bound_groups.assert_not_called()

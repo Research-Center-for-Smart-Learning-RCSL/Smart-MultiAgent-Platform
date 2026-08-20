@@ -32,7 +32,7 @@ from contexts.conversation.interfaces.author_labels import prefer_guest_label
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.interfaces.facade import IdentityFacade
 from contexts.orchestration.interfaces.facade import OrchestrationFacade
-from contexts.tenancy.application.member_group_service import MemberGroupService
+from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     _raise_forbidden,
@@ -477,10 +477,10 @@ async def set_chatroom_member_groups(
 
     requested = list(dict.fromkeys(body.member_group_ids))
     if requested:
-        service = MemberGroupService(db)
+        tenancy = TenancyFacade(db)
         for group_id in requested:
-            group = await service.get(group_id)
-            if group.project_id != project_id:
+            group = await tenancy.get_member_group(group_id)
+            if group is None or group.project_id != project_id:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="member group does not belong to this chatroom's project",
