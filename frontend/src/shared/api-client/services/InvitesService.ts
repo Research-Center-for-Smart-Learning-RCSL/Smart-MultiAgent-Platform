@@ -46,8 +46,8 @@ export class InvitesService {
      * Redeem an invite from its emailed token link (R6.09).
      *
      * The token authorises acceptance (it proves the holder received the invite
-     * mail), so no email match is required — but the caller must still be logged
-     * in AND email-verified (R6.11), same as the by-id accept path.
+     * link), so no email match is required — but the caller must still be logged
+     * in AND email-verified (R6.02), same as the by-id accept path.
      * @returns app__api__v1__invites__InviteOut Successful Response
      * @throws ApiError
      */
