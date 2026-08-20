@@ -5,6 +5,7 @@ import {
   PermissionError,
   RateLimitError,
   ValidationError,
+  type ValidationFieldError,
 } from '@shared/errors'
 
 export interface ProblemJson {
@@ -13,7 +14,7 @@ export interface ProblemJson {
   status: number
   detail?: string
   instance?: string
-  field_errors?: Array<{ path: string; message: string }>
+  field_errors?: ValidationFieldError[]
   retry_after_seconds?: number
   [k: string]: unknown
 }

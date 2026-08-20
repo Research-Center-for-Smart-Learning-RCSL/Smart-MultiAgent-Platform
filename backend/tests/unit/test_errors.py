@@ -113,26 +113,35 @@ def test_request_validation_errors_use_safe_field_error_contract() -> None:
         "instance": "/validation/not-an-int",
         "field_errors": [
             {
+                "location": "path",
                 "path": "resource_id",
                 "message": "Input should be a valid integer, unable to parse string as an integer",
             },
             {
+                "location": "query",
                 "path": "limit",
                 "message": "Input should be a valid integer, unable to parse string as an integer",
             },
             {
+                "location": "header",
                 "path": "x-count",
                 "message": "Input should be a valid integer, unable to parse string as an integer",
             },
             {
+                "location": "cookie",
                 "path": "session_id",
                 "message": "Input should be a valid integer, unable to parse string as an integer",
             },
             {
+                "location": "body",
                 "path": "items[0].count",
                 "message": "Input should be a valid integer, unable to parse string as an integer",
             },
-            {"path": "name", "message": "String should have at least 2 characters"},
+            {
+                "location": "body",
+                "path": "name",
+                "message": "String should have at least 2 characters",
+            },
         ],
     }
     assert secret_input not in response.text
@@ -175,8 +184,15 @@ def test_openapi_advertises_the_runtime_validation_problem_contract() -> None:
         "$ref": "#/components/schemas/ValidationProblem"
     }
     field_error = schema["components"]["schemas"]["ValidationFieldError"]
-    assert set(field_error["properties"]) == {"path", "message"}
-    assert set(field_error["required"]) == {"path", "message"}
+    assert set(field_error["properties"]) == {"location", "path", "message"}
+    assert set(field_error["required"]) == {"location", "path", "message"}
+    assert field_error["properties"]["location"]["enum"] == [
+        "body",
+        "query",
+        "path",
+        "header",
+        "cookie",
+    ]
     assert field_error["additionalProperties"] is False
     validation_problem = schema["components"]["schemas"]["ValidationProblem"]
     assert set(validation_problem["required"]) == {
@@ -212,3 +228,49 @@ def test_openapi_preserves_an_explicit_custom_422_response() -> None:
         "description": "Domain-specific response",
         "content": {"application/problem+json": {"schema": {"type": "object"}}},
     }
+
+
+def test_openapi_keeps_the_superseded_schemas_while_a_route_still_refers_to_them() -> None:
+    """A surviving explicit 422 must not be left pointing at a deleted schema."""
+    app = FastAPI()
+    validation_ref = {"$ref": "#/components/schemas/HTTPValidationError"}
+
+    @app.get("/auto/{item_id}")
+    def _auto(item_id: int) -> int:
+        return item_id
+
+    # Two content types, so the replacement pass correctly leaves this one alone
+    # while its reference to the FastAPI schema stays live.
+    @app.get(
+        "/legacy/{item_id}",
+        responses={
+            422: {
+                "description": "Legacy Validation Error",
+                "content": {
+                    "application/json": {"schema": validation_ref},
+                    "application/problem+json": {"schema": validation_ref},
+                },
+            }
+        },
+    )
+    def _legacy(item_id: int) -> int:
+        return item_id
+
+    install_validation_problem_openapi(app)
+    schema = app.openapi()
+    schemas = schema["components"]["schemas"]
+
+    assert schema["paths"]["/auto/{item_id}"]["get"]["responses"]["422"]["content"] == {
+        "application/problem+json": {"schema": {"$ref": "#/components/schemas/ValidationProblem"}}
+    }
+    assert (
+        schema["paths"]["/legacy/{item_id}"]["get"]["responses"]["422"]["content"]["application/json"][
+            "schema"
+        ]
+        == validation_ref
+    )
+    assert "HTTPValidationError" in schemas
+    # Kept transitively: HTTPValidationError's own body is the only thing that
+    # references it, and that body survived.
+    assert "ValidationError" in schemas
+    assert "ValidationProblem" in schemas

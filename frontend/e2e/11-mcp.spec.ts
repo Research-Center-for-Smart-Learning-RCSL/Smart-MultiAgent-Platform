@@ -85,7 +85,9 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
           title: 'Validation Failed',
           status: 422,
           detail: 'Request validation failed.',
-          field_errors: [{ path: 'config.reference', message: 'Package reference is invalid.' }],
+          field_errors: [
+            { location: 'body', path: 'config.reference', message: 'Package reference is invalid.' },
+          ],
         }),
       })
     })

@@ -56,11 +56,22 @@ class Problem(BaseModel):
         return body
 
 
+ValidationLocation = Literal["body", "query", "path", "header", "cookie"]
+
+
 class ValidationFieldError(BaseModel):
-    """One request-validation failure safe to expose on the public wire."""
+    """One request-validation failure safe to expose on the public wire.
+
+    `path` is relative to `location`, not absolute: the request-part prefix that
+    FastAPI puts at the head of `loc` is carried in `location` instead. Without
+    the split, a path parameter and a body field of the same name are
+    indistinguishable, and a client mapping errors onto form fields attaches the
+    wrong one.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
+    location: ValidationLocation
     path: str = Field(min_length=1)
     message: str = Field(min_length=1)
 

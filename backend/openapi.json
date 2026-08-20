@@ -9847,8 +9847,19 @@
       },
       "ValidationFieldError": {
         "additionalProperties": false,
-        "description": "One request-validation failure safe to expose on the public wire.",
+        "description": "One request-validation failure safe to expose on the public wire.\n\n`path` is relative to `location`, not absolute: the request-part prefix that\nFastAPI puts at the head of `loc` is carried in `location` instead. Without\nthe split, a path parameter and a body field of the same name are\nindistinguishable, and a client mapping errors onto form fields attaches the\nwrong one.",
         "properties": {
+          "location": {
+            "enum": [
+              "body",
+              "query",
+              "path",
+              "header",
+              "cookie"
+            ],
+            "title": "Location",
+            "type": "string"
+          },
           "message": {
             "minLength": 1,
             "title": "Message",
@@ -9861,6 +9872,7 @@
           }
         },
         "required": [
+          "location",
           "path",
           "message"
         ],
