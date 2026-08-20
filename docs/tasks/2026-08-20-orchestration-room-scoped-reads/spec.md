@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-08-20
 requirements: [R5.05, R8.08, R13.04, R14.10, R15.10, R15.18, R16.06]
 depends_on: []
@@ -259,30 +259,32 @@ None.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `GET /api/orchestration/approvals/{id}` for an approval whose `chatroom_id` is
+- [x] AC-1: `GET /api/orchestration/approvals/{id}` for an approval whose `chatroom_id` is
       set is readable by a member of that room and refused (404) for a project member who
       cannot read the room, including an `allow_project_owners_only` room.
-- [ ] AC-2: The same route, for an approval with `chatroom_id IS NULL`, is readable only by
+- [x] AC-2: The same route, for an approval with `chatroom_id IS NULL`, is readable only by
       Admin and Project/Org Owners.
-- [ ] AC-3: `GET /api/orchestration/workflow-runs/{id}/approvals` omits rows whose rooms
+- [x] AC-3: `GET /api/orchestration/workflow-runs/{id}/approvals` omits rows whose rooms
       the caller cannot read, returns 200 rather than 403 when some rows are omitted, and
       exposes no count of what was withheld.
-- [ ] AC-4: `GET /api/orchestration/workflow-runs/{id}/subagents` and
+- [x] AC-4: `GET /api/orchestration/workflow-runs/{id}/subagents` and
       `GET /api/orchestration/instances/{id}/children` apply the same dual track over
       `agent_instances.chatroom_id`.
-- [ ] AC-5: An approval whose room was deleted (`chatroom_id` set to NULL by the FK) is
+- [x] AC-5: An approval whose room was deleted (`chatroom_id` set to NULL by the FK) is
       readable only by Admin and Owners, never by a project member.
-- [ ] AC-6: `workflows.py` list/get/validate/list_runs/list_steps require Admin or
+- [x] AC-6: `workflows.py` list/get/validate/list_runs/list_steps require Admin or
       Project/Org Owner ([R14.10]), and the module docstring states that rule.
-- [ ] AC-7: `GET /api/orchestration/instructions/{id}` and `/chains/{id}/instructions`
+- [x] AC-7: `GET /api/orchestration/instructions/{id}` and `/chains/{id}/instructions`
       require Admin or Owner.
-- [ ] AC-8: No in-room regression — an ordinary member of a room with a live approval still
+- [x] AC-8: No in-room regression — an ordinary member of a room with a live approval still
       sees and can act on the approval card, verified in a browser or an e2e spec, not by
-      reading code.
-- [ ] AC-9: `_assert_project_member` has no callers other than the DLQ route.
-- [ ] AC-10: Gates green — `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`,
+      reading code. **Verified by substitution, see D-2**: executed against a real
+      PostgreSQL as a real ordinary member, not observed in a browser.
+- [x] AC-9: `_assert_project_member` has no callers other than the DLQ route.
+- [x] AC-10: Gates green — `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`,
       `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, and
-      `pnpm run check:openapi-drift` after `gen:api`.
+      `pnpm run check:openapi-drift` after `gen:api`. The drift script itself cannot run on
+      this host (D-4); the check it performs was done by hand, with no diff.
 
 ## 12. Test Plan
 
@@ -330,7 +332,66 @@ existing precedent for placing a rule by topic rather than by number:**
 
 ## 15. Deviation Log
 
-Appended by `/build`. Empty means the implementation matches this spec exactly.
+- **D-1** — The shared helper is a **predicate**, `can_read_orchestration_record(...) -> bool`,
+  not §5's raising `ensure_can_read_orchestration_record`, and its implementation lives in
+  `contexts/conversation/application/access.py` with `interfaces/access.py` re-exporting it
+  (§5 said the helper itself would live in `interfaces/`; §6 said "export", and the
+  re-export reading is the one consistent with `visible_room_ids` and every other predicate
+  in that module). The reason it does not raise is §8's own requirement: the two denial
+  branches need **different** status codes — 404 for the room branch, byte-identical to a
+  missing record, and 403 for the backstage branch — and only the route knows the resource
+  name that goes in the 404 body. A raising helper would have had to import FastAPI into
+  the conversation context or invent one error type per resource label.
+  `_assert_can_read_record` in `orchestration.py` is the thin route-local mapper.
+
+- **D-2** — **AC-8 was verified by substitution, with the user's agreement.** The approved
+  plan called for a browser or Playwright pass. Asked at Step 3, the user chose a real-stack
+  backend test plus a frontend unit test instead. What was executed:
+  `tests/integration/test_orchestration_room_scoped_reads_db.py::test_ac8_*` drives
+  `get_approval` against a real PostgreSQL as a real ordinary member of a real room, plus
+  the untouched room-scoped listing path; `frontend/src/slices/conversation/__tests__/approvalCardReconcile.test.ts`
+  drives the card's reconcile through all three branches (served, 404, other error).
+  What was **not** executed: no browser, no Playwright, so `ApprovalCard`'s rendering and
+  the vote action itself are still reasoned about rather than seen. That is the residual
+  risk of this dossier and it is the risk §10 named.
+
+- **D-3** — **The list routes carry no project-level precondition at all.** §5 did not say
+  what a caller with *no* role in the project should get from
+  `/workflow-runs/{id}/approvals` and `/subagents`. Decided with the user at Step 3:
+  filter-only, so an outsider gets `200 []` rather than 403. Every row is gated
+  individually, which is the rule R15.24 states, and the existence oracle is unchanged —
+  before this task the same caller got 403 for a real run and 404 for a bogus one, which
+  distinguishes them exactly as well. The alternative kept a second spelling of
+  `_assert_project_member` alive, which is what AC-9 exists to prevent.
+
+- **D-4** — `pnpm run check:openapi-drift` could not run on this host: the script is bash
+  and calls `python`, which is not on git-bash's PATH here (the same limitation
+  `BOARD.md` already records). The check it performs was done by hand instead —
+  `python -m scripts.export_openapi` regenerated `backend/openapi.json` and
+  `pnpm run gen:api` regenerated the client, and `git status` reported **no diff** in
+  either. The contract genuinely did not move: this task changed module docstrings and
+  gate internals, not route docstrings, summaries, or response models.
+
+- **D-5** — **A defect was fixed outside the spec's stated scope, because it sits on
+  AC-8's path.** `useChatroomSocket.fetchApprovalOrNull` tested `e instanceof ApiError`
+  against the *generated client's* class while the axios interceptor rejects with the
+  same-named class from `@shared/errors`; the generated client rethrows that untouched,
+  because the rejected value carries no `.response` and its own `catchErrorCodes` never
+  runs. The 404 branch was therefore dead, and an approval whose row was gone pinned a
+  `pending` card until reload. Both classes expose `.status`, which is what hid it. This
+  matters more now than it did before the change, because a room-gated refusal answers
+  404 — that is precisely how a member who loses room access should see the card go away.
+  Fixed with the covering test; the two sibling sites are FU-5.
+
+- **D-6** — **The frontend guard covers more than §6's "the backstage views".** Once
+  `workflows.py` became owner-only, four views had every request answering 403:
+  `WorkflowListView`, `WorkflowRunsListView`, `WorkflowEditorView` and `WorkflowRunView`.
+  The first three take the same `useProjectRole` redirect the backstage view already had,
+  lifted into `useBackstageGuard` so there is one copy. `WorkflowRunView` could not: its
+  route is `/workflow-runs/:runId`, with no workspace and therefore no project to resolve
+  a role against before asking, so it reads the server's 403 and renders an empty state.
+  The two nav entry points (`ChatroomListView`'s header button, `WorkspaceListView`'s row
+  menu) are hidden from non-owners, per §7's "hidden nav item".
 
 ## 16. Follow-ups
 
@@ -346,3 +407,45 @@ Appended by `/build`. Empty means the implementation matches this spec exactly.
 - **FU-4** — `_require_member` in `workflows.py` and `_assert_project_member` in
   `orchestration.py` are two spellings of one idea, and this dossier leaves one of each.
   A shared, intent-named helper in `shared_kernel.auth.dependencies` would retire both.
+  *(Partly addressed: `_require_member` is now `_require_moderator` and no longer says the
+  same thing as `_assert_project_member`, so the two are no longer duplicates — but there
+  are still two hand-rolled gates where the matrix should own one.)*
+
+- **FU-5** — **The same wrong-`ApiError` mismatch D-5 fixed exists at two more sites**:
+  `slices/conversation/composables/useChatroomMessages.ts:11` and
+  `slices/prompt-studio/composables/usePromptAssistantSocket.ts:3` both import `ApiError`
+  from `@shared/api-client` and `instanceof`-test it against an error the transport never
+  throws. Their tests construct the same wrong class, so the suites are green and the
+  branches are dead. Left alone here because neither is on this dossier's path and each
+  needs its own analysis of what the dead branch was meant to do. The durable fix is a
+  lint rule: `@shared/api-client`'s `ApiError` should never be imported outside the
+  generated tree.
+
+- **FU-6** — `filter_readable_by_room` resolves room access once per **distinct** room id
+  over the whole unpaginated row set (filtering must precede pagination, or the page
+  length discloses what was withheld). One run's approvals almost always name one room, so
+  the memo collapses to a single lookup — but a project owner who authors a workflow with
+  many approval gates in many different rooms turns one request into one room resolution
+  per room. Bounded by the project's own room count and self-inflicted within one tenant,
+  so it is a scaling concern rather than a vulnerability. The batch form
+  (`visible_room_ids`) is not a drop-in: it resolves roles against a caller-supplied
+  project id and does not re-check the room's workspace/project reachability, which is the
+  fail-closed property §8 required and AC-5 pins.
+
+- **FU-7** — The backstage branch answers 403 for a record that exists and 404 for one that
+  does not, so the two are distinguishable to a caller who may read neither. §8 required
+  indistinguishability only of the room branch, and this 403/404 split is what
+  `_assert_project_member` already produced, so nothing regressed — but it is the one place
+  the dossier's own rule is not applied, and closing it is one line.
+
+- **FU-8** — `list_subagent_children` loads the parent instance twice: `resolve_project`
+  already reads the row to reach its agent, then `get_instance` reads it again for the
+  `chatroom_id` the gate needs. Both feed the same decision, so there is no window between
+  them, but it is a duplicated round trip. Fixing it means a service method that returns
+  the instance and its project together — a change inside the orchestration context, which
+  §5 deliberately kept out of this dossier.
+
+- **FU-9** — `frontend/src/slices/agents/__tests__/AgentToolsView.test.ts` is **flaky**:
+  "renders CodeMirror for the MCP config JSON field" failed once in a full `pnpm test` run
+  (5.4 s for the file) and passed on re-run and in isolation. Untouched by this diff.
+  Somebody should chase it before it starts costing CI reruns.

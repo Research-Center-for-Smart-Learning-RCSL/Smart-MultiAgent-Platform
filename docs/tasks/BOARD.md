@@ -91,7 +91,9 @@ first, but building them serially avoids the conflict.
   `ProjectMembersView.vue`, `projects.py` and the tenancy locales, all different regions;
   deliberately not a `depends_on`, so whoever builds second rebases.
 
-- `2026-08-20-orchestration-room-scoped-reads` (feature, approved) - `depends_on: []`. Opened
+- (implemented 2026-08-21; see the note under In progress)
+  `2026-08-20-orchestration-room-scoped-reads`. The original entry, kept here for the record:
+  `2026-08-20-orchestration-room-scoped-reads` (feature, approved) - `depends_on: []`. Opened
   from the member-groups dossier's FU-2. **It found a live SRS contradiction**: [R14.10]
   (`REQUIREMENTS.md:778`) says the workflow trace is visible to Admin + Project Owners, and
   `workflows.py` grants it to any project member at `:332`, `:354`, `:546`, `:569`, `:602`. And a
@@ -137,6 +139,40 @@ overlap, so each unblocks as soon as its predecessor is `implemented`.
   (accept link, invitable-member pool, admin provisioning, the R6.11 citation fix and the
   operator recipe); the frontend half is deliberately a later round, so the endpoints ship
   before any view consumes them.
+Removed on 2026-08-21 after implementation:
+`2026-08-20-orchestration-room-scoped-reads` (an orchestration record naming a chat room is
+now readable by exactly that room's readers, one naming none is backstage under [R14.10],
+and the workflow trace is Admin + Owners again). Nothing lists it in `depends_on`, so no row
+moved out of Blocked. It **applied an SRS Delta** at approval, strengthening [R14.10] and
+adding [R15.24]. No migration. **Five things a later reader needs.**
+
+**The db tier ran, and the mutation probe is why it means anything.** One
+`pgvector/pgvector:0.8.0-pg16` container on 5433 (the recipe in the member-groups dossier's
+D-8 still works) plus `alembic upgrade head`; replacing the room predicate with an
+unconditional allow killed 11 tests across the unit and db tiers, and slicing before
+filtering killed the pagination-disclosure test. Both reverted.
+
+**D-5 is a live defect the AC-8 work uncovered, and its siblings are still out there.**
+`useChatroomSocket` tested `instanceof ApiError` against the *generated client's* class
+while the transport throws `@shared/errors`' — so the 404 branch was dead and an approval
+whose row was gone pinned a `pending` card until reload. Two more sites do the same thing
+(FU-5: `useChatroomMessages.ts`, `usePromptAssistantSocket.ts`), their tests construct the
+same wrong class, and the durable fix is a lint rule rather than three edits.
+
+**AC-8 was verified by substitution with the user's agreement (D-2)**: the approval read is
+driven against a real PostgreSQL as a real ordinary room member, and the card's reconcile is
+driven through all three branches in a unit test — but **no browser and no Playwright**, so
+`ApprovalCard`'s rendering and the vote action are still reasoned about rather than seen.
+
+**The list routes deliberately have no project-level precondition** (D-3, decided with the
+user): every row is gated individually, so a caller with no role gets `200 []` rather than
+403. Do not re-add a membership pre-check "for safety" — that is the weaker gate AC-9 exists
+to keep out, and the existence oracle is unchanged either way.
+
+**`check:openapi-drift` still cannot run on this host** (D-4, same as the member-groups
+dossier): the bash script cannot find `python`. The check was done by hand — regenerating
+`openapi.json` and the client both produced zero diff, because this task changed module
+docstrings and gate internals, not route docstrings or response models.
 Removed on 2026-08-20 after implementation:
 `2026-08-20-member-groups-and-room-visibility-isolation` (the three listing endpoints now
 filter through the room ACL, and a project can define optional Member Groups that scope a
