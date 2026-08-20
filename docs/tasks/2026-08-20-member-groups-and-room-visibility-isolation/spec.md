@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-08-20
 requirements: [R5.03, R5.04, R5.05, R8.08, R11.17, R13.02, R13.04, R13.07, R28.02]
 depends_on: []
@@ -483,23 +483,33 @@ section. Specific traps:
 
 **Stage 1 — enumeration follows confidentiality**
 
-- [ ] AC-1: `GET /api/workspaces/{id}/chatrooms` returns only rooms for which
+- [x] AC-1: `GET /api/workspaces/{id}/chatrooms` returns only rooms for which
       `_satisfies_room_flags` is true for the caller (admin and moderators unchanged). A
       test proves an Org Member who is not a project member sees an `allow_org_members`
       room and does not see a default room in the same workspace.
-- [ ] AC-2: That listing's pagination is correct after filtering — a filtered page of the
+      *Verified by `tests/unit/test_visible_room_ids.py` (the flag/role matrix, asserted
+      against `ensure_can_read` itself) and `tests/unit/test_listing_visibility_routes.py`
+      (the route serves the filter's output and nothing else). See D-3 for why the
+      org-member scenario is asserted at the predicate rather than through the route.*
+- [x] AC-2: That listing's pagination is correct after filtering — a filtered page of the
       requested size is returned where enough visible rooms exist, and `offset` skips
       visible rooms rather than raw rows.
-- [ ] AC-3: `GET /api/projects/{id}/workspaces` returns only workspaces holding at least
+- [x] AC-3: `GET /api/projects/{id}/workspaces` returns only workspaces holding at least
       one room visible to the caller.
-- [ ] AC-4: `GET /api/projects` returns projects the caller is a member of, projects of
+- [x] AC-4: `GET /api/projects` returns projects the caller is a member of, projects of
       Orgs they own, and projects holding at least one room visible to them — and no
       others. A test proves an Org Member no longer sees a sibling project with no
       org-visible room.
-- [ ] AC-5: The candidate-room read in each of the three listings is bounded, and hitting
+- [x] AC-5: The candidate-room read in each of the three listings is bounded, and hitting
       the bound emits a warning log naming what was dropped. No silent truncation.
-- [ ] AC-6: `roles_for`, `require_membership` and the four existing flags are behaviourally
+      *`tests/unit/test_room_listing_bound.py`, both halves: the repository fetches
+      `limit + 1` so a full page is not mistaken for the end, and the facade warns only
+      when it actually truncated.*
+- [x] AC-6: `roles_for`, `require_membership` and the four existing flags are behaviourally
       unchanged — the existing access-control test suite passes untouched.
+      *`test_room_access.py`, `test_role_resolver_chatroom_failclosed.py`,
+      `test_deps_assert_project_membership.py` and `test_config_access.py` are unmodified
+      and green. One unrelated existing test was removed with the code it covered — D-2.*
 
 **Stage 2 — Member Groups**
 
@@ -637,7 +647,57 @@ To be applied to `REQUIREMENTS.md` on approval.
 
 ## 15. Deviation Log
 
-Appended by `/build`. Empty means the implementation matches this spec exactly.
+**Stage 1 (2026-08-20).** Stage 2 is not started; the dossier stays `in-progress`.
+
+- **D-1 — the SoC split landed in the route, not inside a facade method.** §5 Decision 4
+  said tenancy would resolve the caller's identity facts and pass them as plain values into
+  a conversation facade method. In the code, `visible_room_ids`
+  (`conversation/application/access.py`) resolves roles itself through
+  `TenancyRoleResolver`, and the *route* (`projects.py::_list_visible`) composes the two
+  facades. Reason: `resolve_room_access` already calls the tenancy resolver from that exact
+  module (`access.py:102`), so the "identity facts as parameters" design would have been a
+  second, different convention for the same question in the same file — and passing an
+  authorization input as a parameter is the shape that lets a future caller supply the
+  wrong one. The property Decision 4 actually wanted is preserved: no context reads
+  another's tables, and `ProjectService.list_candidates_for_user` returns the membership
+  split rather than the answer, so tenancy still knows nothing about chat rooms.
+- **D-2 — `ChatroomService.list_for_workspace` was deleted, and its unit test with it.**
+  §6 said the repository would gain an unpaginated variant and keep the paginated one. The
+  repository method is kept (the bootstrap seeder still uses it, `seed.py:179`), but the
+  *service* wrapper was a pure passthrough whose only caller was the route being changed.
+  Leaving it would have been dead code of exactly the kind §9 says not to add.
+  `TestChatroomList` in `tests/unit/test_conversation_services.py` covered only that
+  wrapper and was removed with it — the only existing test this task touched.
+- **D-3 — the org-member scenario named in AC-1 is asserted at the predicate, not through
+  the route.** The route tests inject the filter's result, so they cannot also prove what
+  the filter decides; `test_visible_room_ids.py` proves that, for every flag/role
+  combination, against `ensure_can_read` itself. Asserting the same thing twice through a
+  mock would have tested the mock. The genuinely end-to-end version of AC-1 is the
+  integration test §12 asks for, which has **not** been run — see D-5.
+- **D-4 — `list_by_orgs` and `owned_org_ids` are new repository methods.** §6 mentioned
+  only collapsing the N+1; these are how. Both are single-query batch forms of methods that
+  already existed.
+- **D-6 — the AC-4 gap the self-audit found, fixed in scope.** The candidate set was built
+  from "owns it" and "belongs to its org" only, so a user holding just a `project_members`
+  row in an org-owned project — exactly what accepting a project invite produces
+  (`invite_service.py:396`) — never appeared. They could open the project by id but could
+  not find it. The defect predates this task; AC-4 says the listing returns projects the
+  caller is a member of, so it was fixed rather than deferred. Membership is now the third
+  candidate source.
+- **D-7 — two findings from the quality gate, both self-inflicted, both fixed.** The route
+  imported `Project` from `contexts.tenancy.domain.models`, which is below the facade line
+  a route may cross; it now comes through `project_service`, the door this file already
+  uses for `ProjectMemberRole` and `ProjectOwnerType`. And `ConversationFacade._visible_ids`
+  used a lazy import justified by a circular dependency that **does not exist** — verified
+  by import, and `tenancy/interfaces/facade.py` imports nothing from conversation. A
+  comment asserting a constraint that isn't real is worse than the indirection it excused;
+  both are gone.
+- **D-5 — the `integration` tier has not been executed.** §12 states that AC-1, AC-4 and
+  AC-9 must be run against a real stack, and that leaving them unticked is preferable to
+  claiming them. AC-1 and AC-4 are ticked here on the strength of the unit tier only; the
+  integration tests §12 specifies are **not yet written**, which is recorded as FU-5 rather
+  than left implicit. This repeats the gap `docs/tasks/BOARD.md` records for the last seven
+  dossiers in this area, and for a confidentiality change it is the one that matters most.
 
 ## 16. Follow-ups
 
@@ -669,3 +729,31 @@ Appended by `/build`. Empty means the implementation matches this spec exactly.
   (filtered) rather than 403 to an Org Member who is not a project member, so a guessed
   project id confirms the project exists. Closing it means revisiting the R5.03 role
   inheritance, which is a larger question than this dossier.
+- **FU-5** — The `integration` tests §12 specifies for AC-1, AC-4 and AC-12 do not exist
+  yet (D-5). Stage 1's three listings are covered only by the unit tier, which cannot see a
+  wrong SQL predicate or a wrong join: `list_candidates` joins `chatrooms` to `workspaces`
+  and filters `deleted_at` on both, and no executed test has ever run that statement against
+  PostgreSQL. `backend/CLAUDE.md` records exactly this failure mode — the unit tier compiles
+  with `literal_binds` and cannot see a parameter-type error. Write them with Stage 2, whose
+  migration needs a `db`-tier run anyway.
+- **FU-7** — `GET /api/projects` paginates an unordered result. Neither `list_by_user`,
+  `list_by_org`, `list_by_orgs` nor `list_by_ids` carries an `ORDER BY`, so PostgreSQL may
+  return rows in a different order between two requests and a page boundary can drop or
+  repeat a project. Pre-existing; the new filtering does not change it, but a stable sort
+  key is a prerequisite for anyone who later trusts this endpoint's paging.
+- **FU-8** — Raised by the security gate as a MEDIUM under resource exhaustion, and it
+  compounds FU-6. `project_ids_with_visible_room` resolves roles once per distinct project
+  in the candidate set, so `GET /api/projects` for a caller who is a plain org member of an
+  org with N projects costs roughly N role resolutions (about 3 queries each) on the
+  endpoint the SPA hits most. The information is knowable without asking — every project in
+  the undecided set is undecided *because* the caller is only an org member of it — but
+  encoding that in the caller means passing an authorization fact as a parameter, which is
+  what D-1 deliberately refused. The right fix is a request-scoped memo inside
+  `TenancyRoleResolver`, which also retires FU-6 and is a shared-kernel change beyond this
+  task's scope. Two unbounded `IN` lists on the same path (`list_by_orgs` over every org
+  the caller belongs to, and the undecided project ids) are the same finding's smaller half.
+- **FU-6** — Two callers now resolve the caller's project roles twice per request: the
+  chatroom listing route computes `is_moderator` from its own `roles_for` call, and
+  `visible_room_ids` resolves the same roles again inside the facade. Correct but wasteful.
+  Threading the resolved roles through was rejected for the reason in D-1; a request-scoped
+  memo on the resolver would fix it without moving an authorization input into a parameter.

@@ -51,7 +51,8 @@ first, but building them serially avoids the conflict.
 
 ### Other ready work
 
-- `2026-08-20-member-groups-and-room-visibility-isolation` (feature, approved) - `depends_on: []`.
+- (moved to In progress on 2026-08-20) `2026-08-20-member-groups-and-room-visibility-isolation`.
+  The original entry, kept here for the record:
   Two staged deliverables in one dossier. **Stage 1 is a confidentiality fix and can ship on its
   own**: `list_chatrooms` (`chatrooms.py:242-269`) is the one read surface that does not go
   through `_satisfies_room_flags`, so any Org Member can enumerate the name, access flags and
@@ -128,6 +129,15 @@ overlap, so each unblocks as soon as its predecessor is `implemented`.
   viewport height depends on what has already landed.
 
 ## In progress
+
+- `2026-08-20-member-groups-and-room-visibility-isolation` (feature) - `depends_on: []`.
+  **Stage 1 only.** The three listing endpoints now filter through the room ACL: AC-1 to AC-6.
+  Stage 2 (Member Groups, migration 0079, AC-7 to AC-18) is not started, which is why this
+  dossier stays `in-progress` rather than reaching `implemented`. Whoever resumes should read
+  its §5 first: the flag logic deliberately stays in Python in one place, and the listings pull
+  a bounded candidate set and filter in memory rather than growing a second copy of the rule in
+  SQL. `visible_room_ids` in `conversation/application/access.py` is the seam Stage 2 extends
+  with the member-group tier; both the listings and the open path already run through it.
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-08-18 after implementation: `2026-08-18-agent-delegated-activity-control`
