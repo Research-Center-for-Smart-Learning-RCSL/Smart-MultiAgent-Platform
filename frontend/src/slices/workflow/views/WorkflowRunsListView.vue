@@ -54,7 +54,7 @@
       v-else
       :columns="columns"
       :data="runsList"
-      :loading="query.isLoading.value"
+      :loading="query.isLoading.value || !decided"
       :loading-label="$t('workflow.runs.title')"
       row-key="id"
       responsive-mode="card-list"
@@ -134,7 +134,7 @@ const showArchive = ref(false)
 
 // The run list is itself a backstage read ([R14.10]), so this both gates the
 // page and decides whether to surface the deeper backstage link.
-const { isAuthorized } = useBackstageGuard(workspaceId)
+const { isAuthorized, decided } = useBackstageGuard(workspaceId)
 
 const columns = computed<Column[]>(() => [
   { key: 'state', label: t('workflow.runs.state'), cellType: 'badge' },

@@ -487,7 +487,11 @@ let initialLoadStarted = false
 watch(
   [decided, isAuthorized],
   ([isDecided, ok]) => {
-    if (!isDecided || !ok || initialLoadStarted) return
+    if (initialLoadStarted) return
+    // No workspace in the route: the guard can never decide (it has no project
+    // to resolve a role against), so load anyway and let `loadWorkflow` report
+    // that as a load error rather than leaving a permanently blank canvas.
+    if (workspaceId.value && (!isDecided || !ok)) return
     initialLoadStarted = true
     void loadWorkflow().then(() => {
       if (workspaceId.value) void loadContextData()

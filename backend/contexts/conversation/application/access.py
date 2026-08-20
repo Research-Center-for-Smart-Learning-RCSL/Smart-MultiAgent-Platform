@@ -344,6 +344,12 @@ async def can_read_orchestration_record(
     That is not a style preference — the room branch must answer 404, byte for
     byte what a missing record answers, and only the route knows the resource
     name that goes in that body.
+
+    `resolver` is consulted on the backstage branch only. The room branch goes
+    through `resolve_room_access`, which builds its own `TenancyRoleResolver`
+    because it needs a room-scoped `Scope` this signature does not carry — so a
+    caller (or a test) that swaps `resolver` changes the backstage verdict and
+    not the room one.
     """
     if principal.is_admin:
         return True

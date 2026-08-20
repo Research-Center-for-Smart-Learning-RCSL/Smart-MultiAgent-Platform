@@ -47,7 +47,7 @@
       v-else
       :columns="columns"
       :data="query.data.value ?? []"
-      :loading="query.isLoading.value"
+      :loading="query.isLoading.value || !decided"
       :loading-label="$t('workflow.list.title')"
       :class="staggerClass"
       row-key="id"
@@ -138,7 +138,7 @@ const newName = ref('')
 
 // Listing workflows is a backstage read ([R14.10]); creating one has always
 // needed CHAT_CREATE, which is the same audience.
-const { isAuthorized } = useBackstageGuard(workspaceId)
+const { isAuthorized, decided } = useBackstageGuard(workspaceId)
 
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('workflow.list.name'), cellType: 'text' },
@@ -151,7 +151,9 @@ const query = useQuery({
   queryFn: () => listWorkflows(workspaceId),
   enabled: computed(() => isAuthorized.value),
 })
-const staggerClass = useListStagger(query.isLoading)
+// A disabled query reports `isLoading: false`, so without `decided` an owner
+// would see the empty state for as long as their membership takes to resolve.
+const staggerClass = useListStagger(computed(() => query.isLoading.value || !decided.value))
 
 const createMutation = useMutation({
   mutationFn: (name: string) =>
