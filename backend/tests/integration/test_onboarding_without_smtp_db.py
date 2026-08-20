@@ -30,7 +30,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from contexts.identity.application.admin_service import AdminService
+from contexts.identity.application.admin_service import AccountAlreadyActivatedError, AdminService
 from contexts.identity.application.auth_service import AuthService
 from contexts.identity.domain.errors import AccountNotVerified, InvalidCredentials
 from contexts.identity.domain.models import UserStatus
@@ -295,6 +295,65 @@ async def test_reissued_links_work_and_the_superseded_ones_do_not(
             )
 
     await _cleanup_user(sessionmaker, user.id)
+
+
+async def test_reissue_refuses_a_real_google_only_account(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    inviter: tuple[uuid.UUID, uuid.UUID],
+) -> None:
+    """A live Google account holds no password hash, so a password-only guard
+    reads it as "still needs activation" and hands out a set-password link for a
+    fully active user.
+
+    Against real rows because the guard now depends on `auth_identities`: the
+    account shape is exactly what `login_with_oauth` writes (R6.15) —
+    `password_hash=None`, `status=ACTIVE`, `email_verified=True`, plus one
+    identity row — and a mocked repository can assert the branch without proving
+    the row is there to find.
+    """
+    _, admin_id = inviter
+    google_user_id = uuid.uuid4()
+
+    async with sessionmaker() as session:
+        await session.execute(
+            identity_t.users.insert().values(
+                id=google_user_id,
+                email=f"google-{google_user_id}@test.invalid",
+                password_hash=None,
+                status=UserStatus.ACTIVE.value,
+                email_verified=True,
+            )
+        )
+        await session.execute(
+            identity_t.auth_identities.insert().values(
+                user_id=google_user_id,
+                provider="google",
+                provider_subject=f"sub-{google_user_id}",
+                email=f"google-{google_user_id}@test.invalid",
+            )
+        )
+        await session.commit()
+
+    try:
+        async with sessionmaker() as session:
+            admin = AdminService(session, public_origin=_ORIGIN)
+            with pytest.raises(AccountAlreadyActivatedError):
+                await admin.issue_activation_links(
+                    target_user_id=google_user_id, admin_user_id=admin_id, actor_ip=None
+                )
+
+        # The refusal must also leave the account's token tables untouched.
+        async with sessionmaker() as session:
+            live = (
+                await session.execute(
+                    sa.select(sa.func.count())
+                    .select_from(identity_t.password_reset_tokens)
+                    .where(identity_t.password_reset_tokens.c.user_id == google_user_id)
+                )
+            ).scalar_one()
+        assert live == 0
+    finally:
+        await _cleanup_user(sessionmaker, google_user_id)
 
 
 async def test_invitable_pool_is_scoped_to_callers_who_are_in_the_parent_org(

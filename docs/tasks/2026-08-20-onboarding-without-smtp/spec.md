@@ -454,11 +454,12 @@ built (D-8). The dossier stays `in-progress` until it is.
   same gate. Fixing two and leaving two would have left a reader with contradictory
   citations for one rule, so all four now say R6.02.
 - **D-4 — a tightening the spec did not ask for.** `POST /api/admin/users/{id}/activation-links`
-  refuses an account that is *fully* activated (has a password **and** a verified address),
-  with a 409. R6.18 says the links "may be re-issued on demand", which this preserves for
-  every account still mid-activation — but an unrestricted version would be a button that
-  mints a persistent account-takeover credential for any live user. An Admin who must act
-  as a user already has impersonation, which is bounded and separately audited.
+  refuses an account that can already authenticate — a verified address **and** at least one
+  usable credential — with a 409. R6.18 says the links "may be re-issued on demand", which
+  this preserves for every account still mid-activation, but an unrestricted version would
+  be a button that mints a persistent account-takeover credential for any live user. An
+  Admin who must act as a user already has impersonation, which is bounded and separately
+  audited. See D-16 for the first, wrong version of this guard.
 - **D-5** — §6 said `invitable_org_members` "reads only tenancy tables". It cannot: a live
   pending invite is matched by **email**, because `invites.invitee_user_id` stays NULL
   until acceptance, so excluding already-invited users requires `users`. The query joins
@@ -515,6 +516,24 @@ built (D-8). The dossier stays `in-progress` until it is.
   `"not found" in str(exc)` — copied from `hard_delete_user`, and fragile in exactly the
   way a reworded message exposes. It now raises `AccountAlreadyActivatedError`, and the
   route branches on the type, matching `ban_user`'s existing shape.
+- **D-16 — a post-implementation `/code-review` found that D-4's guard did not hold, and
+  the account shape it missed is one this repository creates routinely.** The refusal was
+  `password_hash is not None and email_verified`. A Google-provisioned account is created
+  with `password_hash=None`, `status=ACTIVE`, `email_verified=True`
+  (`auth_service.py:529-535`, R6.15), and R6.16 *neutralises* the password of an account
+  Google links to — so for every Google user the first conjunct was false, the refusal
+  never fired, and an Admin could mint a working set-password link for a fully live
+  account. That is the exact takeover primitive D-4 exists to prevent, aimed at users who
+  have never had a password. As a side effect the call also burned the target's
+  outstanding legitimate reset token.
+  The test is "a verified address plus **any** usable credential — a password *or* a linked
+  identity", which is the same notion `LastCredentialError` already encodes for unlinking
+  (`auth_service.py:626`). The case the fix must not sweep up has its own test: a
+  provisioned account that walks the *verify* link first is ACTIVE and verified while
+  holding no credential at all, and still needs its set-password link.
+  Covered at both tiers and mutation-probed at both: restoring the password-only test turns
+  the unit test and the `db` test red. **The lesson for the next reviewer of this file:
+  "has a password" is not a synonym for "can log in" in this codebase.**
 - **D-15** — a self-audit catch worth recording because the cause was a lint fix: silencing
   ruff's `PLW0108` by replacing `lambda: AsyncMock()` with the bare `AsyncMock` class in a
   test's FastAPI dependency override turned that class's constructor keywords into query
@@ -552,11 +571,13 @@ built (D-8). The dossier stays `in-progress` until it is.
   the pool is now `LIMIT`ed in SQL (D-13), so a large Org is bounded, but the picker has no
   way to reach a member past the first page other than paging blindly.
 - **FU-9** (hardening, no attack path) — `issue_activation_links` does not refuse a
-  **banned** account that never set a password: it is "not fully activated", so links are
+  **banned** account that holds no credential: it is "not yet activated", so links are
   minted for it. Harmless today because both downstream gates refuse independently —
   `login` raises `AccountBanned` after password verification, and `mark_verified` declines
   to promote a banned row — but it offers "activation" for an account that can never
-  activate, and it becomes a real hole if either gate is ever relaxed.
+  activate, and it becomes a real hole if either gate is ever relaxed. D-16 is the reason
+  to treat this as worth closing rather than tolerating: that guard has already been wrong
+  once about which accounts are live.
 - **FU-10** (hardening, no attack path) — `POST /api/admin/users` has no per-actor cap
   beyond the global middleware bucket, unlike the activation-link mint. Admin-only, so the
   precondition for abuse is an admin account already lost, but a compromised admin session
