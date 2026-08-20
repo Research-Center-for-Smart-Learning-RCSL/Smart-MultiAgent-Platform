@@ -345,8 +345,8 @@ class InviteService:
             )
             .where(*predicates)
             # Bounded in SQL rather than sliced after the fact: an Org's member
-            # count is unbounded, and this runs on every keystroke-free open of
-            # the invite form.
+            # count has no upper bound, and this runs on every open of the
+            # invite form.
             .order_by(users.c.email)
             .limit(limit)
             .offset(offset)
