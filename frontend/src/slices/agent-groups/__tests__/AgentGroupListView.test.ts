@@ -41,6 +41,11 @@ function seed(role: 'owner' | 'member', groups: unknown[] = [GROUP]): void {
     http.get('/api/projects/proj_1/members', () =>
       HttpResponse.json([{ user_id: 'u_1', email: 'u@smap.test', role, joined_at: '2026-01-01T00:00:00Z' }]),
     ),
+    // `useProjectRole` reads the server's verdict, not the member list — see
+    // its comment: ownership is inherited, so the list cannot answer it.
+    http.get('/api/projects/proj_1', () =>
+      HttpResponse.json({ id: 'proj_1', name: 'Test Project', is_moderator: role === 'owner' }),
+    ),
   )
 }
 

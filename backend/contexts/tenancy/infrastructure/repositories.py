@@ -512,6 +512,26 @@ class ProjectMemberRepository:
         ).all()
         return [r.project_id for r in rows]
 
+    async def owned_project_ids_for_user(self, user_id: uuid.UUID) -> set[uuid.UUID]:
+        """Projects where the user holds an explicit `owner` membership row.
+
+        One of the three grounds `TenancyRoleResolver.roles_for` grants
+        PROJECT_OWNER on, batched so the project listing can answer "am I a
+        moderator here" for a whole page in one query instead of one
+        `roles_for` round trip per row.
+        """
+        rows = (
+            await self._db.execute(
+                sa.select(t.project_members.c.project_id).where(
+                    sa.and_(
+                        t.project_members.c.user_id == user_id,
+                        t.project_members.c.role == ProjectMemberRole.OWNER.value,
+                    )
+                )
+            )
+        ).all()
+        return {r.project_id for r in rows}
+
     async def get(self, *, project_id: uuid.UUID, user_id: uuid.UUID) -> ProjectMember | None:
         row = (
             await self._db.execute(
@@ -693,6 +713,20 @@ class MemberGroupRepository:
 
         A non-owner project member sees only these, and must not be able to learn
         that the project's other groups exist.
+
+        SEC: the join to `project_members` is load-bearing here for the same
+        reason `group_ids_for_user` gives below, and it matters more, because
+        this predicate is the *only* gate on two routes. `read_member_group` and
+        `list_member_group_members` are keyed by group id, so they carry no
+        `require_membership` dependency to fall back on — they resolve through
+        `MemberGroupService.is_visible_to`, which is this query. Without the
+        join, a leftover `member_group_members` row left behind by any deletion
+        path that does not clean groups up — `OrgService.remove_member` deletes
+        `project_members` at the repository layer and knows nothing about them —
+        lets an ex-member keep reading the group's name and its full roster in a
+        project they no longer belong to, while the room ACL correctly refuses
+        them. Asking the question this way makes a lapsed membership inert by
+        construction rather than by every future caller remembering to check.
         """
         rows = (
             await self._db.execute(
@@ -701,6 +735,12 @@ class MemberGroupRepository:
                     t.member_groups.join(
                         t.member_group_members,
                         t.member_group_members.c.member_group_id == t.member_groups.c.id,
+                    ).join(
+                        t.project_members,
+                        sa.and_(
+                            t.project_members.c.project_id == t.member_groups.c.project_id,
+                            t.project_members.c.user_id == t.member_group_members.c.user_id,
+                        ),
                     )
                 )
                 .where(

@@ -32,6 +32,9 @@ function signInAsOwner(): void {
         { user_id: 'u_1', email: 'u@smap.test', role: 'owner', joined_at: '2026-01-01T00:00:00Z' },
       ]),
     ),
+    http.get('/api/projects/proj_1', () =>
+      HttpResponse.json({ id: 'proj_1', name: 'Test Project', is_moderator: true }),
+    ),
   )
 }
 

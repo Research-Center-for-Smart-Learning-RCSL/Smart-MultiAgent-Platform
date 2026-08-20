@@ -103,6 +103,15 @@ function seed(opts: { config?: Record<string, unknown>; docs?: unknown[]; role?:
     http.get('/api/projects/proj_1/members', () =>
       HttpResponse.json([{ user_id: 'u_1', email: 'u@smap.test', role: opts.role ?? 'owner', joined_at: '2026-01-01T00:00:00Z' }]),
     ),
+    // `useProjectRole` reads the server's verdict, not the member list — see
+    // its comment: ownership is inherited, so the list cannot answer it.
+    http.get('/api/projects/proj_1', () =>
+      HttpResponse.json({
+        id: 'proj_1',
+        name: 'Test Project',
+        is_moderator: (opts.role ?? 'owner') === 'owner',
+      }),
+    ),
     http.delete('/api/knowmap-documents/doc_1', () => new HttpResponse(null, { status: 204 })),
   )
 }

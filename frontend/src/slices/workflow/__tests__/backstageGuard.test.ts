@@ -43,6 +43,12 @@ function signIn(role: 'owner' | 'member'): void {
         { user_id: 'u_1', email: 'u@smap.test', role, joined_at: '2026-01-01T00:00:00Z' },
       ]),
     ),
+    // The owner verdict comes off the project, not the member list: an Org
+    // Owner moderates a project while holding no membership row (R5.03), and
+    // reading the list concluded the opposite of every server gate.
+    http.get('/api/projects/proj_1', () =>
+      HttpResponse.json({ id: 'proj_1', name: 'Test Project', is_moderator: role === 'owner' }),
+    ),
   )
 }
 
@@ -90,6 +96,30 @@ describe('workflow views are backstage-gated', () => {
       initialRoute: '/workspaces/ws_1/workflows',
     })
     signIn('owner')
+    await settle(wrapper)
+
+    expect(wrapper.vm.$route.name).toBe('workflow.list')
+    expect(listWorkflowsHits).toBeGreaterThan(0)
+  })
+
+  it('keeps an Org Owner who holds no project membership row in place', async () => {
+    // The regression a post-close /code-review found. Ownership is inherited
+    // (R5.03): this person moderates every project of the org, so every server
+    // gate admits them — but they appear in no `project_members` row, so the
+    // client's old member-list reading concluded "not an owner" and redirected
+    // them off a page the server was serving.
+    const session = useSessionStore()
+    session.me = { id: 'u_1', email: 'u@smap.test', email_verified: true, is_admin: false, status: 'active' }
+    server.use(
+      http.get('/api/projects/proj_1/members', () => HttpResponse.json([])),
+      http.get('/api/projects/proj_1', () =>
+        HttpResponse.json({ id: 'proj_1', name: 'Test Project', is_moderator: true }),
+      ),
+    )
+    const wrapper = await renderView(WorkflowListView, {
+      routes: listRoutes,
+      initialRoute: '/workspaces/ws_1/workflows',
+    })
     await settle(wrapper)
 
     expect(wrapper.vm.$route.name).toBe('workflow.list')
