@@ -27,7 +27,7 @@ import {
 import { useToast, useConfirmDialog } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
 import { tenancyKeys, projectsApi, memberGroupsApi } from '@slices/tenancy'
-import { useQuery } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   compactChatroom,
@@ -48,6 +48,7 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
+const qc = useQueryClient()
 const chatroomId = route.params.chatroomId as string
 
 const guestUrl = ref('')
@@ -134,8 +135,12 @@ const savingGroups = ref(false)
 /** Toggle one group in or out of the room's binding set.
  *
  *  Sends the whole resulting set, because the endpoint replaces rather than
- *  patches. The checkbox reads from the query data, so it only moves once the
- *  server has confirmed — there is no local copy to leave out of step. */
+ *  patches. That makes the read-back load-bearing: the next toggle computes its
+ *  payload from `boundGroupIds`, so if the guard clears before the new set is in
+ *  hand, a second click within that window rebuilds `next` from the stale value
+ *  and the replace silently drops the group the first click just added. The
+ *  server already returns the applied set, so it is written straight into the
+ *  query cache and no refetch has to be raced. */
 async function toggleGroup(groupId: string): Promise<void> {
   if (savingGroups.value) return
   const current = boundGroupIds.value
@@ -145,9 +150,12 @@ async function toggleGroup(groupId: string): Promise<void> {
   savingGroups.value = true
   try {
     const applied = await setChatroomMemberGroups(chatroomId, next)
-    boundQuery.refetch()
+    qc.setQueryData(['conversation', 'chatroomMemberGroups', chatroomId], applied)
     toast.success(t('conversation.settings.boundGroupsSaved', { count: applied.length }))
   } catch {
+    // The cache still holds the last confirmed set, so the checkboxes stay on
+    // the server's answer rather than on the click that failed.
+    await boundQuery.refetch()
     toast.error(t('conversation.settings.boundGroupsFailed'))
   } finally {
     savingGroups.value = false
@@ -789,6 +797,30 @@ watchEffect(() => {
 
 .access-row--dimmed {
   opacity: 0.5;
+}
+
+/* The group picker is a list, not a control sitting opposite a label, so it
+   stacks under its description instead of inheriting the row's space-between. */
+.access-row--stacked {
+  display: block;
+}
+
+.group-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  list-style: none;
+  padding: 0;
+}
+
+.group-picker label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: var(--color-fg);
+  cursor: pointer;
 }
 
 .access-row__text {
