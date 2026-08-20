@@ -142,9 +142,18 @@ class MemberGroupService:
         group = await self.get(group_id)
         if not await self._groups.soft_delete(group_id):
             raise MemberGroupNotFound(str(group_id))
-        # The bindings are deliberately left in place. R13.29 makes a binding to a
-        # deleted group grant nothing, so they are inert, and keeping them means a
-        # group deleted by accident can be restored without re-binding every room.
+        # The bindings are deliberately left in place: R13.29 makes a binding to
+        # a deleted group grant nothing, so they are inert, and clearing rows in
+        # the conversation context is not this operation's job.
+        #
+        # They are NOT a restore mechanism, whatever their inertness suggests.
+        # Nothing restores a member group — `restore` exists for orgs and
+        # projects only — and the room settings picker destroys these rows the
+        # first time anyone edits that room's bindings anyway: the GET reports
+        # only live ids (`chatrooms.py:453`, because the PUT refuses a deleted
+        # one), the UI sends that filtered list straight back, and `replace()`
+        # deletes every row for the room before inserting. Do not build anything
+        # on top of these rows surviving.
         await audit.emit(
             self._db,
             audit.AuditEvent(

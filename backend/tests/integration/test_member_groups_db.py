@@ -27,6 +27,7 @@ from contexts.conversation.domain.errors import ForbiddenInRoom
 from contexts.conversation.infrastructure import tables as conv_t
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.infrastructure.tables import users as users_t
+from contexts.tenancy.application.member_group_service import MemberGroupService
 from contexts.tenancy.infrastructure import tables as ten_t
 from contexts.tenancy.infrastructure.repositories import MemberGroupRepository
 from shared_kernel.auth.permissions import Principal
@@ -364,6 +365,53 @@ async def test_a_removed_project_member_is_inert_even_with_a_leftover_group_row(
         assert len(still_there) == 1, "the group row must survive, or this proves nothing"
         assert await _can_open(session, user_id=scenario.member_a, room_id=scenario.room_a) is False
         assert await _visible(session, user_id=scenario.member_a, workspace_id=scenario.workspace_id) == set()
+
+
+async def test_a_removed_member_cannot_still_read_the_group_or_its_roster(
+    sessionmaker: async_sessionmaker[AsyncSession], scenario: GroupScenario
+) -> None:
+    """The same lapsed standing, on the R13.31 disclosure gate.
+
+    Found by a post-close `/code-review`: `group_ids_for_user` got the
+    `project_members` join, its sibling `list_for_user_in_project` did not — and
+    that sibling is the *only* gate on `GET /api/member-groups/{id}` and
+    `.../members`, which are keyed by group id and so carry no
+    `require_membership` dependency to fall back on. The room ACL correctly
+    refused the ex-member (the test above) while they could still read the
+    group's name and its full roster.
+
+    Same deliberate setup: delete only the project membership, leave the group
+    row, so this proves the predicate closes it rather than the cleanup.
+    """
+    async with sessionmaker() as session:
+        service = MemberGroupService(session)
+        group = await service.get(scenario.group_a)
+        assert await service.is_visible_to(group=group, user_id=scenario.member_a) is True
+
+        await session.execute(
+            ten_t.project_members.delete().where(
+                sa.and_(
+                    ten_t.project_members.c.project_id == scenario.project_id,
+                    ten_t.project_members.c.user_id == scenario.member_a,
+                )
+            )
+        )
+        await session.commit()
+
+    async with sessionmaker() as session:
+        service = MemberGroupService(session)
+        group = await service.get(scenario.group_a)
+        assert await service.is_visible_to(group=group, user_id=scenario.member_a) is False
+        # And the non-manager listing narrows to nothing, so the group's very
+        # existence is no longer disclosed either.
+        assert (
+            await service.list_for_project(
+                project_id=scenario.project_id,
+                caller_user_id=scenario.member_a,
+                caller_is_manager=False,
+            )
+            == []
+        )
 
 
 async def test_leaving_one_project_does_not_empty_groups_in_another(
