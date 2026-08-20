@@ -69,11 +69,26 @@ def _to_out(ws) -> WorkspaceOut:
 async def list_workspaces(
     project_id: uuid.UUID = Path(...),
     pagination: PaginationParams = Depends(),
+    principal: Principal = Depends(current_principal),
     _=Depends(require_membership(project_param="project_id")),
     db: AsyncSession = Depends(db_session),
 ) -> list[WorkspaceOut]:
     service = WorkspaceService(db)
     rows = await service.list_for_project(project_id)
+    # R13.32 — a workspace is a container for rooms, so it discloses exactly as
+    # much as the rooms it holds. Listing one whose every room is closed to the
+    # caller hands them a name and a dead end. The same rule at all three levels
+    # is also why a user never meets a visible-but-empty container.
+    #
+    # A workspace holding no live room at all is therefore absent too. That state
+    # is unreachable by design — `WorkspaceService.create` always creates a
+    # default room and R13.02 replaces the last one on delete — and for a
+    # confidentiality filter the fail-closed reading is the right one anyway.
+    visible = await ConversationFacade(db).workspace_ids_with_visible_room(
+        principal=principal,
+        workspace_ids=[w.id for w in rows],
+    )
+    rows = [w for w in rows if w.id in visible]
     rows = rows[pagination.offset : pagination.offset + pagination.limit]
     return [_to_out(r) for r in rows]
 

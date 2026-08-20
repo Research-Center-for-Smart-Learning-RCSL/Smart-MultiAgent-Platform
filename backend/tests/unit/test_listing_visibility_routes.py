@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.api.v1 import chatrooms as chatrooms_mod
+from app.api.v1 import workspaces as workspaces_mod
 from app.api.v1.deps import PaginationParams
 from contexts.conversation.domain.models import Chatroom
 from shared_kernel.auth.permissions import Role
@@ -163,3 +164,78 @@ async def test_moderator_bit_still_reflects_the_project_role() -> None:
 
     out, _ = await _call_list_chatrooms(visible=[_room("a")], roles=frozenset({Role.ORG_MEMBER}))
     assert out[0].is_moderator is False
+
+
+# --------------------------------------------------------------------------- #
+# GET /api/projects/{id}/workspaces
+# --------------------------------------------------------------------------- #
+
+
+def _workspace(name: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        project_id=_PROJECT_ID,
+        name=name,
+        created_at=datetime.now(UTC),
+        deleted_at=None,
+        concept_map_enabled=False,
+    )
+
+
+async def _call_list_workspaces(
+    *,
+    all_workspaces: list[SimpleNamespace],
+    with_visible_room: set[uuid.UUID],
+    pagination: PaginationParams | None = None,
+) -> list:
+    service = AsyncMock()
+    service.list_for_project = AsyncMock(return_value=all_workspaces)
+    facade = AsyncMock()
+    facade.workspace_ids_with_visible_room = AsyncMock(return_value=with_visible_room)
+
+    with (
+        patch.object(workspaces_mod, "WorkspaceService", return_value=service),
+        patch.object(workspaces_mod, "ConversationFacade", return_value=facade),
+    ):
+        return await workspaces_mod.list_workspaces(
+            project_id=_PROJECT_ID,
+            pagination=pagination or _pagination(),
+            principal=_principal(),
+            db=AsyncMock(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_workspace_listing_drops_workspaces_with_no_visible_room() -> None:
+    mine, theirs = _workspace("mine"), _workspace("theirs")
+
+    out = await _call_list_workspaces(
+        all_workspaces=[mine, theirs],
+        with_visible_room={mine.id},
+    )
+
+    assert [w.name for w in out] == ["mine"]
+
+
+@pytest.mark.asyncio
+async def test_workspace_listing_filters_before_paginating() -> None:
+    workspaces = [_workspace(f"w{i}") for i in range(4)]
+    visible = {workspaces[1].id, workspaces[3].id}
+
+    out = await _call_list_workspaces(
+        all_workspaces=workspaces,
+        with_visible_room=visible,
+        pagination=_pagination(limit=1, offset=1),
+    )
+
+    # Page 2 of the *filtered* list is w3, not w1 (which page 1 already served).
+    assert [w.name for w in out] == ["w3"]
+
+
+@pytest.mark.asyncio
+async def test_workspace_listing_is_empty_not_an_error_when_nothing_is_visible() -> None:
+    out = await _call_list_workspaces(
+        all_workspaces=[_workspace("a"), _workspace("b")],
+        with_visible_room=set(),
+    )
+    assert out == []
