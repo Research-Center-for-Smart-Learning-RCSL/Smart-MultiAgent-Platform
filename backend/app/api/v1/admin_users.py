@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
 from contexts.identity.application.admin_service import (
+    AccountAlreadyActivatedError,
     ActivationLinks,
     AdminService,
     LastAdminError,
@@ -172,10 +173,10 @@ async def reissue_activation_links(
             actor_ip=ctx.actor_ip,
             request_id=ctx.request_id,
         )
+    except AccountAlreadyActivatedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
-        msg = str(exc)
-        code = 404 if "not found" in msg else 409
-        raise HTTPException(status_code=code, detail=msg) from exc
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return _links_out(links)
 
 

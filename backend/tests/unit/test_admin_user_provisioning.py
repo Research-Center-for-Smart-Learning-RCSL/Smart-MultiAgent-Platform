@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 from loguru import logger
 
 from app.api.v1 import admin_users as admin_mod
-from contexts.identity.application.admin_service import AdminService
+from contexts.identity.application.admin_service import AccountAlreadyActivatedError, AdminService
 from contexts.identity.domain.errors import ActivationLinkRateLimited, EmailDomainDenied
 from contexts.identity.domain.models import User, UserStatus
 from contexts.identity.interfaces import error_mapping
@@ -65,13 +65,20 @@ def _service(db: object) -> AdminService:
     return AdminService(db, public_origin=_ORIGIN)  # type: ignore[arg-type]
 
 
+def _fake_session() -> AsyncMock:
+    """A zero-parameter callable on purpose: FastAPI reads a dependency
+    override's signature, and handing it `AsyncMock` itself turns that class's
+    constructor keywords into query parameters — every request then 422s."""
+    return AsyncMock()
+
+
 def _app(*, is_admin: bool) -> FastAPI:
     app = FastAPI()
     error_mapping.register(app)
     app.include_router(admin_mod.router, prefix="/api/admin")
     principal = Principal(user_id=_ADMIN, is_admin=is_admin, email_verified=True)
     app.dependency_overrides[current_context] = lambda: RequestContext(principal=principal)
-    app.dependency_overrides[db_session] = AsyncMock
+    app.dependency_overrides[db_session] = _fake_session
     return app
 
 
@@ -81,7 +88,7 @@ def _patched(
     rate_limit_allowed: bool = True,
     audit: AsyncMock | None = None,
 ):
-    """The four collaborators every provisioning path touches."""
+    """The three collaborators every provisioning path touches."""
     return (
         patch(f"{_SVC}.audit.emit", new=audit or AsyncMock()),
         patch(
@@ -275,9 +282,23 @@ async def test_reissue_refuses_a_fully_activated_account() -> None:
     service._users = users
 
     p_audit, p_domain, p_rl = _patched()
-    with p_audit, p_domain, p_rl, pytest.raises(ValueError, match="already activated"):
+    with p_audit, p_domain, p_rl, pytest.raises(AccountAlreadyActivatedError):
         await service.issue_activation_links(target_user_id=_TARGET, admin_user_id=_ADMIN, actor_ip=None)
     service._reset.issue.assert_not_awaited()
+
+
+def test_reissue_route_maps_an_activated_account_to_409_and_a_missing_one_to_404() -> None:
+    """The split is on the exception type, not on wording somebody may reword."""
+    for error, expected in (
+        (AccountAlreadyActivatedError("already activated"), 409),
+        (ValueError("user 123 not found"), 404),
+    ):
+        service = _with_token_repos(_service(AsyncMock()))
+        service.issue_activation_links = AsyncMock(side_effect=error)
+        with patch.object(admin_mod, "AdminService", return_value=service):
+            client = TestClient(_app(is_admin=True))
+            response = client.post(f"/api/admin/users/{_TARGET}/activation-links")
+        assert response.status_code == expected
 
 
 async def test_reissue_is_rate_limited_per_target_user() -> None:
