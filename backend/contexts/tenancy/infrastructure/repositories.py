@@ -647,6 +647,30 @@ class MemberGroupRepository:
         row = (await self._db.execute(t.member_groups.select().where(predicate))).first()
         return _row_to_member_group(row) if row else None
 
+    async def live_ids_in_project(
+        self, group_ids: Sequence[uuid.UUID], *, project_id: uuid.UUID
+    ) -> set[uuid.UUID]:
+        """Which of `group_ids` are live groups of `project_id`.
+
+        One query for a whole candidate set, so the room-binding routes can both
+        validate a submitted set and filter a stored one without an N+1 of
+        `get()` calls.
+        """
+        if not group_ids:
+            return set()
+        rows = (
+            await self._db.execute(
+                sa.select(t.member_groups.c.id).where(
+                    sa.and_(
+                        t.member_groups.c.id.in_(list(group_ids)),
+                        t.member_groups.c.project_id == project_id,
+                        t.member_groups.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).all()
+        return {r.id for r in rows}
+
     async def list_for_project(self, project_id: uuid.UUID) -> Sequence[MemberGroup]:
         rows = (
             await self._db.execute(

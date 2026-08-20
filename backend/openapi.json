@@ -18133,6 +18133,7 @@
     },
     "/api/chatrooms/{chatroom_id}/member-groups": {
       "get": {
+        "description": "This room's live Member Group bindings (R13.29).\n\nA binding whose group was since deleted is omitted. The stored row is left\nalone \u2014 the ACL already ignores it, and the repository deliberately does not\nread tenancy's `deleted_at` \u2014 but it must not be *reported*, because the\nsettings UI sends this list straight back on the next edit and the PUT\nrefuses a deleted id. Reading raw rows here wedged the picker permanently.",
         "operationId": "list_chatroom_member_groups_api_chatrooms__chatroom_id__member_groups_get",
         "parameters": [
           {
