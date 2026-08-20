@@ -259,14 +259,28 @@ class ChatroomRepository:
         if empty:
             return [], False
 
+        # The third join is for `projects.deleted_at` alone. `resolve_room_access`
+        # refuses a room whose project is soft-deleted — it raises
+        # `ChatroomNotFound` once `get_project` returns None — while the role
+        # resolver reads projects with `include_deleted=True`. Without this filter
+        # a member of a deleted project is handed its rooms by the listing and then
+        # 404s on open: the listable-but-unopenable divergence this predicate
+        # exists to prevent. Referenced by FK only, exactly as
+        # `workspaces.project_id` already is; no tenancy semantics are read here.
+        projects = sa.table("projects", sa.column("id"), sa.column("deleted_at"))
         stmt = (
             sa.select(t.chatrooms, t.workspaces.c.project_id.label("parent_project_id"))
-            .select_from(t.chatrooms.join(t.workspaces, t.chatrooms.c.workspace_id == t.workspaces.c.id))
+            .select_from(
+                t.chatrooms.join(t.workspaces, t.chatrooms.c.workspace_id == t.workspaces.c.id).join(
+                    projects, projects.c.id == t.workspaces.c.project_id
+                )
+            )
             .where(
                 sa.and_(
                     scope_predicate,
                     t.chatrooms.c.deleted_at.is_(None),
                     t.workspaces.c.deleted_at.is_(None),
+                    projects.c.deleted_at.is_(None),
                 )
             )
             .order_by(t.chatrooms.c.created_at, t.chatrooms.c.id)

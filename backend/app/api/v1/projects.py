@@ -90,8 +90,18 @@ async def _list_visible(
     db: AsyncSession,
     service: ProjectService,
     principal: Principal,
+    *,
+    org_id: uuid.UUID | None = None,
 ) -> list[Project]:
-    """The unscoped project list (R13.32).
+    """Every project the caller may see, optionally narrowed to one org (R13.32).
+
+    `org_id` narrows the *result*; it never widens the candidate set. Serving the
+    `?scope=org` branch from here rather than from a second query is the point:
+    that branch previously called `list_by_org` behind a bare "is the caller in
+    this org" check, so an org member asking for their own org received the name
+    of every project in it — the disclosure this function's docstring claims to
+    close, reachable by a query parameter, and the path the project list's per-org
+    tab actually uses (`ProjectListView.vue`, `OrgProjectSwitcher.vue`).
 
     It used to return every project of every org the caller belonged to, with no
     project-membership check, so an org member could enumerate the name of every
@@ -109,16 +119,15 @@ async def _list_visible(
     to learn the other's tables to do it.
     """
     candidates = await service.list_candidates_for_user(principal.user_id)
-    undecided = [p.id for p in candidates.projects if p.id not in candidates.directly_visible_ids]
+    in_scope = [p for p in candidates.projects if org_id is None or p.owner_org_id == org_id]
+    undecided = [p.id for p in in_scope if p.id not in candidates.directly_visible_ids]
     with_visible_room: set[uuid.UUID] = set()
     if undecided:
         with_visible_room = await ConversationFacade(db).project_ids_with_visible_room(
             principal=principal,
             project_ids=undecided,
         )
-    return [
-        p for p in candidates.projects if p.id in candidates.directly_visible_ids or p.id in with_visible_room
-    ]
+    return [p for p in in_scope if p.id in candidates.directly_visible_ids or p.id in with_visible_room]
 
 
 @router.get("")
@@ -151,7 +160,15 @@ async def list_projects(
                 status_code=403,
                 detail="caller is not a member of this org",
             )
-        rows = await service.list_by_org(owner_id)
+        # Admin keeps the unfiltered org view, consistent with the bypass every
+        # other gate gives them. Everyone else goes through the same visibility
+        # rule as the unscoped list: this branch is a narrowing of that answer,
+        # not a second way to ask the question.
+        rows = (
+            await service.list_by_org(owner_id)
+            if principal.is_admin
+            else await _list_visible(db, service, principal, org_id=owner_id)
+        )
     rows = rows[pagination.offset : pagination.offset + pagination.limit]
     return [_to_out(r) for r in rows]
 
