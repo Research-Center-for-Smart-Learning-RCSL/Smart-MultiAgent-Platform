@@ -276,25 +276,66 @@ class InviteService:
             ),
         )
 
-    async def invitable_org_members(self, project_id: uuid.UUID) -> Sequence[InvitableMember]:
+    async def invitable_org_members(
+        self,
+        project_id: uuid.UUID,
+        *,
+        caller_user_id: uuid.UUID,
+        caller_is_admin: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Sequence[InvitableMember]:
         """Parent-Org members a Project Owner may still invite to this project.
 
-        The pool is a strict subset of ``GET /api/orgs/{id}/members``, which every
-        member of that Org can already read, so offering it as a picker discloses
-        nothing new (§8, Q-6). The parent Org is resolved from the project row —
-        an org id is never accepted from the caller.
+        The pool must stay a strict subset of ``GET /api/orgs/{id}/members``, which
+        is readable by any member of that Org, so that offering it as a picker
+        discloses nothing new (§8, Q-6). **Capability #14 on the project is not
+        enough to establish that**: a user invited straight into an org-owned
+        project as its Owner holds #14 without ever appearing in ``org_members``,
+        and for them the Org's member list is not already readable. The caller's
+        own org membership is therefore a predicate of the query, and a caller
+        outside the Org gets an empty pool — the same shape a user-owned project
+        yields, and one that reveals nothing, not even whether the Org has members.
+        An Admin is exempt (R5.01) and reads the pool directly.
+
+        The parent Org is resolved from the project row; an org id is never
+        accepted from the caller.
 
         Two exclusions make the picker's two duplicate-error paths unreachable:
         users who already hold a ``project_members`` row, and users with a live
         pending invite for this project. The second has to match on *email*
         because ``invites.invitee_user_id`` stays NULL until acceptance, which is
         why this reaches ``users`` — the same deliberate raw-table reach as
-        ``_notify_invitee``, not a new one. A user-owned project has no parent Org
-        and yields an empty pool, which is a state and not an error.
+        ``_notify_invitee``, not a new one.
         """
         users = sa.table("users", sa.column("id"), sa.column("email"), sa.column("deleted_at"))
         pm = _t.project_members
         om = _t.org_members
+        caller_om = _t.org_members.alias("caller_om")
+        predicates = [
+            _t.projects.c.id == project_id,
+            _t.projects.c.deleted_at.is_(None),
+            users.c.deleted_at.is_(None),
+            ~sa.exists().where(sa.and_(pm.c.project_id == project_id, pm.c.user_id == om.c.user_id)),
+            ~sa.exists().where(
+                sa.and_(
+                    _t.invites.c.scope_type == InviteScope.PROJECT.value,
+                    _t.invites.c.scope_id == project_id,
+                    _t.invites.c.state == InviteState.PENDING.value,
+                    _t.invites.c.expires_at > now(),
+                    sa.func.lower(_t.invites.c.invitee_email) == sa.func.lower(users.c.email),
+                )
+            ),
+        ]
+        if not caller_is_admin:
+            predicates.append(
+                sa.exists().where(
+                    sa.and_(
+                        caller_om.c.org_id == _t.projects.c.owner_org_id,
+                        caller_om.c.user_id == caller_user_id,
+                    )
+                )
+            )
         stmt = (
             sa.select(om.c.user_id, users.c.email)
             .select_from(
@@ -302,22 +343,13 @@ class InviteService:
                     users, users.c.id == om.c.user_id
                 )
             )
-            .where(
-                _t.projects.c.id == project_id,
-                _t.projects.c.deleted_at.is_(None),
-                users.c.deleted_at.is_(None),
-                ~sa.exists().where(sa.and_(pm.c.project_id == project_id, pm.c.user_id == om.c.user_id)),
-                ~sa.exists().where(
-                    sa.and_(
-                        _t.invites.c.scope_type == InviteScope.PROJECT.value,
-                        _t.invites.c.scope_id == project_id,
-                        _t.invites.c.state == InviteState.PENDING.value,
-                        _t.invites.c.expires_at > now(),
-                        sa.func.lower(_t.invites.c.invitee_email) == sa.func.lower(users.c.email),
-                    )
-                ),
-            )
+            .where(*predicates)
+            # Bounded in SQL rather than sliced after the fact: an Org's member
+            # count is unbounded, and this runs on every keystroke-free open of
+            # the invite form.
             .order_by(users.c.email)
+            .limit(limit)
+            .offset(offset)
         )
         rows = (await self._db.execute(stmt)).all()
         return [InvitableMember(user_id=r.user_id, email=r.email) for r in rows]

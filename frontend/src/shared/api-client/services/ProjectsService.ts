@@ -146,8 +146,10 @@ export class ProjectsService {
      * List Invitable Members
      * Parent-Org members this project may still invite (R6.10, Q-6).
      *
-     * A user-owned project has no parent Org, so the pool is empty; that is a 200
-     * with `[]`, never a 404 — an empty pool is a state, not a missing resource.
+     * Empty for a project with no parent Org, and empty for a caller who is not a
+     * member of that Org — both are a 200 with `[]`, never a 404: an absent pool is
+     * a state, not a missing resource, and the second case must not be
+     * distinguishable from the first.
      * @returns InvitableMemberOut Successful Response
      * @throws ApiError
      */

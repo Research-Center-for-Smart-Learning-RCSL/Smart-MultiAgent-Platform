@@ -63,13 +63,28 @@ class TenancyFacade:
     async def project_members(self, project_id: uuid.UUID) -> Sequence[ProjectMember]:
         return await self._project_members.list(project_id)
 
-    async def invitable_project_members(self, project_id: uuid.UUID) -> Sequence[InvitableMember]:
+    async def invitable_project_members(
+        self,
+        project_id: uuid.UUID,
+        *,
+        caller_user_id: uuid.UUID,
+        caller_is_admin: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Sequence[InvitableMember]:
         """Parent-Org members still invitable to this project (R6.10, Q-6).
 
-        Empty for a user-owned project: there is no parent Org to draw a pool
-        from, and an absent pool is a state rather than an error.
+        Empty for a user-owned project, and empty for a caller who is not a member
+        of the parent Org — see ``InviteService.invitable_org_members`` for why the
+        second case is a disclosure boundary and not a convenience.
         """
-        return await InviteService(self._db).invitable_org_members(project_id)
+        return await InviteService(self._db).invitable_org_members(
+            project_id,
+            caller_user_id=caller_user_id,
+            caller_is_admin=caller_is_admin,
+            limit=limit,
+            offset=offset,
+        )
 
     async def is_project_member(self, user_id: uuid.UUID, project_id: uuid.UUID) -> bool:
         member = await self._project_members.get(project_id=project_id, user_id=user_id)

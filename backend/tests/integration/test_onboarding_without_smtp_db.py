@@ -20,7 +20,7 @@ provisioned account fails here exactly as it would in production.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -79,7 +79,7 @@ def _auth(db: AsyncSession) -> AuthService:
 
 
 @pytest.fixture(autouse=True)
-def _fresh_redis_client() -> AsyncIterator[None]:
+def _fresh_redis_client() -> Iterator[None]:
     """Each test gets its own event loop, and the process-wide Redis client holds
     connections bound to the loop that opened them. Drop the singleton around
     every test so the second one does not inherit a closed loop's socket."""
@@ -295,6 +295,82 @@ async def test_reissued_links_work_and_the_superseded_ones_do_not(
             )
 
     await _cleanup_user(sessionmaker, user.id)
+
+
+async def test_invitable_pool_is_scoped_to_callers_who_are_in_the_parent_org(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    inviter: tuple[uuid.UUID, uuid.UUID],
+) -> None:
+    """The disclosure boundary of the picker, against real rows.
+
+    Capability #14 on an org-owned project does not imply membership of the parent
+    Org: a user invited straight into the project as its Owner holds #14 and never
+    appears in `org_members`. `GET /api/orgs/{id}/members` is closed to them, so
+    the picker must be too — otherwise it becomes a new way to read every address
+    in the Org, which is exactly what Q-6 promised it would not be.
+
+    Asserted against Postgres rather than compiled SQL: the predicate is a
+    correlated EXISTS across an aliased self-join, and a subtly wrong correlation
+    would still render plausible-looking SQL.
+    """
+    org_id, org_owner_id = inviter
+    project_id = uuid.uuid4()
+    outsider_id = uuid.uuid4()
+    org_member_id = uuid.uuid4()
+
+    async with sessionmaker() as session:
+        for uid, label in ((outsider_id, "outsider"), (org_member_id, "orgmember")):
+            await session.execute(
+                identity_t.users.insert().values(
+                    id=uid,
+                    email=f"{label}-{uid}@test.invalid",
+                    password_hash="x",
+                    email_verified=True,
+                    status=UserStatus.ACTIVE.value,
+                )
+            )
+        # `org_member_id` is in the Org; `outsider_id` deliberately is not.
+        await session.execute(
+            tenancy_t.org_members.insert().values(
+                org_id=org_id, user_id=org_member_id, role="member", is_original_creator=False
+            )
+        )
+        await session.execute(
+            tenancy_t.projects.insert().values(
+                id=project_id,
+                name="Org Project",
+                owner_org_id=org_id,
+                created_by_user_id=org_owner_id,
+            )
+        )
+        # Both are Project Owners, so both hold capability #14 on this project.
+        for uid in (outsider_id, org_member_id):
+            await session.execute(
+                tenancy_t.project_members.insert().values(project_id=project_id, user_id=uid, role="owner")
+            )
+        await session.commit()
+
+    try:
+        async with sessionmaker() as session:
+            service = InviteService(session, email_sender=AsyncMock(), public_origin=_ORIGIN)
+
+            outsider_pool = await service.invitable_org_members(project_id, caller_user_id=outsider_id)
+            member_pool = await service.invitable_org_members(project_id, caller_user_id=org_member_id)
+            admin_pool = await service.invitable_org_members(
+                project_id, caller_user_id=outsider_id, caller_is_admin=True
+            )
+
+        assert outsider_pool == [], "a non-member of the Org must not read its member list"
+        # The Org Owner is the only member not already in the project.
+        assert [m.user_id for m in member_pool] == [org_owner_id]
+        assert [m.user_id for m in admin_pool] == [org_owner_id]
+    finally:
+        async with sessionmaker() as session:
+            await session.execute(tenancy_t.projects.delete().where(tenancy_t.projects.c.id == project_id))
+            await session.execute(
+                identity_t.users.delete().where(identity_t.users.c.id.in_([outsider_id, org_member_id]))
+            )
+            await session.commit()
 
 
 async def _cleanup_user(sessionmaker: async_sessionmaker[AsyncSession], user_id: uuid.UUID) -> None:
