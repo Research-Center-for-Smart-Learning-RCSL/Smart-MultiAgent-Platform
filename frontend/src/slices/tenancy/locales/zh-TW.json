@@ -162,7 +162,35 @@
       "organizations": "組織",
       "projects": "專案",
       "members": "成員",
-      "transfer": "轉移"
+      "transfer": "轉移",
+      "memberGroups": "成員分組"
+    },
+    "memberGroup": {
+      "subtitle": "此專案成員的具名子集。聊天室可以只對指定分組開放，而不是整個專案。",
+      "name": "分組名稱",
+      "namePlaceholder": "例如：第一組",
+      "create": "建立分組",
+      "created": "已建立分組「{name}」",
+      "createFailed": "無法建立分組，名稱可能已被使用。",
+      "deleteTitle": "刪除分組",
+      "deleteBody": "確定刪除「{name}」？綁定此分組的聊天室將不再接納其成員。",
+      "deleteConfirm": "刪除分組",
+      "deleted": "分組已刪除",
+      "deleteFailed": "無法刪除分組",
+      "open": "已展開",
+      "emptyOwner": "尚未建立任何成員分組。建立一個，即可把聊天室限定給部分專案成員。",
+      "emptyMember": "你不屬於此專案的任何成員分組。",
+      "loadError": "無法載入成員分組",
+      "membersOf": "「{name}」的成員",
+      "addMember": "加入專案成員",
+      "addMemberPlaceholder": "選擇專案成員",
+      "add": "加入",
+      "remove": "移除",
+      "memberAdded": "已將成員加入分組",
+      "memberAddFailed": "無法加入該成員，對方必須先是此專案的成員。",
+      "memberRemoved": "已將成員移出分組",
+      "memberRemoveFailed": "無法移除該成員",
+      "noMembers": "此分組尚無成員"
     }
   }
 }

@@ -115,6 +115,30 @@ export async function getGuestLink(
   return ChatroomsService.readGuestLinkApiChatroomsChatroomIdGuestLinkGet({ chatroomId })
 }
 
+// ---- member-group bindings (section 13.2a) --------------------------------
+// Which of the parent project's member groups this room admits. Reading and
+// writing both require capability #14, so these are manager-only surfaces.
+
+export async function listChatroomMemberGroups(chatroomId: string): Promise<string[]> {
+  const out = await ChatroomsService.listChatroomMemberGroupsApiChatroomsChatroomIdMemberGroupsGet({
+    chatroomId,
+  })
+  return out.member_group_ids
+}
+
+/** Replace the binding set. The API takes the whole set, not a delta, so two
+ *  concurrent editors cannot each apply half of their intent. */
+export async function setChatroomMemberGroups(
+  chatroomId: string,
+  memberGroupIds: string[],
+): Promise<string[]> {
+  const out = await ChatroomsService.setChatroomMemberGroupsApiChatroomsChatroomIdMemberGroupsPut({
+    chatroomId,
+    requestBody: { member_group_ids: memberGroupIds },
+  })
+  return out.member_group_ids
+}
+
 // ---- chatroom agent bindings ---------------------------------------------
 // A chatroom binds agents from its parent project. Chatrooms carry only a
 // `workspace_id`, so the settings UI resolves workspace → project via

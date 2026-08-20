@@ -44,6 +44,15 @@ export const tenancyRoutes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
+    // §13.2a. Reachable by any project member: a non-owner sees only the groups
+    // they belong to, which is a legitimate (and often empty) view rather than a
+    // forbidden one.
+    path: '/projects/:id/member-groups',
+    name: 'tenancy.projectMemberGroups',
+    component: () => import('./views/ProjectMemberGroupsView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/invites',
     name: 'tenancy.inbox',
     component: () => import('./views/InboxInvitesView.vue'),

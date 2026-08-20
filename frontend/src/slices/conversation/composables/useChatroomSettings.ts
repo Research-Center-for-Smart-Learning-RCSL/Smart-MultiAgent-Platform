@@ -22,6 +22,7 @@ export type AccessFlag =
   | 'allow_project_members'
   | 'allow_project_owners_only'
   | 'allow_guest_links'
+  | 'allow_member_groups'
 
 export function useChatroomSettings(chatroomId: string) {
   const { t } = useI18n()
@@ -39,14 +40,21 @@ export function useChatroomSettings(chatroomId: string) {
 
   // F-7: a projection of server state, never a mirror of it. `SToggle` is
   // fully controlled, so a toggle reading this cannot display a value the
-  // server did not accept — there is no second copy to forget to revert, and
-  // R13.04's server-side auto-correction of the sibling flags renders for
-  // free. Do not reintroduce local coupling between these.
+  // server did not accept — there is no second copy to forget to revert.
+  //
+  // There is NO server-side auto-correction of the sibling flags, despite what
+  // this comment used to claim. What exists is a read-time override —
+  // `_satisfies_room_flags` treats `allow_project_owners_only` as exclusive
+  // wherever access is evaluated — plus the disabled toggles below, plus one
+  // outright refusal: R13.04's `allow_member_groups` / `allow_project_members`
+  // pair is a 422, which `setFlag` avoids by moving both together.
+  // Do not reintroduce local coupling between these.
   const flags = computed(() => ({
     allow_org_members: room.value?.allow_org_members ?? false,
     allow_project_members: room.value?.allow_project_members ?? true,
     allow_project_owners_only: room.value?.allow_project_owners_only ?? false,
     allow_guest_links: room.value?.allow_guest_links ?? false,
+    allow_member_groups: room.value?.allow_member_groups ?? false,
     // R28.09 — creator-only; the server rejects a non-creator patch of this
     // field, so the UI only exposes the toggle to the creator.
     disclose_observers: room.value?.disclose_observers ?? true,
@@ -182,13 +190,18 @@ export function useChatroomSettings(chatroomId: string) {
     }
   }
 
-  /** Patch exactly one flag, ending on a server object however it goes. */
-  async function patchFlag(key: AccessFlag | 'disclose_observers', value: boolean): Promise<void> {
+  /** Patch one access field, ending on a server object however it goes.
+   *
+   *  Takes a patch object rather than a key/value pair because R13.04's one
+   *  exclusive pair has to move together: see `setFlag`. */
+  async function patchFlag(
+    patch: Partial<Record<AccessFlag | 'disclose_observers', boolean>>,
+  ): Promise<void> {
     if (!room.value || saving.value) return
     saving.value = true
     saveError.value = null
     try {
-      applyKeepingDraft(await patchChatroom(chatroomId, room.value.version, { [key]: value }))
+      applyKeepingDraft(await patchChatroom(chatroomId, room.value.version, patch))
       await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
       toast.success(t('conversation.settings.saved'))
     } catch (e) {
@@ -204,9 +217,25 @@ export function useChatroomSettings(chatroomId: string) {
     }
   }
 
-  /** Immediate-save access toggle (docs/UI/07-conversation.md §4.2). */
+  /** Immediate-save access toggle (docs/UI/07-conversation.md §4.2).
+   *
+   *  R13.04 makes `allow_member_groups` and `allow_project_members` mutually
+   *  exclusive, and the server refuses the pair with a 422. Turning either on
+   *  therefore turns the other off in the SAME patch: the user's intent is
+   *  unambiguous ("scope this room to groups" / "open it to the project"), and
+   *  making them clear the old tier first would surface a validation error for a
+   *  state they never asked to be in. Sending both in one request also means the
+   *  room is never momentarily open to nobody. */
   async function setFlag(key: AccessFlag, value: boolean): Promise<void> {
-    await patchFlag(key, value)
+    if (value && key === 'allow_member_groups') {
+      await patchFlag({ allow_member_groups: true, allow_project_members: false })
+      return
+    }
+    if (value && key === 'allow_project_members') {
+      await patchFlag({ allow_project_members: true, allow_member_groups: false })
+      return
+    }
+    await patchFlag({ [key]: value })
   }
 
   /** Creator-only patch of just `disclose_observers` (R28.09). Kept as its own
@@ -214,7 +243,7 @@ export function useChatroomSettings(chatroomId: string) {
    *  non-creator: a generic save carrying it would 403 a non-creator moderator
    *  editing the access flags. */
   async function saveDisclosure(value: boolean): Promise<void> {
-    await patchFlag('disclose_observers', value)
+    await patchFlag({ disclose_observers: value })
   }
 
   async function onDelete(): Promise<void> {
