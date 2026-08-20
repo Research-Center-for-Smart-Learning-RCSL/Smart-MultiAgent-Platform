@@ -3,7 +3,7 @@
     <SPageHeader :title="$t('workflow.runs.title')">
       <template #prepend>
         <router-link
-          :to="{ name: 'workflow.list', params: { workspaceId: route.params.workspaceId } }"
+          :to="{ name: 'workflow.list', params: { workspaceId } }"
           class="text-sm text-muted hover:underline"
         >
           &larr; {{ $t('workflow.runs.backToList') }}
@@ -115,7 +115,7 @@ import type { Column } from '@shared/ui/STable.vue'
 import { listRuns, triggerRun } from '../api'
 import type { WorkflowRun } from '../types'
 import { wfKeys } from '../queries'
-import { useProjectRole } from '../composables/useProjectRole'
+import { useBackstageGuard } from '../composables/useBackstageGuard'
 
 // Same STable row-generic pin as WorkflowListView / agents list.
 const _fixedSTable = STable<Record<string, unknown>>
@@ -132,8 +132,9 @@ const workflowId = route.params.workflowId as string
 const workspaceId = route.params.workspaceId as string
 const showArchive = ref(false)
 
-// Backstage is admin/owner-only; only surface the link to those who can enter.
-const { isAuthorized } = useProjectRole(workspaceId)
+// The run list is itself a backstage read ([R14.10]), so this both gates the
+// page and decides whether to surface the deeper backstage link.
+const { isAuthorized } = useBackstageGuard(workspaceId)
 
 const columns = computed<Column[]>(() => [
   { key: 'state', label: t('workflow.runs.state'), cellType: 'badge' },
@@ -145,6 +146,7 @@ const columns = computed<Column[]>(() => [
 const query = useQuery({
   queryKey: computed(() => [...wfKeys.runs(workflowId), showArchive.value] as const),
   queryFn: () => listRuns(workflowId, { includeArchive: showArchive.value }),
+  enabled: computed(() => isAuthorized.value),
 })
 
 const runsList = computed(() => query.data.value ?? [])

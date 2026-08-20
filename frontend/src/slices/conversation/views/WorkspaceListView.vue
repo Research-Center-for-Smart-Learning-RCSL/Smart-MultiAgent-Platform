@@ -26,6 +26,7 @@ import {
 } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
+import { useProjectRole } from '@slices/tenancy'
 import {
   createWorkspace,
   deleteWorkspace,
@@ -104,8 +105,16 @@ const deleteMutation = useMutation({
   onError: () => toast.error(t('conversation.workspaces.deleteFailed')),
 })
 
+// The workflow surface is Admin-or-project-owner ([R14.10], dossier
+// 2026-08-20-orchestration-room-scoped-reads): offering it to a plain member
+// only routes them to a page that bounces them back. The other two entries are
+// left as they were — this dossier did not change what they require.
+const { isAuthorized: canOpenWorkflows } = useProjectRole(projectId)
+
 const actionItems = computed(() => [
-  { key: 'workflows', label: t('conversation.workspaces.workflows'), icon: ShareIcon },
+  ...(canOpenWorkflows.value
+    ? [{ key: 'workflows', label: t('conversation.workspaces.workflows'), icon: ShareIcon }]
+    : []),
   { key: 'conceptMap', label: t('conversation.conceptMap.settings'), icon: Cog6ToothIcon },
   { key: 'delete', label: t('conversation.workspaces.delete'), icon: TrashIcon, danger: true },
 ])

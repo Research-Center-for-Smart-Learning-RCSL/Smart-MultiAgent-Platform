@@ -27,6 +27,7 @@ import {
 } from '@shared/ui'
 import { useConfirmDialog, useToast, useListStagger } from '@shared/composables'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
+import { useProjectRole } from '@slices/tenancy'
 import {
   createChatroom,
   deleteChatroom,
@@ -58,6 +59,13 @@ const query = useQuery({
   queryKey: convKeys.chatrooms(workspaceId),
   queryFn: () => listChatrooms(workspaceId),
 })
+
+// Every workflow read is Admin-or-project-owner ([R14.10], dossier
+// 2026-08-20-orchestration-room-scoped-reads), so this entry point would land a
+// plain member on a page that redirects them straight back. Hide it instead.
+const { isAuthorized: canOpenWorkflows } = useProjectRole(
+  computed(() => workspaceQuery.data.value?.project_id),
+)
 
 const rooms = computed<Chatroom[]>(() => query.data.value ?? [])
 const loading = computed(() => query.isLoading.value)
@@ -217,6 +225,7 @@ function submitCreate(): void {
     >
       <template #actions>
         <SButton
+          v-if="canOpenWorkflows"
           variant="secondary"
           :to="{ name: 'workflow.list', params: { workspaceId } }"
           as="router-link"
