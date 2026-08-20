@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from typing import Literal
+from typing import Literal, cast
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, status
@@ -20,6 +20,7 @@ from contexts.tenancy.application.project_service import (
     ProjectOwnerType,
     ProjectService,
 )
+from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
@@ -69,6 +70,21 @@ class ProjectMemberPatchIn(BaseModel):
 class InviteCreateIn(BaseModel):
     email: EmailStr
     role: Literal["owner", "member"] = "member"
+
+
+class ProjectInviteOut(BaseModel):
+    id: uuid.UUID
+    scope_id: uuid.UUID
+    invitee_email: str
+    role: Literal["owner", "member"]
+    expires_at: str
+    # R6.09 — see the same field on `orgs.InviteOut`: creation only, never a read.
+    accept_url: str | None = None
+
+
+class InvitableMemberOut(BaseModel):
+    user_id: uuid.UUID
+    email: str
 
 
 def _to_out(p) -> ProjectOut:
@@ -399,6 +415,28 @@ async def patch_project_member(
     return {"ok": "true"}
 
 
+@router.get("/{project_id}/invitable-members")
+async def list_invitable_members(
+    project_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
+    _=Depends(
+        require(
+            Capability.PROJECT_MEMBER_MANAGE,
+            scope_from_path(project_param="project_id"),
+        )
+    ),
+    db: AsyncSession = Depends(db_session),
+) -> list[InvitableMemberOut]:
+    """Parent-Org members this project may still invite (R6.10, Q-6).
+
+    A user-owned project has no parent Org, so the pool is empty; that is a 200
+    with `[]`, never a 404 — an empty pool is a state, not a missing resource.
+    """
+    pool = await TenancyFacade(db).invitable_project_members(project_id)
+    page = pool[pagination.offset : pagination.offset + pagination.limit]
+    return [InvitableMemberOut(user_id=m.user_id, email=m.email) for m in page]
+
+
 @router.post("/{project_id}/invites", status_code=status.HTTP_201_CREATED)
 async def create_project_invite(
     body: InviteCreateIn,
@@ -412,7 +450,7 @@ async def create_project_invite(
         )
     ),
     db: AsyncSession = Depends(db_session),
-) -> dict[str, str]:
+) -> ProjectInviteOut:
     service = InviteService(db)
     invited = await service.create_project_invite(
         project_id=project_id,
@@ -422,10 +460,14 @@ async def create_project_invite(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    return {
-        "id": str(invited.invite.id),
-        "expires_at": invited.invite.expires_at.isoformat(),
-    }
+    return ProjectInviteOut(
+        id=invited.invite.id,
+        scope_id=invited.invite.scope_id,
+        invitee_email=invited.invite.invitee_email,
+        role=cast(Literal["owner", "member"], invited.invite.role),
+        expires_at=invited.invite.expires_at.isoformat(),
+        accept_url=invited.accept_url,
+    )
 
 
 __all__ = ["router"]
