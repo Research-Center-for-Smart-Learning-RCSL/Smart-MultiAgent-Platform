@@ -1,10 +1,13 @@
 """`/api/workspaces/{wid}/workflows` + `/api/workflows/{id}` — H.1 / §22.11.
 
 AuthZ (API-1): cap #16 (CHAT_CREATE) for create/edit/delete/trigger/cancel;
-project membership for read (list/get/validate/list_runs/list_steps). Every
-workflow- and run-scoped endpoint resolves its target to a `project_id` first
-(`_resolve_workflow` / `_resolve_run`) so an authenticated caller cannot reach
-another tenant's workflow by enumerating UUIDs.
+Admin or a project/org owner for read (list/get/validate/list_runs/list_steps).
+The read rule is [R14.10], not a convention: the workflow trace is a backstage
+surface, so bare project membership is not enough and the panel being hidden in
+the UI is not the enforcement. Every workflow- and run-scoped endpoint resolves
+its target to a `project_id` first (`_resolve_workflow` / `_resolve_run`) so an
+authenticated caller cannot reach another tenant's workflow by enumerating
+UUIDs.
 Runs: trigger via POST /api/workflows/{id}/runs; cancel via POST /api/workflow-runs/{id}/cancel.
 """
 
@@ -19,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
 from contexts.agents.interfaces.facade import AgentsFacade
+from contexts.conversation.interfaces.access import is_moderator_roles
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.workflow.application.workflow_service import WorkflowService
 from contexts.workflow.domain.errors import (
@@ -98,19 +102,24 @@ async def _resolve_run(
     return Scope(project_id=project_id)
 
 
-async def _require_member(
+async def _require_moderator(
     principal: Principal,
     scope: Scope,
     resolver: RoleResolver,
 ) -> None:
-    """Read access: caller must hold any role in the workflow's project."""
+    """Read access: Admin, or a project/org owner of the workflow's project.
+
+    [R14.10] — the trace is backstage. Reuses `is_moderator_roles` rather than
+    restating `PROJECT_OWNER or ORG_OWNER`, so org-inherited ownership (R5.03)
+    keeps meaning the same thing here as it does in the room ACL.
+    """
     if principal.is_admin:
         return
     roles = await resolver.roles_for(principal, scope)
-    if not roles:
+    if not is_moderator_roles(roles):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="caller is not a member of the workflow's project",
+            detail="workflow reads require Admin or a project owner",
         )
 
 
@@ -329,7 +338,7 @@ async def list_workflows(
     resolver: RoleResolver = Depends(get_role_resolver),
     db: AsyncSession = Depends(db_session),
 ) -> list[WorkflowOut]:
-    await _require_member(principal, scope, resolver)
+    await _require_moderator(principal, scope, resolver)
     svc = WorkflowService(db)
     workflows = await svc.list_for_workspace(
         wid,
@@ -351,7 +360,7 @@ async def validate_workflow(
     resolver: RoleResolver = Depends(get_role_resolver),
     db: AsyncSession = Depends(db_session),
 ) -> ValidateOut:
-    await _require_member(principal, scope, resolver)
+    await _require_moderator(principal, scope, resolver)
     svc = WorkflowService(db)
     ids = await _linter_valid_ids(db, scope.project_id)
     result = svc.validate(
@@ -543,7 +552,7 @@ async def list_runs(
     resolver: RoleResolver = Depends(get_role_resolver),
     db: AsyncSession = Depends(db_session),
 ) -> list[RunOut | ArchivedRunOut]:
-    await _require_member(principal, scope, resolver)
+    await _require_moderator(principal, scope, resolver)
     svc = WorkflowService(db)
     runs = await svc.list_runs(
         workflow_id,
@@ -566,7 +575,7 @@ async def get_run(
     resolver: RoleResolver = Depends(get_role_resolver),
     db: AsyncSession = Depends(db_session),
 ) -> RunOut:
-    await _require_member(principal, scope, resolver)
+    await _require_moderator(principal, scope, resolver)
     svc = WorkflowService(db)
     run = await svc.get_run(run_id)
     return _to_run_out(run)
@@ -599,7 +608,7 @@ async def list_steps(
     resolver: RoleResolver = Depends(get_role_resolver),
     db: AsyncSession = Depends(db_session),
 ) -> list[StepOut]:
-    await _require_member(principal, scope, resolver)
+    await _require_moderator(principal, scope, resolver)
     svc = WorkflowService(db)
     steps = await svc.list_steps(run_id)
     return [_to_step_out(s) for s in steps]
