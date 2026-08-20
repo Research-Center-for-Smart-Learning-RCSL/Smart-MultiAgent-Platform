@@ -60,7 +60,8 @@ def _warn_if_truncated(truncated: bool, *, scope: str, scope_id: uuid.UUID | Non
         limit=_MAX_LISTING_CANDIDATES,
     ).warning(
         "room listing hit the candidate ceiling; rooms beyond it were not considered "
-        "for visibility and are absent from the response"
+        "for visibility and are absent from the response. For a container listing this "
+        "means the container itself may be missing, not merely short"
     )
 
 
@@ -128,13 +129,7 @@ class ConversationFacade:
         workspace_ids: Sequence[uuid.UUID],
     ) -> set[uuid.UUID]:
         """Of `workspace_ids`, those holding at least one room the caller may read."""
-        candidates, truncated = await self._rooms.list_candidates(
-            workspace_ids=list(workspace_ids),
-            limit=_MAX_LISTING_CANDIDATES,
-        )
-        _warn_if_truncated(truncated, scope="workspace-set", scope_id=None)
-        visible = await self._visible_ids(principal, candidates)
-        return {room.workspace_id for _, room in candidates if room.id in visible}
+        return await self._containers_with_visible_room(principal, ids=list(workspace_ids), by_workspace=True)
 
     async def project_ids_with_visible_room(
         self,
@@ -149,13 +144,60 @@ class ConversationFacade:
         must not be routed through here, or a member with no readable room would
         lose sight of their own project.
         """
-        candidates, truncated = await self._rooms.list_candidates(
-            project_ids=list(project_ids),
-            limit=_MAX_LISTING_CANDIDATES,
+        return await self._containers_with_visible_room(principal, ids=list(project_ids), by_workspace=False)
+
+    async def _containers_with_visible_room(
+        self,
+        principal: Principal,
+        *,
+        ids: Sequence[uuid.UUID],
+        by_workspace: bool,
+    ) -> set[uuid.UUID]:
+        """Which of these containers hold a room the caller may read.
+
+        The ceiling applies to the *union* of rooms across every container asked
+        about, so a container whose rooms sort after the cut would be judged on
+        none of its rooms and dropped from the answer entirely — a workspace or a
+        project vanishing from the UI, not a shortened list. Truncation therefore
+        splits the question rather than accepting a wrong answer: halve the
+        container set and ask again, down to a single container. Only a single
+        container that still exceeds the ceiling on its own warns and answers from
+        a partial read, which is the trade the ceiling was documented for.
+
+        Costs nothing when nothing truncates, which is every realistic case.
+        """
+        if not ids:
+            return set()
+        if by_workspace:
+            candidates, truncated = await self._rooms.list_candidates(
+                workspace_ids=ids, limit=_MAX_LISTING_CANDIDATES
+            )
+        else:
+            candidates, truncated = await self._rooms.list_candidates(
+                project_ids=ids, limit=_MAX_LISTING_CANDIDATES
+            )
+
+        if truncated and len(ids) > 1:
+            mid = len(ids) // 2
+            left = await self._containers_with_visible_room(
+                principal, ids=ids[:mid], by_workspace=by_workspace
+            )
+            right = await self._containers_with_visible_room(
+                principal, ids=ids[mid:], by_workspace=by_workspace
+            )
+            return left | right
+
+        _warn_if_truncated(
+            truncated,
+            scope="workspace" if by_workspace else "project",
+            scope_id=ids[0] if len(ids) == 1 else None,
         )
-        _warn_if_truncated(truncated, scope="project-set", scope_id=None)
         visible = await self._visible_ids(principal, candidates)
-        return {project_id for project_id, room in candidates if room.id in visible}
+        return {
+            (room.workspace_id if by_workspace else project_id)
+            for project_id, room in candidates
+            if room.id in visible
+        }
 
     async def _visible_ids(
         self,

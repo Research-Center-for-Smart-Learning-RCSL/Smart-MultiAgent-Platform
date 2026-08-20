@@ -114,10 +114,13 @@ async def test_the_candidate_query_compiles_for_postgresql() -> None:
 
     sql = str(captured[0].compile(dialect=postgresql.dialect()))
     assert "JOIN workspaces" in sql
+    assert "JOIN projects" in sql
     assert "parent_project_id" in sql
-    # Both soft-delete filters must survive: a deleted workspace's rooms are not
-    # candidates, and neither are deleted rooms in a live workspace.
-    assert sql.count("deleted_at IS NULL") == 2
+    # All three soft-delete filters must survive. The chatroom's and the
+    # workspace's are obvious; the project's is what keeps the listing agreeing
+    # with `resolve_room_access`, which refuses a room whose project is deleted
+    # even though the role resolver still reads that project.
+    assert sql.count("deleted_at IS NULL") == 3
 
 
 @pytest.mark.asyncio
@@ -139,6 +142,80 @@ async def test_hitting_the_ceiling_warns_and_names_what_was_dropped() -> None:
 
     bound_logger.warning.assert_called_once()
     assert "not considered" in bound_logger.warning.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_a_truncated_container_query_splits_instead_of_dropping_containers() -> None:
+    """The ceiling applies to the union across containers, so a container whose
+    rooms sort after the cut would be judged on none of them and vanish from the
+    answer — a workspace disappearing from the UI, not a shortened list.
+
+    The first call (four workspaces) truncates; the halves do not, and every
+    workspace is accounted for.
+    """
+    ws = [uuid.uuid4() for _ in range(4)]
+    rows = {w: _row() for w in ws}
+    for w, r in rows.items():
+        r.workspace_id = w
+
+    calls: list[list[uuid.UUID]] = []
+
+    async def _list_candidates(*, workspace_ids=None, project_ids=None, limit):
+        ids = list(workspace_ids or [])
+        calls.append(ids)
+        payload = [(_PROJECT_ID, rows[w]) for w in ids]
+        # Only the first, full-width call reports truncation.
+        return payload, len(ids) == 4
+
+    repo = AsyncMock()
+    repo.list_candidates = AsyncMock(side_effect=_list_candidates)
+
+    with (
+        patch.object(facade_mod, "ChatroomRepository", return_value=repo),
+        patch.object(facade_mod, "logger", MagicMock(bind=MagicMock(return_value=MagicMock()))),
+        patch.object(
+            facade_mod,
+            "visible_room_ids",
+            AsyncMock(side_effect=lambda _db, *, principal, rooms: {r.id for _, r in rooms}),
+        ),
+    ):
+        out = await facade_mod.ConversationFacade(AsyncMock()).workspace_ids_with_visible_room(
+            principal=SimpleNamespace(user_id=uuid.uuid4(), is_admin=False, email_verified=True),
+            workspace_ids=ws,
+        )
+
+    assert out == set(ws), "a split must not lose a container"
+    assert [len(c) for c in calls] == [4, 2, 2]
+
+
+@pytest.mark.asyncio
+async def test_a_single_container_that_still_truncates_warns_rather_than_looping() -> None:
+    """The recursion has to bottom out: one container over the ceiling on its own
+    is the documented trade, not a reason to split forever."""
+    only = uuid.uuid4()
+    row = _row()
+    row.workspace_id = only
+    repo = AsyncMock()
+    repo.list_candidates = AsyncMock(return_value=([(_PROJECT_ID, row)], True))
+    bound_logger = MagicMock()
+
+    with (
+        patch.object(facade_mod, "ChatroomRepository", return_value=repo),
+        patch.object(facade_mod, "logger", MagicMock(bind=MagicMock(return_value=bound_logger))),
+        patch.object(
+            facade_mod,
+            "visible_room_ids",
+            AsyncMock(return_value={row.id}),
+        ),
+    ):
+        out = await facade_mod.ConversationFacade(AsyncMock()).workspace_ids_with_visible_room(
+            principal=SimpleNamespace(user_id=uuid.uuid4(), is_admin=False, email_verified=True),
+            workspace_ids=[only],
+        )
+
+    assert out == {only}
+    assert repo.list_candidates.await_count == 1
+    bound_logger.warning.assert_called_once()
 
 
 @pytest.mark.asyncio
