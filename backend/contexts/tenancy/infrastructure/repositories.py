@@ -181,6 +181,25 @@ class OrgMemberRepository:
         ).all()
         return [_row_to_org_member(r) for r in rows]
 
+    async def owned_org_ids(self, user_id: uuid.UUID) -> set[uuid.UUID]:
+        """Every org where the user is an Owner (one query).
+
+        The project listing needs this to know which candidate projects the
+        caller reaches through R8.08 / R5.03 inheritance rather than through a
+        `project_members` row of their own.
+        """
+        rows = (
+            await self._db.execute(
+                sa.select(t.org_members.c.org_id).where(
+                    sa.and_(
+                        t.org_members.c.user_id == user_id,
+                        t.org_members.c.role == OrgMemberRole.OWNER.value,
+                    )
+                )
+            )
+        ).all()
+        return {r.org_id for r in rows}
+
     async def remove(self, *, org_id: uuid.UUID, user_id: uuid.UUID) -> None:
         await self._db.execute(
             t.org_members.delete().where(
@@ -349,6 +368,23 @@ class ProjectRepository:
                 )
             )
         ).all()
+        return [_row_to_project(r) for r in rows]
+
+    async def list_by_orgs(
+        self, org_ids: Sequence[uuid.UUID], *, include_deleted: bool = False
+    ) -> Sequence[Project]:
+        """The batch form of :meth:`list_by_org` (one query).
+
+        The project listing resolves every org the caller belongs to at once; a
+        per-org call in that loop is an N+1 on a route the SPA hits on nearly
+        every navigation.
+        """
+        if not org_ids:
+            return []
+        predicate: sa.ColumnElement[bool] = t.projects.c.owner_org_id.in_(list(org_ids))
+        if not include_deleted:
+            predicate = sa.and_(predicate, t.projects.c.deleted_at.is_(None))
+        rows = (await self._db.execute(t.projects.select().where(predicate))).all()
         return [_row_to_project(r) for r in rows]
 
     async def list_by_org(self, org_id: uuid.UUID, *, include_deleted: bool = False) -> Sequence[Project]:
