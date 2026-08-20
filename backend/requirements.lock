@@ -128,7 +128,7 @@ neo4j==5.24.0
     # via smap-backend (pyproject.toml)
 numpy==2.5.1
     # via qdrant-client
-orjson==3.11.9
+orjson==3.12.0
     # via smap-backend (pyproject.toml)
 pillow==12.3.0
     # via weasyprint
