@@ -7,9 +7,10 @@ The invite state machine:
             ──revoke──► revoked   (inviter or admin)
             ──expire──► expired   (nightly worker)
 
-Invite token is hashed in `invites.token_hash`; the plaintext is emailed and
-never persisted. Acceptance requires the caller be logged in AND verified
-(R6.11 — unverified accounts cannot accept Guest/Org/Project invites).
+Invite token is hashed in `invites.token_hash`; the plaintext is emailed, handed
+back to the inviter as a copyable accept link (R6.09), and never persisted.
+Acceptance requires the caller be logged in AND verified (R6.02 — an unverified
+account can neither create an Org/Project nor accept an invite).
 """
 
 from __future__ import annotations
@@ -56,6 +57,13 @@ from shared_kernel.auth.clients import now
 class InviteCreated:
     invite: Invite
     plaintext_token: str
+    accept_url: str
+
+
+@dataclass(frozen=True, slots=True)
+class InvitableMember:
+    user_id: uuid.UUID
+    email: str
 
 
 def _default_public_origin() -> str:
@@ -67,6 +75,11 @@ def _default_public_origin() -> str:
 def _recipient_digest(addr: str) -> str:
     """Proxy to IdentityFacade.recipient_digest (avoids cross-context import)."""
     return IdentityFacade.recipient_digest(addr)
+
+
+def _accept_url(base_url: str, token: str) -> str:
+    """Proxy to IdentityFacade.invite_accept_url (avoids cross-context import)."""
+    return IdentityFacade.invite_accept_url(base_url, token)
 
 
 class InviteService:
@@ -120,7 +133,11 @@ class InviteService:
         )
         await self._notify_invitee(invitee_email, invite.id, InviteScope.ORG, org_id)
         await self._email_invite(invitee_email, token, InviteScope.ORG, org_id)
-        return InviteCreated(invite=invite, plaintext_token=token)
+        return InviteCreated(
+            invite=invite,
+            plaintext_token=token,
+            accept_url=_accept_url(self._public_origin, token),
+        )
 
     async def create_project_invite(
         self,
@@ -154,7 +171,11 @@ class InviteService:
         )
         await self._notify_invitee(invitee_email, invite.id, InviteScope.PROJECT, project_id)
         await self._email_invite(invitee_email, token, InviteScope.PROJECT, project_id)
-        return InviteCreated(invite=invite, plaintext_token=token)
+        return InviteCreated(
+            invite=invite,
+            plaintext_token=token,
+            accept_url=_accept_url(self._public_origin, token),
+        )
 
     async def _notify_invitee(
         self,
@@ -220,7 +241,7 @@ class InviteService:
             from contexts.identity.infrastructure import email_templates
             from contexts.identity.infrastructure.email import EmailMessage
 
-            accept_link = email_templates.invite_accept_url(self._public_origin, token)
+            accept_link = _accept_url(self._public_origin, token)
             rendered = email_templates.invite(
                 scope_label=scope_label,
                 scope_name=scope_name,
@@ -254,6 +275,52 @@ class InviteService:
                 metadata={"template": "invite", "recipient": digest},
             ),
         )
+
+    async def invitable_org_members(self, project_id: uuid.UUID) -> Sequence[InvitableMember]:
+        """Parent-Org members a Project Owner may still invite to this project.
+
+        The pool is a strict subset of ``GET /api/orgs/{id}/members``, which every
+        member of that Org can already read, so offering it as a picker discloses
+        nothing new (§8, Q-6). The parent Org is resolved from the project row —
+        an org id is never accepted from the caller.
+
+        Two exclusions make the picker's two duplicate-error paths unreachable:
+        users who already hold a ``project_members`` row, and users with a live
+        pending invite for this project. The second has to match on *email*
+        because ``invites.invitee_user_id`` stays NULL until acceptance, which is
+        why this reaches ``users`` — the same deliberate raw-table reach as
+        ``_notify_invitee``, not a new one. A user-owned project has no parent Org
+        and yields an empty pool, which is a state and not an error.
+        """
+        users = sa.table("users", sa.column("id"), sa.column("email"), sa.column("deleted_at"))
+        pm = _t.project_members
+        om = _t.org_members
+        stmt = (
+            sa.select(om.c.user_id, users.c.email)
+            .select_from(
+                om.join(_t.projects, _t.projects.c.owner_org_id == om.c.org_id).join(
+                    users, users.c.id == om.c.user_id
+                )
+            )
+            .where(
+                _t.projects.c.id == project_id,
+                _t.projects.c.deleted_at.is_(None),
+                users.c.deleted_at.is_(None),
+                ~sa.exists().where(sa.and_(pm.c.project_id == project_id, pm.c.user_id == om.c.user_id)),
+                ~sa.exists().where(
+                    sa.and_(
+                        _t.invites.c.scope_type == InviteScope.PROJECT.value,
+                        _t.invites.c.scope_id == project_id,
+                        _t.invites.c.state == InviteState.PENDING.value,
+                        _t.invites.c.expires_at > now(),
+                        sa.func.lower(_t.invites.c.invitee_email) == sa.func.lower(users.c.email),
+                    )
+                ),
+            )
+            .order_by(users.c.email)
+        )
+        rows = (await self._db.execute(stmt)).all()
+        return [InvitableMember(user_id=r.user_id, email=r.email) for r in rows]
 
     async def list_inbound(
         self,
@@ -332,7 +399,7 @@ class InviteService:
         logged-in-email match of :meth:`accept`, so an invitee who signed up
         with a different address (or via the link before their email was known)
         can still redeem it. The caller must still be logged in AND verified;
-        that gate is enforced at the router (R6.11).
+        that gate is enforced at the router (R6.02).
         """
         invite = await self._invites.get_by_token(token)
         if invite is None:
@@ -451,4 +518,4 @@ class InviteService:
         return updated
 
 
-__all__ = ["InviteCreated", "InviteService"]
+__all__ = ["InvitableMember", "InviteCreated", "InviteService"]

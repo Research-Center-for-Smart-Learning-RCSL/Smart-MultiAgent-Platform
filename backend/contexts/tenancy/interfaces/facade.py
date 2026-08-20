@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.tenancy.application.account_deletion_service import AccountDeletionService
+from contexts.tenancy.application.invite_service import InvitableMember, InviteService
 from contexts.tenancy.domain.models import MemberGroup, Org, OrgMember, Project, ProjectMember
 from contexts.tenancy.infrastructure.repositories import (
     MemberGroupRepository,
@@ -61,6 +62,14 @@ class TenancyFacade:
 
     async def project_members(self, project_id: uuid.UUID) -> Sequence[ProjectMember]:
         return await self._project_members.list(project_id)
+
+    async def invitable_project_members(self, project_id: uuid.UUID) -> Sequence[InvitableMember]:
+        """Parent-Org members still invitable to this project (R6.10, Q-6).
+
+        Empty for a user-owned project: there is no parent Org to draw a pool
+        from, and an absent pool is a state rather than an error.
+        """
+        return await InviteService(self._db).invitable_org_members(project_id)
 
     async def is_project_member(self, user_id: uuid.UUID, project_id: uuid.UUID) -> bool:
         member = await self._project_members.get(project_id=project_id, user_id=user_id)

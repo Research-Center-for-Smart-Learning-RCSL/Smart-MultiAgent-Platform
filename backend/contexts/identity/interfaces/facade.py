@@ -156,5 +156,18 @@ class IdentityFacade:
 
         return _digest(addr)
 
+    @staticmethod
+    def invite_accept_url(base_url: str, token: str) -> str:
+        """The accept link an invite mail carries, without sending anything (R6.09).
+
+        Re-exported so the tenancy invite service can hand the same URL back to
+        the inviter for out-of-band delivery on an installation with no outbound
+        mail. One renderer for both channels: a divergence here would produce a
+        copyable link that the SPA's ``?invite=1#token=`` route cannot read.
+        """
+        from contexts.identity.infrastructure import email_templates
+
+        return email_templates.invite_accept_url(base_url, token)
+
 
 __all__ = ["IdentityFacade", "UserProfile"]

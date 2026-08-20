@@ -79,6 +79,11 @@ class InviteOut(BaseModel):
     role: Literal["owner", "member"]
     state: InviteState
     expires_at: str
+    # R6.09: the accept link, so a deployment with no outbound mail can hand it
+    # over out of band. Populated *only* on the 201 from create — the token is a
+    # bearer credential, so no read endpoint may carry it, and losing the copy
+    # means revoke-and-reinvite rather than re-read.
+    accept_url: str | None = None
 
 
 class MemberPatchIn(BaseModel):
@@ -380,6 +385,7 @@ async def create_invite(
         role=cast(Literal["owner", "member"], invited.invite.role),
         state=invited.invite.state,
         expires_at=invited.invite.expires_at.isoformat(),
+        accept_url=invited.accept_url,
     )
 
 
