@@ -25,7 +25,7 @@ export class AgentWorkspaceService {
                 'agent_id': agentId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -50,7 +50,7 @@ export class AgentWorkspaceService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -74,7 +74,7 @@ export class AgentWorkspaceService {
                 'file_id': fileId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

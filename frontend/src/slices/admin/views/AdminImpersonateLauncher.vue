@@ -43,34 +43,23 @@
         </SButton>
       </div>
     </SCard>
-
-    <SAlert
-      v-if="error"
-      variant="danger"
-      class="mt-2"
-      focus-on-mount
-    >
-      {{ error }}
-    </SAlert>
   </section>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { SPageHeader, SInput, SButton, SCard, SAlert } from '@shared/ui'
+import { SPageHeader, SInput, SButton, SCard } from '@shared/ui'
 import { useConfirmDialog } from '@shared/composables'
 import { useImpersonation } from '../composables/useImpersonation'
 
 const { t } = useI18n()
 const targetUserId = ref('')
-const error = ref<string | null>(null)
 
 const { confirm } = useConfirmDialog()
 const { isImpersonating, activeSessionTarget, startImpersonation, endImpersonation } = useImpersonation()
 
 async function onStart(): Promise<void> {
-  error.value = null
   const ok = await confirm({
     title: t('admin.impersonation.confirmTitle'),
     message: t('admin.impersonation.confirmMessage'),
@@ -82,16 +71,15 @@ async function onStart(): Promise<void> {
   try {
     await startImpersonation.mutateAsync(targetUserId.value.trim())
   } catch {
-    error.value = t('admin.impersonation.startFailed')
+    // The composable owns the single failure toast.
   }
 }
 
 async function onEnd(): Promise<void> {
-  error.value = null
   try {
     await endImpersonation.mutateAsync(activeSessionTarget.value ?? '')
   } catch {
-    error.value = t('admin.impersonation.endFailed')
+    // The composable owns the single failure toast.
   }
 }
 </script>

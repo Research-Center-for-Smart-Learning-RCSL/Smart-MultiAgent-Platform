@@ -395,7 +395,11 @@
 /* ─── Third-party overrides ───────────────────────────────────────
    vue-sonner toasts, retinted with the design tokens so notifications match
    both themes and the status tint/on language used by SAlert/SBadge. The
-   double-attribute selectors outrank sonner's runtime-injected base styles. */
+   project stylesheet loads after sonner's base stylesheet. */
+[data-sonner-toaster] {
+  z-index: var(--z-toast);
+}
+
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] {
   background: var(--color-bg);
   color: var(--color-fg);

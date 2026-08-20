@@ -51,12 +51,8 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
     // The form rejects an empty allowlist, so at least one tool name is needed.
     await page.locator('#allowed_tools').fill('read_file')
 
-    // The dialog closes only from createMutation.onSuccess, so "still visible"
-    // covers both a rejected create and a submit that never fired (onSubmit
-    // returns early on an empty allowlist or unparseable advanced JSON, and a
-    // server field error that maps to no rendered field suppresses the toast).
-    // Waiting on the POST tells those apart instead of reporting all of them as
-    // "expected hidden, received visible".
+    // Waiting on the POST distinguishes a completed create from client-side
+    // validation that correctly keeps the dialog open.
     const created = page.waitForResponse(
       (r) =>
         r.request().method() === 'POST' &&
@@ -71,6 +67,41 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
 
     await expect(dialog).toBeHidden({ timeout: 10_000 })
     await expect(page.getByRole('cell', { name: reference })).toBeVisible()
+  })
+
+  test('shows request-validation feedback on the matching MCP field', async ({ authedPage: page }) => {
+    test.skip(!env('E2E_AGENT_ID'), 'needs seeded agent')
+    const agentId = env('E2E_AGENT_ID')!
+    await page.route(`**/api/agents/${agentId}/tools`, async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue()
+        return
+      }
+      await route.fulfill({
+        status: 422,
+        contentType: 'application/problem+json',
+        body: JSON.stringify({
+          type: 'https://smap.local/problems/validation',
+          title: 'Validation Failed',
+          status: 422,
+          detail: 'Request validation failed.',
+          field_errors: [
+            { location: 'body', path: 'config.reference', message: 'Package reference is invalid.' },
+          ],
+        }),
+      })
+    })
+
+    await page.goto(`/agents/${agentId}/tools`)
+    const mcpCard = page.locator('.s-card').filter({ hasText: 'MCP Servers' })
+    await mcpCard.getByRole('button', { name: 'Add Server', exact: true }).first().click()
+    const dialog = page.getByRole('dialog')
+    await page.locator('#config\\.source').selectOption('package')
+    await page.locator('#config\\.reference').fill('@invalid/package')
+    await page.locator('#allowed_tools').fill('read_file')
+    await dialog.getByRole('button', { name: 'Add Server', exact: true }).click()
+
+    await expect(dialog.getByText('Package reference is invalid.')).toBeVisible()
   })
 
   test('test an MCP binding', async ({ authedPage: page }) => {

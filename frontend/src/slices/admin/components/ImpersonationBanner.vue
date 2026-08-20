@@ -20,7 +20,11 @@ const { isImpersonating, impersonatedBy } = useImpersonation()
   top: 0;
   left: 0;
   right: 0;
-  z-index: 9999;
+  /* Same layer as the connection banner: above chrome, below modals and
+     toasts. The literal 9999 it used to carry outranked the toast layer, and
+     sonner's 24px top offset puts the first top-right toast inside this bar's
+     ~36px, so an impersonating admin saw toasts clipped by it. */
+  z-index: var(--z-banner, 350);
   display: flex;
   align-items: center;
   justify-content: center;

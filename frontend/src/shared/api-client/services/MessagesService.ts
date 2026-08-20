@@ -37,7 +37,7 @@ export class MessagesService {
                 'limit': limit,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -62,7 +62,7 @@ export class MessagesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -83,7 +83,7 @@ export class MessagesService {
                 'message_id': messageId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -104,7 +104,7 @@ export class MessagesService {
                 'message_id': messageId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -134,7 +134,7 @@ export class MessagesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

@@ -1,8 +1,14 @@
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from typing import Annotated
 
+from fastapi import Cookie, FastAPI, Header, Path, Query
+from fastapi.testclient import TestClient
+from pydantic import BaseModel, Field, model_validator
+
+from app.main import create_app
 from shared_kernel.errors import NotImplementedProblem, SmapError, problem_type
 from shared_kernel.errors.handlers import register_exception_handlers
+from shared_kernel.errors.openapi import install_validation_problem_openapi
+from shared_kernel.errors.problem import ValidationProblem
 
 
 def _app_raising(exc: Exception) -> FastAPI:
@@ -52,3 +58,241 @@ def test_custom_extras_do_not_overwrite_reserved() -> None:
     body = err.problem.dump()
     assert body["type"] == "https://smap.local/problems/x"
     assert body["hint"] == "ok"
+
+
+class _ValidationItem(BaseModel):
+    count: int
+
+
+class _ValidationBody(BaseModel):
+    items: list[_ValidationItem]
+    name: str = Field(min_length=2)
+
+    @model_validator(mode="after")
+    def _name_is_not_root_error(self) -> "_ValidationBody":
+        if self.name == "root-error":
+            raise ValueError("body-level validation failed")
+        return self
+
+
+def _validation_app() -> FastAPI:
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.post("/validation/{resource_id}")
+    def _validate(
+        body: _ValidationBody,
+        resource_id: Annotated[int, Path()],
+        limit: Annotated[int, Query()],
+        x_count: Annotated[int, Header()],
+        session_id: Annotated[int, Cookie()],
+    ) -> None:
+        return None
+
+    return app
+
+
+def test_request_validation_errors_use_safe_field_error_contract() -> None:
+    client = TestClient(_validation_app())
+    secret_input = "secret-input-must-not-leak"
+
+    response = client.post(
+        "/validation/not-an-int?limit=not-an-int",
+        headers={"x-count": "not-an-int"},
+        cookies={"session_id": "not-an-int"},
+        json={"items": [{"count": secret_input}], "name": "x"},
+    )
+
+    assert response.status_code == 422
+    assert response.headers["content-type"].startswith("application/problem+json")
+    body = response.json()
+    assert body == {
+        "type": "https://smap.local/problems/validation",
+        "title": "Validation Failed",
+        "status": 422,
+        "detail": "Request validation failed.",
+        "instance": "/validation/not-an-int",
+        "field_errors": [
+            {
+                "location": "path",
+                "path": "resource_id",
+                "message": "Input should be a valid integer, unable to parse string as an integer",
+            },
+            {
+                "location": "query",
+                "path": "limit",
+                "message": "Input should be a valid integer, unable to parse string as an integer",
+            },
+            {
+                "location": "header",
+                "path": "x-count",
+                "message": "Input should be a valid integer, unable to parse string as an integer",
+            },
+            {
+                "location": "cookie",
+                "path": "session_id",
+                "message": "Input should be a valid integer, unable to parse string as an integer",
+            },
+            {
+                "location": "body",
+                "path": "items[0].count",
+                "message": "Input should be a valid integer, unable to parse string as an integer",
+            },
+            {
+                "location": "body",
+                "path": "name",
+                "message": "String should have at least 2 characters",
+            },
+        ],
+    }
+    assert secret_input not in response.text
+    assert '"input"' not in response.text
+
+
+def test_root_validation_error_is_not_claimed_as_a_field_error() -> None:
+    client = TestClient(_validation_app())
+    response = client.post(
+        "/validation/1?limit=1",
+        headers={"x-count": "1"},
+        cookies={"session_id": "1"},
+        json={"items": [{"count": 1}], "name": "root-error"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["field_errors"] == []
+
+
+def test_malformed_json_offset_is_not_claimed_as_a_field_error() -> None:
+    client = TestClient(_validation_app())
+    response = client.post(
+        "/validation/1?limit=1",
+        headers={"content-type": "application/json", "x-count": "1"},
+        cookies={"session_id": "1"},
+        content="{bad",
+    )
+
+    assert response.status_code == 422
+    assert response.json()["field_errors"] == []
+    assert "{bad" not in response.text
+
+
+def test_openapi_advertises_the_runtime_validation_problem_contract() -> None:
+    schema = create_app().openapi()
+    response = schema["paths"]["/api/auth/login"]["post"]["responses"]["422"]
+
+    assert set(response["content"]) == {"application/problem+json"}
+    assert response["content"]["application/problem+json"]["schema"] == {
+        "$ref": "#/components/schemas/ValidationProblem"
+    }
+    field_error = schema["components"]["schemas"]["ValidationFieldError"]
+    assert set(field_error["properties"]) == {"location", "path", "message"}
+    assert set(field_error["required"]) == {"location", "path", "message"}
+    assert field_error["properties"]["location"]["enum"] == [
+        "body",
+        "query",
+        "path",
+        "header",
+        "cookie",
+    ]
+    assert field_error["additionalProperties"] is False
+    validation_problem = schema["components"]["schemas"]["ValidationProblem"]
+    # `field_errors` is deliberately absent from `required`: a bounded context's
+    # domain error map answers 422 on these same operations without one.
+    assert set(validation_problem["required"]) == {
+        "type",
+        "title",
+        "status",
+        "detail",
+        "instance",
+    }
+    assert "field_errors" in validation_problem["properties"]
+    assert "HTTPValidationError" not in schema["components"]["schemas"]
+
+
+def test_a_domain_422_validates_against_the_published_schema() -> None:
+    """The published 422 must describe the domain path, not only the validation one."""
+    from contexts.identity.domain import errors
+    from contexts.identity.interfaces import error_mapping
+
+    app = FastAPI()
+    error_mapping.register(app)
+
+    @app.get("/weak")
+    def _weak() -> None:
+        raise errors.PasswordPolicyViolation("Password is too common.")
+
+    body = TestClient(app).get("/weak").json()
+
+    assert body["status"] == 422
+    assert "field_errors" not in body
+    ValidationProblem.model_validate(body)
+
+
+def test_openapi_preserves_an_explicit_custom_422_response() -> None:
+    app = FastAPI()
+
+    @app.get(
+        "/custom/{item_id}",
+        responses={
+            422: {
+                "description": "Domain-specific response",
+                "content": {"application/problem+json": {"schema": {"type": "object"}}},
+            }
+        },
+    )
+    def _custom(item_id: int) -> int:
+        return item_id
+
+    install_validation_problem_openapi(app)
+    response = app.openapi()["paths"]["/custom/{item_id}"]["get"]["responses"]["422"]
+
+    assert response == {
+        "description": "Domain-specific response",
+        "content": {"application/problem+json": {"schema": {"type": "object"}}},
+    }
+
+
+def test_openapi_keeps_the_superseded_schemas_while_a_route_still_refers_to_them() -> None:
+    """A surviving explicit 422 must not be left pointing at a deleted schema."""
+    app = FastAPI()
+    validation_ref = {"$ref": "#/components/schemas/HTTPValidationError"}
+
+    @app.get("/auto/{item_id}")
+    def _auto(item_id: int) -> int:
+        return item_id
+
+    # Two content types, so the replacement pass correctly leaves this one alone
+    # while its reference to the FastAPI schema stays live.
+    @app.get(
+        "/legacy/{item_id}",
+        responses={
+            422: {
+                "description": "Legacy Validation Error",
+                "content": {
+                    "application/json": {"schema": validation_ref},
+                    "application/problem+json": {"schema": validation_ref},
+                },
+            }
+        },
+    )
+    def _legacy(item_id: int) -> int:
+        return item_id
+
+    install_validation_problem_openapi(app)
+    schema = app.openapi()
+    schemas = schema["components"]["schemas"]
+
+    assert schema["paths"]["/auto/{item_id}"]["get"]["responses"]["422"]["content"] == {
+        "application/problem+json": {"schema": {"$ref": "#/components/schemas/ValidationProblem"}}
+    }
+    assert (
+        schema["paths"]["/legacy/{item_id}"]["get"]["responses"]["422"]["content"]["application/json"][
+            "schema"
+        ]
+        == validation_ref
+    )
+    assert "HTTPValidationError" in schemas
+    # Kept transitively: HTTPValidationError's own body is the only thing that
+    # references it, and that body survived.
+    assert "ValidationError" in schemas
+    assert "ValidationProblem" in schemas

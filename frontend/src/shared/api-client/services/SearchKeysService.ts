@@ -39,7 +39,7 @@ export class SearchKeysService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -64,7 +64,7 @@ export class SearchKeysService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -88,7 +88,7 @@ export class SearchKeysService {
                 'key_id': keyId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -112,7 +112,7 @@ export class SearchKeysService {
                 'key_id': keyId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -136,7 +136,7 @@ export class SearchKeysService {
                 'key_id': keyId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

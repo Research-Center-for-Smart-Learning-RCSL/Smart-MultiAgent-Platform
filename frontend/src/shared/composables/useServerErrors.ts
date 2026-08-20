@@ -34,8 +34,19 @@ export function useServerErrors(setErrors: (fields: Record<string, string>) => v
 
     const mapped: Record<string, string> = {}
     for (const fe of err.fieldErrors) {
+      if (
+        typeof fe.path !== 'string' || fe.path.length === 0 ||
+        typeof fe.message !== 'string' || fe.message.length === 0
+      ) {
+        continue
+      }
+      // Only the request body maps onto a form. A query/path/header failure can
+      // carry the same name as a field the user typed into, and attaching it
+      // would blame the wrong input; the caller's domain message covers those.
+      if (fe.location !== 'body') continue
       mapped[fe.path] = fe.message
     }
+    if (Object.keys(mapped).length === 0) return false
     setErrors(mapped)
     return true
   }

@@ -26,7 +26,7 @@ export class AttachmentsService {
                 'attachment_id': attachmentId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -51,7 +51,7 @@ export class AttachmentsService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

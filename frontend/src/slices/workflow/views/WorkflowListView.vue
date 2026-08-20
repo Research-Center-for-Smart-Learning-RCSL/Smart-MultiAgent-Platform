@@ -175,8 +175,12 @@ const createMutation = useMutation({
 async function onCreate(): Promise<void> {
   const name = newName.value.trim()
   if (!name) return
-  await createMutation.mutateAsync(name)
-  newName.value = ''
+  try {
+    await createMutation.mutateAsync(name)
+    newName.value = ''
+  } catch {
+    // The mutation owns the failure toast; keep the list mounted.
+  }
 }
 
 async function onDelete(id: string): Promise<void> {

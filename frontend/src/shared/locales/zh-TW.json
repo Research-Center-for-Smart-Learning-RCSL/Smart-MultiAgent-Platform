@@ -32,7 +32,9 @@
       "invalidJson": "JSON 格式錯誤"
     },
     "errors": {
-      "rateLimited": "請求過於頻繁，請於 {seconds} 秒後再試。"
+      "forbidden": "您沒有執行此操作的權限。",
+      "rateLimited": "請求過於頻繁，請於 {seconds} 秒後再試。",
+      "unexpected": "發生未預期的錯誤，請再試一次。"
     }
   }
 }
