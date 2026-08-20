@@ -14,8 +14,14 @@ from contexts.tenancy.domain.errors import (
     MemberNotFound,
     ProjectNotFound,
 )
+
+# Re-exported for the route layer, alongside ProjectMemberRole / ProjectOwnerType
+# below: `app/api/v1` reaches tenancy types through this module rather than
+# importing the domain package directly.
 from contexts.tenancy.domain.models import (
-    Project,
+    Project as Project,
+)
+from contexts.tenancy.domain.models import (
     ProjectMember,
 )
 from contexts.tenancy.domain.models import (
