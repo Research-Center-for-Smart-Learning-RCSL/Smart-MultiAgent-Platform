@@ -649,11 +649,18 @@ Appended by `/build`. Empty means the implementation matches this spec exactly.
   written only by `InviteService._finalize_acceptance`, `invite_service.py:383-398`);
   (c) an admin can create an account with a forced first-login password change (no such
   endpoint — `admin_users.py` has ban/delete/promote only), optionally with an
-  invite-only registration mode. Needs its own dossier.
+  invite-only registration mode. **Opened 2026-08-20 as
+  `2026-08-20-onboarding-without-smtp`**, with one correction that narrowed it: the in-app
+  invite inbox already works without mail for an invitee who has an account, so only the
+  unregistered invitee and the missing admin-provisioning route were real gaps. Consent is
+  preserved at both levels — no endpoint writes a membership row on someone else's behalf.
 - **FU-2** — Q-4's deferred decision: `workflows.py` (definitions, runs, steps) and
   `orchestration.py` (approvals, instructions, sub-agent instances carrying `chatroom_id`)
   are readable by any project member and have no room-ACL concept. §4.4 records the exact
-  fields and the reachability path. Decide whether group isolation must extend to them.
+  fields and the reachability path. **Opened 2026-08-20 as
+  `2026-08-20-orchestration-room-scoped-reads`**, which found that the workflow half is a
+  straight [R14.10] violation rather than a new rule, and that the approval half is
+  exploitable today against an `allow_project_owners_only` room, independently of grouping.
 - **FU-3** — If a deployment makes Decision 2's bounded pre-fetch measurably slow, the
   fallback is a SQL predicate for the listings plus a parity test asserting it agrees with
   `_satisfies_room_flags` over the full flag × role matrix. Do not add the SQL copy

@@ -258,11 +258,12 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
 
 ### 6.2 Invitations
 
-- **[R6.09]** Org invitations: Org Owner sends invite by email. If invitee has no account, the invite link lands on a sign-up page; after sign-up + email verification, they are automatically enrolled in the Org.
+- **[R6.09]** Org invitations: Org Owner sends invite by email. If invitee has no account, the invite link lands on a sign-up page; after sign-up + email verification, they are automatically enrolled in the Org. The invite-creation response additionally returns the accept link to the inviter so an installation without outbound mail can deliver it out of band; the response is identical whether or not the address already has an account, and the link is returned only at creation, never by a read endpoint. An invitee who already has an account also receives the invite in their in-app invite inbox, with no mail involved.
 - **[R6.10]** Project invitations: same UX, Project-scoped.
 - **[R6.11]** Chat Room Guest links (§13): a URL token that anyone (registered or not) can open; if not logged in, user is redirected to register; after registration, they join the room as Guest.
 - **[R6.12]** Guest links **cannot be revoked, expired, password-protected, or use-capped** (explicit stakeholder decision, Q43). Guest access is revoked only by deleting the Chat Room or banning the specific user.
 - **[R6.13]** Bans (Admin only): can ban by user-id, by email, or by IP. Banned users/IPs receive HTTP 403 on any endpoint. All bans are audit-logged.
+- **[R6.18]** An Admin may provision an account (email, optional display name) without the account holder present. The account is created `pending` and unverified with no password, and the Admin receives two single-use links to hand over: a set-password link (R6.05 semantics) and an email-verification link (R6.02 semantics). Both may be re-issued on demand. Provisioning does not bypass the email-domain policy of R19a.13, does not create any Org or Project membership, and does not mark the address verified: R6.02's gates apply to the provisioned account exactly as they apply to a self-registered one.
 
 ---
 
@@ -775,7 +776,7 @@ Five composable flags per chat room:
 - **[R14.07a]** A workflow run started by a trigger must not be able to satisfy its own trigger condition without bound. The engine propagates the causal chain of workflow ids that led to a trigger signal and refuses to start a run for a workflow already on that chain. Independently, the engine enforces a per-workflow ceiling on trigger-started runs within a rolling window; a run refused by either guard is not started and is recorded in the audit trail with the reason.
 - **[R14.08]** The engine maintains a `workflow_run` record with `state: running | waiting | succeeded | failed | cancelled` and a `step_trace` list of activity records.
 - **[R14.09]** Agent invocations inside a workflow respect all agent settings (wake-up, key group, context mode, bound skills §31). Workflow-issued invocations are logged with `origin = 'workflow'`.
-- **[R14.10]** The trace (Q55) is stored in the DB and visible to Admin + Project Owners in a dedicated **backstage** panel. It is **not** surfaced in the chat room UI.
+- **[R14.10]** The trace (Q55) is stored in the DB and visible to Admin + Project Owners in a dedicated **backstage** panel. It is **not** surfaced in the chat room UI. This is enforced server-side on every workflow read endpoint (definition, run, step), not only by hiding the panel.
 
 ---
 
@@ -827,6 +828,7 @@ Per-agent JSON:
 - **[R15.13]** `consensus`: all approvers must propose, debate, and converge on the same verdict. If not converged by `timeout_seconds`, the leader's verdict wins.
 - **[R15.14]** Approver agents consume tokens from **their own** Key Group (Q52: "whoever owns the key"). The leader agent's Key Group covers the final decision announcement.
 - **[R15.10a]** Only an agent with `workflow_capabilities.can_approve = true` may be named as an approver or leader of an Approval Gate. A gate naming any agent without the capability is rejected in full; approvers are never silently dropped, since that would change the tally denominator defined by `[R15.12]` and `[R15.13]`.
+- **[R15.24]** An orchestration record that names a chat room — an approval gate bound to a room, an agent instance running in one — is readable by exactly the principals who may read that room under §13.2, evaluated by the same room access check. A record that names no chat room is backstage and follows [R14.10]. A record whose room has been deleted names no room and is therefore backstage. Listings omit records the caller may not read rather than refusing the whole request, and disclose nothing about what was omitted.
 
 ### 15.5 Instruct (Q53)
 

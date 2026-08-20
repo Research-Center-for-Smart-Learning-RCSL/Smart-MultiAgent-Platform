@@ -71,6 +71,39 @@ first, but building them serially avoids the conflict.
   one's central claim is a confidentiality claim, so AC-1, AC-4, AC-9 and AC-12 must be
   executed against a real stack or left unticked.
 
+- `2026-08-20-onboarding-without-smtp` (feature, approved) - `depends_on: []`. Opened from the
+  member-groups dossier's FU-1. **Read its §1 correction before scoping anything here**: SMTP is
+  *not* required for an invitee who already has an account — `_notify_invitee`
+  (`invite_service.py:159-183`) writes an in-app notification and the invite is listed at
+  `/invites` by case-insensitive email match, so the real gaps are only the unregistered invitee
+  and the missing admin-provisioning route. Three additive pieces: every invite create returns a
+  copyable accept link, the project invite form picks from the parent Org's member list (Q-6: a
+  pool the inviter can already read, so zero new disclosure), and `POST /api/admin/users` creates
+  an unverified account returning two copyable activation links. It **applied an SRS Delta** at
+  approval, rewriting [R6.09] and adding [R6.18]. Two decisions worth not undoing: **consent is
+  preserved at both levels** (Q-1 - nothing writes a membership row outside
+  `_finalize_acceptance`, and AC-10 pins that), and **the invite response never reveals whether
+  the address has an account** (Q-5 - it would be the oracle `register` deliberately avoids at
+  `auth_service.py:167-195`). File overlap with the member-groups dossier in
+  `ProjectMembersView.vue`, `projects.py` and the tenancy locales, all different regions;
+  deliberately not a `depends_on`, so whoever builds second rebases.
+
+- `2026-08-20-orchestration-room-scoped-reads` (feature, approved) - `depends_on: []`. Opened
+  from the member-groups dossier's FU-2. **It found a live SRS contradiction**: [R14.10]
+  (`REQUIREMENTS.md:778`) says the workflow trace is visible to Admin + Project Owners, and
+  `workflows.py` grants it to any project member at `:332`, `:354`, `:546`, `:569`, `:602`. And a
+  hole that exists today with no relation to grouping: an `allow_project_owners_only` room's
+  approvals are readable by any project member, because `_assert_project_member`
+  (`orchestration.py:52-65`) never consults the room. Fix is a dual track - a record carrying a
+  `chatroom_id` goes through `resolve_room_access`/`ensure_can_read`, a record carrying none
+  follows [R14.10]. Verified landing points: only `approvals` (`tables.py:79`) and
+  `agent_instances` (`:167`) have the column; `instructions`, `workflow_runs` and
+  `workflow_steps` have none. It **applied an SRS Delta** at approval, strengthening [R14.10] and
+  adding [R15.24]. **The DLQ route is deliberately untouched** (FU-1): `DlqViewer` renders inside
+  `ChatroomSettingsView.vue:547` and that view's real audience was not established, so tightening
+  it could remove a panel from ordinary members. AC-8 is the regression this change is most
+  likely to cause and no unit test can see it.
+
 - `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
   a blueprint dossier: approval authorizes the target design, and its phases are meant to
   become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
