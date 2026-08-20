@@ -4,12 +4,24 @@ Exposes approval gates, instruct chains, sub-agent instances, and A2A DLQ
 entries for the frontend. All mutations flow through the workflow engine
 (Phase H).
 
-AuthZ (API-2 — project scoping):
-- Approvals (G.6), sub-agents (G.8), instruct chains (G.7), and A2A DLQ (G.10)
-  all resolve their path UUID to the owning project; the caller must hold a
-  role in that project (admins always pass). Instruct chains are single-project
-  by construction — A2A scope enforcement blocks cross-project instruct — so
-  resolving via an agent in the chain is sound.
+AuthZ (API-2 + R15.24 — a dual track, decided per record, not per route):
+- A record that names a chat room — an approval gate raised in one (G.6), an
+  agent instance running in one (G.8) — is readable by exactly the principals
+  who may read that room, evaluated by the room ACL itself
+  (`can_read_orchestration_record`). The gate therefore tracks every room tier,
+  including ones added later, without this module knowing what they are.
+- A record that names none — an instruction (G.7), and any approval or instance
+  whose room was deleted (both FKs are `ON DELETE SET NULL`) — is backstage and
+  follows [R14.10]: Admin and Project/Org Owners.
+- Listings omit rows the caller may not read rather than refusing the request,
+  and filter *before* paginating so the page length discloses nothing (R15.24).
+- A2A DLQ (G.10) is the one exception, still bare project membership: its viewer
+  renders inside the chatroom settings view and that surface's audience has not
+  been established (dossier 2026-08-20-orchestration-room-scoped-reads, FU-1).
+
+SEC: denial on the room branch answers 404 with the same body a missing record
+answers. A record in a room the caller cannot open must be indistinguishable
+from one that does not exist, or the 403 itself reports another group's session.
 
 Every handler resolves its path UUID to a project before returning data —
 without this an authenticated caller could read any tenant's orchestration
@@ -27,6 +39,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
 from contexts.agents.interfaces.facade import AgentsFacade
+from contexts.conversation.interfaces.access import (
+    can_read_orchestration_record,
+    filter_readable_by_room,
+)
 from contexts.orchestration.application.approval_service import ApprovalService
 from contexts.orchestration.application.instruct_service import InstructService
 from contexts.orchestration.application.subagent_service import SubagentService
@@ -54,7 +70,13 @@ async def _assert_project_member(
     project_id: uuid.UUID,
     resolver: RoleResolver,
 ) -> None:
-    """Require the caller to hold any role in `project_id` (admin always passes)."""
+    """Require the caller to hold any role in `project_id` (admin always passes).
+
+    The DLQ route's gate, and only that one (FU-1). Every other read here is
+    room-scoped or backstage — see `_assert_can_read_record`. Do not reach for
+    this when adding a route: bare project membership is what R15.24 exists to
+    stop being the answer.
+    """
     if principal.is_admin:
         return
     roles = await resolver.roles_for(principal, Scope(project_id=project_id))
@@ -63,6 +85,38 @@ async def _assert_project_member(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="caller is not a member of the project",
         )
+
+
+async def _assert_can_read_record(
+    db: AsyncSession,
+    principal: Principal,
+    resolver: RoleResolver,
+    *,
+    chatroom_id: uuid.UUID | None,
+    project_id: uuid.UUID,
+    what: str,
+) -> None:
+    """R15.24's dual track for one record, mapped onto status codes.
+
+    SEC: the room branch denies with 404 and the exact body `_not_found` gives
+    for a record that is not there, so the response cannot be used to confirm
+    that a gate was raised in a room the caller cannot open. The backstage
+    branch has no room to hide and says plainly what it wants.
+    """
+    if await can_read_orchestration_record(
+        db,
+        principal=principal,
+        chatroom_id=chatroom_id,
+        project_id=project_id,
+        resolver=resolver,
+    ):
+        return
+    if chatroom_id is not None:
+        raise _not_found(what)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="backstage records require Admin or a project owner",
+    )
 
 
 def _not_found(what: str) -> HTTPException:
@@ -202,7 +256,7 @@ def _instance_out(instance: Any) -> AgentInstanceOut:
 
 
 # ---------------------------------------------------------------------------
-# Approval endpoints (G.6 — project members)
+# Approval endpoints (G.6 — room ACL when the gate names a room, else backstage)
 # ---------------------------------------------------------------------------
 
 
@@ -220,10 +274,19 @@ async def get_approval(
     project_id = await svc.resolve_project(approval_id)
     if project_id is None:
         raise _not_found("approval")
-    await _assert_project_member(principal, project_id, resolver)
     approval = await svc.get_approval(approval_id)
     if approval is None:  # pragma: no cover — resolved above
         raise _not_found("approval")
+    # Read before gate: the record's own `chatroom_id` chooses which track it is
+    # judged on. Nothing is returned before the gate runs.
+    await _assert_can_read_record(
+        db,
+        principal,
+        resolver,
+        chatroom_id=approval.chatroom_id,
+        project_id=project_id,
+        what="approval",
+    )
     votes = await svc.get_votes(approval_id)
     return approval_with_votes_out(approval, votes)
 
@@ -243,14 +306,23 @@ async def list_approvals_for_run(
     project_id = await svc.resolve_run_project(workflow_run_id)
     if project_id is None:
         raise _not_found("workflow run")
-    await _assert_project_member(principal, project_id, resolver)
     approvals = await svc.list_for_run(workflow_run_id)
+    # SEC: filter, then slice. Slicing first would let the page length report how
+    # many rows were withheld (R15.24). A caller who may read none gets [].
+    approvals = await filter_readable_by_room(
+        db,
+        principal=principal,
+        rows=approvals,
+        chatroom_id_of=lambda a: a.chatroom_id,
+        project_id=project_id,
+        resolver=resolver,
+    )
     approvals = approvals[pagination.offset : pagination.offset + pagination.limit]
     return [approval_out(a) for a in approvals]
 
 
 # ---------------------------------------------------------------------------
-# Instruct chain endpoints (G.7 — project members)
+# Instruct chain endpoints (G.7 — backstage: Admin + project owners, R14.10)
 # ---------------------------------------------------------------------------
 
 
@@ -268,7 +340,16 @@ async def get_instruction(
     project_id = await svc.resolve_instruction_project(instruction_id)
     if project_id is None:
         raise _not_found("instruction")
-    await _assert_project_member(principal, project_id, resolver)
+    # `instructions` carries no chatroom column, so every instruction is
+    # backstage ([R14.10]). Its payload may still quote room content — see FU-2.
+    await _assert_can_read_record(
+        db,
+        principal,
+        resolver,
+        chatroom_id=None,
+        project_id=project_id,
+        what="instruction",
+    )
     instruction = await svc.get_instruction(instruction_id)
     if instruction is None:  # pragma: no cover — resolved above
         raise _not_found("instruction")
@@ -290,14 +371,21 @@ async def list_instructions_for_chain(
     project_id = await svc.resolve_chain_project(chain_id)
     if project_id is None:
         raise _not_found("chain")
-    await _assert_project_member(principal, project_id, resolver)
+    await _assert_can_read_record(
+        db,
+        principal,
+        resolver,
+        chatroom_id=None,
+        project_id=project_id,
+        what="chain",
+    )
     instructions = await svc.list_for_chain(chain_id)
     instructions = instructions[pagination.offset : pagination.offset + pagination.limit]
     return [_instruction_out(i) for i in instructions]
 
 
 # ---------------------------------------------------------------------------
-# Sub-agent endpoints (G.8 — project members)
+# Sub-agent endpoints (G.8 — room ACL per instance, else backstage)
 # ---------------------------------------------------------------------------
 
 
@@ -316,8 +404,15 @@ async def list_run_subagents(
     project_id = await facade.resolve_workflow_run_project(workflow_run_id)
     if project_id is None:
         raise _not_found("workflow run")
-    await _assert_project_member(principal, project_id, resolver)
     instances = await facade.list_workflow_run_subagents(workflow_run_id)
+    instances = await filter_readable_by_room(
+        db,
+        principal=principal,
+        rows=instances,
+        chatroom_id_of=lambda i: i.chatroom_id,
+        project_id=project_id,
+        resolver=resolver,
+    )
     instances = instances[pagination.offset : pagination.offset + pagination.limit]
     return [_instance_out(i) for i in instances]
 
@@ -337,14 +432,35 @@ async def list_subagent_children(
     project_id = await svc.resolve_project(parent_instance_id)
     if project_id is None:
         raise _not_found("agent instance")
-    await _assert_project_member(principal, project_id, resolver)
+    parent = await svc.get_instance(parent_instance_id)
+    if parent is None:  # pragma: no cover — resolved above
+        raise _not_found("agent instance")
+    # The parent gates the enumeration; the children are filtered too, because a
+    # child instance carries its own `chatroom_id` and need not name the
+    # parent's room.
+    await _assert_can_read_record(
+        db,
+        principal,
+        resolver,
+        chatroom_id=parent.chatroom_id,
+        project_id=project_id,
+        what="agent instance",
+    )
     children = await svc.list_children(parent_instance_id)
+    children = await filter_readable_by_room(
+        db,
+        principal=principal,
+        rows=children,
+        chatroom_id_of=lambda c: c.chatroom_id,
+        project_id=project_id,
+        resolver=resolver,
+    )
     children = children[pagination.offset : pagination.offset + pagination.limit]
     return [_instance_out(c) for c in children]
 
 
 # ---------------------------------------------------------------------------
-# DLQ viewer (G.10 — project members)
+# DLQ viewer (G.10 — project members; deliberately not narrowed, FU-1)
 # ---------------------------------------------------------------------------
 
 

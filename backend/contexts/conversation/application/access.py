@@ -17,8 +17,9 @@ tenancy role resolver (no cross-context FK joins) and the room's own flags.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,9 +43,12 @@ from shared_kernel.auth.permissions import (
     Outcome,
     Principal,
     Role,
+    RoleResolver,
     Scope,
     outcome_for,
 )
+
+_Row = TypeVar("_Row")
 
 
 def is_moderator_roles(roles: frozenset[Role]) -> bool:
@@ -281,6 +285,116 @@ def ensure_can_read(access: RoomAccess, *, is_admin: bool) -> None:
         raise ForbiddenInRoom("caller cannot read this chatroom")
 
 
+async def _room_readable(
+    db: AsyncSession,
+    *,
+    principal: Principal,
+    chatroom_id: uuid.UUID,
+) -> bool:
+    """`ensure_can_read` as a boolean, for callers that filter rather than raise.
+
+    SEC: fails closed on a room that cannot be resolved. `resolve_room_access`
+    raises when the room, its workspace or its project is gone or soft-deleted,
+    and a record pointing at an unreachable room must deny — never fall through
+    to a weaker check.
+
+    Calls `_satisfies_room_flags` rather than catching `ensure_can_read`'s
+    `ForbiddenInRoom`, for the reason `visible_room_ids` gives: one predicate,
+    no second copy of the tier logic. Admin is the caller's business — both
+    public entry points below bypass before reaching here.
+    """
+    try:
+        access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    except (ChatroomNotFound, WorkspaceNotFound):
+        return False
+    return _satisfies_room_flags(access)
+
+
+async def _is_project_backstage_reader(
+    principal: Principal,
+    *,
+    project_id: uuid.UUID,
+    resolver: RoleResolver,
+) -> bool:
+    return is_moderator_roles(await resolver.roles_for(principal, Scope(project_id=project_id)))
+
+
+async def can_read_orchestration_record(
+    db: AsyncSession,
+    *,
+    principal: Principal,
+    chatroom_id: uuid.UUID | None,
+    project_id: uuid.UUID,
+    resolver: RoleResolver,
+) -> bool:
+    """May this principal read one orchestration record? (R15.24)
+
+    Named for its caller rather than for this context, because the rule it
+    encodes is about orchestration records and only the *evaluation* is the
+    conversation context's: a record that names a chat room is readable by
+    exactly the people who may read that room (§13.2), and a record that names
+    none is backstage and follows [R14.10] — Admin and Project/Org Owners.
+
+    A record whose room was deleted arrives here with `chatroom_id=None` (both
+    FKs are `ON DELETE SET NULL`) and is therefore backstage, not
+    project-readable: deleting a room must never widen who can read what ran
+    inside it.
+
+    Returns a verdict instead of raising so the caller owns the status code.
+    That is not a style preference — the room branch must answer 404, byte for
+    byte what a missing record answers, and only the route knows the resource
+    name that goes in that body.
+    """
+    if principal.is_admin:
+        return True
+    if chatroom_id is None:
+        return await _is_project_backstage_reader(principal, project_id=project_id, resolver=resolver)
+    return await _room_readable(db, principal=principal, chatroom_id=chatroom_id)
+
+
+async def filter_readable_by_room(
+    db: AsyncSession,
+    *,
+    principal: Principal,
+    rows: Sequence[_Row],
+    chatroom_id_of: Callable[[_Row], uuid.UUID | None],
+    project_id: uuid.UUID,
+    resolver: RoleResolver,
+) -> list[_Row]:
+    """The listing form of `can_read_orchestration_record`, order-preserving.
+
+    Rows the caller may not read are omitted rather than refused (R15.24), and
+    the result discloses nothing about what was withheld — callers must filter
+    *before* slicing a page, or the page length becomes the disclosure.
+
+    Both lookups are memoised for the call: the room verdict per distinct room
+    id, the backstage verdict once. A run's approvals almost always name one
+    room, so this is one `resolve_room_access` for the page rather than one per
+    row.
+    """
+    if principal.is_admin:
+        return list(rows)
+
+    backstage: bool | None = None
+    by_room: dict[uuid.UUID, bool] = {}
+    readable: list[_Row] = []
+    for row in rows:
+        room_id = chatroom_id_of(row)
+        if room_id is None:
+            if backstage is None:
+                backstage = await _is_project_backstage_reader(
+                    principal, project_id=project_id, resolver=resolver
+                )
+            if backstage:
+                readable.append(row)
+            continue
+        if room_id not in by_room:
+            by_room[room_id] = await _room_readable(db, principal=principal, chatroom_id=room_id)
+        if by_room[room_id]:
+            readable.append(row)
+    return readable
+
+
 def export_sender_scope(access: RoomAccess, *, principal: Principal) -> ExportSenderScope:
     """Matrix row 19 (chat.export) — how much of a readable room may the caller
     take away? Raises `ForbiddenInRoom` when the row grants them nothing.
@@ -354,10 +468,12 @@ def ensure_can_send(access: RoomAccess, *, is_admin: bool) -> None:
 
 __all__ = [
     "RoomAccess",
+    "can_read_orchestration_record",
     "ensure_can_read",
     "ensure_can_send",
     "ensure_room_creator",
     "export_sender_scope",
+    "filter_readable_by_room",
     "is_moderator_roles",
     "is_room_creator",
     "resolve_room_access",
