@@ -754,16 +754,28 @@ All three trace to this dossier and none was a pre-existing flake:
      and the sole `focus()` is in the arrow-key handler at `STabs.vue:84`.)
    - **Run 32483509852, received 823.** The fix above worked; a second, unrelated defect was
      underneath it. 823 is not a reset - a reset is 0 - it is **the browser's own clamp**. The
-     Knowledge panel is far shorter than General, so `main.scrollHeight` genuinely drops on the
-     tab switch and the browser lowers `scrollTop` to the new maximum. The assertion
-     `toBe(offset)` conflated "nothing reset it" with "nothing shortened the page". Rewritten to
-     compare against `Math.min(offset, scrollHeight - clientHeight)`, which still fails at 0 and
-     so still catches the watcher over-firing.
+     Knowledge panel is far shorter than General, so `main.scrollHeight` drops on the tab switch
+     and the browser lowers `scrollTop` to the new maximum. The assertion `toBe(offset)`
+     conflated "nothing reset it" with "nothing shortened the page". Rewritten to compare against
+     `Math.min(offset, scrollHeight - clientHeight)`.
+   - **Run 32484440338, received 823 again - and that comparison was wrong too.** The failure
+     still printed `Expected: 1200`, which means `Math.min(1200, max)` evaluated to 1200 and so
+     **`max` was back above 1200 by assertion time**. A pure clamp cannot produce that. The real
+     sequence is a clamp *followed by a regrowth*: hiding the General panel shortens the page and
+     the browser clamps to 823, then the Knowledge tab's `coverageQuery`
+     (`AgentDetailView.vue:113-117`) resolves inside the 200ms wait and the page grows back -
+     **but a clamp never rebounds.** The offset therefore moves for reasons wholly unrelated to
+     the watcher, and no equality against any snapshot of the geometry can be stable here.
+     Settled, with the user's agreement, on `toBeGreaterThan(0)`: the reset writes 0 and nothing
+     else does, so non-zero is exactly - and only - the claim about the watcher. The precise
+     equality stays in **T-1**, where jsdom performs no layout and neither the clamp nor the
+     regrowth exists to confound it.
 
-   **That 823 is positive evidence, not just a red run**: it is the browser confirming that the
+   **The 823 is positive evidence, not just a red run**: it is the browser confirming that the
    `route.path` watcher did **not** fire on a query-only change, which is exactly what AC-2's
-   second half claims. The product was right through all three runs; only this test's mechanics
-   were wrong.
+   second half claims. The product was right through all four runs; only this test's mechanics
+   were wrong. Recorded at this length deliberately - two of the three diagnoses here were
+   wrong, and each looked convincing until the next run contradicted it.
 
 **The other ten assertions in `22-layout-contract.spec.ts` ran and passed**, which is the first
 real confirmation that the padding, landmark, graph-scroll and sticky-panel geometry are as this
