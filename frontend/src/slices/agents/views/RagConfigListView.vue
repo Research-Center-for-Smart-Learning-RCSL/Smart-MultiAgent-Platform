@@ -285,7 +285,7 @@ const RagConfigTable = typedTable<RagConfig>()
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <SPageHeader
       :title="t('agents.ragList.title')"
       :breadcrumbs="breadcrumbs"
@@ -589,5 +589,5 @@ const RagConfigTable = typedTable<RagConfig>()
         </div>
       </template>
     </SModal>
-  </main>
+  </div>
 </template>

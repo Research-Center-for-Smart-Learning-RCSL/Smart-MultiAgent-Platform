@@ -367,7 +367,7 @@ const ConceptMapTable = typedSTable<GraphragConfig>()
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <SPageHeader
       :title="t('agents.conceptMaps.title')"
       :breadcrumbs="breadcrumbs"
@@ -676,5 +676,5 @@ const ConceptMapTable = typedSTable<GraphragConfig>()
         </div>
       </template>
     </SDrawer>
-  </main>
+  </div>
 </template>

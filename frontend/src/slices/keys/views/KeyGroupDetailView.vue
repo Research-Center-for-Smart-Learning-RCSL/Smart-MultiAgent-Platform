@@ -216,7 +216,7 @@ async function onDeleteGroup() {
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <SPageHeader
       title=""
       :breadcrumbs="breadcrumbs"
@@ -446,5 +446,5 @@ async function onDeleteGroup() {
         </div>
       </div>
     </section>
-  </main>
+  </div>
 </template>

@@ -10,7 +10,7 @@ const { query, items, isEmpty, hasUnread, marking, markOne, markAll } = useNotif
 </script>
 
 <template>
-  <section class="notifications px-4 py-4 sm:p-6">
+  <section class="notifications">
     <SPageHeader :title="t('notifications.title')">
       <template #actions>
         <SButton

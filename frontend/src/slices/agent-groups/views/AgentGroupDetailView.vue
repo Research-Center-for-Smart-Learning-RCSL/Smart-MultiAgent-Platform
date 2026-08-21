@@ -122,7 +122,7 @@ const MemberTable = typedSTable<{ id: string; name: string }>()
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <div
       v-if="groupQuery.isLoading.value"
       class="flex justify-center py-16"
@@ -239,5 +239,5 @@ const MemberTable = typedSTable<{ id: string; name: string }>()
         />
       </div>
     </template>
-  </main>
+  </div>
 </template>

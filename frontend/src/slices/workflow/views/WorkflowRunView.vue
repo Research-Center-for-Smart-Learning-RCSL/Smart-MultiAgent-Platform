@@ -1,5 +1,5 @@
 <template>
-  <section class="workflow-run p-4">
+  <section class="workflow-run">
     <SEmptyState
       v-if="forbidden"
       :icon="LockClosedIcon"

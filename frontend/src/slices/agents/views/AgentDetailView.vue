@@ -662,7 +662,7 @@ const breadcrumbs = computed(() => [
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <!-- Loading skeleton -->
     <template v-if="!isCreateMode && query.isLoading.value">
       <SSkeleton width="200px" />
@@ -1294,5 +1294,5 @@ const breadcrumbs = computed(() => [
         </SButton>
       </div>
     </template>
-  </main>
+  </div>
 </template>

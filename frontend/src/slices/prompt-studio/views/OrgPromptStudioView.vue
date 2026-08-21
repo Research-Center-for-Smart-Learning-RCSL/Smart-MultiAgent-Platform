@@ -13,7 +13,7 @@ const orgId = computed(() => String(route.params.orgId))
 </script>
 
 <template>
-  <div class="mx-auto max-w-3xl p-4">
+  <div class="mx-auto max-w-3xl">
     <SPageHeader
       :title="t('promptStudio.org.title')"
       :subtitle="t('promptStudio.org.subtitle')"

@@ -42,7 +42,7 @@ const privacyMutation = useMutation({
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <div
       v-if="workspaceQuery.isLoading.value"
       class="flex justify-center py-16"
@@ -98,5 +98,5 @@ const privacyMutation = useMutation({
         />
       </div>
     </template>
-  </main>
+  </div>
 </template>

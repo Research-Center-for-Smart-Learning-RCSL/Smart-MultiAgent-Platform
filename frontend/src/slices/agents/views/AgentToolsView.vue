@@ -703,7 +703,7 @@ function fnLabel(tool: AgentTool): string {
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <SPageHeader
       :title="t('agents.tools.tabLabel')"
       :breadcrumbs="breadcrumbs"
@@ -1358,5 +1358,5 @@ function fnLabel(tool: AgentTool): string {
         </div>
       </template>
     </SModal>
-  </main>
+  </div>
 </template>

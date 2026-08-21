@@ -168,7 +168,7 @@ const EgressTable = typedSTable<EgressAllowlistEntry>()
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <SPageHeader
       :title="t('agents.egress.title')"
       :breadcrumbs="breadcrumbs"
@@ -310,5 +310,5 @@ const EgressTable = typedSTable<EgressAllowlistEntry>()
         />
       </template>
     </EgressTable>
-  </main>
+  </div>
 </template>

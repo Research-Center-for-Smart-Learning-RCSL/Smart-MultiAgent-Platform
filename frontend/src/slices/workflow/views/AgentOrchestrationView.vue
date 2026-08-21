@@ -55,7 +55,7 @@ async function save(): Promise<void> {
 </script>
 
 <template>
-  <section class="agent-ops p-4">
+  <section class="agent-ops">
     <SPageHeader
       :title="t('workflow.agentOps.title')"
       :subtitle="t('workflow.agentOps.subtitle')"

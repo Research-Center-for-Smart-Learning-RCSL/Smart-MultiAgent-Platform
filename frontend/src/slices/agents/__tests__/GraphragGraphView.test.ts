@@ -61,4 +61,21 @@ describe('GraphragGraphView', () => {
     await settle(wrapper)
     expect(wrapper.find('.vue-flow').exists()).toBe(false)
   })
+
+  // F-10: the root used to recompute its own height as `100vh - 3.5rem`, which
+  // ignores the 24/16/8px the shell adds top and bottom, so it declared 48px
+  // more height than the content box has and `main` picked up a scrollbar on a
+  // fixed-height canvas page. The shell's row is definite, so `h-full` resolves
+  // exactly at every breakpoint with no arithmetic to drift (spec Q-6).
+  it('fills the shell content box instead of recomputing the viewport', async () => {
+    seedGraph({ config_id: 'gr_1', nodes: [], edges: [], truncated: false })
+    const wrapper = await renderView(GraphragGraphView, { routes, initialRoute: ROUTE })
+    await settle(wrapper)
+
+    const root = wrapper.element as HTMLElement
+    expect(root.tagName).toBe('DIV')
+    expect(root.className.split(/\s+/)).toContain('h-full')
+    expect(root.className).not.toContain('100vh')
+    expect(root.className).not.toContain('p-6')
+  })
 })

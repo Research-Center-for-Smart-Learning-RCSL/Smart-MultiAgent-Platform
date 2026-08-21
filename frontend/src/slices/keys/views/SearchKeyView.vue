@@ -138,7 +138,7 @@ function onAction(key: string, row: { id: string }) {
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <SPageHeader :title="$t('keys.search.title')">
       <template #description>
         {{ $t('keys.search.description') }}
@@ -291,5 +291,5 @@ function onAction(key: string, row: { id: string }) {
       @close="showAdd = false"
       @submit="onUpload"
     />
-  </main>
+  </div>
 </template>

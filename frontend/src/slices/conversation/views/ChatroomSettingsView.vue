@@ -314,7 +314,7 @@ watchEffect(() => {
 </script>
 
 <template>
-  <main class="p-6 settings">
+  <div class="settings">
     <SPageHeader
       :title="t('conversation.settings.title')"
       :breadcrumbs="breadcrumbs"
@@ -801,7 +801,7 @@ watchEffect(() => {
         </SCard>
       </div>
     </template>
-  </main>
+  </div>
 </template>
 
 <style scoped>

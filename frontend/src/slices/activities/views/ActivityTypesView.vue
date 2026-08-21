@@ -140,7 +140,7 @@ const ActivityTypeTable = typedTable<ActivityType>()
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <SPageHeader
       :title="t('activities.typesList.title')"
       :subtitle="t('activities.typesList.subtitle')"
@@ -300,5 +300,5 @@ const ActivityTypeTable = typedTable<ActivityType>()
       :open="showHelp"
       @close="showHelp = false"
     />
-  </main>
+  </div>
 </template>
