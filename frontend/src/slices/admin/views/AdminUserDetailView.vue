@@ -80,7 +80,7 @@
       :open="true"
       :email="query.data.value?.email ?? ''"
       :links="reissuedLinks"
-      @close="reissuedLinks = null"
+      @close="dismissLinks"
     />
   </section>
 </template>
@@ -125,7 +125,14 @@ const actionPending = computed(() =>
 )
 
 // Held in memory only, for as long as the dialog is open — see the type's note.
+// The mutation's own `data` is a second copy that outlives the dialog, so it is
+// reset alongside the ref rather than left in the vue-query mutation cache.
 const reissuedLinks = ref<ActivationLinks | null>(null)
+
+function dismissLinks(): void {
+  reissuedLinks.value = null
+  actions.reissueActivationLinks.reset()
+}
 
 async function onReissueLinks(): Promise<void> {
   const ok = await confirm({
