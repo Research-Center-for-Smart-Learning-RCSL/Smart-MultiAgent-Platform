@@ -331,12 +331,25 @@ describe('AgentDetailView', () => {
 
     const html = wrapper.html()
     expect(html).toContain('h-[32rem]')
-    expect(html).not.toContain('min-h-[32rem]')
-    // dvh, paired with the shell (App.vue's .app-root). The `100vh` spelling
-    // below is the superseded F-51 constant and stays as written: it pins the
-    // absence of a value that no longer exists in either unit.
     expect(html).toContain('lg:h-[calc(100dvh-3.5rem-3rem)]')
-    expect(html).not.toContain('lg:h-[calc(100vh-8rem)]')
+
+    // The two superseded classes are assembled from fragments rather than
+    // spelled out, and that is load-bearing, not style. Tailwind scans this
+    // file - comments included - so a class name written anywhere in it is a
+    // class name in the build. Spelled out, the superseded height class was
+    // reaching dist/assets/index-*.css as a live rule that nothing renders,
+    // and mobileViewportContract.test.ts, which exists to forbid that viewport
+    // unit, excludes __tests__/ - so the only place still shipping it was the
+    // only place its guard could not see. No fragment below is a valid
+    // candidate on its own, which is what removes the rule while keeping the
+    // assertion. Do not "tidy" these back into literals, and do not name either
+    // class in a comment here: the first draft of this note did, and put the
+    // rule straight back into the bundle.
+    // `h-[32rem]` above stays spelled out: the view really does ship it
+    // (AgentDetailView.vue:989).
+    const joined = (...parts: string[]) => parts.join('')
+    expect(html).not.toContain(joined('min-h-', '[32rem]'))
+    expect(html).not.toContain(joined('lg:h-[calc(100', 'vh', '-8rem)]'))
   })
 
   it('shows read-only Concept Map coverage on the Knowledge tab (AC-6)', async () => {
