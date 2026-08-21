@@ -118,6 +118,6 @@ function onSubmit(): void {
 
 <style scoped>
 .admin-create-user__note {
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-4);
 }
 </style>

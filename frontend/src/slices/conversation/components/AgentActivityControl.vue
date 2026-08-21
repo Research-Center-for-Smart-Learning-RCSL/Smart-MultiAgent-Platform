@@ -195,7 +195,7 @@ function toggleType(typeId: string, checked: boolean): void {
 .activity-control {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-2);
   align-items: flex-start;
 }
 .activity-control__types {

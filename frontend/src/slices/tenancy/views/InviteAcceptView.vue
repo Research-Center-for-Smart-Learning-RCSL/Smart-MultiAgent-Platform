@@ -120,16 +120,16 @@ onMounted(async () => {
 }
 
 .accept-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  margin-bottom: 24px;
+  font-size: var(--font-size-xl);
+  font-weight: var(--weight-semibold);
+  margin-bottom: var(--space-6);
 }
 
 .accept-state {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .result-icon {
@@ -146,19 +146,19 @@ onMounted(async () => {
 }
 
 .result-text {
-  font-size: 1rem;
-  font-weight: 500;
+  font-size: var(--font-size-md);
+  font-weight: var(--weight-medium);
 }
 
 .error-detail {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
 }
 
 @media (max-width: 767px) {
   .accept-card {
     max-width: none;
-    margin: 0 16px;
+    margin: 0 var(--space-4);
   }
 }
 </style>

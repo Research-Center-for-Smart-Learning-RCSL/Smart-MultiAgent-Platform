@@ -38,10 +38,10 @@ const text = computed(() => {
 .typing {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   height: 24px;
-  padding: 0 16px;
-  font-size: 13px;
+  padding: 0 var(--space-4);
+  font-size: var(--font-size-code);
   font-style: italic;
   color: var(--color-muted);
   opacity: 0;
@@ -54,7 +54,7 @@ const text = computed(() => {
 
 .typing__dots {
   display: inline-flex;
-  gap: 2px;
+  gap: var(--space-0-5);
 }
 
 .typing__dot {

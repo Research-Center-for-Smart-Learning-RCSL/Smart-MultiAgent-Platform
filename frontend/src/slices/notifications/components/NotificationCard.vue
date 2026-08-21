@@ -98,12 +98,12 @@ const ariaLabel = computed(() => {
 .ncard {
   display: flex;
   align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--color-border);
   border-left: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  margin-bottom: 0.5rem;
+  margin-bottom: var(--space-2);
   background: var(--color-bg);
 }
 
@@ -130,19 +130,19 @@ const ariaLabel = computed(() => {
 .ncard__main {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: var(--space-1);
   flex: 1;
   min-width: 0;
 }
 
 .ncard__title {
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
   color: var(--color-fg);
 }
 
 .ncard__body {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
   overflow-wrap: anywhere;
 }
@@ -158,7 +158,7 @@ const ariaLabel = computed(() => {
 }
 
 .ncard__meta {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
 }
 
@@ -166,12 +166,12 @@ const ariaLabel = computed(() => {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.5rem;
+  gap: var(--space-2);
   flex-shrink: 0;
 }
 
 .ncard__time {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
   white-space: nowrap;
 }

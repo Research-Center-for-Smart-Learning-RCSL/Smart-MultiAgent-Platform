@@ -215,38 +215,38 @@ const breadcrumbs = computed(() => [
 
 <style scoped>
 .verify-alert {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .skeleton-stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
   max-width: 640px;
 }
 
 .invite-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
   max-width: 640px;
 }
 
 .invite-card {
-  padding: 20px;
+  padding: var(--space-5);
 }
 
 .invite-header {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 
 .scope-icon {
   color: var(--color-accent);
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 
 .invite-title-block {
@@ -255,31 +255,31 @@ const breadcrumbs = computed(() => [
 }
 
 .invite-title {
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: var(--font-size-md);
+  font-weight: var(--weight-semibold);
 }
 
 .invite-scope {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
 }
 
 .invite-meta {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 
 .invite-role-row,
 .invite-expiry-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .meta-label {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
 }
 
@@ -294,7 +294,7 @@ const breadcrumbs = computed(() => [
 .invite-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 @media (max-width: 767px) {

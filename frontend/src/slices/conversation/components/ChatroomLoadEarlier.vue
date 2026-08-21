@@ -43,6 +43,6 @@ const { t } = useI18n()
 .load-earlier {
   display: flex;
   justify-content: center;
-  padding: 8px 0;
+  padding: var(--space-2) 0;
 }
 </style>

@@ -53,7 +53,7 @@ const errorTooltip = computed(() =>
 .agent-status-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-height: 44px;
 }
 
@@ -69,7 +69,7 @@ const errorTooltip = computed(() =>
 }
 
 .agent-status-item__name {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -77,7 +77,7 @@ const errorTooltip = computed(() =>
 }
 
 .agent-status-item__status {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
 }
 

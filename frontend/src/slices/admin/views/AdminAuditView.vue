@@ -257,15 +257,15 @@ async function onExport(): Promise<void> {
 .admin-audit__filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 1rem 0;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
   align-items: center;
 }
 .admin-audit__field {
   max-width: 14rem;
 }
 .admin-audit__pagination {
-  margin: 1rem 0;
+  margin: var(--space-4) 0;
   display: flex;
   justify-content: center;
 }

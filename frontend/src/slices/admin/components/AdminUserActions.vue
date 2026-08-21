@@ -94,7 +94,7 @@ const { t } = useI18n()
 .admin-user-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 1rem;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
 }
 </style>

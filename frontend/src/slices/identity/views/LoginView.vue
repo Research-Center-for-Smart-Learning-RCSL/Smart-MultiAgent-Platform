@@ -307,7 +307,7 @@ async function submit(): Promise<void> {
 }
 
 .flash-alert {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .forgot-link {
@@ -316,7 +316,7 @@ async function submit(): Promise<void> {
 }
 
 .forgot-link a {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-accent);
   text-decoration: none;
 }
@@ -330,7 +330,7 @@ async function submit(): Promise<void> {
   align-items: center;
   text-align: center;
   color: var(--color-muted);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-code);
   margin: var(--space-4) 0;
 }
 

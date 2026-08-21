@@ -423,32 +423,32 @@ const breadcrumbs = computed(() => [
 .detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  margin-bottom: 24px;
+  gap: var(--space-6);
+  margin-bottom: var(--space-6);
 }
 
 .quotas-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .quota-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .quota-label {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .quota-value {
-  font-size: 1.25rem;
-  font-weight: 600;
+  font-size: var(--font-size-xl);
+  font-weight: var(--weight-semibold);
 }
 
 @media (max-width: 767px) {

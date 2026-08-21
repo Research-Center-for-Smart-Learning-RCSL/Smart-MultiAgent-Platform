@@ -352,13 +352,13 @@ const breadcrumbs = computed(() => [
 @import '../styles/detail-cards.css';
 
 .settings-card {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .owner-cell {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .owner-icon {

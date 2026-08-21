@@ -24,7 +24,7 @@ defineProps<{
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   max-width: 75%;
   min-width: 200px;
 }
@@ -38,7 +38,7 @@ defineProps<{
 .bubble__meta {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1-5);
 }
 </style>

@@ -387,7 +387,7 @@ const breadcrumbs = computed(() => [
 
 .role-badges {
   display: inline-flex;
-  gap: 4px;
+  gap: var(--space-1);
   align-items: center;
 }
 
@@ -396,12 +396,12 @@ const breadcrumbs = computed(() => [
 }
 
 .invite-pool-error {
-  margin: 0.5rem 0 0;
-  font-size: 0.75rem;
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-xs);
   color: var(--color-danger);
 }
 
 .invite-link-card {
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-4);
 }
 </style>

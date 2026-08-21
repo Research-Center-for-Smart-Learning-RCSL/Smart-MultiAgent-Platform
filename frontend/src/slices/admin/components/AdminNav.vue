@@ -117,8 +117,8 @@ function onSelect(value: string | number): void {
 .admin-nav__link {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   min-height: 40px;
   border-radius: var(--radius-md);
   color: var(--color-fg);
@@ -135,7 +135,7 @@ function onSelect(value: string | number): void {
 .admin-nav__link--active {
   background: var(--color-sidebar-active-bg);
   color: var(--color-sidebar-active-text);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .admin-nav__icon {
@@ -148,7 +148,7 @@ function onSelect(value: string | number): void {
 .admin-nav--sidebar {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: var(--space-1);
 }
 
 .admin-nav--sidebar .admin-nav__link {
@@ -158,10 +158,10 @@ function onSelect(value: string | number): void {
 /* Tablet: horizontal scrollable tab row */
 .admin-nav--tabs {
   display: flex;
-  gap: 0.25rem;
+  gap: var(--space-1);
   overflow-x: auto;
   border-bottom: 1px solid var(--color-border);
-  padding-bottom: 0.25rem;
+  padding-bottom: var(--space-1);
 }
 
 .admin-nav--tabs .admin-nav__link {

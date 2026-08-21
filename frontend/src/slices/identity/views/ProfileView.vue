@@ -253,17 +253,17 @@ async function submit(): Promise<void> {
 }
 
 .current-email {
-  margin: 0 0 20px;
+  margin: 0 0 var(--space-5);
 }
 
 .current-email dt {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
-  margin-bottom: 2px;
+  margin-bottom: var(--space-0-5);
 }
 
 .current-email dd {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
   margin: 0;
 }
@@ -302,17 +302,17 @@ async function submit(): Promise<void> {
 .provider-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0-5);
 }
 
 .provider-name {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   font-weight: var(--weight-medium);
   color: var(--color-fg);
 }
 
 .provider-status {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-code);
   color: var(--color-muted);
 }
 

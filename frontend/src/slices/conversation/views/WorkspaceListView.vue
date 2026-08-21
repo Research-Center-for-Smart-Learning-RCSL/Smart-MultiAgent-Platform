@@ -302,7 +302,7 @@ function openWorkspace(ws: Workspace): void {
 .ws-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .ws-card {
@@ -327,15 +327,15 @@ function openWorkspace(ws: Workspace): void {
 }
 
 .ws-card__name {
-  margin-top: 12px;
-  font-size: 16px;
-  font-weight: 600;
+  margin-top: var(--space-3);
+  font-size: var(--font-size-md);
+  font-weight: var(--weight-semibold);
   color: var(--color-fg);
 }
 
 .ws-card__meta {
-  margin-top: 4px;
-  font-size: 12px;
+  margin-top: var(--space-1);
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
 }
 </style>

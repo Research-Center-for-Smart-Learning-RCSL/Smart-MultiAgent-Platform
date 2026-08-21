@@ -98,11 +98,11 @@ const badge = computed(() => (count.value > 99 ? '99+' : String(count.value)))
   right: -2px;
   min-width: 18px;
   height: 18px;
-  padding: 0 4px;
+  padding: 0 var(--space-1);
   border-radius: var(--radius-full);
   background: var(--color-danger);
   color: #fff;
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   line-height: 18px;
   text-align: center;
 }

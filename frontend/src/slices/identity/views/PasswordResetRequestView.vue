@@ -162,9 +162,9 @@ async function submit(): Promise<void> {
 }
 
 .description {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
-  margin: 0 0 24px;
+  margin: 0 0 var(--space-6);
 }
 
 .sent-content {
@@ -172,7 +172,7 @@ async function submit(): Promise<void> {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .sent-icon {
@@ -182,7 +182,7 @@ async function submit(): Promise<void> {
 }
 
 .sent-text {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
   margin: 0;
 }

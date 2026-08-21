@@ -181,11 +181,11 @@ function mapKeys(raw: Record<string, string>): Record<string, string> {
 .schema-form__group {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: var(--space-1);
 }
 .schema-form__actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 0.5rem;
+  margin-top: var(--space-2);
 }
 </style>

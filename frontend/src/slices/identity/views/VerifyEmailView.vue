@@ -115,8 +115,8 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 16px;
-  padding: 16px 0;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
 }
 
 .state-icon {
@@ -133,12 +133,12 @@ onMounted(async () => {
 }
 
 .state-text {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
   margin: 0;
 }
 
 .state-action {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 </style>

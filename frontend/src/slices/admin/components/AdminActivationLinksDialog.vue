@@ -76,10 +76,10 @@ const { t } = useI18n()
 
 <style scoped>
 .admin-links__lede {
-  margin: 0 0 0.75rem;
+  margin: 0 0 var(--space-3);
 }
 
 .admin-links__warning {
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-4);
 }
 </style>

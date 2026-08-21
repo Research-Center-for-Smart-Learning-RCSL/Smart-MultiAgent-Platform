@@ -165,7 +165,7 @@ async function submit(): Promise<void> {
 }
 
 .warning-banner {
-  margin-bottom: 20px;
+  margin-bottom: var(--space-5);
 }
 
 .form-stack {
@@ -179,9 +179,9 @@ async function submit(): Promise<void> {
 }
 
 .blocked-list {
-  margin: 8px 0 0;
-  padding-left: 20px;
-  font-size: 0.75rem;
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+  font-size: var(--font-size-xs);
 }
 
 .blocked-list li {

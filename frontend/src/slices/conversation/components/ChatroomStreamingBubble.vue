@@ -36,25 +36,25 @@ const { t } = useI18n()
 
 <style scoped>
 .streaming {
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .bubble__sender {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--font-size-code);
+  font-weight: var(--weight-semibold);
   color: var(--color-accent);
 }
 
 .streaming__label {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-style: italic;
   color: var(--color-accent);
 }
 
 .bubble__body {
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-normal);
   color: var(--color-fg);
   word-break: break-word;
 }
@@ -62,7 +62,7 @@ const { t } = useI18n()
 .streaming-md::after {
   content: '_';
   color: var(--color-accent);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   animation: blink-cursor 1s steps(1) infinite;
 }
 

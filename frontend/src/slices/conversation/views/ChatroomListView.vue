@@ -431,7 +431,7 @@ function submitCreate(): void {
 .room-name {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .room-name__icon {
@@ -441,23 +441,23 @@ function submitCreate(): void {
 
 .access-fieldset {
   border: none;
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
   padding: 0;
 }
 
 .access-fieldset__legend {
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
   color: var(--color-fg);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .access-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 0;
-  font-size: 0.875rem;
+  padding: var(--space-2) 0;
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
 }
 

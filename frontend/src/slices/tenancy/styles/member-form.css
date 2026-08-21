@@ -1,11 +1,11 @@
 .invite-card {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .invite-form {
   display: flex;
   align-items: flex-end;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .invite-email {
@@ -22,8 +22,8 @@
 
 .you-label {
   color: var(--color-muted);
-  font-size: 0.875rem;
-  margin-left: 4px;
+  font-size: var(--font-size-sm);
+  margin-left: var(--space-1);
 }
 
 @media (max-width: 767px) {

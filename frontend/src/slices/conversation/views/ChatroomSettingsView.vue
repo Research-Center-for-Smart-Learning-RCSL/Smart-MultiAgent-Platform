@@ -808,16 +808,16 @@ watchEffect(() => {
 .settings__stack {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--space-6);
   max-width: 640px;
-  margin-top: 24px;
+  margin-top: var(--space-6);
 }
 
 .settings__heading {
-  font-size: 1.125rem;
-  font-weight: 600;
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-semibold);
   color: var(--color-fg);
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .settings__heading--danger {
@@ -833,8 +833,8 @@ watchEffect(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 0;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -855,8 +855,8 @@ watchEffect(() => {
 .group-picker {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
+  gap: var(--space-1-5);
+  margin-top: var(--space-2);
   list-style: none;
   padding: 0;
 }
@@ -864,8 +864,8 @@ watchEffect(() => {
 .group-picker label {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.875rem;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
   cursor: pointer;
 }
@@ -875,21 +875,21 @@ watchEffect(() => {
 }
 
 .access-row__label {
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
   color: var(--color-fg);
 }
 
 .access-row__desc {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 
 .guest-link {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .guest-link__input {
@@ -899,8 +899,8 @@ watchEffect(() => {
 .agent-add {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .agent-add__select {
@@ -908,7 +908,7 @@ watchEffect(() => {
 }
 
 .agent-item {
-  padding: 12px 0;
+  padding: var(--space-3) 0;
   border-top: 1px solid var(--color-border);
 }
 
@@ -916,13 +916,13 @@ watchEffect(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
 }
 
 .agent-head__name {
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
   color: var(--color-fg);
 }
 
@@ -933,7 +933,7 @@ watchEffect(() => {
 .agent-head__actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .agent-add__role {
@@ -941,7 +941,7 @@ watchEffect(() => {
 }
 
 .agent-observer-note {
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .danger-zone {
@@ -952,7 +952,7 @@ watchEffect(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 0;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
 }
 </style>

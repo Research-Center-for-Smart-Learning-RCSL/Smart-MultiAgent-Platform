@@ -241,9 +241,9 @@ function onOverflow(key: string): void {
 .chat-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   height: 48px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   background: var(--color-bg);
   border-bottom: 1px solid var(--color-border);
 }
@@ -256,8 +256,8 @@ function onOverflow(key: string): void {
 }
 
 .chat-header__name {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--font-size-md);
+  font-weight: var(--weight-semibold);
   color: var(--color-fg);
   max-width: 300px;
   overflow: hidden;
@@ -268,10 +268,10 @@ function onOverflow(key: string): void {
 .chat-header__pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 10px;
+  gap: var(--space-1);
+  padding: var(--space-0-5) var(--space-2-5);
   border-radius: var(--radius-full);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 .chat-header__pill-icon {

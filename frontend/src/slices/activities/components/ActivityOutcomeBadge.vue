@@ -56,6 +56,6 @@ const view = computed<{ variant: Variant; labelKey: string; icon: FunctionalComp
 .outcome-badge__icon {
   width: 14px;
   height: 14px;
-  margin-right: 4px;
+  margin-right: var(--space-1);
 }
 </style>

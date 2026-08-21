@@ -320,8 +320,8 @@ async function onDelete() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 0;
+  gap: var(--space-3);
+  padding: var(--space-2-5) 0;
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -330,15 +330,15 @@ async function onDelete() {
 }
 
 .detail-row dt {
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
   color: var(--color-muted);
   width: 140px;
   flex-shrink: 0;
 }
 
 .detail-row dd {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
 }
 
@@ -346,8 +346,8 @@ async function onDelete() {
   .detail-row {
     flex-direction: column;
     align-items: flex-start;
-    gap: 2px;
-    padding: 8px 0;
+    gap: var(--space-0-5);
+    padding: var(--space-2) 0;
   }
 
   .detail-row dt {

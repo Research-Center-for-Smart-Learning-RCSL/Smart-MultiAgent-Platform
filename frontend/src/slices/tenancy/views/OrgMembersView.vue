@@ -272,6 +272,6 @@ const breadcrumbs = computed(() => [
 @import '../styles/member-form.css';
 
 .invite-link-card {
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-4);
 }
 </style>
