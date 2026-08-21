@@ -43,15 +43,22 @@ defineProps<{ belowTopbar?: boolean }>()
 <style scoped>
 .s-net-banner {
   position: fixed;
-  top: 12px;
+  /* Fixed and outside every layout's padding box, so it carries its own inset.
+     This is the unauthenticated case (auth and public layouts); the authenticated
+     one sits below the top bar, which has already cleared the strip. */
+  top: max(12px, env(safe-area-inset-top, 0px));
   left: 50%;
   transform: translateX(-50%);
   z-index: var(--z-banner, 350);
   width: min(640px, calc(100vw - 32px));
 }
 
+/* --topbar-height-total, not --topbar-height: the bar grows by the top safe-area
+   inset, so on a device with a cutout its bottom edge is below 56px. This banner
+   sits at --z-banner (350), above --z-topbar (200), so getting it wrong paints
+   the banner over the top bar rather than below it. */
 .s-net-banner--below-topbar {
-  top: calc(var(--topbar-height) + 12px);
+  top: calc(var(--topbar-height-total) + 12px);
 }
 
 .s-net-banner__alert {

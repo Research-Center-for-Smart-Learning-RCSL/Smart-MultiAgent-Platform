@@ -345,11 +345,14 @@ useDocumentMeta({
   min-height: 100dvh;
   max-width: 1180px;
   margin: 0 auto;
-  /* Landscape is the case that matters here: the cutout eats one gutter, and
-     max() keeps the designed 24px wherever the inset is smaller. The page
-     scrolls the document, so its footer is reachable past the home indicator
-     and needs no bottom inset. */
-  padding: 0 max(24px, env(safe-area-inset-right, 0px)) 0
+  /* All three edges the content can reach. Landscape is the obvious case - the
+     cutout eats one gutter, and max() keeps the designed 24px wherever the
+     inset is smaller - but the TOP matters more: this is the first page an
+     unauthenticated visitor sees, `.landing__nav` is flush to it, and under
+     viewport-fit=cover that nav renders beneath the status bar without this.
+     The page scrolls the document, so the footer is reachable past the home
+     indicator and needs no bottom inset. */
+  padding: env(safe-area-inset-top, 0px) max(24px, env(safe-area-inset-right, 0px)) 0
     max(24px, env(safe-area-inset-left, 0px));
 }
 

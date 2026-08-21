@@ -103,25 +103,43 @@ describe('mobile viewport contract', () => {
   // at once. Asserting both together is what makes shipping half impossible.
   describe('safe areas', () => {
     // The complete set of present-day elements that touch a viewport edge
-    // (dossier Q-5). PublicLayout is deliberately absent: it adds no padding
-    // and only wraps Landing, which carries its own gutters.
-    const INSET_SURFACES = [
-      'app/layouts/AppShell.vue',
-      'app/components/AppTopBar.vue',
-      'app/layouts/AuthLayout.vue',
-      'app/views/Landing.vue',
-      'shared/ui/SDrawer.vue',
-      'shared/ui/SModal.vue',
-    ]
+    // (dossier Q-5), each with the edges it actually meets. PublicLayout is
+    // deliberately absent: it adds no padding and only wraps Landing, which
+    // carries its own gutters.
+    //
+    // Per-edge, not per-file. A post-close review found that asserting only
+    // that `env(safe-area-inset-` appears SOMEWHERE in a file let Landing pass
+    // while insetting two edges of the four it needed - its nav was rendering
+    // under the status bar. A surface that protects half of itself is exactly
+    // the failure this sweep exists to catch.
+    const INSET_SURFACES: Record<string, string[]> = {
+      // No 'top': the shell's top inset is carried by --topbar-height-total
+      // (declared in main.css), so the topbar track grows into the strip
+      // rather than the shell padding itself away from it.
+      'app/layouts/AppShell.vue': ['left', 'right', 'bottom'],
+      'app/components/AppTopBar.vue': ['top'],
+      'app/layouts/AuthLayout.vue': ['top', 'left', 'right', 'bottom'],
+      // No bottom: the landing page scrolls the document, so its footer is
+      // reachable past the home indicator.
+      'app/views/Landing.vue': ['top', 'left', 'right'],
+      'shared/ui/SDrawer.vue': ['top', 'left', 'right', 'bottom'],
+      'shared/ui/SModal.vue': ['top', 'left', 'right', 'bottom'],
+      // Fixed, outside every layout's padding box, and the first tab stop.
+      'shared/styles/main.css': ['top', 'left'],
+      'shared/ui/SNetworkBanner.vue': ['top'],
+    }
 
     it('opts the document into the display cutout', () => {
       expect(declarations(read(resolve(ROOT, 'index.html')))).toContain('viewport-fit=cover')
     })
 
-    it('insets every surface that meets a screen edge', () => {
-      const offenders = INSET_SURFACES.filter(
-        (rel) => !declarations(read(resolve(SRC, rel))).includes('env(safe-area-inset-'),
-      )
+    it('insets every edge of every surface that meets one', () => {
+      const offenders = Object.entries(INSET_SURFACES).flatMap(([rel, edges]) => {
+        const source = declarations(read(resolve(SRC, rel)))
+        return edges
+          .filter((edge) => !source.includes(`env(safe-area-inset-${edge}`))
+          .map((edge) => `${rel} (${edge})`)
+      })
 
       expect(offenders).toEqual([])
     })
@@ -131,7 +149,7 @@ describe('mobile viewport contract', () => {
     // a bare `env(safe-area-inset-x)` would collapse a designed gutter to
     // nothing. The max() form is what preserves it.
     it('writes every inset with a fallback so a revert restores today exactly', () => {
-      const offenders = INSET_SURFACES.filter((rel) =>
+      const offenders = Object.keys(INSET_SURFACES).filter((rel) =>
         [
           ...declarations(read(resolve(SRC, rel))).matchAll(
             /env\(safe-area-inset-[a-z]+([^)]*)\)/g,
