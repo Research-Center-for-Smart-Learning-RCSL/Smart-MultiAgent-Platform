@@ -131,13 +131,22 @@ function updateMenuPosition() {
   // Pick the side first, then cap to it. Flipping only when the menu genuinely
   // does not fit below keeps the common case anchored where the user expects.
   const flip = naturalHeight > spaceBelow && spaceAbove > spaceBelow
-  const available = Math.max(flip ? spaceAbove : spaceBelow, MIN_MENU_HEIGHT)
+  const room = flip ? spaceAbove : spaceBelow
+  const available = Math.min(
+    Math.max(room, MIN_MENU_HEIGHT),
+    viewportHeight - VIEWPORT_MARGIN * 2,
+  )
 
   const pos: CSSProperties = {
     position: 'fixed',
     maxHeight: `${Math.round(available)}px`,
   }
-  if (flip) {
+  if (available > room) {
+    // The floor won: anchoring to the trigger would push the far edge off
+    // screen, which is the unreachable-items defect this function exists to
+    // prevent. Pin to the viewport instead and let the menu scroll.
+    pos.top = `${VIEWPORT_MARGIN}px`
+  } else if (flip) {
     pos.bottom = `${viewportHeight - rect.top + TRIGGER_GAP}px`
   } else {
     pos.top = `${rect.bottom + TRIGGER_GAP}px`
