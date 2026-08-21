@@ -51,7 +51,10 @@
         aria-relevant="additions"
         :aria-label="t('conversation.chatroom.messageList')"
       >
-        <li v-if="hasOlderMessages && !messagesPending">
+        <li
+          v-if="hasOlderMessages && !messagesPending"
+          ref="loadEarlierRef"
+        >
           <ChatroomLoadEarlier
             :loading="loadingOlder"
             @load="onLoadEarlier"
@@ -938,6 +941,35 @@ async function onLoadEarlier(): Promise<void> {
   await loadEarlier()
   restoreAfterPrepend()
 }
+
+// Scroll-based pagination (07-conversation.md:895). The button stays as the
+// fallback the same line calls for; this is the half that was never built.
+//
+// Re-armed on every appearance of the row, because it is `v-if`-ed out while
+// the first page is pending and for good once `hasOlderMessages` goes false --
+// which is also what terminates the loop.
+const loadEarlierRef = useTemplateRef<HTMLElement>('loadEarlierRef')
+let disposeTopObserver: (() => void) | null = null
+
+watch(
+  loadEarlierRef,
+  (el) => {
+    disposeTopObserver?.()
+    disposeTopObserver = null
+    if (!el) return
+    disposeTopObserver = observeTop(el, () => {
+      // `loadingOlder` is the re-entrancy guard: reaching the threshold again
+      // while a page is still in flight must not start a second one.
+      if (hasOlderMessages.value && !loadingOlder.value) void onLoadEarlier()
+    })
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  disposeTopObserver?.()
+  disposeTopObserver = null
+})
 
 function openExport(): void {
   // Cancel any earlier job's poller as well as clearing the slot, so its
