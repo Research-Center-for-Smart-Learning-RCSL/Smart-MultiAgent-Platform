@@ -146,7 +146,19 @@ test.describe('Scroll position on navigation', () => {
     await expect(page).toHaveURL(/[?&]tab=knowledge/, { timeout: 10_000 })
     await page.waitForTimeout(200)
 
-    expect(await page.locator(CONTENT).evaluate((el) => el.scrollTop)).toBe(offset)
+    // Compared against the browser's own clamp, not against the raw offset.
+    // The Knowledge panel is far shorter than General, so the content genuinely
+    // gets shorter and the browser lowers scrollTop to the new maximum - a
+    // measured 823 where the raw offset was 1200. That is not a reset, and the
+    // distinction is the whole point of this assertion: the watcher would put
+    // it at 0, which stays a failure under this form.
+    const after = await page.locator(CONTENT).evaluate((el) => ({
+      top: el.scrollTop,
+      max: el.scrollHeight - el.clientHeight,
+    }))
+    expect(after.max, 'the page must still be scrollable for this to mean anything')
+      .toBeGreaterThan(0)
+    expect(after.top).toBe(Math.min(offset, after.max))
   })
 })
 
