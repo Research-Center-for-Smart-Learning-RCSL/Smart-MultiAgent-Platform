@@ -60,19 +60,11 @@ first, but building them serially avoids the conflict.
   404 route has no `meta`. Its impersonation-banner z-index decision must retain the completed
   predecessor's toaster contract at `--z-toast: 500`.
 
-- `2026-08-19-content-area-spacing-and-scroll-contract` (bugfix, **draft**) -
-  **unblocked 2026-08-21** by `2026-08-19-shared-overlay-and-shell-defects`. Still `draft`, so
-  it needs approval before `/build` will touch it. Strips the duplicated padding from 34 view
-  roots (and the nested `<main>` from 23 of them), and gives navigation a scroll-reset contract,
-  which today does not exist: `main.scrollTop` persists into the next view. **Its Q-14 rests on
-  a false premise - read this first.** Q-14 assumes `depends_on` sequences the dossier that
-  moves the shell's viewport height to `dvh`, so that `lg:h-[calc(100dvh-...)]` is correct by
-  the time it builds. It does not: F-45 belongs to `2026-08-19-mobile-viewport-and-breakpoints`
-  (`findings.md:1331`), which is sequenced *after* it, and `shared-overlay-and-shell-defects`
-  deliberately kept `vh` (its §7 item 1). The shell is still `vh`, so Q-14's own escape clause
-  applies: make the two agree first and record the disagreement as a deviation. Also read that
-  dossier's **D-10**: `.app-shell` now sizes from `flex: 1 1 0px`, and the reason the basis must
-  be a length is exactly what this dossier's scroll contract depends on.
+- (moved to In progress on 2026-08-21, approved the same day)
+  `2026-08-19-content-area-spacing-and-scroll-contract`. Its Q-14 warning was already resolved
+  in the dossier itself at §1.2 (the shell is `vh` and stays `vh` until
+  `mobile-viewport-and-breakpoints` runs, so Q-14 now specifies `vh` and FU-8 pairs the two
+  edits); §1.3 records the corrections made at approval.
 
 - `2026-08-21-visual-refinement-phase1-token-adoption` (refactor, **approved 2026-08-21**) -
   **unblocked 2026-08-21** by `2026-08-19-shared-overlay-and-shell-defects`, which has now
@@ -202,6 +194,21 @@ report that the UI is consistent but flat.
   viewport height depends on what has already landed.
 
 ## In progress
+
+- `2026-08-19-content-area-spacing-and-scroll-contract` (bugfix, **approved and started
+  2026-08-21**) - `depends_on: [2026-08-19-shared-overlay-and-shell-defects]`, met. Strips the
+  duplicated padding from 34 view roots (and the nested `<main>` from 23 of them), and gives
+  navigation a scroll-reset contract, which today does not exist: `main.scrollTop` persists into
+  the next view. Two things a later reader needs. **Its Q-5 was corrected at approval**: the
+  reset is `contentEl.value.scrollTop = 0`, not `scrollTo({ top: 0 })` — this repo's jsdom has no
+  `Element.prototype.scrollTo` (the specified line would throw inside the watcher on every
+  navigating unit test) but does persist `scrollTop`, which is the inverse of what Q-5 originally
+  claimed. And **its Q-14 ships `vh`, deliberately**: F-45 belongs to
+  `2026-08-19-mobile-viewport-and-breakpoints`, which is sequenced after it, so the sticky panel
+  constant matches the shell it ships against and FU-8 pairs the two edits for whoever moves the
+  shell to `dvh`. Also read `shared-overlay-and-shell-defects`'s **D-10**: `.app-shell` sizes from
+  `flex: 1 1 0px`, and the reason the basis must be a length is exactly what this dossier's scroll
+  contract depends on.
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-08-21 after implementation:

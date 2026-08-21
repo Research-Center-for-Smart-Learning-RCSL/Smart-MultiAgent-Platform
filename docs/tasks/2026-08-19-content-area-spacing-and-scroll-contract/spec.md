@@ -1,7 +1,8 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-08-19
+approved: 2026-08-21
 requirements: []
 depends_on: [2026-08-19-shared-overlay-and-shell-defects]
 ---
@@ -125,6 +126,50 @@ scroll, and `frontend/e2e/21-overlay-and-shell-contract.spec.ts` now asserts the
 scrolls and the document does not. This dossier's central premise is therefore measured rather
 than only cited, and F-4's reset has a verified scroll container to write to.
 
+### 1.3 Build-time re-verification (2026-08-21, at approval)
+
+Every citation was swept a third time, immediately before implementation. **No finding changed
+status.** `AppShell.vue` is byte-identical to §1.2's description: the watcher at `:45-51`,
+`noPadding` at `:53-55`, `contentEl` at `:67`, the sole `scrollTop` read at `:75`, the skip link
+at `:89-92`, `<main id="main-content">` at `:123-132`, and the padding ladder at `:195-201`,
+`:219-221`, `:229-231`. Re-measured: **34 padded view roots** (26 `p-6`, 7 `p-4`, one
+`px-4 py-4 sm:p-6`) exactly as §2 enumerates; **23 `<main>` in `src/slices`**, 25 across `src`
+(the other two being `AppShell.vue:123` and `Landing.vue:183`); **7 viewport-unit hits** with the
+§1.2 membership; `scrollBehavior` returns nothing repository-wide.
+
+Four corrections, applied in place below rather than left for the builder:
+
+1. **Q-5's testability premise is factually inverted, and the fix it specifies would throw.**
+   Measured directly against this repo's jsdom: `typeof el.scrollTo` is `undefined` and
+   `'scrollTo' in Element.prototype` is `false`, while `el.scrollTop = 123` reads back as `123`.
+   So `scrollTop` is *not* inert and `scrollTo` is *not* present. Writing
+   `contentEl.value?.scrollTo({ top: 0 })` would raise a TypeError inside the watcher on every
+   unit test that navigates, starting with `AppShell.test.ts`'s existing
+   "resets the manual override on navigation". The repository already records this constraint at
+   `slices/conversation/composables/useChatroomScroll.ts:83` ("jsdom (tests) has no
+   Element.scrollTo, so fall back to scrollTop"). Q-5 and T-1 are rewritten to
+   `contentEl.value.scrollTop = 0`.
+2. **The Tier 2 spec filename collides.** `frontend/e2e/19-transient-feedback.spec.ts`,
+   `20-onboarding-without-smtp.spec.ts` and `21-overlay-and-shell-contract.spec.ts` already
+   exist. The new spec is **`frontend/e2e/22-layout-contract.spec.ts`**; §8 and AC-16 are
+   corrected.
+3. **§7 item 7's "move `SPageHeader` above the loading branch" is not literally possible.** All
+   three F-26 views derive the header title from the fetched entity
+   (`ProjectDetailView` `project.name`, `OrgDetailView` `org.name`, `AdminUserDetailView`
+   `query.data.value.email`), which does not exist during the fetch. `SPageHeader`'s `title` prop
+   is a required `string` (`shared/ui/SPageHeader.vue:6-10`) and it has no title slot. Item 7 is
+   restated with the fallback rule.
+4. **75 views, not 74.** `slices/tenancy/views/ProjectMemberGroupsView.vue` landed with
+   `2026-08-20-member-groups-and-room-visibility-isolation`. It carries no root padding, so the
+   34/41 split leaves F-3's set unchanged.
+
+Two things checked because §9 warns about them, both clear: **no unit test anywhere in
+`frontend/src` selects on `main`** (`getByRole('main')`, `find('main')` and `querySelector('main')`
+all return nothing), so the 23 root changes break no existing assertion; and the e2e specs' `main`
+usages are either `main#main-content` (`21-overlay-and-shell-contract.spec.ts`) or descendant
+selectors (`main table`, `main .s-page-header` in `09`, `10`, `11`, `16`), all of which continue to
+match against the shell's own landmark.
+
 ## 2. Observed vs Expected
 
 ### F-3 (major) - 34 view roots duplicate the shell's padding
@@ -197,7 +242,7 @@ than only cited, and F-4's reset has a verified scroll container to write to.
 | Q-2 | F-3 and F-40: (a) strip the padding utility and the `<main>` element from all 34 roots, or (b) remove `padding` from `.app-shell__content` and standardise on per-view padding? | **(a).** The shell keeps sole ownership of content padding; the 34 view roots lose their padding utility, and the 23 that are `<main>` lose that element too. | `docs/UI/02-layout-shell.md` §3.3 names the content area as the padding owner with a breakpoint ladder (24/16/8px), and §9 gives one Content Padding value per route pattern implemented through `meta.contentPadding`. Option (b) would delete the mechanism §9 documents, would require editing all 74 views instead of 34, would have to re-implement the 1024px and 480px steps in each of them, and would leave no single place to opt a route out. It also breaks the two immersive routes, whose entire contract is "the shell contributes zero padding here". F-40 is the same edit on a 23-view subset of the same 34 files, so doing them apart would mean touching those files twice. |
 | Q-3 | What element replaces the 23 `<main>` roots? | **`<div>`**, carrying only the classes that were doing something other than padding. Concretely: `ChatroomSettingsView.vue:317` (was `:227`; re-verified 2026-08-21) keeps `settings`; `GraphragGraphView.vue:168` keeps `flex flex-col` and gains the Q-6 height; the other 21 become a bare `<div>`. | `<section>` becomes a landmark only when it has an accessible name, so an unnamed `<section>` would either add nothing or add a second unnamed region to the rotor. The tenancy, admin and identity slices already use `div`/`section` for view roots with no ill effect. `<div>` is the neutral choice and none of the 21 needs a styling hook once the padding class is gone. |
 | Q-4 | F-4: where does the scroll reset live, given vue-router's `scrollBehavior` resolves through `window.scrollTo` and the real scroll container is `main.app-shell__content`? | **In `AppShell`'s existing `watch(() => route.path, ...)` at `AppShell.vue:45-51`**, not in the router and not in a new composable. | The element is already referenced there: `contentEl` (`AppShell.vue:67`, bound at `:125`) is the scroll container, and the component that owns the element is the correct place to write to it. A router `afterEach` would have to reach the DOM by `document.getElementById('main-content')`, putting a DOM query for a layout element into the routing layer and coupling `app/router.ts` to a class name it does not own. A shared composable would need the same element handed to it and would add an indirection with exactly one consumer. The watcher already exists and already fires on precisely the right signal, so the change is one statement. `main` is the shell's own element inside `app/layouts/`, so no layer boundary is crossed at all. |
-| Q-5 | F-4: is query-only navigation exempt, and how is the reset written? | **Exempt, by construction**, and written as `contentEl.value?.scrollTo({ top: 0 })`. | The watcher keys on `route.path`, so a query-only change never fires it. That matches the deliberate `:key="$route.path"` at `App.vue:31-41` and its comment, and preserves the tab and scope switches the audit judged defensible. `scrollTo` rather than `scrollTop = 0` is chosen for testability: jsdom performs no layout, so an element's `scrollTop` setter is inert and cannot be asserted, whereas `scrollTo` is a stubbable method call. This makes AC-2 a real unit assertion instead of a browser-only item. Consequence accepted and recorded: back and forward navigation also land at the top, because no saved-position store exists today (FU-1). |
+| Q-5 | F-4: is query-only navigation exempt, and how is the reset written? | **Exempt, by construction**, and written as `contentEl.value.scrollTop = 0` inside an existence check. **Rewritten 2026-08-21 (§1.3): the original `scrollTo({ top: 0 })` was chosen on an inverted premise and would throw.** | The watcher keys on `route.path`, so a query-only change never fires it. That matches the deliberate `:key="$route.path"` at `App.vue:48-58` and its comment, and preserves the tab and scope switches the audit judged defensible. On the *how*: the original rationale claimed jsdom's `scrollTop` setter is inert while `scrollTo` is a stubbable method. Measured, both halves are false — `Element.prototype.scrollTo` does not exist in this repo's jsdom (`'scrollTo' in Element.prototype === false`), so the specified line raises a TypeError inside the watcher on every navigating unit test, while `el.scrollTop = 123` reads back as `123`, so it is directly assertable. `useChatroomScroll.ts:83-88` already documents exactly this constraint and already branches around it. `scrollTop = 0` therefore wins on every axis the original argued: it works in a browser, it is one statement with no jsdom guard and no prototype stub, and it makes AC-2 a real unit assertion. Consequence accepted and recorded: back and forward navigation also land at the top, because no saved-position store exists today (FU-1). |
 | Q-6 | F-10: give the two graph routes `contentPadding: 'none'`, or correct the view's `calc()`? | **Neither literally: drop the `calc()` and use `h-full`**, keeping the shell's padding. `GraphragGraphView.vue:168` becomes `<div class="flex flex-col h-full">`. | `contentPadding: 'none'` would push the page header, the search field and the summary line flush against the shell edges, contradicting §9's route table, which gives every non-immersive app route 24px, and the graph view is not immersive: it has a full page header (`:169-186`). Correcting the `calc()` instead would mean encoding 24/16/8px per breakpoint in the view, a third copy of the ladder that drifts the next time it changes. `main` is grid row 2 of `grid-template-rows: var(--topbar-height) 1fr` (`AppShell.vue:148-150`) on a container whose height is definite, so its content box is definite and a child's `height: 100%` resolves against it exactly, at every breakpoint, with no arithmetic. **Restated 2026-08-21 (§1.2):** the shell's height no longer comes from a `height: 100vh` declaration - the sibling dossier replaced it with `flex: 1 1 0px; min-height: 0` (`:151-152`) inside `App.vue`'s `.app-root` flex column. The height is now *resolved by flex layout* rather than *declared*, which is still definite, so the conclusion is unchanged. It is also no longer only an inference: that dossier measured `main` at `clientHeight` 364 with 3749px of internal scroll on a 420px viewport, so the row genuinely resolves. The one thing a builder must not do is reintroduce a percentage flex basis - its D-10 records that `flex: 1` (a `0%` basis against a `min-height`-only container) resolves to `content` and hands scrolling to the document. `WorkflowEditorView.vue:2` already uses `h-full` for the same job. It also avoids adding route meta, so it does not extend the duplication the audit records as FU-1 (`AppShell.vue:18-23` hardcodes an editor regex beside the meta that already declares the same thing). |
 | Q-7 | F-16: how is a height supplied below 1024px? | **Change `min-h-[32rem]` to `h-[32rem]` at `AgentDetailView.vue:964`**, leaving the `lg:` overrides untouched. | A definite height on the flex container is the one thing `flex-1 ... overflow-y-auto` at `PromptAssistantPanel.vue:145` needs in order to engage; `min-height` cannot supply it because the flex item's `flex-basis: 0` resolves against the container's height, which stays indefinite. `h-[32rem]` (512px) is the same number the current `min-h-` already reserves, so the panel's size below `lg` does not change for short conversations; only unbounded growth stops. Tailwind emits responsive variants after base utilities, so `lg:h-[calc(...)]` continues to win above 1024px. No change inside `PromptAssistantPanel` itself, which is correct as written. |
 | Q-8 | F-17: auto-select the most recent run, or add an empty state? | **Add an `SEmptyState` in a `v-else`, and do not auto-select.** Also replace the `…` at `:29-34` with `SSkeleton` rows. | The empty option is deliberate and documented in the code (`WorkflowBackstageView.vue:179-180`: it exists so the user can clear back to no selection), so auto-selecting would remove a state the view is written to support and would fire four queries on arrival for a run the user did not ask about. `docs/UI/12-shared-patterns.md` §6.1 asks for a contextual empty state, which is exactly the missing arm. The `…` replacement is §5.1's "structural skeleton, not a text placeholder". |
@@ -393,10 +438,19 @@ the shell already declares.
    replace the `…` at `:29-34` with `SSkeleton` rows. New strings in
    `slices/workflow/locales/{en,zh-TW}.json` (gate #12 requires both).
 7. **F-26**. In `ProjectDetailView.vue:103-106`, `OrgDetailView.vue:111-114` and
-   `AdminUserDetailView.vue:3-7`, move `SPageHeader` above the loading branch so it renders
+   `AdminUserDetailView.vue:3-7`, hoist `SPageHeader` above the loading branch so it renders
    during the fetch, and wrap the spinner in a bounded centred box following
    `AgentGroupDetailView.vue:126-131` (`flex justify-center py-16`). `shared/ui/SLoadingSpinner.vue`
-   is not modified.
+   is not modified. **Restated 2026-08-21 (§1.3): the header cannot be hoisted unchanged**, because
+   all three titles come from the fetched entity and `SPageHeader.title` is a required `string`
+   with no slot. The rule is: hoist one `SPageHeader` out of the branch, bind its title to the
+   entity value with a fallback for the pending state, and keep the entity-dependent slot content
+   (`#prepend` badges, `#actions` buttons) inside the settled branch by rendering those slots
+   conditionally. The fallback string reuses the slice's existing loading key
+   (`tenancy.common.loading`, `admin.common.loading`) rather than introducing a new one, so the
+   pending page announces a real heading instead of an empty `<h1>` or a bare `...`. Breadcrumbs
+   already tolerate the pending state (`ProjectDetailView.vue:97`, `OrgDetailView.vue:105` both
+   use `?? '...'`) and are hoisted with the header.
 8. **F-27**. `AgentDetailView.vue:667-680` is rebuilt to the shape
    `docs/UI/06-agents.md:449-452` specifies: a 200px header text line, five tab-bar rects, and
    two card skeletons of four field skeletons each. `InboxInvitesView.vue:139-149` and
@@ -435,7 +489,7 @@ gap being merely declared.
 
 | ID | File | Asserts | Why it fails now |
 |---|---|---|---|
-| T-1 | `frontend/src/app/__tests__/AppShell.test.ts` (extend) | `Element.prototype.scrollTo` is called with `{ top: 0 }` on the shell's content element when `route.path` changes, and is **not** called when only `route.query` changes | Nothing writes to the scroll container; the watcher at `AppShell.vue:45-51` only resets sidebar state (F-4) |
+| T-1 | `frontend/src/app/__tests__/AppShell.test.ts` (extend) | Seed `main.app-shell__content`'s `scrollTop` to a non-zero value, then assert it returns to `0` when `route.path` changes and is **preserved** when only `route.query` changes (**restated 2026-08-21**, see Q-5: a direct `scrollTop` assertion, not a `scrollTo` spy — jsdom has no `Element.prototype.scrollTo` but does persist `scrollTop`) | Nothing writes to the scroll container; the watcher at `AppShell.vue:45-51` only resets sidebar state (F-4) |
 | T-2 | new `frontend/src/app/__tests__/viewRoots.test.ts` | Reads every `src/**/views/*.vue` from disk and asserts (a) no template root carries `p-6`, `p-4`, `px-*`, `py-*` or `sm:p-*`, (b) no file under `src/slices` contains `<main` | 34 roots are padded and 23 are `<main>` (F-3, F-40, F-44). A file-reading sweep, not an import, so no slice boundary is crossed; it lives under `app/` because `app/` owns the shell contract |
 | T-3 | `frontend/src/slices/agents/__tests__/GraphragGraphView.test.ts` (extend) | The root element's class list contains `h-full` and contains neither `p-6` nor `h-[calc(100vh-3.5rem)]`, and the root is not a `main` | The root is `<main class="p-6 flex flex-col h-[calc(100vh-3.5rem)]">` (F-10) |
 | T-4 | `frontend/src/slices/workflow/__tests__/WorkflowBackstageView.test.ts` (extend) | With no run selected, an `SEmptyState` renders; while `stepsQuery.isLoading` is true, `SSkeleton` renders and the literal `…` does not | There is no `v-else` and the loading placeholder is a text node (F-17) |
@@ -447,7 +501,8 @@ gap being merely declared.
 
 ### Tier 2 - Playwright, in a real browser, where the outcome is a geometry
 
-New spec `frontend/e2e/19-layout-contract.spec.ts`, run by `pnpm run test:e2e` against the
+New spec `frontend/e2e/22-layout-contract.spec.ts` (**renumbered 2026-08-21, §1.3**: `19`, `20`
+and `21` are taken), run by `pnpm run test:e2e` against the
 compose stack. These are the assertions the unit tier cannot make and that the
 `2026-08-09` precedent had no way to make at all.
 
@@ -562,7 +617,7 @@ outcomes, because they are all layout, and the unit tier has no layout engine.
       `pnpm run check:bundle-size`, `pnpm run check:type-coverage`,
       `pnpm run check:boundaries-enforced`. Backend gates N/A: the diff is frontend-only. Per the
       project's remote-CI rule, CI is authoritative over the local Windows host.
-- [ ] AC-16: `frontend/e2e/19-layout-contract.spec.ts` passes in CI. Any of T-10 to T-16 that
+- [ ] AC-16: `frontend/e2e/22-layout-contract.spec.ts` passes in CI. Any of T-10 to T-16 that
       cannot be made to pass is reported as an open item rather than deleted or weakened.
 - [ ] AC-17: the shell's padding ladder is byte-identical to before the change: the three rules
       `.app-shell__content { padding: 24px }`, its `@media (max-width: 1023px)` override to 16px
