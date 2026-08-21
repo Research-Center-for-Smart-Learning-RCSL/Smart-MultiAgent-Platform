@@ -57,6 +57,11 @@ const ROOM = 'cr_1'
 type Composable = ReturnType<typeof useChatroomMessages>
 let composable: Composable
 
+// T-3 (F-49): the composable used to be handed the feed element so its send
+// path could scroll it, which made it a second writer of state useChatroomScroll
+// owns. It now reports the send and the view wires this to scrollToBottom.
+const onSentSpy = vi.fn()
+
 function msg(over: Partial<Message> = {}): Message {
   return {
     id: 'm1',
@@ -96,8 +101,7 @@ function mountQueryHost(run: () => void, gcTime = 0) {
 
 function mountHost() {
   const qc = mountQueryHost(() => {
-    const listRef: Ref<HTMLElement | null> = ref(null)
-    composable = useChatroomMessages(ROOM, listRef)
+    composable = useChatroomMessages(ROOM, onSentSpy)
   })
   const session = useSessionStore()
   session.me = {
@@ -123,6 +127,7 @@ function mountEditing() {
 
 beforeEach(() => {
   Object.values(api).forEach((fn) => fn.mockReset())
+  onSentSpy.mockClear()
   toast.error.mockClear()
   toast.success.mockClear()
   dialog.confirm.mockClear()
@@ -156,6 +161,46 @@ describe('useChatroomMessages optimistic send', () => {
     const after = composable.messages.value
     expect(after.some((m) => m.id === 'm_real')).toBe(true)
     expect(after.some((m) => m._status === 'sending')).toBe(false)
+  })
+
+  // T-3 (F-49). The composable no longer receives the feed element at all, so
+  // "it does not touch the DOM" is enforced by the signature rather than
+  // asserted; what is left to pin is that the view is told, and told once.
+  it('reports the send exactly once, after the optimistic bubble is rendered', async () => {
+    api.listMessages.mockResolvedValue([])
+    const send = deferred<Message>()
+    api.sendMessage.mockReturnValue(send.promise)
+
+    mountHost()
+    await flushPromises()
+    expect(onSentSpy).not.toHaveBeenCalled()
+
+    composable.draft.value = 'hello'
+    const pending = composable.onSend([])
+    await nextTick()
+
+    // Fired on the optimistic insert, not on the round-trip: the feed has to
+    // follow the bubble the user can already see.
+    expect(onSentSpy).toHaveBeenCalledTimes(1)
+
+    send.resolve(msg({ id: 'm_real', content_md: 'hello' }))
+    await pending
+    await flushPromises()
+
+    // Reconciling the optimistic row against its persisted twin is not a second
+    // send, so it must not scroll the reader again.
+    expect(onSentSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not report a send that was refused before anything was inserted', async () => {
+    api.listMessages.mockResolvedValue([])
+    mountHost()
+    await flushPromises()
+
+    composable.draft.value = '   '
+    await composable.onSend([])
+
+    expect(onSentSpy).not.toHaveBeenCalled()
   })
 
   it('rolls back the optimistic message and toasts on failure', async () => {
@@ -334,7 +379,7 @@ describe('useChatroomMessages moderator affordances (V-4)', () => {
       const listRef: Ref<HTMLElement | null> = ref(null)
       composable = useChatroomMessages(
         ROOM,
-        listRef,
+        onSentSpy,
         () => [],
         () => isModerator,
       )

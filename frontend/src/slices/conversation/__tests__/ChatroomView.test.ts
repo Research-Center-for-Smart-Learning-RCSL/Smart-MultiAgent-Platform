@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import type { VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
@@ -6,6 +7,7 @@ import { renderView } from '../../../../tests/utils'
 import ChatroomView from '../views/ChatroomView.vue'
 import { useConversationStore } from '../stores/conversation'
 import { useSessionStore } from '@shared/stores/session'
+import { useOrchestrationStore } from '@shared/stores/orchestration'
 import { useConfirmDialog } from '@shared/composables'
 
 const mockToast = vi.hoisted(() => ({
@@ -573,6 +575,136 @@ describe('ChatroomView', () => {
 
       expect(wrapper.find('[role="tablist"]').exists()).toBe(true)
       expect(wrapper.find('.s-tabs--fill').exists()).toBe(true)
+    })
+  })
+
+  // T-8 of docs/tasks/2026-08-19-chatroom-scroll-and-composer (F-47).
+  //
+  // Approval cards were a second v-for after the message list, so their
+  // position was list order -- and `getApprovalsForRoom` returns
+  // `Object.values(...)`, which is insertion order, not time order. The card
+  // therefore appended below every message regardless of when the gate was
+  // raised, and after resolution stayed pinned there.
+  describe('approval cards in the feed (F-47)', () => {
+    function message(id: string, createdAt: string) {
+      return {
+        id,
+        chatroom_id: 'cr_1',
+        sender_type: 'user',
+        sender_id: 'u_1',
+        content_md: id,
+        metadata: {},
+        version: 1,
+        created_at: createdAt,
+        edited_at: null,
+        deleted_at: null,
+      }
+    }
+
+    function approval(id: string, startedAt: string) {
+      return {
+        id,
+        workflow_run_id: 'run_1',
+        mode: 'single' as const,
+        leader_agent_id: 'a1',
+        approver_agent_ids: ['a1'],
+        timeout_seconds: 300,
+        state: 'pending' as const,
+        started_at: startedAt,
+        ended_at: null,
+        votes: [],
+      }
+    }
+
+    /** Label each feed item by kind, in render order.
+     *
+     *  Matched by the two item markers rather than by child position: the
+     *  harness stubs TransitionGroup, so the items are not direct children of
+     *  `ol.messages` here even though they are in the real DOM.
+     *  querySelectorAll returns document order, so the interleaving is real. */
+    function feedOrder(wrapper: VueWrapper): string[] {
+      return wrapper
+        .findAll('ol.messages [id^="msg-"], ol.messages [data-testid="feed-approval"]')
+        .map((el) =>
+          el.attributes('data-testid') === 'feed-approval'
+            ? 'approval'
+            : (el.attributes('id') ?? 'other'),
+        )
+    }
+
+    it('places the card at the point in the conversation where it was raised', async () => {
+      server.use(
+        http.get('/api/chatrooms/cr_1/messages', () =>
+          HttpResponse.json([
+            message('m_before', '2026-01-01T00:00:00.000Z'),
+            message('m_after', '2026-01-01T00:00:02.000Z'),
+          ]),
+        ),
+      )
+      const wrapper = await renderView(ChatroomView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1',
+      })
+      signInAs('u_1')
+      await settle()
+
+      const orch = useOrchestrationStore()
+      orch.upsertApproval('cr_1', approval('ap_1', '2026-01-01T00:00:01.000Z'))
+      await settle()
+
+      // Before the fix this was msg-m_before, msg-m_after, approval.
+      expect(feedOrder(wrapper)).toEqual(['msg-m_before', 'approval', 'msg-m_after'])
+    })
+
+    it('orders two cards by when each gate was raised, not by insertion', async () => {
+      server.use(
+        http.get('/api/chatrooms/cr_1/messages', () =>
+          HttpResponse.json([message('m_mid', '2026-01-01T00:00:02.000Z')]),
+        ),
+      )
+      const wrapper = await renderView(ChatroomView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1',
+      })
+      signInAs('u_1')
+      await settle()
+
+      const orch = useOrchestrationStore()
+      // Inserted newest-first, so insertion order and time order disagree.
+      orch.upsertApproval('cr_1', approval('ap_late', '2026-01-01T00:00:03.000Z'))
+      orch.upsertApproval('cr_1', approval('ap_early', '2026-01-01T00:00:01.000Z'))
+      await settle()
+
+      expect(feedOrder(wrapper)).toEqual(['approval', 'msg-m_mid', 'approval'])
+    })
+
+    it('keeps an empty room empty when it has neither messages nor approvals', async () => {
+      server.use(http.get('/api/chatrooms/cr_1/messages', () => HttpResponse.json([])))
+      const wrapper = await renderView(ChatroomView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1',
+      })
+      signInAs('u_1')
+      await settle()
+
+      expect(wrapper.find('.chatroom__empty').exists()).toBe(true)
+    })
+
+    it('drops the empty state once an approval alone occupies the feed', async () => {
+      server.use(http.get('/api/chatrooms/cr_1/messages', () => HttpResponse.json([])))
+      const wrapper = await renderView(ChatroomView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1',
+      })
+      signInAs('u_1')
+      await settle()
+
+      const orch = useOrchestrationStore()
+      orch.upsertApproval('cr_1', approval('ap_1', '2026-01-01T00:00:01.000Z'))
+      await settle()
+
+      expect(wrapper.find('.chatroom__empty').exists()).toBe(false)
+      expect(feedOrder(wrapper)).toEqual(['approval'])
     })
   })
 })

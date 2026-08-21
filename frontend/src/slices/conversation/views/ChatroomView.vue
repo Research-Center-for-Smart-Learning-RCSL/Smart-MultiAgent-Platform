@@ -92,37 +92,40 @@
         </li>
 
         <TransitionGroup name="msg">
-          <ChatroomMessageBubble
-            v-for="m in messages"
-            :key="m.id"
-            :message="m"
-            :html="rendered[m.id] ?? ''"
-            :sender-name="senderName(m)"
-            :agent-names="agentNames"
-            :editing="editingId === m.id"
-            :edit-draft="editDraft"
-            :can-edit="canEdit(m)"
-            :can-delete="canDelete(m)"
-            :flash="highlightId === m.id"
-            @start-edit="startEdit(m)"
-            @save-edit="saveEdit"
-            @cancel-edit="cancelEdit"
-            @delete="confirmDelete(m)"
-            @copy="copyMessage(m)"
-            @download="downloadAttachment"
-            @update:edit-draft="editDraft = $event"
-          />
+          <template
+            v-for="item in feedItems"
+            :key="item.key"
+          >
+            <ChatroomMessageBubble
+              v-if="item.kind === 'message'"
+              :message="item.message"
+              :html="rendered[item.message.id] ?? ''"
+              :sender-name="senderName(item.message)"
+              :agent-names="agentNames"
+              :editing="editingId === item.message.id"
+              :edit-draft="editDraft"
+              :can-edit="canEdit(item.message)"
+              :can-delete="canDelete(item.message)"
+              :flash="highlightId === item.message.id"
+              @start-edit="startEdit(item.message)"
+              @save-edit="saveEdit"
+              @cancel-edit="cancelEdit"
+              @delete="confirmDelete(item.message)"
+              @copy="copyMessage(item.message)"
+              @download="downloadAttachment"
+              @update:edit-draft="editDraft = $event"
+            />
+            <li
+              v-else
+              data-testid="feed-approval"
+            >
+              <ApprovalCard
+                :approval="item.approval"
+                :agent-names="agentNames"
+              />
+            </li>
+          </template>
         </TransitionGroup>
-
-        <li
-          v-for="a in liveApprovals"
-          :key="`approval-${a.id}`"
-        >
-          <ApprovalCard
-            :approval="a"
-            :agent-names="agentNames"
-          />
-        </li>
 
         <ChatroomStreamingBubble
           v-for="[agentId, html] in streamingEntries"
@@ -132,7 +135,10 @@
           aria-live="off"
         />
 
-        <li v-if="!messagesPending && !messagesErrored && !messages.length && !streamingEntries.length && !liveApprovals.length">
+        <li
+          v-if="!messagesPending && !messagesErrored && !feedItems.length && !streamingEntries.length"
+          class="chatroom__empty"
+        >
           <SEmptyState
             :icon="ChatBubbleLeftRightIcon"
             :title="t('conversation.chatroom.emptyTitle')"
@@ -316,6 +322,7 @@ import { ApiError, ValidationError } from '@shared/errors'
 import { isProblemWithType } from '@shared/transport'
 import { useSessionStore } from '@shared/stores/session'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
+import type { ApprovalWithVotes } from '@shared/types/workflow'
 import { ApprovalCard } from '@slices/workflow'
 import { ActivityPanel, getActiveActivation, useActivitiesStore } from '@slices/activities'
 
@@ -646,7 +653,9 @@ const {
   refreshOlderMessage,
 } = useChatroomMessages(
   chatroomId,
-  listRef,
+  // Report the send; useChatroomScroll owns what happens to the feed's scroll
+  // position, so it is the one that resets the pill and the at-bottom flag.
+  () => scrollToBottom(),
   () => agentList.value,
   () => roomQuery.data.value?.is_moderator ?? false,
 )
@@ -693,7 +702,58 @@ const { streamingEntries } = useAgentStreams(chatroomId)
 
 const { searchQuery, searchHits, renderedSnippets, runSearch } = useChatroomSearch(chatroomId)
 const { exportJob, runExport, reset: resetExport } = useChatroomExport(chatroomId)
-const messageCount = computed(() => messages.value.length)
+const liveApprovals = computed(() => orchStore.getApprovalsForRoom(chatroomId))
+
+// One ordered feed. 07-conversation.md:988 places an approval card "at the
+// chronological position where the approval was requested, interleaved with
+// regular messages"; rendered as a second list after the messages, its position
+// was the store's insertion order instead (F-47).
+//
+// Approvals are merged INTO the message order rather than the two being sorted
+// together: message order comes from the server and must survive intact, and an
+// optimistic send carries a client clock that a joint sort could rank ahead of
+// an older persisted row. Only the approvals' placement is computed here.
+//
+// The ordering is deliberately not pushed into `getApprovalsForRoom`
+// (shared/stores/orchestration.ts): that store has non-chatroom consumers, and
+// a chatroom-specific order imposed on `shared` is a layer violation in the one
+// direction that is never allowed.
+type FeedItem =
+  | { kind: 'message'; key: string; message: (typeof messages.value)[number] }
+  | { kind: 'approval'; key: string; approval: ApprovalWithVotes }
+
+const feedItems = computed<FeedItem[]>(() => {
+  // Approvals carry `started_at`, messages `created_at`, so the merge reads a
+  // per-kind key. Parsed rather than string-compared: the two sources differ in
+  // sub-second precision, and `...:00Z` sorts before `...:00.000Z` lexically
+  // despite naming the same instant.
+  const pending = liveApprovals.value
+    .map((a) => ({ approval: a, at: Date.parse(a.started_at) }))
+    .sort((x, y) => x.at - y.at)
+  const out: FeedItem[] = []
+  let next = 0
+  const drainThrough = (limit: number): void => {
+    // NaN from an unparseable timestamp fails this test and falls to the tail,
+    // which shows the card rather than dropping it.
+    while (next < pending.length && pending[next]!.at <= limit) {
+      const { approval } = pending[next]!
+      out.push({ kind: 'approval', key: `approval-${approval.id}`, approval })
+      next++
+    }
+  }
+  for (const m of messages.value) {
+    drainThrough(Date.parse(m.created_at))
+    out.push({ kind: 'message', key: m.id, message: m })
+  }
+  drainThrough(Number.POSITIVE_INFINITY)
+  return out
+})
+
+// What the unseen counter watches. Ids, not a length: only identity can tell an
+// arrival from a prepend (F-12). Approvals are in it, so one arriving while the
+// reader is scrolled up raises the pill like any other item.
+const feedIds = computed(() => feedItems.value.map((i) => i.key))
+
 const {
   showPill,
   newCount,
@@ -703,7 +763,8 @@ const {
   maybeStick,
   captureBeforePrepend,
   restoreAfterPrepend,
-} = useChatroomScroll(listRef, messageCount)
+  observeTop,
+} = useChatroomScroll(listRef, feedIds)
 
 // Debounced KaTeX/Mermaid post-processing; re-pin scroll after each update.
 useMarkdownEnhance(listRef, { onAfterUpdate: maybeStick })
@@ -811,8 +872,6 @@ watch(
     store.setAgentError(chatroomId, null)
   },
 )
-
-const liveApprovals = computed(() => orchStore.getApprovalsForRoom(chatroomId))
 
 // ---- header actions -------------------------------------------------------
 
@@ -930,6 +989,22 @@ function onExportSubmit(opts: ExportOptions): void {
   list-style: none;
   margin: 0;
   padding: 16px;
+  /* A flex column purely so the empty state below has a track to grow into.
+     Ordinary items are block-level and size to content either way, and no item
+     sets `flex`, so nothing else changes. */
+  display: flex;
+  flex-direction: column;
+}
+
+/* 07-conversation.md:1018 centres the empty state in the feed area. The height
+   has to come from here: the item sizes to content, so SEmptyState centring
+   itself would have nothing to distribute. Written so that a self-centring
+   SEmptyState (the sibling dossier's F-30) still centres inside it. */
+.chatroom__empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Real-time list animations (§7.2 / §7.5): new messages slide in, deleted ones
