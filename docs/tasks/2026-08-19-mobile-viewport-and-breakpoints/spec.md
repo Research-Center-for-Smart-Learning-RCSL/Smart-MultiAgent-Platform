@@ -1,7 +1,8 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-08-19
+approved: 2026-08-21
 requirements: []
 depends_on: [2026-08-19-content-area-spacing-and-scroll-contract]
 ---
@@ -69,6 +70,111 @@ it into `useBreakpoint` rather than copy the computed. That is not this dossier'
 is about the `sm`/`md` boundary values, not about adding a band - but FU-4 here is the entry
 that owns "the thresholds are declared twice and neither is readable from a media query", and
 a third declaration now exists in a view. Worth folding into whatever answers FU-4.
+
+### 1.2 Second re-verification (2026-08-21, at build start)
+
+§1.1 was written **before** `2026-08-19-content-area-spacing-and-scroll-contract` landed. That
+dossier has since shipped, and it moved a great deal of what this one cites. This section
+supersedes §1.1's line numbers wherever the two disagree; §1.1 is kept as the record of what
+the tree looked like when the dossier was written.
+
+**All six findings still reproduce.** Re-verified individually:
+
+- **F-45**: `App.vue:79` is `min-height: 100vh`. No `dvh` anywhere on the shell path.
+- **F-46**: `useVisualViewport.ts:26` is unchanged, character for character.
+- **F-25**: `frontend/index.html:5` is unchanged, and a repository-wide grep for
+  `safe-area` / `env(` across `frontend/` still returns **no CSS hit at all** - every match is
+  the `env()` test-fixture helper in `frontend/e2e/` (`fixtures/seed.ts:44`).
+- **F-39**: the enumeration is **exactly** as §2 states - 26 width-conditional `@media` blocks,
+  17 inclusive, 7 correct, 2 ad-hoc. Four line numbers moved (table below); no block changed
+  its value and none was added or removed.
+- **F-42**: `SDrawer.vue:145-148` is still `width: 320px; max-width: 85vw`, the responsive block
+  at `:160-174` still names only `--md`/`--lg`, and `AppSidebar.vue:256-264` still hard-sets
+  `width: var(--sidebar-width)` at `:257` with `z-index: var(--z-sidebar)` at `:262`.
+- **F-18**: `AgentDetailView.vue:1305` is still
+  `fixed bottom-0 left-0 right-0 p-4 bg-bg border-t border-border flex gap-3 z-10`.
+
+**Every `docs/UI/` citation in this dossier still resolves**, including the ones §1.1 did not
+re-check: `02-layout-shell.md:102` and `:111-116`, and `11-responsive-a11y.md:11-17`, `:58-59`,
+`:73-80`, `:110`, `:122`, `:136`, `:171`, `:340-347`, `:375-378`, `:385`, `:399`.
+
+#### Six substantive changes, not line drift
+
+1. **FU-6 is half-closed. `GraphragGraphView.vue` no longer contains `100vh` at all** - the
+   content-area dossier's F-10 rewrote that root as `h-full` (`:168`), and
+   `GraphragGraphView.test.ts:65-78` now asserts the class list does *not* contain `100vh`.
+   The only `100vh` left in `frontend/src` besides `App.vue:79` is `AgentDetailView.vue:988`,
+   which is the paired edit of item 2 rather than a sibling. FU-6 is rewritten accordingly.
+2. **The paired edit's target moved and its value changed.** §7 item 1 names
+   `AgentDetailView.vue:964` as `lg:h-[calc(100vh-3.5rem-3rem)]`. It is now **`:988`**, and the
+   pin is `AgentDetailView.test.ts:335`. Note that the test makes **two** assertions and only
+   one moves: `:335` asserts the current constant is present and must be updated to the `dvh`
+   spelling; `:336` asserts the pre-F-51 constant `lg:h-[calc(100vh-8rem)]` is **absent** and
+   must be left exactly as it is - it names a value that no longer exists and rewriting it to
+   `dvh` would make it assert the absence of something that was never there.
+3. **F-18's containing block is not what §2 says.** The view root is no longer
+   `<main class="p-6">`; the content-area dossier made it a bare `<div>` (`:665`) and moved
+   content padding onto the shell. Two consequences: §5's occlusion arithmetic still holds
+   (the shell recovers 16px at `sm` / 8px at `xs`, now at `AppShell.vue:230-232` and
+   `:239-247`), but §7 item 6's instruction to *move* the bar "inside the scrolled content so
+   it is the last flow child rather than a sibling after `</form>`" is now a **no-op**: the bar
+   at `:1303-1324` already is the last flow child of the root `<div>`, which is already inside
+   `main.app-shell__content`. Nothing but `position: fixed` takes it out of flow, so the fix
+   reduces to the class change alone. T-4 is reworded to match.
+4. **A sticky bottom bar will not sit flush against the scrollport's bottom edge.**
+   `shared-overlay-and-shell-defects`'s D-11 measured that Chromium constrains a sticky child
+   against the scrollport's **content** box, so its sticky header pinned one content gutter
+   below the top bar rather than flush at 56px. The mirror image applies here: with
+   `.app-shell__content` carrying `padding: 16px` at `sm` and `8px` at `xs`
+   (`AppShell.vue:230-232`, `:239-247`), a `sticky bottom-0` bar pins that many pixels **above**
+   the bottom edge. This is correct behaviour and reads as a floating bar, but AC-12 must not
+   assert flushness, and Q-12's "Accepted consequence" now covers it.
+5. **FU-3 loses half its subject.** `ImpersonationBanner.vue` is **no longer `position: fixed`**
+   - the overlay dossier put it in flow inside `App.vue`'s `.app-root` column (`App.vue:36-41`
+   records why), so it needs no top inset and never will. `SNetworkBanner.vue:45` is the only
+   remaining top-anchored fixed banner. §6's inventory still totals 10 hits, but the membership
+   changed: `ImpersonationBanner` left and `SDropdown.vue:284` (new, added by the overlay
+   dossier) joined. `AgentDetailView.vue:1305` remains the only bottom-anchored one, which is
+   the claim F-18 actually rests on.
+6. **T-1 no longer has to invent a mechanism.** `frontend/src/app/__tests__/viewRoots.test.ts`
+   is a working source-scan sweep shipped by the content-area dossier: it walks `src` from disk
+   with `node:fs`, so it crosses no slice boundary, and it opens with a
+   "finds the files it is meant to sweep" assertion so a glob that stops matching fails loudly
+   instead of passing vacuously. T-1 follows that file's shape and carries the same guard.
+
+#### Line drift (numbers only, no claim changes)
+
+| Cited as | Now | What it is |
+|---|---|---|
+| `AppShell.vue:137-146` | `:148-169` | the `.app-shell` rule |
+| `AppShell.vue:140` | `:151` | `grid-template-rows` |
+| `AppShell.vue:141` | `App.vue:79` | the viewport-height declaration (see §7 item 1) |
+| `AppShell.vue:142` | `:165` | `overflow: hidden` |
+| `AppShell.vue:123-132` | `:206-212` | `.app-shell__content` |
+| `AppShell.vue:202` / `:216` | `:225` / `:239` | the two already-correct `@media` blocks |
+| `AppShell.vue:207-209` / `:216-218` | `:230-232` / `:239-247` | the `sm` / `xs` content padding |
+| `AppShell.vue:113-121` | `:124-132` | the `<SDrawer size="sm">` sidebar |
+| `AppShell.vue:104-121` | `:115-132` | aside / drawer mutual exclusion |
+| `AppTopBar.vue:71-79` | `:70-80` | the `.topbar` rule (`z-index` is at `:79`) |
+| `SModal.vue:258-276` / `:260` | `:271-292` / `:271` | the mobile full-screen block |
+| `AgentDetailView.vue:964` | `:988` | the `lg:` prompt-assistant height |
+| `AgentDetailView.vue:665` | `:665` | still `:665`, but now `<div>`, not `<main class="p-6">` |
+| `AgentDetailView.vue:1274-1277` / `:1276` | `:1303-1324` / `:1305` | the mobile action bar |
+| `AgentDetailView.vue:1271` | `:1300` | the form's closing tag |
+| `AgentDetailView.vue:1278-1285` | `:1307-1323` | the bar's one-or-two buttons |
+| `ImpersonationBanner.vue:19` | (gone) | no longer `position: fixed`; see change 5 |
+| `SNetworkBanner.vue:42` | `:45` | `position: fixed` |
+| §2's F-39 table: `SessionsView.vue:279` | `:268` | 768 block |
+| §2's F-39 table: `InviteAcceptView.vue:155` | `:158` | 768 block |
+| §2's F-39 table: `OrgDetailView.vue:440, 446` | `:454, :460` | 768 / 480 blocks |
+
+Unchanged and re-verified exactly as cited: `useVisualViewport.ts:25-27`, `useBreakpoint.ts:5`,
+`main.css:57-60`, `:64`, `:66`, `:312`, `index.html:5`, `AuthLayout.vue:23-30`, `:27`, `:29`,
+`:69-80`, `:77`, `:78`, `Landing.vue:342-349`, `:345`, `:348`, `:752`, `:791`, `:798`,
+`AppSidebar.vue:256-264`, `:257`, `:261`, `:262`, `SDrawer.vue:75-77`, `:96-98`, `:113-118`,
+`:116`, `:120-124`, `:126-135`, `:145-148`, `:160-174`, `:162`, `:169`, `:221-225`, `:222`,
+every `ChatroomView.vue` and `ChatroomComposer.vue` number in §1.1's table, and
+`SButton.vue:146`.
 
 ## 2. Observed vs Expected
 
@@ -200,11 +306,16 @@ a third declaration now exists in a view. Worth folding into whatever answers FU
   bottom-anchored `position: fixed` element in the whole of `frontend/src/slices`
   (repository-wide grep for `fixed bottom-0` and `position: fixed` returns 10 hits: this
   one, `LandingIntro.vue:322` and `main.css:312` which are `inset: 0` / top-left overlays,
-  `SNetworkBanner.vue:42` and `ImpersonationBanner.vue:19` which are top-anchored and owned
-  by other dossiers, and four `SModal`/`SDrawer` overlay roots). Nothing reserves its
-  height: the view root is `<main class="p-6">` (`:665`) with no bottom padding, and a
-  `fixed` child is out of flow so it contributes nothing to `main.app-shell__content`'s
-  scroll height.
+  `SNetworkBanner.vue:45` which is top-anchored and owned by another dossier, `SDropdown.vue:284`
+  which is a positioned menu, and four `SModal`/`SDrawer` overlay roots). Nothing reserves its
+  height: a `fixed` child is out of flow, so it contributes nothing to
+  `main.app-shell__content`'s scroll height and the scroll range ends before the content it
+  covers. **Two corrections, 2026-08-21** (§1.2 changes 3 and 5): this paragraph originally
+  read the view root as `<main class="p-6">` (`:665`) and counted `ImpersonationBanner.vue:19`
+  among the ten. The root is now a bare `<div>` at `:665` with content padding on the shell,
+  and the banner is no longer `position: fixed` at all; `SDropdown.vue:284` takes its place in
+  the count. Neither correction touches the finding - `AgentDetailView.vue:1305` is still the
+  only bottom-anchored `fixed` element in flow-bearing content, which is the whole of F-18.
 - **Expected** - `docs/UI/11-responsive-a11y.md:110` ("Action buttons: stacked vertically on
   mobile instead of horizontal row") describes an in-flow bar, and `:385` requires no
   content overlap.
@@ -224,7 +335,7 @@ a third declaration now exists in a view. Worth folding into whatever answers FU
 | Q-9 | F-42, width half: adopt the specified `min(280px, 85vw)`? | Yes, but not alone. Change `SDrawer.vue:146-147` to `width: min(280px, 85vw)` **and** add `max-width: 100%` to `.sidebar` (`AppSidebar.vue:256-264`) in the same commit. | Re-deriving the fit threshold (§5) shows the specified width is *less* able to contain the sidebar than the current one: the fit needs a 308px panel and the spec caps the panel at 280px, so under the spec width alone the sidebar overflows at **every** viewport width, by 28px at 330px and up. Shipping the width change on its own would convert an overflow that starts below 362px into an unconditional one. `max-width: 100%` on `.sidebar` is a one-line change that is inert on desktop (the aside track is already exactly `--sidebar-width`) and makes the drawer case fluid. |
 | Q-10 | F-42, overflow half: why not add a `padded` prop to `SDrawer` and render the sidebar flush instead? | Rejected. Use `max-width: 100%` on the sidebar. | A new component prop is public API added to fix one consumer's overflow, and it would have to be threaded through `AppShell.vue:113-121`. `max-width: 100%` fixes the overflow for any drawer content at any width, including future consumers, and touches one declaration. The accepted consequence, stated so it is not discovered: inside the drawer the nav renders at `min(280px, 85vw) - 48px`, i.e. 232px at a 375px viewport and 224px at 320px, rather than the desktop 260px. That is the correct reading of a `min(280px, 85vw)` drawer with 24px gutters, not a regression. |
 | Q-11 | F-42, z-index half: lower the drawer to `--z-sidebar` (100) as specified? | No code change. Correct `docs/UI/11-responsive-a11y.md:59` instead. | The drawer is genuinely modal: it has a backdrop (`SDrawer.vue:120-124`), `role="dialog" aria-modal="true"` (`:75-77`) and a focus trap. At z 100 it would paint *below* the top bar (`--z-topbar` 200, `AppTopBar.vue:79`), which is precisely what its backdrop exists to cover, and below the network banner at 350. `SDrawer` is also shared with the workflow config panel, so a change there is not scoped to the sidebar. The audit reached the same conclusion ("the z-index deviation is arguably the better behaviour"); this dossier converts that from an aside into an edit. `:59` is amended to state that the mobile sidebar drawer renders through `SDrawer` at `--z-modal` because it is modal, and that `--z-sidebar` applies to the docked desktop aside, which is where `AppSidebar.vue:262` already uses it. |
-| Q-12 | F-18: reserve bottom padding on the scroll container, or make the bar in-flow/sticky? | Sticky and in-flow: `position: sticky; bottom: 0` as the last child of the scrolled content, replacing `fixed bottom-0 left-0 right-0`. | A sticky box participates in normal flow, so it reserves exactly its own height with no constant to maintain, and it still pins to the bottom of the scrollport while there is content below it. Reserved padding would have to encode the bar's rendered height as a literal, and that height is not constant: create mode renders one button and edit mode renders two (`AgentDetailView.vue:1278-1285`), and the sibling dossier is changing the padding the constant would have to net against. Sticky also satisfies `docs/UI/11-responsive-a11y.md:110`'s in-flow description without giving up the always-reachable primary action, which making it plainly in-flow would. Accepted consequence: the bar is inset by the shell's content padding instead of bleeding to the viewport edges. It already carries `bg-bg` and `border-t`, which is what keeps it legible over content scrolling beneath. |
+| Q-12 | F-18: reserve bottom padding on the scroll container, or make the bar in-flow/sticky? | Sticky and in-flow: `position: sticky; bottom: 0` as the last child of the scrolled content, replacing `fixed bottom-0 left-0 right-0`. | A sticky box participates in normal flow, so it reserves exactly its own height with no constant to maintain, and it still pins to the bottom of the scrollport while there is content below it. Reserved padding would have to encode the bar's rendered height as a literal, and that height is not constant: create mode renders one button and edit mode renders two (`AgentDetailView.vue:1278-1285`), and the sibling dossier is changing the padding the constant would have to net against. Sticky also satisfies `docs/UI/11-responsive-a11y.md:110`'s in-flow description without giving up the always-reachable primary action, which making it plainly in-flow would. Accepted consequence: the bar is inset by the shell's content padding instead of bleeding to the viewport edges - **on all four sides, not just the two horizontal ones**. Chromium constrains a sticky child against the scrollport's *content* box (measured in `shared-overlay-and-shell-defects`'s D-11 for a sticky header), so the bar pins 16px above the bottom edge at `sm` and 8px at `xs` rather than flush against it (§1.2 change 4). It already carries `bg-bg` and `border-t`, which is what keeps it legible over content scrolling beneath. |
 | Q-13 | F-18: also stack the two buttons vertically, as `docs/UI/11-responsive-a11y.md:110` says? | No. Keep the horizontal `flex gap-3` row of two `flex-1` buttons. Record the doc reconciliation as FU-5. | At a 320px viewport the two buttons are about 130px each (320 minus the shell's 8px gutters at `xs`, minus the bar's 16px `p-4` each side, minus the 12px `gap-3`, halved), far above the 44px minimum at `:171`, and stacking them would consume about 92px of vertical space on the device with the least of it. The `:110` sentence is a general statement about mobile action buttons across all management pages, not about this bar; correcting it properly means surveying every mobile action row in the product, which is a wider change than this dossier's scope and would need the device pass §8 says this dossier cannot perform. This dossier therefore fixes the occlusion and explicitly does not implement the stacking half. |
 
 ## 4. Reproduction
@@ -349,15 +460,19 @@ the border and the narrower `xs` gutter.
 
 **Sibling suspects**
 
-- **Other `100vh` in the tree**: **confirmed, out of scope.**
-  `AgentDetailView.vue:964` (`lg:h-[calc(100vh-8rem)]`) and `GraphragGraphView.vue:168`
-  (`h-[calc(100vh-3.5rem)]`) both size against the large viewport inside what will be a
-  `100dvh` shell. Neither is in this dossier's six findings: they are F-51 and F-10 of the
-  same audit, which own the arithmetic errors in those same two constants, and splitting the
-  unit change away from the arithmetic change would mean editing both lines twice. Recorded
-  as FU-6 so whoever builds those two changes the unit at the same time. Both are also
-  `lg:`-gated or desktop-only routes, where `dvh` and `vh` coincide, so the present-day
-  impact is nil.
+- **Other `100vh` in the tree**: **re-swept 2026-08-21; both subjects overtaken, FU-6 closed.**
+  This entry originally deferred `AgentDetailView.vue:964` (`lg:h-[calc(100vh-8rem)]`) and
+  `GraphragGraphView.vue:168` (`h-[calc(100vh-3.5rem)]`) to FU-6, because F-51 and F-10 of the
+  same audit owned the arithmetic in those constants and splitting the unit change from the
+  arithmetic change would mean editing both lines twice. Both have since been built by
+  `2026-08-19-content-area-spacing-and-scroll-contract`: `GraphragGraphView` no longer carries
+  a viewport unit (`:168` is `h-full`, pinned by `GraphragGraphView.test.ts:65-78`), and
+  `AgentDetailView`'s constant moved to `:988` and became `lg:h-[calc(100vh-3.5rem-3rem)]`,
+  which that dossier's Q-14 shipped in `vh` **deliberately** to match the shell it landed
+  against. So there is nothing left to defer: the one remaining line is this dossier's paired
+  edit (§7 item 1, AC-16), not a sibling. Its `lg:` gate still means the present-day impact is
+  nil; the reason to move it is that leaving two spellings of viewport height in the tree is
+  exactly what produced F-45.
 - **Other consumers of `useVisualViewport`**: **cleared, re-swept 2026-08-21.** A
   repository-wide grep returns the composable itself, its barrel export
   (`shared/composables/index.ts:20`) and exactly one call site (`ChatroomView.vue:387`).
@@ -416,10 +531,15 @@ the border and the narrower `xs` gutter.
      **Do not "simplify" it back to `flex: 1` while editing this rule.**
      `frontend/e2e/21-overlay-and-shell-contract.spec.ts` fails if you do.
    - **This edit is paired.** `2026-08-19-content-area-spacing-and-scroll-contract` ships
-     `AgentDetailView.vue:964` as `lg:h-[calc(100vh-3.5rem-3rem)]` deliberately, to match the
+     `AgentDetailView.vue:988` as `lg:h-[calc(100vh-3.5rem-3rem)]` deliberately, to match the
      shell's `vh` (its Q-14 and FU-8). When this dossier moves the shell to `dvh`, that line and
      its T-9 class assertion must move in the same change, or the mismatch reintroduces a
-     smaller F-51 on mobile.
+     smaller F-51 on mobile. Per §1.2 change 2: the line is **`:988`**, not `:964`, and only
+     `AgentDetailView.test.ts:335` moves - `:336` asserts the *absence* of the superseded
+     `lg:h-[calc(100vh-8rem)]` and must be left byte-identical.
+   - **`GraphragGraphView.vue` is not part of this pairing any more.** §1.2 change 1: it no
+     longer contains a viewport unit at all, so `AgentDetailView.vue:988` is the whole of the
+     paired work and FU-6 shrinks to nothing.
 2. **F-46** - no arithmetic change to `useVisualViewport.ts` (Q-3). Extend the comment at
    `:25-26` to record that the formula's correctness depends on the consuming element
    resolving against the layout viewport, and name `AppShell.vue`'s `100dvh` as the reason
@@ -448,10 +568,13 @@ the border and the narrower `xs` gutter.
    separate `max-width` removed, and `.sidebar` (`AppSidebar.vue:256-264`) gains
    `max-width: 100%`. Both in one commit (Q-9). Separately,
    `docs/UI/11-responsive-a11y.md:59` is corrected per Q-11; no z-index code changes.
-6. **F-18** - `AgentDetailView.vue:1274-1277`: `fixed bottom-0 left-0 right-0` becomes
-   `sticky bottom-0`, and the element moves inside the scrolled content so it is the last
-   flow child rather than a sibling after `</form>` at `:1271`. `z-10`, `bg-bg`, `border-t`
-   and the `flex gap-3` row are all kept (Q-12, Q-13).
+6. **F-18** - `AgentDetailView.vue:1305`: `fixed bottom-0 left-0 right-0` becomes
+   `sticky bottom-0`. `z-10`, `bg-bg`, `border-t` and the `flex gap-3` row are all kept
+   (Q-12, Q-13). **This is now the whole of the fix** - §1.2 change 3: the approved text also
+   asked to move the element "inside the scrolled content", which was written against a view
+   root of `<main class="p-6">`. That root is now a bare `<div>` (`:665`) and the bar at
+   `:1303-1324` is already its last flow child, inside `main.app-shell__content`. Nothing but
+   `position: fixed` takes it out of flow, so no element moves.
 
 No data repair: nothing was persisted incorrectly, and none of these six touches a
 persistence path.
@@ -478,9 +601,19 @@ What is genuinely testable, written first and failing against current code:
   `viewport-fit=cover` **and** each of the seven Q-5 surfaces contains
   `env(safe-area-inset-`. Asserting both in one test is the point: it is what makes it
   impossible to ship the meta without the insets, which is the specific hazard of Q-5.
-  Fails today on both halves. (c) `AppShell.vue`'s `.app-shell` rule declares `100dvh` and no
-  `100vh`. Fails today. A source scan is a blunt instrument, but it is the only tier that
-  can observe a CSS declaration in this repository, and the alternative is no guard at all.
+  Fails today on both halves. (c) the element carrying the app shell's viewport height
+  declares `100dvh` and no `100vh`, and no `100vh` remains anywhere under `frontend/src/app/`.
+  Fails today on `App.vue:79`. A source scan is a blunt instrument, but it is the only tier
+  that can observe a CSS declaration in this repository, and the alternative is no guard at
+  all.
+
+  **Follow `frontend/src/app/__tests__/viewRoots.test.ts`** (§1.2 change 6) rather than
+  inventing a mechanism: it is the same tier doing the same thing, shipped by the sibling
+  dossier. Two of its properties are load-bearing and T-1 carries both - it walks `src` from
+  disk with `node:fs` so it crosses no slice boundary, and it opens with a "finds the files it
+  is meant to sweep" count assertion so a glob that silently stops matching fails loudly
+  instead of passing vacuously. T-1 lives beside it, under `src/app/__tests__/`, for the same
+  reason that file gives: `app/` owns the shell contract being enforced.
 - **T-2 (F-46) - `frontend/src/shared/composables/__tests__/useVisualViewport.test.ts`.**
   jsdom has no `visualViewport`, but the object can be stubbed on `window`, which makes the
   composable's arithmetic fully testable even though its consequence is not. Cases: no
@@ -494,25 +627,44 @@ What is genuinely testable, written first and failing against current code:
   `--sm` panel class is applied for `size="sm"`. The width value itself is covered by T-1's
   pattern class of assertion or by T-5; jsdom will not compute it.
 - **T-4 (F-18) - `frontend/src/slices/agents/__tests__/AgentDetailView.test.ts`.** Assert
-  that on a mobile breakpoint the action bar renders inside the scrolled content subtree
-  rather than as a following sibling, and that its class list contains `sticky` and not
-  `fixed`. This is a structural assertion, not a layout one, and it fails today.
+  that on a mobile breakpoint the action bar's class list contains `sticky bottom-0` and
+  neither `fixed` nor `bottom-0 left-0 right-0`, and that it renders as the last flow child of
+  the view root. This is a structural assertion, not a layout one, and its first half fails
+  today. Per §1.2 change 3 the second half already passes - it is kept as a characterization
+  pin, so that a later edit cannot move the bar back out of the scrolled subtree and silently
+  restore the occlusion by a different route. That it does not fail today is stated rather
+  than hidden.
 
 **What only Playwright at a set viewport can close.** The suite currently runs a single
-project, `Desktop Chrome` (`frontend/playwright.config.ts:23-28`), so
+project named `chromium` at `Desktop Chrome` (`frontend/playwright.config.ts:23-28`), so
 `docs/UI/11-responsive-a11y.md:375-378`'s claim that "E2E golden-path specs run at 3
-viewports" is aspirational and unimplemented. The fix includes adding them, plus one more:
+viewports" is aspirational and unimplemented. The fix adds three more projects, plus one new
+spec, `frontend/e2e/23-mobile-viewport.spec.ts`, that carries every viewport-conditional
+assertion below:
 
-| Project | Viewport | Closes |
-|---|---|---|
-| `desktop` | 1440x900 | The existing suite, unchanged behaviour |
-| `tablet` | 768x1024 | F-39 at the `md` boundary: at exactly 768 the tablet layout applies, not the mobile one |
-| `mobile` | 375x812 | F-18 (bar does not intersect the last control, and is reachable at every scroll position); F-42 (drawer fits) |
-| `mobile-xs` | 320x568 | F-42's overflow: `sidebar.scrollWidth === sidebar.clientWidth` inside the open drawer, and every nav row's right edge inside the panel. 320px is below the 362px threshold derived in §5, so this project is what makes the finding observable at all |
+| Project | Viewport | Runs | Closes |
+|---|---|---|---|
+| `desktop` | 1440x900 (`devices['Desktop Chrome']`) | the whole suite | The existing 22 specs, unchanged behaviour |
+| `tablet` | 768x1024 | `23-mobile-viewport` only | F-39 at the `md` boundary: at exactly 768 the tablet layout applies, not the mobile one |
+| `mobile` | 375x812 | `23-mobile-viewport` only | F-18 (bar does not intersect the last control, and is reachable at every scroll position); F-42 (drawer fits) |
+| `mobile-xs` | 320x568 | `23-mobile-viewport` only | F-42's overflow: `sidebar.scrollWidth === sidebar.clientWidth` inside the open drawer, and every nav row's right edge inside the panel. 320px is below the 362px threshold derived in §5, so this project is what makes the finding observable at all |
 
-One further spec runs at exactly 480x800 without a dedicated project (`page.setViewportSize`)
-to close F-39's `sm` boundary: at exactly 480 CSS px `/login` must render the 420px shadowed
-card, not the edge-to-edge xs card.
+**The three new projects are `testMatch`-scoped to the new spec, deliberately** (decided with
+the user at build start, superseding the approved table's implicit "all four run everything").
+`playwright.config.ts:6-9` sets `fullyParallel: false` with `workers: 1`, and `ci.yml:1040`
+runs a bare `pnpm run test:e2e` with no `--project`, so an unscoped fourth project multiplies
+the serial e2e job by four - 88 spec runs to answer three viewport questions. Scoping keeps
+the CI cost at 22 desktop specs plus three runs of one spec. The accepted cost, stated so it
+is not discovered later: the existing 22 golden paths are still exercised at one width only,
+so responsive breakage in them stays invisible. That is the status quo, not a regression, and
+FU-8 records it as the thing to widen if the mobile surface ever justifies the minutes.
+
+The `chromium` project is renamed `desktop` in the same edit. Nothing references it by name:
+`ci.yml:1040` passes no `--project`, and `package.json:22` is a bare `playwright test`.
+
+One further check runs at exactly 480x800 inside `23-mobile-viewport` via
+`page.setViewportSize` rather than a fifth project, to close F-39's `sm` boundary: at exactly
+480 CSS px `/login` must render the 420px shadowed card, not the edge-to-edge xs card.
 
 **What no test in this repository can close.** Three ACs, all requiring real hardware:
 
@@ -598,12 +750,20 @@ that was verified and an AC that was reasoned about.
       unaffected.
 - [ ] AC-12 (F-18): **Playwright at 375x812.** On `/agents/:id`, scrolled fully to the bottom
       of the Prompt tab, the last form control's bounding box does not intersect the action
-      bar's, and the action bar is visible at every scroll position from top to bottom.
+      bar's, and the action bar is visible at every scroll position from top to bottom. The
+      assertion is non-intersection, **not** flushness against the viewport bottom: per §1.2
+      change 4 the bar pins one content gutter above it (16px at `sm`, 8px at `xs`).
 - [ ] AC-13 (F-18): the bar reserves its own height rather than a hardcoded constant,
       verified by T-4's structural assertion plus AC-12 holding in both create mode (one
       button) and edit mode (two buttons).
-- [ ] AC-14: `frontend/playwright.config.ts` declares the four projects tabulated in §8, and
-      the existing 18 specs still pass under the `desktop` project unchanged.
+- [ ] AC-14: `frontend/playwright.config.ts` declares the four projects tabulated in §8, with
+      `tablet`/`mobile`/`mobile-xs` `testMatch`-scoped to `23-mobile-viewport.spec.ts`; the
+      existing **22** specs still pass under the renamed `desktop` project unchanged; and
+      `pnpm run test:e2e` with no `--project` runs 22 + 3 spec instances, not 88.
+- [ ] AC-16 (paired edit, from `content-area-spacing-and-scroll-contract`'s FU-8):
+      `AgentDetailView.vue:988` uses the same viewport unit as the shell, and
+      `AgentDetailView.test.ts:335` is updated to match while `:336` stays byte-identical
+      (§1.2 change 2). No `100vh` remains in `frontend/src` at all.
 - [ ] AC-15: gates green: `pnpm lint` (all 12), `pnpm typecheck`, `pnpm test`, `pnpm build`.
 
 ## 11. SRS Delta
@@ -629,11 +789,13 @@ Appended by /build.
   that correspond to no breakpoint. Left alone by Q-7's mechanical rule because changing them
   is a design decision, not a boundary correction. Worth deciding whether the landing page
   should share the app's breakpoints at all.
-- **FU-3**: safe-area insets are deliberately not applied to `SNetworkBanner.vue:42` or
-  `ImpersonationBanner.vue:19`, both `position: fixed; top: 0`. Both are being repositioned
-  by other dossiers from this audit (F-32 and F-5), and adding a top inset to a `top` value
-  that is about to change is churn. Their top insets should be added by those dossiers, or
-  here if this one lands last.
+- **FU-3**: safe-area insets are deliberately not applied to `SNetworkBanner.vue:45`
+  (`position: fixed; top: 0`). It is being repositioned by `2026-08-19-transient-feedback-channels`
+  (F-32), and adding a top inset to a `top` value that is about to change is churn. **Rewritten
+  2026-08-21** per §1.2 change 5: this entry originally also covered `ImpersonationBanner.vue:19`,
+  which no longer exists as a fixed element - `shared-overlay-and-shell-defects` put the banner
+  in flow inside `App.vue`'s `.app-root` column, so it inherits the shell's insets and needs
+  nothing of its own. `SNetworkBanner` is the only remaining subject.
 - **FU-4**: the breakpoint thresholds are declared twice, in TS at `useBreakpoint.ts:5` and
   in CSS at `main.css:57-60`, and neither is readable from a `max-width` media query, which
   is why 17 hand-written literals existed. The durable fix is to replace hand-written
@@ -645,10 +807,22 @@ Appended by /build.
   mobile instead of horizontal row") is not implemented anywhere and Q-13 deliberately does
   not implement it. Either the line is wrong or the product is; deciding needs a survey of
   every mobile action row, not a single view.
-- **FU-6**: `AgentDetailView.vue:964` and `GraphragGraphView.vue:168` remain `100vh` inside
-  what will be a `100dvh` shell. They are F-51 and F-10 of the same audit, both of which
-  already own the arithmetic in those constants; whoever builds them should change the unit
-  in the same edit rather than leave two spellings of viewport height in the tree.
+- **FU-6**: **closed at build start, 2026-08-21** (§1.2 change 1). Both of its subjects have
+  been overtaken. `GraphragGraphView.vue:168` no longer contains a viewport unit at all - the
+  content-area dossier's F-10 rewrote it as `h-full` and pinned the absence at
+  `GraphragGraphView.test.ts:65-78`. `AgentDetailView.vue`'s constant moved to `:988` and was
+  rewritten by that dossier's F-51, which converts it from a deferred sibling into this
+  dossier's own paired edit (§7 item 1, AC-16). Nothing is left to defer.
 - **FU-7**: `docs/UI/11-responsive-a11y.md:375-378` states that E2E specs run at three
   viewports. Until AC-14 lands that is false, and it has been false since the line was
-  written. If AC-14 is descoped, the doc must be corrected instead of left aspirational.
+  written. AC-14 as rescoped makes it true only for the one spec that carries the
+  viewport-conditional assertions, so the line must be amended to say that rather than left
+  reading as a claim about the golden paths. If AC-14 is descoped entirely, the doc must be
+  corrected instead of left aspirational.
+- **FU-8**: the 22 existing golden-path specs run at one width only, because AC-14's three new
+  projects are `testMatch`-scoped to `23-mobile-viewport.spec.ts` (§8). That is the status quo
+  rather than a regression, but it means no golden path is exercised at a phone width, so
+  responsive breakage in the flows users actually walk stays invisible. Widening the scope is
+  a wall-clock decision - `fullyParallel: false` with `workers: 1` makes it roughly linear in
+  the number of projects - and should be revisited if the mobile surface justifies the minutes,
+  ideally together with making the e2e job parallel.
