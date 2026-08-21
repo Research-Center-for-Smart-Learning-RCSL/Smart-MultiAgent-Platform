@@ -37,11 +37,18 @@ The chain `transient-feedback-channels` -> `shared-overlay-and-shell-defects` ->
 `AgentDetailView.vue`, and concurrent builds would conflict. Any of them could technically go
 first, but building them serially avoids the conflict.
 
-- `2026-08-19-chatroom-scroll-and-composer` (bugfix, draft) - `depends_on: []`. Independent of
-  the chain; its Q-11 records the file-by-file overlap check that justifies the empty list, so
-  it can run in parallel with all four others. Carries an SRS/spec delta: `07-conversation.md:513`
-  claims a cache prevents per-token markdown re-rendering, which the audit disproved, and the
-  spec's page size disagrees with the code (50 vs 100).
+- `2026-08-19-chatroom-scroll-and-composer` (bugfix, **approved 2026-08-21**) - `depends_on: []`.
+  Independent of the chain; its Q-11 records the file-by-file overlap check that justifies the
+  empty list, so it can run in parallel with all four others. Its **spec delta was applied at
+  approval**: `07-conversation.md:513` claimed a cache prevents per-token markdown re-rendering,
+  which the audit disproved (it keys on text equality, so it cannot hit while text grows), and
+  `:897`'s page size disagreed with the code (50 vs 100). No `REQUIREMENTS.md` change.
+  **One scope change was made at approval**: F-29's second arm - moving the agent rail out of
+  768-1023 - was **cut** and deferred to the dossier's FU-6 (Q-8 rewritten). It is the only item
+  in the dossier whose correction *removes* a surface users have today rather than restoring
+  one, so it deserves its own reviewable change. The two bands are disjoint by construction
+  (`useBreakpoint.ts:52-53`), and T-9 now asserts at 800px that the rail is **still there**, so
+  the deferral is pinned rather than merely intended.
 - `2026-08-19-shared-overlay-and-shell-defects` (bugfix, draft) - unblocked by the completed
   `2026-08-19-transient-feedback-channels`. Fixes the shared overlay primitives: `STable`'s
   sticky header is inert, `SDropdown` has no flip or height cap (and measures before the menu

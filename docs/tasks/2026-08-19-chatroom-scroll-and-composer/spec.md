@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-08-19
 requirements: []
 depends_on: []
@@ -23,11 +23,15 @@ KaTeX/Mermaid/highlight pass and images carry no dimensions (F-13). Every stream
 re-runs markdown-it, DOMPurify and a full `v-html` subtree replacement (F-15). The composer
 never grows past one line (F-14). Around those, five smaller defects in the same surface:
 the empty state pins to the top of the feed (F-23), history has no scroll-based auto-trigger
-(F-24), there is no 1024-1279 layout and the agent rail renders 256px below where the spec
-puts it (F-29), approval cards render after every message with no pill (F-47), and the
-search panel double-counts the header (F-48). F-49 is the structural defect underneath the
-first two: `useChatroomMessages` writes the feed element's scroll position directly, so
-`useChatroomScroll` is not the only owner of that state.
+(F-24), there is no 1024-1279 layout (F-29 first arm), approval cards render after every
+message with no pill (F-47), and the search panel double-counts the header (F-48). F-49 is
+the structural defect underneath the first two: `useChatroomMessages` writes the feed
+element's scroll position directly, so `useChatroomScroll` is not the only owner of that
+state.
+
+F-29's second arm - the agent rail rendering from 768px where the amended spec puts a drawer
+- is **deliberately out of scope** and deferred to FU-6 per Q-8: it is the one item here
+whose correction takes a surface away from users rather than restoring one.
 
 Everything here is judged against `docs/UI/07-conversation.md`, which is detailed enough
 that ten of the eleven findings are code-versus-intent rather than internal inconsistency.
@@ -141,6 +145,10 @@ One spec line is itself wrong and is corrected in §11.
   `docs/UI/11-responsive-a11y.md:116-133` now agrees: the `md` Layout cell reads "Single
   pane", the Agent list cell reads "Drawer", and the note at `:126-133` records that the
   previous "2-column" wording was the error and that the `lg+` column describes `xl`.
+- **Scope** - only the first arm (the missing 1024-1279 band) is fixed here. The `md` rail
+  deviation is left in place and deferred to FU-6 per Q-8, so after this dossier the code
+  still knowingly disagrees with `11-responsive-a11y.md:118,121` at 768-1023. That is a
+  recorded, deliberate divergence, not an oversight.
 
 ### F-47 (minor) - approval cards render last and raise no pill
 
@@ -186,7 +194,7 @@ One spec line is itself wrong and is corrected in §11.
 | Q-5 | F-23: fix it here with a local override, or wait on `2026-08-19-shared-overlay-and-shell-defects` (its F-30, which gives `SEmptyState` vertical centring)? | Fix it here, and do not depend on that dossier. The empty-state `<li>` in `ChatroomView.vue:135-141` gets a rule that makes it fill the feed and centre its child. | F-30's fix alone is neither necessary nor sufficient for F-23. The `<li>` has auto height, so a stretched-and-self-centring `SEmptyState` inside it would still have no extra height to distribute and would still render flush at the top. The height has to come from the chatroom side regardless. The local rule is also forward-compatible: a self-centring `SEmptyState` inside a centring flex wrapper still centres, so F-30 landing later changes nothing here. Serialising the two dossiers would buy no correctness. |
 | Q-6 | F-24: `IntersectionObserver` on the load-earlier row, or a scroll-threshold check in `onScroll`? | `IntersectionObserver` on the load-earlier `<li>`, with `root` set to the feed and `rootMargin: '100px 0px 0px 0px'` to express the spec's 100px directly. Armed only while `hasOlderMessages` is true and `loadingOlder` is false, and disarmed from the moment `captureBeforePrepend` runs until `restoreAfterPrepend`'s `nextTick` has completed. | The threshold is a geometry question, which is what the observer API answers; a check inside `onScroll` (`useChatroomScroll.ts:49-52`) would run on every scroll frame and would need its own re-entrancy guard to avoid firing a second load before the first resolves. The precedent, including the `typeof IntersectionObserver === 'undefined'` guard for jsdom and SSR, is `shared/composables/useRevealOnScroll.ts:20-33`, with a test stub at `shared/composables/__tests__/useRevealOnScroll.test.ts:24-47`. On the interaction with F-11: the correct restore leaves the reader's message at the same viewport position, which puts the sentinel a full page above the viewport, so the observer stops intersecting by construction. The explicit disarm is belt and braces for the frame between prepend and restore, where the sentinel is momentarily at the top of a taller list. |
 | Q-7 | F-29 first arm: implement the `@media` block at `docs/UI/07-conversation.md:241-252` as written? | Yes, adapted to the four-track grid. Between 1024 and 1279 the grid collapses to `1fr` for the feed, the agent rail and the presence rail become absolutely positioned overlay panels at `top: 48px; bottom: 0` with `--z-dropdown` and `--shadow-lg`, and the resize handle track is removed with them. Header toggles open them, reusing the `agentsDrawerOpen` / `peopleDrawerOpen` refs (`ChatroomView.vue:822,529`). | The spec block is concrete and correct; the only thing it does not know about is the 10px handle track added by `2026-08-09-chatroom-rail-scroll-and-resize`, which has nothing to size when the rail is an overlay. Reusing the existing open-state refs avoids a third set of visibility state for the same two panels. |
-| Q-8 | F-29 second arm: the agent rail currently renders from 768px up (`ChatroomView.vue:28`) where the amended spec says drawer. Move it? | Yes. `ChatroomAgentSidebar`'s guard becomes `v-if="isDesktop"`, the agents `SDrawer` guard (`:232`) becomes `v-if="!isDesktop"` to match the presence drawer (`:242`), and `.chatroom--tablet`'s two-track grid (`:1008-1011`) collapses to a single column. The stale comments at `:230` and `:1008` are corrected. | `docs/UI/11-responsive-a11y.md:118,121` (as amended) and `docs/UI/07-conversation.md:258` now agree that `md` is a single pane with drawer panels. The audit recorded this arm as blocked on FU-4, an intent-source conflict inside the responsive table; that conflict has since been resolved in favour of the single pane, so the arm is unblocked and no longer needs a judgement call from this dossier. |
+| Q-8 | F-29 second arm: the agent rail currently renders from 768px up (`ChatroomView.vue:28`) where the amended spec says drawer. Move it? | **No, deferred to FU-6.** This dossier implements only F-29's first arm (Q-7's 1024-1279 overlay band). `ChatroomAgentSidebar` keeps `v-if="!isMobile"` (`:28`), the agents `SDrawer` keeps `v-if="isMobile"` (`:232`), `.chatroom--tablet`'s two-track grid (`:1008-1011`) is untouched, and the comments at `:230` and `:1008` stay as they are, because they continue to describe the shipped behaviour accurately. | The intent sources do say `md` is a single pane (`docs/UI/11-responsive-a11y.md:118,121`, `docs/UI/07-conversation.md:258`), so the deviation is real. But unlike every other item in this dossier, correcting it removes a surface tablet users have today: it is a visible capability regression from a user's point of view, not a restoration of intended behaviour, and it does not belong inside a scroll-and-composer bugfix where it would ship unannounced alongside ten genuine fixes. It is also cleanly separable: `isTablet` is 768-1023 and `isDesktop` is `>= 1024` (`useBreakpoint.ts:52-53`), so Q-7's compact band sits entirely inside `isDesktop` and never touches the tablet grid. Deferring costs nothing here and lets the removal be its own reviewable change. |
 | Q-9 | F-48: fix the offset only, or also add the dimming overlay that `docs/UI/07-conversation.md:747` specifies and the code lacks? | Offset only (`top: 48px` becomes `top: 0` in `ChatroomSearchPanel.vue:97`). The dimming overlay is recorded as FU-1. | The offset is a regression against a positioning contract the containing block already satisfies, and it is a one-line correction with no new behaviour. The overlay is a new affordance: it needs a stacking decision against `--z-dropdown`, a click-to-dismiss decision, and a `prefers-reduced-motion` decision, none of which `07-conversation.md` §3.7 specifies. Adding it here would smuggle undesigned behaviour into a scroll-and-composer bugfix. |
 | Q-10 | F-14: auto-grow with CSS `field-sizing: content` or with a JavaScript height assignment? | JavaScript. On input and on every `modelValue` change, reset `height` to `auto`, then set it to `min(scrollHeight, 192px)`. | `field-sizing` is not available at the documented browser floor (`docs/UI/11-responsive-a11y.md:346-347`: iOS Safari 16.2+, Chrome Android 110+); it is Chromium-only and recent. Driving it from the model change rather than only from `onInput` (`ChatroomComposer.vue:229-233`) is what makes the box shrink back after a send clears the draft (`useChatroomMessages.ts:277`) and grow after a programmatic mention insert (`:203`), both of which bypass the input event. |
 | Q-11 | Is `depends_on: []` true against the other three dossiers spawned by this audit? | Yes, verified. `2026-08-19-content-area-spacing-and-scroll-contract` strips duplicate root padding from the 34 views in the audit's F-3 set. Four conversation views are in that set: `ChatroomListView.vue:213`, `WorkspaceListView.vue:139`, `WorkspaceSettingsView.vue:45` and `ChatroomSettingsView.vue:227`, each a `<main class="p-6">` root. This dossier touches none of them. `ChatroomView.vue` has no padded root (`:2-10`, `class="chatroom"`) and its route opts out of shell padding entirely (`slices/conversation/routes.ts:26`, cited in the audit's F-3), so it is not in the padded set. `2026-08-19-shared-overlay-and-shell-defects` is cleared by Q-5. `2026-08-19-transient-feedback-channels` touches `shared/composables/useToast.ts`, `app/errorHandler.ts` and the admin/workflow/tenancy slices, none of which appear in §7 below. | An empty `depends_on` is a positive claim under `docs/tasks/README.md`, so it was checked file by file rather than assumed. The only shared-tree file this dossier reads is `shared/stores/orchestration.ts:84-86`, and Q-12 keeps it read-only. |
@@ -232,7 +240,8 @@ not continue, and the button must be found and clicked once per page.
 
 **F-29**: open `/chatrooms/:id` at exactly 1024x768. Fixed chrome consumes
 220 + 10 + 200 = 430px, leaving roughly 594px for the feed, with no way to collapse either
-rail. At 800x600 the agent rail is present where the spec puts a drawer.
+rail. (At 800x600 the agent rail is present where the spec puts a drawer. That is the second
+arm, deferred to FU-6, and it should still reproduce after this dossier lands.)
 
 **F-47**: with the reader scrolled up, have a workflow request an approval. The card appends
 below every message, off-screen, with no pill. After resolution it stays pinned below all
@@ -292,9 +301,11 @@ sibling dossier and is neither necessary nor sufficient here (Q-5).
 lifecycle at all.
 
 **F-29**: `useBreakpoint` exposes three bands (`:51-53`) and the chatroom's layout needs four.
-The view consumed the vocabulary it was given. The second arm is a straightforward
-code-versus-spec deviation that was previously ambiguous because the two intent documents
-disagreed; that ambiguity is now resolved (Q-8).
+The view consumed the vocabulary it was given, which is why the 1024-1279 band has no
+expression at all. The second arm is a straightforward code-versus-spec deviation whose
+ambiguity is now resolved in the documents but whose correction is deferred by Q-8, because
+resolving the ambiguity settles what the layout *should* be without settling when it is
+acceptable to take the tablet rail away.
 
 **F-47**: the approval list was rendered as a second, independent `v-for` (`ChatroomView.vue:117-125`)
 rather than merged into the feed's ordering, and `messageCount` (`:696`) was defined over
@@ -319,7 +330,8 @@ the container it has (`ChatroomView.vue:919-925`).
   `useChatroomSocket.test.ts` and to anything else watching `agentStreams`.
 - **F-23**: every newly created chatroom, which is the first thing a new user sees.
 - **F-24**: reading any conversation longer than one page.
-- **F-29**: iPad landscape, small laptops and every viewport between 768 and 1279.
+- **F-29**: as scoped, every viewport between 1024 and 1279 (small laptops, iPad landscape at
+  full width). The 768-1023 band is untouched by this dossier and keeps today's behaviour.
 - **F-47**: every approval-gated workflow run.
 - **F-48**: chatroom search, every invocation.
 
@@ -404,10 +416,16 @@ Files touched, all under `frontend/src/slices/conversation` except where noted:
      it reaches the threshold and `hasOlderMessages && !loadingOlder` (F-24).
    - Add the 1024-1279 `@media` block per Q-7, and a `chatroom--compact` class bound from a
      new `isCompactDesktop` computed (`width >= BP.lg && width < BP.xl`, read from
-     `useBreakpoint`'s `width`, which is already exported at `useBreakpoint.ts:47`) (F-29).
-   - Change `ChatroomAgentSidebar`'s guard at `:28` to `isDesktop`, the agents drawer guard
-     at `:232` to `!isDesktop`, collapse `.chatroom--tablet` (`:1008-1011`) to one column,
-     and correct the comments at `:230` and `:1008` (F-29 second arm).
+     `useBreakpoint`'s `width`, which is already exported at `useBreakpoint.ts:47`) (F-29
+     first arm). The header toggles reuse `agentsDrawerOpen` / `peopleDrawerOpen`
+     (`:822,529`); at this band only the rails render (`ChatroomAgentSidebar` is
+     `v-if="!isMobile"`, the drawers are `v-if="isMobile"` / `v-if="!isDesktop"`), so the two
+     refs drive a class on the rail rather than an `SDrawer`, and no third visibility state
+     is introduced.
+   - **Not changed**: `ChatroomAgentSidebar`'s guard at `:28`, the agents drawer guard at
+     `:232`, `.chatroom--tablet` (`:1008-1011`) and the comments at `:230` and `:1008` all
+     stay exactly as they are (Q-8, FU-6). Q-7's band is entirely inside `isDesktop`
+     (`useBreakpoint.ts:53`), so the compact rules must not leak into `.chatroom--tablet`.
 
 4. **`composables/useChatroomSocket.ts`** (F-15): buffer `agent.token` payloads per agent in
    a module-local map and flush to `store.appendAgentToken` on a 120ms timer. Force a flush
@@ -459,7 +477,7 @@ up front rather than discovering them at the end.
 | T-6 | F-15 | unit (fake timers) | `useChatroomSocket.test.ts`: deliver 30 `agent.token` frames inside one 120ms window and assert `appendAgentToken` was called once with the concatenated text; assert `agent.finished` forces a flush so no trailing token is lost; assert unmount mid-window flushes. Fails today on the first assertion with 30 calls. |
 | T-7 | F-14 | component | `ChatroomComposer` test: stub `scrollHeight` on the textarea, dispatch `input`, assert the inline `height` is `min(scrollHeight, 192)px`; assert clearing `modelValue` returns it to the one-line height. jsdom's `scrollHeight` is a stub, so this pins the formula and the trigger, not the rendered line count. |
 | T-8 | F-47 | component | `ChatroomView.test.ts`: with one message at T+0, one approval `started_at` T+1 and one message at T+2, assert the feed's rendered item order is message, approval, message. Fails today with message, message, approval. Second assertion: an approval arriving while scrolled up raises the pill. |
-| T-9 | F-29 | component | `ChatroomView.test.ts`, using the `setViewport` helper already in that file at `:507-511`: at 1100 assert `chatroom--compact` is bound and no resize handle renders; at 800 assert `ChatroomAgentSidebar` is absent from the main grid and the agents `SDrawer` is present; at 1400 assert the existing three-rail assertions at `:518-537` still hold. Class and presence assertions only. |
+| T-9 | F-29 (first arm) | component | `ChatroomView.test.ts`, using the `setViewport` helper already in that file at `:507-511`: at 1100 assert `chatroom--compact` is bound and no resize handle renders; at 1400 assert the existing three-rail assertions at `:518-537` still hold. Plus a **guard against Q-8 leaking in**: at 800 assert `ChatroomAgentSidebar` is still present and `chatroom--compact` is not bound, pinning the deferral so a later compact-band edit cannot silently take the tablet rail with it. Class and presence assertions only. |
 | T-10 | F-23, F-48 | component (structural) | `ChatroomView.test.ts` / `ChatroomSearchPanel.test.ts`: assert the empty-state `<li>` carries the filling class and that `.search-panel`'s `top` is `0`. Structural only: jsdom cannot report where either box lands. |
 | T-11 | all | regression guard | A slice-wide grep assertion is not added; instead T-3's signature change makes a second scroll writer a type error at the call site. Recorded here so the absence is deliberate. |
 
@@ -501,9 +519,11 @@ visual outcomes. Roughly half of this dossier's user-visible value is verified b
   The pending-message key swap behaviour documented at `ChatroomView.vue:960-966` must
   survive; if the merged list changes how a `pending-<uuid>` key is replaced by its persisted
   twin, the send animation regresses.
-- **Moving the agent rail out of `md`** removes a surface that tablet users have today. It is
-  the amended spec's position (Q-8) and the drawer already exists for mobile, but it is a
-  visible behaviour change rather than a bug fix from a user's point of view.
+- **The compact-band CSS must not reach the tablet grid.** With Q-8 deferred, `.chatroom--tablet`
+  (`ChatroomView.vue:1008-1011`) and the compact `@media` block coexist, and the failure mode
+  is a selector that matches both, silently shipping the deferred behaviour. The band is
+  `width >= BP.lg`, the tablet class is `width < BP.lg`, so they are disjoint by construction;
+  T-9's 800px arm is what proves it stayed that way.
 - **Rollback**: the six files in §7 are independently revertible, and the findings map to
   separable commits. The one coupling is Q-1/Q-2, which land together because they share a
   signature.
@@ -541,9 +561,9 @@ visual outcomes. Roughly half of this dossier's user-visible value is verified b
       pages without clicking, stops when `hasOlderMessages` goes false, and never loads more
       than one page per reach.
 - [ ] AC-14: T-9 passes; at 1024-1279 both rails are overlay panels driven by the header
-      toggles and the feed occupies the full remaining width; at 768-1023 the agent rail is
-      absent and its drawer is available; at 1280+ the existing three-column layout and its
-      resize handle are unchanged.
+      toggles and the feed occupies the full remaining width; at 1280+ the existing
+      three-column layout and its resize handle are unchanged; and at 768-1023 the agent rail
+      is **still present** and `chatroom--compact` unbound, confirming Q-8's deferral held.
 - [ ] AC-15: T-8 passes; approval cards render at their `started_at` position among messages,
       and an approval arriving while the reader is scrolled up raises the pill.
 - [ ] AC-16: T-10's search half passes; the search panel's top edge is flush with the top of
@@ -615,3 +635,13 @@ Appended by /build.
   anchoring, the unseen counter, prepend restoration, and two observers). That is still one
   cohesive concern (feed scroll state) but the file roughly doubles. Worth a `check-quality`
   pass afterwards to decide whether the observer wiring belongs in its own composable.
+- **FU-6**: F-29's second arm, deferred by Q-8. `ChatroomAgentSidebar` renders from 768px
+  (`ChatroomView.vue:28`, `v-if="!isMobile"`) while `docs/UI/11-responsive-a11y.md:118,121`
+  and `docs/UI/07-conversation.md:258` both put a drawer there. The correction is small and
+  known: `:28` becomes `isDesktop`, the agents `SDrawer` at `:232` becomes `!isDesktop` to
+  match the presence drawer at `:242`, `.chatroom--tablet` (`:1008-1011`) collapses to one
+  column, and the comments at `:230` and `:1008` are updated. It is held back not because it
+  is unclear but because it removes a surface tablet users have today, which deserves its own
+  change and its own announcement rather than riding along with ten restorations. Until it
+  lands, the code knowingly diverges from the responsive spec at 768-1023, and T-9's 800px
+  assertion pins the current behaviour so the divergence stays deliberate.
