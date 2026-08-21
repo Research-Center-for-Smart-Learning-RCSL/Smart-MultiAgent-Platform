@@ -23,6 +23,15 @@ export function useVisualViewport(enabled?: () => boolean) {
       return
     }
     // Space below the visible viewport that the layout viewport still occupies.
+    //
+    // The reference box is window.innerHeight, i.e. the LAYOUT viewport. That
+    // makes this figure correct only for a consumer whose own height resolves
+    // against the same box, which is why App.vue's .app-root is `100dvh` and
+    // not `100vh`: `vh` denominates the LARGE viewport, so subtracting this
+    // inset from a vh-sized element leaves the element too tall by the browser
+    // toolbar height and puts the chat composer under the keyboard by exactly
+    // that much. Nothing here can detect the mismatch - the arithmetic is the
+    // same either way - so the coupling is recorded rather than guarded.
     const overlap = window.innerHeight - vv.height - vv.offsetTop
     keyboardInset.value = overlap > 0 ? Math.round(overlap) : 0
   }
