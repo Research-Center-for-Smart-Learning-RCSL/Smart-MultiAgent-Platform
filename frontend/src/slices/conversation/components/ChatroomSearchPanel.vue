@@ -94,7 +94,10 @@ const { t } = useI18n()
 <style scoped>
 .search-panel {
   position: absolute;
-  top: 48px;
+  /* Flush with the containing block, which is `.chatroom__feed` -- grid-row 2,
+     so it already starts below the 48px header. Offsetting by the header here
+     would count it twice. */
+  top: 0;
   left: 0;
   right: 0;
   z-index: var(--z-dropdown);
