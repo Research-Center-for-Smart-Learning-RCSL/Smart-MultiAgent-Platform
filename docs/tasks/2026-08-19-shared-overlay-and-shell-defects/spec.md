@@ -1,7 +1,8 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-08-19
+approved: 2026-08-21
 requirements: []
 depends_on: [2026-08-19-transient-feedback-channels]
 ---

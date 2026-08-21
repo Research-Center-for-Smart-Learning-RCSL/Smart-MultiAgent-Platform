@@ -51,7 +51,9 @@ first, but building them serially avoids the conflict.
   one, so it deserves its own reviewable change. The two bands are disjoint by construction
   (`useBreakpoint.ts:52-53`), and T-9 now asserts at 800px that the rail is **still there**, so
   the deferral is pinned rather than merely intended.
-- `2026-08-19-shared-overlay-and-shell-defects` (bugfix, draft) - unblocked by the completed
+- (moved to In progress on 2026-08-21, approved the same day)
+  `2026-08-19-shared-overlay-and-shell-defects`. The original entry, kept here for the record:
+  `2026-08-19-shared-overlay-and-shell-defects` (bugfix, draft) - unblocked by the completed
   `2026-08-19-transient-feedback-channels`. Fixes the shared overlay primitives: `STable`'s
   sticky header is inert, `SDropdown` has no flip or height cap (and measures before the menu
   exists), `ErrorBoundary` wraps the whole layout so a render error blanks the shell, and the
@@ -168,7 +170,14 @@ report that the UI is consistent but flat.
   `2026-08-19-shared-overlay-and-shell-defects`. Both edit `AppShell.vue`, `router.ts` and
   `AgentDetailView.vue`. Strips the duplicated padding from 34 view roots (and the nested
   `<main>` from 23 of them), and gives navigation a scroll-reset contract, which today does not
-  exist: `main.scrollTop` persists into the next view.
+  exist: `main.scrollTop` persists into the next view. **Its Q-14 rests on a false premise -
+  read this before building it.** Q-14 assumes `depends_on` sequences the dossier that moves the
+  shell's viewport height to `dvh`, so that `lg:h-[calc(100dvh-...)]` is correct by the time it
+  builds. It does not: F-45 belongs to `2026-08-19-mobile-viewport-and-breakpoints`
+  (`findings.md:1331`), which is sequenced *after* it, and `shared-overlay-and-shell-defects`
+  explicitly keeps `vh` (its §7 item 1, so its own change stays behaviour-neutral with respect
+  to F-45). The shell will still be `vh` when this dossier starts, so Q-14's own escape clause
+  applies: make the two agree first and record the disagreement as a deviation.
 - `2026-08-19-mobile-viewport-and-breakpoints` (bugfix, draft) - waiting on
   `2026-08-19-content-area-spacing-and-scroll-contract`. Both edit `AppShell.vue` and
   `AgentDetailView.vue`. **Read its §7 item 1 before starting**: the `100vh` line this dossier
@@ -177,6 +186,11 @@ report that the UI is consistent but flat.
 
 ## In progress
 
+- `2026-08-19-shared-overlay-and-shell-defects` (bugfix) — `depends_on:
+  [2026-08-19-transient-feedback-channels]`, met. Approved and started 2026-08-21. Twelve
+  findings across `shared/ui/` overlay primitives and `app/` shell chrome. Finishing it
+  unblocks `2026-08-19-content-area-spacing-and-scroll-contract`, and through it
+  `2026-08-19-mobile-viewport-and-breakpoints`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-08-21 after implementation:
 `2026-08-19-chatroom-scroll-and-composer` (the message feed now holds the reader's position
