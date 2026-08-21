@@ -61,10 +61,14 @@ Scopes: `backend`, `frontend`, `deploy`, `nginx`, `ci`, `obs`, `e2e`, `review`, 
   small enough to revert cleanly, complete enough to stand on its own.
 - **English messages**, following the `type(scope): subject` format above.
 - **No co-author trailer** and no other attribution footer.
-- **Stage only the files this change touched** — list them explicitly
-  (`git add <path> ...`). Never `git add -A`, `git add .`, or `git commit -a`: the working
-  tree may hold unrelated in-progress work from another task, and sweeping it into your
-  commit is a defect.
+- **Commit with an explicit pathspec**: `git commit -m "..." -- <path> <path>`. Never
+  `git add -A`, `git add .`, or `git commit -a`, and do not rely on `git add <path>` followed
+  by a bare `git commit` — **that commits the whole index, not the paths you just added**.
+  The working tree and the index may hold unrelated in-progress work (another task, or
+  another agent session on the same branch); sweeping it into your commit is a defect, and
+  the pathspec form is the only one that bounds the commit regardless of index state.
+- **Long commit messages go through a file**: `git commit -F <file>`. PowerShell here-strings
+  mangle quotes and apostrophes in multi-line `-m` arguments.
 - Never `git push` without explicit user confirmation.
 
 ## Security Constraints
