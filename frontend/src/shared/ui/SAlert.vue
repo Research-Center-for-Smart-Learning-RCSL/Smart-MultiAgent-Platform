@@ -48,6 +48,15 @@ onMounted(() => {
   el.focus()
 })
 
+// 11-responsive-a11y.md:293. role="alert" implies aria-live="assertive", which
+// is right for a danger or warning the user must act on and wrong for a static
+// informational panel: it pre-empts the page heading on mount. role="status"
+// still announces, politely. Deliberately no override prop - one would invite
+// back the assertive-by-default usage this mapping exists to stop.
+const liveRole = computed(() =>
+  props.variant === 'danger' || props.variant === 'warning' ? 'alert' : 'status',
+)
+
 const iconComponent = computed(() => {
   const map = {
     info: InformationCircleIcon,
@@ -64,7 +73,7 @@ const iconComponent = computed(() => {
     ref="root"
     class="s-alert"
     :class="`s-alert--${variant}`"
-    role="alert"
+    :role="liveRole"
     v-bind="focusOnMount ? { tabindex: -1 } : {}"
   >
     <component
