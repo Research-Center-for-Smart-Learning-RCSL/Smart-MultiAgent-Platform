@@ -96,3 +96,36 @@ describe('AppShell sidebar toggle', () => {
     expect(wrapper.classes()).toContain('app-shell--sidebar-collapsed')
   })
 })
+
+// F-4: the shell owns the page scroll container, and nothing used to reset it,
+// so the previous page's offset was inherited by the next view. jsdom lays
+// nothing out, but it does store an assigned scrollTop — and it has no
+// Element.prototype.scrollTo at all, which is why the reset writes scrollTop
+// directly (spec Q-5).
+describe('AppShell scroll reset', () => {
+  beforeEach(() => {
+    window.innerWidth = 1280
+  })
+
+  it('resets the content area scroll offset when the path changes', async () => {
+    const wrapper = await mountShell('/orgs')
+    const content = wrapper.find('main.app-shell__content').element
+    content.scrollTop = 1200
+
+    await wrapper.vm.$router.push('/keys')
+    await wrapper.vm.$nextTick()
+
+    expect(content.scrollTop).toBe(0)
+  })
+
+  it('preserves the offset when only the query string changes', async () => {
+    const wrapper = await mountShell('/orgs')
+    const content = wrapper.find('main.app-shell__content').element
+    content.scrollTop = 1200
+
+    await wrapper.vm.$router.push('/orgs?tab=archived')
+    await wrapper.vm.$nextTick()
+
+    expect(content.scrollTop).toBe(1200)
+  })
+})
