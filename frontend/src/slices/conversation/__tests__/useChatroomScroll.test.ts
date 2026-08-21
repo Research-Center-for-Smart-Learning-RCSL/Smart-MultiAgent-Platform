@@ -232,18 +232,50 @@ describe('useChatroomScroll unseen counter (F-12)', () => {
     expect(mounted.scroll.showPill.value).toBe(true)
   })
 
-  it('treats a wholesale replacement as all-unseen', async () => {
-    const mounted = mountScroll(['m_1', 'm_2'])
+  // Code review, finding 3. Returning `ids.length` whenever the acknowledged
+  // item is absent reads well for a cache replacement and badly for the case
+  // that actually happens: an optimistic send acknowledges `pending-<uuid>`,
+  // the reader scrolls up, and the persisted id replaces that key.
+  it('does not announce the whole room when a pending key becomes its real id', async () => {
+    const mounted = mountScroll(['m_1', 'm_2', 'pending-abc'])
     wrapper = mounted.wrapper
     await scrollUp(mounted)
 
-    // The acknowledged item is gone entirely -- a cache replacement, not an
-    // append. Everything rendered is genuinely unseen.
-    mounted.ids.value = ['x_1', 'x_2', 'x_3']
+    mounted.ids.value = ['m_1', 'm_2', 'm_3_persisted']
     await nextTick()
     await nextTick()
 
-    expect(mounted.scroll.newCount.value).toBe(3)
+    expect(mounted.scroll.newCount.value).toBe(0)
+    expect(mounted.scroll.showPill.value).toBe(false)
+  })
+
+  it('does not announce the whole room when the acknowledged message is deleted', async () => {
+    const mounted = mountScroll(['m_1', 'm_2', 'm_3'])
+    wrapper = mounted.wrapper
+    await scrollUp(mounted)
+
+    mounted.ids.value = ['m_1', 'm_2']
+    await nextTick()
+    await nextTick()
+
+    expect(mounted.scroll.newCount.value).toBe(0)
+  })
+
+  it('still counts arrivals after re-anchoring past a vanished item', async () => {
+    // Re-anchoring must not deafen the counter: the next genuine arrival counts.
+    const mounted = mountScroll(['m_1', 'pending-abc'])
+    wrapper = mounted.wrapper
+    await scrollUp(mounted)
+
+    mounted.ids.value = ['m_1', 'm_2_persisted']
+    await nextTick()
+    await nextTick()
+    expect(mounted.scroll.newCount.value).toBe(0)
+
+    mounted.ids.value = [...mounted.ids.value, 'arrived']
+    await nextTick()
+    await nextTick()
+    expect(mounted.scroll.newCount.value).toBe(1)
   })
 
   it('counts nothing before the reader has acknowledged anything', async () => {
@@ -327,17 +359,18 @@ describe('useChatroomScroll growth after render (F-13)', () => {
     ro = null
   })
 
-  it('observes the feed items, not the scrollport that cannot report growth', async () => {
+  it('observes the items and the scrollport itself', async () => {
     ro = stubResizeObserver()
     const mounted = mountScroll(['m_1', 'm_2'])
     wrapper = mounted.wrapper
     await nextTick()
 
-    // One call per item. Observing the <ol> as well would be a call too many,
-    // and it is the one that could feed a scroll back into the observer.
-    expect(ro.observe).toHaveBeenCalledTimes(2)
+    // Items catch content that grows after render. The <ol> catches the
+    // scrollport SHRINKING, which is how the composer's auto-grow pushes the
+    // newest message out of view without resizing any item (code review,
+    // finding 5). Neither can loop: scrolling resizes nothing.
     const observed = ro.observe.mock.calls.map((c) => (c[0] as HTMLElement).tagName)
-    expect(observed).toEqual(['LI', 'LI'])
+    expect(observed).toEqual(['OL', 'LI', 'LI'])
   })
 
   it('re-pins to the bottom when observed content grows', async () => {
@@ -381,8 +414,9 @@ describe('useChatroomScroll growth after render (F-13)', () => {
     await nextTick()
 
     // A mount-time-only sweep would never see m_2, which is the message whose
-    // diagram is most likely to be the one still resolving.
-    expect(ro.observe).toHaveBeenCalledTimes(2)
+    // diagram is most likely to be the one still resolving. Three calls: the
+    // <ol> plus both items.
+    expect(ro.observe).toHaveBeenCalledTimes(3)
   })
 
   it('disconnects on unmount', async () => {

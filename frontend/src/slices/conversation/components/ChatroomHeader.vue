@@ -17,6 +17,7 @@
       icon-only
       size="sm"
       :aria-label="t('conversation.chatroom.agents')"
+      :aria-expanded="isCompact ? agentsOpen : undefined"
       @click="emit('toggle-agents')"
     >
       <CpuChipIcon class="w-5 h-5" />
@@ -87,6 +88,7 @@
       icon-only
       size="sm"
       :aria-label="t('conversation.chatroom.people')"
+      :aria-expanded="isCompact ? peopleOpen : undefined"
       @click="emit('toggle-people')"
     >
       <UsersIcon class="w-5 h-5" />
@@ -145,13 +147,18 @@ const props = withDefaults(
     // opened, because the agents toggle is otherwise mobile-only and the people
     // toggle is otherwise below-desktop only.
     isCompact?: boolean
+    // Only meaningful in the compact band, where the toggles drive an overlay
+    // panel rather than an SDrawer: a toggle that shows and hides a panel has
+    // to say which state it is in. Below lg the SDrawer owns that semantics.
+    agentsOpen?: boolean
+    peopleOpen?: boolean
     observersPresent?: boolean
     // Advisory (R5.05): guests may not export (docs/UI/07-conversation.md); the
     // server enforces the 403 regardless. Defaults to shown — an absent Boolean
     // prop is coerced to false by Vue, so the default must be explicit.
     canExport?: boolean
   }>(),
-  { canExport: true, isCompact: false },
+  { canExport: true, isCompact: false, agentsOpen: false, peopleOpen: false },
 )
 
 const emit = defineEmits<{

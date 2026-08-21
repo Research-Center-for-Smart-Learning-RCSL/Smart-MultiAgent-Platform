@@ -689,6 +689,36 @@ Neither correction changes behaviour this dossier does not already change.
   three growers (Mermaid SVG, KaTeX, highlight) were confirmed present in one message. No
   code change: the ResizeObserver is source-agnostic by design, which is the whole point of
   Q-3, so nothing here depends on which syntax triggers the math pass.
+- **D-8** (post-close `/code-review`): six findings, all verified against the code before
+  being accepted. Four were fixed, two deferred. The four:
+  1. **A `NaN` approval timestamp dropped its own card and every approval after it.**
+     `drainThrough` advances one monotonic cursor on `at <= limit`, and `NaN` fails that test
+     for *every* limit **including the final `drainThrough(Infinity)`** - so the loop exited
+     and never resumed. The inline comment asserted the opposite ("falls to the tail, which
+     shows the card"), which is the worst kind of wrong: it documented a safety that did not
+     exist. Non-finite values now map to `+Infinity`, which really does sort to the tail.
+  2. **The unseen counter announced the whole room whenever its anchor merely vanished.**
+     `at === -1` was read as "wholesale cache replacement", but a single removal hits the
+     same branch - and the reachable path is this dossier's own send flow: `onSent` marks the
+     key `pending-<uuid>` seen, the reader scrolls up, the persisted id replaces that key,
+     and the pill reads "247 new messages". A deleted message or a resolved approval does the
+     same. It now re-anchors to the tail and leaves the count alone.
+  3. **The composer's auto-grow shrank the feed's scrollport with nothing re-pinning it.**
+     F-14 and F-13 interact: growing the textarea to 192px takes ~156px off the `1fr` feed
+     row, no item resizes, and the browser fires no scroll event because `scrollTop` is not
+     clamped - so a reader pinned to the bottom loses the newest bubbles while typing, with
+     `atBottom` still true. The `ResizeObserver` now watches the `<ol>` as well as its items.
+     **The reasoning that excluded it was wrong**: the comment claimed the scrollport's box
+     "never changes with content", true of content but not of the composer below it, and the
+     loop it feared cannot happen because scrolling resizes nothing.
+  4. **`autoLoadExhausted` latched on any transient failure.** `loadEarlierPage` toasts most
+     errors without throwing, so one network blip retired scroll pagination for the session
+     with no way back. `onLoadEarlier` now un-latches it on any load that adds history, which
+     a click on the still-live button can do.
+  The two deferred are FU-9 (a socket-raised approval is positioned by the client's clock -
+  the real fix is a backend field) and FU-10 (the overlay panels' remaining drawer
+  affordances; Escape and `aria-expanded` were added, focus handling and backdrop were not).
+  All four fixes are mutation-probed.
 - **D-7** (gate 4 method): the six browser criteria were **measured** with a temporary
   Playwright harness against the full compose stack rather than eyeballed, then the harness
   was deleted (FU-3 is deferred, and the harness is not CI-ready - see that entry). The
@@ -753,6 +783,29 @@ Neither correction changes behaviour this dossier does not already change.
   streaming bubble, the tool-round reset and the watchdog their first end-to-end coverage -
   all three are currently reasoned about and never seen. Wider than this dossier: it is the
   only way any streaming behaviour gets behavioural verification.
+- **FU-9**: **an approval raised over the socket is positioned by the client's clock.**
+  Found by `/code-review` after close-out. `useChatroomSocket.ts:484` synthesises
+  `started_at: new Date().toISOString()` because the `approval.requested` frame carries no
+  timestamp, while messages carry the server's `created_at`. Q-12's merge parses both onto
+  one axis, so on a machine whose clock is a few minutes slow a gate that just arrived is
+  inserted *above* the last N messages - off-screen, mid-transcript. It compounds: the card
+  lands mid-list, so the tail does not change, so `unseenCount()` stays 0 and **the pill does
+  not fire either**. The user is never told a gate they must vote on exists. Before this
+  dossier approvals were an unconditional second `v-for` after the messages, so they were
+  always visible at the bottom; this is a regression the merge introduces for skewed clocks
+  only. The correct fix is a backend one - put the real `started_at` on the frame - which is
+  why it is deferred rather than patched here: Q-12 kept this change frontend-only and §11
+  records no backend delta. A frontend-only mitigation (pin WS-inserted approvals to the tail
+  instead of dating them locally) is possible but needs a way to tell a live insert from a
+  reconcile, since `discoverApprovals` re-seeds the same card with the server's value.
+- **FU-10**: the compact band's overlay panels lack the affordances the `SDrawer` gives the
+  same content below `lg`. Escape-to-close and `aria-expanded` were added at review time; a
+  focus move into the open panel, focus restore on close, and a click-catching backdrop were
+  not. A keyboard user at 1100px must tab through the whole feed to reach an opened panel.
+  `visibility: hidden` does correctly keep the closed panels out of the tab order, so this is
+  only about the open state. Related to FU-1, which defers the search panel's backdrop for
+  the same reason: neither `07-conversation.md` §3.1 nor §3.7 specifies dismissal, stacking
+  or reduced-motion behaviour for an overlay, and inventing one per surface is how they drift.
 - **FU-8**: `global-setup.ts` is not idempotent against an already-seeded stack. A second run
   creates a fresh org, then 403s on `POST /api/projects` with "no applicable role in scope",
   writes a three-key `.e2e-seed.json`, and every fixture-gated spec silently skips - a green

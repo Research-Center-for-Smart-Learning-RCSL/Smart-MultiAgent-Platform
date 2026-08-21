@@ -63,10 +63,17 @@ export function useChatroomScroll(
     const ids = feedIds.value
     if (lastSeenId.value === null) return 0
     const at = ids.lastIndexOf(lastSeenId.value)
-    // Absent means the acknowledged item is gone from the list entirely: a
-    // wholesale cache replacement rather than an append. Everything currently
-    // rendered is then genuinely unseen.
-    if (at === -1) return ids.length
+    if (at === -1) {
+      // The acknowledged item is gone. Treating that as "everything is unseen"
+      // reads well for a wholesale cache replacement and badly for the case
+      // that actually happens: an optimistic send acknowledges the key
+      // `pending-<uuid>`, the reader scrolls up, and the persisted id replaces
+      // it -- which would announce the whole room as new. A deleted message and
+      // a resolved approval do the same. Re-anchor to the tail and leave the
+      // count alone: no invented arrivals, and the next real one still counts.
+      lastSeenId.value = ids.length > 0 ? ids[ids.length - 1]! : null
+      return newCount.value
+    }
     return ids.length - 1 - at
   }
 
@@ -176,18 +183,26 @@ export function useChatroomScroll(
   let resizeObserver: ResizeObserver | null = null
   let topObserver: IntersectionObserver | null = null
 
-  /** (Re-)observe the feed's items.
+  /** (Re-)observe the feed: its items AND its own box.
    *
-   *  The items, deliberately, not the `<ol>`: the `<ol>` is the scrollport and
-   *  its own box never changes with content, so observing it would report
-   *  nothing useful. Re-sticking cannot resize an item, which is what keeps
-   *  this from looping. The set is refreshed whenever the feed changes, because
-   *  an item that arrives later is not covered by a mount-time sweep. */
+   *  The items cover content that grows after render. The `<ol>` itself covers
+   *  the scrollport SHRINKING, which is a different way for the newest message
+   *  to leave the viewport: the composer auto-grows up to 192px in the grid row
+   *  below, taking that height off the feed. No item resizes, and the browser
+   *  fires no scroll event because scrollTop is not clamped, so without this a
+   *  reader pinned to the bottom silently loses the last bubbles while typing.
+   *
+   *  Neither observation can loop: re-sticking assigns scrollTop, and scrolling
+   *  changes no element's box.
+   *
+   *  The set is refreshed whenever the feed changes, because an item that
+   *  arrives later is not covered by a mount-time sweep. */
   function observeFeedContent(): void {
     const el = listRef.value
     if (!el || typeof ResizeObserver === 'undefined') return
     resizeObserver ??= new ResizeObserver(() => maybeStick())
     resizeObserver.disconnect()
+    resizeObserver.observe(el)
     for (const child of Array.from(el.children)) resizeObserver.observe(child)
   }
 
