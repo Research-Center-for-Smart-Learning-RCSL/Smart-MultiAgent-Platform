@@ -405,6 +405,21 @@ the border and the narrower `xs` gutter.
    landed, that is `App.vue`'s new flex-column root (`min-height: 100dvh`) and `.app-shell`
    must be left on `flex: 1`. If it has not landed, that is `AppShell.vue:141`. Re-read both
    files before editing; do not assume either state.
+
+   **Confirmed 2026-08-21: the overlay dossier has landed, so the first branch applies.** The
+   target is `App.vue:79`'s `.app-root { min-height: 100vh }`. Two corrections to the paragraph
+   above, both from that dossier's deviation log:
+   - `.app-shell` is `flex: 1 1 0px`, **not** `flex: 1`. Its **D-10** records why the basis must
+     be a length: `flex: 1` expands to a `0%` basis, and against a `min-height`-only container a
+     percentage basis resolves to `content`, so the shell gets sized by `main`'s content and
+     hands page scrolling to the document (measured: 3805px shell, 3385px document scroll).
+     **Do not "simplify" it back to `flex: 1` while editing this rule.**
+     `frontend/e2e/21-overlay-and-shell-contract.spec.ts` fails if you do.
+   - **This edit is paired.** `2026-08-19-content-area-spacing-and-scroll-contract` ships
+     `AgentDetailView.vue:964` as `lg:h-[calc(100vh-3.5rem-3rem)]` deliberately, to match the
+     shell's `vh` (its Q-14 and FU-8). When this dossier moves the shell to `dvh`, that line and
+     its T-9 class assertion must move in the same change, or the mismatch reintroduces a
+     smaller F-51 on mobile.
 2. **F-46** - no arithmetic change to `useVisualViewport.ts` (Q-3). Extend the comment at
    `:25-26` to record that the formula's correctness depends on the consuming element
    resolving against the layout viewport, and name `AppShell.vue`'s `100dvh` as the reason
