@@ -32,10 +32,16 @@ const homeRoute = computed(() => session.isAuthenticated ? '/orgs' : '/')
 </template>
 
 <style scoped>
+/* 100%, not a viewport or pixel constant: this view renders under both layouts.
+   Against AppShell it resolves to main's content-box height, which is definite,
+   so the block centres in the actual content area at every breakpoint. Against
+   AuthLayout, whose height is only a min-height, a percentage min-height
+   resolves to auto, so the block simply wraps and AuthLayout's own centring
+   takes over. `height: 100%` would not degrade that way. */
 .not-found {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 60vh;
+  min-height: 100%;
 }
 </style>

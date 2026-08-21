@@ -103,11 +103,14 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* 100% of main's content box rather than an invented 400px: the shell already
+   derives a definite height, and a second pixel-relative box inside it cannot
+   agree with it at any viewport. */
 .accept-wrapper {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 400px;
+  min-height: 100%;
 }
 
 .accept-card {
