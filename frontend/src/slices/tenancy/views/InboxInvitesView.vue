@@ -135,14 +135,14 @@ const breadcrumbs = computed(() => [
       </template>
     </SAlert>
 
-    <!-- Loading state -->
+    <!-- Loading state — one card, not three. This branch settles either to a
+         list or to an SEmptyState of roughly 176px, and a skeleton taller than
+         the shortest settled state pulls the page up when the query lands. -->
     <div
       v-else-if="isLoading"
       class="skeleton-stack"
     >
       <SSkeleton
-        v-for="i in 3"
-        :key="i"
         variant="rect"
         height="120px"
       />

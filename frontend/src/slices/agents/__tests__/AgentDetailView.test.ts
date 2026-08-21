@@ -297,6 +297,23 @@ describe('AgentDetailView', () => {
     expect(body.workflow_capabilities.max_alive_subagents).toBe(7)
   })
 
+  // F-27: the loading branch rendered 1 + 5 + 2 flat skeletons against a
+  // settled General tab of two SCards of form fields, so the page grew
+  // downward under the cursor when the query landed. 06-agents.md §2.10 fixes
+  // the shape: a 200px header line, five tab rects, two cards of four fields.
+  it('renders the documented loading skeleton shape', async () => {
+    seed()
+    // Deliberately no settle — the query is still in flight here.
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+
+    expect(wrapper.findAll('.s-card')).toHaveLength(2)
+    // 1 header line + 5 tab rects + 2 cards x 4 field rects.
+    expect(wrapper.findAll('.s-skeleton')).toHaveLength(14)
+  })
+
   // F-16 and F-51 are the same attribute. F-16: below 1024px the panel's cell
   // had only a min-height, so its `h-full` resolved against an indefinite
   // height, its message list never engaged its own scroll region, and the
