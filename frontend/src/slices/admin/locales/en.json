@@ -58,7 +58,25 @@
       "banDialogReasonRequired": "Reason is required",
       "unbanTitle": "Unban User",
       "unbanMessage": "Restore access for this user? They will be able to log in again.",
-      "unbanConfirm": "Unban"
+      "unbanConfirm": "Unban",
+      "create": "Create user",
+      "createTitle": "Create user",
+      "createSubmit": "Create account",
+      "createNote": "The account is created unverified and with no password. You will be given two links to hand over: one to set a password, one to verify the address. No membership is created — the user still has to accept any invitation themselves.",
+      "createDisplayNameHelp": "Optional. Up to 50 characters.",
+      "created": "Account created.",
+      "createEmailTaken": "That address already has an account.",
+      "createDomainDenied": "This deployment's email-domain policy rejects that address.",
+      "linksTitle": "Activation links",
+      "linksLede": "Hand these two links to",
+      "linksWarning": "The set-password link is equivalent to the password itself: anyone holding it can take control of the account. Hand it over in person, and re-issue rather than reusing an old one. Both links are single-use and expire.",
+      "linksExpire": "Expires {when}.",
+      "setPasswordLabel": "Set-password link",
+      "setPasswordHelp": "The account holder chooses their own password through this link.",
+      "verifyEmailLabel": "Email-verification link",
+      "verifyEmailHelp": "Marks the address verified. Handing it over out of band proves the Admin vouched for the address, not that the holder owns it.",
+      "linksRateLimited": "Too many activation-link requests for this account. Wait a moment and try again.",
+      "alreadyActivated": "This account can already sign in, so activation links are refused. Use a password reset or impersonation instead."
     },
     "userDetail": {
       "id": "ID",
@@ -82,6 +100,11 @@
       "impersonateMessage": "Start a read-only impersonation session for this user?",
       "impersonateTitle": "Impersonate User",
       "impersonateConfirm": "Start",
+      "reissueLinks": "Re-issue activation links",
+      "reissueLinksTitle": "Re-issue activation links",
+      "reissueLinksMessage": "This mints a fresh set-password link and a fresh verification link for this account, and invalidates any earlier unused ones. Only do this when you are with the person. Refused if the account can already sign in.",
+      "reissueLinksConfirm": "Re-issue",
+      "reissueLinksDone": "Activation links re-issued.",
       "notFound": "User not found."
     },
     "admins": {
@@ -220,6 +243,8 @@
       "createIpBanFailed": "Failed to create IP ban.",
       "removeIpBanFailed": "Failed to remove IP ban.",
       "rateLimitFailed": "Failed to update rate limit.",
+      "createUserFailed": "Failed to create the account.",
+      "reissueLinksFailed": "Failed to re-issue the activation links.",
       "restoreFailed": "Failed to restore resource.",
       "resetGraphragFailed": "Failed to reset GraphRAG index."
     },

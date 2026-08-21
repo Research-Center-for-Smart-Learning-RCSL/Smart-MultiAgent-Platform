@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 import { useConfirmDialog, useToast } from '@shared/composables'
+import { ApiError } from '@shared/errors'
 import { isProblemWithType } from '@shared/transport'
 import { adminApi, type RestoreResourceType } from '../api/admin'
 import { adminKeys } from '../queries'
@@ -28,6 +29,41 @@ export function useAdminActions() {
     qc.invalidateQueries({ queryKey: ['admin', 'users'] })
     qc.invalidateQueries({ queryKey: ['admin', 'user'] })
   }
+
+  // R6.18 provisioning. Both mints have refusals an Admin needs told apart:
+  // "that address already has an account" and "your own domain policy forbids
+  // it" are different problems with different fixes, and the generic failure
+  // toast would send an operator looking in the wrong place.
+  const createUser = useMutation({
+    mutationFn: ({ email, displayName }: { email: string; displayName: string | null }) =>
+      adminApi.createUser(email, displayName),
+    onSuccess: _invalidateUserQueries,
+    onError: (err) => {
+      if (isProblemWithType(err, 'auth/email-taken')) {
+        toast.error(t('admin.users.createEmailTaken'))
+      } else if (isProblemWithType(err, 'auth/domain-denied')) {
+        toast.error(t('admin.users.createDomainDenied'))
+      } else {
+        toast.error(t('admin.actionErrors.createUserFailed'))
+      }
+    },
+  })
+
+  const reissueActivationLinks = useMutation({
+    mutationFn: (userId: string) => adminApi.reissueActivationLinks(userId),
+    onError: (err) => {
+      if (isProblemWithType(err, 'admin/activation-links-rate-limited')) {
+        toast.error(t('admin.users.linksRateLimited'))
+      } else if (err instanceof ApiError && err.status === 409) {
+        // A plain 409 from the route, not a typed Problem: the guard refuses an
+        // account that can already authenticate (a password *or* a linked
+        // identity), which is the one refusal an Admin must not read as a bug.
+        toast.error(t('admin.users.alreadyActivated'))
+      } else {
+        toast.error(t('admin.actionErrors.reissueLinksFailed'))
+      }
+    },
+  })
 
   const banUser = useMutation({
     mutationFn: ({ userId, reason }: { userId: string; reason: string }) =>
@@ -128,6 +164,8 @@ export function useAdminActions() {
 
   return {
     promptBan,
+    createUser,
+    reissueActivationLinks,
     banUser,
     unbanUser,
     softDeleteUser,

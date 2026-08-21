@@ -1,6 +1,16 @@
 <template>
   <section class="admin-users">
-    <SPageHeader :title="$t('admin.users.title')" />
+    <SPageHeader :title="$t('admin.users.title')">
+      <template #actions>
+        <SButton
+          variant="primary"
+          size="sm"
+          @click="showCreate = true"
+        >
+          {{ $t('admin.users.create') }}
+        </SButton>
+      </template>
+    </SPageHeader>
 
     <form
       class="admin-users__filters"
@@ -93,6 +103,21 @@
         />
       </template>
     </STable>
+
+    <AdminCreateUserDialog
+      :open="showCreate"
+      :pending="actions.createUser.isPending.value"
+      @close="showCreate = false"
+      @submit="onCreate"
+    />
+
+    <AdminActivationLinksDialog
+      v-if="provisioned"
+      :open="true"
+      :email="provisioned.user.email"
+      :links="provisioned.activation_links"
+      @close="provisioned = null"
+    />
   </section>
 </template>
 
@@ -110,7 +135,7 @@ import {
   SEmptyState,
   SQueryError,
 } from '@shared/ui'
-import { useConfirmDialog } from '@shared/composables'
+import { useConfirmDialog, useToast } from '@shared/composables'
 import type { Column } from '@shared/ui/STable.vue'
 import { formatDate } from '@shared/utils/datetime'
 import { useQuery } from '@tanstack/vue-query'
@@ -118,9 +143,12 @@ import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
 import { userStatusLabelKey } from '../utils/userStatus'
-import type { UserSummary } from '../types'
+import AdminActivationLinksDialog from '../components/AdminActivationLinksDialog.vue'
+import AdminCreateUserDialog from '../components/AdminCreateUserDialog.vue'
+import type { ProvisionedUser, UserSummary } from '../types'
 
 const { t } = useI18n()
+const toast = useToast()
 
 const searchQuery = ref('')
 const statusFilter = ref('')
@@ -171,6 +199,22 @@ const rows = computed<UserRow[]>(() => (query.data.value ?? []) as unknown as Us
 
 const actions = useAdminActions()
 const { confirm } = useConfirmDialog()
+
+const showCreate = ref(false)
+// Held in memory only, for as long as the links dialog is open. The backend
+// returns the two links once and never again from a read path (R6.18), so
+// caching them anywhere would be a second copy of a bearer credential.
+const provisioned = ref<ProvisionedUser | null>(null)
+
+function onCreate(payload: { email: string; displayName: string | null }): void {
+  actions.createUser.mutate(payload, {
+    onSuccess: (result) => {
+      showCreate.value = false
+      provisioned.value = result
+      toast.success(t('admin.users.created'))
+    },
+  })
+}
 
 async function onUnban(userId: string): Promise<void> {
   const ok = await confirm({
