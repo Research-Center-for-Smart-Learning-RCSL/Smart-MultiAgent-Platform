@@ -72,6 +72,59 @@ the 23 `<main>` roots are as enumerated.
 remains `draft`, so this dossier stays Blocked. That is also what makes Q-14 answerable - the
 sibling is what moves `AppShell.vue:141` to `dvh`.
 
+### 1.2 Second freshness re-verification (2026-08-21, after the sibling landed)
+
+`2026-08-19-shared-overlay-and-shell-defects` reached `status: implemented` on 2026-08-21, so
+**`depends_on` is now met and this dossier is unblocked**. It edited `AppShell.vue` and
+`App.vue`, which this dossier cites heavily. Every citation was re-checked.
+
+**The whole of F-4's fix site is byte-identical.** `AppShell.vue:45-51` (the watcher Q-4
+extends), `:53-55` (`noPadding`), `:67` (`contentEl`), `:75` (the only read of
+`contentEl.scrollTop`), `:89-92` (the skip link), `:18-23` (the immersive regexes) and `:123`
+(`<main id="main-content">`) are all exactly where this dossier says they are. Only the
+`<style>` block moved, because the sibling added comment lines above it.
+
+**Line drift, rules unchanged** (the padding ladder is byte-identical as CSS; only its
+position in the file moved):
+
+| Cited | Now |
+|---|---|
+| `AppShell.vue:183-189` | `:195-201` |
+| `AppShell.vue:188` (`padding: 24px`) | `:200` |
+| `AppShell.vue:207-209` (16px below 1024) | `:219-221` |
+| `AppShell.vue:216-218` (8px below 480) | `:229-231` |
+| `AppShell.vue:139-141` | `:148-152` |
+| `App.vue:17-23` (`layoutComponent`) | `:22-33` |
+| `App.vue:30` (`<component :is>`, still no `key`) | `:43` |
+| `App.vue:34-44` (`<Transition mode="out-in">`) | `:52-60` |
+| `App.vue:31-41` (`:key="$route.path"` and its comment) | `:48-58` |
+
+**Three material changes**, each corrected in place below rather than left for the builder:
+
+1. **`AppShell.vue:141`'s `height: 100vh` no longer exists.** The sibling replaced it with
+   `flex: 1 1 0px; min-height: 0` (now `:148-152`) and moved the viewport unit up to
+   `App.vue:79`'s `.app-root { min-height: 100vh }`. Q-6 and Q-14 both reasoned from that
+   line; both are rewritten. Q-14's premise was **already wrong** for a second, independent
+   reason - see its rationale.
+2. **`<ErrorBoundary>` now sits inside the layout**, wrapping only `<router-view>`
+   (`App.vue:47-62`). F-4's root-cause chain is unaffected - it turns on `App.vue` returning
+   the same `AppShell` object for every authenticated route and passing no `key`, which is
+   still true at `:22-33` and `:43` - but any reading of that chain should not expect the
+   boundary outside the layout any more.
+3. **§6's viewport-unit sweep still returns seven hits, with one different member.**
+   `AppShell.vue:141` is gone; `App.vue:79` takes its place. The conclusion is unchanged and
+   is what matters: **only two of the seven are inside the content area**
+   (`GraphragGraphView.vue:168` = F-10, `AgentDetailView.vue:964` = F-51), and both are this
+   dossier's. Re-swept list: `App.vue:79`, `AuthLayout.vue:27,77`, `PublicLayout.vue:14`,
+   `Landing.vue:345`, plus those two.
+
+**One thing the sibling makes stronger rather than weaker.** Its D-10 proved in a browser that
+`main.app-shell__content` is the page's scroll owner and pinned it with a test that goes red if
+it stops being one: forcing the pre-fix `flex: 1` gives 3805px of shell and 3385px of *document*
+scroll, and `frontend/e2e/21-overlay-and-shell-contract.spec.ts` now asserts the content area
+scrolls and the document does not. This dossier's central premise is therefore measured rather
+than only cited, and F-4's reset has a verified scroll container to write to.
+
 ## 2. Observed vs Expected
 
 ### F-3 (major) - 34 view roots duplicate the shell's padding
@@ -145,7 +198,7 @@ sibling is what moves `AppShell.vue:141` to `dvh`.
 | Q-3 | What element replaces the 23 `<main>` roots? | **`<div>`**, carrying only the classes that were doing something other than padding. Concretely: `ChatroomSettingsView.vue:317` (was `:227`; re-verified 2026-08-21) keeps `settings`; `GraphragGraphView.vue:168` keeps `flex flex-col` and gains the Q-6 height; the other 21 become a bare `<div>`. | `<section>` becomes a landmark only when it has an accessible name, so an unnamed `<section>` would either add nothing or add a second unnamed region to the rotor. The tenancy, admin and identity slices already use `div`/`section` for view roots with no ill effect. `<div>` is the neutral choice and none of the 21 needs a styling hook once the padding class is gone. |
 | Q-4 | F-4: where does the scroll reset live, given vue-router's `scrollBehavior` resolves through `window.scrollTo` and the real scroll container is `main.app-shell__content`? | **In `AppShell`'s existing `watch(() => route.path, ...)` at `AppShell.vue:45-51`**, not in the router and not in a new composable. | The element is already referenced there: `contentEl` (`AppShell.vue:67`, bound at `:125`) is the scroll container, and the component that owns the element is the correct place to write to it. A router `afterEach` would have to reach the DOM by `document.getElementById('main-content')`, putting a DOM query for a layout element into the routing layer and coupling `app/router.ts` to a class name it does not own. A shared composable would need the same element handed to it and would add an indirection with exactly one consumer. The watcher already exists and already fires on precisely the right signal, so the change is one statement. `main` is the shell's own element inside `app/layouts/`, so no layer boundary is crossed at all. |
 | Q-5 | F-4: is query-only navigation exempt, and how is the reset written? | **Exempt, by construction**, and written as `contentEl.value?.scrollTo({ top: 0 })`. | The watcher keys on `route.path`, so a query-only change never fires it. That matches the deliberate `:key="$route.path"` at `App.vue:31-41` and its comment, and preserves the tab and scope switches the audit judged defensible. `scrollTo` rather than `scrollTop = 0` is chosen for testability: jsdom performs no layout, so an element's `scrollTop` setter is inert and cannot be asserted, whereas `scrollTo` is a stubbable method call. This makes AC-2 a real unit assertion instead of a browser-only item. Consequence accepted and recorded: back and forward navigation also land at the top, because no saved-position store exists today (FU-1). |
-| Q-6 | F-10: give the two graph routes `contentPadding: 'none'`, or correct the view's `calc()`? | **Neither literally: drop the `calc()` and use `h-full`**, keeping the shell's padding. `GraphragGraphView.vue:168` becomes `<div class="flex flex-col h-full">`. | `contentPadding: 'none'` would push the page header, the search field and the summary line flush against the shell edges, contradicting §9's route table, which gives every non-immersive app route 24px, and the graph view is not immersive: it has a full page header (`:169-186`). Correcting the `calc()` instead would mean encoding 24/16/8px per breakpoint in the view, a third copy of the ladder that drifts the next time it changes. `main` is grid row 2 of `grid-template-rows: var(--topbar-height) 1fr` on a definite-height container (`AppShell.vue:139-141`), so its content box is definite and a child's `height: 100%` resolves against it exactly, at every breakpoint, with no arithmetic. `WorkflowEditorView.vue:2` already uses `h-full` for the same job. It also avoids adding route meta, so it does not extend the duplication the audit records as FU-1 (`AppShell.vue:18-23` hardcodes an editor regex beside the meta that already declares the same thing). |
+| Q-6 | F-10: give the two graph routes `contentPadding: 'none'`, or correct the view's `calc()`? | **Neither literally: drop the `calc()` and use `h-full`**, keeping the shell's padding. `GraphragGraphView.vue:168` becomes `<div class="flex flex-col h-full">`. | `contentPadding: 'none'` would push the page header, the search field and the summary line flush against the shell edges, contradicting §9's route table, which gives every non-immersive app route 24px, and the graph view is not immersive: it has a full page header (`:169-186`). Correcting the `calc()` instead would mean encoding 24/16/8px per breakpoint in the view, a third copy of the ladder that drifts the next time it changes. `main` is grid row 2 of `grid-template-rows: var(--topbar-height) 1fr` (`AppShell.vue:148-150`) on a container whose height is definite, so its content box is definite and a child's `height: 100%` resolves against it exactly, at every breakpoint, with no arithmetic. **Restated 2026-08-21 (§1.2):** the shell's height no longer comes from a `height: 100vh` declaration - the sibling dossier replaced it with `flex: 1 1 0px; min-height: 0` (`:151-152`) inside `App.vue`'s `.app-root` flex column. The height is now *resolved by flex layout* rather than *declared*, which is still definite, so the conclusion is unchanged. It is also no longer only an inference: that dossier measured `main` at `clientHeight` 364 with 3749px of internal scroll on a 420px viewport, so the row genuinely resolves. The one thing a builder must not do is reintroduce a percentage flex basis - its D-10 records that `flex: 1` (a `0%` basis against a `min-height`-only container) resolves to `content` and hands scrolling to the document. `WorkflowEditorView.vue:2` already uses `h-full` for the same job. It also avoids adding route meta, so it does not extend the duplication the audit records as FU-1 (`AppShell.vue:18-23` hardcodes an editor regex beside the meta that already declares the same thing). |
 | Q-7 | F-16: how is a height supplied below 1024px? | **Change `min-h-[32rem]` to `h-[32rem]` at `AgentDetailView.vue:964`**, leaving the `lg:` overrides untouched. | A definite height on the flex container is the one thing `flex-1 ... overflow-y-auto` at `PromptAssistantPanel.vue:145` needs in order to engage; `min-height` cannot supply it because the flex item's `flex-basis: 0` resolves against the container's height, which stays indefinite. `h-[32rem]` (512px) is the same number the current `min-h-` already reserves, so the panel's size below `lg` does not change for short conversations; only unbounded growth stops. Tailwind emits responsive variants after base utilities, so `lg:h-[calc(...)]` continues to win above 1024px. No change inside `PromptAssistantPanel` itself, which is correct as written. |
 | Q-8 | F-17: auto-select the most recent run, or add an empty state? | **Add an `SEmptyState` in a `v-else`, and do not auto-select.** Also replace the `…` at `:29-34` with `SSkeleton` rows. | The empty option is deliberate and documented in the code (`WorkflowBackstageView.vue:179-180`: it exists so the user can clear back to no selection), so auto-selecting would remove a state the view is written to support and would fire four queries on arrival for a run the user did not ask about. `docs/UI/12-shared-patterns.md` §6.1 asks for a contextual empty state, which is exactly the missing arm. The `…` replacement is §5.1's "structural skeleton, not a text placeholder". |
 | Q-9 | F-26 and F-27: does this dossier introduce a shared page-skeleton primitive, or fix only the cited views? | **Only the cited views. No new shared primitive.** Six views change: the three F-26 spinners and the three F-27 skeletons. | §5.1 requires the skeleton to match *that page's* structure, so a generic page skeleton would render a shape matching nothing and reintroduce the same layout shift under a new name. `SSkeleton` already exists and is the right granularity; what the three F-26 views lack is not a component but the two-line composition the audit itself cleared elsewhere (`AdminHomeView.vue:3-9` renders `SPageHeader` before the spinner; `AgentGroupDetailView.vue:126-131` bounds and centres it). Building a structural skeleton for all 74 views is a separate, much larger piece of work, recorded as FU-2 rather than smuggled in here. `SLoadingSpinner` itself is not modified: adding a min-height or centring to `shared/ui/SLoadingSpinner.vue:53-59` would change every inline and button-adjacent consumer to fix three page-level ones. |
@@ -153,7 +206,7 @@ sibling is what moves `AppShell.vue:141` to `dvh`.
 | Q-11 | F-28: what replaces `min-height: 60vh` and `min-height: 400px`? | **`min-height: 100%`** in both scoped blocks, keeping the flex centring. | Against `AppShell` this resolves to `main`'s content-box height, which is definite (Q-6's reasoning), so the block centres in the actual content area at every viewport instead of in an invented one. Against `AuthLayout`, which is `min-height: 100dvh` and not a definite height (`AuthLayout.vue:23-30`), a percentage min-height resolves to `auto`, so `NotFound` simply wraps its content and `AuthLayout`'s own `align-items: center` centres it, which is correct there too. `height: 100%` would not degrade this way, which is why `min-height` is specified. This matters because `NotFound` renders under both layouts. |
 | Q-12 | F-31: what triggers the re-fit, and what does it do? | **A watcher on the three dynamic bars' visibility (`loadError`, `conflictDetected`, `store.lintRan`) calling `fitView()` from `useVueFlow()` on `nextTick`.** Not a `ResizeObserver`. | `fit-view-on-init` (`WorkflowEditorView.vue:230`) already makes fit-view this view's viewport policy, and §2.9 documents it; extending it to "when the available canvas area changes because a bar appeared" applies the same policy rather than inventing one. A `ResizeObserver` on the canvas wrapper was rejected: it would also fire on window resize and sidebar collapse, discarding a manual pan or zoom every time the user drags a window edge, which is a worse regression than the 24px clip being fixed. The tablet notice (`:173-178`) is excluded because it is static at mount and cannot toggle, per the audit's narrowing. Cost accepted and stated in §9: a manual zoom is discarded at the moment of a validate, a save conflict or a load error. |
 | Q-13 | F-44 also reports about 390px of blank to the right of the lower admin nav on `/admin`. Is that in scope? | **No. The padding half is in scope (it is part of Q-2's sweep); the blank column is accepted as-is.** | The blank column is the arithmetic of `AdminLayout.vue:25-30` (`grid-template-columns: 220px minmax(0, 1fr); align-items: start`) meeting a 13-item nav (`slices/admin/components/AdminNav.vue:28-42`) beside a short stat grid. No padding change affects it, and the alternatives (horizontal tabs on desktop, or stretching the content column) are a redesign of the admin console's information architecture, not a spacing fix. Recorded as FU-3 so the audit hand-off has a decision to cite. |
-| Q-14 | F-51: which constant, and in which viewport unit? | **`lg:h-[calc(100dvh-3.5rem-3rem)]`**, replacing `lg:h-[calc(100vh-8rem)]` at `AgentDetailView.vue:964`. | The three terms are the topbar (`--topbar-height` = 56px, `shared/styles/main.css:66`), the 24px sticky offset that `lg:top-6` already sets, and the 24px the shell reserves at the bottom, giving a panel whose top and bottom gaps are both 24px. `8rem` counts 128px, which is 24px more than the content box allows. The unit must be whichever `.app-shell`'s `height` uses (`AppShell.vue:141`), and `docs/UI/02-layout-shell.md:104` specifies `100dvh`; `depends_on` sequences the dossier that brings the code to it, so `dvh` is correct by the time this is built. If the shell is still `100vh` when the build starts, the two must be made to agree before this line is changed, and the disagreement recorded as a deviation rather than papered over. This fix must land together with Q-2's removal of the view's own `p-6`: today the doubled gutter happens to line up with the short panel at the document bottom, and correcting one without the other would leave a visible mismatch there. |
+| Q-14 | F-51: which constant, and in which viewport unit? | **`lg:h-[calc(100vh-3.5rem-3rem)]`**, replacing `lg:h-[calc(100vh-8rem)]` at `AgentDetailView.vue:964`. The arithmetic is corrected; **the unit stays `vh`**. | The three terms are the topbar (`--topbar-height` = 56px, `shared/styles/main.css:66`), the 24px sticky offset that `lg:top-6` already sets, and the 24px the shell reserves at the bottom, giving a panel whose top and bottom gaps are both 24px. `8rem` counts 128px, which is 24px more than the content box allows. **Rewritten 2026-08-21 (§1.2). The original decision rested on two false premises and reached the wrong unit.** (a) It said "the unit must be whichever `.app-shell`'s `height` uses (`AppShell.vue:141`)" - that declaration no longer exists; the sibling dossier moved the viewport unit to `App.vue:79`'s `.app-root { min-height: 100vh }`. (b) It said "`depends_on` sequences the dossier that brings the code to `dvh`" - it does not. **F-45 belongs to `2026-08-19-mobile-viewport-and-breakpoints`** (`docs/audits/2026-08-19-page-presentation-scroll-and-feedback/findings.md:1331`), which is sequenced *after* this dossier, and `shared-overlay-and-shell-defects` deliberately kept `vh` so its own change stayed behaviour-neutral with respect to F-45 (its §7 item 1). So the shell is `vh` now and will still be `vh` when this is built. Specifying `dvh` here would mix units and reintroduce a smaller F-51 on mobile - the very thing §9 warns about - so this dossier matches the code it ships against and **`mobile-viewport-and-breakpoints` moves both to `dvh` together**, which is already its job: its §7 item 1 says to apply `100dvh` to whichever element carries the height. A one-line follow-up is recorded as FU-8 so the pairing cannot be forgotten. This fix must land together with Q-2's removal of the view's own `p-6`: today the doubled gutter happens to line up with the short panel at the document bottom, and correcting one without the other would leave a visible mismatch there. |
 | Q-15 | F-52: in scope, or deferred? | **Deferred, explicitly.** `AgentGroupDetailView.vue:143` is not changed by this dossier. | The audit marks it `plausible` and its verification withdrew the spec citation: `docs/UI/02-layout-shell.md` §3.3's "Max-width: none" governs `AppShell`'s content region, not what a view may do inside it, and the audit lists five existing views that constrain their own width (`SessionsView.vue:213-215`, `InboxInvitesView.vue:225,232`, `OrgTransferView.vue:386`, `InviteAcceptView.vue:114`, `AdminPromptStudioView.vue:12`). With no intent source, a fix would be a guess, which the bugfix contract forbids. It is also not this dossier's defect class: the other twelve are violations of the shell's padding or scroll contract, and this one is a question about whether detail views should share a width policy. That question belongs in `docs/UI/12-shared-patterns.md` first. Recorded as FU-4. |
 | Q-16 | Q-2's sweep touches roots that also carry `mx-auto max-w-3xl` / `max-w-6xl`. Are those removed too? | **No. Only the padding utility is removed; every `mx-auto max-w-*` stays.** | Page-level width capping is the same undecided question as Q-15, and two of these roots (`AdminPromptStudioView.vue:12`, and by extension its org and personal siblings) are among the precedents the audit cited when withdrawing F-52's spec claim. Removing them here would decide Q-15 by accident, in the opposite direction, without an intent source. |
 
@@ -276,6 +329,11 @@ and were written against those slices' padding convention rather than the admin 
   `AppShell` (`GraphragGraphView.vue:168` = F-10, `AgentDetailView.vue:964` = F-51). The other
   five are `AppShell.vue:141` itself (F-45, owned by the sibling dossier), `AuthLayout.vue:27,77`,
   `PublicLayout.vue:14` and `Landing.vue:345`, none of which is inside the content area.
+  **Re-swept 2026-08-21 (§1.2): still seven, one member different.** `AppShell.vue:141` is gone
+  and `App.vue:79` (`.app-root { min-height: 100vh }`) takes its place, because the sibling
+  dossier moved the viewport unit up a level. F-45 moved with it and still belongs to
+  `2026-08-19-mobile-viewport-and-breakpoints`. The clearance is unchanged: exactly two hits are
+  inside the content area, and both are this dossier's.
 - **Other arbitrary centring boxes (the F-28 pattern)**: **cleared**. A grep for
   `min-height: <n>px|<n>vh` and `min-h-[` across `frontend/src` returns 27 hits; only
   `NotFound.vue:39` and `InviteAcceptView.vue:110` are page-level layout boxes. Every other hit
@@ -327,8 +385,9 @@ the shell already declares.
    `AppShell.vue:45-51`, per Q-4 and Q-5. No change to `router.ts`, `guards.ts` or `App.vue`.
 4. **F-16**. `AgentDetailView.vue:964`: `min-h-[32rem]` becomes `h-[32rem]`, per Q-7.
 5. **F-51**. `AgentDetailView.vue:964`: `lg:h-[calc(100vh-8rem)]` becomes
-   `lg:h-[calc(100dvh-3.5rem-3rem)]`, per Q-14. Items 4 and 5 are the same attribute and land
-   together.
+   `lg:h-[calc(100vh-3.5rem-3rem)]`, per Q-14 (**corrected 2026-08-21: `vh`, not `dvh`** - the
+   shell is `vh` and `mobile-viewport-and-breakpoints` moves both together; see FU-8). Items 4
+   and 5 are the same attribute and land together.
 6. **F-17**. `WorkflowBackstageView.vue`: add a `v-else` to the `:23-131` block rendering an
    `SEmptyState` with a contextual title and text stating that a run must be selected, and
    replace the `…` at `:29-34` with `SSkeleton` rows. New strings in
@@ -384,7 +443,7 @@ gap being merely declared.
 | T-6 | `frontend/src/slices/agents/__tests__/AgentDetailView.test.ts` (extend) | The loading branch renders one header skeleton, five rect skeletons and two card groups of four field skeletons, matching `docs/UI/06-agents.md:449-452` | The current branch renders 1 + 5 + 2 flat skeletons (F-27) |
 | T-7 | `frontend/src/slices/tenancy/__tests__/InboxInvitesView.test.ts`, `frontend/src/slices/identity/__tests__/SessionsView.test.ts` (extend both) | The skeleton branch renders the reduced count and heights decided in Q-10 (prop assertions on `SSkeleton`) | Three 120px and three 80px rects respectively (F-27). This pins the shape; the height comparison against the empty state is T-13 |
 | T-8 | `frontend/src/slices/workflow/__tests__/WorkflowEditorView.test.ts` (extend) | With `useVueFlow` mocked, `fitView` is called when `store.lintRan` flips true, when `conflictDetected` flips true and when `loadError` becomes set; it is not called on an unrelated store change | Nothing calls `fitView` anywhere in the file (F-31) |
-| T-9 | `frontend/src/slices/agents/__tests__/AgentDetailView.test.ts` (extend) | The `PromptAssistantPanel` mount site's class list contains `h-[32rem]` and `lg:h-[calc(100dvh-3.5rem-3rem)]`, and contains neither `min-h-[32rem]` nor `lg:h-[calc(100vh-8rem)]` | Both old values are present (F-16, F-51). A class assertion only; the behaviour is T-14 and T-15 |
+| T-9 | `frontend/src/slices/agents/__tests__/AgentDetailView.test.ts` (extend) | The `PromptAssistantPanel` mount site's class list contains `h-[32rem]` and `lg:h-[calc(100vh-3.5rem-3rem)]`, and contains neither `min-h-[32rem]` nor `lg:h-[calc(100vh-8rem)]` (**unit corrected 2026-08-21**, see Q-14) | Both old values are present (F-16, F-51). A class assertion only; the behaviour is T-14 and T-15 |
 
 ### Tier 2 - Playwright, in a real browser, where the outcome is a geometry
 
@@ -446,10 +505,14 @@ outcomes, because they are all layout, and the unit tier has no layout engine.
   moments are validate, save conflict and load error, which are exactly when the user wants the
   whole graph. If it proves disruptive in use, the fallback is to translate the viewport by the
   height delta instead of re-fitting, which preserves zoom at the cost of a measurement.
-- **Q-14 depends on the shell's viewport unit.** If `AppShell.vue:141` is still `100vh` when
-  this is built, the panel constant and the shell must be made to agree first, and the
-  disagreement recorded as a deviation. Mixing `dvh` in a view with `vh` in the shell would
-  reintroduce a smaller version of F-51 on mobile.
+- **Q-14 depends on the shell's viewport unit.** ~~If `AppShell.vue:141` is still `100vh` when
+  this is built, the panel constant and the shell must be made to agree first.~~ **Resolved
+  2026-08-21 (§1.2):** the shell's unit lives at `App.vue:79` (`min-height: 100vh`) and stays
+  `vh` until `2026-08-19-mobile-viewport-and-breakpoints` runs, which is sequenced after this
+  dossier. Q-14 now specifies `vh` to match, so there is no disagreement to record. The risk
+  it warned about is still live in the other direction and is now FU-8: whoever moves the shell
+  to `dvh` must move this panel constant in the same change, or mixing `dvh` in the shell with
+  `vh` in the view reintroduces a smaller F-51 on mobile.
 - **`h-full` against a padded `main` has no in-repo precedent.** Both existing users
   (`WorkflowEditorView.vue:2`, `ChatroomView.vue:1086`) sit on `contentPadding: 'none'` routes.
   The CSS reasoning is stated in Q-6 and the outcome is asserted by T-12, which is a real browser
@@ -501,8 +564,14 @@ outcomes, because they are all layout, and the unit tier has no layout engine.
       project's remote-CI rule, CI is authoritative over the local Windows host.
 - [ ] AC-16: `frontend/e2e/19-layout-contract.spec.ts` passes in CI. Any of T-10 to T-16 that
       cannot be made to pass is reported as an open item rather than deleted or weakened.
-- [ ] AC-17: `AppShell.vue:188,207-209,216-218` is byte-identical to before the change: the
-      shell's padding ladder is the contract this dossier restores, not something it edits.
+- [ ] AC-17: the shell's padding ladder is byte-identical to before the change: the three rules
+      `.app-shell__content { padding: 24px }`, its `@media (max-width: 1023px)` override to 16px
+      and its `@media (max-width: 479px)` override to 8px, plus the two
+      `.app-shell__content--no-pad` companions, are untouched. **Stated as rules rather than
+      line numbers (2026-08-21, §1.2)**: the sibling dossier shifted the whole `<style>` block
+      down, so the ladder now sits at `AppShell.vue:195-201,219-225,229-235` and a
+      line-number-based check would fail on a file this dossier never edited. The ladder is the
+      contract this dossier restores, not something it edits.
 
 ## 11. SRS Delta
 
@@ -510,7 +579,11 @@ None. `REQUIREMENTS.md` carries no requirement for content-area padding or scrol
 management; the intent sources for all thirteen findings are `docs/UI/02-layout-shell.md`,
 `docs/UI/06-agents.md`, `docs/UI/08-workflow.md` and `docs/UI/12-shared-patterns.md`, and every
 fix restores conformance with them rather than defining new behaviour. `docs/UI/02-layout-shell.md`
-already specifies the shell as `100dvh` (`:104`) and needs no amendment for Q-14.
+already specifies the shell as `100dvh` (`:104`) and needs no amendment for Q-14. **Note
+(2026-08-21, §1.2):** the code does not match that line today - the shell's viewport unit is
+`100vh` at `App.vue:79` - and closing that gap is F-45's job, owned by
+`2026-08-19-mobile-viewport-and-breakpoints`. Q-14 deliberately matches the code rather than the
+document so this dossier ships one consistent unit; FU-8 pairs the two edits.
 
 ## 12. Deviation Log
 
@@ -545,6 +618,13 @@ Appended by /build.
   padding utility or a `<main>` element on a view template root would fail at the point of
   writing rather than at test time, and would join the twelve gates. Worth doing if the sweep
   ever has to be exempted for a legitimate case.
+- **FU-8** - **the sticky panel constant and the shell's viewport unit must move to `dvh`
+  together.** Q-14 ships `lg:h-[calc(100vh-3.5rem-3rem)]` because the shell is `vh`
+  (`App.vue:79`). `2026-08-19-mobile-viewport-and-breakpoints` owns F-45 and is sequenced after
+  this dossier; when it moves the shell to `100dvh` it must move this one line in
+  `AgentDetailView.vue:964` in the same change, and update T-9's expected class with it.
+  Leaving one behind reintroduces a smaller F-51 on mobile - the exact failure §9 warns about,
+  now pointed the other way. This is a one-line pairing, not a design question.
 - **FU-7** - the audit's FU-1 remains open: `AppShell.vue:18-23` hardcodes the chatroom and
   workflow-editor path regexes that `slices/conversation/routes.ts:26` and
   `slices/workflow/routes.ts:14` already declare as meta. Q-6 was chosen partly so as not to
