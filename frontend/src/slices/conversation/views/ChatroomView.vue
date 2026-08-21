@@ -962,8 +962,16 @@ function onSelectHit(hit: SearchHit): void {
 
 async function onLoadEarlier(): Promise<void> {
   captureBeforePrepend()
-  await loadEarlier()
-  restoreAfterPrepend()
+  try {
+    await loadEarlier()
+  } finally {
+    // Unconditional: the capture disarms the arrival watch and the top trigger
+    // until the restore rearms them, so a throw between the two would leave the
+    // feed without a pill and without auto-pagination for the rest of the
+    // session. `loadEarlierPage` swallows its own failures, but its retry arm
+    // awaits `invalidateQueries` from inside a catch, which can reject.
+    restoreAfterPrepend()
+  }
 }
 
 // Scroll-based pagination (07-conversation.md:895). The button stays as the
@@ -985,7 +993,15 @@ let autoLoadExhausted = false
 
 async function autoLoadEarlier(): Promise<void> {
   const before = messages.value.length
-  await onLoadEarlier()
+  try {
+    await onLoadEarlier()
+  } catch {
+    // Nothing to report: loadEarlierPage has already toasted whatever it could
+    // diagnose. This exists so the observer callback, which cannot await, does
+    // not turn a rejection into an unhandled one (the F-9 shape).
+    autoLoadExhausted = true
+    return
+  }
   if (messages.value.length === before) autoLoadExhausted = true
 }
 

@@ -521,6 +521,28 @@ describe('useChatroomScroll top trigger (F-24)', () => {
     expect(onReach).toHaveBeenCalledTimes(1)
   })
 
+  it('stays disarmed if a prepend never restores, and rearms when one does', async () => {
+    // The capture disarms; only the restore rearms. A caller that throws
+    // between the two would otherwise leave the feed permanently without a
+    // pill and without auto-pagination, which is why ChatroomView's
+    // onLoadEarlier restores in a `finally`.
+    const mounted = mountScroll(['m_1'])
+    wrapper = mounted.wrapper
+    await nextTick()
+    const { onReach } = armed(mounted)
+
+    mounted.scroll.captureBeforePrepend()
+    await nextTick()
+    await nextTick()
+    reportIntersecting(true)
+    expect(onReach).not.toHaveBeenCalled()
+
+    mounted.scroll.restoreAfterPrepend()
+    await nextTick()
+    reportIntersecting(true)
+    expect(onReach).toHaveBeenCalledTimes(1)
+  })
+
   it('disposes the previous observer when the sentinel is re-observed', async () => {
     const mounted = mountScroll(['m_1'])
     wrapper = mounted.wrapper
