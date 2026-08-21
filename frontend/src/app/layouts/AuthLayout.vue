@@ -26,7 +26,14 @@ import BrandLogo from '@app/components/BrandLogo.vue'
   justify-content: center;
   min-height: 100dvh;
   background: var(--color-surface);
-  padding: 16px;
+  /* max(), not addition: on a device with no cutout every env() is 0px and the
+     designed 16px gutter is what survives; on one with a cutout the larger of
+     the two wins. A bare env() would shrink the gutter below its design value.
+     Unauthenticated routes render outside AppShell, so they carry their own. */
+  padding: max(16px, env(safe-area-inset-top, 0px))
+    max(16px, env(safe-area-inset-right, 0px))
+    max(16px, env(safe-area-inset-bottom, 0px))
+    max(16px, env(safe-area-inset-left, 0px));
 }
 
 .auth-layout__wrapper {
@@ -75,7 +82,12 @@ import BrandLogo from '@app/components/BrandLogo.vue'
   .auth-layout__wrapper {
     max-width: none;
     min-height: 100dvh;
-    padding: 24px 16px;
+    /* The root drops its padding at xs, so the insets move here with the
+       gutters they have to survive. */
+    padding: max(24px, env(safe-area-inset-top, 0px))
+      max(16px, env(safe-area-inset-right, 0px))
+      max(24px, env(safe-area-inset-bottom, 0px))
+      max(16px, env(safe-area-inset-left, 0px));
   }
 }
 </style>

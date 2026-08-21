@@ -26,7 +26,15 @@ describe('SModal viewport fit', () => {
     // flex-start plus margin: auto on the panel centres it in a scroll
     // container without the top-clipping align-items: center produces there.
     expect(declaration(rule as string, 'align-items')).toBe('flex-start')
-    expect(declaration(rule as string, 'padding')).toBe('24px')
+    // What F-41 needs is that the panel is never flush against the viewport
+    // edge, which the literal 24px used to say. The safe-area work (F-25) made
+    // each side max(24px, inset): still >= 24px everywhere, and larger only
+    // where a cutout demands it. Asserting the four floors keeps the original
+    // guarantee without pinning a spelling that a device inset has to change.
+    const padding = declaration(rule as string, 'padding') ?? ''
+    for (const side of ['top', 'right', 'bottom', 'left']) {
+      expect(padding).toContain(`max(24px, env(safe-area-inset-${side}, 0px))`)
+    }
   })
 
   it('centres the panel with auto margins, which a scroll container respects', () => {

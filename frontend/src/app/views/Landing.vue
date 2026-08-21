@@ -345,7 +345,12 @@ useDocumentMeta({
   min-height: 100dvh;
   max-width: 1180px;
   margin: 0 auto;
-  padding: 0 24px;
+  /* Landscape is the case that matters here: the cutout eats one gutter, and
+     max() keeps the designed 24px wherever the inset is smaller. The page
+     scrolls the document, so its footer is reachable past the home indicator
+     and needs no bottom inset. */
+  padding: 0 max(24px, env(safe-area-inset-right, 0px)) 0
+    max(24px, env(safe-area-inset-left, 0px));
 }
 
 /* -- Nav -- */
