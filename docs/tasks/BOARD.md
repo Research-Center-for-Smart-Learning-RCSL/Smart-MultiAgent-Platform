@@ -178,6 +178,13 @@ One operational trap it surfaced: the backend primes its rate-limit policies at 
 backend started before `alembic upgrade head` leaves that table missing and every later
 login bounces — restart it after migrating.
 
+**D-24 is a post-close `/code-review` catch that outlives this task.** `useFocusTrap`'s
+watcher had no `immediate`, so a dialog mounted **already open** — `v-if="result"` on the
+wrapper with a constant `:open="true"` inside — never fired it: no focus move, no scroll
+lock, Tab walking the page behind the modal. Fixed in the shared composable rather than at
+the call sites, and it now has the regression test it never had. If you add a dialog that
+can mount open, this is why it works.
+
 **FU-11 is a standing warning, not this task's bug.** The email-domain allowlist that
 `docs/operations.md` §7a.5 now tells operators to depend on lives in Redis under
 `allkeys-lru` with no TTL, and an absent `mode` reads as `off` — so memory pressure or a
