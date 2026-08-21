@@ -130,8 +130,17 @@ function onBackdropClick() {
   inset: 0;
   z-index: var(--z-modal);
   display: flex;
-  align-items: center;
+  /* Only the body is height-capped, so header + body + footer can exceed the
+     viewport. align-items: center in a container that neither scrolls nor pads
+     put half of that excess above y = 0, where nothing could reach it - and
+     the clipped element is the dialog's aria-labelledby target. flex-start
+     plus the panel's margin: auto still centres, but a scroll container
+     honours the auto margins rather than clipping past its start edge.
+     Matches --s-modal-full's calc(100vw - 48px). */
+  align-items: flex-start;
   justify-content: center;
+  overflow-y: auto;
+  padding: 24px;
 }
 
 .s-modal__backdrop {
@@ -142,6 +151,8 @@ function onBackdropClick() {
 
 .s-modal__panel {
   position: relative;
+  /* Centres inside .s-modal's scroll container; see the note there. */
+  margin: auto;
   background: var(--color-bg);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
@@ -261,6 +272,8 @@ function onBackdropClick() {
   .s-modal {
     align-items: stretch;
     justify-content: stretch;
+    /* Full screen means edge to edge; the desktop inset would draw a border. */
+    padding: 0;
   }
 
   .s-modal__panel,
@@ -273,6 +286,9 @@ function onBackdropClick() {
     width: 100%;
     height: 100%;
     border-radius: 0;
+    /* Auto cross-axis margins outrank align-items: stretch; zero them so the
+       full-screen branch does not depend on the explicit height above. */
+    margin: 0;
   }
 
   .s-modal__body {
