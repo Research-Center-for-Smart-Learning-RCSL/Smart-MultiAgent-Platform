@@ -473,6 +473,23 @@ the user before any code moved; the rest were forced by what the work found.
   `auth`, `auth-recovery` and `other` buckets but nothing raises the invite limit, so a
   stack that has served several suite runs trips it. The second is shared-room state between
   the two tests in that file. Both are recorded as FU-10 rather than fixed here.
+- **D-16 - a post-close `/code-review` found a defect in this task's own test harness, and
+  the wrong-green half of it was worse than the reported half.** The coverage guard added
+  during the self-audit tallied visited baseline slots in module state and asserted the
+  total in `afterAll`. Playwright restarts the worker after any test failure and re-runs
+  only the failed test (`retries: 1` in CI), so module state does not survive: one flaky
+  surface would leave the tally at 1 of 82 and report 81 surfaces as "a seeded entity is
+  missing" - a hard red with a wrong diagnosis. The same mechanism applied to the
+  *mismatch* accumulator, which the review did not name and which fails the dangerous way
+  round: differences recorded before a restart are discarded and their tests are not
+  re-run, so **a real computed-style regression could have disappeared into a green run**.
+  Both are fixed by asserting per surface, inside `snapshotSurface`, before it returns -
+  worker-safe, and still reporting a whole surface's differences together so the shape of a
+  mistake stays visible. Coverage is now a separate test that compares the *declared*
+  surface list against the baseline's, which is pure data and therefore holds in any worker.
+  All three were mutation-probed: a declared surface with no baseline, a baseline surface
+  nothing declares, and `--space-4: 16px -> 17px` (24 differences on the login surface
+  alone), each turning the intended test red.
 - **D-13 - a behaviour does change, in a case AC-1's baseline cannot see.** Ninety-odd
   spacing declarations were written in `rem` and now resolve through `px` tokens, because
   `--space-*` has been px since `2026-07-05-sitewide-ui-enhancement` and AC-8 forbids
@@ -556,6 +573,23 @@ the user before any code moved; the rest were forced by what the work found.
   rather than components nobody thought of, which is why the surface set cannot reach them by
   navigating. Their substitutions are proven equal by token value (AC-2) and by the source
   sweep (AC-3), but no rendered box is compared.
+- **FU-12** - the same post-close `/code-review` that found D-16 raised four findings against
+  `2026-08-19-mobile-viewport-and-breakpoints`, which is already `implemented`. They are that
+  dossier's, not this one's, and are recorded here only so they are not lost. (a) The
+  impersonation banner is the first in-flow row of `.app-root` (`App.vue:42`), so under the
+  `viewport-fit=cover` that dossier shipped it is the y=0 element whenever an admin is
+  impersonating - and it carries no `env(safe-area-inset-top)`, nor does
+  `mobileViewportContract.test.ts:115`'s "complete set" of edge surfaces name it. (b) As a
+  corollary, `--topbar-height-total` assumes the top bar is at the top of the screen; with
+  the banner rendered it is not, so the bar over-reserves the top inset. (c)
+  `AgentDetailView.test.ts:339` spells `lg:h-[calc(100vh-8rem)]` literally, and Tailwind
+  scans test files - the exact trap that dossier's `22-layout-contract.spec.ts:266` change
+  was made to close - while its own `100vh` sweep excludes `__tests__/`, so the emitted rule
+  is invisible to the guard meant to forbid it. (d) `toasterProps.ts:10` positions toasts
+  `top-right` with no `--offset`, another uncovered top-edge fixed surface. **The review also
+  independently re-resolved every `var(--...)` back to its declared value, per selector
+  context, across all 145 changed files and confirmed no substitution changes a resolved
+  value** - an external check of this dossier's central claim.
 - **FU-10** - two pre-existing e2e fragilities, found by running the full suite (D-15).
   `global-setup.ts` raises the `auth`, `auth-recovery` and `other` rate-limit buckets for the
   run but nothing raises the invite limit, so `02-org-project-flow`'s invite fails with
