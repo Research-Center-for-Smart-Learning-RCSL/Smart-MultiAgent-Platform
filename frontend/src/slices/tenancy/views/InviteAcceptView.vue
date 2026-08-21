@@ -155,7 +155,7 @@ onMounted(async () => {
   color: var(--color-muted);
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .accept-card {
     max-width: none;
     margin: 0 16px;

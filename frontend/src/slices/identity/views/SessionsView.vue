@@ -265,7 +265,7 @@ onMounted(load)
   margin-left: 16px;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .sessions-card {
     max-width: none;
   }

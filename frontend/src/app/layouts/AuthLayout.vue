@@ -66,7 +66,7 @@ import BrandLogo from '@app/components/BrandLogo.vue'
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 479px) {
   .auth-layout {
     padding: 0;
     align-items: flex-start;

@@ -316,7 +316,7 @@ async function submit(): Promise<void> {
   color: var(--color-muted);
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .form-card {
     max-width: none;
   }

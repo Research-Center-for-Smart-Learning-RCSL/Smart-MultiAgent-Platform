@@ -96,7 +96,7 @@
   color: var(--color-muted);
 }
 
-@media (max-width: 480px) {
+@media (max-width: 479px) {
   .danger-content {
     flex-direction: column;
     align-items: flex-start;

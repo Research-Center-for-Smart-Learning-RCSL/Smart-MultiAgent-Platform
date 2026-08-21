@@ -60,7 +60,7 @@ defineProps<{
   text-decoration: underline;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 479px) {
   .s-auth-card__body {
     border-radius: 0;
     box-shadow: none;
