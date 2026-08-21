@@ -1326,7 +1326,7 @@ therefore stays at `reviewed` rather than `closed`: F-43 has a decision but no l
 | F-40 | fix | `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` |
 | F-41 | fix | `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` |
 | F-42 | fix | `docs/tasks/2026-08-19-mobile-viewport-and-breakpoints/` |
-| F-43 | route out as a feature; failure scenario unreachable today (no `STable` consumer passes `selectable`) | none yet; see `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/` Q-row and AC-12 |
+| F-43 | route out as a feature; failure scenario unreachable today (no `STable` consumer passes `selectable`) | none yet. Decision recorded in `docs/tasks/2026-08-19-shared-overlay-and-shell-defects/spec.md` **Q-12**, and confirmed unimplemented by its AC-12 when that dossier reached `implemented` on 2026-08-21. Build it alongside the first view that actually needs multi-select. |
 | F-44 | fix | `docs/tasks/2026-08-19-content-area-spacing-and-scroll-contract/` |
 | F-45 | fix | `docs/tasks/2026-08-19-mobile-viewport-and-breakpoints/` |
 | F-46 | fix | `docs/tasks/2026-08-19-mobile-viewport-and-breakpoints/` |

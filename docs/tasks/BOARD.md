@@ -51,7 +51,7 @@ first, but building them serially avoids the conflict.
   one, so it deserves its own reviewable change. The two bands are disjoint by construction
   (`useBreakpoint.ts:52-53`), and T-9 now asserts at 800px that the rail is **still there**, so
   the deferral is pinned rather than merely intended.
-- (moved to In progress on 2026-08-21, approved the same day)
+- (implemented 2026-08-21; see the note under In progress)
   `2026-08-19-shared-overlay-and-shell-defects`. The original entry, kept here for the record:
   `2026-08-19-shared-overlay-and-shell-defects` (bugfix, draft) - unblocked by the completed
   `2026-08-19-transient-feedback-channels`. Fixes the shared overlay primitives: `STable`'s
@@ -59,6 +59,31 @@ first, but building them serially avoids the conflict.
   exists), `ErrorBoundary` wraps the whole layout so a render error blanks the shell, and the
   404 route has no `meta`. Its impersonation-banner z-index decision must retain the completed
   predecessor's toaster contract at `--z-toast: 500`.
+
+- `2026-08-19-content-area-spacing-and-scroll-contract` (bugfix, **draft**) -
+  **unblocked 2026-08-21** by `2026-08-19-shared-overlay-and-shell-defects`. Still `draft`, so
+  it needs approval before `/build` will touch it. Strips the duplicated padding from 34 view
+  roots (and the nested `<main>` from 23 of them), and gives navigation a scroll-reset contract,
+  which today does not exist: `main.scrollTop` persists into the next view. **Its Q-14 rests on
+  a false premise - read this first.** Q-14 assumes `depends_on` sequences the dossier that
+  moves the shell's viewport height to `dvh`, so that `lg:h-[calc(100dvh-...)]` is correct by
+  the time it builds. It does not: F-45 belongs to `2026-08-19-mobile-viewport-and-breakpoints`
+  (`findings.md:1331`), which is sequenced *after* it, and `shared-overlay-and-shell-defects`
+  deliberately kept `vh` (its §7 item 1). The shell is still `vh`, so Q-14's own escape clause
+  applies: make the two agree first and record the disagreement as a deviation. Also read that
+  dossier's **D-10**: `.app-shell` now sizes from `flex: 1 1 0px`, and the reason the basis must
+  be a length is exactly what this dossier's scroll contract depends on.
+
+- `2026-08-21-visual-refinement-phase1-token-adoption` (refactor, **approved 2026-08-21**) -
+  **unblocked 2026-08-21** by `2026-08-19-shared-overlay-and-shell-defects`, which has now
+  finished editing the scoped style blocks of `STable`, `SDropdown`, `SAlert`, `SEmptyState`,
+  `SModal` and `STooltip`. Rebase onto those edits rather than assuming the rules are as its
+  Q-6 found them: `SModal` gained `overflow-y`/`padding`/`align-items` plus `margin: auto` on
+  the panel, `SDropdown` gained `position`/`overflow-y`, `STable` gained a
+  `.s-table-wrap--sticky` modifier, `SEmptyState` gained `justify-content`, and `STooltip`'s
+  `z-index` moved onto `var(--z-tooltip)`. Its **AC-1 bar is zero rendered difference**, so its
+  computed-style baseline must be captured *after* this rebase, not before. The full entry is
+  kept below in Blocked for its other detail.
 
 ### Other ready work
 
@@ -138,7 +163,9 @@ Two dossiers, sequenced. Not from an audit: they came from a direct read of `mai
 46 `shared/ui/` components and the two `docs/UI/` specification files, prompted by the user's
 report that the UI is consistent but flat.
 
-- `2026-08-21-visual-refinement-phase1-token-adoption` (refactor, **approved 2026-08-21**) - waiting on
+- (moved to Ready now on 2026-08-21, unblocked by the implemented
+  `2026-08-19-shared-overlay-and-shell-defects`) The original entry, kept here for its detail:
+  `2026-08-21-visual-refinement-phase1-token-adoption` (refactor, **approved 2026-08-21**) - waiting on
   `2026-08-19-shared-overlay-and-shell-defects`. **Overlap prerequisite only** (its Q-6): that
   dossier edits the scoped style blocks of `STable`, `SDropdown`, `SAlert`, `SEmptyState`,
   `SModal` and `STooltip`, and this one edits the same rules. Makes the design tokens
@@ -166,18 +193,8 @@ report that the UI is consistent but flat.
   AC-9 introduces a real contrast test rather than a manual measurement, which is what keeps
   the palette honest after it lands.
 
-- `2026-08-19-content-area-spacing-and-scroll-contract` (bugfix, draft) - waiting on
-  `2026-08-19-shared-overlay-and-shell-defects`. Both edit `AppShell.vue`, `router.ts` and
-  `AgentDetailView.vue`. Strips the duplicated padding from 34 view roots (and the nested
-  `<main>` from 23 of them), and gives navigation a scroll-reset contract, which today does not
-  exist: `main.scrollTop` persists into the next view. **Its Q-14 rests on a false premise -
-  read this before building it.** Q-14 assumes `depends_on` sequences the dossier that moves the
-  shell's viewport height to `dvh`, so that `lg:h-[calc(100dvh-...)]` is correct by the time it
-  builds. It does not: F-45 belongs to `2026-08-19-mobile-viewport-and-breakpoints`
-  (`findings.md:1331`), which is sequenced *after* it, and `shared-overlay-and-shell-defects`
-  explicitly keeps `vh` (its §7 item 1, so its own change stays behaviour-neutral with respect
-  to F-45). The shell will still be `vh` when this dossier starts, so Q-14's own escape clause
-  applies: make the two agree first and record the disagreement as a deviation.
+- (moved to Ready now on 2026-08-21, unblocked by the implemented
+  `2026-08-19-shared-overlay-and-shell-defects`; the Q-14 warning moved with it)
 - `2026-08-19-mobile-viewport-and-breakpoints` (bugfix, draft) - waiting on
   `2026-08-19-content-area-spacing-and-scroll-contract`. Both edit `AppShell.vue` and
   `AgentDetailView.vue`. **Read its §7 item 1 before starting**: the `100vh` line this dossier
@@ -186,12 +203,49 @@ report that the UI is consistent but flat.
 
 ## In progress
 
-- `2026-08-19-shared-overlay-and-shell-defects` (bugfix) — `depends_on:
-  [2026-08-19-transient-feedback-channels]`, met. Approved and started 2026-08-21. Twelve
-  findings across `shared/ui/` overlay primitives and `app/` shell chrome. Finishing it
-  unblocks `2026-08-19-content-area-spacing-and-scroll-contract`, and through it
-  `2026-08-19-mobile-viewport-and-breakpoints`.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-21 after implementation:
+`2026-08-19-shared-overlay-and-shell-defects` (the impersonation banner reserves its own
+space, a render error keeps the shell, an authenticated 404 keeps its chrome, and four
+shared overlay primitives that looked wired now work). **It unblocked two dossiers**, both
+moved to Ready above: `2026-08-19-content-area-spacing-and-scroll-contract` and
+`2026-08-21-visual-refinement-phase1-token-adoption`. No migration, no API change; frontend
+only. **Five things a later reader needs.**
+
+**D-10 is the one to read before touching `.app-shell`'s sizing, and it nearly shipped.**
+The approved §7 said `flex: 1`, which expands to a `0%` basis — and `.app-root` carries only
+`min-height`, so its inner size is indefinite and a percentage basis resolves to `content`.
+The shell was sized by `main`'s content, grew past the viewport, and handed scrolling to the
+**document**: measured 3805px shell, 3385px of document scroll. That is the exact inversion
+of `02-layout-shell.md` §3.3 and the ground the *next* dossier's whole scroll contract stands
+on. `flex: 1 1 0px` — a definite length — fixes it. **No unit test in this repository can see
+this**, and a short seeded list hid it; what surfaced it was an e2e precondition assertion
+failing instead of passing vacuously.
+
+**The browser pass happened and was measured** (D-12, D-13): five layout assertions green
+against a live compose stack, both central fixes mutation-probed in the browser (reverting
+the sticky wrapper puts the header at y=-154; reverting the shell basis gives 3593px of
+document scroll), `SEmptyState` centred at 244/244 in a 600px column, and Q-5's accepted cost
+quantified — a wide sticky table gives `main` 1868px of horizontal scroll and the document 0.
+
+**D-13 corrects the dossier rather than the code.** F-41's §2 wording ("the title is clipped
+above y = 0") overstates it at the 844x390 the dossier names: the panel overshoots by ~4px
+there, so what the old rule put out of reach was the panel's top edge and part of the header.
+The defect and the fix are real; the magnitude is small and grows as the viewport shortens.
+
+**D-11 is a testing lesson worth carrying.** A sticky header only pins while its own table is
+still crossing the scrollport, so filler placed *after* a table releases it before it can be
+measured — and Chromium constrains a sticky child against the scrollport's **content** box,
+so the header pins one content gutter below the top bar (80px = 56 + 24), not flush at 56.
+
+**FU-9 is an operational trap that will cost the next person an hour.** The test compose
+stack cannot bootstrap Vault as shipped: `smap.bootstrap vault-init` reads
+`/deploy/vault/policies/*.hcl`, which `compose.test.yml` never mounts. Until it is bootstrapped
+every login 500s on `InvalidPath: transit/keys/smap-jwt-sign` while `/readyz`'s vault probe
+(connectivity only) reports healthy — so the stack looks up and is not. The working `docker cp`
+recipe is in the dossier's FU-9; adding the bind mount is the real fix. Also note the full
+suite needs `backend-worker` and the two knowledge workers, or exports and jobs never settle
+(D-15).
 Removed on 2026-08-21 after implementation:
 `2026-08-19-chatroom-scroll-and-composer` (the message feed now holds the reader's position
 through a history load, counts only what actually arrived, re-pins after content grows late,
