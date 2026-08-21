@@ -712,20 +712,43 @@ that was verified and an AC that was reasoned about.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: T-1 fails before the fix and passes after, on all three of its assertions.
-- [ ] AC-2 (F-45): the element carrying the app shell's viewport height declares a `dvh` unit
+**Eight of sixteen are ticked. The eight that are not divide into two kinds, and the
+difference matters** - §8 asked that a later reader be able to tell an AC that was verified
+from one that was reasoned about.
+
+- **AC-3, AC-4b, AC-6** are device checks that **no test in this repository can close**.
+  Headless Chromium has no collapsing URL bar, opens no virtual keyboard and emulates no
+  display cutout, so `dvh`, the `visualViewport` inset and `env(safe-area-inset-*)` are all
+  identically inert there. These need real hardware and are stated as such in §8.
+- **AC-8, AC-10, AC-12, AC-13, AC-14** are Playwright criteria that are **closeable today but
+  were not closed by `/build`**. The compose stack is running on this host - the first time in
+  this series that has been true - but driving it is the `verify` skill's job and that skill
+  is reserved for explicit user invocation. They are a hand-off, not a limitation; see D-9.
+
+An AC that cannot be closed is left unticked rather than redefined into something weaker that
+can be. The precedent is `2026-08-09-chatroom-rail-scroll-and-resize`, which shipped
+`implemented` with four ACs deliberately unticked and said so.
+
+- [x] AC-1: T-1 fails before the fix and passes after, on all three of its assertions.
+      Observed red first: 5 failing assertions against the pre-fix tree (14 files with
+      inclusive queries, 2 files with `100vh`, no `dvh`, no meta, 6 un-inset surfaces).
+      The two assertions whose final form was never seen red - the narrowed prelude sweep
+      (D-3) and the `env()` fallback check - were **mutation-probed**: reverting one boundary
+      to 768 and stripping one `0px` fallback each turned exactly the intended test red.
+- [x] AC-2 (F-45): the element carrying the app shell's viewport height declares a `dvh` unit
       with no `100vh` fallback, matching `docs/UI/02-layout-shell.md:102`, and no `100vh`
       remains anywhere in `frontend/src/app/`. Which element that is depends on whether
       `2026-08-19-shared-overlay-and-shell-defects` has landed; see §7 item 1.
 - [ ] AC-3 (F-45): **device check.** On iOS Safari 16.2+ and on Chrome Android 110+, a fresh
       load of `/chatrooms/:id` with the toolbar expanded shows the composer fully within the
       visible area, without scrolling. Cannot be closed by any test in this repository (§8).
-- [ ] AC-4a (F-46): T-2 passes, pinning the inset formula including the `offsetTop` term and
-      the clamp at `useVisualViewport.ts:27`.
+- [x] AC-4a (F-46): T-2 passes, pinning the inset formula including the `offsetTop` term and
+      the clamp at `useVisualViewport.ts:27`. Seven cases; passed before the fix too, as §8
+      said it would.
 - [ ] AC-4b (F-46): **device check.** On a real phone with the toolbar expanded, focusing the
       chatroom composer leaves its bottom edge flush above the keyboard, with no part of it
       obscured. Cannot be closed by any test in this repository (§8).
-- [ ] AC-5 (F-25): `frontend/index.html:5` carries `viewport-fit=cover` **and** all seven
+- [x] AC-5 (F-25): `frontend/index.html:5` carries `viewport-fit=cover` **and** all seven
       surfaces named in Q-5 reference `env(safe-area-inset-*)`, asserted together by T-1(b)
       so neither can land without the other.
 - [ ] AC-6 (F-25): **device check.** On a notched iPhone, portrait and landscape: the
@@ -734,20 +757,28 @@ that was verified and an AC that was reasoned about.
       drawer and a full-screen modal clear both the cutout and the indicator; the landing
       page's content clears the landscape cutout. Cannot be closed by any test in this
       repository (§8).
-- [ ] AC-7 (F-39): no width-conditional `@media` under `frontend/src` uses
+- [x] AC-7 (F-39): no width-conditional `@media` under `frontend/src` uses
       `max-width: 480px` or `max-width: 768px`; the 7 already-correct blocks listed in §2 are
-      byte-identical to before; `Landing.vue:752` and `:798` are unchanged.
+      byte-identical to before; `Landing.vue:752` and `:798` are unchanged. Re-enumerated
+      after the edit: 26 blocks, 24 exclusive and 2 ad-hoc, and the diff is exactly 17
+      one-line changes across 14 files. The five element-level `max-width: 480px` caps in the
+      identity views were correctly **not** touched (D-3).
 - [ ] AC-8 (F-39): **Playwright at 480x800.** `/login` renders the `sm` treatment (420px
       wrapper, card shadow and radius present) at exactly 480 CSS px, and `useBreakpoint()`
       and the CSS agree.
-- [ ] AC-9 (F-42): `.s-drawer__panel--sm` resolves to `min(280px, 85vw)`, matching
-      `docs/UI/11-responsive-a11y.md:58`.
+- [x] AC-9 (F-42): `.s-drawer__panel--sm` resolves to `min(280px, 85vw)`, matching
+      `docs/UI/11-responsive-a11y.md:58`. The declaration is exactly that, with the redundant
+      separate `max-width` removed, and T-3 pins that `size="sm"` still reaches the panel as
+      the modifier class the rule targets. The *rendered* width at 375 and 320 is AC-10's
+      pending e2e half.
 - [ ] AC-10 (F-42): **Playwright at 320x568.** With the sidebar drawer open,
       `scrollWidth === clientWidth` on the sidebar element and every nav row's right edge
       lies inside the drawer panel's box. Fails today by 36px per §5.
-- [ ] AC-11 (F-42): `docs/UI/11-responsive-a11y.md:59` states the drawer's real z-index and
+- [x] AC-11 (F-42): `docs/UI/11-responsive-a11y.md:59` states the drawer's real z-index and
       the reason; `SDrawer.vue:116` is unchanged and every other drawer consumer is
-      unaffected.
+      unaffected. The doc entry also now records the narrower in-drawer nav width that Q-10
+      accepted, so it is documented rather than discovered. T-3 pins the modal properties
+      (`role`, `aria-modal`, backdrop) that are the reason for the z-index.
 - [ ] AC-12 (F-18): **Playwright at 375x812.** On `/agents/:id`, scrolled fully to the bottom
       of the Prompt tab, the last form control's bounding box does not intersect the action
       bar's, and the action bar is visible at every scroll position from top to bottom. The
@@ -760,11 +791,22 @@ that was verified and an AC that was reasoned about.
       `tablet`/`mobile`/`mobile-xs` `testMatch`-scoped to `23-mobile-viewport.spec.ts`; the
       existing **22** specs still pass under the renamed `desktop` project unchanged; and
       `pnpm run test:e2e` with no `--project` runs 22 + 3 spec instances, not 88.
-- [ ] AC-16 (paired edit, from `content-area-spacing-and-scroll-contract`'s FU-8):
+- [x] AC-16 (paired edit, from `content-area-spacing-and-scroll-contract`'s FU-8):
       `AgentDetailView.vue:988` uses the same viewport unit as the shell, and
       `AgentDetailView.test.ts:335` is updated to match while `:336` stays byte-identical
-      (§1.2 change 2). No `100vh` remains in `frontend/src` at all.
-- [ ] AC-15: gates green: `pnpm lint` (all 12), `pnpm typecheck`, `pnpm test`, `pnpm build`.
+      (§1.2 change 2). No `100vh` remains in `frontend/src` at all - asserted by T-1 over
+      every `.vue` and `.css` outside `__tests__/`, and confirmed in the emitted bundle,
+      where the only surviving `100vh` utility is the dead one FU-10 explains.
+- [x] AC-15: gates green: `pnpm lint` (all 12), `pnpm typecheck`, `pnpm test`
+      (212 files, 1374 tests), `pnpm build`. Backend untouched, so its gates are N/A.
+      `check-quality` ran over the full task diff and returned 0 Critical, 2 Warning,
+      3 Info, all Introduced and all fixed (D-7, D-8, and the e2e/composable test
+      tightening) rather than deferred; no Pre-existing findings.
+      `check-security` is **N/A**: the diff is CSS declarations, one viewport meta
+      attribute, one Tailwind class list and tests. It touches no auth logic, no provider
+      keys, no tenant boundary, no WebSocket, no upload, no user-input path, no agent or
+      prompt surface, no dependency manifest and no deploy config. `AuthLayout.vue` is an
+      auth *page layout* and the change to it is padding.
 
 ## 11. SRS Delta
 
@@ -776,7 +818,56 @@ and, deferred to FU-5, `:110` (mobile action-button orientation, Q-13).
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1**: T-4's second assertion was written to carry the `sticky` class as well as the
+  structural position, so **both** of its assertions fail before the fix. §1.2 change 3
+  predicted it would already pass as a pure characterization pin. The combined form is
+  strictly stronger and the structural half still guards the thing §1.2 cared about - that a
+  later edit cannot move the bar out of the scrolled subtree while leaving an innocent class
+  list - so it was kept rather than split.
+- **D-2**: F-45's paired edit and F-18 landed in **one commit** (`b8e2b43`), because both
+  edit `AgentDetailView.vue` and `AgentDetailView.test.ts` and git commits whole files.
+  §9's rollback note claims the six findings "share no file except `AppShell.vue`"; that is
+  false for these two, and reverting either one alone means an interactive revert rather
+  than `git revert`. Every other finding is an independent commit as §9 describes.
+- **D-3**: **T-1(a) had to be narrowed to the `@media` prelude.** As first written it scanned
+  whole files for `max-width: 480px`, and reported five false positives:
+  `.form-card`/`.warning-text` element width caps in `ChangeEmailView`, `ChangePasswordView`
+  (x2), `DeleteAccountView` and `ProfileView`. Those share the literal with the breakpoint
+  but are element widths; rewriting them to 479 would have resized four cards to satisfy a
+  rule about media queries. The narrowed form was mutation-probed (a boundary reverted to
+  768 turns it red).
+- **D-4**: **T-1 strips `/* */` and `<!-- -->` comments before scanning.** Every assertion in
+  it is a rule about a *declaration*, and the comment that explains why a declaration is
+  written the way it is has to be free to name the spelling it rejects. Without this, writing
+  `dvh, not 100vh` beside the fix failed the sweep the fix exists to satisfy - which it did,
+  on the first run after the F-45 edit.
+- **D-5**: `SModal.test.ts:29`'s pre-existing F-41 assertion moved from the literal
+  `padding: 24px` to the four `max(24px, env(...))` floors. The guarantee it encodes - the
+  panel is never flush against the viewport edge - is unchanged and now holds at `>= 24px`
+  rather than `== 24px`. The literal was not weakened away; it was re-expressed because
+  §7 item 3 changes the declaration it pinned.
+- **D-6**: **AC-14 was rescoped before implementation, with the user's agreement.** The
+  approved table implied four projects each running the whole suite; `workers: 1` plus
+  `ci.yml:1040`'s bare `pnpm run test:e2e` makes that 88 serial spec runs. The three narrow
+  projects are `testMatch`-scoped to the new spec. Recorded in §8, with the accepted cost as
+  FU-8.
+- **D-7**: **`--topbar-height-total` was added to `main.css`**, and `AppShell`'s grid track
+  and `AppTopBar`'s height both read it. §7 item 3 specified the
+  `calc(var(--topbar-height) + env(safe-area-inset-top, 0px))` expression inline in both
+  places; the quality gate flagged that as two spellings of one number that must stay equal -
+  the same shape as F-45 itself. Declared outside `@theme` deliberately: that block is
+  Tailwind's token source and its values are processed at build time, while this one must
+  reach the browser intact because `env()` resolves per device. Verified in the emitted CSS.
+- **D-8**: `e2e/22-layout-contract.spec.ts:267`'s comment was reworded. It named the class
+  literal `lg:h-[calc(100vh-3.5rem-3rem)]`, and **Tailwind scans e2e specs**, so the comment
+  was emitting a real `calc(100vh - 6.5rem)` rule into the bundle - dead the moment §7 item 1
+  moved the unit. Confirmed by rebuilding: the rule is gone. See FU-10 for the general case.
+- **D-9**: **No behavioural verification was performed by `/build`.** The compose stack is up
+  on this host, which is the first time in this series that has been true, but the `verify`
+  skill is reserved for explicit user invocation and its workflow may not be replicated by
+  other means. AC-8, AC-10, AC-12, AC-13 and AC-14 are therefore left **unticked** rather
+  than claimed, and are `/verify`'s to close. This is a hand-off, not an impossibility -
+  unlike AC-3, AC-4b and AC-6, which no test in this repository can close (§8).
 
 ## 13. Follow-ups
 
@@ -819,6 +910,30 @@ Appended by /build.
   viewport-conditional assertions, so the line must be amended to say that rather than left
   reading as a claim about the golden paths. If AC-14 is descoped entirely, the doc must be
   corrected instead of left aspirational.
+- **FU-9**: **the build already emits media-query range syntax, for every query in the app.**
+  Measured in `frontend/dist/assets/*.css` after `pnpm build`: **30** blocks compiled to
+  `@media (width<=N)`, including the two ad-hoc widths this dossier deliberately left alone
+  (`Landing.vue:752`, `:798`) and the pre-existing `AppShell.vue:225` at 1023px. There is no
+  `browserslist`, no `.browserslistrc`, no `build.target` and no lightningcss `targets`
+  anywhere in `frontend/`, so Vite and Tailwind v4 apply their default modern CSS target and
+  Lightning CSS rewrites `max-width: N` on the way out. **This makes Q-7(b)'s premise false.**
+  That clarification refused to author `@media (width < 480px)` because range syntax needs
+  Safari 16.4 while the floor at `11-responsive-a11y.md:346` is iOS Safari 16.2 - but the
+  toolchain has been shipping exactly that syntax for every hand-written query all along. So
+  either the stated floor is wrong, or **every media query in the product is inert on iOS
+  Safari 16.2-16.3**, which would be a far larger defect than F-39 and would mean the mobile
+  layout has never applied on those versions. Entirely pre-existing and untouched by this
+  change - the boundary edits changed literals inside queries that were already being
+  converted - so it does not block, but it wants a browser-targets decision rather than a
+  CSS edit. It also answers the open question FU-4 parked: the emitted CSS *does* use range
+  syntax, so the Tailwind-variant route is no worse than what ships today.
+- **FU-10**: **Tailwind scans test and e2e files**, so naming a class literal in a test - even
+  to assert its absence - emits a real CSS rule for it. D-8 removed one such stale rule.
+  `AgentDetailView.test.ts:336` deliberately keeps `lg:h-[calc(100vh-8rem)]` to pin the
+  absence of the superseded F-51 constant, and that one line is why the bundle still carries
+  a dead `calc(100vh - 8rem)` utility. Harmless and not worth obfuscating a regression pin
+  for, but a `@source not` directive or a scanner exclusion for `__tests__/` and `e2e/` would
+  remove the whole class of artifact.
 - **FU-8**: the 22 existing golden-path specs run at one width only, because AC-14's three new
   projects are `testMatch`-scoped to `23-mobile-viewport.spec.ts` (§8). That is the status quo
   rather than a regression, but it means no golden path is exercised at a phone width, so
