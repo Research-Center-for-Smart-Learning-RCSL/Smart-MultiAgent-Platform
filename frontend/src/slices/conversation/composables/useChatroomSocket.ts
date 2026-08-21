@@ -217,12 +217,53 @@ export function useChatroomSocket(roomId: string) {
     }
   }
 
+  // F-15: `agent.token` arrives once per token, and the store reassigns
+  // `agentStreams` immutably on every write — so each token cost a render, a
+  // `renderMarkdown` (markdown-it plus DOMPurify) and a full `v-html` subtree
+  // replacement. Buffering per agent and writing at most once per window
+  // collapses that at its source, which is why this lives here and not in
+  // `useAgentStreams`: every consumer of `agentStreams` benefits, not just the
+  // bubble. 120ms is the interval 12-shared-patterns.md:474 specifies.
+  const TOKEN_FLUSH_MS = 120
+  const tokenBuffer = new Map<string, string>()
+  let tokenFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+  function flushAgentTokens(): void {
+    if (tokenFlushTimer !== null) {
+      clearTimeout(tokenFlushTimer)
+      tokenFlushTimer = null
+    }
+    if (tokenBuffer.size === 0) return
+    const pending = [...tokenBuffer]
+    tokenBuffer.clear()
+    for (const [agentId, text] of pending) store.appendAgentToken(roomId, agentId, text)
+  }
+
+  function bufferAgentToken(agentId: string, text: string): void {
+    tokenBuffer.set(agentId, (tokenBuffer.get(agentId) ?? '') + text)
+    if (tokenFlushTimer === null) {
+      tokenFlushTimer = setTimeout(flushAgentTokens, TOKEN_FLUSH_MS)
+    }
+  }
+
+  /** Reset a stream draft, draining the buffer first.
+   *
+   *  Every reset must go through here. A token buffered before a reset would
+   *  otherwise be written after it and resurrect the draft the reset exists to
+   *  remove — a ghost bubble, which is worse than the churn being fixed. There
+   *  are six reset sites and routing them through one function is what stops a
+   *  seventh from missing the rule. */
+  function resetAgentStream(agentId?: string): void {
+    flushAgentTokens()
+    store.clearAgentStream(roomId, agentId)
+  }
+
   // Shared by applyMessageCreated (live/delta path) and reconcileMessages
   // (connect-time page fetch): an agent row arriving by either path clears
   // its stream draft and any error badge the same way.
   function clearAgentSideEffects(m: Message): void {
     if (m.sender_type === 'agent' && m.sender_id) {
-      store.clearAgentStream(roomId, m.sender_id)
+      resetAgentStream(m.sender_id)
       store.clearAgentError(roomId, m.sender_id)
     }
   }
@@ -287,11 +328,11 @@ export function useChatroomSocket(roomId: string) {
       const running = [...(store.agentThinking[roomId] ?? [])]
       store.clearAllAgentThinking(roomId)
       if (running.length > 0) {
-        for (const id of running) store.clearAgentStream(roomId, id)
+        for (const id of running) resetAgentStream(id)
       } else {
         // No per-agent set to scope to, but the turn has still been declared
         // dead — a draft left here has no later event to clear it.
-        store.clearAgentStream(roomId)
+        resetAgentStream()
       }
       store.setAgentError(roomId, 'timeout')
     }, AGENT_THINKING_TIMEOUT_MS)
@@ -371,7 +412,7 @@ export function useChatroomSocket(roomId: string) {
       case 'agent.thinking':
         if (agentId) {
           store.setAgentThinking(roomId, agentId, true)
-          store.clearAgentStream(roomId, agentId)
+          resetAgentStream(agentId)
           // A fresh turn supersedes the prior failure — clear the badge.
           store.clearAgentError(roomId, agentId)
         }
@@ -381,7 +422,7 @@ export function useChatroomSocket(roomId: string) {
       // Per-token stream from the turn engine; payload is {"text", "agent_id"}.
       case 'agent.token':
         if (typeof ev.text === 'string' && ev.text && agentId) {
-          store.appendAgentToken(roomId, agentId, ev.text)
+          bufferAgentToken(agentId, ev.text)
         }
         armThinkingTimeout()
         break
@@ -401,7 +442,7 @@ export function useChatroomSocket(roomId: string) {
       // `agent.finished`, which is the flash 07-conversation.md forbids (F-40).
       case 'agent.progress':
         if (ev.phase === 'tool_round' && agentId) {
-          store.clearAgentStream(roomId, agentId)
+          resetAgentStream(agentId)
         }
         armThinkingTimeout()
         break
@@ -414,7 +455,7 @@ export function useChatroomSocket(roomId: string) {
           // error/empty_reply this is the only cleanup site. Clearing
           // unconditionally is safer than relying on message.created
           // delivery which can be lost during reconnect races (R7).
-          store.clearAgentStream(roomId, agentId)
+          resetAgentStream(agentId)
         }
         if (typeof ev.error === 'string' && ev.error) {
           store.setAgentError(roomId, ev.error)
@@ -518,7 +559,7 @@ export function useChatroomSocket(roomId: string) {
       everConnected = true
       stopPolling()
       store.clearAllAgentThinking(roomId)
-      store.clearAgentStream(roomId)
+      resetAgentStream()
       clearThinkingTimeout()
       void reconcileMessages()
       void resyncPresence()
@@ -553,6 +594,9 @@ export function useChatroomSocket(roomId: string) {
   })
 
   onDeactivated(() => {
+    // The view is cached, not destroyed, so the buffered tail is still wanted;
+    // flushing also cancels the timer, which must not outlive the socket.
+    flushAgentTokens()
     clearThinkingTimeout()
     stopPolling()
     stopApprovalReconcile()
@@ -562,6 +606,9 @@ export function useChatroomSocket(roomId: string) {
   onBeforeUnmount(() => {
     disposed = true
     activationGeneration += 1
+    // Cancels the pending window as well as draining it: a timer surviving
+    // unmount would write into a room whose state was just reset.
+    flushAgentTokens()
     clearThinkingTimeout()
     stopPolling()
     stopApprovalReconcile()

@@ -608,7 +608,34 @@ Neither correction changes behaviour this dossier does not already change.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1** (process, not design): two of this task's commits also carry files belonging to
+  `2026-08-21-visual-refinement-phase1-token-adoption` and `-phase2-identity-and-depth`.
+  `6641be7` took a copy of that dossier pair's `BOARD.md` block; `afead2f` took a second copy
+  plus `REQUIREMENTS.md`'s [R24.28]/[R24.49]/[R24.50] delta and both spec status flips. Cause:
+  two sessions were committing to `main` within the same minute, and `git commit` commits the
+  whole index rather than the paths just passed to `git add`. The other session's `a4f0af0`
+  repaired the resulting `BOARD.md` damage (a duplicated section, a UTF-8 BOM and a mangled
+  section sign). **History was deliberately not rewritten**, at the decision of the session
+  whose work was misattributed: nothing was pushed, every file's content is correct at `HEAD`,
+  and rebasing across `a4f0af0` with two live sessions on the branch was judged riskier than
+  the misattribution. Recurrence is prevented by committing with an explicit pathspec
+  (`git commit -m msg -- <paths>`), which bounds the commit regardless of index state; every
+  commit in this task from `afead2f` onward uses that form.
+- **D-2** (F-15, wider than specified): §7 item 4 named three forced-flush sites -
+  `agent.finished`, the error path, and teardown. There are **six** places that reset a stream
+  draft, and every one of them is a site where a token buffered beforehand would be written
+  *after* the reset and resurrect the bubble the reset exists to remove:
+  `clearAgentSideEffects` (an agent's persisted message arriving by either the live or the
+  reconcile path), the watchdog's two arms, `agent.thinking` (a new turn), `agent.progress`
+  with `phase: 'tool_round'` (a superseded round - the F-40 flash), and `agent.finished`
+  (which covers the error path, same handler). The reconnect handler resets as well.
+  Rather than add a flush call at each, all of them now route through one local
+  `resetAgentStream()` that flushes then clears. The enumeration was the risk, not the
+  mechanism: a seventh reset site added later inherits the rule instead of having to remember
+  it. `agent.progress`/`tool_round` is the site the spec's list would have missed outright,
+  and it is the one whose omission is visible - the superseded round's tail would reappear on
+  top of the new round, which is exactly the flash `useChatroomSocket.ts:396-401` exists to
+  prevent. Three of the new tests cover reset sites §8's T-6 did not name.
 
 ## 13. Follow-ups
 
