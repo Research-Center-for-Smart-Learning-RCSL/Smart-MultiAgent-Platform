@@ -384,7 +384,7 @@ function onRefreshHours(v: string | number): void {
 
 .wakeup-editor__inert {
   padding: 8px 12px;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-code);
   color: var(--color-warning-on);
   background: var(--color-warning-tint);
   border-radius: var(--radius-md);
@@ -446,13 +446,13 @@ function onRefreshHours(v: string | number): void {
 }
 
 .wakeup-mode__title {
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
   color: var(--color-fg);
 }
 
 .wakeup-mode__desc {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
   line-height: 1.35;
 }
@@ -465,7 +465,7 @@ function onRefreshHours(v: string | number): void {
 }
 
 .wakeup-triggers__hint {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
   margin: 0;
 }
@@ -502,8 +502,8 @@ function onRefreshHours(v: string | number): void {
 
 .wakeup-card__title {
   flex: 1;
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
   color: var(--color-fg);
 }
 
@@ -527,7 +527,7 @@ function onRefreshHours(v: string | number): void {
 }
 
 .wakeup-field__label {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-code);
   color: var(--color-fg);
 }
 
@@ -543,13 +543,13 @@ function onRefreshHours(v: string | number): void {
 }
 
 .wakeup-field__suffix {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
   min-width: 2.5em;
 }
 
 .wakeup-field__help {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
   margin: 0;
 }
@@ -565,8 +565,8 @@ function onRefreshHours(v: string | number): void {
   align-items: center;
   gap: 8px;
   padding: 4px 2px;
-  font-size: 0.8125rem;
-  font-weight: 500;
+  font-size: var(--font-size-code);
+  font-weight: var(--weight-medium);
   color: var(--color-muted);
   background: none;
   border: none;
@@ -618,7 +618,7 @@ function onRefreshHours(v: string | number): void {
 }
 
 .wakeup-inline-toggle__label {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-code);
   color: var(--color-fg);
 }
 </style>

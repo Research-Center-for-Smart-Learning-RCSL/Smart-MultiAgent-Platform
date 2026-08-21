@@ -127,9 +127,10 @@
   --font-size-xl: 1.25rem;
   --font-size-2xl: 1.5rem;
   --font-size-3xl: 1.875rem;
-  /* The mono size docs/UI/00-overview.md's typography table already specifies
-     as a design decision ("Code / mono 0.8125rem (13px)"), named rather than
-     repeated in each of its consumers. */
+  /* The 13px step. Named for the role docs/UI/00-overview.md's typography
+     table gives it ("Code / mono 0.8125rem (13px)"), which is the design
+     decision that justifies its existence; the dense secondary labels in
+     SWakeupEditor and SFileUpload sit on the same step and share it. */
   --font-size-code: 0.8125rem;
   /* --line-none is the "text box hugs the glyph" case: a badge, an avatar
      initial, an icon-only control. --line-snug sits between tight and normal
@@ -139,6 +140,9 @@
   --line-snug: 1.4;
   --line-normal: 1.5;
   --line-relaxed: 1.6;
+  /* --weight-normal exists so a rule that deliberately resets an inherited
+     bold has a name for it; three rules do (SAlert's body, two sidebar rows). */
+  --weight-normal: 400;
   --weight-medium: 500;
   --weight-semibold: 600;
   --weight-bold: 700;

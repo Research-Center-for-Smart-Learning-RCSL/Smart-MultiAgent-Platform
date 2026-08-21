@@ -194,11 +194,11 @@ function onBackdropClick() {
 }
 
 .s-drawer__title {
-  font-size: 20px;
-  font-weight: 600;
+  font-size: var(--font-size-xl);
+  font-weight: var(--weight-semibold);
   color: var(--color-fg);
   margin: 0;
-  line-height: 1.4;
+  line-height: var(--line-snug);
 }
 
 .s-drawer__close {

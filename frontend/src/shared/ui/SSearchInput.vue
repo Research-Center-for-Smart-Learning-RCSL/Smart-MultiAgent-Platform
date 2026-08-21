@@ -143,7 +143,7 @@ function onClear() {
   border: none;
   background: transparent;
   color: var(--color-fg);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   outline: none;
 }
 

@@ -500,7 +500,7 @@ function skeletonStyle(col: Column): Record<string, string> {
 .s-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
 }
 
 /* ------- Header ------- */
@@ -513,8 +513,8 @@ function skeletonStyle(col: Column): Record<string, string> {
 .s-table__th {
   padding: 8px 12px;
   background: var(--color-surface);
-  font-weight: 600;
-  font-size: 12px;
+  font-weight: var(--weight-semibold);
+  font-size: var(--font-size-xs);
   text-transform: uppercase;
   color: var(--color-muted);
   text-align: left;
@@ -642,14 +642,14 @@ function skeletonStyle(col: Column): Record<string, string> {
 }
 
 .s-table__empty-title {
-  font-size: 16px;
-  font-weight: 500;
+  font-size: var(--font-size-md);
+  font-weight: var(--weight-medium);
   color: var(--color-fg);
   margin: 0;
 }
 
 .s-table__empty-desc {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
   margin: 0;
 }

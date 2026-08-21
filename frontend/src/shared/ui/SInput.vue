@@ -196,7 +196,7 @@ function togglePasswordVisibility() {
   border: none;
   background: transparent;
   color: var(--color-fg);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   padding: 0 8px;
   height: 100%;
   outline: none;
@@ -211,7 +211,7 @@ function togglePasswordVisibility() {
 }
 
 .s-input--sm .s-input__field {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
 }
 
 /* -- Prefix / Suffix -- */
@@ -221,7 +221,7 @@ function togglePasswordVisibility() {
   align-items: center;
   flex-shrink: 0;
   color: var(--color-muted);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
 }
 
 .s-input__prefix {

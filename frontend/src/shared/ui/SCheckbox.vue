@@ -151,7 +151,7 @@ function onChange() {
 }
 
 .s-checkbox__label {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
   user-select: none;
 }

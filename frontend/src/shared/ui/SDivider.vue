@@ -58,8 +58,8 @@ const props = withDefaults(
 
 .s-divider__label {
   color: var(--color-muted);
-  font-size: 12px;
-  line-height: 1;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-none);
   white-space: nowrap;
   flex-shrink: 0;
 }

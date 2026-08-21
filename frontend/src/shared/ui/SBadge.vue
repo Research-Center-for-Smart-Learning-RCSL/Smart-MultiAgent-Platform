@@ -60,21 +60,21 @@ const { t } = useI18n()
   display: inline-flex;
   align-items: center;
   border-radius: var(--radius-full);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   white-space: nowrap;
-  line-height: 1;
+  line-height: var(--line-none);
   vertical-align: middle;
 }
 
 /* Sizes */
 .s-badge--sm {
   height: 20px;
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   padding: 0 6px;
 }
 .s-badge--md {
   height: 24px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   padding: 0 8px;
 }
 

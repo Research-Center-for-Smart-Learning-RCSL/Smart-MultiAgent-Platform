@@ -80,7 +80,7 @@ defineProps<{
   align-items: center;
   gap: 4px;
   margin-bottom: 8px;
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
 }
 
 .s-page-header__separator {
@@ -115,9 +115,9 @@ defineProps<{
 }
 
 .s-page-header__title {
-  font-size: 1.5rem;
-  font-weight: 600;
-  line-height: 1.4;
+  font-size: var(--font-size-2xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--line-snug);
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -125,13 +125,13 @@ defineProps<{
 }
 
 .s-page-header__subtitle {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
   margin: 2px 0 0;
 }
 
 .s-page-header__description {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
   margin-top: 4px;
 }

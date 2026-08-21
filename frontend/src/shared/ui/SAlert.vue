@@ -178,17 +178,17 @@ const iconComponent = computed(() => {
 }
 
 .s-alert__title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
   margin: 0;
   line-height: 24px;
 }
 
 .s-alert__desc {
-  font-size: 14px;
-  font-weight: 400;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-normal);
   margin-top: 2px;
-  line-height: 1.5;
+  line-height: var(--line-normal);
 }
 
 .s-alert__title + .s-alert__desc {
