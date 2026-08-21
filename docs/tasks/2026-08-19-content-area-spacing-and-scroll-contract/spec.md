@@ -578,48 +578,57 @@ outcomes, because they are all layout, and the unit tier has no layout engine.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: **F-3** - T-2 and T-10 fail before the fix and pass after. No view template root in
-      `src/**/views/*.vue` carries a padding utility, and the rendered left gutter is 24px at
-      1440x900, 16px at 900x800 and 8px at 375x812 on a formerly double-padded route.
-- [ ] AC-2: **F-4** - T-1 and T-11 fail before the fix and pass after. Navigating between two
-      authenticated routes leaves `main.scrollTop` at 0; changing only the query string
-      preserves it.
-- [ ] AC-3: **F-10** - T-3 and T-12 pass. `main` has no scroll travel on either graph route, at
-      1440x900, 900x800 and 375x812, and the top bar shows no scrolled shadow there.
-- [ ] AC-4: **F-16** - T-9 and T-14 pass. At 900x1200 the prompt assistant's message list scrolls
-      internally and its composer stays inside the viewport regardless of turn count.
-- [ ] AC-5: **F-17** - T-4 passes. `/workspaces/:wid/workflows/:wfid/backstage` with no run
-      selected shows a contextual empty state, and the step-trace loading state is a skeleton,
-      in both `en` and `zh-TW`.
-- [ ] AC-6: **F-26** - T-5 passes and V-1 is confirmed by hand. All three detail views paint
-      their page header for the whole of the first fetch.
-- [ ] AC-7: **F-27** - T-6 and T-7 pass, and T-13 confirms no upward jump on `/invites` and
-      `/account/sessions` when the query settles empty. `AgentDetailView`'s loading branch
-      matches `docs/UI/06-agents.md:449-452`.
-- [ ] AC-8: **F-28** - V-2 is confirmed by hand at 1440x900 and 1280x600. Neither `NotFound` nor
-      `InviteAcceptView` leaves a dead band below its block, and `NotFound` still centres
-      correctly under `AuthLayout` when unauthenticated.
-- [ ] AC-9: **F-31** - T-8 passes and V-3 is confirmed by hand. Pressing Validate leaves every
-      node inside the canvas.
-- [ ] AC-10: **F-40** - T-2 and T-16 pass. Exactly one `main` landmark exists on every
-      authenticated route, and the skip link lands on content rather than on a wrapper.
-- [ ] AC-11: **F-44** - T-2 passes for `AdminSkillsView.vue` and `AdminPromptStudioView.vue`.
-      Navigating between any two `/admin/*` sections produces no change in the content's left or
-      top inset.
-- [ ] AC-12: **F-51** - T-9 and T-15 pass. Mid-scroll on `/agents/:id` Prompt tab at 1440x900,
-      the sticky panel's bottom edge is within 24px of the content-box bottom.
-- [ ] AC-13: **F-52** - deferred per Q-15 and recorded as FU-4, so the audit's hand-off table
-      can cite a decision. `AgentGroupDetailView.vue:143` is unchanged by this dossier's diff.
-- [ ] AC-14: V-4 is complete: a visual pass over a sample of the 34 changed views shows no view
-      whose internal spacing depended on the removed root padding.
-- [ ] AC-15: gates green on CI: `pnpm lint` (all 12, notably #6 global CSS, #8 view test
-      coverage, #11 accessibility, #12 i18n), `pnpm typecheck`, `pnpm test`, `pnpm build`,
-      `pnpm run check:bundle-size`, `pnpm run check:type-coverage`,
-      `pnpm run check:boundaries-enforced`. Backend gates N/A: the diff is frontend-only. Per the
-      project's remote-CI rule, CI is authoritative over the local Windows host.
-- [ ] AC-16: `frontend/e2e/22-layout-contract.spec.ts` passes in CI. Any of T-10 to T-16 that
-      cannot be made to pass is reported as an open item rather than deleted or weakened.
-- [ ] AC-17: the shell's padding ladder is byte-identical to before the change: the three rules
+Ticked only where the mapped test was **observed red before the fix and green after**; the
+Tier 2 and Tier 3 halves that need a running stack are left unticked and named in §12a.
+
+- [x] AC-1: **F-3** - T-2 fails before the fix and passes after (verified: 34 padded roots
+      enumerated by the sweep, then zero). T-10 is written and unrun (needs the stack). No view
+      template root in `src/**/views/*.vue` carries a padding utility.
+- [x] AC-2: **F-4** - T-1 fails before the fix (`expected 1200 to be +0`) and passes after, in
+      both halves: a path change leaves `main.scrollTop` at 0, a query-only change preserves it.
+      T-11 is written and unrun.
+- [x] AC-3: **F-10** - T-3 fails before the fix and passes after; the root is a `div` carrying
+      `h-full` and neither `p-6` nor the `100vh` calc. T-12 is written and unrun, so the
+      "no scroll travel" half is asserted structurally, not measured.
+- [x] AC-4: **F-16** - T-9 fails before the fix (`expected … not to contain 'min-h-[32rem]'`) and
+      passes after. T-14 is written and unrun.
+- [x] AC-5: **F-17** - T-4 fails before the fix in both halves and passes after. The empty state
+      and the skeleton render, and the keys exist in `en` and `zh-TW` (gate #12 green).
+- [ ] AC-6: **F-26** - T-5 fails before the fix and passes after for all three views. **V-1 is
+      not confirmed**: no running stack. Unticked deliberately.
+- [x] AC-7: **F-27** - T-6 and T-7 fail before the fix and pass after. `AgentDetailView`'s
+      loading branch matches `docs/UI/06-agents.md:449-452` (1 + 5 + 2x4). T-13 is written and
+      unrun, so the "no upward jump" half is asserted by construction (skeleton height reduced
+      below the settled height) rather than measured.
+- [ ] AC-8: **F-28** - **V-2 is not confirmed**: no running stack, and jsdom applies no scoped
+      CSS, so nothing in the unit tier can see `min-height` at all. The CSS reasoning was
+      re-derived and the containing-block chain traced (see §12a), but the outcome is a centring
+      and remains unverified.
+- [ ] AC-9: **F-31** - T-8 fails before the fix and passes after for `store.lintRan` and
+      `loadError`, and stays green on the negative case (see D-5). **V-3 is not confirmed**: no
+      running stack, so nothing proves the fit is the *right* one.
+- [x] AC-10: **F-40** - T-2 fails before the fix (23 files listed) and passes after. Zero `<main`
+      remains under `src/slices`; the shell's landmark and `Landing.vue`'s are the only two left
+      in `src`. T-16 is written and unrun.
+- [x] AC-11: **F-44** - T-2 covers `AdminSkillsView.vue` and `AdminPromptStudioView.vue`; both
+      lost their padding utility and all 15 `/admin/*` children now inherit one gutter from the
+      shell. The "no change in inset when navigating" half follows from there being one owner.
+- [x] AC-12: **F-51** - T-9 fails before the fix (`expected … not to contain
+      'lg:h-[calc(100vh-8rem)]'`) and passes after. T-15 is written and unrun.
+- [x] AC-13: **F-52** - deferred per Q-15 and recorded as FU-4.
+      `AgentGroupDetailView.vue:143` is untouched: the file appears in the diff only for its
+      root tag (`git diff` shows exactly two changed lines in it).
+- [ ] AC-14: **V-4 is not confirmed** by eye. Its structural half *is* covered and came back
+      clean: all 34 changed views were swept for scoped CSS that depended on the removed root
+      padding, and zero rules are affected (§12a). What remains unverified is whether any view
+      *looks* wrong, which only a browser shows.
+- [x] AC-15: green on this host: `pnpm lint` (all 12 gates), `pnpm typecheck`, `pnpm test`
+      (209 files / 1352 tests), `pnpm build`. The three bash-script gates could not run here and
+      are deferred to CI, with the bundle budget approximated instead - see §12a. Backend gates
+      N/A: the diff is frontend-only. Per the project's remote-CI rule, CI is authoritative.
+- [ ] AC-16: **not run.** `frontend/e2e/22-layout-contract.spec.ts` is written (T-10 to T-16,
+      seven assertions) but needs the compose stack, which is not up on this host.
+- [x] AC-17: the shell's padding ladder is byte-identical to before the change: the three rules
       `.app-shell__content { padding: 24px }`, its `@media (max-width: 1023px)` override to 16px
       and its `@media (max-width: 479px)` override to 8px, plus the two
       `.app-shell__content--no-pad` companions, are untouched. **Stated as rules rather than
@@ -642,7 +651,88 @@ document so this dossier ships one consistent unit; FU-8 pairs the two edits.
 
 ## 12. Deviation Log
 
-Appended by /build.
+The four corrections made at approval time are recorded in §1.3 and folded into Q-5, T-1,
+§7 item 7 and §8 rather than repeated here; they were agreed before implementation started.
+The entries below are departures from the spec *as approved*.
+
+- **D-1 (§7 item 7) - the page header is rendered per branch, not hoisted above the branches.**
+  §1.3 already established that the header cannot be hoisted unchanged, and specified a single
+  hoisted `SPageHeader` with a title fallback. That is wrong for a second reason found in
+  implementation: **the error arm has no entity to title itself with either.** A hoisted header
+  would announce `admin.common.loading` over "user not found", which is a new wrong state, not a
+  fix. All three views instead render an `SPageHeader` inside the pending branch
+  (`ProjectDetailView.vue:103-114`, `OrgDetailView.vue:111-122`,
+  `AdminUserDetailView.vue:3-14`), leaving the settled branch's header - and every
+  entity-dependent `#prepend` / `#actions` slot - exactly as it was. Cost: one extra
+  `SPageHeader` usage per view, mutually exclusive with the other, and a remount of the header
+  element when the query settles. Benefit: no entity-dependent slot had to be rewritten with
+  optional chaining, and the error state is unchanged.
+- **D-2 (§7 items 4 and 5) - Q-7's and Q-14's classes went onto a new wrapper `<div>`, not onto
+  `PromptAssistantPanel`'s class attribute.** `AgentDetailView.vue:975-995`. The panel's own root
+  is `flex h-full flex-col` (`PromptAssistantPanel.vue:123`), so passing `h-[32rem]` through the
+  `class` attribute would have put **two `height` utilities on one element**, with the winner
+  decided by Tailwind's emission order rather than by anything the code states. Above `lg` that
+  is already how the old `lg:h-[calc(...)]` beat `h-full` - a responsive variant is emitted
+  after base utilities - but below `lg` two base utilities have no such guarantee. The wrapper
+  carries `h-[32rem] lg:sticky lg:top-6 lg:self-start lg:h-[calc(100vh-3.5rem-3rem)]` and becomes
+  the grid item; the panel keeps `h-full` and resolves against a definite height. Q-7's "no
+  change inside `PromptAssistantPanel`" is honoured, and both numbers are exactly as specified.
+- **D-3 (§7 item 6) - the step-trace skeleton is one text line, not several rows.**
+  `WorkflowBackstageView.vue:29-35`. The spec said "replace the `…` with `SSkeleton` rows"; the
+  first implementation used three 26px rects. The quality gate caught that this branch also
+  settles to a **one-line `noSteps` paragraph** (`:49-54`), so an 86px skeleton reintroduces
+  F-27's own defect inside F-17's fix. Q-10's rule governs: one 240px text line, which grows
+  downward when a real step list arrives and matches the empty case exactly.
+- **D-4 (§7 item 8, `SessionsView`) - the skeleton is sized against a single session row, not
+  against the `SEmptyState`.** §7 item 8 says "no greater than the height of the branch's own
+  `SEmptyState`" (~176px), but Q-10's own rule is "the shortest settled state that branch can
+  produce", and for `/account/sessions` that is a single ~60px row, not the empty state - which
+  is also what §2's F-27 row observes. One 56px rect (`SessionsView.vue:126-131`). The now-inert
+  `.skeleton-row` wrapper and its two CSS rules were removed with it. `InboxInvitesView` is
+  unaffected: its shortest settled state really is the empty state, and one 120px rect sits under
+  it.
+- **D-5 (T-8) - `conflictDetected` is covered through the watcher it shares, not through a 409
+  save flow.** `WorkflowEditorView.test.ts` asserts `fitView` on `store.lintRan`, on `loadError`,
+  and **not** on an unrelated store change. Reaching `conflictDetected` needs a loaded workflow,
+  a dirty store, a save click and a 409 response; the three predicates sit in one `watch` source
+  array (`WorkflowEditorView.vue:437-443`), so the third adds no distinct branch to cover. Stated
+  rather than silently dropped.
+- **D-6 (T-13) - the browser assertion runs at 1440x400, not at a default viewport.** `main` has
+  a definite height and `overflow-y: auto`, so `scrollHeight` clamps to `clientHeight` for
+  anything that fits: at 900px tall both the skeleton and the settled samples report the same
+  number and the assertion **passes against the unfixed code**. A 400px viewport makes the
+  pre-fix skeleton genuinely overflow. Found by the quality gate, not by a failing run.
+
+## 12a. Verification record
+
+**Ran and green on this host** (`frontend/`): `pnpm test` (209 files, 1352 tests), `pnpm lint`
+(all 12 gates, `--max-warnings=0`), `pnpm typecheck`, `pnpm build`.
+
+**Not runnable on this host, deferred to CI**: `pnpm run check:bundle-size`,
+`check:type-coverage` and `check:boundaries-enforced` are bash scripts and this Windows host has
+no usable bash. The bundle budget was approximated in PowerShell against the real `dist/assets`
+output instead - **no chunk exceeds the 200 KB gzip lazy limit and the entry chunk is 25 043 B
+gzip against a 256 000 B budget** - which is a sanity check, not the gate. CI is authoritative.
+
+**Not run**: `pnpm run test:e2e`. `frontend/e2e/22-layout-contract.spec.ts` needs the compose
+stack, which is not running on this host. AC-16 is therefore unticked.
+
+**Audits**: `check-quality` over the whole task diff found two Introduced-Warning and one
+Introduced-Info item, all three fixed in `a2e2095` rather than deferred (they are D-3, D-6 and
+the dead `.skeleton-row` CSS in D-4); one Pre-existing SRP finding routed to FU-9. It also
+swept all 34 changed views for scoped CSS that depended on the removed root padding and found
+**zero** rules affected - every scoped rule targets a BEM child, and no view uses a `main`
+element selector. `check-security` over the same diff found **no findings** across 13
+dimensions, with no endpoint to trace: the diff touches no backend file, no dependency manifest
+and no deploy config, adds no `v-html`, and renders no entity field outside the branch its own
+authorized query gates.
+
+**Self-audit** additionally confirmed the load-bearing assumption behind Q-6 and Q-11 that the
+spec asserts but never traces: `ErrorBoundary` renders a bare `<slot v-else />`
+(`app/ErrorBoundary.vue:60`) and `<Transition>` adds no node, so a view root really is a direct
+child of `main.app-shell__content` and both `h-full` and `min-height: 100%` resolve against its
+content box. Had the boundary rendered a wrapper, F-10's and F-28's fixes would have silently
+resolved against an auto-height box instead.
 
 ## 13. Follow-ups
 
@@ -680,6 +770,11 @@ Appended by /build.
   `AgentDetailView.vue:964` in the same change, and update T-9's expected class with it.
   Leaving one behind reintroduces a smaller F-51 on mobile - the exact failure §9 warns about,
   now pointed the other way. This is a one-line pairing, not a design question.
+- **FU-9** - `slices/agents/views/AgentDetailView.vue` is 1327 lines carrying five tabs, the whole
+  agent form's state, five queries and three mutations. Raised by `check-quality` as
+  **Pre-existing** in touched code: it long predates this dossier, which added 20 lines to it.
+  Splitting it per tab (a presentational component plus a composable each) is its own refactor
+  dossier.
 - **FU-7** - the audit's FU-1 remains open: `AppShell.vue:18-23` hardcodes the chatroom and
   workflow-editor path regexes that `slices/conversation/routes.ts:26` and
   `slices/workflow/routes.ts:14` already declare as meta. Q-6 was chosen partly so as not to
