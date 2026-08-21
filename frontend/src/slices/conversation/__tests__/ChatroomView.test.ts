@@ -678,6 +678,33 @@ describe('ChatroomView', () => {
       expect(feedOrder(wrapper)).toEqual(['approval', 'msg-m_mid', 'approval'])
     })
 
+    // Code review, finding 1. `NaN <= x` is false for EVERY x, including the
+    // final drain at +Infinity, so a single unparseable timestamp stranded its
+    // own card and every approval sorted after it. orchestration.ts:65 already
+    // guards the same field with Number.isFinite, so the case is reachable.
+    it('still renders an approval whose timestamp cannot be parsed', async () => {
+      server.use(
+        http.get('/api/chatrooms/cr_1/messages', () =>
+          HttpResponse.json([message('m_1', '2026-01-01T00:00:00.000Z')]),
+        ),
+      )
+      const wrapper = await renderView(ChatroomView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1',
+      })
+      signInAs('u_1')
+      await settle()
+
+      const orch = useOrchestrationStore()
+      orch.upsertApproval('cr_1', approval('ap_bad', 'not-a-timestamp'))
+      orch.upsertApproval('cr_1', approval('ap_good', '2026-01-01T00:00:02.000Z'))
+      await settle()
+
+      // Both present: the bad one at the tail rather than swallowed, and the
+      // good one not stranded behind it.
+      expect(feedOrder(wrapper)).toEqual(['msg-m_1', 'approval', 'approval'])
+    })
+
     it('keeps an empty room empty when it has neither messages nor approvals', async () => {
       server.use(http.get('/api/chatrooms/cr_1/messages', () => HttpResponse.json([])))
       const wrapper = await renderView(ChatroomView, {
@@ -845,6 +872,33 @@ describe('ChatroomView', () => {
       expect(wrapper.find('.chatroom__agents.chatroom__panel--open').exists()).toBe(true)
       await agentsToggle.trigger('click')
       expect(wrapper.find('.chatroom__agents.chatroom__panel--open').exists()).toBe(false)
+    })
+
+    it('says whether the panel it toggles is open', async () => {
+      // Code review, finding 6. Below lg the SDrawer carries this semantics;
+      // an overlay panel's toggle has to state it itself.
+      const wrapper = await atWidth(1100)
+      const agentsToggle = wrapper.findAll('button[aria-label]')
+        .find((b) => b.attributes('aria-label') === 'conversation.chatroom.agents')!
+
+      expect(agentsToggle.attributes('aria-expanded')).toBe('false')
+      await agentsToggle.trigger('click')
+      expect(agentsToggle.attributes('aria-expanded')).toBe('true')
+    })
+
+    it('closes an open panel on Escape', async () => {
+      // The overlay panels have no scrim and no close button, so without this
+      // the only way out is to re-find the toggle.
+      const wrapper = await atWidth(1100)
+      const agentsToggle = wrapper.findAll('button[aria-label]')
+        .find((b) => b.attributes('aria-label') === 'conversation.chatroom.agents')!
+      await agentsToggle.trigger('click')
+      expect(wrapper.find('.chatroom__agents.chatroom__panel--open').exists()).toBe(true)
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await nextTick()
+
+      expect(wrapper.find('.chatroom__panel--open').exists()).toBe(false)
     })
 
     it('closes an open panel when the viewport leaves the compact band', async () => {

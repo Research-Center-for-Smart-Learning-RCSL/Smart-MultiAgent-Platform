@@ -19,6 +19,8 @@
       :is-mobile="isMobile"
       :is-desktop="isDesktop"
       :is-compact="isCompactDesktop"
+      :agents-open="agentsDrawerOpen"
+      :people-open="peopleDrawerOpen"
       :observers-present="roomQuery.data.value?.observers_present ?? false"
       :can-export="!(roomQuery.data.value?.viewer_is_guest ?? false)"
       @back="goBack"
@@ -744,14 +746,21 @@ const feedItems = computed<FeedItem[]>(() => {
   // per-kind key. Parsed rather than string-compared: the two sources differ in
   // sub-second precision, and `...:00Z` sorts before `...:00.000Z` lexically
   // despite naming the same instant.
+  // An unparseable `started_at` is mapped to +Infinity, NOT left as NaN. NaN
+  // fails EVERY `<=` test including the final drain, so a single bad timestamp
+  // would strand its own card and every approval sorted after it -- silently
+  // dropping a gate the user has to vote on. `orchestration.ts:65` already
+  // guards the same field with `Number.isFinite`, so the case is reachable.
+  // Infinity sorts such a card to the tail, where it is at least visible.
   const pending = liveApprovals.value
-    .map((a) => ({ approval: a, at: Date.parse(a.started_at) }))
+    .map((a) => {
+      const at = Date.parse(a.started_at)
+      return { approval: a, at: Number.isFinite(at) ? at : Number.POSITIVE_INFINITY }
+    })
     .sort((x, y) => x.at - y.at)
   const out: FeedItem[] = []
   let next = 0
   const drainThrough = (limit: number): void => {
-    // NaN from an unparseable timestamp fails this test and falls to the tail,
-    // which shows the card rather than dropping it.
     while (next < pending.length && pending[next]!.at <= limit) {
       const { approval } = pending[next]!
       out.push({ kind: 'approval', key: `approval-${approval.id}`, approval })
@@ -907,6 +916,20 @@ watch([isMobile, isCompactDesktop], () => {
   peopleDrawerOpen.value = false
 })
 
+// Escape closes a compact-band overlay panel. Below lg the SDrawer brings its
+// own dismissal; the overlay panels have none, so without this the only way out
+// is to find the header toggle again. The rest of the drawer's affordances
+// (focus move, focus restore, backdrop) are FU-9.
+function onWindowKeydown(e: KeyboardEvent): void {
+  if (e.key !== 'Escape' || !isCompactDesktop.value) return
+  if (!agentsDrawerOpen.value && !peopleDrawerOpen.value) return
+  agentsDrawerOpen.value = false
+  peopleDrawerOpen.value = false
+}
+
+onMounted(() => window.addEventListener('keydown', onWindowKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onWindowKeydown))
+
 function goBack(): void {
   router.back()
 }
@@ -961,9 +984,13 @@ function onSelectHit(hit: SearchHit): void {
 }
 
 async function onLoadEarlier(): Promise<void> {
+  const before = messages.value.length
   captureBeforePrepend()
   try {
     await loadEarlier()
+    // Proof the trigger is not exhausted after all: a click that adds history
+    // is the way back from a latch caused by a transient failure.
+    if (messages.value.length > before) autoLoadExhausted = false
   } finally {
     // Unconditional: the capture disarms the arrival watch and the top trigger
     // until the restore rearms them, so a throw between the two would leave the
@@ -987,8 +1014,13 @@ let disposeTopObserver: (() => void) | null = null
 // comes back entirely duplicates leaves the feed, the cursor and
 // `hasOlderMessages` all unchanged, so the sentinel keeps intersecting and the
 // same request would be reissued forever -- a loop a human clicking the button
-// cannot produce. The button itself stays live, which is the fallback
-// 07-conversation.md:895 asks for regardless.
+// cannot produce.
+//
+// It latches on a swallowed failure too, because `loadEarlierPage` toasts most
+// errors without throwing and an errored page is indistinguishable from an
+// empty one here. That would otherwise disable scroll pagination for the whole
+// session after one network blip, so `onLoadEarlier` un-latches it on any load
+// that genuinely adds history -- which a click on the still-live button can do.
 let autoLoadExhausted = false
 
 async function autoLoadEarlier(): Promise<void> {
