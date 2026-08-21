@@ -59,6 +59,27 @@ export function topLevelRule(css: string, selector: string): string | null {
   return null
 }
 
+/**
+ * Body of the first top-level at-rule whose prelude contains `match`, or null.
+ * Feed the result back to `topLevelRule` to reach a breakpoint override.
+ */
+export function atRuleBody(css: string, match: string): string | null {
+  const src = css.replace(/\/\*[\s\S]*?\*\//g, '')
+  let i = 0
+  while (i < src.length) {
+    const open = src.indexOf('{', i)
+    if (open === -1) return null
+    const close = matchBrace(src, open)
+    if (close === -1) return null
+    const prelude = src.slice(i, open).trim()
+    if (prelude.startsWith('@') && prelude.includes(match)) {
+      return src.slice(open + 1, close)
+    }
+    i = close + 1
+  }
+  return null
+}
+
 /** Value of `property` within a rule body, or null when it is not declared. */
 export function declaration(ruleBody: string, property: string): string | null {
   const match = new RegExp(`(?:^|;)\\s*${property}\\s*:\\s*([^;]+)`, 'i').exec(ruleBody)
