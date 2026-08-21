@@ -28,6 +28,19 @@ export interface OrgMember {
   joined_at: string
 }
 
+export interface OrgInvite {
+  id: string
+  scope_id: string
+  scope_type: 'org' | 'project'
+  invitee_email: string
+  role: 'owner' | 'member'
+  state: 'pending' | 'accepted' | 'rejected' | 'revoked' | 'expired'
+  expires_at: string
+  // R6.09 — present only on the 201 from create, never on a read path. Absent
+  // rather than null when the backend omits it, so treat both as "no link".
+  accept_url?: string | null
+}
+
 export interface OrgQuotas {
   users: number
   projects: number
@@ -77,7 +90,7 @@ export const orgsApi = {
       requestBody: { role },
     }),
 
-  invite: (id: string, email: string, role: 'owner' | 'member') =>
+  invite: (id: string, email: string, role: 'owner' | 'member'): Promise<OrgInvite> =>
     OrgsService.createInviteApiOrgsOrgIdInvitesPost({
       orgId: id,
       requestBody: { email, role },

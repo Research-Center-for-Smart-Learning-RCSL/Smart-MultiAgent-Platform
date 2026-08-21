@@ -16,6 +16,7 @@ import { tenancyKeys } from '../queries'
 import { formatRelative } from '../utils/formatters'
 import { roleBadgeVariant, roleLabel } from '../utils/roles'
 import { useMemberActions } from '../composables/useMemberActions'
+import InviteAcceptLinkCard from '../components/InviteAcceptLinkCard.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -47,6 +48,10 @@ const inviteEmail = ref('')
 const inviteRole = ref<'owner' | 'member'>('member')
 const invitePending = ref(false)
 const inviteError = ref<string | null>(null)
+// Q-6: an Org invite keeps the typed-address field. There is no pre-existing
+// pool to pick from here, and the only one available would be the platform user
+// directory — a disclosure this feature refuses to introduce.
+const inviteLink = ref<{ email: string; acceptUrl: string } | null>(null)
 
 const roleOptions = [
   { value: 'member', label: t('tenancy.role.member') },
@@ -90,10 +95,11 @@ async function onInvite(): Promise<void> {
   invitePending.value = true
   inviteError.value = null
   try {
-    await orgsApi.invite(orgId.value, email, inviteRole.value)
+    const invite = await orgsApi.invite(orgId.value, email, inviteRole.value)
     inviteEmail.value = ''
     inviteRole.value = 'member'
     qc.invalidateQueries({ queryKey: tenancyKeys.orgMembers(orgId.value) })
+    inviteLink.value = invite.accept_url ? { email, acceptUrl: invite.accept_url } : null
     toast.success(t('tenancy.member.invited', { email }))
   } catch (e: unknown) {
     if (isProblemWithType(e, '/tenancy/invite-duplicate')) {
@@ -170,6 +176,14 @@ const breadcrumbs = computed(() => [
         </SButton>
       </form>
     </SCard>
+
+    <InviteAcceptLinkCard
+      v-if="inviteLink"
+      :email="inviteLink.email"
+      :accept-url="inviteLink.acceptUrl"
+      class="invite-link-card"
+      @dismiss="inviteLink = null"
+    />
 
     <!-- Error state -->
     <SAlert
@@ -253,4 +267,8 @@ const breadcrumbs = computed(() => [
 
 <style scoped>
 @import '../styles/member-form.css';
+
+.invite-link-card {
+  margin-bottom: 1rem;
+}
 </style>

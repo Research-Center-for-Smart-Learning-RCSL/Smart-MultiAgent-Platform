@@ -70,7 +70,17 @@
       "you": "（你）",
       "empty": "沒有成員",
       "inherited": "繼承",
-      "inheritedTooltip": "此使用者因組織擁有者身份而擁有存取權限。請透過組織設定管理。"
+      "inheritedTooltip": "此使用者因組織擁有者身份而擁有存取權限。請透過組織設定管理。",
+      "invitePickLabel": "組織成員",
+      "invitePickPlaceholder": "選擇一位組織成員",
+      "inviteByEmail": "改為邀請尚未加入組織的人",
+      "inviteByPicker": "改為從組織成員中挑選",
+      "invitePoolError": "無法載入組織成員名單，你仍可改用電子郵件地址邀請。",
+      "inviteLinkTitle": "邀請連結",
+      "inviteLinkLede": "請將此連結交給",
+      "inviteLinkLabel": "接受邀請連結",
+      "inviteLinkHelp": "請視為機密：任何持有此連結的人都能接受這份邀請。連結只顯示這一次，遺失後只能撤銷邀請並重新邀請。已有帳號的受邀者也會在站內的邀請收件匣看到這份邀請。",
+      "inviteLinkDismiss": "完成"
     },
     "transfer": {
       "pageTitle": "原始建立者轉移",
