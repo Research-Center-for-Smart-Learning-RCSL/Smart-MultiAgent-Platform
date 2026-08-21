@@ -182,11 +182,11 @@ function togglePasswordVisibility() {
 
 /* -- Sizes -- */
 .s-input--sm {
-  min-height: 32px;
+  min-height: var(--control-h-sm);
 }
 
 .s-input--md {
-  min-height: 40px;
+  min-height: var(--control-h-md);
 }
 
 /* -- Field -- */
@@ -237,8 +237,11 @@ function togglePasswordVisibility() {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  /* Sized to the smallest rung so it still fits inside an --sm input; the
+     touch floor below is what it actually renders at, via the negative
+     margins that let it overhang the field's padding box. */
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
   min-height: 44px;
   min-width: 44px;
   margin: -6px -4px -6px 0;

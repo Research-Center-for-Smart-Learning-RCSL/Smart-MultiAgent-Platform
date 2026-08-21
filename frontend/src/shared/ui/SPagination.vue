@@ -151,8 +151,8 @@ function ariaCurrentAttrs(item: number) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 32px;
-  min-width: 32px;
+  height: var(--control-h-sm);
+  min-width: var(--control-h-sm);
   padding: 0 var(--space-1-5);
   background: var(--color-bg);
   color: var(--color-fg);
@@ -195,8 +195,8 @@ function ariaCurrentAttrs(item: number) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
   font-size: var(--font-size-sm);
   color: var(--color-muted);
   user-select: none;

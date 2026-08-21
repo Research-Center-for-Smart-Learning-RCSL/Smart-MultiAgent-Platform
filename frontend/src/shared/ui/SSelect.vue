@@ -136,12 +136,12 @@ function onChange(event: Event) {
 }
 
 .s-select--sm .s-select__native {
-  min-height: 32px;
+  min-height: var(--control-h-sm);
   font-size: var(--font-size-xs);
 }
 
 .s-select--md .s-select__native {
-  min-height: 40px;
+  min-height: var(--control-h-md);
 }
 
 .s-select--error .s-select__native {

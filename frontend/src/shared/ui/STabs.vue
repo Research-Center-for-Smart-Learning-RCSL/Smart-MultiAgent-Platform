@@ -173,7 +173,7 @@ function onKeydown(e: KeyboardEvent) {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1-5);
-  height: 40px;
+  height: var(--control-h-md);
   padding: 0 var(--space-4);
   flex-shrink: 0;
   background: none;

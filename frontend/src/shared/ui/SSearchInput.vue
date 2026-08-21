@@ -103,7 +103,7 @@ function onClear() {
   position: relative;
   display: flex;
   align-items: center;
-  height: 40px;
+  height: var(--control-h-md);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-bg);
