@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
@@ -332,7 +332,10 @@ describe('AgentDetailView', () => {
     const html = wrapper.html()
     expect(html).toContain('h-[32rem]')
     expect(html).not.toContain('min-h-[32rem]')
-    expect(html).toContain('lg:h-[calc(100vh-3.5rem-3rem)]')
+    // dvh, paired with the shell (App.vue's .app-root). The `100vh` spelling
+    // below is the superseded F-51 constant and stays as written: it pins the
+    // absence of a value that no longer exists in either unit.
+    expect(html).toContain('lg:h-[calc(100dvh-3.5rem-3rem)]')
     expect(html).not.toContain('lg:h-[calc(100vh-8rem)]')
   })
 
@@ -348,5 +351,76 @@ describe('AgentDetailView', () => {
     expect(wrapper.text()).toContain('agents.graphragCoverage.active')
     // No Concept Map attach select was ever added — only the rag_config_id one.
     expect(wrapper.text()).not.toContain('agents.graphragForm.agent')
+  })
+
+  // T-4 of docs/tasks/2026-08-19-mobile-viewport-and-breakpoints (F-18). The
+  // mobile action bar was `position: fixed`, so it took no part in flow and
+  // contributed nothing to the scroll height of `main.app-shell__content` —
+  // the scroll range ended roughly 57px (sm) / 65px (xs) before the content the
+  // bar covers, and no amount of scrolling reached the last control.
+  //
+  // jsdom lays nothing out, so this is a structural assertion; the geometry is
+  // AC-12's job in the e2e tier at 375x812.
+  describe('mobile action bar', () => {
+    const desktopWidth = window.innerWidth
+
+    function setViewport(width: number): void {
+      // useBreakpoint holds a module-level width ref that re-syncs on mount.
+      Object.defineProperty(window, 'innerWidth', {
+        value: width,
+        configurable: true,
+        writable: true,
+      })
+    }
+
+    afterEach(() => setViewport(desktopWidth))
+
+    async function renderMobile(route: string) {
+      seed()
+      setViewport(375)
+      const wrapper = await renderView(AgentDetailView, { routes, initialRoute: route })
+      await settle(wrapper)
+      return wrapper
+    }
+
+    function actionBar(wrapper: Awaited<ReturnType<typeof renderMobile>>) {
+      return wrapper.findAll('div').find((el) => el.classes().includes('sticky'))
+    }
+
+    it('reserves its own height instead of floating over the form', async () => {
+      const wrapper = await renderMobile('/agents/agent_1?tab=prompt')
+
+      const bar = actionBar(wrapper)
+      expect(bar).toBeDefined()
+      expect(bar!.classes()).toContain('bottom-0')
+      // The three that put it out of flow. `left-0`/`right-0` only mean
+      // anything to a fixed box and would stretch a sticky one edge to edge.
+      expect(bar!.classes()).not.toContain('fixed')
+      expect(bar!.classes()).not.toContain('left-0')
+      expect(bar!.classes()).not.toContain('right-0')
+    })
+
+    // Already true before the fix and kept as a characterization pin: the bar
+    // is the last flow child of the view root, which is itself inside the
+    // shell's scroll container. Moving it out again would restore the
+    // occlusion by a different route, with the class list still innocent.
+    it('renders as the last flow child of the view root', async () => {
+      const wrapper = await renderMobile('/agents/agent_1?tab=prompt')
+
+      const last = (wrapper.element as HTMLElement).lastElementChild
+      expect(last).not.toBeNull()
+      expect(last!.className).toContain('sticky')
+    })
+
+    it('is absent on desktop, where the page header carries the actions', async () => {
+      seed()
+      const wrapper = await renderView(AgentDetailView, {
+        routes,
+        initialRoute: '/agents/agent_1?tab=prompt',
+      })
+      await settle(wrapper)
+
+      expect(actionBar(wrapper)).toBeUndefined()
+    })
   })
 })
