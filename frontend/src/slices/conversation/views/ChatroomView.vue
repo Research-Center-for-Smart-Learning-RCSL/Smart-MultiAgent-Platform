@@ -897,6 +897,16 @@ const searching = ref(false)
 const exportOpen = ref(false)
 const agentsDrawerOpen = ref(false)
 
+// Panel visibility does not survive a change of layout band. These two refs
+// drive an SDrawer below lg and an overlay panel at 1024-1279 (Q-7 reuses them
+// deliberately, rather than adding a third set of visibility state), so a panel
+// left open in one band would otherwise reappear as an already-open drawer in
+// whichever band the viewport lands in next.
+watch([isMobile, isCompactDesktop], () => {
+  agentsDrawerOpen.value = false
+  peopleDrawerOpen.value = false
+})
+
 function goBack(): void {
   router.back()
 }
@@ -977,7 +987,10 @@ watch(
       if (hasOlderMessages.value && !loadingOlder.value) void onLoadEarlier()
     })
   },
-  { immediate: true },
+  // `post`, so the feed element the observer roots on is committed before the
+  // observer is built. A `pre` flush would root it on the viewport instead,
+  // which scrolls independently of the feed.
+  { immediate: true, flush: 'post' },
 )
 
 onBeforeUnmount(() => {

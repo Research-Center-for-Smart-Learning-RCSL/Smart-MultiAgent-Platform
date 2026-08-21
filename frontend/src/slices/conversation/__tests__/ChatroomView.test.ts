@@ -773,6 +773,27 @@ describe('ChatroomView', () => {
       expect(wrapper.find('.chatroom__agents.chatroom__panel--open').exists()).toBe(false)
     })
 
+    it('closes an open panel when the viewport leaves the compact band', async () => {
+      // The same refs drive an SDrawer below lg and an overlay panel here, so a
+      // panel left open would otherwise reappear as an already-open drawer.
+      const wrapper = await atWidth(1100)
+      const agentsToggle = wrapper.findAll('button[aria-label]')
+        .find((b) => b.attributes('aria-label') === 'conversation.chatroom.agents')!
+      await agentsToggle.trigger('click')
+      expect(wrapper.find('.chatroom__agents.chatroom__panel--open').exists()).toBe(true)
+
+      // 1400 rather than a mobile width on purpose: below md the rail unmounts
+      // outright, so the assertion would pass whether or not the ref was reset.
+      // Here the element is still rendered, so only a real reset clears it.
+      setViewport(1400)
+      window.dispatchEvent(new Event('resize'))
+      await settle()
+
+      expect(wrapper.find('.chatroom--compact').exists()).toBe(false)
+      expect(wrapper.find('.chatroom__agents').exists()).toBe(true)
+      expect(wrapper.find('.chatroom__panel--open').exists()).toBe(false)
+    })
+
     it('leaves the full three-column layout untouched at 1400', async () => {
       const wrapper = await atWidth(1400)
 

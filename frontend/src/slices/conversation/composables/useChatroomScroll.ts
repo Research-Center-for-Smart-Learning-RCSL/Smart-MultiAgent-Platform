@@ -125,8 +125,13 @@ export function useChatroomScroll(
   // Feed changed: auto-scroll when pinned, otherwise raise the pill. Skipped
   // mid-prepend, where the restore owns the scroll position and the tail, and
   // therefore the unseen count, has not moved.
+  //
+  // Watched by identity rather than by length, because the two differ where it
+  // matters: an optimistic send's `pending-<uuid>` key is replaced by its
+  // persisted id at the same position, which changes the list without changing
+  // its length.
   watch(
-    () => feedIds.value.length,
+    feedIds,
     () => {
       if (prepending) return
       void nextTick(() => {
@@ -186,7 +191,10 @@ export function useChatroomScroll(
     for (const child of Array.from(el.children)) resizeObserver.observe(child)
   }
 
-  watch(() => feedIds.value.length, observeFeedContent, { flush: 'post' })
+  // Identity, not length: a key swap replaces the element without changing the
+  // count, and the old element would keep the observation while the new one
+  // rendered unwatched.
+  watch(feedIds, observeFeedContent, { flush: 'post' })
 
   /** Watch the load-earlier sentinel and call `onReach` when the reader gets
    *  within the spec's 100px of the top. Returns a disposer. */
