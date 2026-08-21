@@ -78,8 +78,8 @@ watch(() => [props.error, props.help], () => nextTick(syncAria))
 .form-field {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  margin-bottom: 1rem;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
 }
 .form-field__label {
   font-size: var(--font-size-sm);

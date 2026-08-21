@@ -139,7 +139,7 @@ function onClear() {
 .search-input__field {
   width: 100%;
   height: 100%;
-  padding: 0 8px 0 32px;
+  padding: 0 var(--space-2) 0 var(--space-8);
   border: none;
   background: transparent;
   color: var(--color-fg);

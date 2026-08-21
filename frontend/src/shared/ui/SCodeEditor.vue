@@ -234,7 +234,7 @@ onBeforeUnmount(() => {
 .code-editor {
   display: block;
   width: 100%;
-  padding: 12px;
+  padding: var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);

@@ -379,11 +379,11 @@ function onRefreshHours(v: string | number): void {
 .wakeup-editor {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .wakeup-editor__inert {
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   font-size: var(--font-size-code);
   color: var(--color-warning-on);
   background: var(--color-warning-tint);
@@ -394,15 +394,15 @@ function onRefreshHours(v: string | number): void {
 .wakeup-modes {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .wakeup-mode {
   display: grid;
   grid-template-columns: auto 1fr;
   grid-template-rows: auto auto;
-  column-gap: 8px;
-  row-gap: 2px;
+  column-gap: var(--space-2);
+  row-gap: var(--space-0-5);
   align-items: center;
   text-align: left;
   padding: 12px 14px;
@@ -461,7 +461,7 @@ function onRefreshHours(v: string | number): void {
 .wakeup-triggers {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .wakeup-triggers__hint {
@@ -484,8 +484,8 @@ function onRefreshHours(v: string | number): void {
 .wakeup-card__head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: var(--space-2-5);
+  padding: var(--space-2-5) var(--space-3);
   cursor: pointer;
 }
 
@@ -510,8 +510,8 @@ function onRefreshHours(v: string | number): void {
 .wakeup-card__body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  gap: var(--space-2-5);
+  padding: var(--space-3);
   border-top: 1px solid var(--color-border);
   background: var(--color-surface);
   border-bottom-left-radius: var(--radius-lg);
@@ -523,7 +523,7 @@ function onRefreshHours(v: string | number): void {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .wakeup-field__label {
@@ -534,7 +534,7 @@ function onRefreshHours(v: string | number): void {
 .wakeup-field__control {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   flex-shrink: 0;
 }
 
@@ -557,14 +557,14 @@ function onRefreshHours(v: string | number): void {
 /* ─── Advanced ──────────────────────────────────────────────────── */
 .wakeup-advanced {
   border-top: 1px solid var(--color-border);
-  padding-top: 10px;
+  padding-top: var(--space-2-5);
 }
 
 .wakeup-advanced__toggle {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 2px;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-0-5);
   font-size: var(--font-size-code);
   font-weight: var(--weight-medium);
   color: var(--color-muted);
@@ -602,9 +602,9 @@ function onRefreshHours(v: string | number): void {
 .wakeup-advanced__body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-  margin-top: 8px;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  margin-top: var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
@@ -613,7 +613,7 @@ function onRefreshHours(v: string | number): void {
 .wakeup-inline-toggle {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
   cursor: pointer;
 }
 

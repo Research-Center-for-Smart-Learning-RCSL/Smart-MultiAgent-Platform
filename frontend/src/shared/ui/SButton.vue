@@ -116,7 +116,7 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   font-weight: var(--weight-medium);
@@ -138,19 +138,19 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
 /* -- Sizes -- */
 .s-btn--sm {
   min-height: 32px;
-  padding: 6px 12px;
+  padding: var(--space-1-5) var(--space-3);
   font-size: var(--font-size-xs);
 }
 
 .s-btn--md {
   min-height: 40px;
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   font-size: var(--font-size-sm);
 }
 
 .s-btn--lg {
   min-height: 48px;
-  padding: 10px 24px;
+  padding: var(--space-2-5) var(--space-6);
   font-size: var(--font-size-md);
 }
 

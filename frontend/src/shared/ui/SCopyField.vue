@@ -70,7 +70,7 @@ async function onCopy(): Promise<void> {
 <style scoped>
 .s-copy-field__row {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--space-2);
   align-items: center;
 }
 

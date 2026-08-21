@@ -189,7 +189,7 @@ function onBackdropClick() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 24px 0;
+  padding: var(--space-5) var(--space-6) 0;
   flex-shrink: 0;
 }
 
@@ -207,7 +207,7 @@ function onBackdropClick() {
   justify-content: center;
   background: none;
   border: none;
-  padding: 4px;
+  padding: var(--space-1);
   cursor: pointer;
   color: var(--color-muted);
   border-radius: var(--radius-sm);
@@ -231,7 +231,7 @@ function onBackdropClick() {
 }
 
 .s-drawer__body {
-  padding: 24px;
+  padding: var(--space-6);
   flex: 1;
   overflow-y: auto;
 }
@@ -239,8 +239,8 @@ function onBackdropClick() {
 .s-drawer__footer {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 16px 24px;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--color-border);
   flex-shrink: 0;
 }

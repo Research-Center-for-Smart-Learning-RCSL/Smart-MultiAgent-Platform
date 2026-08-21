@@ -197,7 +197,7 @@ function togglePasswordVisibility() {
   background: transparent;
   color: var(--color-fg);
   font-size: var(--font-size-sm);
-  padding: 0 8px;
+  padding: 0 var(--space-2);
   height: 100%;
   outline: none;
 }
@@ -225,11 +225,11 @@ function togglePasswordVisibility() {
 }
 
 .s-input__prefix {
-  padding-left: 8px;
+  padding-left: var(--space-2);
 }
 
 .s-input__suffix {
-  padding-right: 4px;
+  padding-right: var(--space-1);
 }
 
 /* -- Password eye toggle -- */

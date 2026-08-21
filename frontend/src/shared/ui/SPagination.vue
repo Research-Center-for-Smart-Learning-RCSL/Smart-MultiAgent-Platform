@@ -144,7 +144,7 @@ function ariaCurrentAttrs(item: number) {
 .s-pagination__nav {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .s-pagination__btn {
@@ -153,7 +153,7 @@ function ariaCurrentAttrs(item: number) {
   justify-content: center;
   height: 32px;
   min-width: 32px;
-  padding: 0 6px;
+  padding: 0 var(--space-1-5);
   background: var(--color-bg);
   color: var(--color-fg);
   border: 1px solid var(--color-border);

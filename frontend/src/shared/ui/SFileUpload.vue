@@ -177,9 +177,9 @@ defineExpose({ clear })
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
   min-height: 120px;
-  padding: 1.5rem;
+  padding: var(--space-6);
   border: 2px dashed var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-bg);
@@ -218,18 +218,18 @@ defineExpose({ clear })
 
 .file-upload__list {
   list-style: none;
-  margin: 0.5rem 0 0;
+  margin: var(--space-2) 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: var(--space-1);
 }
 
 .file-upload__item {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.375rem 0.5rem;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-2);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   font-size: var(--font-size-code);

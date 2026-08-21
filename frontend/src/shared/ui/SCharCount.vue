@@ -44,7 +44,7 @@ const tone = computed(() => {
 
 <style scoped>
 .s-char-count {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   font-size: var(--font-size-xs);
   line-height: var(--line-none);
   text-align: right;

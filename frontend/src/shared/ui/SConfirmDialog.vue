@@ -88,12 +88,12 @@ const inputRef = ref<HTMLInputElement | null>(null)
 }
 
 .s-confirm__prompt {
-  margin-top: 1rem;
+  margin-top: var(--space-4);
 }
 
 .s-confirm__input {
   width: 100%;
-  padding: 8px;
+  padding: var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
@@ -109,6 +109,6 @@ const inputRef = ref<HTMLInputElement | null>(null)
 .s-confirm__input-error {
   font-size: var(--font-size-xs);
   color: var(--color-danger);
-  margin: 0.25rem 0 0;
+  margin: var(--space-1) 0 0;
 }
 </style>

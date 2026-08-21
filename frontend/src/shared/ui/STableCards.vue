@@ -172,15 +172,15 @@ const emptyStateAttrs = computed(() => ({
 .s-cards {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .s-cards__card {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  padding: 12px;
+  gap: var(--space-3);
+  padding: var(--space-3);
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -191,7 +191,7 @@ const emptyStateAttrs = computed(() => ({
 
 .s-cards__card--static {
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   cursor: default;
 }
 
@@ -203,7 +203,7 @@ const emptyStateAttrs = computed(() => ({
 .s-cards__main {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
   flex: 1;
 }
@@ -211,7 +211,7 @@ const emptyStateAttrs = computed(() => ({
 .s-cards__fields {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-1-5);
   margin: 0;
   min-width: 0;
   flex: 1;
@@ -220,7 +220,7 @@ const emptyStateAttrs = computed(() => ({
 .s-cards__field {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0-5);
   min-width: 0;
 }
 
@@ -242,7 +242,7 @@ const emptyStateAttrs = computed(() => ({
 .s-cards__actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   flex-shrink: 0;
 }
 </style>

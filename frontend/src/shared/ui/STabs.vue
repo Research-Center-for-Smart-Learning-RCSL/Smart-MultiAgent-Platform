@@ -172,9 +172,9 @@ function onKeydown(e: KeyboardEvent) {
 .s-tabs__tab {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   height: 40px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   flex-shrink: 0;
   background: none;
   border: none;
@@ -219,7 +219,7 @@ function onKeydown(e: KeyboardEvent) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 6px;
+  padding: 0 var(--space-1-5);
   min-width: 18px;
   height: 18px;
   font-size: 0.7rem;

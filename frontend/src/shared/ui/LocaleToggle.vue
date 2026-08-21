@@ -29,9 +29,9 @@ const labels: Record<string, string> = { en: 'EN', 'zh-TW': 'TW' }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: var(--space-0-5);
   height: 36px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
   border-radius: var(--radius-md);
   border: none;
   background: transparent;

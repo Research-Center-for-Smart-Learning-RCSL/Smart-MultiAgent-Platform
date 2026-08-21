@@ -92,7 +92,7 @@ function isOpen(key: string): boolean {
   justify-content: space-between;
   width: 100%;
   min-height: 44px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   border: none;
   background: none;
   cursor: pointer;
@@ -142,10 +142,10 @@ function isOpen(key: string): boolean {
 
 .s-accordion__panel-inner {
   overflow: hidden;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
 }
 
 .s-accordion__panel--open .s-accordion__panel-inner {
-  padding: 16px;
+  padding: var(--space-4);
 }
 </style>

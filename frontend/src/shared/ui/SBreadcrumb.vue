@@ -76,7 +76,7 @@ function isEllipsis(item: BreadcrumbItem | { ellipsis: true }): item is { ellips
 .breadcrumb__list {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: var(--space-1);
   list-style: none;
   margin: 0;
   padding: 0;
@@ -86,7 +86,7 @@ function isEllipsis(item: BreadcrumbItem | { ellipsis: true }): item is { ellips
 .breadcrumb__item {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: var(--space-1);
 }
 
 .breadcrumb__separator {
