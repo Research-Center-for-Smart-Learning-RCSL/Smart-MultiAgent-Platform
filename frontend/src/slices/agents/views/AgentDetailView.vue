@@ -982,10 +982,11 @@ const breadcrumbs = computed(() => [
                  The `lg` height is the content box, not the viewport:
                  topbar (--topbar-height) + the 24px `lg:top-6` sticks at + the
                  24px the shell reserves below. Paired with the shell's unit --
-                 both move to dvh together (spec FU-8). -->
+                 both moved to dvh together (spec FU-8); App.vue's .app-root
+                 carries the other half. -->
             <div
               v-if="pickerProjectId"
-              class="h-[32rem] lg:sticky lg:top-6 lg:self-start lg:h-[calc(100vh-3.5rem-3rem)]"
+              class="h-[32rem] lg:sticky lg:top-6 lg:self-start lg:h-[calc(100dvh-3.5rem-3rem)]"
             >
               <PromptAssistantPanel
                 :project-id="pickerProjectId"
@@ -1299,10 +1300,21 @@ const breadcrumbs = computed(() => [
         </div>
       </form>
 
-      <!-- Fixed bottom bar on mobile -->
+      <!-- Sticky, not fixed. A fixed bar is out of flow, so it adds nothing to
+           the scroll height of main.app-shell__content and the scroll range
+           ended ~57px short of the content it covered - the char count under
+           the prompt editor was unreachable at every scroll position. Sticky
+           reserves exactly its own height with no constant to maintain, which
+           matters because that height is not fixed: create mode renders one
+           button and edit mode two.
+
+           Chromium constrains a sticky child against the scrollport's CONTENT
+           box, so this pins one shell gutter above the bottom edge (16px at
+           sm, 8px at xs) rather than flush. That is the intended reading of an
+           in-flow bar; do not chase flushness with a negative margin. -->
       <div
         v-if="isMobile"
-        class="fixed bottom-0 left-0 right-0 p-4 bg-bg border-t border-border flex gap-3 z-10"
+        class="sticky bottom-0 p-4 bg-bg border-t border-border flex gap-3 z-10"
       >
         <SButton
           v-if="!isCreateMode"
