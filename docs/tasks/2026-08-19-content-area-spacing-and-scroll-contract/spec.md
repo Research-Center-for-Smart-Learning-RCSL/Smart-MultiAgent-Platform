@@ -38,6 +38,40 @@ This dossier is the second of the audit's structural causes of the reported "too
 space at the bottom" complaint. The first, F-1's unstyled toast layer, belongs to
 `2026-08-19-transient-feedback-channels`; F-3 is what remains of the symptom after it.
 
+### 1.1 Freshness re-verification (2026-08-21)
+
+Every citation was re-checked. **No finding changed status; all thirteen still reproduce.**
+`AppShell.vue` - the file this whole dossier is written around - is byte-for-byte as cited:
+`:45-51` (the watcher Q-4 extends), `:67`, `:75`, `:123`, `:183`, `:188`, `:207-209`,
+`:216-218` all hold, and **`:141` is still `height: 100vh`**, so Q-14's warning about the
+viewport unit is live rather than hypothetical and the sibling dossier's F-45 has not landed.
+
+Three corrections, all caused by `2026-08-19-chatroom-scroll-and-composer` and
+`2026-08-20-member-groups-and-room-visibility-isolation` landing in files this dossier cites:
+
+1. **F-4's scroll-writer list is out of date, in this dossier's favour.** The sweep now returns
+   five writes in two files, not six in three: `useChatroomScroll.ts:85,87,127` (was `:41,43,102`)
+   and `PromptAssistantPanel.vue:118` (unchanged). **`useChatroomMessages.ts:281` is gone
+   entirely** - the chatroom dossier's F-49 removed the raw `scrollTo` and replaced it with an
+   `onSent` callback, so that composable no longer touches a DOM element at all. F-4's claim
+   that nothing resets `main.scrollTop` is unaffected and now has one fewer competing writer to
+   reason about.
+2. **`ChatroomSettingsView.vue`'s root moved from `:227` to `:317`** (the member-groups dossier
+   added an access-flag block above it). It is still `<main class="p-6 settings">`, so it is
+   still in F-3's and F-40's sets and Q-3's instruction to keep the `settings` class is
+   unchanged - only the line number is wrong.
+3. **Line drift in `ChatroomView.vue`**: the root spans `:2-14` rather than `:2-10` (a third
+   class binding was added) and still carries no padding utility, so F-3's "neither immersive
+   view is in the padded set" holds. §9's `h-full` precedent citation `:905` is now `:1086`.
+
+Unchanged and re-confirmed: `slices/conversation/routes.ts:26` still declares
+`contentPadding: 'none'`; `slices/workflow/routes.ts:14` likewise; the 34-root padded set and
+the 23 `<main>` roots are as enumerated.
+
+**Sequencing note.** `depends_on` is still unmet: `2026-08-19-shared-overlay-and-shell-defects`
+remains `draft`, so this dossier stays Blocked. That is also what makes Q-14 answerable - the
+sibling is what moves `AppShell.vue:141` to `dvh`.
+
 ## 2. Observed vs Expected
 
 ### F-3 (major) - 34 view roots duplicate the shell's padding
@@ -69,9 +103,10 @@ space at the bottom" complaint. The first, F-1's unstyled toast layer, belongs t
   for `scrollBehavior` returns nothing). `frontend/src/app/guards.ts` contains no reference to
   `document`, `window` or `scroll`. The only writes to a `scrollTop`/`scrollTo` in the whole of
   `frontend/src` are the chatroom and prompt-studio internal scrollers
-  (`slices/conversation/composables/useChatroomScroll.ts:41,43,102`,
-  `slices/conversation/composables/useChatroomMessages.ts:281`,
-  `slices/prompt-studio/components/PromptAssistantPanel.vue:118`); `AppShell.vue:75` only reads
+  (**re-swept 2026-08-21**: `slices/conversation/composables/useChatroomScroll.ts:85,87,127`
+  and `slices/prompt-studio/components/PromptAssistantPanel.vue:118` - the third site,
+  `useChatroomMessages.ts:281`, was removed by that dossier's F-49 and no longer exists);
+  `AppShell.vue:75` only reads
   `contentEl.scrollTop` for the topbar shadow. `AppShell` is never remounted between
   authenticated routes: `App.vue:17-23` returns the same component object for all of them and
   `<component :is="layoutComponent">` at `:30` carries no `key`, so the `<main>` element at
@@ -107,7 +142,7 @@ space at the bottom" complaint. The first, F-1's unstyled toast layer, belongs t
 |---|---|---|---|
 | Q-1 | Why does `depends_on` list `2026-08-19-shared-overlay-and-shell-defects` when nothing here needs its code? | **Overlap prerequisite, not a logical one.** Both dossiers edit `frontend/src/app/layouts/AppShell.vue`, `frontend/src/app/router.ts` and `frontend/src/slices/agents/views/AgentDetailView.vue`; building them concurrently would produce conflicting diffs in the same files and, in `AppShell.vue`, in the same style block. | Recorded here per `docs/tasks/README.md`, "Dependencies and sequencing", which requires an overlap prerequisite's reason to live in a Clarifications rationale. Either dossier could technically go first; the sibling is sequenced first because its F-45 fix decides the viewport unit `.app-shell` is sized in, which Q-14 depends on. |
 | Q-2 | F-3 and F-40: (a) strip the padding utility and the `<main>` element from all 34 roots, or (b) remove `padding` from `.app-shell__content` and standardise on per-view padding? | **(a).** The shell keeps sole ownership of content padding; the 34 view roots lose their padding utility, and the 23 that are `<main>` lose that element too. | `docs/UI/02-layout-shell.md` §3.3 names the content area as the padding owner with a breakpoint ladder (24/16/8px), and §9 gives one Content Padding value per route pattern implemented through `meta.contentPadding`. Option (b) would delete the mechanism §9 documents, would require editing all 74 views instead of 34, would have to re-implement the 1024px and 480px steps in each of them, and would leave no single place to opt a route out. It also breaks the two immersive routes, whose entire contract is "the shell contributes zero padding here". F-40 is the same edit on a 23-view subset of the same 34 files, so doing them apart would mean touching those files twice. |
-| Q-3 | What element replaces the 23 `<main>` roots? | **`<div>`**, carrying only the classes that were doing something other than padding. Concretely: `ChatroomSettingsView.vue:227` keeps `settings`; `GraphragGraphView.vue:168` keeps `flex flex-col` and gains the Q-6 height; the other 21 become a bare `<div>`. | `<section>` becomes a landmark only when it has an accessible name, so an unnamed `<section>` would either add nothing or add a second unnamed region to the rotor. The tenancy, admin and identity slices already use `div`/`section` for view roots with no ill effect. `<div>` is the neutral choice and none of the 21 needs a styling hook once the padding class is gone. |
+| Q-3 | What element replaces the 23 `<main>` roots? | **`<div>`**, carrying only the classes that were doing something other than padding. Concretely: `ChatroomSettingsView.vue:317` (was `:227`; re-verified 2026-08-21) keeps `settings`; `GraphragGraphView.vue:168` keeps `flex flex-col` and gains the Q-6 height; the other 21 become a bare `<div>`. | `<section>` becomes a landmark only when it has an accessible name, so an unnamed `<section>` would either add nothing or add a second unnamed region to the rotor. The tenancy, admin and identity slices already use `div`/`section` for view roots with no ill effect. `<div>` is the neutral choice and none of the 21 needs a styling hook once the padding class is gone. |
 | Q-4 | F-4: where does the scroll reset live, given vue-router's `scrollBehavior` resolves through `window.scrollTo` and the real scroll container is `main.app-shell__content`? | **In `AppShell`'s existing `watch(() => route.path, ...)` at `AppShell.vue:45-51`**, not in the router and not in a new composable. | The element is already referenced there: `contentEl` (`AppShell.vue:67`, bound at `:125`) is the scroll container, and the component that owns the element is the correct place to write to it. A router `afterEach` would have to reach the DOM by `document.getElementById('main-content')`, putting a DOM query for a layout element into the routing layer and coupling `app/router.ts` to a class name it does not own. A shared composable would need the same element handed to it and would add an indirection with exactly one consumer. The watcher already exists and already fires on precisely the right signal, so the change is one statement. `main` is the shell's own element inside `app/layouts/`, so no layer boundary is crossed at all. |
 | Q-5 | F-4: is query-only navigation exempt, and how is the reset written? | **Exempt, by construction**, and written as `contentEl.value?.scrollTo({ top: 0 })`. | The watcher keys on `route.path`, so a query-only change never fires it. That matches the deliberate `:key="$route.path"` at `App.vue:31-41` and its comment, and preserves the tab and scope switches the audit judged defensible. `scrollTo` rather than `scrollTop = 0` is chosen for testability: jsdom performs no layout, so an element's `scrollTop` setter is inert and cannot be asserted, whereas `scrollTo` is a stubbable method call. This makes AC-2 a real unit assertion instead of a browser-only item. Consequence accepted and recorded: back and forward navigation also land at the top, because no saved-position store exists today (FU-1). |
 | Q-6 | F-10: give the two graph routes `contentPadding: 'none'`, or correct the view's `calc()`? | **Neither literally: drop the `calc()` and use `h-full`**, keeping the shell's padding. `GraphragGraphView.vue:168` becomes `<div class="flex flex-col h-full">`. | `contentPadding: 'none'` would push the page header, the search field and the summary line flush against the shell edges, contradicting §9's route table, which gives every non-immersive app route 24px, and the graph view is not immersive: it has a full page header (`:169-186`). Correcting the `calc()` instead would mean encoding 24/16/8px per breakpoint in the view, a third copy of the ladder that drifts the next time it changes. `main` is grid row 2 of `grid-template-rows: var(--topbar-height) 1fr` on a definite-height container (`AppShell.vue:139-141`), so its content box is definite and a child's `height: 100%` resolves against it exactly, at every breakpoint, with no arithmetic. `WorkflowEditorView.vue:2` already uses `h-full` for the same job. It also avoids adding route meta, so it does not extend the duplication the audit records as FU-1 (`AppShell.vue:18-23` hardcodes an editor regex beside the meta that already declares the same thing). |
@@ -277,7 +312,7 @@ the shell already declares.
 
 1. **F-3 and F-40 (one sweep, 34 files)**. Remove the padding utility from all 34 view template
    roots, and replace `<main>` with `<div>` on the 23 that use it, per Q-2 and Q-3. Two roots
-   keep other classes (`ChatroomSettingsView.vue:227` keeps `settings`,
+   keep other classes (`ChatroomSettingsView.vue:317` keeps `settings`,
    `GraphragGraphView.vue:168` is handled by item 2); eleven non-`<main>` roots lose only the
    padding utility and keep their existing class list, including every `mx-auto max-w-*` per
    Q-16: `NotificationsView.vue:13`, `AdminSkillsView.vue:26`, `OrgSkillsView.vue:19`,
@@ -416,7 +451,7 @@ outcomes, because they are all layout, and the unit tier has no layout engine.
   disagreement recorded as a deviation. Mixing `dvh` in a view with `vh` in the shell would
   reintroduce a smaller version of F-51 on mobile.
 - **`h-full` against a padded `main` has no in-repo precedent.** Both existing users
-  (`WorkflowEditorView.vue:2`, `ChatroomView.vue:905`) sit on `contentPadding: 'none'` routes.
+  (`WorkflowEditorView.vue:2`, `ChatroomView.vue:1086`) sit on `contentPadding: 'none'` routes.
   The CSS reasoning is stated in Q-6 and the outcome is asserted by T-12, which is a real browser
   measurement, so the absence of precedent is covered rather than assumed away.
 - **Rollback**: every item is an independent revert. The thirteen findings are separable commits

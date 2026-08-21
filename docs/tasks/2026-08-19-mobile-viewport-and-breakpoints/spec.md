@@ -35,6 +35,41 @@ None of these is the reported user complaint. They are the mobile half of the sa
 grouped here because they are one question asked six times: what box is the app actually
 being laid out against.
 
+### 1.1 Freshness re-verification (2026-08-21)
+
+Both of this dossier's sweeps were re-run and **all six findings still reproduce unchanged**.
+
+- **F-45's sweep is exact.** Viewport-height units in `frontend/src` still return exactly the
+  seven documented hits, at the same lines: `AppShell.vue:141` (still `height: 100vh`),
+  `AuthLayout.vue:27,77`, `PublicLayout.vue:14`, `Landing.vue:345`,
+  `AgentDetailView.vue:964`, `GraphragGraphView.vue:168`. Nothing has drifted.
+- **F-39's count holds: 17 inclusive `@media` blocks across 14 files.** One line moved -
+  `ProfileView.vue` is **`:319`**, not `:328`. The table in §2 is corrected. Every other entry
+  is exact, and the 7 already-correct blocks are all still correct.
+- **F-18's anchors are unchanged**: `AgentDetailView.vue:1274-1277`, `:1271`, `:665`.
+
+Line drift only, from `2026-08-19-chatroom-scroll-and-composer` landing in the two chatroom
+files this dossier cites for F-25 and F-46. Nothing about the findings changes; the numbers do:
+
+| Cited as | Now | What it is |
+|---|---|---|
+| `ChatroomView.vue:7` | `:11` | the `--kb-inset` producer |
+| `ChatroomView.vue:367` | `:387` | the sole `useVisualViewport` call site |
+| `ChatroomView.vue:1015-1019` / `:1018` | `:1275-1279` / `:1278` | `.chatroom--mobile`'s `calc(100% - var(--kb-inset))` |
+| `ChatroomView.vue:980-983` | `:1183` | `.chatroom__composer` grid row |
+| `ChatroomView.vue:1001-1006` | `:1204` | `.chatroom__pill`, `bottom: 16px` |
+| `ChatroomComposer.vue:252-257` | `:273` | `.composer` root rule |
+
+**One new interaction worth knowing, because this is the breakpoints dossier.**
+`2026-08-19-chatroom-scroll-and-composer` added a **fourth breakpoint band** that
+`useBreakpoint` does not expose: `ChatroomView.vue` derives `isCompactDesktop`
+(`width >= BP.lg && width < BP.xl`) locally from the exported `width`, for the 1024-1279
+overlay layout. Its FU-2 says explicitly that a *second* consumer of that band should promote
+it into `useBreakpoint` rather than copy the computed. That is not this dossier's job - F-39
+is about the `sm`/`md` boundary values, not about adding a band - but FU-4 here is the entry
+that owns "the thresholds are declared twice and neither is readable from a media query", and
+a third declaration now exists in a view. Worth folding into whatever answers FU-4.
+
 ## 2. Observed vs Expected
 
 ### F-45 (minor) - the shell is sized in `vh` where every other layout uses `dvh`
@@ -67,10 +102,11 @@ being laid out against.
 
 - **Observed** - `frontend/src/shared/composables/useVisualViewport.ts:26` computes
   `window.innerHeight - vv.height - vv.offsetTop`, i.e. against the layout viewport. The
-  value is bound as `--kb-inset` on the chatroom root (`ChatroomView.vue:7`, enabled only on
-  mobile via `:367`) and consumed by
+  value is bound as `--kb-inset` on the chatroom root (`ChatroomView.vue:11`, enabled only on
+  mobile via `:387`) and consumed by
   `.chatroom--mobile { height: calc(100% - var(--kb-inset, 0px)) }`
-  (`ChatroomView.vue:1015-1019`). That `100%` chains through `main.app-shell__content`
+  (`ChatroomView.vue:1275-1279`; line numbers re-verified 2026-08-21, see §1.1). That `100%`
+  chains through `main.app-shell__content`
   (`AppShell.vue:123-132`, grid row `1fr` of `:140`) to the `100vh` shell, i.e. the large
   viewport. The two references differ by the toolbar height.
 - **Expected** - `docs/UI/11-responsive-a11y.md:136`: "Composer sticks to bottom above
@@ -84,9 +120,10 @@ being laid out against.
   `safe-area` or `env(` across `frontend/src` returns no CSS hit at all; every match is the
   unrelated `env()` test-fixture helper in `frontend/e2e/` (declared at
   `frontend/e2e/fixtures/seed.ts:44`). Bottom-anchored and edge-anchored UI that has no
-  inset: the chat composer (`ChatroomComposer.vue:252-257`, rendered as grid row 4 flush to
-  the shell bottom per `ChatroomView.vue:980-983`), the new-messages pill
-  (`ChatroomView.vue:1001-1006`, `bottom: 16px`), the agent action bar
+  inset (line numbers re-verified 2026-08-21, see §1.1): the chat composer
+  (`ChatroomComposer.vue:273`, rendered as grid row 4 flush to
+  the shell bottom per `ChatroomView.vue:1183`), the new-messages pill
+  (`ChatroomView.vue:1204`, `bottom: 16px`), the agent action bar
   (`AgentDetailView.vue:1274-1277`, see F-18), the drawer panel
   (`SDrawer.vue:126-135`, `top: 0; bottom: 0`), the full-screen mobile modal
   (`SModal.vue:258-276`), and the landing page's 24px gutters (`Landing.vue:342-349`).
@@ -120,7 +157,7 @@ being laid out against.
   | `slices/identity/views/ChangeEmailView.vue` | 260 | 768 |
   | `slices/identity/views/ChangePasswordView.vue` | 207 | 768 |
   | `slices/identity/views/DeleteAccountView.vue` | 191 | 768 |
-  | `slices/identity/views/ProfileView.vue` | 328 | 768 |
+  | `slices/identity/views/ProfileView.vue` | 319 | 768 |
   | `slices/identity/views/SessionsView.vue` | 279 | 768 |
   | `slices/tenancy/styles/detail-cards.css` | 99 | 480 |
   | `slices/tenancy/styles/member-form.css` | 29 | 768 |
@@ -321,10 +358,11 @@ the border and the narrower `xs` gutter.
   as FU-6 so whoever builds those two changes the unit at the same time. Both are also
   `lg:`-gated or desktop-only routes, where `dvh` and `vh` coincide, so the present-day
   impact is nil.
-- **Other consumers of `useVisualViewport`**: **cleared.** A repository-wide grep returns the
-  composable itself, its barrel export (`shared/composables/index.ts:20`) and exactly one
-  call site (`ChatroomView.vue:367`). `--kb-inset` has exactly one producer
-  (`ChatroomView.vue:7`) and one consumer (`:1018`).
+- **Other consumers of `useVisualViewport`**: **cleared, re-swept 2026-08-21.** A
+  repository-wide grep returns the composable itself, its barrel export
+  (`shared/composables/index.ts:20`) and exactly one call site (`ChatroomView.vue:387`).
+  `--kb-inset` still has exactly one producer (`ChatroomView.vue:11`) and one consumer
+  (`:1278`).
 - **Other bottom-anchored `fixed` elements (the F-18 pattern)**: **cleared.** The 10 hits for
   `fixed bottom-0` / `position: fixed` in `frontend/src` are enumerated in §2; only
   `AgentDetailView.vue:1276` is bottom-anchored in flow-bearing content. `SNetworkBanner.vue:42`
