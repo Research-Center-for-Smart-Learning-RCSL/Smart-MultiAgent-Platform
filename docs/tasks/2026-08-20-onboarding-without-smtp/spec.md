@@ -548,6 +548,28 @@ FU-5 and completes the dossier.
   files, amended component tests, and the Playwright spec of §12
   (`e2e/20-onboarding-without-smtp.spec.ts`). D-18 to D-22 record where it departed from
   the approved §6.
+- **D-24 — a post-close `/code-review` found five defects in the frontend diff, and the
+  first is the one to carry forward.** `useFocusTrap`'s watcher had no `immediate`, so a
+  dialog mounted **already open** never fired it: the `v-if="result"` wrapper with a
+  constant `:open="true"` inside — the shape both activation-links dialogs use, and the
+  only such shape in the codebase — got no focus move, no body-scroll lock, and nothing
+  recorded to restore focus to. Tab walked the page behind the modal. Fixed in the shared
+  primitive, not at the two call sites, so the next `:open="true"` is correct by
+  construction, and pinned by the regression test `useFocusTrap` never had (probed: reverting
+  `immediate` reddens the mounted-open case and leaves the opened-later one green). The
+  other four: the project invite card rendered one round trip before its pool and swapped
+  the address field for the picker under anyone mid-keystroke (now waits for the query to
+  settle); `AdminCreateUserDialog`'s submit button sits in SModal's footer slot, which is
+  rendered **outside** the `<form>`, so `type="email"` was inert for anyone who clicked
+  rather than pressed Enter and the resulting 422 had no mapped message (now wired through
+  the HTML5 `form` attribute, with the 422 mapped); the re-issue guard said "every live
+  account" but only excluded deleted ones, so a **banned** account that never set a
+  password — which the server guard also reads as "not yet activated" (FU-9) — was offered
+  activation links; and two files carried a UTF-8 BOM added by a PowerShell round-trip
+  during the build rather than by any intended edit. **The process lesson: never
+  round-trip a source file through `Get-Content`/`Set-Content` on this host** — Windows
+  PowerShell 5.1 decodes a BOM-less UTF-8 file as ANSI, so the same trip that added those
+  BOMs also destroyed three em-dashes, which had to be repaired by hand.
 - **D-23 — the browser pass happened, which BOARD.md records as not having happened for
   seven consecutive dossiers in this area.** The compose stack was brought up locally
   (postgres, redis, vault, backend-web; `alembic upgrade head` clean through 0079;
