@@ -594,8 +594,11 @@ Tier 2 and Tier 3 halves that need a running stack are left unticked and named i
       passes after. T-14 is written and unrun.
 - [x] AC-5: **F-17** - T-4 fails before the fix in both halves and passes after. The empty state
       and the skeleton render, and the keys exist in `en` and `zh-TW` (gate #12 green).
-- [ ] AC-6: **F-26** - T-5 fails before the fix and passes after for all three views. **V-1 is
-      not confirmed**: no running stack. Unticked deliberately.
+- [ ] AC-6: **F-26** - **wording amended by D-7**: all three detail views paint a *header-shaped
+      skeleton* for the whole of the first fetch, not a page header - a header titled with the
+      loading string put a status string in the `h1` and took two e2e specs down. T-5 fails
+      before the fix and passes after for all three views, and now also asserts no `h1` exists
+      during the fetch. **V-1 is not confirmed**: no running stack. Unticked deliberately.
 - [x] AC-7: **F-27** - T-6 and T-7 fail before the fix and pass after. `AgentDetailView`'s
       loading branch matches `docs/UI/06-agents.md:449-452` (1 + 5 + 2x4). T-13 is written and
       unrun, so the "no upward jump" half is asserted by construction (skeleton height reduced
@@ -697,6 +700,24 @@ The entries below are departures from the spec *as approved*.
   a dirty store, a save click and a 409 response; the three predicates sit in one `watch` source
   array (`WorkflowEditorView.vue:437-443`), so the third adds no distinct branch to cover. Stated
   rather than silently dropped.
+- **D-7 (§7 item 7, again - supersedes the second half of D-1) - the pending state renders a
+  header-shaped `SSkeleton`, not an `SPageHeader` titled with the loading string.** Found by
+  CI, not by review: the first implementation took **two pre-existing e2e specs down**
+  (`15-tenancy-keys-mgmt.spec.ts` "rename a project" and "rename an org", both asserting
+  `toHaveValue("Loading...")` against the real org name). Those specs read the entity's current
+  name with `getByRole('heading', { level: 1 })` and rely on an invariant this dossier broke:
+  **on a detail page the `<h1>` IS the entity's name, so an `<h1>` existing means the entity has
+  loaded.** Titling the pending header `tenancy.common.loading` put a status string in the `h1`,
+  which resolved `toBeVisible()` immediately and handed every downstream assertion the word
+  "Loading...". The test was not at fault, and neither was it merely a timing race: a status
+  string in the `h1` is also the page's accessible name for the whole fetch, which is a claim the
+  page should not make. §1.3's correction 3 and D-1 both reasoned about *which* title to use and
+  never questioned whether there should be a title at all; `docs/UI/12-shared-patterns.md` §5.1
+  answers that directly ("structural skeleton, not a text placeholder"), and
+  `AgentDetailView.vue:667` already did it this way. All three views now render a 200px x 2rem
+  skeleton above the bounded spinner and no `h1`. **AC-6's wording changes with it** - "paint
+  their page header" becomes "paint a header-shaped skeleton" - and T-5 was rewritten to assert
+  the skeleton **and the absence of an `h1`**, which pins the invariant that broke.
 - **D-6 (T-13) - the browser assertion runs at 1440x400, not at a default viewport.** `main` has
   a definite height and `overflow-y: auto`, so `scrollHeight` clamps to `clientHeight` for
   anything that fits: at 900px tall both the skeleton and the settled samples report the same
@@ -714,8 +735,32 @@ no usable bash. The bundle budget was approximated in PowerShell against the rea
 output instead - **no chunk exceeds the 200 KB gzip lazy limit and the entry chunk is 25 043 B
 gzip against a 256 000 B budget** - which is a sanity check, not the gate. CI is authoritative.
 
-**Not run**: `pnpm run test:e2e`. `frontend/e2e/22-layout-contract.spec.ts` needs the compose
-stack, which is not running on this host. AC-16 is therefore unticked.
+**CI run 32482080878** (`c7ebdd5`, push to `main`): every job green **except `frontend-e2e`**,
+which reported 74 passed / 5 skipped / **3 failed**. All three trace to this dossier and none was
+a pre-existing flake:
+
+1. and 2. `15-tenancy-keys-mgmt.spec.ts` "rename a project" and "rename an org" - **a real
+   regression this dossier introduced**, diagnosed and fixed as **D-7**.
+3. `22-layout-contract.spec.ts` "a query-only change preserves the offset" - **a defect in this
+   dossier's own new test, not in the product.** `click()`'s actionability check scrolls its
+   target into view, and the tab bar is above the fold once the test has scrolled away, so
+   Playwright zeroed `main.scrollTop` *before* the navigation it was measuring. Replaced with
+   `dispatchEvent('click')`, which runs `STabs`'s plain `@click` handler (`STabs.vue:115`)
+   without scrolling. Recorded here rather than as a D-entry because the spec's design was
+   right and only the test's mechanics were wrong - but worth stating plainly: **T-11's
+   query-only half never passed as originally written, and would have failed against correct
+   code.**
+
+**The other ten assertions in `22-layout-contract.spec.ts` ran and passed**, which is the first
+real confirmation that the padding, landmark, graph-scroll and sticky-panel geometry are as this
+dossier claims. Established by arithmetic rather than by reading test names, because Playwright's
+reporter lists neither passes nor skips individually: the last green run (`e5e23ba`, run
+32454040062) was **61 passed / 5 skipped / 0 failed**; this one was **74 passed / 5 skipped /
+3 failed**, so 16 tests were added - 11 from this spec and 5 from
+`21-overlay-and-shell-contract.spec.ts`, which the same push carried up from the sibling dossier
+- and **the skip count did not move**. None of this spec's 11 self-skipped for want of seed data,
+so 10 of them genuinely executed and passed. AC-16 stays unticked until a run is green end to
+end.
 
 **Audits**: `check-quality` over the whole task diff found two Introduced-Warning and one
 Introduced-Info item, all three fixed in `a2e2095` rather than deferred (they are D-3, D-6 and
