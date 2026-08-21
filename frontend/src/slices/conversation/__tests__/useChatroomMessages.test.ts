@@ -5,7 +5,7 @@
 // the message cache so optimistic setQueryData / rollback are exercised for real.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { defineComponent, nextTick, ref, type Ref } from 'vue'
+import { defineComponent, nextTick } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
@@ -376,7 +376,6 @@ describe('useChatroomMessages moderator affordances (V-4)', () => {
   function mountModerator(isModerator: boolean) {
     api.listMessages.mockResolvedValue([])
     mountQueryHost(() => {
-      const listRef: Ref<HTMLElement | null> = ref(null)
       composable = useChatroomMessages(
         ROOM,
         onSentSpy,
