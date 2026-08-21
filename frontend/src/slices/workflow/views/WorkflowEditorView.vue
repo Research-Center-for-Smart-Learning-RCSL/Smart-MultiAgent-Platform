@@ -312,12 +312,12 @@
 </template>
 
 <script setup lang="ts">
-import { VueFlow } from '@vue-flow/core'
+import { VueFlow, useVueFlow } from '@vue-flow/core'
 import type { NodeChange, EdgeChange, NodeComponent, NodeTypesObject } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
-import { markRaw, ref, watch } from 'vue'
+import { markRaw, nextTick, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 
 import { useConfirmDialog, useToast } from '@shared/composables'
@@ -415,6 +415,31 @@ const {
 const { scheduleLint } = useWorkflowLint(
   () => workspaceId.value,
   flowToDef,
+)
+
+// The load-error, conflict and lint bars are flex-column siblings of the canvas
+// wrapper, so each one appearing takes its own height out of the canvas and
+// clips whatever `fit-view-on-init` had fitted. Extend that same viewport
+// policy (08-workflow.md §2.9) to "the available area changed", on the tick
+// after the bar has landed in the DOM.
+//
+// Deliberately not a ResizeObserver: that would also fire on window resize and
+// sidebar collapse, discarding a manual pan or zoom every time the user drags a
+// window edge. The cost accepted here is narrower -- a manual zoom is discarded
+// at the moment of a validate, a save conflict or a load error, which are
+// exactly the moments the user wants the whole graph. The tablet notice is
+// excluded because it is static at mount and cannot toggle.
+//
+// useVueFlow() here provides the store the <VueFlow> child below adopts, so
+// this is the canvas's own instance rather than a second one. Before the canvas
+// mounts, fitView resolves to vue-flow's initial no-op helper.
+const { fitView } = useVueFlow()
+
+watch(
+  [() => Boolean(loadError.value), conflictDetected, () => store.lintRan],
+  () => {
+    void nextTick(() => fitView())
+  },
 )
 
 // Wire up change handlers to also trigger lint (only when something real
