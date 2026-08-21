@@ -114,7 +114,7 @@ function formatDate(iso: string): string {
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <SPageHeader :title="$t('keys.groups.listTitle')">
       <template #description>
         {{ $t('keys.groups.listDescription') }}
@@ -247,5 +247,5 @@ function formatDate(iso: string): string {
         </div>
       </template>
     </SModal>
-  </main>
+  </div>
 </template>

@@ -128,7 +128,7 @@ async function onCarry(keyId: string) {
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <SPageHeader :title="$t('keys.project.title')">
       <template #description>
         {{ $t('keys.project.description') }}
@@ -283,5 +283,5 @@ async function onCarry(keyId: string) {
         </STable>
       </template>
     </STabs>
-  </main>
+  </div>
 </template>

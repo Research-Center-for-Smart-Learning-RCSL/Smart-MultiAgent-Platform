@@ -135,7 +135,7 @@ async function onDelete() {
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <!-- Not found state -->
     <div
       v-if="!currentLoading && !current"
@@ -300,7 +300,7 @@ async function onDelete() {
         </ul>
       </SCard>
     </template>
-  </main>
+  </div>
 </template>
 
 <style scoped>

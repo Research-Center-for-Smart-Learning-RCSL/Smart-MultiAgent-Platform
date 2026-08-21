@@ -23,7 +23,7 @@ const scopeOrder = ['agent', 'project', 'org', 'platform'] as const
 </script>
 
 <template>
-  <div class="p-6">
+  <div>
     <SPageHeader
       :title="t('skills.admin.title')"
       :subtitle="t('skills.admin.subtitle')"

@@ -145,7 +145,7 @@ function openWorkspace(ws: Workspace): void {
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <SPageHeader :title="t('conversation.workspaces.title')">
       <template #actions>
         <SButton
@@ -295,7 +295,7 @@ function openWorkspace(ws: Workspace): void {
         </SButton>
       </template>
     </SModal>
-  </main>
+  </div>
 </template>
 
 <style scoped>

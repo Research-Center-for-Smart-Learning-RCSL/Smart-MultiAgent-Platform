@@ -165,7 +165,7 @@ const flowEdges = computed(() => {
 </script>
 
 <template>
-  <main class="p-6 flex flex-col h-[calc(100vh-3.5rem)]">
+  <div class="flex flex-col h-full">
     <SPageHeader
       :title="t('agents.graphragGraph.title')"
       :breadcrumbs="breadcrumbs"
@@ -261,5 +261,5 @@ const flowEdges = computed(() => {
       </span>
       <span class="opacity-80">{{ t('agents.graphragGraph.legendHint') }}</span>
     </div>
-  </main>
+  </div>
 </template>

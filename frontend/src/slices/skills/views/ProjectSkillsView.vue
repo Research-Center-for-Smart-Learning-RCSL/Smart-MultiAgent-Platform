@@ -16,7 +16,7 @@ const scope = computed<SkillScopeRef>(() => ({ kind: 'project', projectId: proje
 </script>
 
 <template>
-  <div class="mx-auto max-w-6xl p-6">
+  <div class="mx-auto max-w-6xl">
     <SPageHeader
       :title="t('skills.project.title')"
       :subtitle="t('skills.project.subtitle')"

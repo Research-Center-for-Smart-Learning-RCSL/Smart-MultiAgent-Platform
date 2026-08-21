@@ -1,5 +1,5 @@
 <template>
-  <section class="workflow-runs p-4">
+  <section class="workflow-runs">
     <SPageHeader :title="$t('workflow.runs.title')">
       <template #prepend>
         <router-link

@@ -1,5 +1,5 @@
 <template>
-  <section class="workflow-backstage p-4">
+  <section class="workflow-backstage">
     <SPageHeader
       :title="$t('workflow.backstage.title')"
       :subtitle="$t('workflow.backstage.subtitle')"

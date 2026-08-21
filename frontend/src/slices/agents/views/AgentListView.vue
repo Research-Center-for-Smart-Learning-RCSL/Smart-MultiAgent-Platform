@@ -241,7 +241,7 @@ function onRowClick(row: Agent): void {
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <SPageHeader
       :title="t('agents.list.title')"
       :breadcrumbs="breadcrumbs"
@@ -420,5 +420,5 @@ function onRowClick(row: Agent): void {
       class="mt-4"
       @update:page="currentPage = $event"
     />
-  </main>
+  </div>
 </template>

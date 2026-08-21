@@ -9,7 +9,7 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <div class="mx-auto max-w-3xl p-4">
+  <div class="mx-auto max-w-3xl">
     <SPageHeader
       :title="t('promptStudio.admin.title')"
       :subtitle="t('promptStudio.admin.subtitle')"

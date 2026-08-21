@@ -218,7 +218,7 @@ function submitCreate(): void {
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <SPageHeader
       :title="pageTitle"
       :breadcrumbs="breadcrumbs"
@@ -424,7 +424,7 @@ function submitCreate(): void {
         </SButton>
       </template>
     </SModal>
-  </main>
+  </div>
 </template>
 
 <style scoped>

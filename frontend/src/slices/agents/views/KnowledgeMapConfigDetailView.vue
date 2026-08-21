@@ -270,7 +270,7 @@ function onTabChange(tab: string | number): void {
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <template v-if="configQuery.isLoading.value">
       <SSkeleton width="200px" />
       <SSkeleton class="mt-4" />
@@ -405,5 +405,5 @@ function onTabChange(tab: string | number): void {
         @toggle-upload-agent="toggleUploadAgent"
       />
     </template>
-  </main>
+  </div>
 </template>

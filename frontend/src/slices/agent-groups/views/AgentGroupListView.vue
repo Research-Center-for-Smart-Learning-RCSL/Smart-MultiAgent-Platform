@@ -159,7 +159,7 @@ const GroupTable = typedSTable<AgentGroup>()
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <SPageHeader :title="t('agentGroups.list.title')">
       <template #actions>
         <SButton
@@ -328,5 +328,5 @@ const GroupTable = typedSTable<AgentGroup>()
         </div>
       </template>
     </SModal>
-  </main>
+  </div>
 </template>

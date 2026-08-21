@@ -215,7 +215,7 @@ const KnowmapConfigTable = typedSTable<KnowmapConfig>()
 </script>
 
 <template>
-  <main class="p-6">
+  <div>
     <SPageHeader
       :title="t('agents.knowmapList.title')"
       :breadcrumbs="breadcrumbs"
@@ -433,5 +433,5 @@ const KnowmapConfigTable = typedSTable<KnowmapConfig>()
         </div>
       </template>
     </SModal>
-  </main>
+  </div>
 </template>
