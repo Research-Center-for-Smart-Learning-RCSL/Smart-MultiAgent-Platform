@@ -136,7 +136,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   PlusIcon,
@@ -226,10 +226,31 @@ function onKeydown(e: KeyboardEvent): void {
   }
 }
 
+// ---- auto-grow ------------------------------------------------------------
+// 07-conversation.md:669-671 sizes the box between 36px and 192px. Driven from
+// JavaScript rather than `field-sizing: content`, which is Chromium-only and
+// above the browser floor in 11-responsive-a11y.md:346-347.
+const MAX_TEXTAREA_H = 192
+
+function resize(): void {
+  const el = textareaRef.value
+  if (!el) return
+  // Reset first: `scrollHeight` never shrinks below the current height, so
+  // without this the box could grow but never shrink.
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_H)}px`
+}
+
+// The model watch is not redundant with onInput: a send clears the draft and a
+// mention insert rewrites it, and neither fires an input event.
+watch(() => props.modelValue, resize, { flush: 'post' })
+onMounted(resize)
+
 function onInput(e: Event): void {
   emit('update:modelValue', (e.target as HTMLTextAreaElement).value)
   emit('typing')
   refreshMention()
+  resize()
 }
 
 function openPicker(): void {
@@ -284,7 +305,10 @@ function onDropEvent(e: DragEvent): void {
 .composer__textarea {
   width: 100%;
   min-height: 36px;
+  /* Backstop for the inline height that `resize()` assigns; both are needed,
+     because the cap has to hold if scripting never runs. */
   max-height: 192px;
+  overflow-y: auto;
   resize: none;
   border: none;
   background: transparent;
