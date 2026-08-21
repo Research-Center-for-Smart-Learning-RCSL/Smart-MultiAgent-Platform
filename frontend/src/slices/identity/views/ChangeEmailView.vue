@@ -257,7 +257,7 @@ async function submit(): Promise<void> {
   margin-top: 20px;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .form-card {
     max-width: none;
   }

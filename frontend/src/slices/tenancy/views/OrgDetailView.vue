@@ -451,13 +451,13 @@ const breadcrumbs = computed(() => [
   font-weight: 600;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .detail-grid {
     grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 479px) {
   .quotas-grid {
     grid-template-columns: 1fr;
   }

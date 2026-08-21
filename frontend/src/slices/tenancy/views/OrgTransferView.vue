@@ -427,13 +427,13 @@ const breadcrumbs = computed(() => [
   justify-content: flex-end;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .transfer-card {
     max-width: none;
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 479px) {
   .target-actions {
     flex-direction: column;
   }
