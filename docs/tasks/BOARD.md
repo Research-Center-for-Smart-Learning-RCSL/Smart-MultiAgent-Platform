@@ -66,7 +66,9 @@ first, but building them serially avoids the conflict.
   `mobile-viewport-and-breakpoints` runs, so Q-14 now specifies `vh` and FU-8 pairs the two
   edits); §1.3 records the corrections made at approval.
 
-- `2026-08-21-visual-refinement-phase1-token-adoption` (refactor, **approved 2026-08-21**) -
+- (moved to In progress on 2026-08-21) `2026-08-21-visual-refinement-phase1-token-adoption`.
+  The original entry, kept here for the record:
+  `2026-08-21-visual-refinement-phase1-token-adoption` (refactor, **approved 2026-08-21**) -
   **unblocked 2026-08-21** by `2026-08-19-shared-overlay-and-shell-defects`, which has now
   finished editing the scoped style blocks of `STable`, `SDropdown`, `SAlert`, `SEmptyState`,
   `SModal` and `STooltip`. Rebase onto those edits rather than assuming the rules are as its
@@ -208,6 +210,15 @@ report that the UI is consistent but flat.
 
 ## In progress
 
+- `2026-08-21-visual-refinement-phase1-token-adoption` (refactor) — `depends_on:
+  [2026-08-19-shared-overlay-and-shell-defects]`, met. Started 2026-08-21 from base
+  `db66167`. **Its §2 counts were measured against `shared/ui/` only; the sweep AC-3
+  actually specifies covers three trees** — 334 type and 604 spacing declarations across
+  ~140 files, roughly three times the dossier's figure. Three scope decisions were taken
+  with the user at build start and are recorded as deviations in the dossier: half-step
+  spacing and the two missing line-heights get tokens (the exemption list would otherwise
+  run to ~115 entries and AC-3's sweep would mean nothing), `slices/` stays in scope, and
+  `main.css`'s own `@layer base` literals are tokenised too.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-08-21 after implementation:
 `2026-08-19-mobile-viewport-and-breakpoints` (the app is sized against the viewport the device
