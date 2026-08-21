@@ -70,7 +70,17 @@
       "you": "(you)",
       "empty": "No members",
       "inherited": "Inherited",
-      "inheritedTooltip": "This user has access as an org Owner. Manage via org settings."
+      "inheritedTooltip": "This user has access as an org Owner. Manage via org settings.",
+      "invitePickLabel": "Organization member",
+      "invitePickPlaceholder": "Select a member of the organization",
+      "inviteByEmail": "Invite someone who is not in the organization yet",
+      "inviteByPicker": "Pick from the organization's members instead",
+      "invitePoolError": "Could not load the organization's members. You can still invite by email address.",
+      "inviteLinkTitle": "Invitation link",
+      "inviteLinkLede": "Send this link to",
+      "inviteLinkLabel": "Accept link",
+      "inviteLinkHelp": "Treat it as confidential: anyone holding it can accept this invitation. It is shown once — if you lose it, revoke the invitation and invite again. Someone who already has an account will also find the invitation in their in-app inbox.",
+      "inviteLinkDismiss": "Done"
     },
     "transfer": {
       "pageTitle": "Original Creator Transfer",

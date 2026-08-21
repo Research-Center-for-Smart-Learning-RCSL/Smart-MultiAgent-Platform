@@ -63,6 +63,7 @@ export const handlers = [
     HttpResponse.json({ id: 'proj_1', name: 'Test Project', org_id: 'org_1' }),
   ),
   http.get('/api/projects/:projectId/members', () => HttpResponse.json([])),
+  http.get('/api/projects/:projectId/invitable-members', () => HttpResponse.json([])),
 
   http.get('/api/keys', () => HttpResponse.json([])),
   http.get('/api/keys/:keyId/projects', () => HttpResponse.json([])),

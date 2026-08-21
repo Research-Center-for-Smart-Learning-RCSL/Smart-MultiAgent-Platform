@@ -35,6 +35,23 @@ export interface ProjectMember {
   joined_at: string
 }
 
+/** A parent-Org member this project may still invite (R6.10). */
+export interface InvitableMember {
+  user_id: string
+  email: string
+}
+
+export interface ProjectInvite {
+  id: string
+  scope_id: string
+  invitee_email: string
+  role: 'owner' | 'member'
+  expires_at: string
+  // R6.09 — present only on the 201 from create, never on a read path. Absent
+  // rather than null when the backend omits it, so treat both as "no link".
+  accept_url?: string | null
+}
+
 export const projectsApi = {
   // scope+id scopes the listing to one owner; the API requires them together,
   // so pass both or neither (never `scope` alone).
@@ -73,7 +90,16 @@ export const projectsApi = {
       userId: uid,
       requestBody: { role },
     }),
-  invite: (id: string, email: string, role: 'owner' | 'member') =>
+  // Parent-Org members still invitable to this project. 200 with `[]` both for a
+  // user-owned project and for a caller who is not a member of that Org — the
+  // two are deliberately indistinguishable, so never read an empty pool as
+  // "this project has no parent org".
+  listInvitableMembers: (id: string, params?: PaginationParams): Promise<InvitableMember[]> =>
+    ProjectsService.listInvitableMembersApiProjectsProjectIdInvitableMembersGet({
+      projectId: id,
+      ...(params ?? {}),
+    }),
+  invite: (id: string, email: string, role: 'owner' | 'member'): Promise<ProjectInvite> =>
     ProjectsService.createProjectInviteApiProjectsProjectIdInvitesPost({
       projectId: id,
       requestBody: { email, role },

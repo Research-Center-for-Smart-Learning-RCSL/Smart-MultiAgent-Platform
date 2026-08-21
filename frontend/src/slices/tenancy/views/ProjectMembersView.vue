@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -17,6 +17,8 @@ import { tenancyKeys } from '../queries'
 import { formatRelative } from '../utils/formatters'
 import { roleLabel } from '../utils/roles'
 import { useMemberActions } from '../composables/useMemberActions'
+import { useProjectRole } from '../composables/useProjectRole'
+import InviteAcceptLinkCard from '../components/InviteAcceptLinkCard.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -37,17 +39,48 @@ const { data: members, isLoading, isError, refetch } = useQuery({
   queryFn: () => projectsApi.listMembers(projectId.value),
 })
 
-const myMembership = computed<ProjectMember | null>(() => {
-  if (!members.value || !session.me) return null
-  return members.value.find(m => m.user_id === session.me!.id) ?? null
+// Not the member list: project ownership is inherited, so an Org Owner manages
+// this project while holding no `project_members` row at all. `is_moderator` is
+// the server's own verdict — see useProjectRole's header.
+const { isAuthorized: canManageMembers } = useProjectRole(projectId)
+
+// The pool the picker reads (R6.10, Q-6). Empty both for a user-owned project
+// and for a caller outside the parent Org, which the backend makes deliberately
+// indistinguishable — so an empty pool only ever means "nobody to pick", never
+// "this project has no org".
+const {
+  data: invitablePool,
+  isError: isPoolError,
+} = useQuery({
+  queryKey: computed(() => tenancyKeys.invitableMembers(projectId.value)),
+  queryFn: () => projectsApi.listInvitableMembers(projectId.value),
+  enabled: canManageMembers,
 })
 
-const isOwner = computed(() => myMembership.value?.role === 'owner')
-
 const inviteEmail = ref('')
+const invitePickedUserId = ref('')
 const inviteRole = ref<'owner' | 'member'>('member')
 const invitePending = ref(false)
 const inviteError = ref<string | null>(null)
+const inviteLink = ref<{ email: string; acceptUrl: string } | null>(null)
+
+// The picker only exists when there is something to pick. Its absence is not an
+// error state: a user-owned project has no pool by construction.
+const hasPool = computed(() => (invitablePool.value?.length ?? 0) > 0)
+const byEmail = ref(false)
+const usePicker = computed(() => hasPool.value && !byEmail.value)
+
+const pickerOptions = computed(() =>
+  (invitablePool.value ?? []).map(m => ({ value: m.user_id, label: m.email })),
+)
+
+const pickedEmail = computed(
+  () => (invitablePool.value ?? []).find(m => m.user_id === invitePickedUserId.value)?.email ?? '',
+)
+
+const canSubmitInvite = computed(() =>
+  usePicker.value ? !!pickedEmail.value : !!inviteEmail.value.trim(),
+)
 
 const roleOptions = [
   { value: 'member', label: t('tenancy.role.member') },
@@ -67,9 +100,9 @@ const { getRowActions, onAction } = useMemberActions({
   queryKey: () => tenancyKeys.projectMembers(projectId.value),
   qc,
   currentUserId: () => session.me?.id,
-  canPromote: () => isOwner.value,
-  canDemote: () => isOwner.value,
-  canRemove: () => isOwner.value,
+  canPromote: () => canManageMembers.value,
+  canDemote: () => canManageMembers.value,
+  canRemove: () => canManageMembers.value,
   removeMessage: () => t('tenancy.member.removeBodyProject'),
   errorMessage: () => t('tenancy.project.loadError'),
 })
@@ -90,15 +123,20 @@ type ProjectMemberRow = ProjectMember & Record<string, unknown>
 const tableData = computed<ProjectMemberRow[]>(() => (members.value ?? []) as unknown as ProjectMemberRow[])
 
 async function onInvite(): Promise<void> {
-  const email = inviteEmail.value.trim()
+  const email = usePicker.value ? pickedEmail.value : inviteEmail.value.trim()
   if (!email) return
   invitePending.value = true
   inviteError.value = null
   try {
-    await projectsApi.invite(projectId.value, email, inviteRole.value)
+    const invite = await projectsApi.invite(projectId.value, email, inviteRole.value)
     inviteEmail.value = ''
+    invitePickedUserId.value = ''
     inviteRole.value = 'member'
+    // The invitee leaves the pool the moment the invite exists, so the picker
+    // cannot offer them again and hit the duplicate path it exists to avoid.
     qc.invalidateQueries({ queryKey: tenancyKeys.projectMembers(projectId.value) })
+    qc.invalidateQueries({ queryKey: tenancyKeys.invitableMembers(projectId.value) })
+    inviteLink.value = invite.accept_url ? { email, acceptUrl: invite.accept_url } : null
     toast.success(t('tenancy.member.invited', { email }))
   } catch (e: unknown) {
     if (isProblemWithType(e, '/tenancy/invite-duplicate')) {
@@ -141,7 +179,7 @@ const breadcrumbs = computed(() => [
 
     <!-- Invite form -->
     <SCard
-      v-if="isOwner"
+      v-if="canManageMembers"
       variant="flat"
       class="invite-card"
     >
@@ -150,6 +188,24 @@ const breadcrumbs = computed(() => [
         @submit.prevent="onInvite"
       >
         <SFormField
+          v-if="usePicker"
+          :label="t('tenancy.member.invitePickLabel')"
+          name="invitePickedUser"
+          :error="inviteError ?? ''"
+          required
+          class="invite-email"
+        >
+          <SSelect
+            v-model="invitePickedUserId"
+            :options="pickerOptions"
+            :placeholder="t('tenancy.member.invitePickPlaceholder')"
+            :error="!!inviteError"
+            :disabled="invitePending"
+          />
+        </SFormField>
+
+        <SFormField
+          v-else
           :label="'Email'"
           name="inviteEmail"
           :error="inviteError ?? ''"
@@ -181,13 +237,42 @@ const breadcrumbs = computed(() => [
           type="submit"
           variant="primary"
           :loading="invitePending"
-          :disabled="invitePending || !inviteEmail.trim()"
+          :disabled="invitePending || !canSubmitInvite"
           class="invite-btn"
         >
           {{ t('tenancy.member.sendInvite') }}
         </SButton>
       </form>
+
+      <!-- The escape hatch Q-6 requires: the pool only holds people already in
+           the parent Org, and inviting someone who is not is the common case a
+           picker alone would make impossible. -->
+      <SButton
+        v-if="hasPool"
+        variant="ghost"
+        size="sm"
+        class="invite-mode-toggle"
+        @click="byEmail = !byEmail"
+      >
+        {{ byEmail ? t('tenancy.member.inviteByPicker') : t('tenancy.member.inviteByEmail') }}
+      </SButton>
+
+      <p
+        v-if="isPoolError"
+        class="invite-pool-error"
+        role="status"
+      >
+        {{ t('tenancy.member.invitePoolError') }}
+      </p>
     </SCard>
+
+    <InviteAcceptLinkCard
+      v-if="inviteLink"
+      :email="inviteLink.email"
+      :accept-url="inviteLink.acceptUrl"
+      class="invite-link-card"
+      @dismiss="inviteLink = null"
+    />
 
     <!-- Error state -->
     <SAlert
@@ -287,5 +372,19 @@ const breadcrumbs = computed(() => [
   display: inline-flex;
   gap: 4px;
   align-items: center;
+}
+
+.invite-mode-toggle {
+  margin-top: -0.5rem;
+}
+
+.invite-pool-error {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  color: var(--color-danger);
+}
+
+.invite-link-card {
+  margin-bottom: 1rem;
 }
 </style>

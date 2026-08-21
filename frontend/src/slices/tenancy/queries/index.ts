@@ -9,6 +9,8 @@ export const tenancyKeys = {
   project: (id: string) => ['tenancy', 'project', id] as const,
   projectMembers: (projectId: string) =>
     ['tenancy', 'projectMembers', projectId] as const,
+  invitableMembers: (projectId: string) =>
+    ['tenancy', 'invitableMembers', projectId] as const,
   memberGroups: (projectId: string) =>
     ['tenancy', 'memberGroups', projectId] as const,
   memberGroupMembers: (groupId: string) =>
