@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
   SPageHeader, SCard, SButton, SInput, SBadge, SAlert,
-  SLoadingSpinner, STooltip,
+  SLoadingSpinner, SSkeleton, STooltip,
 } from '@shared/ui'
 import { useInlineRename, useToast } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
@@ -108,14 +108,20 @@ const breadcrumbs = computed(() => [
 
 <template>
   <div>
-    <!-- The header renders during the fetch too, so a cold load reads as this
+    <!-- A header-shaped skeleton during the fetch, so a cold load reads as this
          page loading rather than as a blank content area with a 24px spinner
-         row in the corner. Breadcrumbs already carry a pending fallback. -->
+         row in the corner. Deliberately NOT an SPageHeader titled "Loading":
+         the title lands in an <h1>, which would make a status string the
+         page's heading and its accessible name for the whole fetch, and would
+         break the invariant that an h1 on a detail page IS the entity's name.
+         12-shared-patterns.md §5.1 asks for a structural skeleton here anyway. -->
     <template v-if="isLoading">
-      <SPageHeader
-        :title="t('tenancy.common.loading')"
-        :breadcrumbs="breadcrumbs"
-      />
+      <div class="mb-4">
+        <SSkeleton
+          width="200px"
+          height="2rem"
+        />
+      </div>
       <div class="flex justify-center py-16">
         <SLoadingSpinner :label="t('tenancy.common.loading')" />
       </div>

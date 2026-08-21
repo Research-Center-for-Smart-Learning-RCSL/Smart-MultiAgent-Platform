@@ -135,7 +135,14 @@ test.describe('Scroll position on navigation', () => {
 
     // Agent detail's tab bar writes { ...query, tab } through router.replace,
     // leaving the path untouched.
-    await page.getByRole('tab', { name: 'Knowledge', exact: true }).click()
+    //
+    // dispatchEvent, not click(): click()'s actionability check scrolls the
+    // target into view first, and the tab bar is above the fold once we have
+    // scrolled away — so the offset would be zeroed by Playwright before the
+    // navigation even happened, and the test would fail against correct code.
+    // STabs binds a plain @click (STabs.vue:115), so a dispatched event runs
+    // the same handler.
+    await page.getByRole('tab', { name: 'Knowledge', exact: true }).dispatchEvent('click')
     await expect(page).toHaveURL(/[?&]tab=knowledge/, { timeout: 10_000 })
     await page.waitForTimeout(200)
 

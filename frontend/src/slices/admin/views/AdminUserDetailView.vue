@@ -1,12 +1,19 @@
 <template>
   <section class="admin-user-detail">
-    <!-- The header renders during the fetch too, so a cold load reads as this
+    <!-- A header-shaped skeleton during the fetch, so a cold load reads as this
          page loading rather than as a blank content area with a 24px spinner
-         row in the corner. Kept inside the branch rather than hoisted above
-         all three: the error arm has no email to title itself with either, and
-         a hoisted header would announce "Loading" over "user not found". -->
+         row in the corner. Deliberately NOT an SPageHeader titled "Loading":
+         the title lands in an <h1>, which would make a status string the
+         page's heading and its accessible name for the whole fetch, and would
+         break the invariant that an h1 on a detail page IS the entity's name.
+         12-shared-patterns.md §5.1 asks for a structural skeleton here anyway. -->
     <template v-if="query.isPending.value">
-      <SPageHeader :title="$t('admin.common.loading')" />
+      <div class="mb-4">
+        <SSkeleton
+          width="200px"
+          height="2rem"
+        />
+      </div>
       <div class="flex justify-center py-16">
         <SLoadingSpinner :label="$t('admin.common.loading')" />
       </div>
@@ -97,7 +104,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
 import { useRoute } from 'vue-router'
 import { useConfirmDialog, useToast } from '@shared/composables'
-import { SPageHeader, SCard, SStatusBadge, SLoadingSpinner, SAlert } from '@shared/ui'
+import { SPageHeader, SCard, SStatusBadge, SLoadingSpinner, SSkeleton, SAlert } from '@shared/ui'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
