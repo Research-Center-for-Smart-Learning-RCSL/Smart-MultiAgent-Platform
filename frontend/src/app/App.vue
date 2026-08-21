@@ -72,10 +72,19 @@ const layoutComponent = computed(() => {
 <style scoped>
 /* min-height, never height: AuthLayout and PublicLayout size themselves and
    must keep scrolling the document. AppShell is the one layout that claims the
-   remaining space, which it does with flex: 1 in its own stylesheet. */
+   remaining space, which it does with `flex: 1 1 0px` in its own stylesheet -
+   a length basis, not `flex: 1`. See the note there before changing either.
+
+   dvh, not vh (02-layout-shell.md:111-116). On mobile browsers `vh` resolves
+   against the LARGE viewport, so a 100vh root is taller than the visible area
+   by the toolbar height and the shell's bottom grid row - notably the chatroom
+   composer - is below the fold on first paint. It also silently breaks
+   useVisualViewport: that composable measures the keyboard against
+   window.innerHeight, so a consumer sized against the large viewport
+   over-shoots the visible band by exactly the toolbar height. */
 .app-root {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 </style>
