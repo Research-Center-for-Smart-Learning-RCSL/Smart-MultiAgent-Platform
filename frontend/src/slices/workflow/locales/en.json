@@ -98,6 +98,8 @@
       "title": "Backstage Panel",
       "subtitle": "Trace, sub-agent tree, instruction chains, approval histories — Admin & Project Owner only.",
       "selectRun": "Select a run",
+      "noSelectionTitle": "No run selected",
+      "noSelectionText": "Choose a run above to inspect its execution trace, sub-agent tree, instruction chains and approval history.",
       "trace": "Execution Trace",
       "noSteps": "No steps for this run.",
       "subagentTree": "Sub-agent Tree",

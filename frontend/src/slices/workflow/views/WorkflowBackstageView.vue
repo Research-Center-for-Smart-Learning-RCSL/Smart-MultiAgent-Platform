@@ -26,12 +26,17 @@
         <h2 class="font-semibold mb-2">
           {{ $t('workflow.backstage.trace') }}
         </h2>
-        <p
+        <div
           v-if="stepsQuery.isLoading.value"
-          class="text-muted"
+          class="space-y-1"
         >
-          …
-        </p>
+          <SSkeleton
+            v-for="i in 3"
+            :key="i"
+            variant="rect"
+            height="26px"
+          />
+        </div>
         <div
           v-else-if="stepsList.length"
           class="space-y-1"
@@ -129,6 +134,13 @@
         </p>
       </div>
     </template>
+
+    <SEmptyState
+      v-else
+      :icon="MagnifyingGlassIcon"
+      :title="$t('workflow.backstage.noSelectionTitle')"
+      :text="$t('workflow.backstage.noSelectionText')"
+    />
   </section>
 </template>
 
@@ -137,7 +149,9 @@ import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { SFormField, SPageHeader, SSelect, STATUS_BG_MAP } from '@shared/ui'
+import { MagnifyingGlassIcon } from '@heroicons/vue/24/outline'
+
+import { SEmptyState, SFormField, SPageHeader, SSelect, SSkeleton, STATUS_BG_MAP } from '@shared/ui'
 import { getApproval, getInstruction, listApprovalsForRun, listRuns, listSteps } from '../api'
 import { wfKeys } from '../queries'
 import type { ApprovalWithVotes } from '../types'

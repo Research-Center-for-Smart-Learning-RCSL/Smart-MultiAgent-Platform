@@ -96,6 +96,8 @@
       "title": "後台面板",
       "subtitle": "執行追蹤、子代理樹狀圖、指令鏈、核准紀錄 — 僅限管理員及專案擁有者。",
       "selectRun": "選擇執行紀錄",
+      "noSelectionTitle": "尚未選擇執行紀錄",
+      "noSelectionText": "請於上方選擇一筆執行紀錄，以檢視其執行追蹤、子代理樹狀圖、指令鏈與核准紀錄。",
       "trace": "執行追蹤",
       "noSteps": "此次執行無步驟紀錄。",
       "subagentTree": "子代理樹狀圖",

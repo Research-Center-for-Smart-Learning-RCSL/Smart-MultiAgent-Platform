@@ -64,4 +64,54 @@ describe('WorkflowBackstageView', () => {
     expect(wrapper.find('.workflow-backstage').exists()).toBe(true)
     expect(wrapper.find('select').exists()).toBe(true)
   })
+
+  // F-17: the whole page below the selector sat behind `v-if="selectedRunId"`
+  // with no `v-else`, and the selection starts empty by design, so arriving at
+  // the route showed a header, a subtitle and a select over ~860px of blank
+  // with nothing saying a selection was required.
+  it('explains that a run must be selected when none is', async () => {
+    const wrapper = await renderView(WorkflowBackstageView, {
+      routes,
+      initialRoute: '/workspaces/ws_1/workflows/wf_1/backstage',
+    })
+    signInAsOwner()
+    await settle(wrapper)
+
+    expect(wrapper.find('.s-empty-state').exists()).toBe(true)
+    expect(wrapper.text()).toContain('workflow.backstage.noSelectionTitle')
+  })
+
+  // The step-trace placeholder was a literal ellipsis text node, not the
+  // structural skeleton 12-shared-patterns.md §5.1 asks for.
+  it('renders a skeleton, not an ellipsis, while the step trace loads', async () => {
+    signInAsOwner()
+    server.use(
+      http.get('/api/workflows/wf_1/runs', () =>
+        HttpResponse.json([
+          {
+            id: 'run_1',
+            workflow_id: 'wf_1',
+            state: 'succeeded',
+            trigger_type: 'manual',
+            started_at: '2026-01-01T00:00:00Z',
+            ended_at: null,
+          },
+        ]),
+      ),
+      // Never resolves within the test, so the loading branch stays rendered.
+      http.get('/api/workflow-runs/run_1/steps', () => new Promise(() => {})),
+    )
+
+    const wrapper = await renderView(WorkflowBackstageView, {
+      routes,
+      initialRoute: '/workspaces/ws_1/workflows/wf_1/backstage',
+    })
+    await settle(wrapper)
+
+    await wrapper.find('select').setValue('run_1')
+    await settle(wrapper)
+
+    expect(wrapper.find('.s-skeleton').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('…')
+  })
 })
