@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { SparklesIcon } from '@heroicons/vue/24/outline'
 
 import { useToast } from '@shared/composables'
 import { SAlert, SBadge, SButton, SEmptyState, SFileUpload, SLoadingSpinner, SToggle } from '@shared/ui'
@@ -169,8 +170,9 @@ function onDeleted(): void {
         />
         <SEmptyState
           v-else
+          :icon="SparklesIcon"
           :title="t('skills.workbench.pickTitle')"
-          :description="t('skills.workbench.pickBody')"
+          :text="t('skills.workbench.pickBody')"
         />
       </div>
     </div>
