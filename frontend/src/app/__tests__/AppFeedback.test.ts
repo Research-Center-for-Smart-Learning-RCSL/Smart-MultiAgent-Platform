@@ -1,5 +1,6 @@
 /* eslint-disable vue/one-component-per-file, vue/require-default-prop -- Inline test doubles keep the host-prop contract visible. */
 import { shallowMount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -59,6 +60,10 @@ vi.mock('vue-sonner', async () => {
 import App from '../App.vue'
 
 async function renderApp(path: string, locale: 'en' | 'zh-TW') {
+  // App.vue reads the session store to resolve the 'auto' layout, so a pinia
+  // must be active even for the three layouts that never consult it.
+  const pinia = createPinia()
+  setActivePinia(pinia)
   i18n.global.mergeLocaleMessage('en', en)
   i18n.global.mergeLocaleMessage('zh-TW', zhTW)
   i18n.global.locale.value = locale
@@ -72,7 +77,7 @@ async function renderApp(path: string, locale: 'en' | 'zh-TW') {
   })
   await router.push(path)
   await router.isReady()
-  return shallowMount(App, { global: { plugins: [router, i18n] } })
+  return shallowMount(App, { global: { plugins: [pinia, router, i18n] } })
 }
 
 describe('App feedback hosts', () => {

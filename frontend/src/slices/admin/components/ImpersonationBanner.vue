@@ -16,10 +16,13 @@ const { isImpersonating, impersonatedBy } = useImpersonation()
 
 <style scoped>
 .impersonation-banner {
-  position: fixed;
+  /* In flow, not fixed: the banner is a row of App.vue's flex column, so it
+     reserves its own height and the 56px top bar starts below it. Fixed
+     positioning removed it from flow, leaving nothing able to account for it,
+     and .app-shell's overflow: hidden meant no scroll could clear the top bar.
+     Sticky keeps it visible on the two document-scrolling layouts. */
+  position: sticky;
   top: 0;
-  left: 0;
-  right: 0;
   /* Same layer as the connection banner: above chrome, below modals and
      toasts. The literal 9999 it used to carry outranked the toast layer, and
      sonner's 24px top offset puts the first top-right toast inside this bar's

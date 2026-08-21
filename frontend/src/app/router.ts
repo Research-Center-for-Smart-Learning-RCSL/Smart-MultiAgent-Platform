@@ -44,6 +44,9 @@ const routes: RouteRecordRaw[] = [
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('@app/views/NotFound.vue'),
+    // Not requiresAuth: that would redirect a mistyped URL to /login. 'auto'
+    // lets App.vue pick the layout from the session, per 02-layout-shell.md:351.
+    meta: { layout: 'auto' },
   },
 ]
 
