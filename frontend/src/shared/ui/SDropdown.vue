@@ -109,12 +109,38 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+// Gap between trigger and menu, and the clearance kept from the viewport edge.
+const TRIGGER_GAP = 4
+const VIEWPORT_MARGIN = 8
+// Floor for the height cap. On a viewport too short for either side to hold a
+// usable menu, a cap derived purely from the available space would collapse it
+// to nothing; a scrollable stub of a few rows is the lesser evil.
+const MIN_MENU_HEIGHT = 96
+
 function updateMenuPosition() {
   if (!triggerRef.value) return
   const rect = triggerRef.value.getBoundingClientRect()
+  const viewportHeight = window.innerHeight
+  const spaceBelow = viewportHeight - rect.bottom - TRIGGER_GAP - VIEWPORT_MARGIN
+  const spaceAbove = rect.top - TRIGGER_GAP - VIEWPORT_MARGIN
+  // scrollHeight, not the bounding box: once a cap is applied the box reports
+  // the capped height, and re-evaluating on scroll would then read the menu as
+  // fitting and un-flip it.
+  const naturalHeight = menuRef.value?.scrollHeight ?? 0
+
+  // Pick the side first, then cap to it. Flipping only when the menu genuinely
+  // does not fit below keeps the common case anchored where the user expects.
+  const flip = naturalHeight > spaceBelow && spaceAbove > spaceBelow
+  const available = Math.max(flip ? spaceAbove : spaceBelow, MIN_MENU_HEIGHT)
+
   const pos: CSSProperties = {
     position: 'fixed',
-    top: `${rect.bottom + 4}px`,
+    maxHeight: `${Math.round(available)}px`,
+  }
+  if (flip) {
+    pos.bottom = `${viewportHeight - rect.top + TRIGGER_GAP}px`
+  } else {
+    pos.top = `${rect.bottom + TRIGGER_GAP}px`
   }
   if (props.placement === 'bottom-end') {
     pos.right = `${window.innerWidth - rect.right}px`
@@ -143,11 +169,14 @@ onMounted(syncTriggerAria)
 watch(isOpen, async (open) => {
   syncTriggerAria()
   if (open) {
-    updateMenuPosition()
     document.addEventListener('click', onClickOutside, { capture: true })
     window.addEventListener('scroll', onScrollWhileOpen, { capture: true, passive: true })
     window.addEventListener('resize', onScrollWhileOpen, { passive: true })
     await nextTick()
+    // After the menu exists: both the flip and the cap need its measured
+    // height. The enter transition starts at opacity 0 and nextTick is a
+    // microtask, so no unpositioned frame is ever painted.
+    updateMenuPosition()
     const actionable = getActionableIndices()
     const firstIndex = actionable[0]
     if (firstIndex !== undefined) {
@@ -241,11 +270,17 @@ onBeforeUnmount(() => {
 }
 
 .s-dropdown__menu {
+  /* Also set inline by updateMenuPosition; declared here so the menu is never
+     laid out in body flow on the frame before it is measured. */
+  position: fixed;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   padding: 4px 0;
+  /* Pairs with the max-height updateMenuPosition sets: a menu that fits on
+     neither side stays reachable by scrolling instead of running off screen. */
+  overflow-y: auto;
   z-index: var(--z-dropdown);
 }
 
