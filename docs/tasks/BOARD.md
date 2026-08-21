@@ -95,6 +95,23 @@ first, but building them serially avoids the conflict.
   is `AgentDetailView.vue:988` not `:964`, and F-18's fix shrank to a class change because the
   bar is already a flow child of the now-unpadded view root.
 
+### From the 2026-08-21 post-close code review
+
+- `2026-08-22-safe-area-uncovered-top-surfaces` (bugfix, **draft** — needs approval before
+  `/build` will touch it) — `depends_on: []`. Opened from
+  `2026-08-21-visual-refinement-phase1-token-adoption`'s FU-12. `viewport-fit=cover` removes
+  the browser's own inset from **every** surface at once, so a surface the enumeration missed
+  is worse off than before that change shipped — and three were missed: the impersonation
+  banner (the y=0 element whenever an admin is impersonating), toasts (configured from a
+  `.ts` file, so no `.vue` or `.css` mentions their geometry), and the top bar, which
+  reserves a top inset it is not owed once the banner displaces it. **The root cause is not
+  the three instances**: `INSET_SURFACES` was derived by reading the layout tree, and all
+  three misses are surfaces that are not in it. Its Q-6 records the file overlap with
+  `2026-08-21-visual-refinement-phase2-identity-and-depth` in `main.css` and why it is
+  deliberately not a `depends_on` — disjoint regions, and Q-4 keeps the toaster fix out of
+  that file entirely. **AC-6 is a device check and will most likely close unticked**: nothing
+  in CI emulates a display cutout.
+
 ### Other ready work
 
 - (moved to In progress on 2026-08-20) `2026-08-20-member-groups-and-room-visibility-isolation`.
