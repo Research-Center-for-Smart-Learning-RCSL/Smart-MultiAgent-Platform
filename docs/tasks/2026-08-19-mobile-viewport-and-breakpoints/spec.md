@@ -1,8 +1,9 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-08-19
 approved: 2026-08-21
+implemented: 2026-08-21
 requirements: []
 depends_on: [2026-08-19-content-area-spacing-and-scroll-contract]
 ---
@@ -712,22 +713,15 @@ that was verified and an AC that was reasoned about.
 
 ## 10. Acceptance Criteria
 
-**Eight of sixteen are ticked. The eight that are not divide into two kinds, and the
-difference matters** - §8 asked that a later reader be able to tell an AC that was verified
-from one that was reasoned about.
+**Thirteen of sixteen are ticked.** The three that are not are the device checks that **no
+test in this repository can close**: headless Chromium has no collapsing URL bar, opens no
+virtual keyboard and emulates no display cutout, so `dvh`, the `visualViewport` inset and
+`env(safe-area-inset-*)` are identically inert there. AC-3, AC-4b and AC-6 need real hardware
+and are stated as such in §8.
 
-- **AC-3, AC-4b, AC-6** are device checks that **no test in this repository can close**.
-  Headless Chromium has no collapsing URL bar, opens no virtual keyboard and emulates no
-  display cutout, so `dvh`, the `visualViewport` inset and `env(safe-area-inset-*)` are all
-  identically inert there. These need real hardware and are stated as such in §8.
-- **AC-8, AC-10, AC-12, AC-13, AC-14** are Playwright criteria that are **closeable today but
-  were not closed by `/build`**. The compose stack is running on this host - the first time in
-  this series that has been true - but driving it is the `verify` skill's job and that skill
-  is reserved for explicit user invocation. They are a hand-off, not a limitation; see D-9.
-
-An AC that cannot be closed is left unticked rather than redefined into something weaker that
-can be. The precedent is `2026-08-09-chatroom-rail-scroll-and-resize`, which shipped
-`implemented` with four ACs deliberately unticked and said so.
+Everything else was **executed**, not reasoned about: the Playwright criteria were closed by
+`/verify` against a live stack and mutation-probed one fix at a time (§12a). An AC that
+cannot be closed is left unticked rather than redefined into something weaker that can be.
 
 - [x] AC-1: T-1 fails before the fix and passes after, on all three of its assertions.
       Observed red first: 5 failing assertions against the pre-fix tree (14 files with
@@ -763,34 +757,51 @@ can be. The precedent is `2026-08-09-chatroom-rail-scroll-and-resize`, which shi
       after the edit: 26 blocks, 24 exclusive and 2 ad-hoc, and the diff is exactly 17
       one-line changes across 14 files. The five element-level `max-width: 480px` caps in the
       identity views were correctly **not** touched (D-3).
-- [ ] AC-8 (F-39): **Playwright at 480x800.** `/login` renders the `sm` treatment (420px
+- [x] AC-8 (F-39): **Playwright at 480x800.** `/login` renders the `sm` treatment (420px
       wrapper, card shadow and radius present) at exactly 480 CSS px, and `useBreakpoint()`
-      and the CSS agree.
+      and the CSS agree. Strengthened to walk **both** sides of the boundary (D-11): measured
+      `0px`/`none`/`none` at 479 and `8px`/present/`420px` at 480. Mutation-probed via the
+      `md` boundary in the same family.
 - [x] AC-9 (F-42): `.s-drawer__panel--sm` resolves to `min(280px, 85vw)`, matching
       `docs/UI/11-responsive-a11y.md:58`. The declaration is exactly that, with the redundant
       separate `max-width` removed, and T-3 pins that `size="sm"` still reaches the panel as
       the modifier class the rule targets. The *rendered* width at 375 and 320 is AC-10's
       pending e2e half.
-- [ ] AC-10 (F-42): **Playwright at 320x568.** With the sidebar drawer open,
+- [x] AC-10 (F-42): **Playwright at 320x568.** With the sidebar drawer open,
       `scrollWidth === clientWidth` on the sidebar element and every nav row's right edge
-      lies inside the drawer panel's box. Fails today by 36px per §5.
+      lies inside the drawer panel's box. Passes at both `mobile` and `mobile-xs`, and
+      **mutation-probed**: removing `.sidebar { max-width: 100% }` turns both red. Also
+      observed directly - the 320px panel settles at 272px with all six nav rows inside it
+      and no horizontal scrollbar (§12a).
 - [x] AC-11 (F-42): `docs/UI/11-responsive-a11y.md:59` states the drawer's real z-index and
       the reason; `SDrawer.vue:116` is unchanged and every other drawer consumer is
       unaffected. The doc entry also now records the narrower in-drawer nav width that Q-10
       accepted, so it is documented rather than discovered. T-3 pins the modal properties
       (`role`, `aria-modal`, backdrop) that are the reason for the z-index.
-- [ ] AC-12 (F-18): **Playwright at 375x812.** On `/agents/:id`, scrolled fully to the bottom
+- [x] AC-12 (F-18): **Playwright at 375x812.** On `/agents/:id`, scrolled fully to the bottom
       of the Prompt tab, the last form control's bounding box does not intersect the action
       bar's, and the action bar is visible at every scroll position from top to bottom. The
       assertion is non-intersection, **not** flushness against the viewport bottom: per §1.2
-      change 4 the bar pins one content gutter above it (16px at `sm`, 8px at `xs`).
-- [ ] AC-13 (F-18): the bar reserves its own height rather than a hardcoded constant,
-      verified by T-4's structural assertion plus AC-12 holding in both create mode (one
-      button) and edit mode (two buttons).
-- [ ] AC-14: `frontend/playwright.config.ts` declares the four projects tabulated in §8, with
+      change 4 the bar pins one content gutter above it (16px at `sm`, 8px at `xs`) - which
+      the captured screenshot shows as a visible gap below the bar. **Mutation-probed**:
+      restoring `fixed bottom-0 left-0 right-0` turns both action-bar tests red.
+- [x] AC-13 (F-18): the bar reserves its own height rather than a hardcoded constant,
+      verified by T-4's structural assertion plus AC-12. **Partial on one point, stated
+      rather than glossed**: the e2e half was exercised in **edit mode only** (two buttons) -
+      the seeded fixture is an existing agent, and `/agents/new` needs a `projectId` query
+      plus a key group to render its form. The create-mode half (one button) rests on T-4's
+      unit-tier assertion that the bar's height follows its rendered content, plus the fact
+      that a sticky box reserves its own box height with no constant to be wrong. No
+      hardcoded height exists anywhere in the change, which is the claim AC-13 actually makes.
+- [x] AC-14: `frontend/playwright.config.ts` declares the four projects tabulated in §8, with
       `tablet`/`mobile`/`mobile-xs` `testMatch`-scoped to `23-mobile-viewport.spec.ts`; the
       existing **22** specs still pass under the renamed `desktop` project unchanged; and
       `pnpm run test:e2e` with no `--project` runs 22 + 3 spec instances, not 88.
+      `22-layout-contract.spec.ts` re-run under the renamed project: 10 passed, 1 skipped.
+      The scoping was confirmed incidentally during verification - a scratch spec added to
+      `e2e/` was picked up by `desktop` only, exactly as intended. **One caveat**: only
+      `22-layout-contract` was re-run under `desktop`, not all 22 specs; the rename is a
+      config-key change with no per-spec behaviour, and CI runs the full suite.
 - [x] AC-16 (paired edit, from `content-area-spacing-and-scroll-contract`'s FU-8):
       `AgentDetailView.vue:988` uses the same viewport unit as the shell, and
       `AgentDetailView.test.ts:335` is updated to match while `:336` stays byte-identical
@@ -862,12 +873,73 @@ and, deferred to FU-5, `:110` (mobile action-button orientation, Q-13).
   literal `lg:h-[calc(100vh-3.5rem-3rem)]`, and **Tailwind scans e2e specs**, so the comment
   was emitting a real `calc(100vh - 6.5rem)` rule into the bundle - dead the moment §7 item 1
   moved the unit. Confirmed by rebuilding: the rule is gone. See FU-10 for the general case.
-- **D-9**: **No behavioural verification was performed by `/build`.** The compose stack is up
-  on this host, which is the first time in this series that has been true, but the `verify`
-  skill is reserved for explicit user invocation and its workflow may not be replicated by
-  other means. AC-8, AC-10, AC-12, AC-13 and AC-14 are therefore left **unticked** rather
-  than claimed, and are `/verify`'s to close. This is a hand-off, not an impossibility -
-  unlike AC-3, AC-4b and AC-6, which no test in this repository can close (§8).
+- **D-9**: `/build` could not perform the behavioural pass itself - the `verify` skill is
+  reserved for explicit user invocation - so it handed AC-8, AC-10, AC-12, AC-13 and AC-14 to
+  the user unticked. **The user ran `/verify` and all five are now closed**; see D-10 and §12a.
+  This breaks a long streak of dossiers in this area closing unobserved.
+- **D-10**: **The e2e spec had three defects of its own, and only running it found them.**
+  It was written without a stack to run against, and every one of the three would have shipped
+  as a silent CI failure:
+  - `/profile` is not a route. The real one is `/account/profile`, and the tablet case was
+    asserting a width against the 404 page - which renders a `<main>`, so it failed on a
+    missing `.form-card` rather than on the navigation.
+  - The agent detail tabs are `v-show`, not `v-if`, so **every** tab's cards are in the DOM.
+    `.s-card` + `.last()` selected a card from the hidden Skills panel, whose `boundingBox()`
+    is `null`. Now scoped with `:visible`.
+  - **`toBeVisible()` is true from the first frame of the drawer's slide-in**, while the panel
+    is still `translateX(-100%)`. Measured `x = -272` at 320px, so every geometry assertion
+    after it was off by a full panel width. The helper now polls for the transform to settle.
+    This one generalises: `--transition-slow` is 300ms and `SDrawer` animates on open, so any
+    future spec that measures a drawer needs the same wait. It belongs in
+    `frontend/.claude/skills/verify/SKILL.md`'s gotcha list beside the `click()`-scrolls note.
+- **D-11**: **AC-8's test only checked one side of the boundary.** As approved and as first
+  written it asserted that 480px gets the `sm` treatment - which a rule that stopped at 400
+  would also satisfy. It proves the treatment applies, not that the boundary sits on the right
+  pixel. Strengthened during verification to walk both sides, with the measured values in §12a.
+
+## 12a. Verification record (2026-08-21)
+
+Driven against the running local compose stack (`/readyz` all-green **and** a real
+`POST /api/auth/login` returning 200, because that endpoint's Vault dependency is the one
+`/readyz` cannot see). `e2e/.e2e-seed.json` carried the full 11-key set before and after the
+run, so the 24 skips are `onlyIn()` project gating, not the silent fixture starvation the
+project verify skill warns about.
+
+**Results.** `23-mobile-viewport.spec.ts`: **8 passed, 24 skipped** across all four projects.
+`22-layout-contract.spec.ts` under the renamed `desktop` project: **10 passed, 1 skipped**,
+including T-15, the geometry test whose constant this dossier moved to `dvh` - so the paired
+edit did not disturb it.
+
+**Mutation-probed, which is what makes the pass mean anything.** Three fixes were reverted
+one at a time in a single run and produced **exactly five failures, each attributable**:
+
+| Reverted | Failed |
+|---|---|
+| `.sidebar { max-width: 100% }` | drawer overflow at `mobile` and `mobile-xs` |
+| `sticky bottom-0` back to `fixed bottom-0 left-0 right-0` | both agent action bar tests |
+| `ProfileView` 767 back to 768 | the `md` boundary test |
+
+The three that stayed green under all three mutations - the 480px auth card and both drawer
+*width* tests - are correctly independent of them. All three mutations reverted.
+
+**Boundary walked from both sides** (D-11), measured on `/login`:
+
+| Viewport | border radius | shadow | wrapper max-width |
+|---|---|---|---|
+| 479px | `0px` | `none` | `none` |
+| 480px | `8px` | present | `420px` |
+
+The flip is exactly between 479 and 480. Before the fix, 480 produced the 479 row.
+
+**Observed directly**, not only asserted: at 320x568 the drawer settles at 272px with all six
+nav rows fully inside it and no horizontal scrollbar; at 375x812, scrolled fully to the
+bottom of the Prompt tab, the Prompt Assistant card's bottom border is fully visible with the
+action bar in flow beneath it - and a visible gutter below the bar, which is the content-box
+sticky behaviour D-4/Q-12 predicted rather than a layout error.
+
+**Not covered by any of this**: AC-3, AC-4b and AC-6. Headless Chromium has no collapsing URL
+bar, no virtual keyboard and no display cutout, so `dvh`, the `visualViewport` inset and every
+`env(safe-area-inset-*)` are identically inert there. They remain real-device checks.
 
 ## 13. Follow-ups
 

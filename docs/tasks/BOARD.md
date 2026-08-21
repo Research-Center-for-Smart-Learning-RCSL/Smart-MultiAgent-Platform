@@ -77,7 +77,7 @@ first, but building them serially avoids the conflict.
   computed-style baseline must be captured *after* this rebase, not before. The full entry is
   kept below in Blocked for its other detail.
 
-- (moved to In progress on 2026-08-21, approved the same day)
+- (implemented 2026-08-21; see the note under In progress)
   `2026-08-19-mobile-viewport-and-breakpoints`. The original entry, kept here for the record:
   `2026-08-19-mobile-viewport-and-breakpoints` (bugfix, **draft**) - **unblocked 2026-08-21** by
   `2026-08-19-content-area-spacing-and-scroll-contract`. Still `draft`, so it needs approval
@@ -209,9 +209,55 @@ report that the UI is consistent but flat.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
-- `2026-08-19-mobile-viewport-and-breakpoints` (bugfix) — `depends_on:
-  [2026-08-19-content-area-spacing-and-scroll-contract]`, which is `implemented`. Approved and
-  started 2026-08-21. Last of the four-dossier overlap chain from the page-presentation audit.
+Removed on 2026-08-21 after implementation:
+`2026-08-19-mobile-viewport-and-breakpoints` (the app is sized against the viewport the device
+actually shows, the breakpoints agree with themselves at their own boundaries, the mobile
+drawer contains its sidebar, and the agent action bar stops covering the end of the form).
+**This completes the four-dossier overlap chain** from the 2026-08-19 page-presentation audit
+(`transient-feedback-channels` -> `shared-overlay-and-shell-defects` ->
+`content-area-spacing-and-scroll-contract` -> this one). Nothing lists it in `depends_on`, so
+no row moved out of Blocked. Frontend only; no migration, no API change. **Five things a later
+reader needs.**
+
+**The browser pass happened and was mutation-probed** (§12a) — which breaks the streak this
+area had been running. Three fixes were reverted one at a time and produced exactly five
+failures, each attributable to its mutation; the three tests that stayed green under all three
+are correctly independent of them. The `sm` boundary was walked from both sides: measured
+radius `0px`/shadow `none`/wrapper `none` at 479px and `8px`/present/`420px` at 480px.
+
+**FU-9 is the one that outlives this task, and it is not small.** The build **already emits
+media-query range syntax for every query in the app** — 30 `@media (width<=N)` blocks in
+`dist/assets/*.css`, including widths this dossier never touched. There is no `browserslist`,
+no `build.target` and no lightningcss `targets` anywhere in `frontend/`, so Vite and Tailwind
+v4 apply their default modern target and Lightning CSS rewrites `max-width` on the way out.
+That makes this dossier's own Q-7(b) premise false: it refused to *author* range syntax
+because it needs Safari 16.4 against a stated floor of iOS Safari 16.2. So either the floor at
+`11-responsive-a11y.md:346` is wrong, or **every media query in the product is inert on iOS
+Safari 16.2–16.3**. Pre-existing and unrelated to the boundary fix, but it wants a
+browser-targets decision, and it also answers the question FU-4 had parked.
+
+**D-10: the e2e spec had three defects only running it could find**, and each would have
+shipped as a silent CI failure. The generalisable one is now in
+`frontend/.claude/skills/verify/SKILL.md`: **`toBeVisible()` does not mean "finished
+animating"** — `SDrawer` is visible from the first frame of its 300ms slide while still
+`translateX(-100%)`, so a panel measured then reports `x = -272` and every geometry assertion
+after it is off by a panel width. The other two are there too: tab panels are `v-show`, so
+`.last()` on a shared selector picks a hidden element whose `boundingBox()` is `null`; and
+account routes are `/account/*`, where a wrong route renders a 404 view that still has a
+`<main>`.
+
+**`--topbar-height-total` now exists** (D-7) and both `AppShell`'s first grid track and
+`AppTopBar`'s height read it. It is declared in a plain `:root`, **not** in `@theme`: that
+block is Tailwind's token source and its values are processed at build time, while this one
+carries an `env()` that must reach the browser intact.
+
+**AC-3, AC-4b and AC-6 are deliberately unticked** and always will be: headless Chromium has
+no collapsing URL bar, no virtual keyboard and no display cutout, so `dvh`, the
+`visualViewport` inset and every `env(safe-area-inset-*)` are identically inert there. The
+safe-area work in particular is proven only at the level of "the declarations exist" — a
+source scan asserts the meta and all six surfaces together so neither half can ship without
+the other, but **nothing automated has seen an actual inset render**. Confirm on a notched
+device, portrait and landscape.
 Removed on 2026-08-21 after implementation:
 `2026-08-19-content-area-spacing-and-scroll-contract` (34 view roots stop duplicating the
 shell's padding, 23 of them stop nesting a second `<main>`, and navigation gains the
