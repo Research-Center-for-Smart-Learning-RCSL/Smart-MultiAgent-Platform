@@ -67,6 +67,7 @@
       "created": "帳號已建立。",
       "createEmailTaken": "此信箱地址已有帳號。",
       "createDomainDenied": "此部署的信箱網域政策不接受這個地址。",
+      "createEmailInvalid": "這不是有效的電子郵件地址。",
       "linksTitle": "啟用連結",
       "linksLede": "請將這兩個連結交給",
       "linksWarning": "設定密碼連結等同於密碼本身：任何持有者都能取得此帳號的控制權。請當面交付，並在需要時重新產生，而不要沿用舊連結。兩個連結都是單次使用且會過期。",

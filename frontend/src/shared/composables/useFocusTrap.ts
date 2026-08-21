@@ -62,6 +62,13 @@ export function useFocusTrap(
     }
   }
 
+  // `immediate` because a dialog can be mounted already open — the common shape
+  // is `v-if="result"` on the wrapper with a constant `:open="true"` inside, and
+  // for that source the watcher would otherwise never fire at all: focus would
+  // stay outside the panel (so Tab walks the page behind it), body scroll would
+  // stay unlocked, and nothing would be recorded to restore focus to on close.
+  // Harmless for the usual `open=false` mount: the else branch is a no-op until
+  // something has actually been opened.
   watch(isOpen, async (open) => {
     if (open) {
       previouslyFocused = document.activeElement as HTMLElement | null
@@ -81,7 +88,7 @@ export function useFocusTrap(
         previouslyFocused = null
       }
     }
-  })
+  }, { immediate: true })
 
   onBeforeUnmount(() => {
     if (holdsLock) {

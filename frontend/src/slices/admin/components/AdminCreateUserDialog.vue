@@ -57,7 +57,15 @@ function onSubmit(): void {
       {{ t('admin.users.createNote') }}
     </SAlert>
 
+    <!-- SModal renders the footer slot outside this <form>, so the submit
+         button reaches it through the HTML5 `form` attribute rather than by
+         calling onSubmit directly. That is what makes the browser run its own
+         constraint validation — without it `type="email"` below is inert for
+         everyone who clicks instead of pressing Enter, and a malformed address
+         is POSTed for the backend to reject as a 422 the operator cannot act
+         on. -->
     <form
+      id="adminCreateUserForm"
       class="admin-create-user__form"
       @submit.prevent="onSubmit"
     >
@@ -96,10 +104,11 @@ function onSubmit(): void {
         {{ t('common.cancel') }}
       </SButton>
       <SButton
+        type="submit"
+        form="adminCreateUserForm"
         variant="primary"
         :loading="pending"
         :disabled="pending || !email.trim()"
-        @click="onSubmit"
       >
         {{ t('admin.users.createSubmit') }}
       </SButton>

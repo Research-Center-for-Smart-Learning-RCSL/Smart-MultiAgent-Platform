@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -51,6 +51,7 @@ const { isAuthorized: canManageMembers } = useProjectRole(projectId)
 const {
   data: invitablePool,
   isError: isPoolError,
+  isFetched: isPoolFetched,
 } = useQuery({
   queryKey: computed(() => tenancyKeys.invitableMembers(projectId.value)),
   queryFn: () => projectsApi.listInvitableMembers(projectId.value),
@@ -67,6 +68,12 @@ const inviteLink = ref<{ email: string; acceptUrl: string } | null>(null)
 // The picker only exists when there is something to pick. Its absence is not an
 // error state: a user-owned project has no pool by construction.
 const hasPool = computed(() => (invitablePool.value?.length ?? 0) > 0)
+
+// The form waits for the pool, because `hasPool` is false while the query is in
+// flight: rendering on `canManageMembers` alone shows the address field one
+// round trip early, then swaps it for the picker under anyone who started
+// typing. One extra request's wait beats a control changing shape mid-keystroke.
+const invitePoolSettled = computed(() => isPoolFetched.value || isPoolError.value)
 const byEmail = ref(false)
 const usePicker = computed(() => hasPool.value && !byEmail.value)
 
@@ -189,7 +196,7 @@ const breadcrumbs = computed(() => [
 
     <!-- Invite form -->
     <SCard
-      v-if="canManageMembers"
+      v-if="canManageMembers && invitePoolSettled"
       variant="flat"
       class="invite-card"
     >
