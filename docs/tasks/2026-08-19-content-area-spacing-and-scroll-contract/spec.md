@@ -736,20 +736,34 @@ output instead - **no chunk exceeds the 200 KB gzip lazy limit and the entry chu
 gzip against a 256 000 B budget** - which is a sanity check, not the gate. CI is authoritative.
 
 **CI run 32482080878** (`c7ebdd5`, push to `main`): every job green **except `frontend-e2e`**,
-which reported 74 passed / 5 skipped / **3 failed**. All three trace to this dossier and none was
-a pre-existing flake:
+which reported 74 passed / 5 skipped / **3 failed**. **Run 32483509852** (`84597cd`) took that to
+76 passed / 5 skipped / **1 failed** - items 1 and 2 below fixed, item 3's second layer exposed.
+All three trace to this dossier and none was a pre-existing flake:
 
 1. and 2. `15-tenancy-keys-mgmt.spec.ts` "rename a project" and "rename an org" - **a real
    regression this dossier introduced**, diagnosed and fixed as **D-7**.
-3. `22-layout-contract.spec.ts` "a query-only change preserves the offset" - **a defect in this
-   dossier's own new test, not in the product.** `click()`'s actionability check scrolls its
-   target into view, and the tab bar is above the fold once the test has scrolled away, so
-   Playwright zeroed `main.scrollTop` *before* the navigation it was measuring. Replaced with
-   `dispatchEvent('click')`, which runs `STabs`'s plain `@click` handler (`STabs.vue:115`)
-   without scrolling. Recorded here rather than as a D-entry because the spec's design was
-   right and only the test's mechanics were wrong - but worth stating plainly: **T-11's
-   query-only half never passed as originally written, and would have failed against correct
-   code.**
+3. `22-layout-contract.spec.ts` "a query-only change preserves the offset" - **two independent
+   defects in this dossier's own new test, neither in the product.** It took three CI runs and
+   is recorded in full because the second diagnosis contradicted the first:
+   - **Run 32482080878, received 0.** `click()`'s actionability check scrolls its target into
+     view, and the tab bar is above the fold once the test has scrolled away, so Playwright
+     zeroed `main.scrollTop` *before* the navigation it was measuring. Replaced with
+     `dispatchEvent('click')`, which runs `STabs`'s plain `@click` handler (`STabs.vue:115`)
+     without scrolling. (A hypothesis that `STabs` focuses the selected tab, and that
+     `focus()` was doing the scrolling, was checked and **refuted**: `selectTab` only emits,
+     and the sole `focus()` is in the arrow-key handler at `STabs.vue:84`.)
+   - **Run 32483509852, received 823.** The fix above worked; a second, unrelated defect was
+     underneath it. 823 is not a reset - a reset is 0 - it is **the browser's own clamp**. The
+     Knowledge panel is far shorter than General, so `main.scrollHeight` genuinely drops on the
+     tab switch and the browser lowers `scrollTop` to the new maximum. The assertion
+     `toBe(offset)` conflated "nothing reset it" with "nothing shortened the page". Rewritten to
+     compare against `Math.min(offset, scrollHeight - clientHeight)`, which still fails at 0 and
+     so still catches the watcher over-firing.
+
+   **That 823 is positive evidence, not just a red run**: it is the browser confirming that the
+   `route.path` watcher did **not** fire on a query-only change, which is exactly what AC-2's
+   second half claims. The product was right through all three runs; only this test's mechanics
+   were wrong.
 
 **The other ten assertions in `22-layout-contract.spec.ts` ran and passed**, which is the first
 real confirmation that the padding, landmark, graph-scroll and sticky-panel geometry are as this
