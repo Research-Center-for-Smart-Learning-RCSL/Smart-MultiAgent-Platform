@@ -95,8 +95,8 @@ const { isMobile } = useBreakpoint()
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: var(--control-h-md);
+  height: var(--control-h-md);
   padding: 0;
   background: none;
   border: none;

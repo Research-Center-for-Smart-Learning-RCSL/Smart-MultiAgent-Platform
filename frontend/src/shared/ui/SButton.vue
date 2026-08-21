@@ -137,36 +137,36 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
 
 /* -- Sizes -- */
 .s-btn--sm {
-  min-height: 32px;
+  min-height: var(--control-h-sm);
   padding: var(--space-1-5) var(--space-3);
   font-size: var(--font-size-xs);
 }
 
 .s-btn--md {
-  min-height: 40px;
+  min-height: var(--control-h-md);
   padding: var(--space-2) var(--space-4);
   font-size: var(--font-size-sm);
 }
 
 .s-btn--lg {
-  min-height: 48px;
+  min-height: var(--control-h-lg);
   padding: var(--space-2-5) var(--space-6);
   font-size: var(--font-size-md);
 }
 
 /* -- Icon-only -- */
 .s-btn--icon-only.s-btn--sm {
-  width: 32px;
+  width: var(--control-h-sm);
   padding: 0;
 }
 
 .s-btn--icon-only.s-btn--md {
-  width: 40px;
+  width: var(--control-h-md);
   padding: 0;
 }
 
 .s-btn--icon-only.s-btn--lg {
-  width: 48px;
+  width: var(--control-h-lg);
   padding: 0;
 }
 
