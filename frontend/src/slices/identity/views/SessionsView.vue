@@ -126,12 +126,10 @@ onMounted(load)
         v-if="loading"
         :aria-busy="true"
       >
-        <div class="skeleton-row">
-          <SSkeleton
-            variant="rect"
-            height="56px"
-          />
-        </div>
+        <SSkeleton
+          variant="rect"
+          height="56px"
+        />
       </div>
 
       <SAlert
@@ -211,14 +209,6 @@ onMounted(load)
 <style scoped>
 .sessions-card {
   max-width: 640px;
-}
-
-.skeleton-row {
-  margin-bottom: 12px;
-}
-
-.skeleton-row:last-child {
-  margin-bottom: 0;
 }
 
 .session-list {

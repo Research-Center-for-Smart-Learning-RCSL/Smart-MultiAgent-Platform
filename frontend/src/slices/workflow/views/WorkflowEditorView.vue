@@ -437,8 +437,9 @@ const { fitView } = useVueFlow()
 
 watch(
   [() => Boolean(loadError.value), conflictDetected, () => store.lintRan],
-  () => {
-    void nextTick(() => fitView())
+  async () => {
+    await nextTick()
+    await fitView()
   },
 )
 
