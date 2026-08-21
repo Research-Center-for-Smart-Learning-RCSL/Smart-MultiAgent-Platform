@@ -94,6 +94,9 @@ async function onInvite(): Promise<void> {
   if (!email) return
   invitePending.value = true
   inviteError.value = null
+  // Cleared up front, not on success: a failed second invite must not leave the
+  // first one's link on screen under an error toast.
+  inviteLink.value = null
   try {
     const invite = await orgsApi.invite(orgId.value, email, inviteRole.value)
     inviteEmail.value = ''

@@ -70,15 +70,18 @@
           @reissue-links="onReissueLinks"
         />
       </SCard>
-
-      <AdminActivationLinksDialog
-        v-if="reissuedLinks"
-        :open="true"
-        :email="query.data.value.email"
-        :links="reissuedLinks"
-        @close="reissuedLinks = null"
-      />
     </template>
+
+    <!-- Outside the loaded branch on purpose: the links are unrecoverable
+         except by minting new ones, so a refetch that lost the user must not
+         take them off the screen with it. -->
+    <AdminActivationLinksDialog
+      v-if="reissuedLinks"
+      :open="true"
+      :email="query.data.value?.email ?? ''"
+      :links="reissuedLinks"
+      @close="reissuedLinks = null"
+    />
   </section>
 </template>
 
