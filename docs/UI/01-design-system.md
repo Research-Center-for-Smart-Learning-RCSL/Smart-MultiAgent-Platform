@@ -7,9 +7,79 @@
 
 ## 1. Design Tokens (CSS Custom Properties)
 
-Tokens are defined in `src/shared/styles/main.css` under `@theme` and `:root`. The existing token set covers base colors, radius, fonts, and breakpoints. The following tokens must be added:
+Tokens are defined in `src/shared/styles/main.css` under `@theme` and `:root`, and
+[R24.29] requires component styling to consume them rather than restate their values.
 
-### New Tokens
+**This section is the only place in `docs/UI/` where a size appears as a number.**
+Everywhere else, including every component spec below, sizing is written as a token
+name. A second copy of the number is a second source of truth, and the document is the
+one an implementer reads, so a spec written in pixels is an instruction to hard-code
+pixels. Adding a literal size to a component spec below will fail
+`src/shared/styles/__tests__/no-raw-style-literals.test.ts` the moment somebody
+implements it.
+
+Four classes of size stay literal in the specs below, deliberately: **border widths**,
+**icon boxes** (the glyph inside a control, an avatar, a spinner, a progress bar's
+thickness), **touch-target floors** (44px, an accessibility minimum that must *not* move
+when the scale is retuned), and **overlay width presets** (modal and drawer sizes). Each
+is geometry local to one component rather than a shared vocabulary, and a token with a
+single consumer is an indirection nobody will ever use. Any size outside those four
+classes that appears as a number below is a mistake.
+
+### Type ramp
+
+| Token | Value | px |
+|-------|-------|----|
+| `--font-size-2xs` | `0.625rem` | 10 |
+| `--font-size-xs` | `0.75rem` | 12 |
+| `--font-size-code` | `0.8125rem` | 13 |
+| `--font-size-sm` | `0.875rem` | 14 |
+| `--font-size-md` | `1rem` | 16 |
+| `--font-size-lg` | `1.125rem` | 18 |
+| `--font-size-xl` | `1.25rem` | 20 |
+| `--font-size-2xl` | `1.5rem` | 24 |
+| `--font-size-3xl` | `1.875rem` | 30 |
+
+`--line-none: 1`, `--line-tight: 1.3`, `--line-snug: 1.4`, `--line-normal: 1.5`,
+`--line-relaxed: 1.6`.
+`--weight-normal: 400`, `--weight-medium: 500`, `--weight-semibold: 600`,
+`--weight-bold: 700`.
+
+### Spacing scale
+
+4px grid, with three half-steps the component library uses as inner padding against an
+outer padding one whole step larger.
+
+| Token | px | Common use |
+|-------|----|------------|
+| `--space-0-5` | 2 | Chip and inline-badge padding |
+| `--space-1` | 4 | Tight gaps, label-to-control |
+| `--space-1-5` | 6 | Compact control padding |
+| `--space-2` | 8 | Input padding, icon gaps |
+| `--space-2-5` | 10 | Large-control vertical padding |
+| `--space-3` | 12 | Card inner padding (compact) |
+| `--space-4` | 16 | Standard content padding |
+| `--space-5` | 20 | Section gaps |
+| `--space-6` | 24 | Card padding (standard) |
+| `--space-8` | 32 | Section margins |
+| `--space-10` | 40 | Page margins |
+| `--space-12` | 48 | Large spacing |
+
+### Control heights
+
+`--control-h-sm: 32px`, `--control-h-md: 40px`, `--control-h-lg: 48px`. Every control
+that can sit on a form row with a button reads these: SButton, SInput, SSelect,
+SSearchInput, STabs, SPagination and the top bar's sidebar toggle. A control that does
+not follow the ladder will be a different height from the button beside it the first
+time the ladder moves.
+
+### Semantic elevation
+
+`--elevation-0: none` (flush, border only), `--elevation-1` (resting card),
+`--elevation-2` (raised or hover), `--elevation-3` (overlay). Components reach for depth
+by meaning; the underlying `--shadow-*` values already switch per theme.
+
+### Colour, radius, motion and layering
 
 ```css
 @theme {
@@ -127,9 +197,12 @@ All components:
 
 | Size | Height | Padding | Font |
 |------|--------|---------|------|
-| `sm` | 32px | 6px 12px | 0.75rem |
-| `md` | 40px | 8px 16px | 0.875rem |
-| `lg` | 48px | 10px 24px | 1rem |
+| `sm` | `--control-h-sm` | `--space-1-5` `--space-3` | `--font-size-xs` |
+| `md` | `--control-h-md` | `--space-2` `--space-4` | `--font-size-sm` |
+| `lg` | `--control-h-lg` | `--space-2-5` `--space-6` | `--font-size-md` |
+
+`iconOnly` makes the button square at the same rung, so its width is the same
+`--control-h-*` token as its height.
 
 **Visual spec**:
 - `primary`: `--color-accent` bg, white text, `--color-accent-hover` on hover
@@ -160,11 +233,14 @@ All components:
 **Slots**: `prefix` (icon/text before input), `suffix` (icon/text after input)
 
 **Visual spec**:
-- Height: `sm` 32px, `md` 40px
+- Height: `sm` `--control-h-sm`, `md` `--control-h-md`
 - Border: 1px `--color-border`; focus: 2px `--color-accent`
 - Error: border `--color-danger`, focus ring `--color-danger`
-- Password type: eye toggle icon in suffix slot
-- Padding: 8px horizontal, adjusted for prefix/suffix
+- Password type: eye toggle icon in suffix slot, sized to `--control-h-sm` so it fits
+  every input size, with a 44px touch floor and negative margins that let it overhang
+  the field's padding box
+- Padding: `--space-2` horizontal, adjusted for prefix/suffix
+- Font: `--font-size-sm`, dropping to `--font-size-xs` at `sm`
 
 ---
 
@@ -183,7 +259,7 @@ All components:
 | `error` | `boolean` | `false` | Error visual state |
 | `size` | `'sm' \| 'md'` | `'md'` | Size preset |
 
-**Visual spec**: same border/focus/error treatment as SInput. Chevron-down icon on right. Native `<select>` for accessibility; custom dropdown styling via CSS.
+**Visual spec**: same border/focus/error treatment as SInput, including the `--control-h-sm`/`--control-h-md` heights and the `--font-size-xs` drop at `sm`. Chevron-down icon on right. Native `<select>` for accessibility; custom dropdown styling via CSS.
 
 ---
 
@@ -195,7 +271,7 @@ All components:
 
 **Slots**: `default` (label)
 
-**Visual spec**: 18x18 checkbox, `--color-accent` fill when checked, `--color-border` border when unchecked. Label inline to the right with 8px gap.
+**Visual spec**: 18x18 checkbox, `--color-accent` fill when checked, `--color-border` border when unchecked. Label inline to the right with a `--space-2` gap.
 
 ---
 
@@ -246,7 +322,7 @@ All components:
 | `dot` | `boolean` | `false` | Show colored dot before text |
 | `removable` | `boolean` | `false` | Show X button, emits `remove` |
 
-**Visual spec**: pill shape (`--radius-full`). Background from `*-tint` tokens, text from `*-on` tokens. `sm`: 20px height, 10px font. `md`: 24px height, 12px font.
+**Visual spec**: pill shape (`--radius-full`). Background from `*-tint` tokens, text from `*-on` tokens. `sm`: 20px height, `--font-size-2xs`. `md`: 24px height, `--font-size-xs`. Both at `--line-none`, so the pill hugs the glyph.
 
 ---
 
@@ -266,7 +342,7 @@ All components:
 
 **Props**: `orientation: 'horizontal' | 'vertical'` (default `'horizontal'`), `label: string | undefined`
 
-**Visual spec**: 1px `--color-border` line. If label provided, centered text with line on both sides, `--color-muted` 12px font.
+**Visual spec**: 1px `--color-border` line. If label provided, centered text with line on both sides, `--color-muted` at `--font-size-xs`.
 
 ---
 
@@ -288,7 +364,7 @@ All components:
 
 **Slots**: `default` (trigger element)
 
-**Visual spec**: dark tooltip (`--color-fg` bg for light theme, `--color-surface` bg for dark theme), white text, 12px font, 4px 8px padding, `--radius-sm` corners, `--shadow-md`. Arrow pointing to trigger. Appears on hover after delay, on focus immediately.
+**Visual spec**: dark tooltip (`--color-fg` bg for light theme, `--color-surface` bg for dark theme), white text, `--font-size-xs`, `--space-1` `--space-2` padding, `--radius-sm` corners, `--shadow-md`. Arrow pointing to trigger. Appears on hover after delay, on focus immediately.
 
 ---
 
@@ -310,7 +386,7 @@ All components:
 
 **Slots**: `default` (the input component)
 
-**Visual spec**: label (14px, 500 weight) above input. Required: red asterisk after label. Error: `--color-danger` message below input, input border turns danger. Help: `--color-muted` 12px text below input (hidden when error shown). Vertical gap: 4px between label and input, 4px between input and error/help.
+**Visual spec**: label (`--font-size-sm`, `--weight-medium`) above input. Required: red asterisk after label. Error: `--color-danger` message below input, input border turns danger. Help: `--color-muted` at `--font-size-xs` below input (hidden when error shown). Vertical gap: `--space-1` between label and input, `--space-1` between input and error/help.
 
 ---
 
@@ -322,7 +398,7 @@ All components:
 
 **Emits**: `update:modelValue`, `search` (on Enter or debounced 300ms), `clear`
 
-**Visual spec**: SInput with `MagnifyingGlassIcon` prefix. When non-empty, `XMarkIcon` suffix button to clear. When loading, spinner replaces search icon.
+**Visual spec**: SInput with `MagnifyingGlassIcon` prefix, at `--control-h-md` so it lines up with a `md` button beside it. When non-empty, `XMarkIcon` suffix button to clear. When loading, spinner replaces search icon.
 
 ---
 
@@ -346,7 +422,7 @@ All components:
 
 **Props**: `modelValue: string`, `placeholder: string`, `language: 'json' | 'yaml' | 'markdown' | 'text'`, `rows: number` (default 8), `readonly: boolean`
 
-**Visual spec**: monospace textarea with line numbers gutter (optional). `--color-surface` background. Tab key inserts 2 spaces. Wrapping: soft wrap by default.
+**Visual spec**: monospace textarea at `--font-size-code`, with line numbers gutter (optional). `--color-surface` background. Tab key inserts 2 spaces. Wrapping: soft wrap by default.
 
 ---
 
@@ -356,7 +432,7 @@ All components:
 
 **Props**: `items: Array<{label: string, to?: RouteLocationRaw}>`
 
-**Visual spec**: inline flex with `ChevronRightIcon` (12px) separators. Last item is plain text (current page). Previous items are `--color-accent` links. Font: 14px. Truncates middle items on overflow with "..." item.
+**Visual spec**: inline flex with `ChevronRightIcon` (12px) separators. Last item is plain text (current page). Previous items are `--color-accent` links. Font: `--font-size-sm`. Truncates middle items on overflow with "..." item.
 
 ---
 
@@ -397,8 +473,8 @@ interface Column {
 **Emits**: `sort(key, order)`, `select(keys[])`, `row-click(row)`
 
 **Visual spec**:
-- Header: `--color-surface` bg, 600 weight, 12px uppercase text, `--color-muted`
-- Rows: white bg, 1px bottom `--color-border`, hover `--color-surface`
+- Header: `--color-surface` bg, `--weight-semibold`, `--font-size-xs` uppercase text, `--color-muted`; cells `--space-2` `--space-3`
+- Rows: white bg at `--font-size-sm`, 1px bottom `--color-border`, hover `--color-surface`
 - Sortable columns: clickable header with `ChevronUpDownIcon`, active shows `ChevronUpIcon`/`ChevronDownIcon` in `--color-accent`
 - Loading: 5 skeleton rows with pulse animation
 - Empty: `SEmptyState` centered in table body
@@ -425,14 +501,14 @@ interface Column {
 
 **Emits**: `close`
 
-**Sizes**: `sm` 400px, `md` 560px, `lg` 720px, `xl` 960px, `full` 100vw-48px
+**Sizes** (width presets, not on the spacing ladder): `sm` 400px, `md` 560px, `lg` 720px, `xl` 960px, `full` 100vw minus two `--space-6` gutters
 
 **Visual spec**:
 - Backdrop: `--color-overlay`, transition opacity 200ms
 - Panel: white bg, `--radius-lg` corners, `--shadow-xl`
-- Header: 20px title, X button top-right (24px, `--color-muted`, hover `--color-fg`)
-- Body: padding 24px, max-height 70vh, overflow-y auto
-- Footer: padding 16px 24px, flex end, gap 8px, top border `--color-border`
+- Header: title at `--font-size-xl` `--weight-semibold`, X button top-right (24px icon, `--color-muted`, hover `--color-fg`)
+- Body: padding `--space-6`, max-height 70vh, overflow-y auto
+- Footer: padding `--space-4` `--space-6`, flex end, gap `--space-2`, top border `--color-border`
 - Enter: scale(0.95) -> scale(1), opacity 0 -> 1, 200ms
 - Escape key closes (unless `persistent`)
 - Focus trap: tab cycles within modal
@@ -473,7 +549,7 @@ interface Column {
 
 **Emits**: `update:modelValue`
 
-**Visual spec**: horizontal tab bar with bottom border. Active tab: `--color-accent` text, 2px bottom border `--color-accent`. Inactive: `--color-muted` text. Hover: `--color-fg` text. Badge: `SBadge` inline after label. Icon: 16px before label. Tab height: 40px. Padding: 0 16px per tab.
+**Visual spec**: horizontal tab bar with bottom border. Active tab: `--color-accent` text, 2px bottom border `--color-accent`. Inactive: `--color-muted` text. Hover: `--color-fg` text. Badge: `SBadge` inline after label. Icon: 16px before label. Tab height: `--control-h-md`, so a tab strip lines up with a `md` control beside it. Padding: 0 `--space-4` per tab.
 
 ---
 
@@ -487,7 +563,7 @@ interface Column {
 
 **Emits**: `select(key)`
 
-**Visual spec**: white bg, `--shadow-lg`, `--radius-md`, 1px `--color-border`. Items: 36px height, 12px 16px padding, hover `--color-surface`. Danger items: `--color-danger` text. Divider: 1px `--color-border` horizontal line. Icons: 16px, `--color-muted`. Opens on click, closes on outside click, Escape, or item select. Keyboard: arrow keys navigate, Enter selects.
+**Visual spec**: white bg, `--shadow-lg`, `--radius-md`, 1px `--color-border`. Items: 36px height, `--space-3` `--space-4` padding at `--font-size-sm`, hover `--color-surface`. Danger items: `--color-danger` text. Divider: 1px `--color-border` horizontal line. Icons: 16px, `--color-muted`. Opens on click, closes on outside click, Escape, or item select. Keyboard: arrow keys navigate, Enter selects.
 
 ---
 
@@ -499,7 +575,7 @@ interface Column {
 
 **Emits**: `update:page`
 
-**Visual spec**: "Showing X-Y of Z" text on left. Page buttons on right: Previous, page numbers (collapsed with ... for >7 pages), Next. Active page: `--color-accent` bg, white text. Disabled prev/next: 50% opacity.
+**Visual spec**: "Showing X-Y of Z" text on left at `--font-size-sm`. Page buttons on right, each `--control-h-sm` square so the row lines up with a `sm` button: Previous, page numbers (collapsed with ... for >7 pages), Next. Active page: `--color-accent` bg, white text. Disabled prev/next: 50% opacity.
 
 ---
 
@@ -511,7 +587,7 @@ interface Column {
 
 **Slots**: `item-{key}` (panel content), `header-{key}` (custom header)
 
-**Visual spec**: each item has 1px bottom `--color-border`. Header: 44px height, `ChevronRightIcon` that rotates 90deg when open, 200ms transition. Panel: padding 16px, slide-down animation.
+**Visual spec**: each item has 1px bottom `--color-border`. Header: 44px touch-floor height at `--font-size-sm` `--weight-medium`, `ChevronRightIcon` that rotates 90deg when open, 200ms transition. Panel: padding `--space-4`, slide-down animation.
 
 ---
 
@@ -525,7 +601,7 @@ interface Column {
 
 **Emits**: `dismiss`
 
-**Visual spec**: full-width banner. Background from `*-tint` tokens, left border 4px from variant color, text from `*-on` tokens. Icon: variant-specific Heroicon (InformationCircle, CheckCircle, ExclamationTriangle, XCircle). Padding: 12px 16px. Dismiss: X button top-right.
+**Visual spec**: full-width banner. Background from `*-tint` tokens, left border 4px from variant color, text from `*-on` tokens. Icon: variant-specific Heroicon (InformationCircle, CheckCircle, ExclamationTriangle, XCircle). Padding: `--space-3` `--space-4`; title at `--weight-semibold`, body at `--weight-normal`. Dismiss: X button top-right.
 
 ---
 
@@ -543,8 +619,8 @@ interface Column {
 
 ### SCard (exists)
 - Add `variant` prop: `'default' | 'elevated' | 'bordered' | 'flat'`
-- Add `padding` prop: `'none' | 'sm' | 'md' | 'lg'` (default `'md'`)
-- `elevated`: `--shadow-sm` + white bg
+- Add `padding` prop: `'none' | 'sm' | 'md' | 'lg'` (default `'md'`): `--space-3` / `--space-4` / `--space-6`
+- `elevated`: `--elevation-1` + white bg
 - `bordered`: 1px `--color-border` + white bg
 - `flat`: `--color-surface` bg, no border
 
@@ -552,12 +628,12 @@ interface Column {
 - Add breadcrumb support: `breadcrumbs` prop
 - Add action buttons slot: `actions`
 - Add description slot: `description`
-- Layout: title + description on left, action buttons on right, breadcrumbs above title
+- Layout: title + description on left, action buttons on right, breadcrumbs above title. Title: `--font-size-2xl` `--weight-semibold` at `--line-snug`; description `--font-size-sm`
 
 ### SEmptyState (exists)
 - Add `icon` prop (Heroicon component)
 - Add `action` slot for CTA button
-- Layout: icon (48px, `--color-muted`) above title above description above action. Centered. Max-width 400px.
+- Layout: icon (48px, `--color-muted`) above title above description above action. Centered. Max-width 400px. Title `--font-size-md` `--weight-semibold`, description `--font-size-sm` at `--line-normal`.
 
 ### SStatusBadge (exists)
 - Migrate to use `SBadge` internally, keeping the semantic status mapping
