@@ -279,9 +279,19 @@ test.describe('Loading states', () => {
   // the page up under the cursor when the query lands. /invites rendered 384px
   // of skeleton against a ~176px empty state; /account/sessions rendered 264px
   // against an empty state or a single ~60px row.
+  //
+  // Anchored regexes, not globs. `**/api/invites/inbox*` matched nothing - the
+  // list endpoint is `GET /api/invites?state=pending` (`InvitesService.ts:16`,
+  // reached via `invitesApi.list`) - so the 1500ms delay never applied, the
+  // query resolved at once, and the assertion depended on Playwright catching a
+  // skeleton that flashed for a few milliseconds. It caught it often enough
+  // locally to look green and missed it on CI, where this has been red since the
+  // test landed. `**/api/auth/sessions*` matched, but loosely: it also covers
+  // the `/{session_id}` revoke, which this test does not want to delay. The
+  // `(\?|$)` anchor is what pins each to its own list call.
   for (const view of [
-    { path: '/invites', api: '**/api/invites/inbox*', body: '[]' },
-    { path: '/account/sessions', api: '**/api/auth/sessions*', body: '[]' },
+    { path: '/invites', api: /\/api\/invites(\?|$)/, body: '[]' },
+    { path: '/account/sessions', api: /\/api\/auth\/sessions(\?|$)/, body: '[]' },
   ]) {
     test(`the skeleton on ${view.path} is no taller than its settled state`, async ({
       authedPage: page,
