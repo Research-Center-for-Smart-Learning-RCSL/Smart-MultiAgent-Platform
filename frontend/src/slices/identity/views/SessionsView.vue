@@ -221,7 +221,7 @@ onMounted(load)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 0;
+  padding: var(--space-4) 0;
   border-top: 1px solid var(--color-border);
 }
 
@@ -236,33 +236,33 @@ onMounted(load)
 }
 
 .session-device {
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
   color: var(--color-fg);
 }
 
 .session-meta {
   display: flex;
-  gap: 12px;
-  margin-top: 4px;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
 }
 
 .session-ip {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
 }
 
 .session-time {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
 }
 
 .session-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex-shrink: 0;
-  margin-left: 16px;
+  margin-left: var(--space-4);
 }
 
 @media (max-width: 767px) {
@@ -273,7 +273,7 @@ onMounted(load)
   .session-item {
     flex-direction: column;
     align-items: flex-start;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .session-actions {

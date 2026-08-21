@@ -68,8 +68,8 @@ const stats = computed(() => {
 .admin-home__stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-  gap: 1rem;
-  margin-top: 1rem;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
 }
 .admin-home__card {
   display: flex;
@@ -79,11 +79,11 @@ const stats = computed(() => {
 }
 .admin-home__value {
   font-size: 2rem;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   color: var(--color-fg);
 }
 .admin-home__label {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
 }
 </style>

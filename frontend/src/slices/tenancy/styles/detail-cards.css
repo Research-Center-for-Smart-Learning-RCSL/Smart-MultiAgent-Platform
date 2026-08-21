@@ -1,13 +1,13 @@
 .card-title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin-bottom: 16px;
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-semibold);
+  margin-bottom: var(--space-4);
 }
 
 .settings-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .settings-row {
@@ -17,26 +17,26 @@
 }
 
 .settings-row dt {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
 }
 
 .settings-row dd {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .mono-value {
   font-family: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-code);
 }
 
 .copy-btn {
   display: inline-flex;
   align-items: center;
-  padding: 2px;
+  padding: var(--space-0-5);
   border: none;
   background: none;
   color: var(--color-muted);
@@ -50,13 +50,13 @@
 }
 
 .rename-bar {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .rename-form {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .rename-input {
@@ -64,7 +64,7 @@
 }
 
 .deleted-alert {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .danger-zone {
@@ -72,27 +72,27 @@
 }
 
 .danger-title {
-  font-size: 1.125rem;
-  font-weight: 600;
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-semibold);
   color: var(--color-danger);
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .danger-content {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .danger-heading {
-  font-size: 0.875rem;
-  font-weight: 600;
-  margin-bottom: 4px;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  margin-bottom: var(--space-1);
 }
 
 .danger-description {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
 }
 

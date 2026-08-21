@@ -123,17 +123,17 @@ async function onRestore(): Promise<void> {
 
 <style scoped>
 .admin-ops__section {
-  margin: 1.5rem 0;
+  margin: var(--space-6) 0;
 }
 .admin-ops__heading {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin: 0 0 0.75rem;
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-semibold);
+  margin: 0 0 var(--space-3);
 }
 .admin-ops__form {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--space-2);
   align-items: center;
 }
 .admin-ops__input {

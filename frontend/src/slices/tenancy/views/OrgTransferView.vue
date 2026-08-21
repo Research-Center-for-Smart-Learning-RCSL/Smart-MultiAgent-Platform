@@ -379,7 +379,7 @@ const breadcrumbs = computed(() => [
 
 <style scoped>
 .transfer-info {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .transfer-card {
@@ -387,14 +387,14 @@ const breadcrumbs = computed(() => [
 }
 
 .pending-header {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .transfer-details {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
 }
 
 .detail-row {
@@ -404,23 +404,23 @@ const breadcrumbs = computed(() => [
 }
 
 .detail-row dt {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
 }
 
 .detail-row dd {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
 }
 
 .transfer-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
 }
 
 .target-notice {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .target-actions {

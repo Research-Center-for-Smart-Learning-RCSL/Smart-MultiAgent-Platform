@@ -353,14 +353,14 @@ const breadcrumbs = computed(() => [
 }
 
 .members-card {
-  margin-top: 16px;
+  margin-top: var(--space-4);
 }
 
 .add-form {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: flex-end;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 .add-select {
@@ -371,13 +371,13 @@ const breadcrumbs = computed(() => [
 .member-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .member-list li {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 </style>

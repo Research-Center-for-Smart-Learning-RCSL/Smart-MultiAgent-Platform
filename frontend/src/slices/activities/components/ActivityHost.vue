@@ -129,7 +129,7 @@ onBeforeUnmount(() => {
 .activity-host {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: var(--space-3);
 }
 
 /* The containment context a plugin lays out against (R30.34). Declared by the
@@ -143,16 +143,16 @@ onBeforeUnmount(() => {
 }
 .activity-host__error {
   margin: 0;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-code);
   color: var(--color-danger);
 }
 .activity-host__outcome {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 .activity-host__outcome-label {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
 }
 </style>

@@ -46,7 +46,7 @@ defineProps<{ belowTopbar?: boolean }>()
   /* Fixed and outside every layout's padding box, so it carries its own inset.
      This is the unauthenticated case (auth and public layouts); the authenticated
      one sits below the top bar, which has already cleared the strip. */
-  top: max(12px, env(safe-area-inset-top, 0px));
+  top: max(var(--space-3), env(safe-area-inset-top, 0px));
   left: 50%;
   transform: translateX(-50%);
   z-index: var(--z-banner, 350);

@@ -217,11 +217,11 @@ async function onImpersonate(): Promise<void> {
 .admin-user-detail__fields {
   display: grid;
   grid-template-columns: 12rem 1fr;
-  gap: 0.5rem 1rem;
+  gap: var(--space-2) var(--space-4);
   align-items: center;
 }
 .admin-user-detail__fields dt {
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--color-muted);
 }
 .admin-user-detail__fields dd {

@@ -19,10 +19,10 @@ const { t } = useI18n()
 .obs-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 10px;
+  gap: var(--space-1);
+  padding: var(--space-0-5) var(--space-2-5);
   border-radius: var(--radius-full);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
   background: var(--color-surface);
   border: 1px solid var(--color-border);

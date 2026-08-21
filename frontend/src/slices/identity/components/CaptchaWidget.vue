@@ -148,7 +148,7 @@ onUnmounted(destroyWidget)
 }
 
 .captcha-fallback {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
   text-align: center;
 }

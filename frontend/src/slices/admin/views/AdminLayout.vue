@@ -25,13 +25,13 @@ const { isDesktop } = useBreakpoint()
 .admin-layout {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
-  gap: 1.5rem;
+  gap: var(--space-6);
   align-items: start;
 }
 
 .admin-layout--stacked {
   grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
+  gap: var(--space-4);
 }
 
 .admin-layout__content {

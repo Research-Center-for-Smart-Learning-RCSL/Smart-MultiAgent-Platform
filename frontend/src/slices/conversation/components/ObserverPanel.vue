@@ -137,8 +137,8 @@ const roster = computed(() =>
 .obs-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px;
+  gap: var(--space-3);
+  padding: var(--space-3);
   height: 100%;
   overflow-y: auto;
 }
@@ -149,19 +149,19 @@ const roster = computed(() =>
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .obs-panel__roster-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   min-height: 32px;
 }
 
 .obs-panel__roster-name {
-  font-size: 13px;
+  font-size: var(--font-size-code);
   color: var(--color-fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -190,7 +190,7 @@ const roster = computed(() =>
 .obs-panel__loading {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .obs-panel__list {
@@ -199,7 +199,7 @@ const roster = computed(() =>
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .obs-panel__more {

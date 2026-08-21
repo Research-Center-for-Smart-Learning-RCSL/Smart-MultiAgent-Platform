@@ -209,7 +209,7 @@ const breadcrumbs = computed(() => [
 
 <style scoped>
 .org-name {
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .arrow-icon {

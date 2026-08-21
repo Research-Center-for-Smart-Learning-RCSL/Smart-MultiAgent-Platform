@@ -145,8 +145,8 @@ async function onDemote(userId: string): Promise<void> {
 <style scoped>
 .admin-admins__promote {
   display: flex;
-  gap: 0.5rem;
-  margin: 1rem 0;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
   align-items: center;
 }
 .admin-admins__input {

@@ -146,8 +146,8 @@ async function onCreate(): Promise<void> {
 .admin-ip-bans__create {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 1rem 0;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
   align-items: center;
 }
 .admin-ip-bans__cidr {

@@ -36,18 +36,18 @@ const { t } = useI18n()
 .agent-sidebar {
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
-  padding: 16px;
+  padding: var(--space-4);
   overflow-y: auto;
   height: 100%;
 }
 
 .agent-sidebar__header {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-muted);
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 .agent-sidebar__list {
@@ -56,11 +56,11 @@ const { t } = useI18n()
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .agent-sidebar__empty {
-  font-size: 13px;
+  font-size: var(--font-size-code);
   color: var(--color-muted);
 }
 </style>

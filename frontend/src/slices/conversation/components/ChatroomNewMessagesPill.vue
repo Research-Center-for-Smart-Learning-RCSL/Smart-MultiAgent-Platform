@@ -30,13 +30,13 @@ const { t } = useI18n()
 .new-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 16px;
+  gap: var(--space-1);
+  padding: var(--space-1-5) var(--space-4);
   border: none;
   border-radius: var(--radius-full);
   background: var(--color-accent);
   color: #fff;
-  font-size: 13px;
+  font-size: var(--font-size-code);
   cursor: pointer;
   box-shadow: var(--shadow-md);
   animation: pill-in 150ms ease;

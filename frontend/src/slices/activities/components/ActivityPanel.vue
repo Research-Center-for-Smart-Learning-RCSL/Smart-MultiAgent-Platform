@@ -306,8 +306,8 @@ onMounted(() => {
 .activity-panel {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.75rem;
+  gap: var(--space-3);
+  padding: var(--space-3);
   /* Owns its scroll region, like its two rail siblings (ChatroomPresence,
      ObserverPanel). A worksheet is routinely taller than the rail. */
   height: 100%;

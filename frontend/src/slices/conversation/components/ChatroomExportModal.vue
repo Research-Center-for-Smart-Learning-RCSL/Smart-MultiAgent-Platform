@@ -206,29 +206,29 @@ function submit(): void {
 .export-form__group {
   border: none;
   padding: 0;
-  margin: 0 0 16px;
+  margin: 0 0 var(--space-4);
 }
 
 .export-form__legend {
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
   color: var(--color-fg);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .export-form__radio {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  font-size: 0.875rem;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
 }
 
 .export-form__dates {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .export-state {
@@ -236,8 +236,8 @@ function submit(): void {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 12px;
-  padding: 16px 0;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
 }
 
 .export-state__icon {
@@ -255,12 +255,12 @@ function submit(): void {
 }
 
 .export-state__title {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
 }
 
 .export-state__hint {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
 }
 </style>

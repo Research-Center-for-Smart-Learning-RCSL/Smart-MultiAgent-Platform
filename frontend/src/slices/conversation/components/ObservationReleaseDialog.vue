@@ -223,12 +223,12 @@ defineExpose({
 .release {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .release__label {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--font-size-code);
+  font-weight: var(--weight-semibold);
   color: var(--color-fg);
 }
 
@@ -243,7 +243,7 @@ defineExpose({
   border: none;
   padding: 0;
   color: var(--color-accent);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
 }
 
@@ -258,32 +258,32 @@ defineExpose({
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2-5);
 }
 
 .release__legend {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--font-size-code);
+  font-weight: var(--weight-semibold);
   color: var(--color-fg);
   padding: 0;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 
 .release__opt {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: flex-start;
 }
 
 .release__opt-title {
   display: block;
-  font-size: 13px;
+  font-size: var(--font-size-code);
   color: var(--color-fg);
 }
 
 .release__opt-help {
   display: block;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
 }
 
@@ -291,20 +291,20 @@ defineExpose({
   margin-left: 26px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .release__agent {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: var(--space-2);
+  font-size: var(--font-size-code);
 }
 
 .release__wake {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: flex-start;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 </style>

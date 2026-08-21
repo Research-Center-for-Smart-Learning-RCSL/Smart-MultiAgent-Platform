@@ -262,7 +262,7 @@ async function submit(): Promise<void> {
 }
 
 .field-error {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-danger);
   margin: -8px 0 0;
 }
@@ -272,7 +272,7 @@ async function submit(): Promise<void> {
   align-items: center;
   text-align: center;
   color: var(--color-muted);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-code);
   margin: var(--space-4) 0;
 }
 

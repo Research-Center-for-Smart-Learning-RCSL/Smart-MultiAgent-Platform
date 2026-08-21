@@ -1114,7 +1114,7 @@ function onExportSubmit(opts: ExportOptions): void {
   overflow-y: auto;
   list-style: none;
   margin: 0;
-  padding: 16px;
+  padding: var(--space-4);
   /* A flex column purely so the empty state below has a track to grow into.
      Ordinary items are block-level and size to content either way, and no item
      sets `flex`, so nothing else changes. */

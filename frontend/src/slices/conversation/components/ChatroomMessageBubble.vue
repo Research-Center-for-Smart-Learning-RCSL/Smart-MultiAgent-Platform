@@ -336,8 +336,8 @@ function isImage(mime: string): boolean {
      below. System messages use the separate .sys layout, so this only ever
      applies to user/agent bubbles. */
   align-items: flex-end;
-  gap: 4px;
-  margin-bottom: 8px;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
 }
 
 .bubble-row--agent {
@@ -366,8 +366,8 @@ function isImage(mime: string): boolean {
 }
 
 .bubble__sender {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--font-size-code);
+  font-weight: var(--weight-semibold);
   color: var(--color-fg);
 }
 
@@ -377,7 +377,7 @@ function isImage(mime: string): boolean {
 
 .bubble__time {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
 }
 
@@ -392,29 +392,29 @@ function isImage(mime: string): boolean {
 }
 
 .bubble__body {
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-normal);
   color: var(--color-fg);
   word-break: break-word;
 }
 
 .bubble__attachments {
   list-style: none;
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .attachment-link {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   background: none;
   border: none;
   padding: 0;
-  font-size: 13px;
+  font-size: var(--font-size-code);
   color: var(--color-accent);
   cursor: pointer;
 }
@@ -428,8 +428,8 @@ function isImage(mime: string): boolean {
 .attachment-gone {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 13px;
+  gap: var(--space-1);
+  font-size: var(--font-size-code);
   font-style: italic;
   color: var(--color-muted);
   text-decoration: line-through;
@@ -437,7 +437,7 @@ function isImage(mime: string): boolean {
 
 .bubble__edited {
   display: block;
-  margin-top: 4px;
+  margin-top: var(--space-1);
   text-align: right;
   font-size: 11px;
   font-style: italic;
@@ -445,19 +445,19 @@ function isImage(mime: string): boolean {
 }
 
 .bubble__sources {
-  margin-top: 8px;
+  margin-top: var(--space-2);
   border-top: 1px solid var(--color-border);
-  padding-top: 6px;
+  padding-top: var(--space-1-5);
 }
 
 .bubble__sources-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   background: none;
   border: none;
-  padding: 2px 0;
-  font-size: 12px;
+  padding: var(--space-0-5) 0;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
   cursor: pointer;
 }
@@ -480,18 +480,18 @@ function isImage(mime: string): boolean {
 
 .bubble__sources-list {
   list-style: none;
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0-5);
 }
 
 .bubble__source {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
   color: var(--color-fg);
 }
 
@@ -503,7 +503,7 @@ function isImage(mime: string): boolean {
 }
 
 .bubble__source-name {
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   word-break: break-word;
 }
 
@@ -515,18 +515,18 @@ function isImage(mime: string): boolean {
 .bubble__edit {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .bubble__edit-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .bubble__actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   opacity: 0;
   transition: opacity var(--transition-fast);
 }
@@ -539,12 +539,12 @@ function isImage(mime: string): boolean {
 .msg-action {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   background: none;
   border: none;
-  padding: 2px 4px;
+  padding: var(--space-0-5) var(--space-1);
   min-height: 28px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
   cursor: pointer;
 }
@@ -566,8 +566,8 @@ function isImage(mime: string): boolean {
 .sys {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin: 12px auto;
+  gap: var(--space-3);
+  margin: var(--space-3) auto;
   max-width: 60%;
 }
 
@@ -578,13 +578,13 @@ function isImage(mime: string): boolean {
 }
 
 .sys__text {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-style: italic;
   color: var(--color-muted);
 }
 
 .released {
-  margin: 12px 0;
+  margin: var(--space-3) 0;
   padding: 12px 14px;
   border: 1px solid var(--color-border);
   border-left: 3px solid var(--color-accent);
@@ -594,14 +594,14 @@ function isImage(mime: string): boolean {
 }
 
 .released__head {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
   color: var(--color-muted);
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-1-5);
 }
 
 .released__body {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
   overflow-wrap: anywhere;
 }

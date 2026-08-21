@@ -88,8 +88,8 @@ async function onEnd(): Promise<void> {
 .admin-impersonate__form {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 1rem 0;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
   align-items: center;
 }
 .admin-impersonate__input {
@@ -97,17 +97,17 @@ async function onEnd(): Promise<void> {
   max-width: 28rem;
 }
 .admin-impersonate__active {
-  margin: 1rem 0;
+  margin: var(--space-4) 0;
   border: 2px solid var(--color-warning);
 }
 .admin-impersonate__active-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: var(--space-4);
   flex-wrap: wrap;
 }
 .admin-impersonate__active-text {
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 </style>

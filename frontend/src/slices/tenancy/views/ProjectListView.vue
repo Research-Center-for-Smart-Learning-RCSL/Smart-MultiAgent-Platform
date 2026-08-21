@@ -332,17 +332,17 @@ const breadcrumbs = computed(() => [
 
 <style scoped>
 .project-tabs {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .project-name {
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .owner-cell {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .owner-icon {

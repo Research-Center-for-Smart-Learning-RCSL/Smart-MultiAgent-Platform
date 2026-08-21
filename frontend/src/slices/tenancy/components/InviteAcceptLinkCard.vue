@@ -52,6 +52,6 @@ const { t } = useI18n()
 
 <style scoped>
 .invite-link__lede {
-  margin: 0 0 0.75rem;
+  margin: 0 0 var(--space-3);
 }
 </style>

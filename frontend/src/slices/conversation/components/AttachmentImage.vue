@@ -96,7 +96,7 @@ onMounted(load)
   max-height: 360px;
   width: auto;
   height: auto;
-  margin-top: 8px;
+  margin-top: var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   object-fit: contain;
@@ -106,12 +106,12 @@ onMounted(load)
 .attachment-image__fallback {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   background: none;
   border: none;
   padding: 0;
-  margin-top: 8px;
-  font-size: 13px;
+  margin-top: var(--space-2);
+  font-size: var(--font-size-code);
   color: var(--color-accent);
   cursor: pointer;
 }
@@ -124,8 +124,8 @@ onMounted(load)
 
 .attachment-image__loading {
   display: inline-block;
-  margin-top: 8px;
-  font-size: 12px;
+  margin-top: var(--space-2);
+  font-size: var(--font-size-xs);
   font-style: italic;
   color: var(--color-muted);
 }

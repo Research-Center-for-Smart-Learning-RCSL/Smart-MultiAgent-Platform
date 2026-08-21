@@ -274,7 +274,7 @@ function onDropEvent(e: DragEvent): void {
   position: relative;
   background: var(--color-bg);
   border-top: 1px solid var(--color-border);
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
 }
 
 .composer--disabled {
@@ -289,7 +289,7 @@ function onDropEvent(e: DragEvent): void {
 .composer__row {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .composer__file-input {
@@ -313,10 +313,10 @@ function onDropEvent(e: DragEvent): void {
   border: none;
   background: transparent;
   color: var(--color-fg);
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-family: inherit;
-  line-height: 1.5;
-  padding: 8px 0;
+  line-height: var(--line-normal);
+  padding: var(--space-2) 0;
   outline: none;
 }
 
@@ -329,10 +329,10 @@ function onDropEvent(e: DragEvent): void {
   max-width: 280px;
   max-height: 200px;
   overflow-y: auto;
-  padding: 4px;
+  padding: var(--space-1);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0-5);
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -342,14 +342,14 @@ function onDropEvent(e: DragEvent): void {
 .mention-option {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   width: 100%;
   text-align: left;
   background: none;
   border: none;
   border-radius: var(--radius-sm);
-  padding: 6px 8px;
-  font-size: 14px;
+  padding: var(--space-1-5) var(--space-2);
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
   cursor: pointer;
 }
@@ -359,7 +359,7 @@ function onDropEvent(e: DragEvent): void {
 .mention-option::before {
   content: '@';
   color: var(--color-accent);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .mention-option--active,
@@ -369,11 +369,11 @@ function onDropEvent(e: DragEvent): void {
 
 .composer__uploads {
   list-style: none;
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   max-height: 120px;
   overflow-y: auto;
 }
@@ -381,8 +381,8 @@ function onDropEvent(e: DragEvent): void {
 .upload {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: var(--space-2);
+  font-size: var(--font-size-code);
 }
 
 .upload__icon {
@@ -405,12 +405,12 @@ function onDropEvent(e: DragEvent): void {
 }
 
 .upload__ready {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-success);
 }
 
 .upload__error {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-danger, #dc2626);
 }
 
@@ -421,10 +421,10 @@ function onDropEvent(e: DragEvent): void {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
   background: color-mix(in srgb, var(--color-accent) 10%, transparent);
   color: var(--color-accent);
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   pointer-events: none;
 }
 

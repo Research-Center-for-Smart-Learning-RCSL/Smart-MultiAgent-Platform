@@ -58,18 +58,18 @@ const { t } = useI18n()
 .presence {
   background: var(--color-surface);
   border-left: 1px solid var(--color-border);
-  padding: 16px;
+  padding: var(--space-4);
   overflow-y: auto;
   height: 100%;
 }
 
 .presence__header {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-muted);
-  margin: 12px 0 8px;
+  margin: var(--space-3) 0 var(--space-2);
 }
 
 .presence__header:first-child {
@@ -85,7 +85,7 @@ const { t } = useI18n()
 .presence-user {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   height: 36px;
 }
 
@@ -106,12 +106,12 @@ const { t } = useI18n()
 }
 
 .presence-user__name {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
 }
 
 .presence-user__you {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
 }
 </style>

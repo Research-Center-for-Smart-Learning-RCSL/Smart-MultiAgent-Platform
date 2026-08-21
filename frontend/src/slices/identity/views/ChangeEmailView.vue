@@ -202,17 +202,17 @@ async function submit(): Promise<void> {
 }
 
 .current-email {
-  margin: 0 0 20px;
+  margin: 0 0 var(--space-5);
 }
 
 .current-email dt {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
-  margin-bottom: 2px;
+  margin-bottom: var(--space-0-5);
 }
 
 .current-email dd {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
   margin: 0;
 }
@@ -229,32 +229,32 @@ async function submit(): Promise<void> {
 
 .done-state {
   text-align: center;
-  padding: 16px 0;
+  padding: var(--space-4) 0;
 }
 
 .done-state__icon {
   width: 48px;
   height: 48px;
   color: var(--color-accent);
-  margin: 0 auto 16px;
+  margin: 0 auto var(--space-4);
 }
 
 .done-state__title {
-  font-size: 1.125rem;
-  font-weight: 600;
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-semibold);
   color: var(--color-fg);
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
 }
 
 .done-state__text {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
-  line-height: 1.5;
+  line-height: var(--line-normal);
   margin: 0;
 }
 
 .done-state__action {
-  margin-top: 20px;
+  margin-top: var(--space-5);
 }
 
 @media (max-width: 767px) {

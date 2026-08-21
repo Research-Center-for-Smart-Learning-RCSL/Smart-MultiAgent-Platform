@@ -199,9 +199,9 @@ async function submit(): Promise<void> {
 
 .warning-text {
   max-width: 480px;
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
-  margin-top: 16px;
+  margin-top: var(--space-4);
 }
 
 @media (max-width: 767px) {

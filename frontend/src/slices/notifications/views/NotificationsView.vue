@@ -80,7 +80,7 @@ const { query, items, isEmpty, hasUnread, marking, markOne, markAll } = useNotif
 <style scoped>
 .notifications__loading {
   color: var(--color-muted);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
 }
 .notifications__list {
   list-style: none;
@@ -90,6 +90,6 @@ const { query, items, isEmpty, hasUnread, marking, markOne, markAll } = useNotif
 .notifications__more {
   display: flex;
   justify-content: center;
-  margin-top: 0.75rem;
+  margin-top: var(--space-3);
 }
 </style>

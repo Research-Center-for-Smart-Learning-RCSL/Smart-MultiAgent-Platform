@@ -100,7 +100,7 @@ const releaseChip = computed<string | null>(() => {
 .obs-card {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: 12px;
+  padding: var(--space-3);
   background: var(--color-surface);
   list-style: none;
 }
@@ -108,13 +108,13 @@ const releaseChip = computed<string | null>(() => {
 .obs-card__head {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1-5);
 }
 
 .obs-card__agent {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--font-size-code);
+  font-weight: var(--weight-semibold);
   color: var(--color-fg);
 }
 
@@ -129,7 +129,7 @@ const releaseChip = computed<string | null>(() => {
 }
 
 .obs-card__body {
-  font-size: 13px;
+  font-size: var(--font-size-code);
   color: var(--color-fg);
   overflow-wrap: anywhere;
 }
@@ -143,20 +143,20 @@ const releaseChip = computed<string | null>(() => {
 }
 
 .obs-card__expand {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   background: none;
   border: none;
   padding: 0;
   color: var(--color-accent);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
 }
 
 .obs-card__foot {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 10px;
+  gap: var(--space-2);
+  margin-top: var(--space-2-5);
 }
 
 .obs-card__chip {
@@ -171,7 +171,7 @@ const releaseChip = computed<string | null>(() => {
 .obs-card__actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   margin-left: auto;
 }
 </style>

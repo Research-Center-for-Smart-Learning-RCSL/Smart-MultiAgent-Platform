@@ -79,15 +79,15 @@ const stats = computed(() => {
 .admin-metrics__grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-  gap: 1rem;
-  margin: 1rem 0;
+  gap: var(--space-4);
+  margin: var(--space-4) 0;
 }
 .admin-metrics__card {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 0.25rem;
+  gap: var(--space-1);
 }
 .admin-metrics__icon {
   width: 1.5rem;
@@ -96,11 +96,11 @@ const stats = computed(() => {
 }
 .admin-metrics__value {
   font-size: 2rem;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   color: var(--color-fg);
 }
 .admin-metrics__label {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
 }
 </style>
