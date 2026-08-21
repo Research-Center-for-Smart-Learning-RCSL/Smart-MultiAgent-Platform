@@ -86,6 +86,17 @@ function emitDegraded(degraded: boolean): void {
   for (const h of [...degradedHandlers]) h(degraded)
 }
 
+/** Cross an agent.token flush boundary.
+ *
+ *  Tokens are buffered and written to the store at most once per 120ms window
+ *  (F-15), so a case that asserts stream state after emitting tokens has to let
+ *  the window close first. Named rather than inlined so the reason survives:
+ *  a bare `advanceTimersByTime(120)` next to a stream assertion reads like a
+ *  race workaround, which is the opposite of what it is. */
+function flushTokenWindow(): void {
+  vi.advanceTimersByTime(120)
+}
+
 function mountSocket(): {
   wrapper: VueWrapper
   store: ReturnType<typeof useConversationStore>
@@ -146,6 +157,7 @@ describe('useChatroomSocket agent streaming', () => {
     emit({ type: 'agent.token', text: 'Hel', agent_id: AGENT })
     emit({ type: 'agent.token', text: 'lo ', agent_id: AGENT })
     emit({ type: 'agent.token', text: 'world', agent_id: AGENT })
+    flushTokenWindow()
     expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe('Hello world')
     expect(mounted.store.agentThinking[ROOM]?.has(AGENT)).toBe(true)
   })
@@ -292,6 +304,7 @@ describe('useChatroomSocket agent streaming', () => {
       emit({ type: 'agent.progress', agent_id: AGENT, phase })
     }
     emit({ type: 'agent.token', text: 'at last', agent_id: AGENT })
+    flushTokenWindow()
     expect(mounted.store.agentError[ROOM]).toBeFalsy()
     expect(mounted.store.agentThinking[ROOM]?.has(AGENT)).toBe(true)
     expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe('at last')
@@ -304,6 +317,7 @@ describe('useChatroomSocket agent streaming', () => {
     emit({ type: 'agent.token', text: 'let me check', agent_id: AGENT })
     emit({ type: 'agent.progress', agent_id: AGENT, phase: 'tool_round' })
     emit({ type: 'agent.token', text: 'the answer', agent_id: AGENT })
+    flushTokenWindow()
     // What agent.finished replaces this with is the persisted reply, which is
     // the final round's text alone — so the two now match and nothing flashes.
     expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe('the answer')
@@ -317,6 +331,7 @@ describe('useChatroomSocket agent streaming', () => {
     emit({ type: 'agent.thinking', agent_id: AGENT })
     emit({ type: 'agent.token', text: 'partial', agent_id: AGENT })
     emit({ type: 'agent.progress', agent_id: AGENT, phase: 'history' })
+    flushTokenWindow()
     expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe('partial')
   })
 
@@ -377,6 +392,7 @@ describe('useChatroomSocket agent streaming', () => {
     emit({ type: 'agent.thinking', agent_id: AGENT })
     emit({ type: 'agent.token', text: 'in progress', agent_id: AGENT })
     emit({ type: 'message.created', message_id: 'm_user', sender_type: 'user', sender_id: 'u1' })
+    flushTokenWindow()
     expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe('in progress')
   })
 
@@ -850,5 +866,158 @@ describe('useChatroomSocket agent streaming', () => {
       version: number
     }>
     expect(cache.find((m) => m.id === 'm_1')?.version).not.toBe(2)
+  })
+})
+
+// T-6 of docs/tasks/2026-08-19-chatroom-scroll-and-composer (F-15).
+//
+// Every agent.token frame used to reach the store, which reassigns agentStreams
+// immutably -- so each token cost a render, a renderMarkdown (markdown-it plus
+// DOMPurify) and a full v-html subtree replacement. The memo in useAgentStreams
+// keys on text equality and therefore cannot hit while the text is growing,
+// which is the only time it would matter.
+//
+// The forced flushes are the load-bearing half: without them the tail of a
+// reply would be written AFTER the draft is cleared, which is a ghost bubble --
+// a worse defect than the one being fixed.
+describe('useChatroomSocket agent.token throttling (F-15)', () => {
+  let wrapper: VueWrapper | null = null
+
+  beforeEach(() => {
+    subscribedHandlers.length = 0
+    statusHandlers.length = 0
+    degradedHandlers.length = 0
+    listMessagesMock.mockClear()
+    getMessageMock.mockReset()
+    listChatroomApprovalsMock.mockReset()
+    listChatroomApprovalsMock.mockResolvedValue([])
+    getActiveActivationMock.mockReset()
+    getActiveActivationMock.mockResolvedValue(null)
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+    vi.useRealTimers()
+  })
+
+  it('collapses a burst inside one window into a single store write', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const append = vi.spyOn(mounted.store, 'appendAgentToken')
+
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    for (let i = 0; i < 30; i++) {
+      emit({ type: 'agent.token', text: `t${i} `, agent_id: AGENT })
+    }
+    expect(append).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(120)
+
+    expect(append).toHaveBeenCalledTimes(1)
+    const expected = Array.from({ length: 30 }, (_, i) => `t${i} `).join('')
+    expect(append).toHaveBeenCalledWith(ROOM, AGENT, expected)
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe(expected)
+  })
+
+  it('keeps each agent in its own buffer', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+
+    emit({ type: 'agent.token', text: 'alpha', agent_id: 'agent_a' })
+    emit({ type: 'agent.token', text: 'beta', agent_id: 'agent_b' })
+    emit({ type: 'agent.token', text: '-two', agent_id: 'agent_a' })
+    vi.advanceTimersByTime(120)
+
+    expect(mounted.store.agentStreams[ROOM]?.['agent_a']).toBe('alpha-two')
+    expect(mounted.store.agentStreams[ROOM]?.['agent_b']).toBe('beta')
+  })
+
+  it('opens a fresh window per burst rather than one repeating timer', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const append = vi.spyOn(mounted.store, 'appendAgentToken')
+
+    emit({ type: 'agent.token', text: 'a', agent_id: AGENT })
+    vi.advanceTimersByTime(120)
+    emit({ type: 'agent.token', text: 'b', agent_id: AGENT })
+    vi.advanceTimersByTime(120)
+
+    expect(append).toHaveBeenCalledTimes(2)
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe('ab')
+  })
+
+  it('flushes before agent.finished clears the draft, leaving no ghost bubble', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const append = vi.spyOn(mounted.store, 'appendAgentToken')
+
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    emit({ type: 'agent.token', text: 'the tail', agent_id: AGENT })
+    emit({ type: 'agent.finished', agent_id: AGENT })
+
+    expect(append).toHaveBeenCalledTimes(1)
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBeUndefined()
+
+    // The window would have elapsed here. Nothing may arrive after the clear.
+    vi.advanceTimersByTime(500)
+    expect(append).toHaveBeenCalledTimes(1)
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBeUndefined()
+  })
+
+  it('flushes on the agent.finished error path too', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    emit({ type: 'agent.token', text: 'doomed', agent_id: AGENT })
+    emit({ type: 'agent.finished', error: 'provider_error', agent_id: AGENT })
+    vi.advanceTimersByTime(500)
+
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBeUndefined()
+    expect(mounted.store.agentError[ROOM]).toBe('provider_error')
+  })
+
+  it('does not let a superseded tool round resurrect itself', () => {
+    // agent.progress{tool_round} clears the draft because only the final round
+    // is persisted (F-40). A token buffered before that clear must not land
+    // after it, or the superseded round reappears on top of the new one.
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    emit({ type: 'agent.token', text: 'round one output', agent_id: AGENT })
+    emit({ type: 'agent.progress', phase: 'tool_round', agent_id: AGENT })
+    vi.advanceTimersByTime(500)
+
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBeFalsy()
+  })
+
+  it('does not let the previous turn bleed into a new one', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    emit({ type: 'agent.token', text: 'old turn', agent_id: AGENT })
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    emit({ type: 'agent.token', text: 'new turn', agent_id: AGENT })
+    vi.advanceTimersByTime(120)
+
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe('new turn')
+  })
+
+  it('writes nothing after unmount', () => {
+    const mounted = mountSocket()
+    const append = vi.spyOn(mounted.store, 'appendAgentToken')
+
+    emit({ type: 'agent.token', text: 'mid window', agent_id: AGENT })
+    mounted.wrapper.unmount()
+    wrapper = null
+    const callsAtUnmount = append.mock.calls.length
+
+    vi.advanceTimersByTime(500)
+
+    expect(append).toHaveBeenCalledTimes(callsAtUnmount)
   })
 })
