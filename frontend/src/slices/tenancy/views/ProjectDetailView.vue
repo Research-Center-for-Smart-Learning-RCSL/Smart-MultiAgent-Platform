@@ -100,10 +100,18 @@ const breadcrumbs = computed(() => [
 
 <template>
   <div>
-    <SLoadingSpinner
-      v-if="isLoading"
-      :text="t('tenancy.common.loading')"
-    />
+    <!-- The header renders during the fetch too, so a cold load reads as this
+         page loading rather than as a blank content area with a 24px spinner
+         row in the corner. Breadcrumbs already carry a pending fallback. -->
+    <template v-if="isLoading">
+      <SPageHeader
+        :title="t('tenancy.common.loading')"
+        :breadcrumbs="breadcrumbs"
+      />
+      <div class="flex justify-center py-16">
+        <SLoadingSpinner :label="t('tenancy.common.loading')" />
+      </div>
+    </template>
 
     <SAlert
       v-else-if="isError"

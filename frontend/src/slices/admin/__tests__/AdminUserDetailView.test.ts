@@ -56,6 +56,19 @@ describe('AdminUserDetailView', () => {
     expect(wrapper.exists()).toBe(true)
   })
 
+  // F-26: the whole template sat behind the pending flag, page header included,
+  // so a cold load painted nothing but a 24px spinner row at the top left.
+  it('paints the page header while the user is still loading', async () => {
+    seedUser()
+    // Deliberately no settle — the query is still in flight here.
+    const wrapper = await renderView(AdminUserDetailView, {
+      routes: [route],
+      initialRoute: '/admin/users/u_1',
+    })
+    expect(wrapper.find('.s-spinner').exists()).toBe(true)
+    expect(wrapper.find('.s-page-header').exists()).toBe(true)
+  })
+
   it('shows user email and action buttons when loaded', async () => {
     server.use(
       http.get('/api/admin/users/:userId', () =>

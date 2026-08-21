@@ -1,10 +1,16 @@
 <template>
   <section class="admin-user-detail">
-    <SLoadingSpinner
-      v-if="query.isPending.value"
-      class="my-4"
-      :label="$t('admin.common.loading')"
-    />
+    <!-- The header renders during the fetch too, so a cold load reads as this
+         page loading rather than as a blank content area with a 24px spinner
+         row in the corner. Kept inside the branch rather than hoisted above
+         all three: the error arm has no email to title itself with either, and
+         a hoisted header would announce "Loading" over "user not found". -->
+    <template v-if="query.isPending.value">
+      <SPageHeader :title="$t('admin.common.loading')" />
+      <div class="flex justify-center py-16">
+        <SLoadingSpinner :label="$t('admin.common.loading')" />
+      </div>
+    </template>
     <SAlert
       v-else-if="query.isError.value || !query.data.value"
       variant="danger"
