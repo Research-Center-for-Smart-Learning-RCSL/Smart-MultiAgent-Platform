@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-08-19
 approved: 2026-08-21
 requirements: []
@@ -650,48 +650,63 @@ coverage:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: T-1(a) and T-2 fail before the fix and pass after; the impersonation banner
+- [x] AC-1: T-1(a) and T-2 fail before the fix and pass after; the impersonation banner
       reserves its own vertical space and T-11 shows the top bar fully visible and the sidebar
       toggle clickable during an impersonation session. (**Amended 2026-08-21**: "carries no
       numeric `z-index`" was already true before this dossier starts - see §1.1 - so it is a
-      guard here, not evidence of this task's work.)
-- [ ] AC-2: T-1(b) fails before the fix and passes after; a render error inside a view replaces
+      guard here, not evidence of this task's work.) **T-11 ran green against a live stack**:
+      the banner's bottom edge is at or above the top bar's top, and Playwright's hit-target
+      check passed on the sidebar toggle, which a still-overlapping banner would have failed.
+- [x] AC-2: T-1(b) fails before the fix and passes after; a render error inside a view replaces
       only that view, with the top bar, sidebar and content background still rendered and the
       user able to navigate away without using the retry button.
-- [ ] AC-3: T-1(c) fails before the fix and passes after; an authenticated user opening an
+- [x] AC-3: T-1(c) fails before the fix and passes after; an authenticated user opening an
       unknown URL gets `AppShell`, an anonymous one gets `AuthLayout`, and no other route's
-      layout selection changes.
-- [ ] AC-4: T-3 and T-12 fail before the fix and pass after; scrolling a `sticky-header` table's
+      layout selection changes. Pinned twice: the mounted behaviour, and the production
+      catch-all record's own `meta.layout`, so the fixture cannot drift into passing alone.
+      Also confirmed in a browser.
+- [x] AC-4: T-3 and T-12 fail before the fix and pass after; scrolling a `sticky-header` table's
       page keeps the column headers pinned within the content area. The wide-table cost from Q-5
-      is confirmed by hand and recorded in the Deviation Log.
-- [ ] AC-5: T-4 and T-13 fail before the fix and pass after; a dropdown opened near the viewport
+      is confirmed by hand and recorded in the Deviation Log (D-13: `main` gains 1868px of
+      horizontal scroll, the document gains 0). T-12 was rewritten twice - see D-11.
+- [x] AC-5: T-4 and T-13 fail before the fix and pass after; a dropdown opened near the viewport
       bottom flips upward or caps its height, and every `role="menuitem"` is reachable without
-      scrolling a container that has no scroll left.
-- [ ] AC-6: T-5 fails before the fix and passes after; `SAlert` resolves `role` from `variant`
+      scrolling a container that has no scroll left. T-4 grew two cases beyond the spec for the
+      floor-clamp defect in D-4.
+- [x] AC-6: T-5 fails before the fix and passes after; `SAlert` resolves `role` from `variant`
       per `docs/UI/11-responsive-a11y.md:293`, and no `SAlert` call site needed an override prop.
-- [ ] AC-7: T-6 fails before the fix and passes after; a stretched `SEmptyState` centres its
-      content vertically, and the two `GraphragGraphView` empty states are confirmed centred in
-      a browser.
-- [ ] AC-8: T-7 fails before the fix and passes after; the available-keys table shows skeleton
+      The announcement itself is not verified - see D-13.
+- [x] AC-7: T-6 fails before the fix and passes after; a stretched `SEmptyState` centres its
+      content vertically, measured in a browser at 244px above and 244px below in a 600px
+      column (D-13). **Measured against a real stretched `SEmptyState`, not the two
+      `GraphragGraphView` instances**, which need a graphrag config with zero nodes that this
+      stack has none of; the component rule is what both of them consume.
+- [x] AC-8: T-7 fails before the fix and passes after; the available-keys table shows skeleton
       rows while `useMyKeys` is in flight and the "Available" tab badge does not assert zero
-      during load.
-- [ ] AC-9: T-8 fails before the fix and passes after; the skills workbench empty state renders
+      during load. Extended past the spec to the carried tab's badge - see D-14.
+- [x] AC-9: T-8 fails before the fix and passes after; the skills workbench empty state renders
       its icon, title and body copy, and no stray `description` attribute reaches the DOM.
-- [ ] AC-10: T-9 fails before the fix and passes after; at 844x390 the modal title is on screen
-      and the panel scrolls rather than clipping. Verified by hand per §8.
-- [ ] AC-11: T-10 fails before the fix and passes after; `STooltip` resolves its `z-index` from
-      `--z-tooltip`, and a repository-wide grep for numeric `z-index` in `frontend/src/shared/ui`
-      returns only `STable.vue:491`.
-- [ ] AC-12: F-43 is not implemented, and the audit's Hand-off table records it as routed to a
-      separate feature dossier with Q-12 as the cited reason.
-- [ ] AC-13: the sibling sweeps in §6 that are marked "to be re-swept at build time" (unknown
-      props, missing `:loading` bindings) are re-run against the tree at build time and their
-      results recorded, as findings or as an explicit clearance.
-- [ ] AC-14: gates green on CI: `pnpm lint` (all 12, notably #6 global CSS, #11 accessibility,
-      #12 i18n), `pnpm typecheck`, `pnpm test`, `pnpm build`,
-      `pnpm run check:boundaries-enforced`, `pnpm run check:bundle-size`,
-      `pnpm run check:type-coverage`. Backend gates N/A: the diff is frontend-only. Per
-      `feedback_remote_ci_verification`, CI is authoritative over the local Windows host.
+- [x] AC-10: T-9 fails before the fix and passes after; at 844x390 the panel scrolls rather than
+      clipping and the title sits at y = 55. Verified by hand per §8 and mutation-probed.
+      **D-13 corrects this AC's premise**: at that size the panel overshoots by about 4px, so
+      the pre-fix rule put the panel's top edge and part of the header out of reach rather than
+      the title, which measured y = 26 under the old rule. Real defect, smaller magnitude than
+      §2 implied.
+- [x] AC-11: T-10 fails before the fix and passes after; `STooltip` resolves its `z-index` from
+      `--z-tooltip`, and the sweep over `frontend/src/shared/ui` finds no numeric `z-index` left
+      in the overlay set (the test asserts it per component; `STable.vue`'s local `10` is
+      excluded by name and reason).
+- [x] AC-12: F-43 is not implemented, and the audit's Hand-off table records it as routed to a
+      separate feature dossier with Q-12 as the cited reason. That row now names Q-12 explicitly
+      rather than "the Q-row".
+- [x] AC-13: the sibling sweeps in §6 marked "to be re-swept at build time" were re-run and both
+      are clear; results in D-8. The `:loading` sweep found 20 `<STable` call sites plus one
+      `typedSTable` alias a literal grep misses, not the 19 §6 estimated.
+- [x] AC-14: gates green **locally**: `pnpm lint` (all 12), `pnpm typecheck`, `pnpm test`
+      (208 files, 1332 tests), `pnpm build`, `pnpm run check:boundaries-enforced`,
+      `pnpm run check:bundle-size`, `pnpm run check:type-coverage`. Backend gates N/A: the diff
+      is frontend-only. Per `feedback_remote_ci_verification`, **CI is authoritative** and this
+      tick records a local pass, not a CI one - the work is unpushed.
 
 ## 11. SRS Delta
 
@@ -706,7 +721,137 @@ change to a UI design document, not to the SRS.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1** - **the §8 "the scoped rule declares X" assertions read the component source from
+  disk.** `frontend/vitest.config.ts` sets no `css: true`, and `@vitejs/plugin-vue` compiles a
+  scoped `<style>` block away entirely, so no scoped CSS is present in jsdom at all - not merely
+  unevaluated. `getComputedStyle` therefore cannot see any of these rules, whatever jsdom's
+  layout situation. T-2, T-3, T-6, T-9 and T-10 are implemented against a new
+  `frontend/tests/utils/styleSource.ts`, which extracts a named top-level rule (skipping at-rule
+  bodies, so `SModal`'s `@media` override cannot be mistaken for its base rule) and reads one
+  declaration from it. These are structural guards and say so in their own comments; they prove
+  the declaration is present, never that it renders. This is a new pattern in this repository -
+  no test read a source file before. The still-draft
+  `2026-08-19-content-area-spacing-and-scroll-contract` plans the same shape for its T-2, so the
+  helper is shared rather than slice-local.
+- **D-2** - **T-6's second half is not implementable as written, and was moved to the call
+  site.** It asked that "a `description` attribute passed to the component does not appear on the
+  root element". The only way to get that is `inheritAttrs: false` on `SEmptyState`, which drops
+  `class` along with everything else - and `class="flex-1"` at `GraphragGraphView.vue:215-229` is
+  precisely the stretching that F-30's own fix exists to serve, so the guard as specified would
+  have broken the finding beside it. Replacements: `SkillWorkbench.test.ts` asserts no
+  `[description]` attribute reaches the DOM (at the call site, where the defect actually was),
+  and `SEmptyState.test.ts` pins the declared prop list instead, so a call site cannot invent a
+  second name for `text`. FU-2's `strictTemplates` remains the real fix for the class.
+- **D-3** - **F-7's §4 reproduction path is wrong; the finding is not.**
+  `/orgs/does-not-exist-typo` matches `slices/tenancy/routes.ts:11`'s `/orgs/:id` and renders
+  `OrgDetailView` against a missing org - it never reaches the catch-all. The 404 route is
+  reached only by a path matching no record at all. `router.ts:43-47` genuinely declared no
+  `meta`, so F-7 reproduces exactly as described; only the URL in the repro steps was wrong. The
+  unit and e2e tests use `/no-such-section/typo`.
+- **D-4** - **Q-6's cap needed a clamp the spec did not anticipate, and the gap was found by this
+  task's self-audit rather than by its gates.** A floor on the `max-height` is necessary (a
+  viewport too short for either side would otherwise cap the menu to zero or a negative height),
+  but anchoring the floored box to the trigger pushes its far edge outside the viewport - which
+  is F-9's unreachable-items defect reached from the other direction. Two geometries pin it, both
+  at a 160px viewport: a downward menu ending at y = 192, and a flipped one starting at y = -10.
+  The cap is now also clamped to `viewportHeight - 2 * VIEWPORT_MARGIN`, and when the floor
+  exceeds the room on the chosen side the menu pins to the viewport rather than to the trigger
+  and scrolls.
+- **D-5** - **`SModal`'s mobile branch zeroes the panel's auto margins as well as the padding.**
+  §7 item 11 named only the padding. Auto margins in the cross axis outrank `align-items:
+  stretch` per the flexbox spec, so leaving `margin: auto` there would have made the full-screen
+  branch depend on the explicit `height: 100%` alone to avoid centring at content height.
+- **D-6** - **`SkillWorkbench`'s empty state uses `SparklesIcon`.** §7 item 10 required an
+  `:icon` but named none; `@heroicons/vue/24/outline`'s `SparklesIcon` was chosen to match the
+  skills surface. No new dependency.
+- **D-7** - **`AppFeedback.test.ts` gained a pinia instance.** `App.vue` now reads the session
+  store to resolve `layout: 'auto'`, and that test mounted with router and i18n only. Harness
+  update; no assertion was weakened or removed. This is the §9 "existing view tests may fail"
+  risk landing, and it was the only instance across 208 test files.
+- **D-8** - **AC-13's two sweeps were re-run against the tree and both are clear.** The
+  unknown-prop grep (`:description=` on a Vue component) returns **zero** hits across
+  `frontend/src` after F-34's fix, so the audit's single-hit result held. The `:loading` sweep
+  found **20** `<STable` call sites, not the 19 §6 estimated, plus `AgentListView.vue:319`'s
+  `AgentTable` (a `typedSTable<Agent>()` alias, which is why a literal `<STable` grep misses it);
+  every one of the 21 binds `:loading`, so F-33 was the only gap.
+- **D-9** - **the `check-quality` gate found one Introduced Warning in this task's own test
+  utility** (`topLevelRule` and `atRuleBody` were the same 15-line brace scanner with different
+  predicates). Fixed during the gate, not deferred.
+- **D-10** - **§7 item 3's `flex: 1` is wrong, and shipping it would have inverted the shell's
+  scroll contract on every authenticated route.** This is the entry to read before touching
+  `.app-shell`'s sizing again. `flex: 1` expands to `flex: 1 1 0%`; `.app-root` carries only
+  `min-height`, so its inner size is indefinite, and a percentage flex basis against an
+  indefinite container resolves to `content`. The shell was therefore sized by `main`'s content,
+  grew past the viewport, and handed scrolling to the **document** - the exact inversion of
+  `docs/UI/02-layout-shell.md` §3.3, and the ground the still-draft
+  `2026-08-19-content-area-spacing-and-scroll-contract` builds its entire scroll contract on.
+  Measured in Chromium at 1440x420 with forced content: shell 3805px, `main` 3749px,
+  document scroll 3385px. With `flex: 1 1 0px` - a **definite length** basis, so the base size is
+  0 whatever the container - shell 420px, `main` 364px with 3749px of internal scroll, document
+  scroll 0. **No unit test in this repository can see this**, and it hid behind a short seeded
+  list: with few rows the shell looked correctly sized while its base size was still being
+  computed from content. What surfaced it was T-12's precondition assertion (`the content region
+  must overflow for this to mean anything`) failing rather than passing vacuously.
+- **D-11** - **T-12's e2e assertions were rewritten twice and no longer depend on seed volume.**
+  Two corrections. First, the sticky window: a sticky header only pins while its own table is
+  still crossing the scrollport, so filler placed *after* the table releases it before it can be
+  measured, and a 150px scroll never pushes the header past the top at all. The test now clones
+  rows into the tbody and scrolls past the header's own offset. Second, the pin point: Chromium
+  constrains a sticky child against the scrollport's **content** box, so the header pins one
+  content gutter below the top bar (measured 80px = 56 + 24), not flush at 56. The assertion
+  derives that offset from `main`'s computed `padding-top` so the shell's 24/16/8px breakpoint
+  ladder cannot make it red without the contract actually changing. A separate test now pins the
+  D-10 contract with injected content, so it cannot go quiet when a list is short.
+- **D-12** - **both browser fixes were mutation-probed**, in the browser and without touching
+  the tree. Forcing `.s-table-wrap--sticky { overflow: auto }` puts the header at y = -154
+  instead of pinned at 80; forcing `.app-shell { flex: 1 1 0% }` gives 3593px of document scroll
+  and a 4013px shell. Both assertions are load-bearing rather than decorative.
+- **D-13** - **the browser-verification items in §8 were measured, not eyeballed, and one of
+  them corrects the dossier.**
+  - *F-30 centring*: a real `SEmptyState` given `flex: 1` in a 600px flex column reports
+    `justify-content: center` with **244px above and 244px below** its content. Centred exactly.
+  - *F-8's Q-5 cost*: with a `stickyHeader` table widened to 3000px in the content area, `main`
+    gains **1868px of horizontal scroll** and the document gains **0**. The accepted trade is
+    exactly as Q-5 describes: the page scrolls sideways, the document does not.
+  - *F-41 at 844x390*: `.s-modal` reports `overflow-y: auto`, `align-items: flex-start`, 24px
+    padding, **56px of scroll**, with the panel top at 34 and the dialog title at **y = 55** -
+    on screen and reachable. Restoring the pre-fix rule in the browser moves the title to
+    **y = 26**. **This corrects §2's F-41 wording**: at the size the dossier names, the panel
+    overshoots by only about 4px (body 70vh = 273 + header 64 + footer 57 = 394 against 390),
+    so what the old rule put out of reach was the panel's top edge and part of the header
+    chrome - *not* the title itself. The defect is real and the fix is correct; the magnitude
+    at 844x390 is a few pixels, and it grows as the viewport shortens. The `plausible` grade
+    the audit gave it was the right one.
+  - *F-22's announcement* remains unverified by design: it needs NVDA or VoiceOver, and T-5
+    asserts the ARIA attribute only.
+- **D-15** - **the full Playwright suite was run against a live stack, and none of its failures
+  belongs to this diff.** 51 passed, 8 skipped, 12 failed, and this dossier's own
+  `21-overlay-and-shell-contract.spec.ts` is 5/5 green. Each failure was traced rather than
+  waved through:
+  - `11-mcp` and `14-export-attachments` **go green once the Arq workers are running**. The
+    first full run had only `backend-web` and its data dependencies up, so exports and jobs
+    never completed. Started `backend-worker`, `knowledge-scan-worker` and
+    `knowledge-ingest-worker`; both specs then passed.
+  - `07-workflow-flow` and `17-workflow-run-lifecycle` fail because
+    **`useBackstageGuard` redirects to `root`**: the page snapshot in the failure artifact is
+    the *Landing page under `PublicLayout`*, which is a navigation outcome, not a rendering
+    one. `WorkflowEditorView.vue:368` and `WorkflowRunsListView.vue:137` consume that
+    composable, whose authorization comes from `ProjectOut.is_moderator`
+    (`2026-08-20-orchestration-room-scoped-reads` D-7). None of those files is in this diff.
+  - `18-delegated-activity-control` fails on a **backend error** - `unknown in-process
+    validator_id 'filled_count'` from `POST /api/projects/{id}/activity-types`.
+  - `20-onboarding-without-smtp` needs onboarding state this long-lived database does not
+    have (it carries ten `e2e-org-*` rows from earlier sessions).
+  **Stated as a limit rather than glossed:** no base-commit baseline run was taken - restoring
+  `frontend/src` to the base commit was refused by the sandbox - so "pre-existing" here rests on
+  the traced causes above and on the fact that every failure waits on backend run state or a
+  route guard, not on a rendered box. A CI run on a clean database is the authority.
+- **D-14** - **a sibling of F-33 was found by self-audit one line above the fix and corrected.**
+  `ProjectKeysView`'s *carried* tab badge read `String(carried.value.length)` unconditionally,
+  and `carried` is an empty array until `useProjectKeys` settles - the same "assert 0 before
+  anything is known" mistake F-33 describes, on the adjacent tab in the same computed. Fixing
+  only the available tab would have left the two visibly inconsistent. Both badges now watch
+  the query that actually feeds them, with tests for each.
 
 ## 13. Follow-ups
 
@@ -741,3 +886,20 @@ Appended by /build.
 - **FU-7** - `frontend/` has no axe-core harness, so `docs/UI/11-responsive-a11y.md` §7.1's
   "Axe-core smoke: per top-level view in Vitest" is unimplemented. F-22 is exactly the kind of
   defect it would have caught. Route to `check-quality`.
+- **FU-8** - **no test file in this repository is typechecked.** `frontend/tsconfig.app.json`
+  excludes `src/**/__tests__/*`, and no tsconfig covers `frontend/e2e/` at all, so `pnpm
+  typecheck` sees neither tier and ESLint is the only gate on them. A type error in a spec
+  surfaces at run time, or in Playwright's own transpile, rather than at the gate. Related to
+  FU-2 but distinct: that one is about templates, this one about whole files. Route to
+  `check-quality`.
+- **FU-9** - **the test compose stack cannot bootstrap Vault as shipped.** `smap.bootstrap
+  vault-init` reads `/deploy/vault/policies/*.hcl` (`smap/bootstrap/vault_init.py:165`), and
+  `deploy/compose/compose.test.yml` mounts no such path into `backend-web`, so running the
+  bootstrap inside the container dies on `FileNotFoundError`. Until then every login and register
+  500s on `InvalidPath: no handler for route "transit/keys/smap-jwt-sign"` while `/readyz`'s
+  vault probe (connectivity only) reports healthy - so the stack looks up and is not. The
+  working recipe used for this task's browser pass, worth keeping until the mount is added:
+  `docker exec -u root smap-backend-web-1 mkdir -p /deploy`, `docker cp deploy/vault
+  smap-backend-web-1:/deploy/vault`, then `docker compose ... exec -T -e VAULT_TOKEN=root
+  backend-web python -m smap.bootstrap all`, then restart `backend-web`. Adding the bind mount to
+  `compose.test.yml` is the real fix.
