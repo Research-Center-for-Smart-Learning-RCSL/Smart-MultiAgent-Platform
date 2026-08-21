@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: draft
+status: approved
 created: 2026-08-21
 requirements: [R24.28, R24.29, R24.30]
 depends_on: [2026-08-19-shared-overlay-and-shell-defects]

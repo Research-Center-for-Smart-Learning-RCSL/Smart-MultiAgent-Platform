@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-08-21
 requirements: [R24.28, R24.30, R24.34, R24.48, R24.49]
 depends_on: [2026-08-21-visual-refinement-phase1-token-adoption]
