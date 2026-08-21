@@ -510,6 +510,34 @@ the user before any code moved; the rest were forced by what the work found.
   "did the page render at all" tripwire, deliberately far below any legitimate data
   difference, and explicitly not a coverage bar. Both probed by mutation, along with
   re-confirming that `--space-4: 16px -> 17px` still fails the value check.
+- **D-18 - the baseline was regenerated against a pristine stack (FU-13, now closed), and
+  doing so exposed three more harness defects that a contaminated stack had been hiding.**
+  `smap_test` was dropped, re-migrated and re-seeded - `smap`, the dev database, untouched -
+  giving 2 users, 0 `api_keys` and 1 org, which is CI's starting state. The regenerated
+  baseline is 733 distinct signatures against 759; `keys` alone dropped from 78 to 71 as the
+  pagination widget stopped rendering. What the reset then revealed is that **the old
+  baseline had been stable only because the stack was saturated**: with a handful of rows
+  instead of dozens, which elements render varies run to run, and three separate things
+  broke.
+  (a) **The capture path could write a partial baseline.** `collected` is module state and
+  Playwright restarts the worker on any failure, so one surface timing out mid-capture left
+  `afterAll` running in a worker that had only seen the surfaces after the restart - it
+  overwrote the committed 82-slot file with the 4 slots of a single surface. It now refuses
+  to write unless every declared surface was captured. This is the same worker-restart
+  hazard as D-16, in the one code path D-16 did not touch.
+  (b) **The screen-reader-only helpers are excluded outright.** `sr-only` labels a table
+  header at 12px/600 and sits beside a control at 16px/400, and which of those elements
+  exists depends on the data; recording the *set* made the key order-independent but not
+  data-independent. A capture and a compare run minutes apart **on the same commit**
+  disagreed, which settles that nothing about the diff was being measured. Such an element
+  is clipped to 1px and paints nothing, so it cannot be a visual difference either way.
+  (c) **`margin: auto` is now detected through the Typed OM instead of guessed.**
+  `getComputedStyle` returns the *used* value, where an auto margin is already a length; the
+  sentinel had been triggered by the value being fractional, which held until a centred
+  empty state landed on exactly `33px`. `computedStyleMap()` returns the computed value,
+  where the keyword survives.
+  Verified by three consecutive compare runs, all green with no absent signatures, and the
+  `--space-4: 16px -> 17px` probe still failing with 24 differences.
 - **D-13 - a behaviour does change, in a case AC-1's baseline cannot see.** Ninety-odd
   spacing declarations were written in `rem` and now resolve through `px` tokens, because
   `--space-*` has been px since `2026-07-05-sitewide-ui-enhancement` and AC-8 forbids
@@ -622,13 +650,15 @@ the user before any code moved; the rest were forced by what the work found.
   CI, where the stack is new every time, and a reliable local trap. And
   `18-delegated-activity-control`'s two tests share one seeded room, so the second depends on
   what the first left behind. Neither is caused by this diff.
-- **FU-13** - the committed baseline was captured on a stack holding 70 `api_keys` and
-  similar residue elsewhere (D-17), so it carries records for elements a fresh stack never
-  renders. They are inert - an absent signature is now skipped, not failed - but the file
-  over-states its own coverage, and a reader comparing its 759 signatures against what CI
-  sees will find fewer. Regenerating it against a pristine `smap_test` would fix that; it
-  needs the database dropped and re-bootstrapped, which is why it was not done unilaterally.
-  Worth doing whenever phase 2 re-baselines anyway, since that is a free opportunity.
+- **FU-13** - **closed by D-18 on 2026-08-22.** The committed baseline had been captured on a
+  stack holding 70 `api_keys` and similar residue (D-17), so it carried records for elements
+  a fresh stack never renders. It was regenerated against a pristine `smap_test`, which both
+  fixed the over-claimed coverage and surfaced three harness defects the saturated stack had
+  been masking. The recipe, for whoever re-baselines in phase 2: stop `backend-web` and
+  `backend-worker`, `DROP`/`CREATE DATABASE smap_test`, run `alembic upgrade head` in a
+  one-off container, then start the two services again - they seed on boot and prime the
+  rate-limit policies, which a backend started before the migration would not. `smap`, the
+  dev database, is a separate database and is never touched.
 - **FU-11** - the parity baseline is only meaningful against a freshly seeded stack (D-14).
   Nothing enforces that beyond the `00-` filename, and a future spec numbered lower would
   silently break it. If a third such ordering constraint appears, it wants a Playwright
