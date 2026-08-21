@@ -172,16 +172,19 @@ function loadBaseline(): Baseline {
 const baseline = loadBaseline()
 
 /**
- * Collected across the whole file and written once in `afterAll`. Playwright
- * runs this spec with `workers: 1` (playwright.config.ts), so a module-level
- * accumulator is safe here and is the only way to produce one committed file
- * from tests that each own a different surface.
+ * Baseline capture only. Written once in `afterAll` under
+ * UPDATE_VISUAL_BASELINE, which is a single deliberate local run.
+ *
+ * Nothing on the *comparison* path accumulates here, and that is deliberate:
+ * Playwright restarts the worker after any test failure and re-runs only the
+ * failed test (`retries: 1` in CI), so module state does not survive. An
+ * accumulator asserted in `afterAll` would fail both ways round - it would lose
+ * differences recorded before a restart, which is a green run hiding a real
+ * regression, and it would report the surfaces the restarted worker never
+ * re-ran as if they had gone missing. Each surface asserts its own result
+ * instead.
  */
 const collected: Baseline = {}
-const mismatches: string[] = []
-const missing: string[] = []
-/** Baseline slots this run actually compared - see the coverage check in afterAll. */
-const visited = new Set<string>()
 
 /**
  * The theme is applied by writing `data-theme` on the root element, which is
@@ -218,6 +221,35 @@ const VIEWPORTS = [
   { name: '375x812', width: 375, height: 812 },
 ] as const
 
+/**
+ * Every surface id below, for the coverage check at the end of the file. Kept
+ * beside the viewports rather than derived from the tests, because the whole
+ * point is to be independent of which tests ran.
+ */
+const SURFACES = [
+  'agents-list',
+  'agent-detail',
+  'keys',
+  'key-group-detail',
+  'orgs',
+  'org-detail',
+  'project-members',
+  'chatroom',
+  'chatroom-settings',
+  'workflows',
+  'profile',
+  'notifications',
+  'invites',
+  'admin-metrics',
+  'account-delete',
+  'prompt-assistant',
+  'agent-tools',
+  'chatroom-create-modal',
+  'mobile-drawer',
+  'landing',
+  'login',
+] as const
+
 interface SurfaceOptions {
   /** The surface's own readiness signal. Without one the capture races the
    *  fetch and records a skeleton, which then compares clean against a second
@@ -235,6 +267,13 @@ interface SurfaceOptions {
  * records or asserts each combination.
  */
 async function snapshotSurface(page: Page, id: string, path: string, opts: SurfaceOptions): Promise<void> {
+  // Local to this surface, and asserted before the function returns. Reported
+  // together rather than one at a time because a substitution that lands in the
+  // wrong rule moves dozens of elements at once, and failing on the first hides
+  // the shape of the mistake.
+  const mismatches: string[] = []
+  const missing: string[] = []
+
   for (const vp of opts.viewports ?? VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height })
     await page.goto(path)
@@ -257,7 +296,6 @@ async function snapshotSurface(page: Page, id: string, path: string, opts: Surfa
 
       const before = baseline[slot]
       expect(before, `no baseline for "${slot}" - rerun with UPDATE_VISUAL_BASELINE=1`).toBeTruthy()
-      visited.add(slot)
 
       // An absent signature is not evidence of a style change - it is evidence
       // the element was not on the page, which a slow query or a timed state
@@ -294,6 +332,16 @@ async function snapshotSurface(page: Page, id: string, path: string, opts: Surfa
       }
     }
   }
+
+  if (UPDATE) return
+  const problems: string[] = []
+  if (missing.length) {
+    problems.push(`${missing.length} baseline signature(s) no longer render:\n  ${missing.join('\n  ')}`)
+  }
+  if (mismatches.length) {
+    problems.push(`${mismatches.length} computed-style difference(s):\n  ${mismatches.join('\n  ')}`)
+  }
+  expect(problems.join('\n\n'), `AC-1: no rendered difference on "${id}"`).toBe('')
 }
 
 test.describe('Computed-style parity across the component surface set', () => {
@@ -443,40 +491,25 @@ test.describe('Computed-style parity across the component surface set', () => {
     await snapshotSurface(page, 'login', '/login', { settle: 'form' })
   })
 
+  // Coverage is asserted against the *declared* surface list, not against which
+  // tests happened to run. A runtime tally cannot answer this question: the
+  // worker restarts after any failure and retries only the failed test, so a
+  // single flaky surface would leave the tally at 1 of 82 and report 81
+  // surfaces as missing - a hard red with a wrong diagnosis. This check is pure
+  // data, so it holds in any worker.
+  test('the baseline describes exactly the surfaces this spec declares', () => {
+    const declared = new Set(SURFACES)
+    const inBaseline = new Set(Object.keys(baseline).map((slot) => slot.split(' @')[0]))
+    expect([...inBaseline].filter((id) => !declared.has(id)), 'stale baseline surfaces').toEqual([])
+    expect([...declared].filter((id) => !inBaseline.has(id)), 'undescribed surfaces').toEqual([])
+  })
+
   test.afterAll(() => {
-    if (UPDATE) {
-      mkdirSync(BASELINE_DIR, { recursive: true })
-      const ordered: Baseline = {}
-      for (const k of Object.keys(collected).sort()) ordered[k] = collected[k]
-      writeFileSync(BASELINE_FILE, `${JSON.stringify(ordered, null, 1)}\n`, 'utf-8')
-      console.log(`[visual-parity] wrote ${Object.keys(ordered).length} snapshots to ${BASELINE_FILE}`)
-      return
-    }
-    // Reported once rather than per surface: a token substitution that lands in
-    // the wrong rule typically moves dozens of elements, and failing on the
-    // first one hides the shape of the mistake.
-    const problems: string[] = []
-    // A surface whose seed entity is missing calls test.skip and quietly checks
-    // nothing, so a run can lose half its coverage and still report green.
-    // Partial coverage is the dangerous case and fails; zero coverage means the
-    // stack was not up at all, which every other spec here also just skips.
-    const unvisited = Object.keys(baseline).filter((slot) => !visited.has(slot))
-    if (unvisited.length && visited.size > 0) {
-      problems.push(
-        `${unvisited.length} of ${Object.keys(baseline).length} baseline surfaces were not checked ` +
-          `(a seeded entity is missing, so its test skipped):\n  ${unvisited.join('\n  ')}`,
-      )
-    }
-    if (missing.length) {
-      problems.push(
-        `${missing.length} baseline signature(s) no longer render:\n  ${missing.slice(0, 40).join('\n  ')}`,
-      )
-    }
-    if (mismatches.length) {
-      problems.push(
-        `${mismatches.length} computed-style difference(s):\n  ${mismatches.slice(0, 60).join('\n  ')}`,
-      )
-    }
-    expect(problems.join('\n\n'), 'AC-1: no rendered difference').toBe('')
+    if (!UPDATE) return
+    mkdirSync(BASELINE_DIR, { recursive: true })
+    const ordered: Baseline = {}
+    for (const k of Object.keys(collected).sort()) ordered[k] = collected[k]
+    writeFileSync(BASELINE_FILE, `${JSON.stringify(ordered, null, 1)}\n`, 'utf-8')
+    console.log(`[visual-parity] wrote ${Object.keys(ordered).length} snapshots to ${BASELINE_FILE}`)
   })
 })
