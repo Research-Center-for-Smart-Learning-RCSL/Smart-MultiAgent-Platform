@@ -490,6 +490,26 @@ the user before any code moved; the rest were forced by what the work found.
   All three were mutation-probed: a declared surface with no baseline, a baseline surface
   nothing declares, and `--space-4: 16px -> 17px` (24 differences on the login surface
   alone), each turning the intended test red.
+- **D-17 - CI rejected the parity spec, and it was right to: the missing-signature check
+  tested something this dossier cannot affect.** The first pushed run failed on two surfaces,
+  `keys` (28) and `admin-metrics` (4), every one of them "a baseline signature no longer
+  renders" and **not one a computed-style difference** - the value check, which is what AC-1
+  actually claims, passed on all 21 surfaces against a machine that had never run it. The
+  cause is exact: the developer stack had accumulated **70 `api_keys`** over repeated suite
+  runs, so `/keys` rendered its pagination widget (`KeyListView.vue:242` gates it on
+  `keys.length > pageSize`), while CI seeds one key and renders none. D-14 fixed the
+  *ordering* of the capture but not the fact that the stack it was captured on was already
+  dirty.
+  A signature can only disappear when the app renders different markup, and no CSS value can
+  do that - the capture enumerates `querySelectorAll`, so even `display: none` keeps an
+  element in it, and every changed line in all 118 `.vue` files was independently proven to
+  sit inside a `<style>` block (§11a). So the check had no true positives available to it
+  and was maximally sensitive to how much data a stack holds. It now reports rather than
+  fails. Two guards keep that from becoming a vacuous pass: the surface's own `settle`
+  locator, which fires first, and a floor of ten compared signatures per slot - a
+  "did the page render at all" tripwire, deliberately far below any legitimate data
+  difference, and explicitly not a coverage bar. Both probed by mutation, along with
+  re-confirming that `--space-4: 16px -> 17px` still fails the value check.
 - **D-13 - a behaviour does change, in a case AC-1's baseline cannot see.** Ninety-odd
   spacing declarations were written in `rem` and now resolve through `px` tokens, because
   `--space-*` has been px since `2026-07-05-sitewide-ui-enhancement` and AC-8 forbids
@@ -602,6 +622,13 @@ the user before any code moved; the rest were forced by what the work found.
   CI, where the stack is new every time, and a reliable local trap. And
   `18-delegated-activity-control`'s two tests share one seeded room, so the second depends on
   what the first left behind. Neither is caused by this diff.
+- **FU-13** - the committed baseline was captured on a stack holding 70 `api_keys` and
+  similar residue elsewhere (D-17), so it carries records for elements a fresh stack never
+  renders. They are inert - an absent signature is now skipped, not failed - but the file
+  over-states its own coverage, and a reader comparing its 759 signatures against what CI
+  sees will find fewer. Regenerating it against a pristine `smap_test` would fix that; it
+  needs the database dropped and re-bootstrapped, which is why it was not done unilaterally.
+  Worth doing whenever phase 2 re-baselines anyway, since that is a free opportunity.
 - **FU-11** - the parity baseline is only meaningful against a freshly seeded stack (D-14).
   Nothing enforces that beyond the `00-` filename, and a future spec numbered lower would
   silently break it. If a third such ordering constraint appears, it wants a Playwright

@@ -109,6 +109,14 @@ const OMIT: Record<string, string> = {
 const MEASURED_IF_FRACTIONAL = ['margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'min-height']
 const MEASURED = '<measured>'
 
+/**
+ * The floor each captured slot must clear for the comparison to mean anything.
+ * The smallest baseline slot holds 28 signatures and the largest 78, so ten is
+ * comfortably "the page rendered" without being anywhere near a data-dependent
+ * widget's worth of elements.
+ */
+const MIN_SIGNATURES_PER_SLOT = 10
+
 /** Unclassed elements worth keying anyway - their styling comes from @layer base. */
 const SEMANTIC_TAGS = ['H1', 'H2', 'H3', 'H4', 'TH', 'TD', 'LEGEND', 'FIELDSET', 'INPUT', 'SELECT', 'TEXTAREA']
 
@@ -272,7 +280,24 @@ async function snapshotSurface(page: Page, id: string, path: string, opts: Surfa
   // wrong rule moves dozens of elements at once, and failing on the first hides
   // the shape of the mistake.
   const mismatches: string[] = []
-  const missing: string[] = []
+
+  /**
+   * Baseline signatures this run did not render. Reported, never failed on.
+   *
+   * This is not a relaxed assertion, it is the removal of one that tested the
+   * wrong thing. A signature disappears when the app renders different markup,
+   * and no CSS value can do that - the capture enumerates `querySelectorAll`,
+   * so even `display: none` keeps an element in it. What it is exquisitely
+   * sensitive to is how much data the stack holds: a developer machine that has
+   * served a few suite runs had 70 api_keys, so `/keys` rendered the pagination
+   * widget (`KeyListView.vue:242` gates it on `keys.length > pageSize`), while
+   * CI seeds one key and renders none. That is 28 signatures of pure
+   * environment difference, and it is what made the first CI run red while
+   * every computed *value* matched on all 21 surfaces.
+   */
+  const absent: string[] = []
+  /** Baseline signatures this run did render, and therefore actually compared. */
+  let observedSignatures = 0
 
   for (const vp of opts.viewports ?? VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height })
@@ -312,9 +337,10 @@ async function snapshotSurface(page: Page, id: string, path: string, opts: Surfa
       for (const [sig, records] of Object.entries(before)) {
         const now = new Set([...(snap[sig] ?? []), ...(second?.[sig] ?? [])])
         if (now.size === 0) {
-          missing.push(`${slot} :: ${sig}`)
+          absent.push(`${slot} :: ${sig}`)
           continue
         }
+        observedSignatures++
         // A record the baseline holds and this run does not is a style that
         // moved. An extra record in this run is not: seeded data grows across
         // a suite run, so a page can legitimately render a state the baseline
@@ -334,14 +360,30 @@ async function snapshotSurface(page: Page, id: string, path: string, opts: Surfa
   }
 
   if (UPDATE) return
-  const problems: string[] = []
-  if (missing.length) {
-    problems.push(`${missing.length} baseline signature(s) no longer render:\n  ${missing.join('\n  ')}`)
+
+  const compared = Object.keys(baseline).filter((slot) => slot.startsWith(`${id} @`)).length
+  if (absent.length) {
+    // Surfaced rather than swallowed: a surface that quietly stopped comparing
+    // most of its baseline should be visible in the CI log even though it is
+    // not a failure.
+    console.log(`[visual-parity] ${id}: ${absent.length} baseline signature(s) not rendered here`)
   }
-  if (mismatches.length) {
-    problems.push(`${mismatches.length} computed-style difference(s):\n  ${mismatches.join('\n  ')}`)
-  }
-  expect(problems.join('\n\n'), `AC-1: no rendered difference on "${id}"`).toBe('')
+
+  // A floor, not a coverage bar. It exists so the value check below cannot pass
+  // vacuously against a page that failed to render at all; it is deliberately
+  // far below any legitimate data difference (the pagination case above cost
+  // 36% of one surface). Raising it to chase a data-dependent widget would
+  // reintroduce exactly the failure this replaced.
+  const expected = compared * MIN_SIGNATURES_PER_SLOT
+  expect(
+    observedSignatures,
+    `"${id}" rendered ${observedSignatures} signature(s) across ${compared} slot(s) - the page did not render`,
+  ).toBeGreaterThan(expected)
+
+  expect(
+    mismatches.length ? `${mismatches.length} computed-style difference(s):\n  ${mismatches.join('\n  ')}` : '',
+    `AC-1: no rendered difference on "${id}"`,
+  ).toBe('')
 }
 
 test.describe('Computed-style parity across the component surface set', () => {
