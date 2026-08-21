@@ -17,6 +17,7 @@ export { usePolling, type UsePollingOptions, type PollingController } from './us
 export { useInlineRename, type InlineRename } from './useInlineRename'
 export { useRateLimitCountdown, type RateLimitCountdown } from './useRateLimitCountdown'
 export { useClientPagination, type ClientPagination } from './useClientPagination'
+export { useClipboard, type Clipboard } from './useClipboard'
 export { useVisualViewport } from './useVisualViewport'
 export { useFocusTrap } from './useFocusTrap'
 export { useRevealOnScroll } from './useRevealOnScroll'
