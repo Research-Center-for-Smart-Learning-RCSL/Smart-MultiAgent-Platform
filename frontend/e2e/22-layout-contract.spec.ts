@@ -264,7 +264,10 @@ test.describe('Views that size themselves against the shell', () => {
 
     const rect = (await panel.boundingBox())!
     // viewport - topbar - the 24px it sticks at - the 24px the shell reserves
-    // below, which is exactly what lg:h-[calc(100vh-3.5rem-3rem)] expresses.
+    // below, which is what the panel's lg height expresses. Written without the
+    // class literal on purpose: Tailwind scans this file too, so naming a class
+    // in a comment emits real CSS for it - a stale one here kept a dead
+    // `calc(100vh - 6.5rem)` rule in the bundle after the unit moved to dvh.
     const expected = viewport.height - topbar.height - padding.top - padding.bottom
     expect(rect.height).toBeGreaterThanOrEqual(expected - 2)
     expect(rect.height).toBeLessThanOrEqual(expected + 2)

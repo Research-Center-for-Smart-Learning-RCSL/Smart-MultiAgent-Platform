@@ -150,9 +150,10 @@ onBeforeUnmount(() => {
   grid-template-columns: var(--sidebar-width) 1fr;
   /* The topbar track GROWS by the top inset rather than being pushed below it,
      so the bar paints its own background into the status-bar strip instead of
-     leaving a bare band above itself. AppTopBar matches this with an equal
-     padding-top, which keeps its content box at --topbar-height. */
-  grid-template-rows: calc(var(--topbar-height) + env(safe-area-inset-top, 0px)) 1fr;
+     leaving a bare band above itself. AppTopBar sets the same height and pads
+     itself back out, which keeps its content box at --topbar-height; the token
+     is shared so the two cannot drift. */
+  grid-template-rows: var(--topbar-height-total) 1fr;
   /* One rule protects every authenticated route. Preflight makes this
      border-box, so the padding comes out of the shell's height rather than
      overflowing it: the grid shrinks and overflow: hidden still holds. The top

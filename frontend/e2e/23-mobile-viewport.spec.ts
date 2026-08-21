@@ -27,8 +27,17 @@ function onlyIn(name: string): void {
   test.skip(test.info().project.name !== name, `only meaningful in the ${name} project`)
 }
 
+// Both name the selector when the element is missing. This tier does not run
+// on a developer host, so a CI failure's message is the whole diagnosis - a
+// bare non-null assertion would report only "cannot read properties of null".
 async function box(page: Page, selector: string) {
   const b = await page.locator(selector).first().boundingBox()
+  expect(b, `${selector} must be present`).not.toBeNull()
+  return b!
+}
+
+async function lastBox(page: Page, selector: string) {
+  const b = await page.locator(selector).last().boundingBox()
   expect(b, `${selector} must be present`).not.toBeNull()
   return b!
 }
@@ -112,9 +121,10 @@ test.describe('The mobile sidebar drawer contains its sidebar', () => {
       const panel = await box(page, '.s-drawer__panel--sm')
       const rows = await page.locator('.s-drawer__panel--sm .nav-item').all()
       expect(rows.length, 'the sidebar must have rendered its nav').toBeGreaterThan(0)
-      for (const row of rows) {
-        const r = (await row.boundingBox())!
-        expect(r.x + r.width).toBeLessThanOrEqual(panel.x + panel.width + 1)
+      for (const [i, row] of rows.entries()) {
+        const r = await row.boundingBox()
+        expect(r, `nav row ${i} must be laid out`).not.toBeNull()
+        expect(r!.x + r!.width).toBeLessThanOrEqual(panel.x + panel.width + 1)
       }
     })
   }
@@ -160,9 +170,8 @@ test.describe('The agent action bar reserves its own space', () => {
     await page.waitForTimeout(150)
 
     // The form's last card, whose bottom edge the fixed bar used to sit over.
-    const lastCard = page.locator(`${CONTENT} form .s-card`).last()
-    const cardBox = (await lastCard.boundingBox())!
-    const barBox = (await bar.boundingBox())!
+    const cardBox = await lastBox(page, `${CONTENT} form .s-card`)
+    const barBox = await box(page, `${CONTENT} .sticky.bottom-0`)
 
     expect(
       cardBox.y + cardBox.height,
@@ -187,8 +196,8 @@ test.describe('The agent action bar reserves its own space', () => {
       await content.evaluate((el, f) => el.scrollTo(0, (el.scrollHeight - el.clientHeight) * f), fraction)
       await page.waitForTimeout(100)
 
-      const barBox = (await bar.boundingBox())!
-      const contentBox = (await content.boundingBox())!
+      const barBox = await box(page, `${CONTENT} .sticky.bottom-0`)
+      const contentBox = await box(page, CONTENT)
       // Sticky pins against the scrollport's CONTENT box, so the bar sits one
       // shell gutter above the bottom edge rather than flush against it. The
       // assertion is that it is inside the scrollport, not that it is flush.
