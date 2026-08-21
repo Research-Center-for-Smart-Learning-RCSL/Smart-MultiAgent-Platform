@@ -36,7 +36,43 @@ Gotchas:
   sliding window or bump those policies the same way. The auth fixture also backs off
   on 429. Storage-state reuse does NOT work: refresh rotates the token and revokes the
   family on reuse — log in per test (fresh session each), not once-and-share.
+- **`chat-send` is NOT one of the buckets `global-setup` raises.** Seeding messages
+  through `POST /api/chatrooms/{id}/messages` 429s around the 30th. Raise it the same
+  way if a spec needs a room with real history.
+- **`locator.click()` scrolls its target into view first**, which resets the scroll
+  container's `scrollTop`. Any measurement of feed scroll position taken before a click
+  is invalid. Use `dispatchEvent('click')` and assert `scrollTop` still holds its value.
 - Read PNG screenshots back with the Read tool to observe the render.
+
+## Bringing up the full test stack
+
+For anything the partially-provisioned dev stack can't serve (below), bring up the
+E2E overlay instead — it provisions Vault/MinIO/Qdrant/Neo4j properly, so none of
+the dev-stack blockers below apply. From the repo root, mirroring `ci.yml`:
+
+```
+docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/compose.test.yml \
+  up -d --wait postgres redis vault qdrant neo4j minio mailhog
+docker compose -f ... -f ... run --rm --no-deps --volume "$PWD/deploy:/deploy:ro" \
+  -e SMAP_APP_ENV=test -e SMAP_DB_DSN=postgresql+asyncpg://smap:smap@postgres:5432/smap_test \
+  -e VAULT_ADDR=http://vault:8200 -e VAULT_TOKEN=root -e SMAP_VAULT_DEV_TOKEN=root \
+  backend-web python -m smap.bootstrap all
+docker compose -f ... -f ... up -d --wait backend-web backend-worker
+```
+
+Two blockers seen:
+
+1. **Bootstrap fails: `database "smap_test" does not exist`.** The overlay points at
+   `smap_test`, but a `postgres` volume created before the overlay was first used has
+   already run its init scripts and won't re-run them. One-time fix:
+   `docker exec smap_postgres psql -U smap -d postgres -c "CREATE DATABASE smap_test OWNER smap"`
+2. **`global-setup.ts` is not idempotent, and it fails SILENTLY.** A second run against an
+   already-seeded stack creates a fresh org, then 403s on `POST /api/projects` ("no
+   applicable role in scope"), writes a three-key `.e2e-seed.json`, and **every
+   fixture-gated spec then skips** — a green run with zero coverage. Check the seed file
+   has the full `E2E_*` set before trusting a pass, or pass the ids you need in yourself.
+
+Tear down with `down`, **not `down -v`**: the volumes may predate your session.
 
 ## Unblocking the local dev stack (one-time)
 
