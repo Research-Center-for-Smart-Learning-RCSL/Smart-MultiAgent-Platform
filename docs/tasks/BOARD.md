@@ -279,10 +279,18 @@ to resolve — an unresolvable `var()` falls back to the initial value in silenc
 found **five colour custom properties that are referenced and never declared anywhere**
 (FU-5), pre-existing and phase 2's to fix.
 
-**AC-7 is deliberately unticked**: every gate is green on this host, but the branch is
-unpushed so CI has not run. Two pre-existing e2e fragilities are recorded as FU-10 — nothing
-raises the invite rate limit for a suite run, and `18-delegated-activity-control`'s two
-tests share one seeded room.
+**AC-7 is closed by CI run `32515930960`, 23 of 23 jobs green**, but it took four runs and
+each failure earned its keep. D-17: the parity spec failed on CI while passing locally,
+because its missing-signature check tested DOM presence — something no CSS value can change
+— and was instead exquisitely sensitive to how much data a stack holds. D-18: regenerating
+the baseline on a pristine `smap_test` then exposed three more harness defects the saturated
+local stack had masked, including a capture path that overwrote the committed 82-slot file
+with 4 slots after a worker restart. One red was not this dossier's at all —
+`22-layout-contract`'s `/invites` stub had been failing on `main` beforehand, its glob
+matching no endpoint. **The lesson worth carrying: a baseline artifact is only as good as
+the data state it was captured in, and a developer stack drifts from CI's with every suite
+run.** Two pre-existing e2e fragilities remain as FU-10 — nothing raises the invite rate
+limit for a suite run, and `18-delegated-activity-control`'s two tests share one seeded room.
 Removed on 2026-08-21 after implementation:
 `2026-08-19-mobile-viewport-and-breakpoints` (the app is sized against the viewport the device
 actually shows, the breakpoints agree with themselves at their own boundaries, the mobile
