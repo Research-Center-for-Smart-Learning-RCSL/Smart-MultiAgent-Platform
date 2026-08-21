@@ -48,10 +48,13 @@ test.describe('Breakpoint boundaries are exclusive', () => {
   // 480 the edge-to-edge phone card while useBreakpoint() reported `sm`. 480 is
   // not an exotic width: it is a DevTools preset, a tablet split-view, and a
   // 1536px screen at 200% zoom.
-  test('at exactly 480px /login renders the sm card, not the xs one', async ({ page }) => {
-    onlyIn('desktop')
-
-    await page.setViewportSize({ width: 480, height: 800 })
+  //
+  // Walked from BOTH sides on purpose. Asserting only that 480 gets the sm
+  // treatment would also pass for a rule that stopped at 400 - it proves the
+  // treatment applies, not that the boundary sits on the right pixel. 479 is
+  // what makes this a boundary test.
+  async function authCardTreatment(page: Page, width: number) {
+    await page.setViewportSize({ width, height: 800 })
     await page.goto('/login')
     await expect(page.locator('.s-auth-card__body')).toBeVisible({ timeout: 20_000 })
 
@@ -59,14 +62,27 @@ test.describe('Breakpoint boundaries are exclusive', () => {
       const s = getComputedStyle(el)
       return { radius: s.borderTopLeftRadius, shadow: s.boxShadow }
     })
-    // The xs block zeroes both. At 480 the sm treatment must survive.
-    expect(card.radius).not.toBe('0px')
-    expect(card.shadow).not.toBe('none')
-
     const wrapper = await page
       .locator('.auth-layout__wrapper')
       .evaluate((el) => getComputedStyle(el).maxWidth)
-    expect(wrapper, '11-responsive-a11y.md:77 puts the 420px card at sm+').toBe('420px')
+    return { ...card, wrapper }
+  }
+
+  test('/login flips to the sm card between 479 and 480, not elsewhere', async ({ page }) => {
+    onlyIn('desktop')
+
+    // 479: the xs block applies - edge to edge, no radius, no shadow.
+    const xs = await authCardTreatment(page, 479)
+    expect(xs.radius).toBe('0px')
+    expect(xs.shadow).toBe('none')
+    expect(xs.wrapper).toBe('none')
+
+    // 480: `sm` starts here, and useBreakpoint() agrees. Before the fix the
+    // inclusive `max-width: 480px` gave this width the row above.
+    const sm = await authCardTreatment(page, 480)
+    expect(sm.radius).not.toBe('0px')
+    expect(sm.shadow).not.toBe('none')
+    expect(sm.wrapper, '11-responsive-a11y.md:77 puts the 420px card at sm+').toBe('420px')
   })
 
   // The same defect at the md boundary. ProfileView's mobile block releases the
@@ -75,7 +91,7 @@ test.describe('Breakpoint boundaries are exclusive', () => {
   test('at exactly 768px the form card keeps its md width cap', async ({ authedPage: page }) => {
     onlyIn('tablet')
 
-    await page.goto('/profile')
+    await page.goto('/account/profile')
     await expect(page.locator(`${CONTENT} .form-card`).first()).toBeVisible({ timeout: 20_000 })
 
     const maxWidth = await page
@@ -95,6 +111,17 @@ test.describe('The mobile sidebar drawer contains its sidebar', () => {
     await expect(page.locator(CONTENT)).toBeVisible({ timeout: 20_000 })
     await page.locator('.topbar__sidebar-toggle').click()
     await expect(page.locator('.s-drawer__panel--sm')).toBeVisible({ timeout: 10_000 })
+
+    // toBeVisible() is true from the first frame of the slide-in, while the
+    // panel is still translateX(-100%) and its box is entirely off-screen -
+    // measured x = -272 at 320px. Wait for the transform to settle at the left
+    // edge before any geometry is read, or every box below is off by a panel
+    // width. The transition is --transition-slow (300ms).
+    await expect
+      .poll(async () => (await page.locator('.s-drawer__panel--sm').boundingBox())?.x, {
+        timeout: 5_000,
+      })
+      .toBe(0)
   }
 
   // AC-9/AC-10 (F-42). The panel was 320px against a specified min(280px, 85vw)
@@ -169,8 +196,11 @@ test.describe('The agent action bar reserves its own space', () => {
     await page.locator(CONTENT).evaluate((el) => el.scrollTo(0, el.scrollHeight))
     await page.waitForTimeout(150)
 
-    // The form's last card, whose bottom edge the fixed bar used to sit over.
-    const cardBox = await lastBox(page, `${CONTENT} form .s-card`)
+    // The last card of the ACTIVE tab, whose bottom edge the fixed bar used to
+    // sit over. `:visible` is load-bearing: the tab panels are `v-show`, so
+    // every tab's cards are in the DOM and a bare `.last()` picks one from the
+    // Skills panel, which is display:none and has no box at all.
+    const cardBox = await lastBox(page, `${CONTENT} form .s-card:visible`)
     const barBox = await box(page, `${CONTENT} .sticky.bottom-0`)
 
     expect(
