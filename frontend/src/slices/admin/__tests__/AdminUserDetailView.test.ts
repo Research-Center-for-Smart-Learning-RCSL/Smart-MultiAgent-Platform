@@ -57,8 +57,12 @@ describe('AdminUserDetailView', () => {
   })
 
   // F-26: the whole template sat behind the pending flag, page header included,
-  // so a cold load painted nothing but a 24px spinner row at the top left.
-  it('paints the page header while the user is still loading', async () => {
+  // so a cold load painted nothing but a 24px spinner row at the top left. The
+  // replacement is a header-shaped skeleton, not a header titled "Loading" —
+  // the h1 on a detail page is the entity's name, and a status string in it is
+  // both a false accessible name and a broken invariant (it took two e2e specs
+  // down when this shipped that way).
+  it('paints a header-shaped skeleton while the user is still loading', async () => {
     seedUser()
     // Deliberately no settle — the query is still in flight here.
     const wrapper = await renderView(AdminUserDetailView, {
@@ -66,7 +70,8 @@ describe('AdminUserDetailView', () => {
       initialRoute: '/admin/users/u_1',
     })
     expect(wrapper.find('.s-spinner').exists()).toBe(true)
-    expect(wrapper.find('.s-page-header').exists()).toBe(true)
+    expect(wrapper.find('.s-skeleton').exists()).toBe(true)
+    expect(wrapper.find('h1').exists()).toBe(false)
   })
 
   it('shows user email and action buttons when loaded', async () => {
