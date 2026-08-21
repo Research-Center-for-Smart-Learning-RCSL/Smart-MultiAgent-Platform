@@ -574,8 +574,13 @@ the user before any code moved; the rest were forced by what the work found.
   navigating. Their substitutions are proven equal by token value (AC-2) and by the source
   sweep (AC-3), but no rendered box is compared.
 - **FU-12** - the same post-close `/code-review` that found D-16 raised four findings against
-  `2026-08-19-mobile-viewport-and-breakpoints`, which is already `implemented`. They are that
-  dossier's, not this one's, and are recorded here only so they are not lost. (a) The
+  `2026-08-19-mobile-viewport-and-breakpoints`, which is already `implemented`. **Resolved
+  2026-08-22**: (a), (b) and (d) became
+  `docs/tasks/2026-08-22-safe-area-uncovered-top-surfaces/spec.md` - one dossier, because (b)
+  cannot be fixed without (a) (making the top bar's inset conditional while nothing else
+  takes it would leave no surface insetting at all) and all three share the one
+  `INSET_SURFACES` list. (c) was fixed directly, since it is independent and one file wide.
+  The four as reported: (a) The
   impersonation banner is the first in-flow row of `.app-root` (`App.vue:42`), so under the
   `viewport-fit=cover` that dossier shipped it is the y=0 element whenever an admin is
   impersonating - and it carries no `env(safe-area-inset-top)`, nor does
