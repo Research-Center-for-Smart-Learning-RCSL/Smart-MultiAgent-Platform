@@ -34,14 +34,8 @@ export function readComponentSource(srcRelativePath: string): string {
   return readFileSync(srcPath(srcRelativePath), 'utf8')
 }
 
-/**
- * Body of the top-level rule whose selector list names `selector`, or null.
- *
- * Rules nested inside an at-rule (`@media`, `@supports`) are skipped, so a
- * breakpoint override can never be mistaken for the base rule it overrides —
- * which matters for SModal, where `.s-modal` is declared in both places.
- */
-export function topLevelRule(css: string, selector: string): string | null {
+/** Body of the first top-level block whose prelude satisfies `wanted`. */
+function findBlock(css: string, wanted: (prelude: string) => boolean): string | null {
   const src = css.replace(/\/\*[\s\S]*?\*\//g, '')
   let i = 0
   while (i < src.length) {
@@ -49,14 +43,23 @@ export function topLevelRule(css: string, selector: string): string | null {
     if (open === -1) return null
     const close = matchBrace(src, open)
     if (close === -1) return null
-    const prelude = src.slice(i, open).trim()
-    if (!prelude.startsWith('@')) {
-      const selectors = prelude.split(',').map((s) => s.trim())
-      if (selectors.includes(selector)) return src.slice(open + 1, close)
-    }
+    if (wanted(src.slice(i, open).trim())) return src.slice(open + 1, close)
     i = close + 1
   }
   return null
+}
+
+/**
+ * Body of the top-level rule whose selector list names `selector`, or null.
+ *
+ * Rules nested inside an at-rule (`@media`, `@supports`) are skipped, so a
+ * breakpoint override can never be mistaken for the base rule it overrides -
+ * which matters for SModal, where `.s-modal` is declared in both places.
+ */
+export function topLevelRule(css: string, selector: string): string | null {
+  return findBlock(css, (prelude) =>
+    !prelude.startsWith('@')
+    && prelude.split(',').map((s) => s.trim()).includes(selector))
 }
 
 /**
@@ -64,20 +67,7 @@ export function topLevelRule(css: string, selector: string): string | null {
  * Feed the result back to `topLevelRule` to reach a breakpoint override.
  */
 export function atRuleBody(css: string, match: string): string | null {
-  const src = css.replace(/\/\*[\s\S]*?\*\//g, '')
-  let i = 0
-  while (i < src.length) {
-    const open = src.indexOf('{', i)
-    if (open === -1) return null
-    const close = matchBrace(src, open)
-    if (close === -1) return null
-    const prelude = src.slice(i, open).trim()
-    if (prelude.startsWith('@') && prelude.includes(match)) {
-      return src.slice(open + 1, close)
-    }
-    i = close + 1
-  }
-  return null
+  return findBlock(css, (prelude) => prelude.startsWith('@') && prelude.includes(match))
 }
 
 /** Value of `property` within a rule body, or null when it is not declared. */
