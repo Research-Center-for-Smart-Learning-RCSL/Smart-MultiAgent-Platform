@@ -322,8 +322,12 @@
    First tab stop in AppShell so keyboard users can bypass the chrome. */
 @utility skip-link {
   position: fixed;
-  top: 8px;
-  left: 8px;
+  /* Insets because it is fixed and outside every layout's padding box. It is
+     the first tab stop on every page, so under viewport-fit=cover it would
+     otherwise be the one control a keyboard user cannot read - beneath the
+     status bar in portrait, beneath the cutout in landscape. */
+  top: max(8px, env(safe-area-inset-top, 0px));
+  left: max(8px, env(safe-area-inset-left, 0px));
   z-index: var(--z-tooltip);
   padding: 0.5rem 1rem;
   background: var(--color-accent);

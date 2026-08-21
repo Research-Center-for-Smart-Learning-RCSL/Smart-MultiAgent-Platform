@@ -253,21 +253,31 @@ const manageNav = computed<NavItem[]>(() => {
 </template>
 
 <style scoped>
-/* This component renders into two containers: the shell's desktop aside,
-   whose grid track is exactly --sidebar-width, and the mobile SDrawer, whose
-   body is narrower than 260px at every viewport. max-width keeps the width
-   above a preference rather than a floor - it is inert on desktop and lets the
-   nav shrink to the drawer instead of overflowing it and raising a horizontal
-   scrollbar. Inside the drawer the nav renders at min(280px, 85vw) - 48px. */
+/* This component renders into two containers: the shell's desktop aside, whose
+   grid track is exactly --sidebar-width, and the mobile SDrawer, whose body is
+   narrower than 260px at every viewport. */
 .sidebar {
   width: var(--sidebar-width);
-  max-width: 100%;
   height: 100%;
   overflow-y: auto;
   background-color: var(--color-sidebar-bg);
   border-right: 1px solid var(--color-border);
   z-index: var(--z-sidebar);
   flex-shrink: 0;
+}
+
+/* Only in the drawer band, and the media query is load-bearing rather than
+   tidiness. AppShell renders the aside above 1024 and the drawer below, so
+   this cannot apply to the docked sidebar - and it must not. Collapsing the
+   desktop sidebar tweens the grid track 260px -> 0 over 300ms while the aside
+   stays visible, and an unscoped max-width lets the nav REFLOW through that
+   tween: labels squash and wrap on every chatroom navigation instead of the
+   aside's overflow-x: hidden clipping a fixed 260px as it slides shut.
+   Inside the drawer the nav renders at min(280px, 85vw) - 48px. */
+@media (max-width: 1023px) {
+  .sidebar {
+    max-width: 100%;
+  }
 }
 
 .sidebar__nav {
